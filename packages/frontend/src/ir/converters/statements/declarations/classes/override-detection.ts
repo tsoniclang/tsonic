@@ -4,7 +4,11 @@
  * Uses TypeSystem exclusively for declaration queries.
  */
 
-import * as ts from "typescript";
+import {
+  getTstsExpressionName,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import type { ProgramContext } from "../../../../program-context.js";
 import type { IrParameter } from "../../../../types.js";
 import {
@@ -39,7 +43,7 @@ export type OverrideInfo = {
 export const detectOverride = (
   memberName: string,
   memberKind: "method" | "property",
-  superClass: ts.ExpressionWithTypeArguments | undefined,
+  superClass: TstsNode | undefined,
   ctx: ProgramContext,
   parameters?: readonly IrParameter[]
 ): OverrideInfo => {
@@ -65,11 +69,13 @@ export const detectOverride = (
 
   // DETERMINISTIC: Get base class name directly from AST
   // For simple identifiers, get the name; for qualified names, get the full path
-  const baseClassName = ts.isIdentifier(superClass.expression)
-    ? superClass.expression.text
-    : ts.isPropertyAccessExpression(superClass.expression)
-      ? getFullPropertyAccessName(superClass.expression)
-      : undefined;
+  const superExpression = TstsSyntax.Node_Expression(superClass);
+  const baseClassName =
+    superExpression?.Kind === TstsSyntax.KindIdentifier
+      ? TstsSyntax.Node_Text(superExpression)
+      : superExpression?.Kind === TstsSyntax.KindPropertyAccessExpression
+        ? getFullPropertyAccessName(superExpression)
+        : undefined;
 
   if (!baseClassName) {
     return { isOverride: false, isShadow: false };
@@ -77,8 +83,9 @@ export const detectOverride = (
 
   // Try to resolve the identifier to get more context
   const declId =
-    ts.isIdentifier(superClass.expression) &&
-    ctx.binding.resolveIdentifier(superClass.expression);
+    superExpression?.Kind === TstsSyntax.KindIdentifier
+      ? ctx.binding.resolveIdentifier(superExpression)
+      : undefined;
 
   // Get qualified name from Binding (works for both TS and tsbindgen declarations).
   const qualifiedName = declId
@@ -112,18 +119,21 @@ export const detectOverride = (
  * Get full property access name (e.g., "Provider.Collections.Generic.List")
  */
 const getFullPropertyAccessName = (
-  expr: ts.PropertyAccessExpression
+  expr: TstsNode
 ): string => {
-  const parts: string[] = [expr.name.text];
-  let current: ts.Expression = expr.expression;
+  const name = getTstsExpressionName(expr);
+  const parts: string[] = name ? [name] : [];
+  let current = TstsSyntax.Node_Expression(expr);
 
-  while (ts.isPropertyAccessExpression(current)) {
-    parts.unshift(current.name.text);
-    current = current.expression;
+  while (current?.Kind === TstsSyntax.KindPropertyAccessExpression) {
+    const currentName = getTstsExpressionName(current);
+    if (currentName) parts.unshift(currentName);
+    current = TstsSyntax.Node_Expression(current);
   }
 
-  if (ts.isIdentifier(current)) {
-    parts.unshift(current.text);
+  if (current?.Kind === TstsSyntax.KindIdentifier) {
+    const currentText = TstsSyntax.Node_Text(current);
+    if (currentText) parts.unshift(currentText);
   }
 
   return parts.join(".");
@@ -164,7 +174,7 @@ const detectExternalOverride = (
       modifiersKey
     );
 
-    // If we can't deterministically resolve the overload, do not guess.
+    // If we can't deterministically resolve the overload, leave it unresolved.
     if (!meta) return { isOverride: false, isShadow: false };
 
     const canOverride = meta.virtual === true && meta.sealed !== true;

@@ -1,31 +1,48 @@
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { TstsSyntax } from "@tsonic/tsts";
+import {
+  getTypeArguments,
+  isStringLiteralLike,
+  staticPropertyNameText,
+} from "./tsts-helpers.js";
 
-export const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
+export const isAllowedKeyType = (typeNode: TstsNode): boolean => {
   if (
-    typeNode.kind === ts.SyntaxKind.StringKeyword ||
-    typeNode.kind === ts.SyntaxKind.NumberKeyword
+    typeNode.Kind === TstsSyntax.KindStringKeyword ||
+    typeNode.Kind === TstsSyntax.KindNumberKeyword
   ) {
     return true;
   }
 
-  if (ts.isLiteralTypeNode(typeNode)) {
-    const literal = typeNode.literal;
+  if (typeNode.Kind === TstsSyntax.KindLiteralType) {
+    const literal = TstsSyntax.AsLiteralTypeNode(typeNode)?.Literal;
     if (
-      ts.isStringLiteral(literal) ||
-      ts.isNumericLiteral(literal) ||
-      literal.kind === ts.SyntaxKind.NumericLiteral
+      isStringLiteralLike(literal) ||
+      literal?.Kind === TstsSyntax.KindNumericLiteral
     ) {
       return true;
     }
   }
 
-  if (ts.isUnionTypeNode(typeNode)) {
-    return typeNode.types.every((member) => isAllowedKeyType(member));
+  if (typeNode.Kind === TstsSyntax.KindUnionType) {
+    return (
+      TstsSyntax.AsUnionTypeNode(typeNode)?.Types?.Nodes.every(
+        (member) => member !== undefined && isAllowedKeyType(member)
+      ) ?? false
+    );
   }
 
-  if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
-    const name = typeNode.typeName.text;
-    return name === "string" || name === "number";
+  if (
+    typeNode.Kind === TstsSyntax.KindTypeReference &&
+    staticPropertyNameText(TstsSyntax.AsTypeReferenceNode(typeNode)?.TypeName) !==
+      undefined
+  ) {
+    const name = staticPropertyNameText(
+      TstsSyntax.AsTypeReferenceNode(typeNode)?.TypeName
+    );
+    return getTypeArguments(typeNode).length === 0
+      ? name === "string" || name === "number"
+      : false;
   }
 
   return false;

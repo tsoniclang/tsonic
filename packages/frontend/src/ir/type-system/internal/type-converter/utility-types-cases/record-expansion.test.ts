@@ -2,11 +2,11 @@ import {
   describe,
   it,
   expect,
-  ts,
   expandRecordType,
   assertDefined,
   createTestProgram,
   findTypeAliasReference,
+  findFirstTypeReferenceNamed,
   stubConvertType,
 } from "./helpers.js";
 
@@ -129,19 +129,7 @@ describe("Record Type Expansion", () => {
 
       const { binding, sourceFile } = createTestProgram(source);
 
-      let typeRef: ts.TypeReferenceNode | null = null;
-      const visitor = (node: ts.Node): void => {
-        if (
-          ts.isTypeReferenceNode(node) &&
-          ts.isIdentifier(node.typeName) &&
-          node.typeName.text === "Record"
-        ) {
-          typeRef = node;
-          return; // Take first one (return type)
-        }
-        ts.forEachChild(node, visitor);
-      };
-      ts.forEachChild(sourceFile, visitor);
+      const typeRef = findFirstTypeReferenceNamed(sourceFile, "Record");
 
       const result = expandRecordType(
         assertDefined(typeRef, "typeRef should be defined"),
@@ -186,38 +174,19 @@ describe("Record Type Expansion", () => {
         }
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
 
       // Find the Record<K, number> type reference in the interface property
-      let typeRef: ts.TypeReferenceNode | null = null;
-      const visitor = (node: ts.Node): void => {
-        if (
-          ts.isTypeReferenceNode(node) &&
-          ts.isIdentifier(node.typeName) &&
-          node.typeName.text === "Record"
-        ) {
-          typeRef = node;
-        }
-        ts.forEachChild(node, visitor);
-      };
-      ts.forEachChild(sourceFile, visitor);
-
-      // Get the key type node and check its flags
-      expect(typeRef).not.to.equal(null);
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const foundTypeRef = typeRef!;
-      const keyTypeNode = foundTypeRef.typeArguments?.[0];
-      expect(keyTypeNode).not.to.equal(undefined);
-      // NOTE: This test uses getTypeAtLocation to verify TS internal behavior
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const keyTsType = checker.getTypeAtLocation(keyTypeNode!);
-
-      // The key type should be a type parameter, not string
-      expect(!!(keyTsType.flags & ts.TypeFlags.TypeParameter)).to.equal(true);
-      expect(!!(keyTsType.flags & ts.TypeFlags.String)).to.equal(false);
+      const typeRef = findFirstTypeReferenceNamed(sourceFile, "Record");
+      const result = expandRecordType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        binding,
+        stubConvertType
+      );
 
       // This confirms the fix: when K is a type parameter, the code should
       // fall through to referenceType instead of creating a dictionaryType
+      expect(result).to.equal(null);
     });
   });
 });

@@ -2,7 +2,7 @@
  * external bindings discovery
  *
  * Airplane-grade behavior:
- * - Detect external imports only via bindings.json presence (no heuristics).
+ * - Detect external imports only via bindings.json presence.
  * - Load bindings.json for all directly-imported external namespaces.
  * - Also load bindings.json for any external namespaces re-exported by those facades.
  *
@@ -12,7 +12,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as ts from "typescript";
+import {
+  createExtensionModuleGraph,
+  parseTstsSourceFile,
+} from "@tsonic/tsts";
 import { loadBindingsFromPath } from "./bindings.js";
 import type { TsonicProgram } from "./types.js";
 import { getProgramAllSourceFiles } from "./queries.js";
@@ -56,23 +59,16 @@ const discoverReexportedBindingPaths = (
     return [];
   }
 
-  const sourceFile = ts.createSourceFile(
-    facadeDts,
-    sourceText,
-    ts.ScriptTarget.ES2022,
-    false,
-    ts.ScriptKind.TS
-  );
+  const sourceFile = parseTstsSourceFile(sourceText, { fileName: facadeDts });
 
   const results: string[] = [];
 
-  for (const stmt of sourceFile.statements) {
-    if (
-      ts.isExportDeclaration(stmt) &&
-      stmt.moduleSpecifier &&
-      ts.isStringLiteral(stmt.moduleSpecifier)
-    ) {
-      const spec = stmt.moduleSpecifier.text.trim();
+  const module = createExtensionModuleGraph(undefined, [
+    sourceFile,
+  ]).getSourceFileModule(sourceFile);
+
+  for (const binding of module?.exports ?? []) {
+    const spec = binding.sourceSpecifier?.trim() ?? "";
       if (!spec) continue;
 
       // Case 1: local re-exports within the bindings directory (most common for entrypoints).
@@ -94,7 +90,6 @@ const discoverReexportedBindingPaths = (
       if (external.kind === "externalSurface") {
         results.push(external.bindingsPath);
       }
-    }
   }
 
   if (verbose && results.length > 0) {
@@ -138,19 +133,19 @@ export const discoverAndLoadExternalBindings = (
   // external packages, and those bindings must be loaded before IR building.
   for (const sourceFile of filesToScan) {
     if (verbose) {
-      console.log(`[External Bindings] Scanning: ${sourceFile.fileName}`);
+      console.log(`[External Bindings] Scanning: ${sourceFile.FileName()}`);
     }
-    ts.forEachChild(sourceFile, (node) => {
-      const moduleSpecifier =
-        (ts.isImportDeclaration(node) &&
-          ts.isStringLiteral(node.moduleSpecifier) &&
-          node.moduleSpecifier.text) ||
-        (ts.isExportDeclaration(node) &&
-          node.moduleSpecifier &&
-          ts.isStringLiteral(node.moduleSpecifier) &&
-          node.moduleSpecifier.text);
 
-      if (!moduleSpecifier) return;
+    const module = program.sourceProgram.moduleGraph.getSourceFileModule(sourceFile);
+    const moduleSpecifiers = [
+      ...(module?.imports.map((importModule) => importModule.specifier) ?? []),
+      ...(module?.exports
+        .map((binding) => binding.sourceSpecifier)
+        .filter((specifier): specifier is string => specifier !== undefined) ??
+        []),
+    ];
+
+    for (const moduleSpecifier of moduleSpecifiers) {
 
       if (verbose) {
         console.log(`[External Bindings] Found import: ${moduleSpecifier}`);
@@ -165,7 +160,7 @@ export const discoverAndLoadExternalBindings = (
         }
         enqueue(resolution.bindingsPath);
       }
-    });
+    }
   }
 
   if (pending.length === 0) {

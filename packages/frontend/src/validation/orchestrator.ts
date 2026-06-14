@@ -2,7 +2,7 @@
  * Validation orchestrator - coordinates all validation functions
  */
 
-import * as ts from "typescript";
+import type { TstsSourceFile } from "@tsonic/tsts";
 import { TsonicProgram } from "../program.js";
 import { getProgramSourceFiles } from "../program/queries.js";
 import {
@@ -35,7 +35,7 @@ export const validateProgram = (
  * Validate a single source file
  */
 export const validateSourceFile = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {

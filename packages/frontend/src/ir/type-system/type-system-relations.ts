@@ -50,7 +50,30 @@ const SOURCE_NUMERIC_ALIAS_NAMES = new Set([
   "decimal",
 ]);
 
-const SOURCE_PRIMITIVE_ALIAS_NAMES = new Set(["int", "char"]);
+const SOURCE_PRIMITIVE_ALIAS_NAMES = new Set([
+  "string",
+  "number",
+  "boolean",
+  "bool",
+  "bigint",
+  "char",
+  "sbyte",
+  "byte",
+  "short",
+  "ushort",
+  "int",
+  "uint",
+  "long",
+  "ulong",
+  "nint",
+  "nuint",
+  "int128",
+  "uint128",
+  "half",
+  "float",
+  "double",
+  "decimal",
+]);
 
 const aliasExpansionTypeArgKeyState = createLocalTypeIdentityState();
 
@@ -91,31 +114,12 @@ const assignabilityPairKey = (
   return `${sourceKey}=>${targetKey}#${aliasKeys}`;
 };
 
-const getPrimitiveAliasName = (type: IrType): "int" | "char" | undefined => {
+export const getSourcePrimitiveAliasName = (
+  state: TypeSystemState,
+  type: IrType
+): string | undefined => {
   if (type.kind === "primitiveType") {
     return SOURCE_PRIMITIVE_ALIAS_NAMES.has(type.name)
-      ? (type.name as "int" | "char")
-      : undefined;
-  }
-
-  if (type.kind !== "referenceType") {
-    return undefined;
-  }
-
-  const simpleName = type.name.split(".").pop() ?? type.name;
-  if (simpleName === "int") {
-    return "int";
-  }
-  if (simpleName === "char") {
-    return "char";
-  }
-
-  return undefined;
-};
-
-const getNumericTypeName = (type: IrType): string | undefined => {
-  if (type.kind === "primitiveType") {
-    return type.name === "number" || SOURCE_NUMERIC_ALIAS_NAMES.has(type.name)
       ? type.name
       : undefined;
   }
@@ -124,16 +128,56 @@ const getNumericTypeName = (type: IrType): string | undefined => {
     return undefined;
   }
 
-  const simpleName = type.name.split(".").pop() ?? type.name;
-  return SOURCE_NUMERIC_ALIAS_NAMES.has(simpleName) ? simpleName : undefined;
+  if (!type.typeId && !type.providerQualifiedName) {
+    const simpleName = type.name.split(".").pop() ?? type.name;
+    if (SOURCE_PRIMITIVE_ALIAS_NAMES.has(simpleName)) {
+      return simpleName;
+    }
+  }
+
+  const typeId =
+    type.typeId ??
+    (type.providerQualifiedName
+      ? state.unifiedCatalog.resolveProviderName(type.providerQualifiedName)
+      : undefined) ??
+    state.unifiedCatalog.resolveProviderName(type.name) ??
+    state.unifiedCatalog.resolveTsName(type.name);
+  const sourcePrimitive = typeId
+    ? state.unifiedCatalog.getByTypeId(typeId)?.sourcePrimitiveName
+    : undefined;
+  if (
+    sourcePrimitive &&
+    SOURCE_PRIMITIVE_ALIAS_NAMES.has(sourcePrimitive)
+  ) {
+    return sourcePrimitive;
+  }
+
+  return undefined;
+};
+
+const getNumericTypeName = (
+  state: TypeSystemState,
+  type: IrType
+): string | undefined => {
+  if (type.kind === "primitiveType") {
+    return type.name === "number" || SOURCE_NUMERIC_ALIAS_NAMES.has(type.name)
+      ? type.name
+      : undefined;
+  }
+
+  const primitiveAlias = getSourcePrimitiveAliasName(state, type);
+  return primitiveAlias && SOURCE_NUMERIC_ALIAS_NAMES.has(primitiveAlias)
+    ? primitiveAlias
+    : undefined;
 };
 
 const isNumericWideningAssignable = (
+  state: TypeSystemState,
   source: IrType,
   target: IrType
 ): boolean => {
-  const sourceName = getNumericTypeName(source);
-  const targetName = getNumericTypeName(target);
+  const sourceName = getNumericTypeName(state, source);
+  const targetName = getNumericTypeName(state, target);
   return (
     targetName === "number" &&
     sourceName !== undefined &&
@@ -485,6 +529,10 @@ const isStructurallyAssignable = (
         );
       }
 
+      if (targetMember.isOptional) {
+        return true;
+      }
+
       if (source.kind !== "referenceType") {
         return false;
       }
@@ -495,7 +543,7 @@ const isStructurallyAssignable = (
         targetMember.name
       );
       if (!nominalMember?.memberType) {
-        return false;
+        return targetMember.isOptional;
       }
 
       return isAssignableToInternal(
@@ -614,8 +662,8 @@ const isAssignableToInternalUncached = (
   // Same type - always assignable
   if (typesEqual(source, target)) return true;
 
-  const sourcePrimitiveAlias = getPrimitiveAliasName(source);
-  const targetPrimitiveAlias = getPrimitiveAliasName(target);
+  const sourcePrimitiveAlias = getSourcePrimitiveAliasName(state, source);
+  const targetPrimitiveAlias = getSourcePrimitiveAliasName(state, target);
   if (
     sourcePrimitiveAlias &&
     targetPrimitiveAlias &&
@@ -624,7 +672,11 @@ const isAssignableToInternalUncached = (
     return true;
   }
 
-  if (isNumericWideningAssignable(source, target)) {
+  if (sourcePrimitiveAlias === "char" && targetPrimitiveAlias === "string") {
+    return true;
+  }
+
+  if (isNumericWideningAssignable(state, source, target)) {
     return true;
   }
 

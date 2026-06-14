@@ -1,13 +1,12 @@
-/**
- * Declaration file classification, bindings resolution, target identity,
- * and type-alias erasure/recursion analysis helpers.
- *
- * Split from references-structural.ts for file-size compliance (< 500 LOC).
- */
-
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  forEachTstsChild,
+  getTstsContainingSourceFileName,
+  isTstsDeclarationFileNode,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import type { DeclId } from "../../../type-system/types.js";
 import { tsbindgenTargetTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import { extractRawExternalBindingTypes } from "../../../../program/external-binding-payload.js";
@@ -18,22 +17,16 @@ import {
   isWellKnownSymbolPropertyName,
   tryResolveDeterministicPropertyName,
 } from "../../../syntax/property-names.js";
+import {
+  asConverterNode,
+  containingSourceFileName,
+  nodeMembers,
+} from "./tsts-syntax.js";
+import { getSourceBindingAliasFromDeclaration } from "../source-binding-markers.js";
 
-/**
- * Check whether a declaration file is a Tsonic-generated bindings artifact.
- *
- * We only apply aggressive declaration-file type-alias erasure to these files.
- * Airplane-grade rule: Never erase type aliases from external provider packages.
- * Those aliases often encode nominal types (interfaces, delegates, indexers)
- * and must remain NOMINAL.
- */
-export const isTsonicBindingsDeclarationFile = (fileName: string): boolean => {
-  // Cross-platform: handle both POSIX and Windows paths.
-  return (
-    fileName.includes("/tsonic/bindings/") ||
-    fileName.includes("\\tsonic\\bindings\\")
-  );
-};
+export const isTsonicBindingsDeclarationFile = (fileName: string): boolean =>
+  fileName.includes("/tsonic/bindings/") ||
+  fileName.includes("\\tsonic\\bindings\\");
 
 const bindingAliasTargetIdentityCache = new Map<
   string,
@@ -77,13 +70,11 @@ export const isTsonicSourcePackageFile = (fileName: string): boolean => {
 };
 
 export const shouldPreserveUserTypeAliasIdentity = (
-  decl: ts.TypeAliasDeclaration
+  decl: TstsNode
 ): boolean => {
-  const sourceFile = decl.getSourceFile();
-  return (
-    !sourceFile.isDeclarationFile ||
-    isTsonicSourcePackageFile(sourceFile.fileName)
-  );
+  const fileName = containingSourceFileName(decl);
+  if (!fileName) return false;
+  return !isTstsDeclarationFileNode(decl) || isTsonicSourcePackageFile(fileName);
 };
 
 const findOwningBindingsJson = (fileName: string): string | undefined => {
@@ -162,109 +153,102 @@ export const resolveSourceTargetIdentity = (
   const declInfo = (binding as BindingInternal)
     ._getHandleRegistry()
     .getDecl(declId);
-  const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
-    | ts.Declaration
-    | undefined;
+  const declNode = asConverterNode(declInfo?.typeDeclNode ?? declInfo?.declNode);
   if (!declNode) return undefined;
-  const sourceFile = declNode.getSourceFile();
+  const fileName = getTstsContainingSourceFileName(declNode);
+  if (!fileName) return undefined;
+
+  const bindingsPath = findOwningBindingsJson(fileName);
+  const markerQualifiedName = getSourceBindingAliasFromDeclaration(declNode);
+  if (markerQualifiedName) {
+    if (bindingsPath) {
+      const exactTargetName =
+        buildBindingAliasTargetIdentityMap(bindingsPath).get(
+          markerQualifiedName
+        );
+      return exactTargetName ?? markerQualifiedName;
+    }
+    return markerQualifiedName;
+  }
 
   const fqName = declInfo?.fqName?.trim();
   if (!fqName) return undefined;
 
+  const isDeclarationFile = isTstsDeclarationFileNode(declNode);
   if (
-    !sourceFile.isDeclarationFile &&
-    isTsonicSourcePackageFile(sourceFile.fileName) &&
-    !ts.isTypeAliasDeclaration(declNode)
+    !isDeclarationFile &&
+    isTsonicSourcePackageFile(fileName) &&
+    !TstsSyntax.IsTypeAliasDeclaration(declNode)
   ) {
     const sourcePackageNamespace = resolveContainingSourcePackageNamespace(
-      sourceFile.fileName
+      fileName
     );
     if (sourcePackageNamespace) {
       return `${sourcePackageNamespace}.${fqName}`;
     }
   }
 
-  if (
-    !sourceFile.isDeclarationFile ||
-    isTsonicSourcePackageFile(sourceFile.fileName)
-  ) {
+  if (!isDeclarationFile || isTsonicSourcePackageFile(fileName)) {
     return undefined;
   }
 
-  const bindingsPath = findOwningBindingsJson(sourceFile.fileName);
   if (bindingsPath) {
     const exactTargetName =
       buildBindingAliasTargetIdentityMap(bindingsPath).get(fqName);
     return exactTargetName ?? fqName;
   }
 
-  if (fqName.includes(".")) {
-    return fqName;
-  }
-
-  return undefined;
+  return fqName.includes(".") ? fqName : undefined;
 };
 
-/**
- * Determine whether a TS-only type alias target is safe to erase to its underlying shape.
- *
- * Erase only aliases whose targets are semantically transparent for lowering:
- * - references / arrays / primitive and literal aliases
- * - callable aliases
- * - intersections / indexed access / typeof / keyof / readonly-style wrappers
- *
- * Preserve aliases whose identity is required for stable lowering contracts:
- * - object/type-literal aliases (these lower to stable emitted shapes)
- * - union aliases (runtime-union/discriminant stability)
- * - tuple aliases (tuple lowering stability)
- * - mapped / conditional aliases (non-local shape selection)
- */
 export const isSafeToEraseUserTypeAliasTarget = (
-  node: ts.TypeNode
+  node: TstsNode
 ): boolean => {
-  // Peel parentheses (e.g., type X = (Y))
-  while (ts.isParenthesizedTypeNode(node)) {
-    node = node.type;
+  let current = node;
+  while (TstsSyntax.IsParenthesizedTypeNode(current)) {
+    const inner = TstsSyntax.AsParenthesizedTypeNode(current)?.Type;
+    if (!inner) break;
+    current = inner;
   }
 
   if (
-    ts.isTypeLiteralNode(node) ||
-    ts.isTupleTypeNode(node) ||
-    ts.isMappedTypeNode(node) ||
-    ts.isConditionalTypeNode(node)
+    TstsSyntax.IsTypeLiteralNode(current) ||
+    TstsSyntax.IsTupleTypeNode(current) ||
+    TstsSyntax.IsMappedTypeNode(current) ||
+    TstsSyntax.IsConditionalTypeNode(current)
   ) {
     return false;
   }
 
   return (
-    ts.isTypeReferenceNode(node) ||
-    ts.isExpressionWithTypeArguments(node) ||
-    ts.isArrayTypeNode(node) ||
-    ts.isFunctionTypeNode(node) ||
-    ts.isConstructorTypeNode(node) ||
-    ts.isIntersectionTypeNode(node) ||
-    ts.isTypeOperatorNode(node) ||
-    ts.isIndexedAccessTypeNode(node) ||
-    ts.isLiteralTypeNode(node) ||
-    ts.isTypePredicateNode(node) ||
-    node.kind === ts.SyntaxKind.AnyKeyword ||
-    node.kind === ts.SyntaxKind.UnknownKeyword ||
-    node.kind === ts.SyntaxKind.NeverKeyword ||
-    node.kind === ts.SyntaxKind.VoidKeyword ||
-    node.kind === ts.SyntaxKind.UndefinedKeyword ||
-    node.kind === ts.SyntaxKind.NullKeyword ||
-    node.kind === ts.SyntaxKind.StringKeyword ||
-    node.kind === ts.SyntaxKind.NumberKeyword ||
-    node.kind === ts.SyntaxKind.BooleanKeyword ||
-    node.kind === ts.SyntaxKind.ObjectKeyword ||
-    node.kind === ts.SyntaxKind.SymbolKeyword ||
-    node.kind === ts.SyntaxKind.BigIntKeyword
+    TstsSyntax.IsTypeReferenceNode(current) ||
+    TstsSyntax.IsExpressionWithTypeArguments(current) ||
+    TstsSyntax.IsArrayTypeNode(current) ||
+    TstsSyntax.IsFunctionTypeNode(current) ||
+    TstsSyntax.IsConstructorTypeNode(current) ||
+    TstsSyntax.IsIntersectionTypeNode(current) ||
+    TstsSyntax.IsTypeOperatorNode(current) ||
+    TstsSyntax.IsIndexedAccessTypeNode(current) ||
+    TstsSyntax.IsLiteralTypeNode(current) ||
+    TstsSyntax.IsTypePredicateNode(current) ||
+    current.Kind === TstsSyntax.KindAnyKeyword ||
+    current.Kind === TstsSyntax.KindUnknownKeyword ||
+    current.Kind === TstsSyntax.KindNeverKeyword ||
+    current.Kind === TstsSyntax.KindVoidKeyword ||
+    current.Kind === TstsSyntax.KindUndefinedKeyword ||
+    current.Kind === TstsSyntax.KindNullKeyword ||
+    current.Kind === TstsSyntax.KindStringKeyword ||
+    current.Kind === TstsSyntax.KindNumberKeyword ||
+    current.Kind === TstsSyntax.KindBooleanKeyword ||
+    current.Kind === TstsSyntax.KindObjectKeyword ||
+    current.Kind === TstsSyntax.KindSymbolKeyword ||
+    current.Kind === TstsSyntax.KindBigIntKeyword
   );
 };
 
 export const isRecursiveUserTypeAliasDeclaration = (
   declId: number,
-  declNode: ts.TypeAliasDeclaration,
+  declNode: TstsNode,
   binding: Binding
 ): boolean => {
   const recursionCache = getTypeAliasRecursionCache(binding);
@@ -276,11 +260,11 @@ export const isRecursiveUserTypeAliasDeclaration = (
   const registry = (binding as BindingInternal)._getHandleRegistry();
 
   const referencesTargetAlias = (
-    node: ts.Node,
+    node: TstsNode,
     targetDeclId: number,
     activeAliasDeclIds: ReadonlySet<number>
   ): boolean => {
-    if (ts.isTypeReferenceNode(node)) {
+    if (TstsSyntax.IsTypeReferenceNode(node)) {
       const referencedDecl = binding.resolveTypeReference(node);
       if (referencedDecl) {
         if (referencedDecl.id === targetDeclId) {
@@ -292,12 +276,10 @@ export const isRecursiveUserTypeAliasDeclaration = (
         }
 
         const referencedDeclInfo = registry.getDecl(referencedDecl);
-        const referencedNode = referencedDeclInfo?.declNode as
-          | ts.Declaration
-          | undefined;
+        const referencedNode = asConverterNode(referencedDeclInfo?.declNode);
         if (
           referencedNode &&
-          ts.isTypeAliasDeclaration(referencedNode) &&
+          TstsSyntax.IsTypeAliasDeclaration(referencedNode) &&
           shouldPreserveUserTypeAliasIdentity(referencedNode) &&
           referencesTargetAlias(
             referencedNode,
@@ -311,8 +293,8 @@ export const isRecursiveUserTypeAliasDeclaration = (
     }
 
     let found = false;
-    node.forEachChild((child) => {
-      if (found) {
+    forEachTstsChild(node, (child) => {
+      if (found || !child) {
         return;
       }
       found = referencesTargetAlias(child, targetDeclId, activeAliasDeclIds);
@@ -320,101 +302,64 @@ export const isRecursiveUserTypeAliasDeclaration = (
     return found;
   };
 
-  const isRecursive = referencesTargetAlias(
-    declNode.type,
-    declId,
-    new Set([declId])
-  );
+  const aliasType = TstsSyntax.AsTypeAliasDeclaration(declNode)?.Type;
+  const isRecursive = aliasType
+    ? referencesTargetAlias(aliasType, declId, new Set([declId]))
+    : false;
   recursionCache.set(declId, isRecursive);
   return isRecursive;
 };
 
-/**
- * Check if a declaration should have structural members extracted.
- *
- * Only extract for:
- * - Interfaces (InterfaceDeclaration)
- * - Type aliases to object types (TypeAliasDeclaration with TypeLiteralNode)
- *
- * Do NOT extract for:
- * - Classes (have implementation, not just shape)
- * - Enums, namespaces
- * - Library types (from node_modules or lib.*.d.ts)
- * - Type aliases to primitives, unions, functions, etc.
- */
-export const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
-  const sourceFile = decl.getSourceFile();
-  const fileName = sourceFile.fileName;
+export const shouldExtractFromDeclaration = (decl: TstsNode): boolean => {
+  const fileName = containingSourceFileName(decl);
+  if (!fileName) return false;
+  const isDeclarationFile = isTstsDeclarationFileNode(decl);
   const isSourceBindingsDecl =
-    sourceFile.isDeclarationFile && isTsonicBindingsDeclarationFile(fileName);
+    isDeclarationFile && isTsonicBindingsDeclarationFile(fileName);
   const isSourcePackageFile =
-    !sourceFile.isDeclarationFile && isTsonicSourcePackageFile(fileName);
+    !isDeclarationFile && isTsonicSourcePackageFile(fileName);
   const hasExplicitSourceProtocolMember = (): boolean => {
-    const members = ts.isInterfaceDeclaration(decl)
-      ? decl.members
-      : ts.isClassDeclaration(decl)
-        ? decl.members
-        : ts.isTypeAliasDeclaration(decl) && ts.isTypeLiteralNode(decl.type)
-          ? decl.type.members
-          : undefined;
-
-    if (!members) {
-      return false;
-    }
+    const members =
+      TstsSyntax.IsInterfaceDeclaration(decl) ||
+      TstsSyntax.IsClassDeclaration(decl)
+        ? nodeMembers(decl)
+        : TstsSyntax.IsTypeAliasDeclaration(decl) &&
+            TstsSyntax.IsTypeLiteralNode(
+              TstsSyntax.AsTypeAliasDeclaration(decl)?.Type
+            )
+          ? nodeMembers(TstsSyntax.AsTypeAliasDeclaration(decl)?.Type)
+          : [];
 
     return members.some((member) => {
-      if (!("name" in member)) {
-        return false;
-      }
-      const name = tryResolveDeterministicPropertyName(member.name);
+      const name = tryResolveDeterministicPropertyName(
+        TstsSyntax.Node_Name(member)
+      );
       return name !== undefined && isWellKnownSymbolPropertyName(name);
     });
   };
 
-  // Skip external library types, but keep first-party/source-package bindings
-  // extractable even when they are installed under node_modules.
-  //
-  // This is required for the full installed-package class:
-  // - source-package callback/contextual typing
-  // - imported structural/container value recovery
-  // - sibling type closure across package boundaries
-  //
-  // Tsonic-generated bindings under node_modules are not "external libraries"
-  // in the tsbindgen sense; they are the authoritative first-party semantic
-  // surface and must preserve structural shape.
   if (
     (!isSourceBindingsDecl &&
       !isSourcePackageFile &&
       !hasExplicitSourceProtocolMember() &&
       fileName.includes("node_modules")) ||
     fileName.includes("lib.") ||
-    (sourceFile.isDeclarationFile &&
+    (isDeclarationFile &&
       !isSourceBindingsDecl &&
       !hasExplicitSourceProtocolMember())
   ) {
     return false;
   }
 
-  // Only extract for interfaces
-  if (ts.isInterfaceDeclaration(decl)) {
+  if (TstsSyntax.IsInterfaceDeclaration(decl)) {
     return true;
   }
 
-  // Only extract for type aliases that resolve to object types
-  if (ts.isTypeAliasDeclaration(decl)) {
-    // Check if the alias is to an object type (TypeLiteral)
-    return ts.isTypeLiteralNode(decl.type);
+  if (TstsSyntax.IsTypeAliasDeclaration(decl)) {
+    return TstsSyntax.IsTypeLiteralNode(
+      TstsSyntax.AsTypeAliasDeclaration(decl)?.Type
+    );
   }
 
-  // Class instance members can participate in deterministic contextual typing
-  // even when the consuming module never imports the class directly (for example
-  // callback parameter types inferred from an imported query surface). Preserve
-  // the public instance shape so the soundness gate and member typing can see
-  // the real class members without weakening to `any`.
-  if (ts.isClassDeclaration(decl)) {
-    return true;
-  }
-
-  // Don't extract for enums, etc.
-  return false;
+  return TstsSyntax.IsClassDeclaration(decl);
 };

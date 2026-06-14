@@ -5,9 +5,18 @@
  * to specialized converter modules.
  */
 
-import * as ts from "typescript";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import {
+  getTstsContainingSourceFileName,
+  getTstsDeclarationKind,
+  getTstsIdentifierText,
+  getTstsNodeText,
+  hasTstsAmbientModifier,
+  TstsSyntax,
+  type TstsNode,
+  type TstsSymbol,
+} from "@tsonic/tsts";
 import type {
   IrExpression,
   IrInterfaceMember,
@@ -44,15 +53,17 @@ import {
   convertConditionalExpression,
   convertTemplateLiteral,
 } from "./converters/expressions/other.js";
-import { getSourceSpan } from "./converters/expressions/helpers.js";
 import { shouldWrapExpressionWithAssertion } from "./converters/assertion-wrapping.js";
 import {
+  getSourceSpan,
   getNumericKindFromTypeNode,
   inferThisType,
   inferYieldReceivedType,
   getIdentifierStorageType,
   shouldPreserveExplicitStorageType,
   stripNullish,
+  chooseUseSiteType,
+  getSourceUseSiteType,
 } from "./expression-converter-helpers.js";
 import { resolveAmbientGlobalSourceOwner } from "./converters/expressions/ambient-global-source-owner.js";
 import type { DeclId } from "./type-system/types.js";
@@ -221,28 +232,23 @@ const preserveSatisfiesExpressionResultType = (
   };
 };
 
-const isConstAssertionType = (node: ts.TypeNode): boolean =>
-  ts.isTypeReferenceNode(node) &&
-  ts.isIdentifier(node.typeName) &&
-  node.typeName.text === "const" &&
-  (!node.typeArguments || node.typeArguments.length === 0);
+const isConstAssertionType = (node: TstsNode): boolean =>
+  node.Kind === TstsSyntax.KindTypeReference &&
+  getTstsIdentifierText(TstsSyntax.AsTypeReferenceNode(node)?.TypeName) ===
+    "const" &&
+  (TstsSyntax.Node_TypeArguments(node) ?? []).length === 0;
 
-const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
-  ts.isImportClause(decl) ||
-  ts.isImportSpecifier(decl) ||
-  ts.isNamespaceImport(decl) ||
-  ts.isImportEqualsDeclaration(decl);
+const isImportLikeDeclaration = (decl: TstsNode): boolean =>
+  decl.Kind === TstsSyntax.KindImportClause ||
+  decl.Kind === TstsSyntax.KindImportSpecifier ||
+  decl.Kind === TstsSyntax.KindNamespaceImport ||
+  decl.Kind === TstsSyntax.KindImportEqualsDeclaration;
 
-const isDeclarationModuleGlobal = (decl: ts.Declaration): boolean => {
-  for (
-    let current: ts.Node | undefined = decl.parent;
-    current;
-    current = current.parent
-  ) {
+const isDeclarationModuleGlobal = (decl: TstsNode): boolean => {
+  for (let current: TstsNode | undefined = decl.Parent; current; current = current.Parent) {
     if (
-      ts.isModuleDeclaration(current) &&
-      ts.isIdentifier(current.name) &&
-      current.name.text === "global"
+      current.Kind === TstsSyntax.KindModuleDeclaration &&
+      getTstsIdentifierText(TstsSyntax.Node_Name(current)) === "global"
     ) {
       return true;
     }
@@ -251,36 +257,35 @@ const isDeclarationModuleGlobal = (decl: ts.Declaration): boolean => {
   return false;
 };
 
-const isAmbientGlobalDeclaration = (decl: ts.Declaration): boolean => {
-  const sourceFile = decl.getSourceFile();
+const isAmbientGlobalDeclaration = (decl: TstsNode): boolean => {
   if (isDeclarationModuleGlobal(decl)) {
     return true;
   }
   return (
-    (sourceFile.isDeclarationFile && !ts.isExternalModule(sourceFile)) ||
-    (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient) !== 0
+    getTstsContainingSourceFileName(decl)?.endsWith(".d.ts") === true ||
+    hasTstsAmbientModifier(decl)
   );
 };
 
-const isMemberAccessReceiverExpression = (node: ts.Expression): boolean => {
-  let current: ts.Node = node;
+const isMemberAccessReceiverExpression = (node: TstsNode): boolean => {
+  let current: TstsNode = node;
 
-  while (ts.isParenthesizedExpression(current.parent)) {
-    current = current.parent;
+  while (current.Parent?.Kind === TstsSyntax.KindParenthesizedExpression) {
+    current = current.Parent;
   }
 
-  const parent = current.parent;
+  const parent = current.Parent;
   return (
-    (ts.isPropertyAccessExpression(parent) ||
-      ts.isElementAccessExpression(parent)) &&
-    parent.expression === current
+    (parent?.Kind === TstsSyntax.KindPropertyAccessExpression ||
+      parent?.Kind === TstsSyntax.KindElementAccessExpression) &&
+    TstsSyntax.Node_Expression(parent) === current
   );
 };
 
 const resolveReferencedIdentifierSymbol = (
   ctx: ProgramContext,
-  node: ts.Identifier
-): ts.Symbol | undefined => {
+  node: TstsNode
+): TstsSymbol | undefined => {
   const symbol = ctx.sourceSemantics.getSymbol(node);
   if (!symbol) {
     return undefined;
@@ -358,19 +363,6 @@ const typeSymbolIdForExternalType = (
     stableId ?? `${ownerIdentity}:${providerQualifiedName}`
   );
 
-type SourceFileExportKind =
-  | "class"
-  | "enum"
-  | "function"
-  | "interface"
-  | "variable";
-
-type SourceFileTopLevelExport = {
-  readonly exportName: string;
-  readonly localName: string;
-  readonly kind: SourceFileExportKind;
-};
-
 const findContainingSourcePackageRoot = (
   filePath: string
 ): string | undefined => {
@@ -388,121 +380,31 @@ const findContainingSourcePackageRoot = (
   }
 };
 
-const isExportedStatement = (statement: ts.Statement): boolean =>
-  !!(ts.canHaveModifiers(statement)
-    ? ts
-        .getModifiers(statement)
-        ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
-    : false);
+const sourceFileForPath = (
+  filePath: string,
+  ctx: ProgramContext
+): TstsNode | undefined => ctx.sourceFilesByPath.get(filePath.replace(/\\/g, "/"));
 
-const collectSourceFileTopLevelExports = (
-  sourceFile: ts.SourceFile
-): readonly SourceFileTopLevelExport[] => {
-  const topLevel = new Map<
-    string,
-    { readonly localName: string; readonly kind: SourceFileExportKind }
-  >();
-  const exports: SourceFileTopLevelExport[] = [];
-  const seen = new Set<string>();
+const providerOwnerForExportedDeclaration = (
+  declaration: TstsNode,
+  declPath: string,
+  namespace: string
+): string | undefined => {
+  const localName = getTstsIdentifierText(TstsSyntax.Node_Name(declaration));
+  if (!localName) return undefined;
 
-  const addTopLevel = (
-    localName: string | undefined,
-    kind: SourceFileExportKind
-  ): void => {
-    if (localName) {
-      topLevel.set(localName, { localName, kind });
-    }
-  };
-
-  const pushExport = (exportName: string, localName: string): void => {
-    const topLevelSymbol = topLevel.get(localName);
-    if (!topLevelSymbol) {
-      return;
-    }
-
-    const key = `${exportName}::${localName}`;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    exports.push({
-      exportName,
-      localName,
-      kind: topLevelSymbol.kind,
-    });
-  };
-
-  for (const statement of sourceFile.statements) {
-    if (ts.isClassDeclaration(statement)) {
-      addTopLevel(statement.name?.text, "class");
-      continue;
-    }
-    if (ts.isEnumDeclaration(statement)) {
-      addTopLevel(statement.name.text, "enum");
-      continue;
-    }
-    if (ts.isFunctionDeclaration(statement)) {
-      addTopLevel(statement.name?.text, "function");
-      continue;
-    }
-    if (ts.isInterfaceDeclaration(statement)) {
-      addTopLevel(statement.name.text, "interface");
-      continue;
-    }
-    if (ts.isVariableStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name)) {
-          addTopLevel(declaration.name.text, "variable");
-        }
-      }
-    }
-  }
-
-  for (const statement of sourceFile.statements) {
-    if (
-      (ts.isClassDeclaration(statement) ||
-        ts.isEnumDeclaration(statement) ||
-        ts.isFunctionDeclaration(statement) ||
-        ts.isInterfaceDeclaration(statement)) &&
-      isExportedStatement(statement) &&
-      statement.name?.text
-    ) {
-      pushExport(statement.name.text, statement.name.text);
-      continue;
-    }
-
-    if (ts.isVariableStatement(statement) && isExportedStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name)) {
-          pushExport(declaration.name.text, declaration.name.text);
-        }
-      }
-      continue;
-    }
-
-    if (
-      !ts.isExportDeclaration(statement) ||
-      !!statement.moduleSpecifier ||
-      !statement.exportClause ||
-      !ts.isNamedExports(statement.exportClause)
-    ) {
-      continue;
-    }
-
-    for (const element of statement.exportClause.elements) {
-      pushExport(
-        element.name.text,
-        element.propertyName?.text ?? element.name.text
-      );
-    }
-  }
-
-  return exports;
+  const declarationKind = getTstsDeclarationKind(declaration);
+  return declarationKind === "class" ||
+    declarationKind === "enum" ||
+    declarationKind === "interface"
+    ? `${namespace}.${localName}`
+    : `${namespace}.${getClassNameFromPath(declPath)}.${localName}`;
 };
 
 const resolveSourcePackageImportedIdentifierExternalBinding = (
   declPath: string,
-  exportName: string
+  exportName: string,
+  ctx: ProgramContext
 ): ImportedIdentifierExternalBinding | undefined => {
   const packageRoot = findContainingSourcePackageRoot(declPath);
   if (!packageRoot) {
@@ -514,17 +416,15 @@ const resolveSourcePackageImportedIdentifierExternalBinding = (
     return undefined;
   }
 
-  const sourceFile = ts.createSourceFile(
-    declPath,
-    readFileSync(declPath, "utf-8"),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
+  const sourceFile = sourceFileForPath(declPath, ctx);
+  if (!sourceFile) {
+    return undefined;
+  }
+  const exportedDeclaration = ctx.sourceSemantics.getExportedDeclaration(
+    sourceFile,
+    exportName
   );
-  const exported = collectSourceFileTopLevelExports(sourceFile).find(
-    (candidate) => candidate.exportName === exportName
-  );
-  if (!exported) {
+  if (!exportedDeclaration) {
     return undefined;
   }
 
@@ -533,12 +433,14 @@ const resolveSourcePackageImportedIdentifierExternalBinding = (
     metadata.sourceRoot,
     metadata.namespace
   );
-  const owner =
-    exported.kind === "class" ||
-    exported.kind === "enum" ||
-    exported.kind === "interface"
-      ? `${namespace}.${exported.localName}`
-      : `${namespace}.${getClassNameFromPath(declPath)}.${exported.localName}`;
+  const owner = providerOwnerForExportedDeclaration(
+    exportedDeclaration,
+    declPath,
+    namespace
+  );
+  if (!owner) {
+    return undefined;
+  }
 
   return {
     providerQualifiedName: owner,
@@ -549,23 +451,34 @@ const resolveSourcePackageImportedIdentifierExternalBinding = (
 
 const resolveImportedIdentifierExternalBinding = (
   declId: DeclId,
-  declarations: readonly ts.Declaration[],
+  declarations: readonly TstsNode[],
   ctx: ProgramContext
 ): ImportedIdentifierExternalBinding | undefined => {
-  const importSpecifier = declarations.find(ts.isImportSpecifier);
+  const importSpecifier = declarations.find(
+    (declaration) => declaration.Kind === TstsSyntax.KindImportSpecifier
+  );
   if (!importSpecifier) {
     return undefined;
   }
 
+  const importSpecifierData = TstsSyntax.AsImportSpecifier(importSpecifier);
   const exportName =
-    importSpecifier.propertyName?.text ?? importSpecifier.name.text;
+    getTstsIdentifierText(importSpecifierData?.PropertyName) ??
+    getTstsIdentifierText(TstsSyntax.Node_Name(importSpecifier));
+  if (!exportName) {
+    return undefined;
+  }
   const declPath = ctx.binding.getSourceFilePathOfDecl(declId);
   if (!declPath) {
     return undefined;
   }
 
   const sourcePackageBinding =
-    resolveSourcePackageImportedIdentifierExternalBinding(declPath, exportName);
+    resolveSourcePackageImportedIdentifierExternalBinding(
+      declPath,
+      exportName,
+      ctx
+    );
   if (sourcePackageBinding) {
     return sourcePackageBinding;
   }
@@ -628,7 +541,7 @@ const resolveImportedIdentifierExternalBinding = (
  *                       Used for deterministic typing of literals and arrays.
  */
 export const convertExpression = (
-  node: ts.Expression,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): IrExpression => {
@@ -636,29 +549,31 @@ export const convertExpression = (
   // Each expression type derives its inferredType from the appropriate source.
 
   if (
-    ts.isStringLiteral(node) ||
-    ts.isNumericLiteral(node) ||
-    ts.isBigIntLiteral(node)
+    node.Kind === TstsSyntax.KindStringLiteral ||
+    node.Kind === TstsSyntax.KindNumericLiteral ||
+    node.Kind === TstsSyntax.KindBigIntLiteral
   ) {
     return convertLiteral(node, ctx);
   }
-  if (ts.isRegularExpressionLiteral(node)) {
+  if (node.Kind === TstsSyntax.KindRegularExpressionLiteral) {
     return convertRegularExpressionLiteral(node, ctx);
   }
   if (
-    node.kind === ts.SyntaxKind.TrueKeyword ||
-    node.kind === ts.SyntaxKind.FalseKeyword
+    node.Kind === TstsSyntax.KindTrueKeyword ||
+    node.Kind === TstsSyntax.KindFalseKeyword
   ) {
     // Boolean literals have deterministic type
     return {
       kind: "literal",
-      value: node.kind === ts.SyntaxKind.TrueKeyword,
-      raw: node.getText(),
+      value: node.Kind === TstsSyntax.KindTrueKeyword,
+      raw:
+        getTstsNodeText(node) ??
+        (node.Kind === TstsSyntax.KindTrueKeyword ? "true" : "false"),
       inferredType: { kind: "primitiveType", name: "boolean" },
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (node.kind === ts.SyntaxKind.NullKeyword) {
+  if (node.Kind === TstsSyntax.KindNullKeyword) {
     // Null literal is deterministically null. Context may later adapt it, but
     // the literal itself must not erase nullish information here.
     return {
@@ -669,7 +584,7 @@ export const convertExpression = (
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (node.kind === ts.SyntaxKind.UndefinedKeyword) {
+  if (node.Kind === TstsSyntax.KindUndefinedKeyword) {
     // Undefined literal - type is void
     return {
       kind: "literal",
@@ -679,20 +594,25 @@ export const convertExpression = (
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (ts.isVoidExpression(node)) {
+  if (node.Kind === TstsSyntax.KindVoidExpression) {
+    const expression = TstsSyntax.Node_Expression(node);
+    if (!expression) {
+      throw new Error("ICE: void expression without operand reached IR conversion");
+    }
     return {
       kind: "unary",
       operator: "void",
-      expression: convertExpression(node.expression, ctx, undefined),
+      expression: convertExpression(expression, ctx, undefined),
       inferredType: { kind: "voidType" },
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (ts.isIdentifier(node)) {
-    if (node.text === "undefined") {
+  if (node.Kind === TstsSyntax.KindIdentifier) {
+    const identifierText = getTstsIdentifierText(node) ?? "";
+    if (identifierText === "undefined") {
       return {
         kind: "identifier",
-        name: node.text,
+        name: identifierText,
         inferredType: { kind: "primitiveType", name: "undefined" },
         sourceSpan: getSourceSpan(node),
       };
@@ -727,11 +647,12 @@ export const convertExpression = (
       return expectedCallableType;
     })();
 
-    // DETERMINISTIC: Prefer lexical flow type (narrowing / lambda params), then decl type.
+    // DETERMINISTIC: Prefer assignment/lambda context, then declaration type.
     const fromEnv = declId ? ctx.typeEnv?.get(declId.id) : undefined;
     const fromDecl = declId
       ? ctx.typeSystem.typeOfValueRead(declId)
       : undefined;
+    const fromSourceUseSite = getSourceUseSiteType(node, ctx);
 
     const identifierStorageType = getIdentifierStorageType(
       ctx,
@@ -739,8 +660,16 @@ export const convertExpression = (
       fromDecl,
       fromEnv
     );
+    const identifierUseSiteType = chooseUseSiteType(
+      identifierStorageType,
+      fromSourceUseSite,
+      ctx
+    );
     const effectiveIdentifierType =
-      contextualGenericFunctionType ?? identifierStorageType;
+      contextualGenericFunctionType ??
+      identifierUseSiteType ??
+      identifierStorageType ??
+      fromSourceUseSite;
 
     // Check if this identifier is an aliased import (e.g., import { String as RuntimeString })
     // Use TypeSystem.getFQNameOfDecl() to get the original name.
@@ -748,7 +677,7 @@ export const convertExpression = (
     if (declId) {
       const fqName = ctx.typeSystem.getFQNameOfDecl(declId);
       // If the fqName differs from the identifier text, it's an aliased import
-      if (fqName && fqName !== node.text) {
+      if (fqName && fqName !== identifierText) {
         originalName = fqName;
       }
     }
@@ -764,14 +693,23 @@ export const convertExpression = (
       symbolDeclarations.length > 0 &&
       !hasImportLikeDeclaration &&
       symbolDeclarations.every(isAmbientGlobalDeclaration);
+    const importedSourceValue = ctx.binding.resolveImportedSourceValue(node);
+    const importedSourceValueBinding = importedSourceValue
+      ? resolveSourcePackageImportedIdentifierExternalBinding(
+          importedSourceValue.sourceFilePath,
+          importedSourceValue.exportName,
+          ctx
+        )
+      : undefined;
     const importResolvedExternalBinding =
-      declId && hasImportLikeDeclaration
+      importedSourceValueBinding ??
+      (declId && hasImportLikeDeclaration
         ? resolveImportedIdentifierExternalBinding(
             declId,
             symbolDeclarations,
             ctx
           )
-        : undefined;
+        : undefined);
     const suppressSyntheticFlowAssertion =
       isMemberAccessReceiverExpression(node);
     const preserveExplicitStorageType = shouldPreserveExplicitStorageType(
@@ -783,11 +721,12 @@ export const convertExpression = (
 
     // Check if this identifier is bound to an external target type (e.g., console, Math, etc.)
     const externalBinding = ctx.bindings.getExactBindingByKind(
-      node.text,
+      identifierText,
       "global"
     );
     const ambientIntrinsicType =
-      isAmbientGlobal && (node.text === "NaN" || node.text === "Infinity")
+      isAmbientGlobal &&
+      (identifierText === "NaN" || identifierText === "Infinity")
         ? ({ kind: "primitiveType", name: "number" } as const)
         : undefined;
     const effectiveExpressionType =
@@ -799,7 +738,7 @@ export const convertExpression = (
     ) {
       const baseIdentifier: IrExpression = {
         kind: "identifier",
-        name: node.text,
+        name: identifierText,
         inferredType: effectiveExpressionType,
         sourceSpan: getSourceSpan(node),
         providerQualifiedName: externalBinding.type,
@@ -839,7 +778,7 @@ export const convertExpression = (
         : undefined;
     const baseIdentifier: IrExpression = {
       kind: "identifier",
-      name: node.text,
+      name: identifierText,
       inferredType: effectiveExpressionType,
       sourceSpan: getSourceSpan(node),
       providerQualifiedName:
@@ -874,76 +813,96 @@ export const convertExpression = (
     }
     return baseIdentifier;
   }
-  if (ts.isArrayLiteralExpression(node)) {
+  if (node.Kind === TstsSyntax.KindSuperKeyword) {
+    return {
+      kind: "identifier",
+      name: "super",
+      inferredType: undefined,
+      sourceSpan: getSourceSpan(node),
+    };
+  }
+  if (node.Kind === TstsSyntax.KindArrayLiteralExpression) {
     return convertArrayLiteral(node, ctx, expectedType);
   }
-  if (ts.isObjectLiteralExpression(node)) {
+  if (node.Kind === TstsSyntax.KindObjectLiteralExpression) {
     return convertObjectLiteral(node, ctx, expectedType);
   }
   if (
-    ts.isPropertyAccessExpression(node) ||
-    ts.isElementAccessExpression(node)
+    node.Kind === TstsSyntax.KindPropertyAccessExpression ||
+    node.Kind === TstsSyntax.KindElementAccessExpression
   ) {
     return convertMemberExpression(node, ctx);
   }
-  if (ts.isCallExpression(node)) {
+  if (node.Kind === TstsSyntax.KindCallExpression) {
     return convertCallExpression(node, ctx, expectedType);
   }
-  if (ts.isNewExpression(node)) {
+  if (node.Kind === TstsSyntax.KindNewExpression) {
     return convertNewExpression(node, ctx, expectedType);
   }
-  if (ts.isBinaryExpression(node)) {
+  if (node.Kind === TstsSyntax.KindBinaryExpression) {
     return convertBinaryExpression(node, ctx, expectedType);
   }
-  if (ts.isPrefixUnaryExpression(node)) {
+  if (node.Kind === TstsSyntax.KindPrefixUnaryExpression) {
     return convertUnaryExpression(node, ctx);
   }
-  if (ts.isPostfixUnaryExpression(node)) {
+  if (node.Kind === TstsSyntax.KindPostfixUnaryExpression) {
     return convertUpdateExpression(node, ctx);
   }
-  if (ts.isTypeOfExpression(node)) {
+  if (node.Kind === TstsSyntax.KindTypeOfExpression) {
+    const expression = TstsSyntax.Node_Expression(node);
+    if (!expression) {
+      throw new Error("ICE: typeof expression without operand reached IR conversion");
+    }
     return {
       kind: "unary",
       operator: "typeof",
-      expression: convertExpression(node.expression, ctx, undefined),
+      expression: convertExpression(expression, ctx, undefined),
       inferredType: { kind: "primitiveType", name: "string" },
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (ts.isVoidExpression(node)) {
+  if (node.Kind === TstsSyntax.KindVoidExpression) {
+    const expression = TstsSyntax.Node_Expression(node);
+    if (!expression) {
+      throw new Error("ICE: void expression without operand reached IR conversion");
+    }
     return {
       kind: "unary",
       operator: "void",
-      expression: convertExpression(node.expression, ctx, undefined),
+      expression: convertExpression(expression, ctx, undefined),
       inferredType: { kind: "voidType" },
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (ts.isDeleteExpression(node)) {
+  if (node.Kind === TstsSyntax.KindDeleteExpression) {
     throw new Error(
       "ICE: delete expression reached IR conversion - validation missed TSN2001"
     );
   }
-  if (ts.isConditionalExpression(node)) {
+  if (node.Kind === TstsSyntax.KindConditionalExpression) {
     return convertConditionalExpression(node, ctx, expectedType);
   }
-  if (ts.isFunctionExpression(node)) {
+  if (node.Kind === TstsSyntax.KindFunctionExpression) {
     // DETERMINISTIC: Pass expectedType for parameter type inference
     return convertFunctionExpression(node, ctx, expectedType);
   }
-  if (ts.isArrowFunction(node)) {
+  if (node.Kind === TstsSyntax.KindArrowFunction) {
     // DETERMINISTIC: Pass expectedType for parameter type inference
     return convertArrowFunction(node, ctx, expectedType);
   }
   if (
-    ts.isTemplateExpression(node) ||
-    ts.isNoSubstitutionTemplateLiteral(node)
+    node.Kind === TstsSyntax.KindTemplateExpression ||
+    node.Kind === TstsSyntax.KindNoSubstitutionTemplateLiteral
   ) {
     return convertTemplateLiteral(node, ctx);
   }
-  if (ts.isSpreadElement(node)) {
+  if (node.Kind === TstsSyntax.KindSpreadElement) {
     // Spread inherits type from expression (the array being spread)
-    const spreadExpr = convertExpression(node.expression, ctx, undefined);
+    const expression = TstsSyntax.Node_Expression(node);
+    if (!expression) {
+      throw new Error("ICE: spread element without expression reached IR conversion");
+    }
+    const spreadExpr = convertExpression(expression, ctx, undefined);
     return {
       kind: "spread",
       expression: spreadExpr,
@@ -951,7 +910,7 @@ export const convertExpression = (
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (node.kind === ts.SyntaxKind.ThisKeyword) {
+  if (node.Kind === TstsSyntax.KindThisKeyword) {
     // Deterministic `this` typing:
     // 1. object-literal synthetic receiver (when converting method/accessor bodies)
     // 2. enclosing class declaration
@@ -961,8 +920,12 @@ export const convertExpression = (
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (ts.isAwaitExpression(node)) {
-    const awaitedExpr = convertExpression(node.expression, ctx, undefined);
+  if (node.Kind === TstsSyntax.KindAwaitExpression) {
+    const expression = TstsSyntax.Node_Expression(node);
+    if (!expression) {
+      throw new Error("ICE: await expression without operand reached IR conversion");
+    }
+    const awaitedExpr = convertExpression(expression, ctx, undefined);
     const awaitedType = awaitedExpr.inferredType
       ? ctx.typeSystem.expandUtility("Awaited", [awaitedExpr.inferredType])
       : undefined;
@@ -973,42 +936,67 @@ export const convertExpression = (
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (ts.isYieldExpression(node)) {
+  if (node.Kind === TstsSyntax.KindYieldExpression) {
+    const expression = TstsSyntax.Node_Expression(node);
     return {
       kind: "yield",
-      expression: node.expression
-        ? convertExpression(node.expression, ctx, undefined)
+      expression: expression
+        ? convertExpression(expression, ctx, undefined)
         : undefined,
-      delegate: !!node.asteriskToken,
+      delegate: TstsSyntax.AsYieldExpression(node)?.AsteriskToken !== undefined,
       inferredType: inferYieldReceivedType(node, ctx),
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (ts.isParenthesizedExpression(node)) {
-    return convertExpression(node.expression, ctx, expectedType);
+  if (node.Kind === TstsSyntax.KindParenthesizedExpression) {
+    const expression = TstsSyntax.Node_Expression(node);
+    return expression
+      ? convertExpression(expression, ctx, expectedType)
+      : {
+          kind: "identifier",
+          name: "",
+          inferredType: undefined,
+          sourceSpan: getSourceSpan(node),
+        };
   }
-  if (ts.isNonNullExpression(node)) {
+  if (node.Kind === TstsSyntax.KindNonNullExpression) {
     // `expr!` has no runtime semantics but DOES narrow the type (T | null → T).
     // Preserve the inner expression, but strip null/undefined from its inferredType.
-    const inner = convertExpression(node.expression, ctx, expectedType);
+    const expression = TstsSyntax.Node_Expression(node);
+    if (!expression) {
+      throw new Error("ICE: non-null expression without operand reached IR conversion");
+    }
+    const inner = convertExpression(expression, ctx, expectedType);
     const narrowed = stripNullish(inner.inferredType);
     return narrowed ? { ...inner, inferredType: narrowed } : inner;
   }
-  if (ts.isSatisfiesExpression(node)) {
+  if (node.Kind === TstsSyntax.KindSatisfiesExpression) {
+    const expression = TstsSyntax.Node_Expression(node);
+    const typeNode = TstsSyntax.Node_Type(node);
+    if (!expression || !typeNode) {
+      throw new Error("ICE: satisfies expression without expression/type reached IR conversion");
+    }
     const satisfiedType = ctx.typeSystem.typeFromSyntax(
-      ctx.binding.captureTypeSyntax(node.type)
+      ctx.binding.captureTypeSyntax(typeNode)
     );
     return preserveSatisfiesExpressionResultType(
-      convertExpression(node.expression, ctx, satisfiedType)
+      convertExpression(expression, ctx, satisfiedType)
     );
   }
-  if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
-    if (isConstAssertionType(node.type)) {
-      return convertExpression(node.expression, ctx, expectedType);
+  if (
+    node.Kind === TstsSyntax.KindAsExpression ||
+    node.Kind === TstsSyntax.KindTypeAssertionExpression
+  ) {
+    const expression = TstsSyntax.Node_Expression(node);
+    const assertedTypeNode = TstsSyntax.Node_Type(node);
+    if (!expression || !assertedTypeNode) {
+      throw new Error("ICE: assertion expression without expression/type reached IR conversion");
+    }
+    if (isConstAssertionType(assertedTypeNode)) {
+      return convertExpression(expression, ctx, expectedType);
     }
 
     // Convert the asserted type through the TypeSystem.
-    const assertedTypeNode = node.type;
     const assertedType = ctx.typeSystem.typeFromSyntax(
       ctx.binding.captureTypeSyntax(assertedTypeNode)
     );
@@ -1017,7 +1005,7 @@ export const convertExpression = (
     const numericKind = getNumericKindFromTypeNode(assertedTypeNode);
     if (numericKind !== undefined) {
       // Convert the inner expression with no expected type so we preserve its natural classification.
-      const innerExpr = convertExpression(node.expression, ctx, undefined);
+      const innerExpr = convertExpression(expression, ctx, undefined);
 
       const sourceNeedsRuntimeCast =
         innerExpr.inferredType === undefined ||
@@ -1064,7 +1052,7 @@ export const convertExpression = (
       assertedType.name === "number"
     ) {
       // Convert the inner expression with no expected type so we preserve its natural classification.
-      const innerExpr = convertExpression(node.expression, ctx, undefined);
+      const innerExpr = convertExpression(expression, ctx, undefined);
 
       // Check if the inner expression is numeric (literal or already classified)
       const isNumericInner =
@@ -1090,7 +1078,7 @@ export const convertExpression = (
       assertedType.kind === "anyType"
     ) {
       // Preserve contextual typing from the outer position.
-      return convertExpression(node.expression, ctx, expectedType);
+      return convertExpression(expression, ctx, expectedType);
     }
 
     // Check if this is a parameter modifier type (out<T>, ref<T>, in<T>)
@@ -1105,12 +1093,12 @@ export const convertExpression = (
     if (isParameterModifierType) {
       // Preserve contextual typing from the outer position.
       // The parameter modifier itself is handled in call lowering / argument emission.
-      return convertExpression(node.expression, ctx, expectedType);
+      return convertExpression(expression, ctx, expectedType);
     }
 
     // Convert the inner expression contextually, using the asserted type as the target.
     // This prevents `({ ... } as T)` from becoming an anonymous object cast to T.
-    const innerExpr = convertExpression(node.expression, ctx, assertedType);
+    const innerExpr = convertExpression(expression, ctx, assertedType);
 
     // Non-numeric assertion - create type assertion node for target cast.
     return {
@@ -1122,11 +1110,5 @@ export const convertExpression = (
     };
   }
 
-  // Fallback - treat as identifier with unknown type
-  return {
-    kind: "identifier",
-    name: node.getText(),
-    inferredType: undefined,
-    sourceSpan: getSourceSpan(node),
-  };
+  throw new Error(`Unsupported expression kind reached IR conversion: ${node.Kind}`);
 };

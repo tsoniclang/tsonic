@@ -7,7 +7,12 @@
 
 import * as fs from "node:fs";
 import * as path from "path";
-import * as ts from "typescript";
+import type {
+  ExtensionModuleGraph,
+  TstsNode,
+  TstsSourceFile,
+  TstsSymbol,
+} from "@tsonic/tsts";
 import type { Binding } from "./binding/index.js";
 import type { TypeAuthority } from "./type-system/type-system.js";
 import type { IrType } from "./types.js";
@@ -19,10 +24,9 @@ import type { SurfaceCapabilities } from "../surface/profiles.js";
 import type { Diagnostic } from "../types/diagnostic.js";
 import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
 import type {
-  TargetSurfaceArtifacts,
   TargetSurfaceProvider,
 } from "../symbols/index.js";
-import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
+import type { TstsFrontendSourceSemanticView } from "../source-frontend/index.js";
 
 /**
  * ProgramContext — Per-compilation context owning all semantic state.
@@ -73,7 +77,15 @@ export type ProgramContext = {
    * queries. Product frontend code must use this for expression types instead
    * of calling TypeScript checker computed-type APIs directly.
    */
-  readonly sourceSemantics: FrontendSourceSemanticView;
+  readonly sourceSemantics: TstsFrontendSourceSemanticView;
+
+  /**
+   * TSTS-owned module/import/export graph.
+   *
+   * Product frontend code must use this graph for module structure instead of
+   * rebuilding import/export identity by walking syntax.
+   */
+  readonly moduleGraph: ExtensionModuleGraph;
 
   /**
    * Supported generic function value symbols for deterministic monomorphic callable contexts.
@@ -81,17 +93,12 @@ export type ProgramContext = {
    * These are collected once for the whole compilation so expression conversion can
    * reuse the same authoritative symbol set without re-scanning source files.
    */
-  readonly genericFunctionValueSymbols: ReadonlySet<ts.Symbol>;
-
-  /**
-   * Raw TypeScript compiler options for syntax-level module resolution helpers.
-   */
-  readonly tsCompilerOptions: ts.CompilerOptions;
+  readonly genericFunctionValueSymbols: ReadonlySet<TstsSymbol>;
 
   /**
    * Closed-world source files keyed by normalized absolute path.
    */
-  readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
+  readonly sourceFilesByPath: ReadonlyMap<string, TstsSourceFile>;
 
   /**
    * Binding layer for symbol resolution.
@@ -123,17 +130,22 @@ export type ProgramContext = {
    */
   readonly externalResolver: ExternalBindingsResolver;
 
-  readonly targetSurfaceArtifacts?: TargetSurfaceArtifacts;
   readonly targetSurfaceProvider?: TargetSurfaceProvider;
 
   /**
-   * Lexical type environment for deterministic flow typing.
+   * Lexical type environment for Tsonic-owned lowering facts.
    *
    * Used for:
-   * - Typing unannotated lambda parameters within their body (deterministic, TS-free)
-   * - Flow narrowing (e.g. `instanceof`) within control-flow branches
+   * - Typing synthetic/lowered parameters that do not have a direct TSTS source use site
+   * - Tracking assignment-produced storage facts required by target lowering
+   * - Carrying branch lowering facts after guards so
+   *   runtime-union materialization remains deterministic
    *
    * Keyed by DeclId.id (not by identifier text) so shadowing is always correct.
+   *
+   * Source-semantic facts still enter through `sourceSemantics.getExpressionType`;
+   * this environment carries Tsonic lowering decisions keyed by declaration
+   * identity and access path.
    */
   readonly typeEnv?: ReadonlyMap<number, IrType>;
 
@@ -145,10 +157,12 @@ export type ProgramContext = {
   readonly mutableNumericLiteralWideningDeclIds?: ReadonlySet<number>;
 
   /**
-   * Lexical flow environment for property / access-path narrowings.
+   * Tsonic-owned lowering environment for property / access-path assignment
+   * facts.
    *
    * Keyed by a stable serialized access path (e.g. `decl:42.foo` or `this.bar`)
-   * so branch narrowing can survive for deterministic property reads.
+   * so target lowering can keep assignment side effects deterministic without
+   * reimplementing TypeScript flow narrowing.
    */
   readonly accessEnv?: ReadonlyMap<string, IrType>;
 
@@ -166,13 +180,13 @@ export type ProgramContext = {
    * necessarily uses broad runtime types, but the expression is removed by a
    * later compiler pass and is never materialized as a runtime object.
    */
-  readonly suppressObjectLiteralContextualTypeNodes?: ReadonlySet<ts.ObjectLiteralExpression>;
+  readonly suppressObjectLiteralContextualTypeNodes?: ReadonlySet<TstsNode>;
 
   /**
    * IR conversion diagnostics emitted by converters (non-TypeSystem).
    *
    * Converters should record deterministic, airplane-grade failures here
-   * instead of guessing (e.g., ambiguous external bindings).
+   * instead of inventing semantics (e.g., ambiguous external bindings).
    *
    * Collected by `buildIr()` and treated as compilation errors.
    */

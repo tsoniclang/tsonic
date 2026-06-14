@@ -9,7 +9,7 @@
  * - Conditional and nullish coalescing proofs
  *
  * CRITICAL: If a narrowing cannot be proven, a diagnostic is emitted.
- * There is NO fallback to cast - unprovable narrowings are compilation errors.
+ * There is NO cast substitute - unprovable narrowings are compilation errors.
  */
 
 import { createDiagnostic } from "../../types/diagnostic.js";
@@ -403,7 +403,7 @@ export const proveNarrowing = (
     return undefined;
   }
 
-  // HARD GATE: Cannot prove - emit error, DO NOT fallback to cast
+  // HARD GATE: Cannot prove - emit error, DO NOT cast.
   ctx.diagnostics.push(
     createDiagnostic(
       "TSN5101",

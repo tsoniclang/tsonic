@@ -7,7 +7,7 @@ export type SourceSemanticFactStore<TNode extends object> = ExtensionFacts & {
   readonly __sourceNode?: (node: TNode) => TNode;
 };
 
-export type SourceSemanticEngine = "typescript" | "tsts";
+export type SourceSemanticEngine = "tsts";
 
 export type SourceSemanticView<
   TNode extends object,
@@ -30,6 +30,10 @@ export type SourceSemanticView<
   getTypeSymbolName(type: TType): string | undefined;
   getTypeAliasSymbolName(type: TType): string | undefined;
   getExportSpecifierLocalTargetSymbol(node: TNode): TSymbol | undefined;
+  getExportedDeclaration(
+    sourceFile: TNode,
+    exportedName: string
+  ): TDeclaration | undefined;
   getExportsOfModule(symbol: TSymbol): readonly TSymbol[];
   getShorthandAssignmentValueSymbol(node: TNode): TSymbol | undefined;
   getDeclaredType(symbol: TSymbol): TType;
@@ -48,11 +52,25 @@ export type SourceSemanticView<
   isAnyUnknownVoidNeverOrTypeParameter(type: TType): boolean;
   isAnyUnknownOrTypeParameter(type: TType): boolean;
   isAnyOrUnknownType(type: TType): boolean;
+  isAnyType(type: TType): boolean;
+  isUnknownType(type: TType): boolean;
+  isNeverType(type: TType): boolean;
+  isVoidType(type: TType): boolean;
+  isUndefinedType(type: TType): boolean;
+  isNullType(type: TType): boolean;
   isTypeParameter(type: TType): boolean;
   isSourceScalarLikeType(type: TType): boolean;
   isStringLikeType(type: TType): boolean;
+  isNumberLikeType(type: TType): boolean;
+  isBooleanLikeType(type: TType): boolean;
+  isBigIntLikeType(type: TType): boolean;
+  isStringLiteralType(type: TType): boolean;
+  isNumberLiteralType(type: TType): boolean;
+  isBooleanLiteralType(type: TType): boolean;
+  isBigIntLiteralType(type: TType): boolean;
   getStringIndexType(type: TType): TType | undefined;
   getNumberIndexType(type: TType): TType | undefined;
+  getElementTypeOfArrayType(type: TType): TType | undefined;
   getPropertyOfType(type: TType, key: string): TSymbol | undefined;
   getProperties(type: TType): readonly TSymbol[];
   getCallSignatures(type: TType): readonly TSignature[];

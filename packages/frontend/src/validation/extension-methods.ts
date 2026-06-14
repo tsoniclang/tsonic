@@ -11,7 +11,12 @@
  * - Receiver cannot be `out`
  */
 
-import * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
+import {
+  forEachTstsChild,
+  isTstsRestParameter,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import { TsonicProgram } from "../program.js";
 import {
   DiagnosticsCollector,
@@ -24,27 +29,37 @@ import {
   parameterPassingFactKey,
   parameterPassingModeFromFact,
 } from "../source-frontend/index.js";
+import {
+  getNodeInitializer,
+  getNodeParameters,
+  getNodeType,
+  isFunctionLikeWithParameters,
+} from "./tsts-helpers.js";
 
 type ReceiverMarkerInfo = {
-  readonly markerNode: ts.TypeReferenceNode;
+  readonly markerNode: TstsNode;
   readonly passing: "value" | "ref" | "out" | "in";
 };
 
 const unwrapWrapperType = (
-  typeNode: ts.TypeNode
+  typeNode: TstsNode
 ):
   | {
-      readonly inner: ts.TypeNode;
-      readonly node: ts.TypeReferenceNode;
+      readonly inner: TstsNode;
+      readonly node: TstsNode;
     }
   | undefined => {
-  if (!ts.isTypeReferenceNode(typeNode)) return undefined;
-  if (!typeNode.typeArguments || typeNode.typeArguments.length !== 1)
+  if (typeNode.Kind !== TstsSyntax.KindTypeReference) return undefined;
+  const typeReference = TstsSyntax.AsTypeReferenceNode(typeNode);
+  const inner = typeReference?.TypeArguments?.Nodes[0];
+  if (
+    !typeReference?.TypeArguments ||
+    typeReference.TypeArguments.Nodes.length !== 1 ||
+    typeReference.TypeName?.Kind !== TstsSyntax.KindIdentifier ||
+    !inner
+  ) {
     return undefined;
-  if (!ts.isIdentifier(typeNode.typeName)) return undefined;
-
-  const inner = typeNode.typeArguments[0];
-  if (!inner) return undefined;
+  }
 
   return {
     inner,
@@ -53,20 +68,18 @@ const unwrapWrapperType = (
 };
 
 const getReceiverMarkerInfo = (
-  typeNode: ts.TypeNode | undefined,
+  typeNode: TstsNode | undefined,
   program: TsonicProgram
 ): ReceiverMarkerInfo | undefined => {
   if (!typeNode) return undefined;
 
-  let current: ts.TypeNode = typeNode;
-  let markerNode: ts.TypeReferenceNode | undefined;
+  let current: TstsNode | undefined = typeNode;
+  let markerNode: TstsNode | undefined;
   let passing: "value" | "ref" | "out" | "in" = "value";
 
-  // Mirror IR conversion unwrapping rules:
-  // wrappers may be nested; unwrap repeatedly.
-  while (true) {
-    if (ts.isParenthesizedTypeNode(current)) {
-      current = current.type;
+  while (current) {
+    if (current.Kind === TstsSyntax.KindParenthesizedType) {
+      current = getNodeType(current);
       continue;
     }
 
@@ -100,9 +113,9 @@ const getReceiverMarkerInfo = (
 };
 
 const addReceiverDiagnostic = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   collector: DiagnosticsCollector,
-  node: ts.Node,
+  node: TstsNode,
   message: string,
   hint?: string
 ): DiagnosticsCollector =>
@@ -118,57 +131,51 @@ const addReceiverDiagnostic = (
   );
 
 export const validateExtensionMethods = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
-  const visitor = (node: ts.Node): void => {
-    // Only check function-like nodes (where parameters exist).
-    if (
-      ts.isFunctionDeclaration(node) ||
-      ts.isMethodDeclaration(node) ||
-      ts.isMethodSignature(node) ||
-      ts.isFunctionExpression(node) ||
-      ts.isArrowFunction(node)
-    ) {
-      const receiverParams = node.parameters
-        .map((p, index) => ({
-          param: p,
+  const visitor = (node: TstsNode | undefined): void => {
+    if (!node) return;
+
+    if (isFunctionLikeWithParameters(node)) {
+      const receiverParams = getNodeParameters(node)
+        .map((param, index) => ({
+          param,
           index,
-          info: getReceiverMarkerInfo(p.type, program),
+          info: getReceiverMarkerInfo(getNodeType(param), program),
         }))
-        .filter((p) => p.info !== undefined) as Array<{
-        readonly param: ts.ParameterDeclaration;
+        .filter((entry) => entry.info !== undefined) as Array<{
+        readonly param: TstsNode;
         readonly index: number;
         readonly info: ReceiverMarkerInfo;
       }>;
 
       if (receiverParams.length > 0) {
-        // Only allow on top-level function declarations.
         const isTopLevelFunctionDecl =
-          ts.isFunctionDeclaration(node) && node.parent === sourceFile;
+          node.Kind === TstsSyntax.KindFunctionDeclaration &&
+          node.Parent === sourceFile;
 
         if (!isTopLevelFunctionDecl) {
-          for (const p of receiverParams) {
+          for (const param of receiverParams) {
             collector = addReceiverDiagnostic(
               sourceFile,
               collector,
-              p.info.markerNode,
+              param.info.markerNode,
               "`thisarg<T>` is only valid on top-level function declarations.",
               "Move the function to module scope (top-level) and declare it with `export function ...`."
             );
           }
-          // Still recurse to find additional violations in nested scopes.
-          ts.forEachChild(node, visitor);
+          forEachTstsChild(node, visitor);
           return;
         }
 
         if (receiverParams.length > 1) {
-          for (const p of receiverParams.slice(1)) {
+          for (const param of receiverParams.slice(1)) {
             collector = addReceiverDiagnostic(
               sourceFile,
               collector,
-              p.info.markerNode,
+              param.info.markerNode,
               "Only one `thisarg<T>` receiver parameter is allowed."
             );
           }
@@ -176,7 +183,7 @@ export const validateExtensionMethods = (
 
         const receiver = receiverParams[0];
         if (!receiver) {
-          ts.forEachChild(node, visitor);
+          forEachTstsChild(node, visitor);
           return;
         }
 
@@ -189,41 +196,45 @@ export const validateExtensionMethods = (
           );
         }
 
+        const receiverName = TstsSyntax.Node_Name(receiver.param);
         if (
-          ts.isObjectBindingPattern(receiver.param.name) ||
-          ts.isArrayBindingPattern(receiver.param.name)
+          receiverName?.Kind === TstsSyntax.KindObjectBindingPattern ||
+          receiverName?.Kind === TstsSyntax.KindArrayBindingPattern
         ) {
           collector = addReceiverDiagnostic(
             sourceFile,
             collector,
-            receiver.param.name,
+            receiverName,
             "The `thisarg<T>` receiver parameter must be a simple identifier (no destructuring)."
           );
         }
 
-        if (receiver.param.dotDotDotToken) {
+        if (isTstsRestParameter(receiver.param)) {
           collector = addReceiverDiagnostic(
             sourceFile,
             collector,
-            receiver.param.dotDotDotToken,
+            TstsSyntax.AsParameterDeclaration(receiver.param)?.DotDotDotToken ??
+              receiver.param,
             "The `thisarg<T>` receiver parameter cannot be a rest parameter."
           );
         }
 
-        if (receiver.param.questionToken) {
+        const questionToken = TstsSyntax.Node_QuestionToken(receiver.param);
+        if (questionToken) {
           collector = addReceiverDiagnostic(
             sourceFile,
             collector,
-            receiver.param.questionToken,
+            questionToken,
             "The `thisarg<T>` receiver parameter cannot be optional."
           );
         }
 
-        if (receiver.param.initializer) {
+        const initializer = getNodeInitializer(receiver.param);
+        if (initializer) {
           collector = addReceiverDiagnostic(
             sourceFile,
             collector,
-            receiver.param.initializer,
+            initializer,
             "The `thisarg<T>` receiver parameter cannot have a default initializer."
           );
         }
@@ -239,7 +250,7 @@ export const validateExtensionMethods = (
       }
     }
 
-    ts.forEachChild(node, visitor);
+    forEachTstsChild(node, visitor);
   };
 
   visitor(sourceFile);

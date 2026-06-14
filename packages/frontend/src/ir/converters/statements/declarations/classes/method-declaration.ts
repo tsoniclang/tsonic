@@ -2,7 +2,14 @@
  * Method declaration conversion (single non-overloaded method)
  */
 
-import * as ts from "typescript";
+import {
+  getTstsBodyNode,
+  getTstsDeclaredTypeNode,
+  getTstsParameters,
+  getTstsTypeParameterNodes,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import { IrClassMember } from "../../../../types.js";
 import { convertBlockStatement } from "../../control.js";
 import {
@@ -10,6 +17,8 @@ import {
   getAccessibility,
   convertTypeParameters,
   convertParameters,
+  hasAsyncModifier,
+  definedTstsNodes,
 } from "../../helpers.js";
 import { withParameterTypeEnv } from "../../../type-env.js";
 import { detectOverride } from "./override-detection.js";
@@ -25,14 +34,15 @@ import { inferDeterministicBlockReturnType } from "../return-type-inference.js";
  * Convert method declaration to IR
  */
 export const convertMethod = (
-  node: ts.MethodDeclaration,
+  node: TstsNode,
   ctx: ProgramContext,
-  superClass: ts.ExpressionWithTypeArguments | undefined
+  superClass: TstsNode | undefined
 ): IrClassMember => {
-  const memberName = getClassMemberName(node.name);
-  const isEcmaPrivate = isPrivateClassMemberName(node.name);
+  const memberName = getClassMemberName(TstsSyntax.Node_Name(node));
+  const isEcmaPrivate = isPrivateClassMemberName(TstsSyntax.Node_Name(node));
 
-  const parameters = convertParameters(node.parameters, ctx);
+  const parameterNodes = definedTstsNodes(getTstsParameters(node));
+  const parameters = convertParameters(parameterNodes, ctx);
 
   const overrideInfo = detectOverride(
     memberName,
@@ -56,36 +66,39 @@ export const convertMethod = (
 
   // Get return type from declared annotation for contextual typing
   // Convert method declaration syntax through the TypeSystem.
-  const returnType = node.type
-    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
+  const returnTypeNode = getTstsDeclaredTypeNode(node);
+  const returnType = returnTypeNode
+    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(returnTypeNode))
     : undefined;
   const returnExpressionType = getReturnExpressionExpectedType(
     returnType,
-    !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+    hasAsyncModifier(node)
   );
-  const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
-  const body = node.body
-    ? convertBlockStatement(node.body, bodyCtx, returnExpressionType)
+  const bodyCtx = withParameterTypeEnv(ctx, parameterNodes, parameters);
+  const bodyNode = getTstsBodyNode(node);
+  const body = bodyNode
+    ? convertBlockStatement(bodyNode, bodyCtx, returnExpressionType)
     : undefined;
   const effectiveReturnType =
     returnType ??
-    (body && !node.asteriskToken
+    (body && !TstsSyntax.AsMethodDeclaration(node)?.AsteriskToken
       ? inferDeterministicBlockReturnType(body)
       : undefined);
 
   return {
     kind: "methodDeclaration",
     name: memberName,
-    typeParameters: convertTypeParameters(node.typeParameters, ctx),
+    typeParameters: convertTypeParameters(
+      definedTstsNodes(getTstsTypeParameterNodes(node)),
+      ctx
+    ),
     parameters,
     returnType: effectiveReturnType,
     // Pass return type to body for contextual typing of return statements
     body,
     isStatic: hasStaticModifier(node),
-    isAsync: !!node.modifiers?.some(
-      (m) => m.kind === ts.SyntaxKind.AsyncKeyword
-    ),
-    isGenerator: !!node.asteriskToken,
+    isAsync: hasAsyncModifier(node),
+    isGenerator: !!TstsSyntax.AsMethodDeclaration(node)?.AsteriskToken,
     accessibility,
     isOverride: overrideInfo.isOverride ? true : undefined,
     isShadow: overrideInfo.isShadow ? true : undefined,

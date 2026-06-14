@@ -7,7 +7,14 @@
  * Split from binding-resolution.ts for file-size compliance (< 500 LOC).
  */
 
-import * as ts from "typescript";
+import {
+  getTstsContainingSourceFile,
+  getTstsIdentifierText,
+  hasTstsAmbientModifier,
+  isTstsExternalModuleSourceFile,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import { IrMemberExpression } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
@@ -26,24 +33,23 @@ export const resolveHierarchicalBinding = (
   ctx: ProgramContext
 ): IrMemberExpression["memberBinding"] => {
   const registry = ctx.bindings;
-  const isImportLikeDeclaration = (decl: ts.Declaration): boolean =>
-    ts.isImportClause(decl) ||
-    ts.isImportSpecifier(decl) ||
-    ts.isNamespaceImport(decl) ||
-    ts.isImportEqualsDeclaration(decl);
+  const isImportLikeDeclaration = (decl: TstsNode): boolean =>
+    decl.Kind === TstsSyntax.KindImportClause ||
+    decl.Kind === TstsSyntax.KindImportSpecifier ||
+    decl.Kind === TstsSyntax.KindNamespaceImport ||
+    decl.Kind === TstsSyntax.KindImportEqualsDeclaration;
 
-  const isAmbientGlobalDeclaration = (decl: ts.Declaration): boolean => {
-    const sourceFile = decl.getSourceFile();
+  const isAmbientGlobalDeclaration = (decl: TstsNode): boolean => {
+    const sourceFile = getTstsContainingSourceFile(decl);
     const isDeclarationModuleGlobal = (() => {
       for (
-        let current: ts.Node | undefined = decl.parent;
+        let current: TstsNode | undefined = decl.Parent;
         current;
-        current = current.parent
+        current = current.Parent
       ) {
         if (
-          ts.isModuleDeclaration(current) &&
-          ts.isIdentifier(current.name) &&
-          current.name.text === "global"
+          current.Kind === TstsSyntax.KindModuleDeclaration &&
+          getTstsIdentifierText(TstsSyntax.Node_Name(current)) === "global"
         ) {
           return true;
         }
@@ -57,8 +63,9 @@ export const resolveHierarchicalBinding = (
     }
 
     return (
-      (sourceFile.isDeclarationFile && !ts.isExternalModule(sourceFile)) ||
-      (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient) !== 0
+      (sourceFile?.IsDeclarationFile === true &&
+        !isTstsExternalModuleSourceFile(sourceFile)) ||
+      hasTstsAmbientModifier(decl)
     );
   };
 

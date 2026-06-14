@@ -5,11 +5,12 @@
  *
  * IMPORTANT:
  * - This is NOT TypeScript type-checking.
- * - This is deterministic, IR-derived typing used to avoid "unknown" fallbacks
+ * - This is deterministic, IR-derived typing used to avoid avoidable unknowns
  *   for common local variables (e.g., `const ok = x !== undefined` → boolean).
  */
 
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
+import { getTstsIdentifierText } from "@tsonic/tsts";
 import type { ProgramContext } from "../program-context.js";
 import type {
   IrExpression,
@@ -175,19 +176,19 @@ const getObjectPropertyType = (
   return undefined;
 };
 
-const getPropertyNameText = (name: ts.PropertyName): string | undefined =>
+const getPropertyNameText = (name: TstsNode): string | undefined =>
   tryResolveDeterministicPropertyName(name);
 
 const extendEnvForBindingName = (
   ctx: ProgramContext,
-  name: ts.BindingName,
+  name: TstsNode,
   sourceType: IrType | undefined,
   ensureEnv: () => Map<number, IrType>
 ): void => {
   const normalizedSource = normalizeEnvType(sourceType);
   if (!normalizedSource) return;
 
-  if (ts.isIdentifier(name)) {
+  if (TstsSyntax.IsIdentifier(name)) {
     const declId = ctx.binding.resolveIdentifier(name);
     if (declId) {
       ensureEnv().set(declId.id, normalizedSource);
@@ -195,51 +196,59 @@ const extendEnvForBindingName = (
     return;
   }
 
-  if (ts.isArrayBindingPattern(name)) {
+  if (TstsSyntax.IsArrayBindingPattern(name)) {
     // Each element gets the array element type (or tuple element type if known).
-    for (let i = 0; i < name.elements.length; i++) {
-      const element = name.elements[i];
+    const elements = TstsSyntax.Node_Elements(name) ?? [];
+    for (let i = 0; i < elements.length; i++) {
+      const element = elements[i];
       if (!element) continue;
-      if (ts.isOmittedExpression(element)) continue;
+      if (TstsSyntax.IsOmittedExpression(element)) continue;
 
-      const isRest = !!element.dotDotDotToken;
+      const bindingElement = TstsSyntax.AsBindingElement(element);
+      const elementName = bindingElement?.name ?? element;
+      const isRest = bindingElement?.DotDotDotToken !== undefined;
       const elementType = getArrayElementType(normalizedSource, i);
       const boundType =
         isRest && elementType
           ? ({ kind: "arrayType", elementType } as const)
           : elementType;
 
-      extendEnvForBindingName(ctx, element.name, boundType, ensureEnv);
+      extendEnvForBindingName(ctx, elementName, boundType, ensureEnv);
     }
     return;
   }
 
-  if (ts.isObjectBindingPattern(name)) {
-    for (const element of name.elements) {
-      if (element.dotDotDotToken) {
+  if (TstsSyntax.IsObjectBindingPattern(name)) {
+    for (const element of TstsSyntax.Node_Elements(name) ?? []) {
+      if (!element) continue;
+      const bindingElement = TstsSyntax.AsBindingElement(element);
+      if (!bindingElement) continue;
+      if (bindingElement.DotDotDotToken) {
         // Rest object: its truthiness is object-like (always truthy if non-null),
         // so the exact structural type is not required for boolean-context correctness.
         continue;
       }
 
       const key =
-        element.propertyName !== undefined
-          ? getPropertyNameText(element.propertyName)
-          : ts.isIdentifier(element.name)
-            ? element.name.text
+        bindingElement.PropertyName !== undefined
+          ? getPropertyNameText(bindingElement.PropertyName)
+          : TstsSyntax.IsIdentifier(bindingElement.name)
+            ? getTstsIdentifierText(bindingElement.name)
             : undefined;
 
       if (!key) continue;
 
       const propType = getObjectPropertyType(ctx, normalizedSource, key);
-      extendEnvForBindingName(ctx, element.name, propType, ensureEnv);
+      if (bindingElement.name) {
+        extendEnvForBindingName(ctx, bindingElement.name, propType, ensureEnv);
+      }
     }
   }
 };
 
 export const withBindingNameTypeEnv = (
   ctx: ProgramContext,
-  name: ts.BindingName,
+  name: TstsNode,
   type: IrType | undefined
 ): ProgramContext => {
   const normalizedType = normalizeEnvType(type);
@@ -257,7 +266,7 @@ export const withBindingNameTypeEnv = (
 
 export const withParameterTypeEnv = (
   ctx: ProgramContext,
-  tsParameters: readonly ts.ParameterDeclaration[],
+  tsParameters: readonly TstsNode[],
   parameters: readonly IrParameter[]
 ): ProgramContext => {
   let nextCtx = ctx;
@@ -265,9 +274,11 @@ export const withParameterTypeEnv = (
     const parameter = parameters[i];
     const tsParameter = tsParameters[i];
     if (!parameter || !tsParameter) continue;
+    const name = TstsSyntax.Node_Name(tsParameter);
+    if (!name) continue;
     nextCtx = withBindingNameTypeEnv(
       nextCtx,
-      tsParameter.name,
+      name,
       getParameterReadType(parameter)
     );
   }
@@ -287,7 +298,7 @@ const deriveDeclaratorType = (
 
 export const withVariableDeclaratorTypeEnv = (
   ctx: ProgramContext,
-  name: ts.BindingName,
+  name: TstsNode,
   decl: IrVariableDeclarator
 ): ProgramContext => {
   const type = deriveDeclaratorType(decl);
@@ -297,12 +308,12 @@ export const withVariableDeclaratorTypeEnv = (
 /**
  * Extend ctx.typeEnv with deterministic types for declared variables.
  *
- * Used to type later references to locals without resorting to "unknown" fallbacks.
+ * Used to type later references to locals without degrading them to unknown.
  * This is required for correct emission of operators like `!x` (boolean vs truthiness).
  */
 export const withVariableTypeEnv = (
   ctx: ProgramContext,
-  tsDecls: readonly ts.VariableDeclaration[],
+  tsDecls: readonly TstsNode[],
   ir: IrVariableDeclaration
 ): ProgramContext => {
   let nextEnv: Map<number, IrType> | undefined;
@@ -320,7 +331,10 @@ export const withVariableTypeEnv = (
     const inferredType = deriveDeclaratorType(irDecl);
     if (!inferredType) continue;
 
-    extendEnvForBindingName(ctx, tsDecl.name, inferredType, ensureEnv);
+    const name = TstsSyntax.Node_Name(tsDecl);
+    if (name) {
+      extendEnvForBindingName(ctx, name, inferredType, ensureEnv);
+    }
   }
 
   return nextEnv ? { ...ctx, typeEnv: nextEnv } : ctx;

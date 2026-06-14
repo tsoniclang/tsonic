@@ -95,6 +95,12 @@ export type NominalEntry = {
    * non-alias source declarations.
    */
   readonly aliasedType?: IrType;
+  /**
+   * Source-surface carrier declaration name parsed from a companion .d.ts.
+   * Example: metadata type `IEnumerable_1<T>` is represented in TypeScript as
+   * `IEnumerable_1$instance<T>` and a type alias maps the public name to it.
+   */
+  readonly sourceCarrierName?: string;
   /** Type parameters (for generic types) */
   readonly typeParameters: readonly TypeParameterEntry[];
   /** Inheritance edges (extends, implements) */
@@ -331,7 +337,7 @@ export type ExternalTypeCatalog = {
  * Unified catalog merging source and external types.
  *
  * This is THE source of truth for all type queries.
- * No fallback paths allowed.
+ * All catalog paths must be explicit.
  */
 export type UnifiedTypeCatalog = {
   /** Get entry by TypeId */

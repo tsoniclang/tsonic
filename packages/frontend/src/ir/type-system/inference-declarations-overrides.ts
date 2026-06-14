@@ -9,7 +9,16 @@
 
 import type { IrType, IrParameter } from "../types/index.js";
 import { stampRuntimeUnionAliasCarrier } from "../types/index.js";
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  getTstsContainingSourceFileName,
+  getTstsDeclaredTypeNode,
+  getTstsNodeNameText,
+  getTstsTypeArguments,
+  getTstsTypeParameterNodes,
+  isTstsDeclarationFileNode,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
@@ -35,12 +44,10 @@ export const signatureHasConditionalReturn = (
   const sigInfo = state.handleRegistry.getSignature(sigId);
   if (!sigInfo) return false;
 
-  const returnTypeNode = sigInfo.returnTypeNode as
-    | { kind?: number }
-    | undefined;
+  const returnTypeNode = sigInfo.returnTypeNode as TstsNode | undefined;
   if (!returnTypeNode) return false;
 
-  return returnTypeNode.kind === ts.SyntaxKind.ConditionalType;
+  return returnTypeNode.Kind === TstsSyntax.KindConditionalType;
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -57,29 +64,29 @@ export const signatureHasVariadicTypeParams = (
   if (!sigInfo.typeParameters) return false;
 
   for (const typeParam of sigInfo.typeParameters) {
-    const constraintNode = typeParam.constraintNode as
-      | {
-          kind?: number;
-          elementType?: { kind?: number; typeName?: { text?: string } };
-        }
-      | undefined;
+    const constraintNode = typeParam.constraintNode as TstsNode | undefined;
     if (!constraintNode) continue;
 
     // Check if constraint is an array type (variadic pattern: T extends unknown[])
-    if (constraintNode.kind === ts.SyntaxKind.ArrayType) {
-      const elementType = constraintNode.elementType;
+    if (constraintNode.Kind === TstsSyntax.KindArrayType) {
+      const elementType = TstsSyntax.AsArrayTypeNode(
+        constraintNode
+      )?.ElementType;
       if (!elementType) continue;
 
       // Check for unknown[] or any[] constraint
       if (
-        elementType.kind === ts.SyntaxKind.UnknownKeyword ||
-        elementType.kind === ts.SyntaxKind.AnyKeyword
+        elementType.Kind === TstsSyntax.KindUnknownKeyword ||
+        elementType.Kind === TstsSyntax.KindAnyKeyword
       ) {
         return true;
       }
 
       // Also check for type reference to "unknown" or "any"
-      const typeName = elementType.typeName?.text;
+      const typeName =
+        TstsSyntax.IsTypeReferenceNode(elementType)
+          ? getTstsNodeNameText(elementType)
+          : undefined;
       if (typeName === "unknown" || typeName === "any") {
         return true;
       }
@@ -267,7 +274,7 @@ const buildCapturedBaseClassSubstitution = (
  * This method takes a TypeSyntaxId handle (opaque to caller) and looks up
  * the captured TypeNode in the HandleRegistry, then converts it.
  *
- * TypeSystem receives opaque handles, not ts.TypeNode.
+ * TypeSystem receives opaque handles, not raw source syntax nodes.
  */
 export const typeFromSyntax = (
   state: TypeSystemState,
@@ -283,40 +290,44 @@ export const typeFromSyntax = (
   if (
     rawType.kind === "unionType" &&
     syntaxInfo.referenceDeclId &&
-    ts.isTypeReferenceNode(syntaxInfo.typeNode as ts.Node)
+    TstsSyntax.IsTypeReferenceNode(syntaxInfo.typeNode as TstsNode)
   ) {
     const declInfo = state.handleRegistry.getDecl(syntaxInfo.referenceDeclId);
     const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
-      | ts.Declaration
+      | TstsNode
       | undefined;
     const aliasBody =
-      declNode && ts.isTypeAliasDeclaration(declNode)
+      declNode && TstsSyntax.IsTypeAliasDeclaration(declNode)
         ? (() => {
-            let current: ts.TypeNode = declNode.type;
-            while (ts.isParenthesizedTypeNode(current)) {
-              current = current.type;
+            let current = getTstsDeclaredTypeNode(declNode);
+            while (current && TstsSyntax.IsParenthesizedTypeNode(current)) {
+              current = TstsSyntax.AsParenthesizedTypeNode(current)?.Type;
             }
             return current;
           })()
         : undefined;
     if (
       declNode &&
-      ts.isTypeAliasDeclaration(declNode) &&
-      !declNode.getSourceFile().isDeclarationFile &&
+      TstsSyntax.IsTypeAliasDeclaration(declNode) &&
+      !isTstsDeclarationFileNode(declNode) &&
       aliasBody &&
-      ts.isUnionTypeNode(aliasBody)
+      TstsSyntax.IsUnionTypeNode(aliasBody)
     ) {
+      const aliasName = getTstsNodeNameText(declNode);
+      if (!aliasName) return convertTypeNode(state, syntaxInfo.typeNode);
       return stampRuntimeUnionAliasCarrier(
         convertTypeNode(state, syntaxInfo.typeNode),
         {
-          aliasName: declNode.name.text,
-          fullyQualifiedName: declInfo?.fqName ?? declNode.name.text,
-          typeParameters: (declNode.typeParameters ?? []).map(
-            (tp) => tp.name.text
+          aliasName,
+          fullyQualifiedName: declInfo?.fqName ?? aliasName,
+          typeParameters: getTstsTypeParameterNodes(declNode).flatMap(
+            (typeParameter) => getTstsNodeNameText(typeParameter) ?? []
           ),
-          typeArguments: (
-            (syntaxInfo.typeNode as ts.TypeReferenceNode).typeArguments ?? []
-          ).map((typeArgument) => convertTypeNode(state, typeArgument)),
+          typeArguments: getTstsTypeArguments(
+            syntaxInfo.typeNode as TstsNode
+          ).flatMap((typeArgument) =>
+            typeArgument ? [convertTypeNode(state, typeArgument)] : []
+          ),
         }
       );
     }
@@ -327,23 +338,24 @@ export const typeFromSyntax = (
 
   const declInfo = state.handleRegistry.getDecl(syntaxInfo.referenceDeclId);
   const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
-    | ts.Declaration
+    | TstsNode
     | undefined;
-  if (!declNode || declNode.getSourceFile().isDeclarationFile) {
+  if (!declNode || isTstsDeclarationFileNode(declNode)) {
     return convertTypeNode(state, syntaxInfo.typeNode);
   }
 
-  const namedDecl = declNode as ts.NamedDeclaration;
-  const declName =
-    namedDecl.name && ts.isIdentifier(namedDecl.name)
-      ? namedDecl.name.text
-      : undefined;
+  const declName = getTstsNodeNameText(declNode);
   if (!declName) {
     return convertTypeNode(state, syntaxInfo.typeNode);
   }
 
+  const sourceFileName = getTstsContainingSourceFileName(declNode);
+  if (!sourceFileName) {
+    return convertTypeNode(state, syntaxInfo.typeNode);
+  }
+
   const sourceIdentity = resolveSourceFileIdentity(
-    declNode.getSourceFile().fileName,
+    sourceFileName,
     state.sourceRoot,
     state.rootNamespace
   );
@@ -354,7 +366,11 @@ export const typeFromSyntax = (
   }
 
   const exactTargetName =
-    ts.isTypeAliasDeclaration(declNode) && ts.isTypeLiteralNode(declNode.type)
+    TstsSyntax.IsTypeAliasDeclaration(declNode) &&
+    (() => {
+      const typeNode = getTstsDeclaredTypeNode(declNode);
+      return !!typeNode && TstsSyntax.IsTypeLiteralNode(typeNode);
+    })()
       ? `${nominalEntry.fullyQualifiedName}__Alias`
       : nominalEntry.fullyQualifiedName;
   const exactTypeId = resolveTypeIdByName(

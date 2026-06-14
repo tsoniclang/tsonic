@@ -38,11 +38,10 @@ export type {
   SourceSemanticView,
 } from "./semantic-view.js";
 export type {
-  FrontendSourceCallLikeExpression,
-  FrontendSourceSemanticView,
-} from "./frontend-source-semantic-view.js";
+  TstsSourceCallLikeExpression,
+  TstsFrontendSourceSemanticView,
+} from "./tsts-semantic-view.js";
 export { createTstsSemanticView } from "./tsts-semantic-view.js";
-export type { TstsFrontendSourceSemanticView } from "./tsts-semantic-view.js";
 export type {
   ExtensionReceiverSemanticsFact,
   FieldSemanticsFact,
@@ -80,9 +79,3 @@ export type {
   CreateTstsSourceProgramOptions,
   TstsSourceProgram,
 } from "./tsts-source-program.js";
-export { projectTstsFactsToTypeScriptSource } from "./tsts-fact-projection.js";
-export type {
-  TstsFactProjectionMiss,
-  TstsFactProjectionMissReason,
-  TstsFactProjectionResult,
-} from "./tsts-fact-projection.js";

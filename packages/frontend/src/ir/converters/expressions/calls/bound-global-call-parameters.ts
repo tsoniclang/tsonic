@@ -5,6 +5,7 @@ import {
 import type { ProgramContext } from "../../../program-context.js";
 import type { IrCallExpression, IrType } from "../../../types.js";
 import type { IrParameter } from "../../../types.js";
+import { getNumericKindFromIrType } from "../../../type-system/inference-utilities.js";
 
 const isArityCompatibleForSemanticParameters = (
   parameters: readonly IrParameter[],
@@ -46,33 +47,61 @@ export type BoundGlobalCallParameterTypes =
             readonly elementType: IrType | undefined;
           }
         | undefined;
-    }
+  }
   | undefined;
+
+type BoundGlobalCallLookup = {
+  readonly ownerIdentity: string;
+  readonly providerQualifiedName: string;
+  readonly memberName: string;
+};
+
+const getBoundGlobalCallLookup = (
+  callee: IrCallExpression["callee"]
+): BoundGlobalCallLookup | undefined => {
+  if (
+    callee.kind === "identifier" &&
+    callee.providerOwnerIdentity &&
+    callee.providerQualifiedName &&
+    callee.providerMemberName
+  ) {
+    const memberName = callee.providerMemberName.split(".").pop();
+    return memberName
+      ? {
+          ownerIdentity: callee.providerOwnerIdentity,
+          providerQualifiedName: callee.providerQualifiedName,
+          memberName,
+        }
+      : undefined;
+  }
+
+  if (callee.kind === "memberAccess" && callee.memberBinding?.kind === "method") {
+    return {
+      ownerIdentity: callee.memberBinding.ownerIdentity,
+      providerQualifiedName: callee.memberBinding.type,
+      memberName: callee.memberBinding.member,
+    };
+  }
+
+  return undefined;
+};
 
 export const getBoundGlobalCallParameterTypes = (
   callee: IrCallExpression["callee"],
   argumentCount: number,
+  actualArgTypes: readonly (IrType | undefined)[] | undefined,
   ctx: ProgramContext
 ): BoundGlobalCallParameterTypes => {
-  if (
-    callee.kind !== "identifier" ||
-    !callee.providerOwnerIdentity ||
-    !callee.providerQualifiedName ||
-    !callee.providerMemberName
-  ) {
-    return undefined;
-  }
-
-  const memberName = callee.providerMemberName.split(".").pop();
-  if (!memberName) {
+  const lookup = getBoundGlobalCallLookup(callee);
+  if (!lookup) {
     return undefined;
   }
 
   const overloads = ctx.bindings
     .getTargetMemberOverloads(
-      callee.providerOwnerIdentity,
-      callee.providerQualifiedName,
-      memberName
+      lookup.ownerIdentity,
+      lookup.providerQualifiedName,
+      lookup.memberName
     )
     ?.filter(
       (
@@ -95,11 +124,16 @@ export const getBoundGlobalCallParameterTypes = (
     )
   );
 
-  if (arityCompatible.length !== 1) {
-    return undefined;
-  }
+  const selected =
+    arityCompatible.length === 1
+      ? arityCompatible[0]
+      : selectBoundGlobalOverloadByActualArguments(
+          arityCompatible,
+          argumentCount,
+          actualArgTypes,
+          ctx
+        );
 
-  const [selected] = arityCompatible;
   if (!selected) {
     return undefined;
   }
@@ -119,4 +153,130 @@ export const getBoundGlobalCallParameterTypes = (
       parameterTypes
     ),
   };
+};
+
+const NEGATIVE_INFINITY = Number.NEGATIVE_INFINITY;
+
+const nonNullishMembers = (type: IrType): readonly IrType[] =>
+  type.kind === "unionType"
+    ? type.types.filter(
+        (member) =>
+          !(
+            member.kind === "primitiveType" &&
+            (member.name === "null" || member.name === "undefined")
+          )
+      )
+    : [type];
+
+const scoreNumericParameter = (
+  parameterType: IrType,
+  actualType: IrType
+): number | undefined => {
+  const actualKind = getNumericKindFromIrType(actualType);
+  const parameterKind = getNumericKindFromIrType(parameterType);
+  if (!actualKind || !parameterKind) {
+    return undefined;
+  }
+
+  if (actualKind === "float64") {
+    return parameterKind === "float64" ? 90 : NEGATIVE_INFINITY;
+  }
+
+  if (actualKind === parameterKind) {
+    return 100;
+  }
+
+  return undefined;
+};
+
+const scoreParameterForActualArgument = (
+  parameterType: IrType | undefined,
+  actualType: IrType | undefined,
+  ctx: ProgramContext
+): number | undefined => {
+  if (!parameterType || !actualType) {
+    return 0;
+  }
+
+  const memberScores = nonNullishMembers(parameterType).map((member) => {
+    if (ctx.typeSystem.typesEqual(actualType, member)) {
+      return 120;
+    }
+
+    const numericScore = scoreNumericParameter(member, actualType);
+    if (numericScore !== undefined) {
+      return numericScore;
+    }
+
+    if (ctx.typeSystem.isAssignableTo(actualType, member)) {
+      return member.kind === "unknownType" || member.kind === "anyType" ? 10 : 70;
+    }
+
+    return NEGATIVE_INFINITY;
+  });
+
+  const bestScore = Math.max(...memberScores);
+  return bestScore === NEGATIVE_INFINITY ? undefined : bestScore;
+};
+
+const selectBoundGlobalOverloadByActualArguments = <
+  TOverload extends {
+    readonly semanticSignature: {
+      readonly parameters: readonly IrParameter[];
+      readonly returnType?: IrType | undefined;
+    };
+  },
+>(
+  overloads: readonly TOverload[],
+  argumentCount: number,
+  actualArgTypes: readonly (IrType | undefined)[] | undefined,
+  ctx: ProgramContext
+): TOverload | undefined => {
+  if (!actualArgTypes || actualArgTypes.length === 0) {
+    return undefined;
+  }
+
+  let selected: TOverload | undefined;
+  let selectedScore = NEGATIVE_INFINITY;
+  let tied = false;
+
+  for (const overload of overloads) {
+    const parameterTypes = expandParameterTypesForArguments(
+      overload.semanticSignature.parameters,
+      overload.semanticSignature.parameters.map((parameter) => parameter.type),
+      argumentCount
+    );
+    let score = 0;
+    let accepts = true;
+
+    for (let index = 0; index < argumentCount; index += 1) {
+      const parameterScore = scoreParameterForActualArgument(
+        parameterTypes[index],
+        actualArgTypes[index],
+        ctx
+      );
+      if (parameterScore === undefined) {
+        accepts = false;
+        break;
+      }
+      score += parameterScore;
+    }
+
+    if (!accepts) {
+      continue;
+    }
+
+    if (score > selectedScore) {
+      selected = overload;
+      selectedScore = score;
+      tied = false;
+      continue;
+    }
+
+    if (score === selectedScore) {
+      tied = true;
+    }
+  }
+
+  return tied ? undefined : selected;
 };

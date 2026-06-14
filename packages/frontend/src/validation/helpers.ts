@@ -2,30 +2,27 @@
  * Validation helper functions
  */
 
-import * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
+import { getTstsNodeLocation, hasTstsExportModifier } from "@tsonic/tsts";
 
-// Re-export hasExportModifier from graph helpers to avoid duplication
-export { hasExportModifier } from "../graph/helpers.js";
+export const hasExportModifier = (node: TstsNode): boolean =>
+  hasTstsExportModifier(node);
 
 /**
  * Get location information for a node
  */
 export const getNodeLocation = (
-  sourceFile: ts.SourceFile,
-  node: ts.Node
+  sourceFile: TstsSourceFile,
+  node: TstsNode
 ): {
   readonly file: string;
   readonly line: number;
   readonly column: number;
   readonly length: number;
-} => {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(
-    node.getStart()
-  );
-  return {
-    file: sourceFile.fileName,
-    line: line + 1,
-    column: character + 1,
-    length: node.getWidth(),
+} =>
+  getTstsNodeLocation(sourceFile, node) ?? {
+    file: sourceFile.FileName(),
+    line: 1,
+    column: 1,
+    length: 0,
   };
-};

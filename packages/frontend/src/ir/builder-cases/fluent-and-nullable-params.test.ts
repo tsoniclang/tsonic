@@ -82,7 +82,7 @@ describe("IR Builder", function () {
       const fixture = createFilesystemTestProgram(
         {
           "src/index.ts": [
-            'import { int } from "@tsonic/core/types.js";',
+            'import type { int } from "@tsonic/core/types.js";',
             "",
             "function getDefault(value: string | null | undefined): string {",
             '  return value ?? "default";',
@@ -198,7 +198,7 @@ describe("IR Builder", function () {
       const fixture = createFilesystemTestProgram(
         {
           "src/index.ts": [
-            'import { int } from "@tsonic/core/types.js";',
+            'import type { int } from "@tsonic/core/types.js";',
             "",
             "type Query = {",
             "  limit?: int;",

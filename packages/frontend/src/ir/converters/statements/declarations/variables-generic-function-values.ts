@@ -1,4 +1,14 @@
-import * as ts from "typescript";
+import {
+  getTstsContainingSourceFileName,
+  getTstsDeclaredTypeNode,
+  getTstsInitializerNode,
+  getTstsNodeNameText,
+  getTstsParameters,
+  getTstsTypeParameterNodes,
+  TstsSyntax,
+  type TstsNode,
+  type TstsSymbol,
+} from "@tsonic/tsts";
 import {
   IrArrowFunctionExpression,
   IrBlockStatement,
@@ -10,14 +20,16 @@ import {
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
-import type { FrontendSourceSemanticView } from "../../../../source-frontend/index.js";
+import type { TstsFrontendSourceSemanticView } from "../../../../source-frontend/index.js";
 import {
   convertParameters,
   convertTypeParameters,
+  definedTstsNodes,
   hasExportModifier,
 } from "../helpers.js";
 import {
   getSupportedGenericFunctionValueSymbol,
+  isGenericFunctionDeclarationNode,
   isDeterministicGenericFunctionAliasTargetSymbol,
   isGenericFunctionValueNode,
   type GenericFunctionValueNode,
@@ -37,19 +49,18 @@ const resolveGenericFunctionValueReturnType = (
 };
 
 export const isSupportedGenericFunctionValueDeclaration = (
-  decl: ts.VariableDeclaration,
-  sourceSemantics: FrontendSourceSemanticView,
-  writtenSymbols: ReadonlySet<ts.Symbol>
-): decl is ts.VariableDeclaration & {
-  readonly name: ts.Identifier;
-  readonly initializer: GenericFunctionValueNode;
-} => {
-  if (!ts.isIdentifier(decl.name)) return false;
-  if (!decl.initializer || !isGenericFunctionValueNode(decl.initializer)) {
+  decl: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  writtenSymbols: ReadonlySet<TstsSymbol>
+): boolean => {
+  const name = TstsSyntax.Node_Name(decl);
+  const initializer = getTstsInitializerNode(decl);
+  if (!name || !TstsSyntax.IsIdentifier(name)) return false;
+  if (!initializer || !isGenericFunctionValueNode(initializer)) {
     return false;
   }
   const symbol = getSupportedGenericFunctionValueSymbol(
-    decl.initializer,
+    initializer,
     sourceSemantics,
     writtenSymbols
   );
@@ -57,9 +68,9 @@ export const isSupportedGenericFunctionValueDeclaration = (
 };
 
 const resolveSymbol = (
-  sourceSemantics: FrontendSourceSemanticView,
-  node: ts.Node
-): ts.Symbol | undefined => {
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  node: TstsNode
+): TstsSymbol | undefined => {
   const symbol = sourceSemantics.getSymbol(node);
   if (!symbol) return undefined;
   return sourceSemantics.resolveAlias(symbol);
@@ -73,49 +84,40 @@ type GenericFunctionAliasTarget =
     }
   | {
       readonly kind: "functionDeclaration";
-      readonly declaration: ts.FunctionDeclaration & {
-        readonly name: ts.Identifier;
-      };
+      readonly declaration: TstsNode;
     };
 
 const resolveGenericFunctionAliasTargetFromSymbol = (
-  symbol: ts.Symbol,
-  sourceSemantics: FrontendSourceSemanticView,
-  seen: Set<ts.Symbol>
+  symbol: TstsSymbol,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  seen: Set<TstsSymbol>
 ): GenericFunctionAliasTarget | undefined => {
   if (seen.has(symbol)) return undefined;
   seen.add(symbol);
 
   for (const declaration of sourceSemantics.getSymbolDeclarations(symbol)) {
-    if (
-      ts.isFunctionDeclaration(declaration) &&
-      declaration.name &&
-      ts.isIdentifier(declaration.name) &&
-      declaration.typeParameters &&
-      declaration.typeParameters.length > 0
-    ) {
+    if (isGenericFunctionDeclarationNode(declaration)) {
       return {
         kind: "functionDeclaration",
-        declaration: declaration as ts.FunctionDeclaration & {
-          readonly name: ts.Identifier;
-        },
+        declaration,
       };
     }
 
     if (
-      ts.isVariableDeclaration(declaration) &&
-      ts.isIdentifier(declaration.name)
+      TstsSyntax.IsVariableDeclaration(declaration) &&
+      TstsSyntax.Node_Name(declaration) &&
+      TstsSyntax.IsIdentifier(TstsSyntax.Node_Name(declaration))
     ) {
-      const initializer = declaration.initializer;
+      const initializer = getTstsInitializerNode(declaration);
       if (initializer && isGenericFunctionValueNode(initializer)) {
         return {
           kind: "genericValue",
-          name: declaration.name.text,
+          name: getTstsNodeNameText(declaration) ?? "_",
           initializer,
         };
       }
 
-      if (initializer && ts.isIdentifier(initializer)) {
+      if (initializer && TstsSyntax.IsIdentifier(initializer)) {
         const targetSymbol = resolveSymbol(sourceSemantics, initializer);
         if (!targetSymbol) continue;
         const resolved = resolveGenericFunctionAliasTargetFromSymbol(
@@ -132,30 +134,34 @@ const resolveGenericFunctionAliasTargetFromSymbol = (
 };
 
 export const isSupportedGenericFunctionAliasDeclaration = (
-  decl: ts.VariableDeclaration,
-  sourceSemantics: FrontendSourceSemanticView,
-  writtenSymbols: ReadonlySet<ts.Symbol>,
-  supportedSymbols: ReadonlySet<ts.Symbol>
-): decl is ts.VariableDeclaration & {
-  readonly name: ts.Identifier;
-  readonly initializer: ts.Identifier;
-} => {
-  if (!ts.isIdentifier(decl.name)) return false;
-  if (!decl.initializer || !ts.isIdentifier(decl.initializer)) return false;
+  decl: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  writtenSymbols: ReadonlySet<TstsSymbol>,
+  supportedSymbols: ReadonlySet<TstsSymbol>
+): boolean => {
+  const name = TstsSyntax.Node_Name(decl);
+  const initializer = getTstsInitializerNode(decl);
+  if (!name || !TstsSyntax.IsIdentifier(name)) return false;
+  if (!initializer || !TstsSyntax.IsIdentifier(initializer)) return false;
 
-  const declarationList = decl.parent;
-  if (!declarationList || !ts.isVariableDeclarationList(declarationList)) {
+  const declarationList = decl.Parent;
+  if (
+    !declarationList ||
+    !TstsSyntax.IsVariableDeclarationList(declarationList)
+  ) {
     return false;
   }
-  const isConst = (declarationList.flags & ts.NodeFlags.Const) !== 0;
-  const isLet = (declarationList.flags & ts.NodeFlags.Let) !== 0;
+  const declarationFlags =
+    TstsSyntax.AsVariableDeclarationList(declarationList)?.Flags ?? 0;
+  const isConst = (declarationFlags & TstsSyntax.NodeFlagsConst) !== 0;
+  const isLet = (declarationFlags & TstsSyntax.NodeFlagsLet) !== 0;
   if (!isConst && !isLet) return false;
 
-  const aliasSymbol = resolveSymbol(sourceSemantics, decl.name);
+  const aliasSymbol = resolveSymbol(sourceSemantics, name);
   if (!aliasSymbol) return false;
   if (!isConst && writtenSymbols.has(aliasSymbol)) return false;
 
-  const targetSymbol = resolveSymbol(sourceSemantics, decl.initializer);
+  const targetSymbol = resolveSymbol(sourceSemantics, initializer);
   if (!targetSymbol) return false;
   return isDeterministicGenericFunctionAliasTargetSymbol(
     targetSymbol,
@@ -165,12 +171,12 @@ export const isSupportedGenericFunctionAliasDeclaration = (
 };
 
 const createTypeParameterTypeArgs = (
-  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined
+  typeParameters: readonly TstsNode[] | undefined
 ): readonly IrType[] | undefined => {
   if (!typeParameters || typeParameters.length === 0) return undefined;
   return typeParameters.map((typeParameter) => ({
     kind: "typeParameterType" as const,
-    name: typeParameter.name.text,
+    name: getTstsNodeNameText(typeParameter) ?? "_",
   }));
 };
 
@@ -201,14 +207,16 @@ const createIdentifierArgumentsForParameters = (
 };
 
 export const convertGenericFunctionValueDeclaration = (
-  node: ts.VariableStatement,
-  decl: ts.VariableDeclaration & {
-    readonly name: ts.Identifier;
-    readonly initializer: GenericFunctionValueNode;
-  },
+  node: TstsNode,
+  decl: TstsNode,
   ctx: ProgramContext
 ): IrFunctionDeclaration | null => {
-  const initializer = convertExpression(decl.initializer, ctx, undefined);
+  const initializerNode = getTstsInitializerNode(decl);
+  if (!initializerNode || !isGenericFunctionValueNode(initializerNode)) {
+    return null;
+  }
+
+  const initializer = convertExpression(initializerNode, ctx, undefined);
   if (
     initializer.kind !== "arrowFunction" &&
     initializer.kind !== "functionExpression"
@@ -235,8 +243,11 @@ export const convertGenericFunctionValueDeclaration = (
 
   return {
     kind: "functionDeclaration",
-    name: decl.name.text,
-    typeParameters: convertTypeParameters(decl.initializer.typeParameters, ctx),
+    name: getTstsNodeNameText(decl) ?? "_",
+    typeParameters: convertTypeParameters(
+      definedTstsNodes(getTstsTypeParameterNodes(initializerNode)),
+      ctx
+    ),
     parameters: initializer.parameters,
     returnType: resolveGenericFunctionValueReturnType(initializer),
     body,
@@ -250,20 +261,22 @@ export const convertGenericFunctionValueDeclaration = (
 };
 
 export const convertGenericFunctionValueAliasDeclaration = (
-  node: ts.VariableStatement,
-  decl: ts.VariableDeclaration & {
-    readonly name: ts.Identifier;
-    readonly initializer: ts.Identifier;
-  },
+  node: TstsNode,
+  decl: TstsNode,
   ctx: ProgramContext
 ): IrFunctionDeclaration | null => {
-  const targetSymbol = resolveSymbol(ctx.sourceSemantics, decl.initializer);
+  const initializerNode = getTstsInitializerNode(decl);
+  if (!initializerNode || !TstsSyntax.IsIdentifier(initializerNode)) {
+    return null;
+  }
+
+  const targetSymbol = resolveSymbol(ctx.sourceSemantics, initializerNode);
   if (!targetSymbol) return null;
 
   const target = resolveGenericFunctionAliasTargetFromSymbol(
     targetSymbol,
     ctx.sourceSemantics,
-    new Set<ts.Symbol>()
+    new Set<TstsSymbol>()
   );
   if (!target) return null;
 
@@ -288,13 +301,13 @@ export const convertGenericFunctionValueAliasDeclaration = (
     }
     targetName = target.name;
     typeParameters = convertTypeParameters(
-      target.initializer.typeParameters,
+      definedTstsNodes(getTstsTypeParameterNodes(target.initializer)),
       ctx
     );
     parameters = convertedTarget.parameters;
     returnType = resolveGenericFunctionValueReturnType(convertedTarget);
     typeArguments = createTypeParameterTypeArgs(
-      target.initializer.typeParameters
+      definedTstsNodes(getTstsTypeParameterNodes(target.initializer))
     );
     callee = {
       kind: "identifier",
@@ -302,17 +315,24 @@ export const convertGenericFunctionValueAliasDeclaration = (
     };
   } else {
     const declaration = target.declaration;
-    targetName = declaration.name.text;
-    typeParameters = convertTypeParameters(declaration.typeParameters, ctx);
-    parameters = convertParameters(declaration.parameters, ctx);
-    returnType = declaration.type
+    targetName = getTstsNodeNameText(declaration) ?? "_";
+    typeParameters = convertTypeParameters(
+      definedTstsNodes(getTstsTypeParameterNodes(declaration)),
+      ctx
+    );
+    parameters = convertParameters(
+      definedTstsNodes(getTstsParameters(declaration)),
+      ctx
+    );
+    const returnTypeNode = getTstsDeclaredTypeNode(declaration);
+    returnType = returnTypeNode
       ? ctx.typeSystem.typeFromSyntax(
-          ctx.binding.captureTypeSyntax(declaration.type)
+          ctx.binding.captureTypeSyntax(returnTypeNode)
         )
       : undefined;
     if (!returnType) {
       const targetIdentifier = convertExpression(
-        decl.initializer,
+        initializerNode,
         ctx,
         undefined
       );
@@ -326,11 +346,14 @@ export const convertGenericFunctionValueAliasDeclaration = (
     if (!returnType) {
       return null;
     }
-    typeArguments = createTypeParameterTypeArgs(declaration.typeParameters);
+    typeArguments = createTypeParameterTypeArgs(
+      definedTstsNodes(getTstsTypeParameterNodes(declaration))
+    );
     const isCrossModuleTarget =
-      declaration.getSourceFile() !== decl.getSourceFile();
+      getTstsContainingSourceFileName(declaration) !==
+      getTstsContainingSourceFileName(decl);
     if (isCrossModuleTarget) {
-      callee = convertExpression(decl.initializer, ctx, undefined);
+      callee = convertExpression(initializerNode, ctx, undefined);
     } else {
       callee = {
         kind: "identifier",
@@ -378,7 +401,7 @@ export const convertGenericFunctionValueAliasDeclaration = (
 
   return {
     kind: "functionDeclaration",
-    name: decl.name.text,
+    name: getTstsNodeNameText(decl) ?? "_",
     typeParameters,
     parameters,
     returnType,

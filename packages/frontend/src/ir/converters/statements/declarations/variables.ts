@@ -2,7 +2,14 @@
  * Variable declaration converter
  */
 
-import * as ts from "typescript";
+import {
+  getTstsContainingSourceFile,
+  getTstsDeclaredTypeNode,
+  getTstsInitializerNode,
+  TstsSyntax,
+  type TstsNode,
+  type TstsSymbol,
+} from "@tsonic/tsts";
 import {
   IrVariableDeclaration,
   IrVariableDeclarator,
@@ -10,7 +17,7 @@ import {
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
-import { hasExportModifier } from "../helpers.js";
+import { definedTstsNodes, hasExportModifier } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import {
   collectWrittenSymbols,
@@ -43,25 +50,25 @@ import {
  * Check if a variable statement is at module level (not inside a function).
  * Module-level variables become static fields in target and need explicit types.
  */
-const isModuleLevelVariable = (node: ts.VariableStatement): boolean => {
+const isModuleLevelVariable = (node: TstsNode): boolean => {
   // Walk up the parent chain to check if we're inside a function/method
-  let current: ts.Node = node;
-  while (current.parent) {
-    current = current.parent;
+  let current: TstsNode = node;
+  while (current.Parent) {
+    current = current.Parent;
     // If we hit a function-like node, we're not at module level
     if (
-      ts.isFunctionDeclaration(current) ||
-      ts.isFunctionExpression(current) ||
-      ts.isArrowFunction(current) ||
-      ts.isMethodDeclaration(current) ||
-      ts.isConstructorDeclaration(current) ||
-      ts.isGetAccessorDeclaration(current) ||
-      ts.isSetAccessorDeclaration(current)
+      TstsSyntax.IsFunctionDeclaration(current) ||
+      TstsSyntax.IsFunctionExpression(current) ||
+      TstsSyntax.IsArrowFunction(current) ||
+      TstsSyntax.IsMethodDeclaration(current) ||
+      TstsSyntax.IsConstructorDeclaration(current) ||
+      TstsSyntax.IsGetAccessorDeclaration(current) ||
+      TstsSyntax.IsSetAccessorDeclaration(current)
     ) {
       return false;
     }
     // If we hit the source file, we're at module level
-    if (ts.isSourceFile(current)) {
+    if (current.Kind === TstsSyntax.KindSourceFile) {
       return true;
     }
   }
@@ -72,9 +79,12 @@ const isModuleLevelVariable = (node: ts.VariableStatement): boolean => {
  * Check if a variable declaration has a binding pattern (destructuring).
  * Binding patterns include array patterns ([a, b]) and object patterns ({x, y}).
  */
-const isBindingPattern = (decl: ts.VariableDeclaration): boolean => {
+const isBindingPattern = (decl: TstsNode): boolean => {
+  const name = TstsSyntax.Node_Name(decl);
   return (
-    ts.isArrayBindingPattern(decl.name) || ts.isObjectBindingPattern(decl.name)
+    !!name &&
+    (TstsSyntax.IsArrayBindingPattern(name) ||
+      TstsSyntax.IsObjectBindingPattern(name))
   );
 };
 
@@ -84,15 +94,16 @@ const isBindingPattern = (decl: ts.VariableDeclaration): boolean => {
  * should influence literal type inference.
  */
 const getExpectedTypeForInitializer = (
-  decl: ts.VariableDeclaration,
+  decl: TstsNode,
   ctx: ProgramContext
 ) => {
   // Only use explicit type annotation as expectedType
   // Inferred types should NOT influence literal typing
-  if (decl.type) {
+  const typeNode = getTstsDeclaredTypeNode(decl);
+  if (typeNode) {
     // Convert variable declaration syntax through the TypeSystem.
     return ctx.typeSystem.typeFromSyntax(
-      ctx.binding.captureTypeSyntax(decl.type)
+      ctx.binding.captureTypeSyntax(typeNode)
     );
   }
   return undefined;
@@ -111,11 +122,16 @@ const getExpectedTypeForInitializer = (
  * between the variable declaration and its initializer.
  */
 export const convertVariableStatement = (
-  node: ts.VariableStatement,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrVariableDeclaration | IrStatement | readonly IrStatement[] => {
-  const isConst = !!(node.declarationList.flags & ts.NodeFlags.Const);
-  const isLet = !!(node.declarationList.flags & ts.NodeFlags.Let);
+  const declarationList = TstsSyntax.AsVariableStatement(node)?.DeclarationList;
+  const declarationFlags =
+    declarationList !== undefined
+      ? (TstsSyntax.AsVariableDeclarationList(declarationList)?.Flags ?? 0)
+      : 0;
+  const isConst = (declarationFlags & TstsSyntax.NodeFlagsConst) !== 0;
+  const isLet = (declarationFlags & TstsSyntax.NodeFlagsLet) !== 0;
   const declarationKind = isConst ? "const" : isLet ? "let" : "var";
   const isExported = hasExportModifier(node);
 
@@ -126,27 +142,23 @@ export const convertVariableStatement = (
   let currentCtx = ctx;
   const declarations: IrVariableDeclarator[] = [];
   const loweredStatements: IrStatement[] = [];
-  const sourceFile = (() => {
-    try {
-      return node.getSourceFile();
-    } catch {
-      return undefined;
-    }
-  })();
+  const sourceFile = getTstsContainingSourceFile(node);
   const writtenSymbols = sourceFile
     ? collectWrittenSymbols(sourceFile, ctx.sourceSemantics)
-    : new Set<ts.Symbol>();
+    : new Set<TstsSymbol>();
   const supportedGenericFunctionValueSymbols = sourceFile
     ? collectSupportedGenericFunctionValueSymbols(
         sourceFile,
         ctx.sourceSemantics,
         writtenSymbols
       )
-    : new Set<ts.Symbol>();
+    : new Set<TstsSymbol>();
 
   // Convert declarations sequentially so later declarators can refer to earlier ones:
   //   const a = false, b = !a;
-  for (const decl of node.declarationList.declarations) {
+  for (const decl of definedTstsNodes(
+    TstsSyntax.AsVariableDeclarationList(declarationList)?.Declarations?.Nodes
+  )) {
     if (
       isSupportedGenericFunctionValueDeclaration(
         decl,
@@ -189,17 +201,19 @@ export const convertVariableStatement = (
     const expectedType = getExpectedTypeForInitializer(decl, currentCtx);
 
     // Convert initializer first so we can deterministically derive types from IR.
-    const convertedInitializer = decl.initializer
-      ? convertExpression(decl.initializer, currentCtx, expectedType)
+    const initializerNode = getTstsInitializerNode(decl);
+    const convertedInitializer = initializerNode
+      ? convertExpression(initializerNode, currentCtx, expectedType)
       : undefined;
 
     // Determine declared type:
     // 1) Explicit annotation wins.
     // 2) For module-level/static variables (and exports), target requires explicit type.
-    //    Derive from initializer deterministically (no TS fallback).
-    const explicitDeclaredType = decl.type
+    //    Derive from converted initializer metadata.
+    const explicitTypeNode = getTstsDeclaredTypeNode(decl);
+    const explicitDeclaredType = explicitTypeNode
       ? currentCtx.typeSystem.typeFromSyntax(
-          currentCtx.binding.captureTypeSyntax(decl.type)
+          currentCtx.binding.captureTypeSyntax(explicitTypeNode)
         )
       : undefined;
     const mutableNumericLiteralType =
@@ -207,9 +221,12 @@ export const convertVariableStatement = (
         declarationKind,
         explicitDeclaredType,
         convertedInitializer,
-        ts.isIdentifier(decl.name)
+        TstsSyntax.Node_Name(decl) &&
+          TstsSyntax.IsIdentifier(TstsSyntax.Node_Name(decl))
           ? (currentCtx.mutableNumericLiteralWideningDeclIds?.has(
-              currentCtx.binding.resolveIdentifier(decl.name)?.id ?? -1
+              currentCtx.binding.resolveIdentifier(
+                TstsSyntax.Node_Name(decl) ?? decl
+              )?.id ?? -1
             ) ?? false)
           : false
       );
@@ -226,7 +243,7 @@ export const convertVariableStatement = (
 
     const irDecl: IrVariableDeclarator = {
       kind: "variableDeclarator",
-      name: convertBindingName(decl.name, currentCtx),
+      name: convertBindingName(TstsSyntax.Node_Name(decl) ?? decl, currentCtx),
       type: declaredType,
       initializer: convertedInitializer,
     };
@@ -234,7 +251,11 @@ export const convertVariableStatement = (
     declarations.push(irDecl);
 
     // Thread deterministic local types forward within the same statement.
-    currentCtx = withVariableDeclaratorTypeEnv(currentCtx, decl.name, irDecl);
+    currentCtx = withVariableDeclaratorTypeEnv(
+      currentCtx,
+      TstsSyntax.Node_Name(decl) ?? decl,
+      irDecl
+    );
   }
 
   const variableStatement: IrVariableDeclaration = {

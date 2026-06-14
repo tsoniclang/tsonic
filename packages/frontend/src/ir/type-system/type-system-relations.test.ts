@@ -1,8 +1,12 @@
 import { expect } from "chai";
 import { describe, it } from "mocha";
 import type { IrInterfaceMember, IrType } from "../types/index.js";
-import { isAssignableTo } from "./type-system-relations.js";
+import {
+  getSourcePrimitiveAliasName,
+  isAssignableTo,
+} from "./type-system-relations.js";
 import type { TypeSystemState } from "./type-system-state.js";
+import type { TypeId } from "./internal/universe/catalog-types.js";
 
 const stringType: IrType = { kind: "primitiveType", name: "string" };
 const numberType: IrType = { kind: "primitiveType", name: "number" };
@@ -70,5 +74,39 @@ describe("type-system relations", () => {
 
     expect(() => isAssignableTo(state, source, target)).not.to.throw();
     expect(isAssignableTo(state, source, target)).to.equal(false);
+  });
+
+  it("treats provider primitive references as their source primitive aliases", () => {
+    const int32Id: TypeId = {
+      stableId: "System.Private.CoreLib:System.Int32",
+      providerName: "System.Int32",
+      ownerIdentity: "System.Private.CoreLib",
+      sourceName: "Int32",
+    };
+    const providerPrimitiveState = {
+      unifiedCatalog: {
+        resolveProviderName: (name: string) =>
+          name === "System.Int32" ? int32Id : undefined,
+        resolveTsName: () => undefined,
+        getByTypeId: (typeId: TypeId) =>
+          typeId.stableId === int32Id.stableId
+            ? { sourcePrimitiveName: "int" }
+            : undefined,
+      },
+    } as unknown as TypeSystemState;
+
+    const sourceInt: IrType = { kind: "primitiveType", name: "int" };
+    const providerInt32: IrType = {
+      kind: "referenceType",
+      name: "System.Int32",
+      providerQualifiedName: "System.Int32",
+    };
+
+    expect(
+      getSourcePrimitiveAliasName(providerPrimitiveState, providerInt32)
+    ).to.equal("int");
+    expect(
+      isAssignableTo(providerPrimitiveState, sourceInt, providerInt32)
+    ).to.equal(true);
   });
 });

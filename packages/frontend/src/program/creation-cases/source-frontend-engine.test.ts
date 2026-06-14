@@ -3,10 +3,12 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as ts from "typescript";
 import { createProgram } from "../creation.js";
 import { installMinimalCoreGlobalsSurface } from "./test-package-helpers.js";
-import { getTstsTypeReferenceName, visitTstsSubtree } from "@tsonic/tsts";
+import {
+  getTstsTypeReferenceName,
+  visitTstsSubtree,
+} from "@tsonic/tsts";
 import {
   extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,
@@ -87,15 +89,20 @@ describe("Program Creation – source frontend engine", () => {
 
       const facts = result.value.sourceProgram.extensionHost.facts;
       const primitiveKinds: string[] = [];
-      for (const sourceFile of result.value.sourceProgram.sourceFiles) {
-        visitTstsSubtree(sourceFile, (node) => {
-          if (!node || getTstsTypeReferenceName(node) !== "int") return;
-          const fact = facts.get(numericPrimitiveFactKey, node);
-          if (fact) {
-            primitiveKinds.push(fact.kind);
-          }
-        });
-      }
+      const entrySourceFile = result.value.sourceProgram.sourceFiles.find(
+        (sourceFile) =>
+          path.resolve(sourceFile.FileName()) === path.resolve(fixture.entryPath)
+      );
+      expect(entrySourceFile).to.not.equal(undefined);
+      if (!entrySourceFile) return;
+
+      visitTstsSubtree(entrySourceFile, (node) => {
+        if (!node || getTstsTypeReferenceName(node) !== "int") return;
+        const fact = facts.get(numericPrimitiveFactKey, node);
+        if (fact) {
+          primitiveKinds.push(fact.kind);
+        }
+      });
 
       expect(primitiveKinds).to.deep.equal(["int32"]);
     } finally {
@@ -134,13 +141,14 @@ describe("Program Creation – source frontend engine", () => {
       if (!result.ok) return;
 
       const sourceFile = result.value.sourceFiles.find(
-        (candidate) => candidate.fileName === fixture.entryPath
+        (candidate) => candidate.FileName() === fixture.entryPath
       );
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
       const projected: string[] = [];
-      const visit = (node: ts.Node): void => {
+      visitTstsSubtree(sourceFile, (node) => {
+        if (!node) return;
         const primitive = result.value.sourceSemantics.getFact(
           node,
           numericPrimitiveFactKey
@@ -184,11 +192,7 @@ describe("Program Creation – source frontend engine", () => {
           intrinsicSemanticsFactKey
         );
         if (intrinsic) projected.push(`intrinsic:${intrinsic.kind}`);
-
-        ts.forEachChild(node, visit);
-      };
-
-      visit(sourceFile);
+      });
 
       expect(projected).to.include.members([
         "type:struct",

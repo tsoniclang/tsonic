@@ -1,11 +1,11 @@
 /**
  * TypeSystem Handle Types and Result Types
  *
- * This module defines opaque handles for TS declarations and
+ * This module defines opaque handles for source declarations and
  * result types for TypeSystem queries. These form the boundary
- * between the Binding layer (TS-allowed) and TypeSystem layer (TS-free).
+ * between the Binding layer and TypeSystem layer.
  *
- * INVARIANT: No ts.Type, ts.Symbol, or ts.Signature types appear
+ * INVARIANT: No source-engine type, symbol, or signature objects appear
  * in the TypeSystem layer. Only opaque handles cross the boundary.
  */
 
@@ -13,7 +13,7 @@ import type { IrType } from "../types/index.js";
 import type { Diagnostic } from "../../types/diagnostic.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// HANDLE TYPES — Opaque references to TS declarations
+// HANDLE TYPES — Opaque references to source declarations
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**

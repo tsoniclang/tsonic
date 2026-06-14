@@ -1,6 +1,6 @@
-import type * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
 import type { Diagnostic } from "../../types/diagnostic.js";
-import type { FrontendSourceSemanticView } from "../../source-frontend/index.js";
+import type { TstsFrontendSourceSemanticView } from "../../source-frontend/index.js";
 import type { IrType } from "../types/index.js";
 import type { AliasTable } from "./internal/universe/alias-table.js";
 import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
@@ -35,13 +35,14 @@ export type TypeSystemState = {
   readonly resolveConstructorSignature: (
     node: unknown
   ) => SignatureId | undefined;
-  readonly sourceSemantics: FrontendSourceSemanticView;
-  readonly tsCompilerOptions: ts.CompilerOptions;
-  readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
+  readonly sourceSemantics: TstsFrontendSourceSemanticView;
+  readonly sourceFilesByPath: ReadonlyMap<string, TstsSourceFile>;
 
   // Mutable caches (shared by reference)
   readonly declTypeCache: Map<number, IrType>;
   readonly memberDeclaredTypeCache: Map<string, IrType>;
+  readonly ambientInterfaceDeclarationCache: Map<string, readonly TstsNode[]>;
+  readonly ambientMemberLookupCache: Map<string, IrType | null>;
   readonly signatureRawCache: Map<number, RawSignatureInfo>;
   readonly nominalMemberLookupCache: Map<string, NominalLookupResult | null>;
 

@@ -1,31 +1,32 @@
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsHeritageTypeNodes,
+  getTstsMemberNodes,
+  getTstsNodeNameText,
+  getTstsParameters,
+  hasTstsPrivateModifier,
+  hasTstsProtectedModifier,
+  hasTstsReadonlyModifier,
+  hasTstsStaticModifier,
+  isTstsOptionalParameter,
+  isTstsRestParameter,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import type { IrInterfaceMember, IrType } from "../types/index.js";
 import { isOverloadStubImplementation } from "../syntax/overload-stubs.js";
 import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 import type { TypeSystemState } from "./type-system-state.js";
 
-const getModifiers = (node: ts.Node): readonly ts.ModifierLike[] | undefined =>
-  ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
-
-const hasModifier = (
-  modifiers: readonly ts.ModifierLike[] | undefined,
-  kind: ts.SyntaxKind
-): boolean => modifiers?.some((modifier) => modifier.kind === kind) ?? false;
-
-const isPublicInstanceClassMember = (member: ts.ClassElement): boolean => {
-  if (ts.isConstructorDeclaration(member)) return false;
-  const modifiers = getModifiers(member);
-  if (hasModifier(modifiers, ts.SyntaxKind.StaticKeyword)) return false;
-  if (
-    hasModifier(modifiers, ts.SyntaxKind.PrivateKeyword) ||
-    hasModifier(modifiers, ts.SyntaxKind.ProtectedKeyword)
-  ) {
+const isPublicInstanceClassMember = (member: TstsNode): boolean => {
+  if (TstsSyntax.IsConstructorDeclaration(member)) return false;
+  if (hasTstsStaticModifier(member)) return false;
+  if (hasTstsPrivateModifier(member) || hasTstsProtectedModifier(member)) {
     return false;
   }
-  return !(
-    "name" in member &&
-    member.name &&
-    ts.isPrivateIdentifier(member.name)
+  return (
+    TstsSyntax.Node_PropertyNameOrName(member)?.Kind !==
+    TstsSyntax.KindPrivateIdentifier
   );
 };
 
@@ -44,27 +45,36 @@ const collectMembersFromIrType = (
   return [];
 };
 
+const concreteTstsNodes = (
+  nodes: readonly (TstsNode | undefined)[]
+): readonly TstsNode[] =>
+  nodes.filter((node): node is TstsNode => node !== undefined);
+
 const collectInheritedMembers = (
   state: TypeSystemState,
-  declaration: ts.ClassDeclaration | ts.InterfaceDeclaration
+  declaration: TstsNode
 ): readonly IrInterfaceMember[] =>
-  (declaration.heritageClauses ?? []).flatMap((clause) =>
-    clause.types.flatMap((heritageType) =>
-      collectMembersFromIrType(state.convertTypeNodeRaw(heritageType))
-    )
+  getTstsHeritageTypeNodes(declaration).flatMap((heritageType) =>
+    collectMembersFromIrType(state.convertTypeNodeRaw(heritageType))
   );
 
 const getDeclarationMembers = (
-  declaration: ts.Declaration
-): ts.NodeArray<ts.ClassElement> | ts.NodeArray<ts.TypeElement> | undefined => {
-  if (ts.isClassDeclaration(declaration)) return declaration.members;
-  if (ts.isInterfaceDeclaration(declaration)) return declaration.members;
+  declaration: TstsNode
+): readonly TstsNode[] | undefined => {
   if (
-    ts.isTypeAliasDeclaration(declaration) &&
-    ts.isTypeLiteralNode(declaration.type)
+    TstsSyntax.IsClassDeclaration(declaration) ||
+    TstsSyntax.IsInterfaceDeclaration(declaration)
   ) {
-    return declaration.type.members;
+    return concreteTstsNodes(getTstsMemberNodes(declaration));
   }
+
+  if (TstsSyntax.IsTypeAliasDeclaration(declaration)) {
+    const typeNode = getTstsDeclaredTypeNode(declaration);
+    if (typeNode?.Kind === TstsSyntax.KindTypeLiteral) {
+      return concreteTstsNodes(TstsSyntax.Node_Members(typeNode) ?? []);
+    }
+  }
+
   return undefined;
 };
 
@@ -89,90 +99,106 @@ const mergeMembers = (
 
 export const extractNominalStructuralMembers = (
   state: TypeSystemState,
-  declaration: ts.Declaration | undefined
+  declaration: TstsNode | undefined
 ): readonly IrInterfaceMember[] | undefined => {
   if (!declaration) return undefined;
 
   const members = getDeclarationMembers(declaration);
   if (!members) return undefined;
-  if (members.some(ts.isIndexSignatureDeclaration)) return undefined;
+  if (members.some(TstsSyntax.IsIndexSignatureDeclaration)) return undefined;
 
   const ownMembers: IrInterfaceMember[] = [];
   const accessors = new Map<
     string,
     {
-      getter?: ts.GetAccessorDeclaration;
-      setter?: ts.SetAccessorDeclaration;
+      getter?: TstsNode;
+      setter?: TstsNode;
     }
   >();
 
   for (const member of members) {
-    if (ts.isClassDeclaration(declaration)) {
-      if (!isPublicInstanceClassMember(member as ts.ClassElement)) continue;
+    if (TstsSyntax.IsClassDeclaration(declaration)) {
+      if (!isPublicInstanceClassMember(member)) continue;
     }
 
     if (
-      ts.isGetAccessorDeclaration(member) ||
-      ts.isSetAccessorDeclaration(member)
+      TstsSyntax.IsGetAccessorDeclaration(member) ||
+      TstsSyntax.IsSetAccessorDeclaration(member)
     ) {
-      const name = tryResolveDeterministicPropertyName(member.name);
+      const name = tryResolveDeterministicPropertyName(
+        TstsSyntax.Node_PropertyNameOrName(member)
+      );
       if (!name || isSyntheticStructuralName(name)) continue;
       const existing = accessors.get(name) ?? {};
-      if (ts.isGetAccessorDeclaration(member)) existing.getter = member;
-      if (ts.isSetAccessorDeclaration(member)) existing.setter = member;
+      if (TstsSyntax.IsGetAccessorDeclaration(member)) existing.getter = member;
+      if (TstsSyntax.IsSetAccessorDeclaration(member)) existing.setter = member;
       accessors.set(name, existing);
       continue;
     }
 
-    if (ts.isPropertySignature(member) || ts.isPropertyDeclaration(member)) {
-      const name = tryResolveDeterministicPropertyName(member.name);
-      if (!name || isSyntheticStructuralName(name) || !member.type) continue;
+    if (
+      TstsSyntax.IsPropertySignatureDeclaration(member) ||
+      TstsSyntax.IsPropertyDeclaration(member)
+    ) {
+      const name = tryResolveDeterministicPropertyName(
+        TstsSyntax.Node_PropertyNameOrName(member)
+      );
+      const typeNode = getTstsDeclaredTypeNode(member);
+      if (!name || isSyntheticStructuralName(name) || !typeNode) continue;
       ownMembers.push({
         kind: "propertySignature",
         name,
-        type: state.convertTypeNodeRaw(member.type),
-        isOptional: !!member.questionToken,
-        isReadonly: hasModifier(
-          getModifiers(member),
-          ts.SyntaxKind.ReadonlyKeyword
-        ),
+        type: state.convertTypeNodeRaw(typeNode),
+        isOptional: TstsSyntax.Node_QuestionToken(member) !== undefined,
+        isReadonly: hasTstsReadonlyModifier(member),
       });
       continue;
     }
 
-    if (ts.isMethodSignature(member) || ts.isMethodDeclaration(member)) {
+    if (
+      TstsSyntax.IsMethodSignatureDeclaration(member) ||
+      TstsSyntax.IsMethodDeclaration(member)
+    ) {
       if (
-        ts.isMethodDeclaration(member) &&
+        TstsSyntax.IsMethodDeclaration(member) &&
         isOverloadStubImplementation(member)
       ) {
         continue;
       }
-      const name = tryResolveDeterministicPropertyName(member.name);
+      const name = tryResolveDeterministicPropertyName(
+        TstsSyntax.Node_PropertyNameOrName(member)
+      );
       if (!name || isSyntheticStructuralName(name)) continue;
       ownMembers.push({
         kind: "methodSignature",
         name,
-        parameters: member.parameters.map((parameter, index) => ({
-          kind: "parameter",
-          pattern: ts.isIdentifier(parameter.name)
-            ? { kind: "identifierPattern", name: parameter.name.text }
-            : { kind: "identifierPattern", name: `arg${index}` },
-          type: parameter.type
-            ? state.convertTypeNodeRaw(parameter.type)
-            : undefined,
-          isOptional: !!parameter.questionToken,
-          isRest: !!parameter.dotDotDotToken,
-          passing: "value",
-        })),
-        returnType: member.type
-          ? state.convertTypeNodeRaw(member.type)
+        parameters: concreteTstsNodes(getTstsParameters(member)).map(
+          (parameter, index) => ({
+            kind: "parameter",
+            pattern: {
+              kind: "identifierPattern",
+              name: getTstsNodeNameText(parameter) ?? `arg${index}`,
+            },
+            type: getTstsDeclaredTypeNode(parameter)
+              ? state.convertTypeNodeRaw(getTstsDeclaredTypeNode(parameter))
+              : undefined,
+            isOptional: isTstsOptionalParameter(parameter),
+            isRest: isTstsRestParameter(parameter),
+            passing: "value",
+          })
+        ),
+        returnType: getTstsDeclaredTypeNode(member)
+          ? state.convertTypeNodeRaw(getTstsDeclaredTypeNode(member))
           : undefined,
       });
     }
   }
 
   for (const [name, pair] of accessors) {
-    const typeNode = pair.getter?.type ?? pair.setter?.parameters[0]?.type;
+    const setterParam = concreteTstsNodes(getTstsParameters(pair.setter))[0];
+    const typeNode =
+      getTstsDeclaredTypeNode(pair.getter) ??
+      (setterParam ? getTstsDeclaredTypeNode(setterParam) : undefined);
     if (!typeNode) continue;
     ownMembers.push({
       kind: "propertySignature",
@@ -184,7 +210,8 @@ export const extractNominalStructuralMembers = (
   }
 
   const inheritedMembers =
-    ts.isClassDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)
+    TstsSyntax.IsClassDeclaration(declaration) ||
+    TstsSyntax.IsInterfaceDeclaration(declaration)
       ? collectInheritedMembers(state, declaration)
       : [];
   const result = mergeMembers(inheritedMembers, ownMembers);

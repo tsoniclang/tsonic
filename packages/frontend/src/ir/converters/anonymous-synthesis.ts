@@ -17,7 +17,7 @@
  * ❌ Rejected: non-deterministic computed keys, symbol keys
  */
 
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import {
   IrType,
   IrInterfaceDeclaration,
@@ -26,6 +26,7 @@ import {
 } from "../types.js";
 import type { ProgramContext } from "../program-context.js";
 import { getUnsupportedObjectLiteralMethodRuntimeReason } from "../../object-literal-method-runtime.js";
+import { tryResolveDeterministicObjectKeyNameFromSyntax } from "./expressions/object-literal-type-helpers.js";
 
 // ============================================================================
 // Shape Signature Computation
@@ -242,100 +243,38 @@ export type EligibilityResult =
  * Uses ProgramContext for unified semantic access.
  */
 export const checkSynthesisEligibility = (
-  node: ts.ObjectLiteralExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): EligibilityResult => {
-  const unwrapDeterministicKeyExpression = (
-    expr: ts.Expression
-  ): ts.Expression => {
-    let current = expr;
-    for (;;) {
-      if (ts.isParenthesizedExpression(current)) {
-        current = current.expression;
-        continue;
-      }
-      if (
-        ts.isAsExpression(current) ||
-        ts.isTypeAssertionExpression(current) ||
-        ts.isSatisfiesExpression(current)
-      ) {
-        current = current.expression;
-        continue;
-      }
-      return current;
+  const getPropertyName = (prop: TstsNode): TstsNode | undefined =>
+    TstsSyntax.Node_PropertyNameOrName(prop);
+
+  const isUnsupportedPrivateName = (name: TstsNode | undefined): boolean =>
+    name?.Kind === TstsSyntax.KindPrivateIdentifier;
+
+  const isDeterministicName = (name: TstsNode | undefined): boolean => {
+    if (!name) return false;
+    if (
+      name.Kind === TstsSyntax.KindIdentifier ||
+      name.Kind === TstsSyntax.KindStringLiteral ||
+      name.Kind === TstsSyntax.KindNoSubstitutionTemplateLiteral ||
+      name.Kind === TstsSyntax.KindNumericLiteral
+    ) {
+      return true;
     }
+    const target =
+      name.Kind === TstsSyntax.KindComputedPropertyName
+        ? TstsSyntax.AsComputedPropertyName(name)?.Expression
+        : name;
+    return !!target && tryResolveDeterministicObjectKeyNameFromSyntax(target, ctx) !== undefined;
   };
 
-  const tryResolveDeterministicComputedKeyName = (
-    name: ts.PropertyName,
-    seenSymbols = new Set<ts.Symbol>()
-  ): string | undefined => {
-    if (
-      ts.isIdentifier(name) ||
-      ts.isStringLiteral(name) ||
-      ts.isNoSubstitutionTemplateLiteral(name) ||
-      ts.isNumericLiteral(name)
-    ) {
-      return String(name.text);
-    }
-
-    if (!ts.isComputedPropertyName(name)) {
-      return undefined;
-    }
-
-    const expr = unwrapDeterministicKeyExpression(name.expression);
-    if (
-      ts.isStringLiteral(expr) ||
-      ts.isNoSubstitutionTemplateLiteral(expr) ||
-      ts.isNumericLiteral(expr)
-    ) {
-      return String(expr.text);
-    }
-
-    if (!ts.isIdentifier(expr)) {
-      return undefined;
-    }
-
-    const symbol = ctx.sourceSemantics.getSymbol(expr);
-    if (!symbol || seenSymbols.has(symbol)) {
-      return undefined;
-    }
-
-    seenSymbols.add(symbol);
-    const visitDeclarations = (target: ts.Symbol): string | undefined => {
-      for (const decl of ctx.sourceSemantics.getSymbolDeclarations(target)) {
-        if (
-          ts.isVariableDeclaration(decl) &&
-          decl.initializer &&
-          ts.isVariableDeclarationList(decl.parent) &&
-          (decl.parent.flags & ts.NodeFlags.Const) !== 0
-        ) {
-          const resolved = tryResolveDeterministicComputedKeyName(
-            ts.factory.createComputedPropertyName(decl.initializer),
-            seenSymbols
-          );
-          if (resolved !== undefined) return resolved;
-        }
-      }
-      return undefined;
-    };
-
-    const direct = visitDeclarations(symbol);
-    if (direct !== undefined) return direct;
-
-    const aliased = ctx.sourceSemantics.resolveAlias(symbol);
-    if (aliased !== symbol && !seenSymbols.has(aliased)) {
-      seenSymbols.add(aliased);
-      return visitDeclarations(aliased);
-    }
-
-    return undefined;
-  };
-
-  for (const prop of node.properties) {
+  for (const prop of TstsSyntax.Node_Properties(node) ?? []) {
+    if (!prop) continue;
+    const name = getPropertyName(prop);
     // Property assignment: check key type
-    if (ts.isPropertyAssignment(prop)) {
-      if (tryResolveDeterministicComputedKeyName(prop.name) === undefined) {
+    if (TstsSyntax.IsPropertyAssignment(prop)) {
+      if (!isDeterministicName(name)) {
         return {
           eligible: false,
           reason:
@@ -343,7 +282,7 @@ export const checkSynthesisEligibility = (
         };
       }
       // Check for symbol keys
-      if (ts.isPrivateIdentifier(prop.name)) {
+      if (isUnsupportedPrivateName(name)) {
         return {
           eligible: false,
           reason: `Private identifier (symbol) keys are not supported`,
@@ -352,26 +291,26 @@ export const checkSynthesisEligibility = (
     }
 
     // Shorthand property: always ok (identifier key)
-    if (ts.isShorthandPropertyAssignment(prop)) {
+    if (TstsSyntax.IsShorthandPropertyAssignment(prop)) {
       continue;
     }
 
     // Spread: full deterministic shape validation happens after expression conversion.
-    if (ts.isSpreadAssignment(prop)) {
+    if (TstsSyntax.IsSpreadAssignment(prop)) {
       continue;
     }
 
     // Method declarations are valid when they avoid unsupported runtime features.
     // `this` is supported via object-literal method binding.
-    if (ts.isMethodDeclaration(prop)) {
-      if (tryResolveDeterministicComputedKeyName(prop.name) === undefined) {
+    if (TstsSyntax.IsMethodDeclaration(prop)) {
+      if (!isDeterministicName(name)) {
         return {
           eligible: false,
           reason:
             "Computed property key is not a deterministically known string/number literal",
         };
       }
-      if (ts.isPrivateIdentifier(prop.name)) {
+      if (isUnsupportedPrivateName(name)) {
         return {
           eligible: false,
           reason: `Private identifier (symbol) keys are not supported`,
@@ -390,10 +329,10 @@ export const checkSynthesisEligibility = (
 
     // Getter/setter: allowed for synthesized object types
     if (
-      ts.isGetAccessorDeclaration(prop) ||
-      ts.isSetAccessorDeclaration(prop)
+      TstsSyntax.IsGetAccessorDeclaration(prop) ||
+      TstsSyntax.IsSetAccessorDeclaration(prop)
     ) {
-      if (tryResolveDeterministicComputedKeyName(prop.name) === undefined) {
+      if (!isDeterministicName(name)) {
         return {
           eligible: false,
           reason:

@@ -94,7 +94,7 @@ describe("discoverProgramInputs", () => {
     }
   });
 
-  it("widens rootDir to include external installed source package files", () => {
+  it("includes external installed source package files directly", () => {
     const fixture = materializeFrontendFixture(
       "program/program-input-discovery/rootdir-external"
     );
@@ -121,26 +121,55 @@ describe("discoverProgramInputs", () => {
         }
       );
 
-      expect(typeof discovery.tsOptions.rootDir).to.equal("string");
-      if (typeof discovery.tsOptions.rootDir !== "string") return;
-
-      const resolvedRootDir = path.resolve(discovery.tsOptions.rootDir);
-      const relativeToProject = path.relative(resolvedRootDir, projectRoot);
-      const relativeToExternal = path.relative(
-        resolvedRootDir,
-        externalPackageFile
-      );
-
-      expect(relativeToProject.startsWith("..")).to.equal(false);
-      expect(path.isAbsolute(relativeToProject)).to.equal(false);
-      expect(relativeToExternal.startsWith("..")).to.equal(false);
-      expect(path.isAbsolute(relativeToExternal)).to.equal(false);
+      expect(discovery.allFiles).to.include(path.resolve(entryFile));
+      expect(discovery.allFiles).to.include(path.resolve(externalPackageFile));
     } finally {
       fixture.cleanup();
     }
   });
 
-  it("widens rootDir to include symlinked source package files by real path", () => {
+  it("includes transitive type-only imports from declaration files", () => {
+    const fixture = materializeFrontendFixture(
+      "ir/external-identity/array-elements"
+    );
+
+    try {
+      const projectRoot = fixture.path("app");
+      const sourceRoot = fixture.path("app/src");
+      const entryFile = fixture.path("app/src/index.ts");
+      const declarationEntry = fixture.path("app/tsonic/bindings/Acme.Core.d.ts");
+      const internalDeclaration = fixture.path(
+        "app/tsonic/bindings/Acme.Core/internal/index.d.ts"
+      );
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "App",
+        },
+        {
+          requiredTypeRoots: [],
+          resolvedModes: [],
+        }
+      );
+
+      expect(discovery.allFiles).to.include(path.resolve(declarationEntry));
+      expect(discovery.allFiles).to.include(path.resolve(internalDeclaration));
+      expect(
+        discovery.dependencyEdges.some(
+          (edge) =>
+            path.resolve(edge.from) === path.resolve(declarationEntry) &&
+            path.resolve(edge.to) === path.resolve(internalDeclaration)
+        )
+      ).to.equal(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("includes symlinked source package files directly", () => {
     const fixture = materializeFrontendFixture(
       "program/program-input-discovery/rootdir-symlink"
     );
@@ -149,9 +178,6 @@ describe("discoverProgramInputs", () => {
       const projectRoot = fixture.path("workspace/packages/app");
       const sourceRoot = fixture.path("workspace/packages/app/src");
       const entryFile = fixture.path("workspace/packages/app/src/App.ts");
-      const externalPackageFile = fixture.path(
-        "external/nodejs-next/src/fs-module.ts"
-      );
       const linkedPackageFile = fixture.path(
         "workspace/node_modules/@tsonic/nodejs/src/fs-module.ts"
       );
@@ -170,20 +196,8 @@ describe("discoverProgramInputs", () => {
         }
       );
 
-      expect(typeof discovery.tsOptions.rootDir).to.equal("string");
-      if (typeof discovery.tsOptions.rootDir !== "string") return;
-
-      const resolvedRootDir = path.resolve(discovery.tsOptions.rootDir);
-      const relativeToProject = path.relative(resolvedRootDir, projectRoot);
-      const relativeToExternal = path.relative(
-        resolvedRootDir,
-        fs.realpathSync(externalPackageFile)
-      );
-
-      expect(relativeToProject.startsWith("..")).to.equal(false);
-      expect(path.isAbsolute(relativeToProject)).to.equal(false);
-      expect(relativeToExternal.startsWith("..")).to.equal(false);
-      expect(path.isAbsolute(relativeToExternal)).to.equal(false);
+      expect(discovery.allFiles).to.include(path.resolve(entryFile));
+      expect(discovery.allFiles).to.include(path.resolve(linkedPackageFile));
     } finally {
       fixture.cleanup();
     }
@@ -340,17 +354,9 @@ describe("discoverProgramInputs", () => {
       ).to.equal(jsSiblingRoot);
       expect(discovery.typeRoots.includes(installedJsRoot)).to.equal(false);
 
-      expect(typeof discovery.tsOptions.rootDir).to.equal("string");
-      if (typeof discovery.tsOptions.rootDir !== "string") return;
-
-      const resolvedRootDir = path.resolve(discovery.tsOptions.rootDir);
-      const relativeToJsSibling = path.relative(
-        resolvedRootDir,
+      expect(discovery.allFiles).to.not.include(
         path.join(jsSiblingRoot, "src", "index.ts")
       );
-
-      expect(relativeToJsSibling.startsWith("..")).to.equal(false);
-      expect(path.isAbsolute(relativeToJsSibling)).to.equal(false);
     } finally {
       fixture.cleanup();
     }

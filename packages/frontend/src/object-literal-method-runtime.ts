@@ -1,102 +1,107 @@
-import * as ts from "typescript";
+import {
+  forEachTstsChild,
+  getTstsContainingSourceFile,
+  getTstsIdentifierText,
+  getTstsNodeLocation,
+  getTstsNodeText,
+  getTstsParameters,
+  isTstsFunctionLikeDeclaration,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
+import type { IrParameter, IrStatement } from "./ir/types.js";
 
-const isAssignmentOperator = (kind: ts.SyntaxKind): boolean => {
-  switch (kind) {
-    case ts.SyntaxKind.EqualsToken:
-    case ts.SyntaxKind.PlusEqualsToken:
-    case ts.SyntaxKind.MinusEqualsToken:
-    case ts.SyntaxKind.AsteriskEqualsToken:
-    case ts.SyntaxKind.AsteriskAsteriskEqualsToken:
-    case ts.SyntaxKind.SlashEqualsToken:
-    case ts.SyntaxKind.PercentEqualsToken:
-    case ts.SyntaxKind.LessThanLessThanEqualsToken:
-    case ts.SyntaxKind.GreaterThanGreaterThanEqualsToken:
-    case ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken:
-    case ts.SyntaxKind.AmpersandEqualsToken:
-    case ts.SyntaxKind.BarEqualsToken:
-    case ts.SyntaxKind.CaretEqualsToken:
-    case ts.SyntaxKind.BarBarEqualsToken:
-    case ts.SyntaxKind.AmpersandAmpersandEqualsToken:
-    case ts.SyntaxKind.QuestionQuestionEqualsToken:
-      return true;
-    default:
-      return false;
-  }
-};
+const isAssignmentOperator = (kind: number): boolean =>
+  TstsSyntax.IsAssignmentOperator(kind);
 
-const isFunctionBoundary = (
-  node: ts.Node
-): node is ts.FunctionLikeDeclaration => ts.isFunctionLike(node);
-
-const hasFixedRequiredParameters = (method: ts.MethodDeclaration): boolean =>
-  method.parameters.every(
+const hasFixedRequiredParameters = (method: TstsNode): boolean =>
+  getTstsParameters(method).every(
     (param) =>
-      !param.dotDotDotToken &&
-      !param.questionToken &&
-      param.initializer === undefined
+      TstsSyntax.AsParameterDeclaration(param)?.DotDotDotToken === undefined &&
+      TstsSyntax.Node_QuestionToken(param) === undefined &&
+      TstsSyntax.Node_Initializer(param) === undefined
   );
 
-const isWriteLikeUse = (node: ts.Node): boolean => {
-  const parent = node.parent;
+const isWriteLikeUse = (node: TstsNode): boolean => {
+  const parent = node.Parent;
   if (!parent) return false;
 
-  if (
-    ts.isBinaryExpression(parent) &&
-    parent.left === node &&
-    isAssignmentOperator(parent.operatorToken.kind)
-  ) {
-    return true;
+  if (parent.Kind === TstsSyntax.KindBinaryExpression) {
+    const binary = TstsSyntax.AsBinaryExpression(parent);
+    if (
+      binary?.Left === node &&
+      binary.OperatorToken &&
+      isAssignmentOperator(binary.OperatorToken.Kind)
+    ) {
+      return true;
+    }
   }
 
-  if (
-    (ts.isPrefixUnaryExpression(parent) ||
-      ts.isPostfixUnaryExpression(parent)) &&
-    parent.operand === node &&
-    (parent.operator === ts.SyntaxKind.PlusPlusToken ||
-      parent.operator === ts.SyntaxKind.MinusMinusToken)
-  ) {
-    return true;
+  if (parent.Kind === TstsSyntax.KindPrefixUnaryExpression) {
+    const prefix = TstsSyntax.AsPrefixUnaryExpression(parent);
+    return (
+      prefix?.Operand === node &&
+      (prefix.Operator === TstsSyntax.KindPlusPlusToken ||
+        prefix.Operator === TstsSyntax.KindMinusMinusToken)
+    );
   }
 
-  return ts.isDeleteExpression(parent) && parent.expression === node;
+  if (parent.Kind === TstsSyntax.KindPostfixUnaryExpression) {
+    const postfix = TstsSyntax.AsPostfixUnaryExpression(parent);
+    return (
+      postfix?.Operand === node &&
+      (postfix.Operator === TstsSyntax.KindPlusPlusToken ||
+        postfix.Operator === TstsSyntax.KindMinusMinusToken)
+    );
+  }
+
+  return (
+    parent.Kind === TstsSyntax.KindDeleteExpression &&
+    TstsSyntax.AsDeleteExpression(parent)?.Expression === node
+  );
 };
 
 const nearestObjectLiteralMethodBoundary = (
-  node: ts.Node
-): ts.MethodDeclaration | undefined => {
-  let current: ts.Node | undefined = node.parent;
+  node: TstsNode
+): TstsNode | undefined => {
+  let current: TstsNode | undefined = node.Parent;
   while (current) {
     if (
-      ts.isMethodDeclaration(current) &&
-      ts.isObjectLiteralExpression(current.parent)
+      current.Kind === TstsSyntax.KindMethodDeclaration &&
+      current.Parent?.Kind === TstsSyntax.KindObjectLiteralExpression
     ) {
       return current;
     }
-    if (isFunctionBoundary(current)) {
+    if (isTstsFunctionLikeDeclaration(current)) {
       return undefined;
     }
-    current = current.parent;
+    current = current.Parent;
   }
   return undefined;
 };
 
-const isArgumentsLengthAccess = (
-  node: ts.Node
-): node is ts.PropertyAccessExpression =>
-  ts.isPropertyAccessExpression(node) &&
-  ts.isIdentifier(node.expression) &&
-  node.expression.text === "arguments" &&
-  node.name.text === "length";
+const isArgumentsLengthAccess = (node: TstsNode): boolean => {
+  if (node.Kind !== TstsSyntax.KindPropertyAccessExpression) {
+    return false;
+  }
+  const access = TstsSyntax.AsPropertyAccessExpression(node);
+  return (
+    access?.Expression?.Kind === TstsSyntax.KindIdentifier &&
+    getTstsIdentifierText(access.Expression) === "arguments" &&
+    getTstsIdentifierText(access.name) === "length"
+  );
+};
 
-const tryParseArgumentsIndex = (
-  node: ts.ElementAccessExpression
-): number | undefined => {
-  const arg = node.argumentExpression;
-  if (!arg || !ts.isNumericLiteral(arg)) {
+const tryParseArgumentsIndex = (node: TstsNode): number | undefined => {
+  if (node.Kind !== TstsSyntax.KindElementAccessExpression) {
+    return undefined;
+  }
+  const arg = TstsSyntax.AsElementAccessExpression(node)?.ArgumentExpression;
+  if (!arg || arg.Kind !== TstsSyntax.KindNumericLiteral) {
     return undefined;
   }
 
-  const value = Number(arg.text);
+  const value = Number(getTstsNodeText(arg));
   if (!Number.isInteger(value) || value < 0) {
     return undefined;
   }
@@ -104,23 +109,27 @@ const tryParseArgumentsIndex = (
   return value;
 };
 
-const isArgumentsIndexAccess = (
-  node: ts.Node
-): node is ts.ElementAccessExpression =>
-  ts.isElementAccessExpression(node) &&
-  ts.isIdentifier(node.expression) &&
-  node.expression.text === "arguments" &&
-  tryParseArgumentsIndex(node) !== undefined;
+const isArgumentsIndexAccess = (node: TstsNode): boolean => {
+  if (node.Kind !== TstsSyntax.KindElementAccessExpression) {
+    return false;
+  }
+  const access = TstsSyntax.AsElementAccessExpression(node);
+  return (
+    access?.Expression?.Kind === TstsSyntax.KindIdentifier &&
+    getTstsIdentifierText(access.Expression) === "arguments" &&
+    tryParseArgumentsIndex(node) !== undefined
+  );
+};
 
-const hasIdentifierParameters = (method: ts.MethodDeclaration): boolean =>
-  method.parameters.every((param) => ts.isIdentifier(param.name));
+const hasIdentifierParameters = (method: TstsNode): boolean =>
+  getTstsParameters(method).every(
+    (param) => TstsSyntax.Node_Name(param)?.Kind === TstsSyntax.KindIdentifier
+  );
 
-type ObjectLiteralMethodArgumentsCapture = {
+export type ObjectLiteralMethodArgumentsCapture = {
   readonly index: number;
   readonly parameterName: string;
-  readonly parameter: ts.ParameterDeclaration & {
-    readonly name: ts.Identifier;
-  };
+  readonly parameter: TstsNode;
   readonly tempName: string;
 };
 
@@ -136,43 +145,47 @@ type ObjectLiteralMethodRuntimeAnalysis =
     };
 
 const objectLiteralMethodRuntimeAnalysisCache = new WeakMap<
-  ts.MethodDeclaration,
+  TstsNode,
   ObjectLiteralMethodRuntimeAnalysis
 >();
 
-const collectUsedNames = (method: ts.MethodDeclaration): Set<string> => {
+const collectUsedNames = (method: TstsNode): Set<string> => {
   const used = new Set<string>();
 
-  for (const param of method.parameters) {
-    if (ts.isIdentifier(param.name)) {
-      used.add(param.name.text);
+  for (const param of getTstsParameters(method)) {
+    const name = getTstsIdentifierText(TstsSyntax.Node_Name(param));
+    if (name) {
+      used.add(name);
     }
   }
 
-  const visit = (node: ts.Node): void => {
-    if (ts.isIdentifier(node)) {
-      used.add(node.text);
-    }
-    ts.forEachChild(node, visit);
-  };
-
-  if (method.body) {
-    visit(method.body);
+  const body = TstsSyntax.Node_Body(method);
+  if (body) {
+    forEachTstsChild(body, (node) => {
+      if (node?.Kind === TstsSyntax.KindIdentifier) {
+        const text = getTstsIdentifierText(node);
+        if (text) {
+          used.add(text);
+        }
+      }
+    });
   }
 
   return used;
 };
 
 const buildIndexedCaptures = (
-  method: ts.MethodDeclaration,
+  method: TstsNode,
   indices: readonly number[]
 ): readonly ObjectLiteralMethodArgumentsCapture[] => {
   const usedNames = collectUsedNames(method);
   const captures: ObjectLiteralMethodArgumentsCapture[] = [];
+  const parameters = getTstsParameters(method);
 
   for (const index of indices) {
-    const param = method.parameters[index];
-    if (!param || !ts.isIdentifier(param.name)) {
+    const parameter = parameters[index];
+    const parameterName = getTstsIdentifierText(TstsSyntax.Node_Name(parameter));
+    if (!parameter || !parameterName) {
       continue;
     }
 
@@ -184,10 +197,8 @@ const buildIndexedCaptures = (
 
     captures.push({
       index,
-      parameterName: param.name.text,
-      parameter: param as ts.ParameterDeclaration & {
-        readonly name: ts.Identifier;
-      },
+      parameterName,
+      parameter,
       tempName,
     });
   }
@@ -196,7 +207,7 @@ const buildIndexedCaptures = (
 };
 
 const analyzeObjectLiteralMethodRuntime = (
-  method: ts.MethodDeclaration
+  method: TstsNode
 ): ObjectLiteralMethodRuntimeAnalysis => {
   const cached = objectLiteralMethodRuntimeAnalysisCache.get(method);
   if (cached) {
@@ -206,20 +217,23 @@ const analyzeObjectLiteralMethodRuntime = (
   let reason: string | undefined;
   const indexedAccesses = new Set<number>();
 
-  const visit = (current: ts.Node): void => {
+  const visit = (current: TstsNode): void => {
     if (reason) return;
 
-    if (current !== method && isFunctionBoundary(current)) {
+    if (current !== method && isTstsFunctionLikeDeclaration(current)) {
       let nestedUsesArguments = false;
-      const scanNested = (nested: ts.Node): void => {
-        if (nestedUsesArguments) return;
-        if (ts.isIdentifier(nested) && nested.text === "arguments") {
+      const scanNested = (nested: TstsNode | undefined): void => {
+        if (!nested || nestedUsesArguments) return;
+        if (
+          nested.Kind === TstsSyntax.KindIdentifier &&
+          getTstsIdentifierText(nested) === "arguments"
+        ) {
           nestedUsesArguments = true;
           return;
         }
-        ts.forEachChild(nested, scanNested);
+        forEachTstsChild(nested, scanNested);
       };
-      ts.forEachChild(current, scanNested);
+      forEachTstsChild(current, scanNested);
       if (nestedUsesArguments) {
         reason =
           "Method shorthand cannot capture arguments through nested function bodies in synthesized types";
@@ -227,20 +241,26 @@ const analyzeObjectLiteralMethodRuntime = (
       return;
     }
 
-    if (current.kind === ts.SyntaxKind.SuperKeyword) {
+    if (current.Kind === TstsSyntax.KindSuperKeyword) {
       reason = "Method shorthand cannot reference super in synthesized types";
       return;
     }
 
-    if (ts.isIdentifier(current) && current.text === "arguments") {
-      const parent = current.parent;
+    if (
+      current.Kind === TstsSyntax.KindIdentifier &&
+      getTstsIdentifierText(current) === "arguments"
+    ) {
+      const parent = current.Parent;
       if (!parent) {
         reason =
           "Method shorthand can only reference arguments.length or arguments[n] in synthesized types";
         return;
       }
 
-      if (isArgumentsLengthAccess(parent) && parent.expression === current) {
+      if (
+        isArgumentsLengthAccess(parent) &&
+        TstsSyntax.AsPropertyAccessExpression(parent)?.Expression === current
+      ) {
         if (!hasFixedRequiredParameters(method)) {
           reason =
             "Method shorthand can only reference arguments.length when parameters are fixed required parameters";
@@ -259,7 +279,10 @@ const analyzeObjectLiteralMethodRuntime = (
         return;
       }
 
-      if (isArgumentsIndexAccess(parent) && parent.expression === current) {
+      if (
+        isArgumentsIndexAccess(parent) &&
+        TstsSyntax.AsElementAccessExpression(parent)?.Expression === current
+      ) {
         const index = tryParseArgumentsIndex(parent);
         if (index === undefined) {
           reason =
@@ -276,7 +299,7 @@ const analyzeObjectLiteralMethodRuntime = (
             "Method shorthand can only reference arguments[n] when parameters are identifier bindings";
           return;
         }
-        if (index >= method.parameters.length) {
+        if (index >= getTstsParameters(method).length) {
           reason =
             "Method shorthand can only reference arguments[n] for declared parameters in synthesized types";
           return;
@@ -300,18 +323,21 @@ const analyzeObjectLiteralMethodRuntime = (
       return;
     }
 
-    ts.forEachChild(current, visit);
+    forEachTstsChild(current, (child) => {
+      if (child) visit(child);
+    });
   };
 
-  if (method.body) {
-    visit(method.body);
+  const body = TstsSyntax.Node_Body(method);
+  if (body) {
+    visit(body);
   }
 
   const analysis: ObjectLiteralMethodRuntimeAnalysis = reason
     ? { ok: false, reason }
     : {
         ok: true,
-        arity: method.parameters.length,
+        arity: getTstsParameters(method).length,
         indexedCaptures: buildIndexedCaptures(
           method,
           [...indexedAccesses].sort((a, b) => a - b)
@@ -323,47 +349,48 @@ const analyzeObjectLiteralMethodRuntime = (
 };
 
 export const getUnsupportedObjectLiteralMethodRuntimeReason = (
-  method: ts.MethodDeclaration
+  method: TstsNode
 ): string | undefined => {
   const analysis = analyzeObjectLiteralMethodRuntime(method);
   return analysis.ok ? undefined : analysis.reason;
 };
 
 export const tryGetObjectLiteralMethodArgumentsLength = (
-  node: ts.PropertyAccessExpression
+  node: TstsNode
 ): number | undefined => {
   if (!isArgumentsLengthAccess(node)) {
     return undefined;
   }
 
-  const method = nearestObjectLiteralMethodBoundary(node.expression);
+  const expression = TstsSyntax.AsPropertyAccessExpression(node)?.Expression;
+  if (!expression) {
+    return undefined;
+  }
+
+  const method = nearestObjectLiteralMethodBoundary(expression);
   if (!method) {
     return undefined;
   }
 
   const analysis = analyzeObjectLiteralMethodRuntime(method);
-  if (!analysis.ok) {
-    return undefined;
-  }
-
-  return analysis.arity;
+  return analysis.ok ? analysis.arity : undefined;
 };
 
 export const isSupportedObjectLiteralMethodArgumentsReference = (
-  node: ts.Identifier
+  node: TstsNode
 ): boolean => {
-  if (node.text !== "arguments") {
+  if (getTstsIdentifierText(node) !== "arguments") {
     return false;
   }
 
-  const parent = node.parent;
+  const parent = node.Parent;
   if (!parent) {
     return false;
   }
 
   if (
     isArgumentsLengthAccess(parent) &&
-    parent.expression === node &&
+    TstsSyntax.AsPropertyAccessExpression(parent)?.Expression === node &&
     tryGetObjectLiteralMethodArgumentsLength(parent) !== undefined
   ) {
     return true;
@@ -371,19 +398,24 @@ export const isSupportedObjectLiteralMethodArgumentsReference = (
 
   return (
     isArgumentsIndexAccess(parent) &&
-    parent.expression === node &&
+    TstsSyntax.AsElementAccessExpression(parent)?.Expression === node &&
     tryGetObjectLiteralMethodArgumentCapture(parent) !== undefined
   );
 };
 
 export const tryGetObjectLiteralMethodArgumentCapture = (
-  node: ts.ElementAccessExpression
+  node: TstsNode
 ): ObjectLiteralMethodArgumentsCapture | undefined => {
   if (!isArgumentsIndexAccess(node)) {
     return undefined;
   }
 
-  const method = nearestObjectLiteralMethodBoundary(node.expression);
+  const expression = TstsSyntax.AsElementAccessExpression(node)?.Expression;
+  if (!expression) {
+    return undefined;
+  }
+
+  const method = nearestObjectLiteralMethodBoundary(expression);
   if (!method) {
     return undefined;
   }
@@ -405,27 +437,37 @@ export const tryGetObjectLiteralMethodArgumentCapture = (
 };
 
 export const createObjectLiteralMethodArgumentPrelude = (
-  method: ts.MethodDeclaration
-): readonly ts.Statement[] => {
+  method: TstsNode,
+  parameters: readonly IrParameter[]
+): readonly IrStatement[] => {
   const analysis = analyzeObjectLiteralMethodRuntime(method);
   if (!analysis.ok || analysis.indexedCaptures.length === 0) {
     return [];
   }
 
-  return analysis.indexedCaptures.map((capture) =>
-    ts.factory.createVariableStatement(
-      undefined,
-      ts.factory.createVariableDeclarationList(
-        [
-          ts.factory.createVariableDeclaration(
-            ts.factory.createIdentifier(capture.tempName),
-            undefined,
-            undefined,
-            capture.parameter.name
-          ),
-        ],
-        ts.NodeFlags.Const
-      )
-    )
-  );
+  const sourceFile = getTstsContainingSourceFile(method);
+
+  return analysis.indexedCaptures.map((capture) => ({
+    kind: "variableDeclaration",
+    declarationKind: "const",
+    isExported: false,
+    declarations: [
+      {
+        kind: "variableDeclarator",
+        name: {
+          kind: "identifierPattern",
+          name: capture.tempName,
+        },
+        type: parameters[capture.index]?.type,
+        initializer: {
+          kind: "identifier",
+          name: capture.parameterName,
+          inferredType: parameters[capture.index]?.type,
+          sourceSpan: sourceFile
+            ? getTstsNodeLocation(sourceFile, capture.parameter)
+            : undefined,
+        },
+      },
+    ],
+  }));
 };

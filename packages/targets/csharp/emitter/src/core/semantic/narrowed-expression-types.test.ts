@@ -132,6 +132,74 @@ describe("narrowed-expression-types", () => {
     });
   });
 
+  it("does not replace concrete member-access type parameters with unscoped surface placeholders", () => {
+    const localTypes = new Map<string, LocalTypeInfo>([
+      [
+        "TypedArrayBase",
+        {
+          kind: "class",
+          typeParameters: ["TElement", "TSelf"],
+          superClass: undefined,
+          implements: [],
+          members: [
+            {
+              kind: "propertyDeclaration",
+              name: "data",
+              type: {
+                kind: "arrayType",
+                elementType: { kind: "typeParameterType", name: "T" },
+              },
+              isReadonly: false,
+              initializer: undefined,
+              accessibility: "public",
+              isStatic: false,
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const expr: IrExpression = {
+      kind: "memberAccess",
+      object: {
+        kind: "this",
+        inferredType: {
+          kind: "referenceType",
+          name: "TypedArrayBase",
+          typeArguments: [
+            { kind: "typeParameterType", name: "TElement" },
+            { kind: "typeParameterType", name: "TSelf" },
+          ],
+        },
+      },
+      property: "data",
+      isComputed: false,
+      isOptional: false,
+      inferredType: {
+        kind: "arrayType",
+        elementType: { kind: "typeParameterType", name: "TElement" },
+      },
+    };
+
+    const result = resolveEffectiveExpressionType(expr, {
+      indentLevel: 0,
+      options: {
+        rootNamespace: "Test",
+        indent: 4,
+      },
+      isStatic: false,
+      isAsync: false,
+      localTypes,
+      typeParameters: new Set(["TElement", "TSelf"]),
+      usings: new Set<string>(),
+    });
+
+    expect(result).to.deep.equal({
+      kind: "arrayType",
+      elementType: { kind: "typeParameterType", name: "TElement" },
+    });
+  });
+
   it("uses assertion target types for explicit type assertions", () => {
     const expr: IrExpression = {
       kind: "typeAssertion",

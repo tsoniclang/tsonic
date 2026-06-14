@@ -412,7 +412,7 @@ describe("IR Builder", function () {
       }
     });
 
-    it("still rejects legacy TypeScript constructor overload syntax", () => {
+    it("rejects unsupported TypeScript constructor overload declarations", () => {
       const { fixture, result } = collectOverloadsFromFixture({
         "src/index.ts": [
           "export class Server {",

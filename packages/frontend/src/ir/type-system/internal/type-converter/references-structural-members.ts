@@ -1,11 +1,12 @@
-/**
- * Structural member extraction from type declarations,
- * index-signature dictionary conversion, and type-alias body expansion.
- *
- * Split from references-structural.ts for file-size compliance (< 500 LOC).
- */
-
-import * as ts from "typescript";
+import {
+  getTstsHeritageTypeNodes,
+  hasTstsPrivateModifier,
+  hasTstsProtectedModifier,
+  hasTstsReadonlyModifier,
+  hasTstsStaticModifier,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import { IrType, IrDictionaryType, IrInterfaceMember } from "../../../types.js";
 import { substituteIrType } from "../../../types/ir-substitution.js";
 import { CORE_PRIMITIVE_TYPE_SET, getCorePrimitiveType } from "./primitives.js";
@@ -21,68 +22,89 @@ import {
 import { shouldExtractFromDeclaration } from "./references-structural-bindings.js";
 import { expandDirectAliasSyntax } from "./direct-alias-expansion.js";
 import { makeDeclId } from "../../types.js";
+import { isSourceBindingMarkerName } from "../source-binding-markers.js";
+import {
+  asConverterNode,
+  containingSourceFileName,
+  identifierText,
+  isOptionalParameter,
+  isRestParameter,
+  nodeMembers,
+  nodeParameters,
+  nodeType,
+  nodeTypeArguments,
+} from "./tsts-syntax.js";
 
-/**
- * Extract structural members from type declarations (AST-based).
- *
- * DETERMINISTIC IR TYPING (INV-0 compliant):
- * Uses AST nodes directly instead of ts.Type computation.
- * Gets TypeNodes from declarations, not from getTypeOfSymbolAtLocation.
- *
- * Used to populate structuralMembers on referenceType for interfaces, object type aliases,
- * and public instance class surfaces.
- * This enables TSN5110 validation for object literal properties against expected types,
- * and preserves deterministic member typing for nominal classes used structurally across
- * callback/contextual-typing boundaries.
- *
- * Safety guards:
- * - Only extracts for interfaces/type-aliases/public instance classes (not enums/lib types)
- * - Uses cache to prevent infinite recursion on recursive types
- * - Skips unsupported keys instead of bailing entirely
- * - Returns undefined for index signatures (can't fully represent)
- *
- * @param declId - The DeclId for the type (from Binding.resolveTypeReference)
- * @param binding - The Binding layer for symbol resolution
- * @param convertType - Function to convert nested types
- * @returns Structural members or undefined if extraction fails/skipped
- */
+const isPublicInstanceClassMember = (member: TstsNode): boolean => {
+  if (member.Kind === TstsSyntax.KindConstructor) return false;
+  if (hasTstsStaticModifier(member)) return false;
+  if (hasTstsPrivateModifier(member) || hasTstsProtectedModifier(member)) {
+    return false;
+  }
+  return TstsSyntax.Node_Name(member)?.Kind !== TstsSyntax.KindPrivateIdentifier;
+};
+
+const getMemberName = (member: TstsNode): string | undefined =>
+  tryResolveDeterministicPropertyName(TstsSyntax.Node_Name(member));
+
+const collectMembersFromIrType = (
+  type: IrType
+): readonly IrInterfaceMember[] => {
+  if (type.kind === "referenceType") return type.structuralMembers ?? [];
+  if (type.kind === "objectType") return type.members;
+  if (type.kind === "intersectionType") {
+    return type.types.flatMap(collectMembersFromIrType);
+  }
+  return [];
+};
+
+const memberMergeKey = (member: IrInterfaceMember): string =>
+  member.kind === "propertySignature"
+    ? `property:${member.name}`
+    : `method:${member.name}:${member.parameters.length}`;
+
+const typeElementsForDeclaration = (decl: TstsNode): readonly TstsNode[] => {
+  if (TstsSyntax.IsInterfaceDeclaration(decl) || TstsSyntax.IsClassDeclaration(decl)) {
+    return nodeMembers(decl);
+  }
+  if (TstsSyntax.IsTypeAliasDeclaration(decl)) {
+    const body = TstsSyntax.AsTypeAliasDeclaration(decl)?.Type;
+    return body && TstsSyntax.IsTypeLiteralNode(body) ? nodeMembers(body) : [];
+  }
+  return [];
+};
+
 export const extractStructuralMembersFromDeclarations = (
   declId: number | undefined,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): readonly IrInterfaceMember[] | undefined => {
   if (declId === undefined) {
     return undefined;
   }
 
-  // Check cache first (handles recursion)
   const structuralMembersCache = getStructuralMembersCache(binding);
   const cached = structuralMembersCache.get(declId);
   if (cached === "in-progress") {
-    // Recursive reference - return undefined to break cycle
     return undefined;
   }
   if (cached !== undefined) {
     return cached === null ? undefined : cached;
   }
 
-  // Get declaration info from HandleRegistry
   const registry = (binding as BindingInternal)._getHandleRegistry();
   const declInfo = registry.getDecl(makeDeclId(declId));
-  if (!declInfo?.declNode) {
+  const decl = asConverterNode(declInfo?.declNode);
+  if (!decl) {
     structuralMembersCache.set(declId, null);
     return undefined;
   }
 
-  const decl = declInfo.declNode as ts.Declaration;
-
-  // Check if this declaration should have structural members extracted
   if (!shouldExtractFromDeclaration(decl)) {
     structuralMembersCache.set(declId, null);
     return undefined;
   }
 
-  // Mark as in-progress before recursing.
   structuralMembersCache.set(declId, "in-progress");
 
   try {
@@ -90,130 +112,53 @@ export const extractStructuralMembersFromDeclarations = (
     const accessorGroups = new Map<
       string,
       {
-        getter?: ts.GetAccessorDeclaration;
-        setter?: ts.SetAccessorDeclaration;
+        getter?: TstsNode;
+        setter?: TstsNode;
       }
     >();
 
-    const getModifiers = (
-      node: ts.Node
-    ): readonly ts.ModifierLike[] | undefined =>
-      ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
-
-    const hasModifier = (
-      modifiers: readonly ts.ModifierLike[] | undefined,
-      kind: ts.SyntaxKind
-    ): boolean => modifiers?.some((m) => m.kind === kind) ?? false;
-
-    const isPublicInstanceClassMember = (member: ts.ClassElement): boolean => {
-      if (ts.isConstructorDeclaration(member)) return false;
-      const modifiers = getModifiers(member);
-      if (hasModifier(modifiers, ts.SyntaxKind.StaticKeyword)) {
-        return false;
-      }
-      if (
-        hasModifier(modifiers, ts.SyntaxKind.PrivateKeyword) ||
-        hasModifier(modifiers, ts.SyntaxKind.ProtectedKeyword)
-      ) {
-        return false;
-      }
-      if (
-        "name" in member &&
-        member.name &&
-        ts.isPrivateIdentifier(member.name)
-      ) {
-        return false;
-      }
-      return true;
-    };
-
-    const getMemberName = (
-      name: ts.PropertyName | ts.PrivateIdentifier | undefined
-    ): string | undefined => tryResolveDeterministicPropertyName(name);
-
-    const collectMembersFromIrType = (
-      type: IrType
-    ): readonly IrInterfaceMember[] => {
-      if (type.kind === "referenceType") {
-        return type.structuralMembers ?? [];
-      }
-      if (type.kind === "objectType") {
-        return type.members;
-      }
-      if (type.kind === "intersectionType") {
-        return type.types.flatMap(collectMembersFromIrType);
-      }
-      return [];
-    };
-
     const getInheritedStructuralMembers = (): readonly IrInterfaceMember[] => {
-      if (!ts.isInterfaceDeclaration(decl) && !ts.isClassDeclaration(decl)) {
+      if (!TstsSyntax.IsInterfaceDeclaration(decl) && !TstsSyntax.IsClassDeclaration(decl)) {
         return [];
       }
 
-      return (decl.heritageClauses ?? []).flatMap((clause) =>
-        clause.types.flatMap((heritageType) =>
-          collectMembersFromIrType(
-            convertType(heritageType as ts.TypeNode, binding)
-          )
-        )
+      return getTstsHeritageTypeNodes(decl).flatMap((heritageType) =>
+        heritageType
+          ? collectMembersFromIrType(convertType(heritageType, binding))
+          : []
       );
     };
 
-    const memberMergeKey = (member: IrInterfaceMember): string => {
-      if (member.kind === "propertySignature") {
-        return `property:${member.name}`;
-      }
-      return `method:${member.name}:${member.parameters.length}`;
-    };
-
-    // Get the member source (interface members, type literal members, or class members)
-    const typeElements = ts.isInterfaceDeclaration(decl)
-      ? decl.members
-      : ts.isTypeAliasDeclaration(decl) && ts.isTypeLiteralNode(decl.type)
-        ? decl.type.members
-        : ts.isClassDeclaration(decl)
-          ? decl.members
-          : undefined;
-
-    if (!typeElements) {
+    const typeElements = typeElementsForDeclaration(decl);
+    if (typeElements.length === 0) {
       structuralMembersCache.set(declId, null);
       return undefined;
     }
 
-    // Check for index signatures - can't fully represent these structurally
-    for (const member of typeElements) {
-      if (ts.isIndexSignatureDeclaration(member)) {
-        structuralMembersCache.set(declId, null);
-        return undefined;
-      }
+    if (typeElements.some(TstsSyntax.IsIndexSignatureDeclaration)) {
+      structuralMembersCache.set(declId, null);
+      return undefined;
     }
 
-    // Extract members from AST (TypeNodes directly)
     for (const member of typeElements) {
       if (
-        ts.isGetAccessorDeclaration(member) ||
-        ts.isSetAccessorDeclaration(member)
+        TstsSyntax.IsGetAccessorDeclaration(member) ||
+        TstsSyntax.IsSetAccessorDeclaration(member)
       ) {
         if (
-          ts.isClassDeclaration(decl) &&
+          TstsSyntax.IsClassDeclaration(decl) &&
           !isPublicInstanceClassMember(member)
         ) {
           continue;
         }
 
-        const accessorName = getMemberName(member.name);
-
-        if (
-          !accessorName ||
-          accessorName.startsWith("__tsonic_type_") ||
-          accessorName.startsWith("__tsonic_binding_alias_")
-        ) {
+        const accessorName = getMemberName(member);
+        if (!accessorName || isSourceBindingMarkerName(accessorName)) {
           continue;
         }
 
         const existing = accessorGroups.get(accessorName) ?? {};
-        if (ts.isGetAccessorDeclaration(member)) {
+        if (TstsSyntax.IsGetAccessorDeclaration(member)) {
           existing.getter = member;
         } else {
           existing.setter = member;
@@ -222,59 +167,47 @@ export const extractStructuralMembersFromDeclarations = (
         continue;
       }
 
-      // Property signature / declaration
-      if (ts.isPropertySignature(member) || ts.isPropertyDeclaration(member)) {
+      if (
+        TstsSyntax.IsPropertySignatureDeclaration(member) ||
+        TstsSyntax.IsPropertyDeclaration(member)
+      ) {
         if (
-          ts.isPropertyDeclaration(member) &&
+          TstsSyntax.IsPropertyDeclaration(member) &&
           !isPublicInstanceClassMember(member)
         ) {
           continue;
         }
 
-        const propName = getMemberName(member.name);
-
-        if (
-          !propName ||
-          propName.startsWith("__tsonic_type_") ||
-          propName.startsWith("__tsonic_binding_alias_")
-        ) {
-          continue; // Skip computed/symbol keys
+        const propName = getMemberName(member);
+        if (!propName || isSourceBindingMarkerName(propName)) {
+          continue;
         }
 
-        const isOptional = !!member.questionToken;
-        const isReadonly = hasModifier(
-          getModifiers(member),
-          ts.SyntaxKind.ReadonlyKeyword
-        );
-
-        // DETERMINISTIC: Get type from TypeNode in declaration
-        const declTypeNode = member.type;
+        const declTypeNode = nodeType(member);
         if (!declTypeNode) {
-          continue; // Skip properties without type annotation
+          continue;
         }
 
-        // Check for core primitive type aliases
-        if (ts.isTypeReferenceNode(declTypeNode)) {
-          const typeName = ts.isIdentifier(declTypeNode.typeName)
-            ? declTypeNode.typeName.text
-            : undefined;
+        if (TstsSyntax.IsTypeReferenceNode(declTypeNode)) {
+          const typeName = identifierText(
+            TstsSyntax.AsTypeReferenceNode(declTypeNode)?.TypeName
+          );
           if (typeName && CORE_PRIMITIVE_TYPE_SET.has(typeName)) {
-            // Resolve to check it comes from @tsonic/core (symbol-based, allowed)
-            // Use Binding to resolve the type reference
             const typeRefDeclId = binding.resolveTypeReference(declTypeNode);
             if (typeRefDeclId) {
               const typeRefDeclInfo = registry.getDecl(typeRefDeclId);
-              const refDeclNode = typeRefDeclInfo?.declNode as
-                | ts.Declaration
-                | undefined;
-              const refSourceFile = refDeclNode?.getSourceFile();
-              if (refSourceFile?.fileName.includes("@tsonic/core")) {
+              const refDeclNode = asConverterNode(typeRefDeclInfo?.declNode);
+              const refSourceFile = refDeclNode
+                ? containingSourceFileName(refDeclNode)
+                : undefined;
+              if (refSourceFile?.includes("@tsonic/core")) {
                 members.push({
                   kind: "propertySignature",
                   name: propName,
                   type: getCorePrimitiveType(typeName as "int" | "char"),
-                  isOptional,
-                  isReadonly,
+                  isOptional:
+                    TstsSyntax.Node_QuestionToken(member) !== undefined,
+                  isReadonly: hasTstsReadonlyModifier(member),
                 });
                 continue;
               }
@@ -282,65 +215,67 @@ export const extractStructuralMembersFromDeclarations = (
           }
         }
 
-        // Convert the TypeNode to IrType
         members.push({
           kind: "propertySignature",
           name: propName,
           type: convertType(declTypeNode, binding),
-          isOptional,
-          isReadonly,
+          isOptional: TstsSyntax.Node_QuestionToken(member) !== undefined,
+          isReadonly: hasTstsReadonlyModifier(member),
         });
       }
 
-      // Method signature / declaration
-      if (ts.isMethodSignature(member) || ts.isMethodDeclaration(member)) {
+      if (
+        TstsSyntax.IsMethodSignatureDeclaration(member) ||
+        TstsSyntax.IsMethodDeclaration(member)
+      ) {
         if (
-          ts.isMethodDeclaration(member) &&
+          TstsSyntax.IsMethodDeclaration(member) &&
           !isPublicInstanceClassMember(member)
         ) {
           continue;
         }
         if (
-          ts.isMethodDeclaration(member) &&
+          TstsSyntax.IsMethodDeclaration(member) &&
           isOverloadStubImplementation(member)
         ) {
           continue;
         }
 
-        const methodName = getMemberName(member.name);
-
+        const methodName = getMemberName(member);
         if (!methodName) {
-          continue; // Skip computed keys
+          continue;
         }
 
         members.push({
           kind: "methodSignature",
           name: methodName,
-          parameters: member.parameters.map((param, index) => ({
+          parameters: nodeParameters(member).map((param, index) => ({
             kind: "parameter" as const,
             pattern: {
               kind: "identifierPattern" as const,
-              name: ts.isIdentifier(param.name)
-                ? param.name.text
-                : `arg${index}`,
+              name:
+                identifierText(TstsSyntax.Node_Name(param)) ?? `arg${index}`,
             },
-            type: param.type ? convertType(param.type, binding) : undefined,
-            isOptional: !!param.questionToken,
-            isRest: !!param.dotDotDotToken,
+            type: nodeType(param)
+              ? convertType(nodeType(param)!, binding)
+              : undefined,
+            isOptional: isOptionalParameter(param),
+            isRest: isRestParameter(param),
             passing: "value" as const,
           })),
-          returnType: member.type
-            ? convertType(member.type, binding)
+          returnType: nodeType(member)
+            ? convertType(nodeType(member)!, binding)
             : undefined,
         });
       }
     }
 
     for (const [memberName, pair] of accessorGroups) {
-      const getterTypeNode = pair.getter?.type;
-      const setterTypeNode = pair.setter?.parameters[0]?.type;
+      const getterTypeNode = pair.getter ? nodeType(pair.getter) : undefined;
+      const setterTypeNode = pair.setter
+        ? nodeType(nodeParameters(pair.setter)[0])
+        : undefined;
       const propertyTypeNode = getterTypeNode ?? setterTypeNode;
-
       if (!propertyTypeNode) {
         continue;
       }
@@ -378,58 +313,41 @@ export const extractStructuralMembersFromDeclarations = (
     structuralMembersCache.set(declId, result ?? null);
     return result;
   } catch {
-    // On any error, settle cache to null (not extractable)
     structuralMembersCache.set(declId, null);
     return undefined;
   }
 };
 
-/**
- * Try to convert a pure index-signature interface/type alias to dictionaryType.
- *
- * This supports idiomatic TS dictionary surfaces:
- *   interface MetricsTotals { [metric: string]: int }
- *   type MetricsTotals = { [metric: string]: int }
- *
- * Index-signature-only shapes are structural dictionaries and compile to
- * `Dictionary<K, V>` / `Record<K, V>` behavior.
- */
 export const tryConvertPureIndexSignatureToDictionary = (
-  decl: ts.Declaration,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType,
+  decl: TstsNode,
+  convertType: (node: TstsNode, binding: Binding) => IrType,
   binding: Binding
 ): IrDictionaryType | undefined => {
-  const typeElements = ts.isInterfaceDeclaration(decl)
-    ? decl.members
-    : ts.isTypeAliasDeclaration(decl) && ts.isTypeLiteralNode(decl.type)
-      ? decl.type.members
-      : undefined;
-  if (!typeElements) return undefined;
+  const typeElements = typeElementsForDeclaration(decl);
+  if (typeElements.length === 0) return undefined;
 
-  const indexSignatures = typeElements.filter(ts.isIndexSignatureDeclaration);
+  const indexSignatures = typeElements.filter(
+    TstsSyntax.IsIndexSignatureDeclaration
+  );
   const otherMembers = typeElements.filter(
-    (m) => !ts.isIndexSignatureDeclaration(m)
+    (member) => !TstsSyntax.IsIndexSignatureDeclaration(member)
   );
   if (indexSignatures.length === 0 || otherMembers.length > 0) {
     return undefined;
   }
 
   const indexSig = indexSignatures[0];
-  const keyParam = indexSig?.parameters[0];
-  const keyTypeNode = keyParam?.type;
-  const keyType: IrType = (() => {
-    if (!keyTypeNode) {
-      return { kind: "primitiveType", name: "string" };
-    }
-    return (
-      classifyDictionaryKeyTypeNode(keyTypeNode, convertType, binding) ?? {
+  const keyParam = indexSig ? nodeParameters(indexSig)[0] : undefined;
+  const keyTypeNode = keyParam ? nodeType(keyParam) : undefined;
+  const keyType: IrType = keyTypeNode
+    ? (classifyDictionaryKeyTypeNode(keyTypeNode) ?? {
         kind: "primitiveType",
         name: "string",
-      }
-    );
-  })();
-  const valueType = indexSig?.type
-    ? convertType(indexSig.type, binding)
+      })
+    : { kind: "primitiveType", name: "string" };
+  const indexSigType = indexSig ? nodeType(indexSig) : undefined;
+  const valueType = indexSigType
+    ? convertType(indexSigType, binding)
     : { kind: "anyType" as const };
 
   return {
@@ -439,18 +357,12 @@ export const tryConvertPureIndexSignatureToDictionary = (
   };
 };
 
-/**
- * Expand a type alias body with optional type-parameter substitution.
- *
- * Shared helper used by both declaration-file alias erasure and user-defined
- * type alias erasure paths in convertTypeReference.
- */
 export const expandTypeAliasBody = (
   declId: number,
-  declNode: ts.TypeAliasDeclaration,
-  node: ts.TypeReferenceNode,
+  declNode: TstsNode,
+  node: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | undefined => {
   const directExpanded = expandDirectAliasSyntax(
     declNode,
@@ -470,19 +382,24 @@ export const expandTypeAliasBody = (
     return undefined;
   }
 
+  const aliasBody = TstsSyntax.AsTypeAliasDeclaration(declNode)?.Type;
+  if (!aliasBody) {
+    return undefined;
+  }
+
   const base =
     cached ??
     (() => {
       typeAliasBodyCache.set(key, "in-progress");
-      const converted = convertType(declNode.type, binding);
+      const converted = convertType(aliasBody, binding);
       typeAliasBodyCache.set(key, converted);
       return converted;
     })();
 
-  const aliasTypeParams = (declNode.typeParameters ?? []).map(
-    (tp) => tp.name.text
-  );
-  const refTypeArgs = (node.typeArguments ?? []).map((t) =>
+  const aliasTypeParams = (TstsSyntax.Node_TypeParameters(declNode) ?? [])
+    .map((parameter) => identifierText(TstsSyntax.Node_Name(parameter)))
+    .filter((name): name is string => name !== undefined);
+  const refTypeArgs = nodeTypeArguments(node).map((t) =>
     convertType(t, binding)
   );
 

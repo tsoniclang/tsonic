@@ -1,11 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as ts from "typescript";
 import type { SurfaceMode } from "../program/types.js";
 import { resolveDependencyPackageRoot } from "../program/package-roots.js";
 import {
   createReadPackageRootNamespace,
   createResolveModuleFromPackageRoot,
+  type ResolvedPackageModule,
 } from "../program/module-resolution.js";
 import { readSourcePackageMetadata } from "../program/source-package-metadata.js";
 import { createDiagnostic, type Diagnostic } from "../types/diagnostic.js";
@@ -47,8 +47,9 @@ const containingSourcePackageRootCache = new Map<string, string>();
 const packageRootNamespaceCache = new Map<string, string | null>();
 const packageRootModuleResolutionCache = new Map<
   string,
-  ts.ResolvedModuleFull | null
+  ResolvedPackageModule | null
 >();
+const containingPackageRootCache = new Map<string, string | null>();
 const readPackageRootNamespace = createReadPackageRootNamespace(
   packageRootNamespaceCache
 );
@@ -133,6 +134,31 @@ export const findContainingSourcePackageRoot = (
   }
 };
 
+export const findContainingPackageRoot = (
+  filePath: string
+): string | undefined => {
+  const normalizedFilePath = path.resolve(filePath);
+  const cached = containingPackageRootCache.get(normalizedFilePath);
+  if (cached !== undefined) {
+    return cached ?? undefined;
+  }
+
+  let currentDir = path.dirname(normalizedFilePath);
+  for (;;) {
+    if (fs.existsSync(path.join(currentDir, "package.json"))) {
+      containingPackageRootCache.set(normalizedFilePath, currentDir);
+      return currentDir;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      containingPackageRootCache.set(normalizedFilePath, null);
+      return undefined;
+    }
+    currentDir = parentDir;
+  }
+};
+
 export const isPathWithinBoundary = (
   filePath: string,
   boundary: string
@@ -154,7 +180,11 @@ export const getLocalResolutionBoundary = (
   if (isPathWithinBoundary(containingFile, defaultSourceRoot)) {
     return defaultSourceRoot;
   }
-  return findContainingSourcePackageRoot(containingFile) ?? defaultSourceRoot;
+  return (
+    findContainingSourcePackageRoot(containingFile) ??
+    findContainingPackageRoot(containingFile) ??
+    defaultSourceRoot
+  );
 };
 
 export const parsePackageSpecifier = (
@@ -205,7 +235,7 @@ export const resolveInstalledPackageImportFromPackageRoot = (
     packageName: parsedSpecifier.packageName,
     packageRoot,
     resolvedPath: resolved.resolvedFileName,
-    isDeclarationFile: resolved.extension === ts.Extension.Dts,
+    isDeclarationFile: resolved.extension === ".d.ts",
   });
 };
 
@@ -768,6 +798,7 @@ export const resolveSourcePackageImport = (
 export const __resetSourcePackageResolutionCachesForTests = (): void => {
   installedPackageRootCache.clear();
   containingSourcePackageRootCache.clear();
+  containingPackageRootCache.clear();
   packageRootNamespaceCache.clear();
   packageRootModuleResolutionCache.clear();
 };

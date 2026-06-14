@@ -12,6 +12,8 @@ import { isLocalImport } from "../types/module.js";
 import { ResolvedModule } from "./types.js";
 import {
   getLocalResolutionBoundary,
+  findContainingPackageRoot,
+  findInstalledPackageRoot,
   isPathWithinBoundary,
   resolveInstalledPackageImport,
   resolveInstalledPackageImportFromPackageRoot,
@@ -23,8 +25,10 @@ import { ExternalBindingsResolver } from "./external-bindings-resolver.js";
 import type { BindingRegistry } from "../program/bindings.js";
 import type { DeclarationModuleAlias } from "../program/declaration-module-aliases.js";
 import {
+  CORE_PACKAGE_NAME,
   CORE_LANG_MODULE_SPECIFIERS,
   CORE_TYPES_MODULE_SPECIFIERS,
+  coreDeclarationFileBaseName,
 } from "../source-frontend/core-module-identity.js";
 
 /**
@@ -109,6 +113,41 @@ const findCaseMismatchPath = (
   return undefined;
 };
 
+const resolveCoreDeclarationPath = (
+  importSpecifier: string,
+  containingFile: string,
+  opts: ResolveImportOptions | undefined
+): string | undefined => {
+  const module = CORE_TYPES_MODULE_SPECIFIERS.has(importSpecifier)
+    ? "types"
+    : CORE_LANG_MODULE_SPECIFIERS.has(importSpecifier)
+      ? "lang"
+      : undefined;
+  if (!module) {
+    return undefined;
+  }
+
+  const packageRoots = [
+    opts?.authoritativeTsonicPackageRoots?.get(CORE_PACKAGE_NAME),
+    opts?.projectRoot
+      ? path.join(opts.projectRoot, "node_modules", "@tsonic", "core")
+      : undefined,
+    findInstalledPackageRoot(CORE_PACKAGE_NAME, containingFile),
+  ].filter((root): root is string => root !== undefined);
+
+  for (const packageRoot of packageRoots) {
+    const declarationPath = path.join(
+      packageRoot,
+      coreDeclarationFileBaseName(module)
+    );
+    if (fs.existsSync(declarationPath)) {
+      return declarationPath;
+    }
+  }
+
+  return undefined;
+};
+
 /**
  * Resolve import specifier to module
  *
@@ -141,8 +180,13 @@ export const resolveImport = (
     CORE_TYPES_MODULE_SPECIFIERS.has(importSpecifier) ||
     CORE_LANG_MODULE_SPECIFIERS.has(importSpecifier)
   ) {
+    const resolvedPath = resolveCoreDeclarationPath(
+      importSpecifier,
+      containingFile,
+      opts
+    );
     return ok({
-      resolvedPath: "", // No file path for type-only packages
+      resolvedPath: resolvedPath ?? "",
       isLocal: false,
       resolutionKind: "phantomTypeOnly",
       originalSpecifier: importSpecifier,
@@ -304,7 +348,8 @@ export const resolveImport = (
  * Resolve local import with ESM rules
  *
  * Accepts both .js and .ts extensions:
- * - .js is the ESM-compliant extension (resolves to .ts source file)
+ * - .js is the ESM-compliant extension (resolves to .ts source files
+ *   and to .d.ts declaration siblings from declaration files)
  * - .ts is also accepted for convenience
  */
 export const resolveLocalImport = (
@@ -330,11 +375,24 @@ export const resolveLocalImport = (
 
   const containingDir = path.dirname(containingFile);
 
-  // If .js extension, resolve to .ts source file
-  const tsSpecifier = hasJsExtension
-    ? importSpecifier.slice(0, -3) + ".ts"
-    : importSpecifier;
-  const resolvedPath = path.resolve(containingDir, tsSpecifier);
+  // If .js extension, resolve to the source/declaration file that owns the
+  // static module contract. Declaration files in ESM packages import their
+  // declaration siblings using runtime .js specifiers, matching TypeScript's
+  // declaration-resolution model.
+  const jsBaseSpecifier = hasJsExtension
+    ? importSpecifier.slice(0, -3)
+    : undefined;
+  const candidateSpecifiers = jsBaseSpecifier
+    ? containingFile.endsWith(".d.ts")
+      ? [`${jsBaseSpecifier}.d.ts`, `${jsBaseSpecifier}.ts`]
+      : [`${jsBaseSpecifier}.ts`, `${jsBaseSpecifier}.d.ts`]
+    : [importSpecifier];
+  const candidatePaths = candidateSpecifiers.map((specifier) =>
+    path.resolve(containingDir, specifier)
+  );
+  const resolvedPath =
+    candidatePaths.find((candidatePath) => fs.existsSync(candidatePath)) ??
+    candidatePaths[0]!;
 
   // Check if file exists
   if (!fs.existsSync(resolvedPath)) {
@@ -365,7 +423,10 @@ export const resolveLocalImport = (
     );
   }
 
-  const localBoundary = getLocalResolutionBoundary(containingFile, sourceRoot);
+  const localBoundary = resolvedPath.endsWith(".d.ts")
+    ? findContainingPackageRoot(containingFile) ??
+      getLocalResolutionBoundary(containingFile, sourceRoot)
+    : getLocalResolutionBoundary(containingFile, sourceRoot);
 
   // Ensure it's within the current module boundary (workspace source root or
   // installed source-package root).

@@ -1,11 +1,8 @@
-/**
- * Type alias declaration handling for reference type conversion.
- *
- * Handles function type aliases, declaration-file alias erasure,
- * user-defined type alias expansion, and tsbindgen facade conditional types.
- */
-
-import * as ts from "typescript";
+import {
+  forEachTstsChild,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import type { IrType } from "../../../types.js";
 import { stampRuntimeUnionAliasCarrier } from "../../../types.js";
 import { substituteIrType } from "../../../types/ir-substitution.js";
@@ -20,8 +17,10 @@ import {
 } from "./references-normalize.js";
 import {
   resolveContainingSourcePackageNamespace,
-  resolveContainingSourcePackageStableFilePath,
+  resolveContainingSourcePackageOwnerIdentity,
 } from "../../../../program/source-file-identity.js";
+import { typeSymbolIdFromStableId } from "../../../../symbols/symbol-ids.js";
+import type { TypeId } from "../universe/types.js";
 import {
   isTsonicBindingsDeclarationFile,
   isSafeToEraseUserTypeAliasTarget,
@@ -31,79 +30,78 @@ import {
   expandTypeAliasBody,
 } from "./references-structural.js";
 import { expandDirectAliasSyntax } from "./direct-alias-expansion.js";
+import {
+  containingSourceFileName,
+  entityNameToText as entityNameToTextInternal,
+  identifierText,
+  isDeclarationFileNode,
+  nodeTypeArguments,
+} from "./tsts-syntax.js";
 
-export const entityNameToText = (entityName: ts.EntityName): string =>
-  ts.isIdentifier(entityName)
-    ? entityName.text
-    : `${entityNameToText(entityName.left)}.${entityName.right.text}`;
+export const entityNameToText = (entityName: TstsNode | undefined): string =>
+  entityNameToTextInternal(entityName);
 
-const unwrapParenthesizedTypeNode = (node: ts.TypeNode): ts.TypeNode => {
+const aliasNameText = (declNode: TstsNode): string =>
+  identifierText(TstsSyntax.Node_Name(declNode)) ?? "_alias";
+
+const unwrapParenthesizedTypeNode = (node: TstsNode): TstsNode => {
   let current = node;
-  while (ts.isParenthesizedTypeNode(current)) {
-    current = current.type;
+  while (TstsSyntax.IsParenthesizedTypeNode(current)) {
+    const inner = TstsSyntax.AsParenthesizedTypeNode(current)?.Type;
+    if (!inner) break;
+    current = inner;
   }
   return current;
 };
 
-const isDirectUnionTypeAliasDeclaration = (
-  node: ts.TypeAliasDeclaration
-): boolean => ts.isUnionTypeNode(unwrapParenthesizedTypeNode(node.type));
-
-const sourceObjectAliasExpansionStack = new WeakSet<ts.TypeAliasDeclaration>();
-
-const safeGetSourceFile = (node: ts.Node): ts.SourceFile | undefined => {
-  try {
-    const sourceFile = (
-      node as { readonly getSourceFile?: () => ts.SourceFile | undefined }
-    ).getSourceFile?.();
-    return sourceFile?.statements ? sourceFile : undefined;
-  } catch {
-    return undefined;
-  }
+const isDirectUnionTypeAliasDeclaration = (node: TstsNode): boolean => {
+  const aliasBody = TstsSyntax.AsTypeAliasDeclaration(node)?.Type;
+  return !!aliasBody && TstsSyntax.IsUnionTypeNode(unwrapParenthesizedTypeNode(aliasBody));
 };
 
+const sourceObjectAliasExpansionStack = new WeakSet<TstsNode>();
+
 const buildSourceAliasIdentity = (
-  declNode: ts.TypeAliasDeclaration,
-  aliasName: string
+  declNode: TstsNode,
+  aliasName: string,
+  options: { readonly objectAliasCarrier: boolean } = {
+    objectAliasCarrier: false,
+  }
 ):
   | {
       readonly providerQualifiedName: string;
-      readonly typeId: {
-        readonly stableId: string;
-        readonly providerName: string;
-        readonly ownerIdentity: string;
-        readonly sourceName: string;
-        readonly origin: "source";
-      };
+      readonly typeId: TypeId;
     }
   | undefined => {
-  const sourceFile = safeGetSourceFile(declNode);
+  const sourceFileName = containingSourceFileName(declNode);
   if (
-    !sourceFile ||
-    sourceFile.isDeclarationFile ||
-    !isTsonicSourcePackageFile(sourceFile.fileName)
+    !sourceFileName ||
+    isDeclarationFileNode(declNode) ||
+    !isTsonicSourcePackageFile(sourceFileName)
   ) {
     return undefined;
   }
 
-  const sourcePackageNamespace = resolveContainingSourcePackageNamespace(
-    sourceFile.fileName
-  );
-  if (!sourcePackageNamespace) {
+  const sourcePackageNamespace =
+    resolveContainingSourcePackageNamespace(sourceFileName);
+  const ownerIdentity = resolveContainingSourcePackageOwnerIdentity(sourceFileName);
+  if (!sourcePackageNamespace || !ownerIdentity) {
     return undefined;
   }
 
-  const stableSourceFilePath =
-    resolveContainingSourcePackageStableFilePath(sourceFile.fileName) ??
-    sourceFile.fileName.replace(/\\/g, "/");
-  const providerQualifiedName = `${sourcePackageNamespace}.${aliasName}__Alias`;
+  const sourceQualifiedName = `${sourcePackageNamespace}.${aliasName}`;
+  const stableId = `${ownerIdentity}:${sourceQualifiedName}`;
+  const providerQualifiedName = options.objectAliasCarrier
+    ? `${sourceQualifiedName}__Alias`
+    : sourceQualifiedName;
 
   return {
     providerQualifiedName,
     typeId: {
-      stableId: `source-alias:${stableSourceFilePath}#${aliasName}`,
+      stableId,
+      symbolId: typeSymbolIdFromStableId(stableId),
       providerName: providerQualifiedName,
-      ownerIdentity: sourcePackageNamespace,
+      ownerIdentity,
       sourceName: aliasName,
       origin: "source",
     },
@@ -111,36 +109,40 @@ const buildSourceAliasIdentity = (
 };
 
 const buildSourceObjectAliasReference = (
-  node: ts.TypeReferenceNode,
+  node: TstsNode,
   typeName: string,
-  declNode: ts.TypeAliasDeclaration,
+  declNode: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | undefined => {
   if (typeName.includes(".")) {
     return undefined;
   }
 
-  const sourceDecl = declNode;
-  const sourceFile = safeGetSourceFile(sourceDecl);
+  const sourceFileName = containingSourceFileName(declNode);
   if (
-    !sourceFile ||
-    sourceFile.isDeclarationFile ||
-    !isTsonicSourcePackageFile(sourceFile.fileName)
+    !sourceFileName ||
+    isDeclarationFileNode(declNode) ||
+    !isTsonicSourcePackageFile(sourceFileName)
   ) {
     return undefined;
   }
 
-  const aliasBody = unwrapParenthesizedTypeNode(sourceDecl.type);
-  if (!ts.isTypeLiteralNode(aliasBody)) {
+  const sourceDecl = TstsSyntax.AsTypeAliasDeclaration(declNode);
+  const aliasBody = sourceDecl?.Type
+    ? unwrapParenthesizedTypeNode(sourceDecl.Type)
+    : undefined;
+  if (!aliasBody || !TstsSyntax.IsTypeLiteralNode(aliasBody)) {
     return undefined;
   }
 
-  const refTypeArgs = (node.typeArguments ?? []).map((typeArgument) =>
+  const refTypeArgs = nodeTypeArguments(node).map((typeArgument) =>
     convertType(typeArgument, binding)
   );
-  const aliasName = sourceDecl.name.text;
-  const sourceAliasIdentity = buildSourceAliasIdentity(sourceDecl, aliasName);
+  const aliasName = aliasNameText(declNode);
+  const sourceAliasIdentity = buildSourceAliasIdentity(declNode, aliasName, {
+    objectAliasCarrier: true,
+  });
   const referenceBase: Extract<IrType, { kind: "referenceType" }> = {
     kind: "referenceType",
     name: aliasName,
@@ -148,25 +150,25 @@ const buildSourceObjectAliasReference = (
     ...sourceAliasIdentity,
   };
 
-  if (sourceObjectAliasExpansionStack.has(sourceDecl)) {
+  if (sourceObjectAliasExpansionStack.has(declNode)) {
     return referenceBase;
   }
 
-  sourceObjectAliasExpansionStack.add(sourceDecl);
+  sourceObjectAliasExpansionStack.add(declNode);
   const convertedBody = (() => {
     try {
       return convertType(aliasBody, binding);
     } finally {
-      sourceObjectAliasExpansionStack.delete(sourceDecl);
+      sourceObjectAliasExpansionStack.delete(declNode);
     }
   })();
   if (convertedBody.kind !== "objectType") {
     return undefined;
   }
 
-  const aliasTypeParams = (sourceDecl.typeParameters ?? []).map(
-    (typeParameter) => typeParameter.name.text
-  );
+  const aliasTypeParams = (TstsSyntax.Node_TypeParameters(declNode) ?? [])
+    .map((typeParameter) => identifierText(TstsSyntax.Node_Name(typeParameter)))
+    .filter((name): name is string => name !== undefined);
   const substitutedBody =
     aliasTypeParams.length > 0 && refTypeArgs.length > 0
       ? (() => {
@@ -200,62 +202,67 @@ const buildSourceObjectAliasReference = (
   };
 };
 
-/**
- * Handle type alias declarations during reference type conversion.
- *
- * Returns an IrType if the alias was handled, or undefined to fall through
- * to the default reference type path.
- */
 export const handleTypeAliasDeclaration = (
-  node: ts.TypeReferenceNode,
+  node: TstsNode,
   typeName: string,
   declId: DeclId,
   declInfo: {
     readonly valueDeclNode?: unknown;
   },
-  declNode: ts.TypeAliasDeclaration,
+  declNode: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | undefined => {
+  const alias = TstsSyntax.AsTypeAliasDeclaration(declNode);
+  const aliasBody = alias?.Type;
+  if (!aliasBody) {
+    return undefined;
+  }
+  const valueDeclNode = declInfo.valueDeclNode as TstsNode | undefined;
+  const hasRuntimeValueDeclaration =
+    valueDeclNode !== undefined &&
+    !TstsSyntax.IsTypeAliasDeclaration(valueDeclNode) &&
+    !TstsSyntax.IsInterfaceDeclaration(valueDeclNode);
+
   const stampSourceAliasCarrier = (type: IrType): IrType => {
-    if (declNode.getSourceFile().isDeclarationFile) {
+    if (isDeclarationFileNode(declNode)) {
       return type;
     }
 
-    const fullyQualifiedName =
-      binding.getFullyQualifiedName(declId) ?? declNode.name.text;
+    const aliasName = aliasNameText(declNode);
+    const fullyQualifiedName = binding.getFullyQualifiedName(declId) ?? aliasName;
 
     return stampRuntimeUnionAliasCarrier(type, {
-      aliasName: declNode.name.text,
+      aliasName,
       fullyQualifiedName,
-      typeParameters: (declNode.typeParameters ?? []).map((tp) => tp.name.text),
-      typeArguments: (node.typeArguments ?? []).map((typeArgument) =>
+      typeParameters: (TstsSyntax.Node_TypeParameters(declNode) ?? [])
+        .map((typeParameter) => identifierText(TstsSyntax.Node_Name(typeParameter)))
+        .filter((name): name is string => name !== undefined),
+      typeArguments: nodeTypeArguments(node).map((typeArgument) =>
         convertType(typeArgument, binding)
       ),
     });
   };
 
-  const convertFunctionAliasBody = (
-    functionTypeNode: ts.FunctionTypeNode
-  ): IrType => {
+  const convertFunctionAliasBody = (functionTypeNode: TstsNode): IrType => {
     const fnType = convertFunctionType(functionTypeNode, binding, convertType);
 
-    const aliasTypeParams = (declNode.typeParameters ?? []).map(
-      (tp) => tp.name.text
-    );
-    const refTypeArgs = (node.typeArguments ?? []).map((t) =>
-      convertType(t, binding)
+    const aliasTypeParams = (TstsSyntax.Node_TypeParameters(declNode) ?? [])
+      .map((typeParameter) => identifierText(TstsSyntax.Node_Name(typeParameter)))
+      .filter((name): name is string => name !== undefined);
+    const refTypeArgs = nodeTypeArguments(node).map((typeArgument) =>
+      convertType(typeArgument, binding)
     );
 
     if (aliasTypeParams.length > 0 && refTypeArgs.length > 0) {
       const subst = new Map<string, IrType>();
       for (
-        let i = 0;
-        i < Math.min(aliasTypeParams.length, refTypeArgs.length);
-        i++
+        let index = 0;
+        index < Math.min(aliasTypeParams.length, refTypeArgs.length);
+        index++
       ) {
-        const name = aliasTypeParams[i];
-        const arg = refTypeArgs[i];
+        const name = aliasTypeParams[index];
+        const arg = refTypeArgs[index];
         if (name && arg) subst.set(name, arg);
       }
 
@@ -267,50 +274,51 @@ export const handleTypeAliasDeclaration = (
     return normalizeExpandedAliasType(fnType);
   };
 
-  // tsbindgen extension method wrapper types erasure
   if (
-    declNode.name.text.startsWith("ExtensionMethods_") &&
-    node.typeArguments?.length === 1
+    aliasNameText(declNode).startsWith("ExtensionMethods_") &&
+    nodeTypeArguments(node).length === 1
   ) {
-    const shape = node.typeArguments[0];
+    const shape = nodeTypeArguments(node)[0];
     return shape ? convertType(shape, binding) : { kind: "unknownType" };
   }
 
-  if (ts.isFunctionTypeNode(declNode.type)) {
-    // native target delegate types are NOMINAL in target.
-    if (declNode.getSourceFile().isDeclarationFile) {
+  if (TstsSyntax.IsFunctionTypeNode(aliasBody)) {
+    if (isDeclarationFileNode(declNode)) {
+      const fileName = containingSourceFileName(declNode);
       if (
-        isTsonicBindingsDeclarationFile(declNode.getSourceFile().fileName) &&
-        !declInfo.valueDeclNode
+        fileName &&
+        isTsonicBindingsDeclarationFile(fileName) &&
+        !hasRuntimeValueDeclaration
       ) {
-        return convertFunctionAliasBody(declNode.type);
+        return convertFunctionAliasBody(aliasBody);
       }
-      // Fall through to the referenceType emission.
     } else {
-      return convertFunctionAliasBody(declNode.type);
+      return convertFunctionAliasBody(aliasBody);
     }
   }
 
   if (isDirectUnionTypeAliasDeclaration(declNode)) {
     const preserveAliasIdentity = shouldPreserveUserTypeAliasIdentity(declNode);
-    if (preserveAliasIdentity && !declNode.getSourceFile().isDeclarationFile) {
-      if (isRecursiveUserTypeAliasDeclaration(declId.id, declNode, binding)) {
-        const sourceAliasIdentity = buildSourceAliasIdentity(
-          declNode,
-          declNode.name.text
+    if (preserveAliasIdentity && !isDeclarationFileNode(declNode)) {
+      const sourceAliasIdentity = buildSourceAliasIdentity(
+        declNode,
+        aliasNameText(declNode)
+      );
+      if (sourceAliasIdentity) {
+        const refTypeArgs = nodeTypeArguments(node).map((typeArgument) =>
+          convertType(typeArgument, binding)
         );
-        if (sourceAliasIdentity) {
-          const refTypeArgs = (node.typeArguments ?? []).map((typeArgument) =>
-            convertType(typeArgument, binding)
-          );
-          return {
-            kind: "referenceType",
-            name: typeName,
-            ...(refTypeArgs.length > 0 ? { typeArguments: refTypeArgs } : {}),
-            ...sourceAliasIdentity,
-            structuralOrigin: "namedReference",
-          };
-        }
+        return {
+          kind: "referenceType",
+          name: typeName,
+          ...(refTypeArgs.length > 0 ? { typeArguments: refTypeArgs } : {}),
+          ...sourceAliasIdentity,
+          structuralOrigin: "namedReference",
+        };
+      }
+
+      if (isRecursiveUserTypeAliasDeclaration(declId.id, declNode, binding)) {
+        return undefined;
       }
       return undefined;
     }
@@ -320,7 +328,7 @@ export const handleTypeAliasDeclaration = (
       declNode,
       binding
     );
-    if (!declInfo.valueDeclNode && !recursive) {
+    if (!hasRuntimeValueDeclaration && !recursive) {
       const expanded = expandTypeAliasBody(
         declId.id,
         declNode,
@@ -340,7 +348,7 @@ export const handleTypeAliasDeclaration = (
     }
   }
 
-  if (!declNode.getSourceFile().isDeclarationFile) {
+  if (!isDeclarationFileNode(declNode)) {
     const sourceObjectAlias = buildSourceObjectAliasReference(
       node,
       typeName,
@@ -353,12 +361,13 @@ export const handleTypeAliasDeclaration = (
     }
   }
 
-  // Declaration-file type-only alias erasure
+  const fileName = containingSourceFileName(declNode);
   if (
-    declNode.getSourceFile().isDeclarationFile &&
-    isTsonicBindingsDeclarationFile(declNode.getSourceFile().fileName) &&
-    !declInfo.valueDeclNode &&
-    !ts.isConditionalTypeNode(declNode.type)
+    isDeclarationFileNode(declNode) &&
+    fileName &&
+    isTsonicBindingsDeclarationFile(fileName) &&
+    !hasRuntimeValueDeclaration &&
+    !TstsSyntax.IsConditionalTypeNode(aliasBody)
   ) {
     const expanded = expandTypeAliasBody(
       declId.id,
@@ -370,8 +379,7 @@ export const handleTypeAliasDeclaration = (
     if (expanded) return expanded;
   }
 
-  // User-defined type aliases are TS-only and have no native target identity.
-  if (!declNode.getSourceFile().isDeclarationFile) {
+  if (!isDeclarationFileNode(declNode)) {
     const directExpanded = expandDirectAliasSyntax(
       declNode,
       node,
@@ -386,8 +394,8 @@ export const handleTypeAliasDeclaration = (
   }
 
   if (
-    !declNode.getSourceFile().isDeclarationFile &&
-    isSafeToEraseUserTypeAliasTarget(declNode.type) &&
+    !isDeclarationFileNode(declNode) &&
+    isSafeToEraseUserTypeAliasTarget(aliasBody) &&
     !isRecursiveUserTypeAliasDeclaration(declId.id, declNode, binding)
   ) {
     const key = declId.id;
@@ -406,64 +414,62 @@ export const handleTypeAliasDeclaration = (
     }
   }
 
-  // tsbindgen facade type families: conditional type aliases
+  const aliasTypeParameters = TstsSyntax.Node_TypeParameters(declNode) ?? [];
+  const firstParameter = aliasTypeParameters[0];
+  const hasTsbindgenDefaultSentinel =
+    nodeTypeArguments(node).length > 0 &&
+    aliasTypeParameters.length === 1 &&
+    !!firstParameter &&
+    !!TstsSyntax.AsTypeParameterDeclaration(firstParameter)?.DefaultType &&
+    TstsSyntax.IsTypeReferenceNode(
+      TstsSyntax.AsTypeParameterDeclaration(firstParameter)?.DefaultType
+    ) &&
+    entityNameToText(
+      TstsSyntax.AsTypeReferenceNode(
+        TstsSyntax.AsTypeParameterDeclaration(firstParameter)?.DefaultType
+      )?.TypeName
+    ) === "__";
+
   if (
-    node.typeArguments &&
-    node.typeArguments.length > 0 &&
-    declNode.typeParameters &&
-    declNode.typeParameters.length === 1
+    hasTsbindgenDefaultSentinel &&
+    TstsSyntax.IsConditionalTypeNode(aliasBody)
   ) {
-    const param = declNode.typeParameters[0];
-    const hasTsbindgenDefaultSentinel =
-      !!param &&
-      !!param.default &&
-      ts.isTypeReferenceNode(param.default) &&
-      entityNameToText(param.default.typeName) === "__";
+    const expected = `${typeName}_${nodeTypeArguments(node).length}`;
+    let found: string | undefined;
 
-    if (
-      hasTsbindgenDefaultSentinel &&
-      ts.isConditionalTypeNode(declNode.type)
-    ) {
-      const expected = `${typeName}_${node.typeArguments.length}`;
-      let found: string | undefined;
+    const visit = (typeNode: TstsNode): void => {
+      if (found) return;
 
-      const visit = (t: ts.TypeNode): void => {
-        if (found) return;
-
-        if (ts.isTypeReferenceNode(t)) {
-          const raw = entityNameToText(t.typeName);
-          const normalized = normalizeNamespaceAliasQualifiedName(
-            normalizeProviderInternalQualifiedName(raw)
-          );
-          if (normalized === expected) {
-            found = normalized;
-          }
-          return;
+      if (TstsSyntax.IsTypeReferenceNode(typeNode)) {
+        const raw = entityNameToText(
+          TstsSyntax.AsTypeReferenceNode(typeNode)?.TypeName
+        );
+        const normalized = normalizeNamespaceAliasQualifiedName(
+          normalizeProviderInternalQualifiedName(raw)
+        );
+        if (normalized === expected) {
+          found = normalized;
         }
-
-        if (ts.isConditionalTypeNode(t)) {
-          visit(t.trueType);
-          visit(t.falseType);
-          return;
-        }
-
-        if (ts.isParenthesizedTypeNode(t)) {
-          visit(t.type);
-        }
-      };
-
-      visit(declNode.type);
-
-      if (found) {
-        return {
-          kind: "referenceType",
-          name: found,
-          typeArguments: node.typeArguments.map((t) => convertType(t, binding)),
-        };
+        return;
       }
+
+      forEachTstsChild(typeNode, (child) => {
+        if (child) visit(child);
+      });
+    };
+
+    visit(aliasBody);
+
+    if (found) {
+      return {
+        kind: "referenceType",
+        name: found,
+        typeArguments: nodeTypeArguments(node).map((typeArgument) =>
+          convertType(typeArgument, binding)
+        ),
+      };
     }
   }
 
-  // Not handled - fall through to default path
   return undefined;
 };

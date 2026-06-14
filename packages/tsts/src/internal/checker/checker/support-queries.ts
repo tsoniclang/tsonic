@@ -570,7 +570,7 @@ export function Checker_isCommonJSRequire(receiver: GoPtr<Checker>, node: GoPtr<
  * }
  */
 export function keyBuilder_hash(receiver: GoPtr<keyBuilder>): CacheHashKey {
-  return receiver!.h.Sum128();
+  return receiver!.h.Sum128().String();
 }
 
 /**

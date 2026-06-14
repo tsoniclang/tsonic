@@ -1,170 +1,176 @@
 /**
  * Contextual Type Checks & Identifier Analysis
  *
- * AST-based contextual type detection helpers for lambdas, object literals,
- * and array literals. Also includes generic function value identifier
- * analysis and symbol resolution utilities.
+ * TSTS syntax-based contextual type detection helpers for lambdas, object
+ * literals, and array literals. Also includes generic function value
+ * identifier analysis and symbol resolution utilities.
  */
 
-import * as ts from "typescript";
-import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
+import type { TstsNode } from "@tsonic/tsts";
+import { TstsSyntax } from "@tsonic/tsts";
+import type { TstsFrontendSourceSemanticView } from "../source-frontend/index.js";
+import {
+  getNodeBody,
+  getNodeExpression,
+  getNodeInitializer,
+  getNodeType,
+  getNodeTypeParameters,
+  getTypeArguments,
+  identifierText,
+  getVariableDeclarationListKind,
+  isIdentifier,
+  nodeParent,
+  type SourceSymbol,
+  type SourceType,
+} from "./tsts-helpers.js";
 
-/**
- * DETERMINISTIC IR TYPING (INV-0 compliant):
- * Check if a lambda is in a position where expected types provide parameter types.
- *
- * This replaces the old getContextualType-based inference with AST analysis.
- * Expected types are propagated from:
- * 1. Call arguments - the callee's parameter type provides the expected type
- * 2. Variable initializers - the variable's type annotation provides the expected type
- * 3. New expression arguments - the constructor's parameter type provides the expected type
- * 4. Return statements - the function's return type provides the expected type
- * 5. Property assignments - the object's contextual type provides the expected type
- * 6. Nested arrow functions - body of another arrow that has expected context
- */
-export const lambdaHasExpectedTypeContext = (
-  lambda: ts.ArrowFunction | ts.FunctionExpression
-): boolean => {
-  let parent = lambda.parent;
-  while (ts.isParenthesizedExpression(parent)) {
-    parent = parent.parent;
+const isFunctionWithReturnTypeContext = (node: TstsNode): boolean => {
+  const containingFunction = findContainingFunction(node);
+  return containingFunction ? getNodeType(containingFunction) !== undefined : false;
+};
+
+export const lambdaHasExpectedTypeContext = (lambda: TstsNode): boolean => {
+  let parent = nodeParent(lambda);
+  while (parent?.Kind === TstsSyntax.KindParenthesizedExpression) {
+    parent = nodeParent(parent);
   }
 
-  // Case 1: Lambda is a call argument
-  if (ts.isCallExpression(parent)) {
-    return true;
-  }
-
-  // Case 2: Lambda is a new expression argument
-  if (ts.isNewExpression(parent)) {
-    return true;
-  }
-
-  // Case 3: Lambda is assigned to a typed variable
-  if (ts.isVariableDeclaration(parent) && parent.type) {
-    return true;
-  }
-
-  // Case 4: Lambda is constrained by a satisfies expression
-  if (ts.isSatisfiesExpression(parent) && parent.type) {
-    return true;
-  }
-
-  // Case 5: Lambda is in a return statement in a function with return type
-  if (ts.isReturnStatement(parent)) {
-    const containingFunction = findContainingFunction(parent);
-    if (containingFunction && containingFunction.type) {
-      return true;
-    }
-  }
-
-  // Case 6: Lambda is a property value where the object has contextual type
   if (
-    ts.isPropertyAssignment(parent) &&
-    ts.isObjectLiteralExpression(parent.parent)
+    parent?.Kind === TstsSyntax.KindCallExpression ||
+    parent?.Kind === TstsSyntax.KindNewExpression
   ) {
-    return objectLiteralHasContextualType(parent.parent);
+    return true;
   }
 
-  // Case 7: Lambda is an array element where the array has a type
-  if (ts.isArrayLiteralExpression(parent)) {
+  if (
+    parent?.Kind === TstsSyntax.KindVariableDeclaration &&
+    getNodeType(parent) !== undefined
+  ) {
+    return true;
+  }
+
+  if (
+    parent?.Kind === TstsSyntax.KindSatisfiesExpression &&
+    getNodeType(parent) !== undefined
+  ) {
+    return true;
+  }
+
+  if (
+    parent?.Kind === TstsSyntax.KindReturnStatement &&
+    isFunctionWithReturnTypeContext(parent)
+  ) {
+    return true;
+  }
+
+  if (
+    parent?.Kind === TstsSyntax.KindPropertyAssignment &&
+    parent.Parent?.Kind === TstsSyntax.KindObjectLiteralExpression
+  ) {
+    return objectLiteralHasContextualType(parent.Parent);
+  }
+
+  if (parent?.Kind === TstsSyntax.KindArrayLiteralExpression) {
     return arrayLiteralHasContextualType(parent);
   }
 
-  // Case 8: Lambda is the expression body of another arrow function
-  if (ts.isArrowFunction(parent) || ts.isFunctionExpression(parent)) {
-    if (parent.body === lambda) {
-      if (parent.type) {
-        return true;
-      }
-      if (lambdaHasExpectedTypeContext(parent)) {
-        return true;
-      }
+  if (
+    parent?.Kind === TstsSyntax.KindArrowFunction ||
+    parent?.Kind === TstsSyntax.KindFunctionExpression
+  ) {
+    if (getNodeBody(parent) === lambda) {
+      return (
+        getNodeType(parent) !== undefined || lambdaHasExpectedTypeContext(parent)
+      );
     }
   }
 
   return false;
 };
 
-export const arrayLiteralHasContextualType = (
-  node: ts.ArrayLiteralExpression
-): boolean => {
-  const parent = node.parent;
+export const arrayLiteralHasContextualType = (node: TstsNode): boolean => {
+  const parent = nodeParent(node);
 
-  if (ts.isVariableDeclaration(parent) && parent.type) {
+  if (
+    parent?.Kind === TstsSyntax.KindVariableDeclaration &&
+    getNodeType(parent) !== undefined
+  ) {
     return true;
   }
 
-  if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) {
+  if (
+    parent?.Kind === TstsSyntax.KindCallExpression ||
+    parent?.Kind === TstsSyntax.KindNewExpression
+  ) {
     return true;
   }
 
-  if (ts.isReturnStatement(parent)) {
-    const containingFunction = findContainingFunction(parent);
-    if (containingFunction && containingFunction.type) {
-      return true;
-    }
+  if (
+    parent?.Kind === TstsSyntax.KindReturnStatement &&
+    isFunctionWithReturnTypeContext(parent)
+  ) {
+    return true;
   }
 
-  if (ts.isArrayLiteralExpression(parent)) {
+  if (parent?.Kind === TstsSyntax.KindArrayLiteralExpression) {
     return arrayLiteralHasContextualType(parent);
   }
 
   if (
-    ts.isPropertyAssignment(parent) &&
-    ts.isObjectLiteralExpression(parent.parent)
+    parent?.Kind === TstsSyntax.KindPropertyAssignment &&
+    parent.Parent?.Kind === TstsSyntax.KindObjectLiteralExpression
   ) {
-    return objectLiteralHasContextualType(parent.parent);
+    return objectLiteralHasContextualType(parent.Parent);
   }
 
-  if (ts.isAsExpression(parent) && parent.type) {
-    return true;
-  }
-
-  if (ts.isSatisfiesExpression(parent) && parent.type) {
+  if (
+    (parent?.Kind === TstsSyntax.KindAsExpression ||
+      parent?.Kind === TstsSyntax.KindSatisfiesExpression) &&
+    getNodeType(parent) !== undefined
+  ) {
     return true;
   }
 
   return false;
 };
 
-/**
- * Find the containing function declaration/expression for a node.
- */
 export const findContainingFunction = (
-  node: ts.Node
-): ts.FunctionLikeDeclaration | undefined => {
-  let current = node.parent;
-  while (current) {
+  node: TstsNode
+): TstsNode | undefined => {
+  let current = nodeParent(node);
+  while (current !== undefined) {
     if (
-      ts.isFunctionDeclaration(current) ||
-      ts.isMethodDeclaration(current) ||
-      ts.isArrowFunction(current) ||
-      ts.isFunctionExpression(current)
+      current.Kind === TstsSyntax.KindFunctionDeclaration ||
+      current.Kind === TstsSyntax.KindMethodDeclaration ||
+      current.Kind === TstsSyntax.KindArrowFunction ||
+      current.Kind === TstsSyntax.KindFunctionExpression
     ) {
       return current;
     }
-    current = current.parent;
+    current = nodeParent(current);
   }
   return undefined;
 };
 
-const isBroadObjectLiteralContextType = (typeNode: ts.TypeNode): boolean => {
+const isBroadObjectLiteralContextType = (typeNode: TstsNode): boolean => {
   if (
-    typeNode.kind === ts.SyntaxKind.ObjectKeyword ||
-    typeNode.kind === ts.SyntaxKind.UnknownKeyword ||
-    typeNode.kind === ts.SyntaxKind.AnyKeyword
+    typeNode.Kind === TstsSyntax.KindObjectKeyword ||
+    typeNode.Kind === TstsSyntax.KindUnknownKeyword ||
+    typeNode.Kind === TstsSyntax.KindAnyKeyword
   ) {
     return true;
   }
 
-  if (ts.isParenthesizedTypeNode(typeNode)) {
-    return isBroadObjectLiteralContextType(typeNode.type);
+  if (typeNode.Kind === TstsSyntax.KindParenthesizedType) {
+    const inner = getNodeType(typeNode);
+    return inner ? isBroadObjectLiteralContextType(inner) : false;
   }
 
-  if (ts.isUnionTypeNode(typeNode)) {
-    return typeNode.types.some((member) =>
-      isBroadObjectLiteralContextType(member)
+  if (typeNode.Kind === TstsSyntax.KindUnionType) {
+    return (
+      TstsSyntax.AsUnionTypeNode(typeNode)?.Types?.Nodes.some((member) =>
+        member ? isBroadObjectLiteralContextType(member) : false
+      ) ?? false
     );
   }
 
@@ -172,116 +178,136 @@ const isBroadObjectLiteralContextType = (typeNode: ts.TypeNode): boolean => {
 };
 
 export const objectLiteralHasBroadContextualType = (
-  node: ts.ObjectLiteralExpression
+  node: TstsNode
 ): boolean => {
-  const parent = node.parent;
+  const parent = nodeParent(node);
 
-  if (ts.isVariableDeclaration(parent) && parent.type) {
-    return isBroadObjectLiteralContextType(parent.type);
+  if (parent?.Kind === TstsSyntax.KindVariableDeclaration) {
+    const type = getNodeType(parent);
+    return type ? isBroadObjectLiteralContextType(type) : false;
   }
 
-  if (ts.isReturnStatement(parent)) {
+  if (parent?.Kind === TstsSyntax.KindReturnStatement) {
     const containingFunction = findContainingFunction(parent);
-    return !!(
-      containingFunction?.type &&
-      isBroadObjectLiteralContextType(containingFunction.type)
-    );
+    const type = containingFunction ? getNodeType(containingFunction) : undefined;
+    return type ? isBroadObjectLiteralContextType(type) : false;
   }
 
-  if (ts.isAsExpression(parent) && parent.type) {
-    return isBroadObjectLiteralContextType(parent.type);
-  }
-
-  if (ts.isSatisfiesExpression(parent) && parent.type) {
-    return isBroadObjectLiteralContextType(parent.type);
+  if (
+    parent?.Kind === TstsSyntax.KindAsExpression ||
+    parent?.Kind === TstsSyntax.KindSatisfiesExpression
+  ) {
+    const type = getNodeType(parent);
+    return type ? isBroadObjectLiteralContextType(type) : false;
   }
 
   return false;
 };
 
-/**
- * DETERMINISTIC IR TYPING (INV-0 compliant):
- * Check if an object literal is in a position where expected types are available.
- */
-export const objectLiteralHasContextualType = (
-  node: ts.ObjectLiteralExpression
-): boolean => {
-  const parent = node.parent;
+export const objectLiteralHasContextualType = (node: TstsNode): boolean => {
+  const parent = nodeParent(node);
 
-  if (ts.isVariableDeclaration(parent) && parent.type) {
-    return !isBroadObjectLiteralContextType(parent.type);
-  }
-
-  if (ts.isCallExpression(parent)) {
-    return true;
-  }
-
-  if (ts.isNewExpression(parent)) {
-    return true;
-  }
-
-  if (ts.isReturnStatement(parent)) {
-    const containingFunction = findContainingFunction(parent);
-    if (containingFunction && containingFunction.type) {
-      return !isBroadObjectLiteralContextType(containingFunction.type);
-    }
+  if (parent?.Kind === TstsSyntax.KindVariableDeclaration) {
+    const type = getNodeType(parent);
+    return type !== undefined && !isBroadObjectLiteralContextType(type);
   }
 
   if (
-    ts.isPropertyAssignment(parent) &&
-    ts.isObjectLiteralExpression(parent.parent)
+    parent?.Kind === TstsSyntax.KindCallExpression ||
+    parent?.Kind === TstsSyntax.KindNewExpression
   ) {
-    return objectLiteralHasContextualType(parent.parent);
+    return true;
   }
 
-  if (ts.isArrayLiteralExpression(parent)) {
+  if (parent?.Kind === TstsSyntax.KindReturnStatement) {
+    const containingFunction = findContainingFunction(parent);
+    const type = containingFunction ? getNodeType(containingFunction) : undefined;
+    return type !== undefined && !isBroadObjectLiteralContextType(type);
+  }
+
+  if (
+    parent?.Kind === TstsSyntax.KindPropertyAssignment &&
+    parent.Parent?.Kind === TstsSyntax.KindObjectLiteralExpression
+  ) {
+    return objectLiteralHasContextualType(parent.Parent);
+  }
+
+  if (parent?.Kind === TstsSyntax.KindArrayLiteralExpression) {
     return arrayLiteralHasContextualType(parent);
   }
 
-  if (ts.isAsExpression(parent) && parent.type) {
-    return !isBroadObjectLiteralContextType(parent.type);
-  }
-
-  if (ts.isSatisfiesExpression(parent) && parent.type) {
-    return !isBroadObjectLiteralContextType(parent.type);
+  if (
+    parent?.Kind === TstsSyntax.KindAsExpression ||
+    parent?.Kind === TstsSyntax.KindSatisfiesExpression
+  ) {
+    const type = getNodeType(parent);
+    return type !== undefined && !isBroadObjectLiteralContextType(type);
   }
 
   return false;
 };
 
 export const isAllowedGenericFunctionValueIdentifierUse = (
-  node: ts.Identifier,
-  sourceSemantics: FrontendSourceSemanticView
+  node: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
-  const parent = node.parent;
+  const parent = nodeParent(node);
 
-  if (ts.isFunctionDeclaration(parent) && parent.name === node) return true;
-  if (ts.isVariableDeclaration(parent) && parent.name === node) return true;
-  if (ts.isImportSpecifier(parent) && parent.name === node) return true;
   if (
-    ts.isVariableDeclaration(parent) &&
-    parent.initializer === node &&
-    ts.isIdentifier(parent.name)
+    parent?.Kind === TstsSyntax.KindFunctionDeclaration &&
+    TstsSyntax.Node_Name(parent) === node
   ) {
-    const declarationList = parent.parent;
-    if (ts.isVariableDeclarationList(declarationList)) {
-      const isConst = (declarationList.flags & ts.NodeFlags.Const) !== 0;
-      const isLet = (declarationList.flags & ts.NodeFlags.Let) !== 0;
-      if (isConst || isLet) return true;
+    return true;
+  }
+  if (
+    parent?.Kind === TstsSyntax.KindVariableDeclaration &&
+    TstsSyntax.Node_Name(parent) === node
+  ) {
+    return true;
+  }
+  if (
+    parent?.Kind === TstsSyntax.KindImportSpecifier &&
+    TstsSyntax.Node_Name(parent) === node
+  ) {
+    return true;
+  }
+  if (
+    parent?.Kind === TstsSyntax.KindVariableDeclaration &&
+    getNodeInitializer(parent) === node &&
+    isIdentifier(TstsSyntax.Node_Name(parent))
+  ) {
+    if (getVariableDeclarationListKind(parent)) {
+      return true;
     }
   }
-  if (ts.isCallExpression(parent) && parent.expression === node) return true;
-  if (ts.isTypeQueryNode(parent) && parent.exprName === node) return true;
-  if (ts.isExportSpecifier(parent)) return true;
-  if (ts.isExportAssignment(parent) && parent.expression === node) return true;
+  if (
+    parent?.Kind === TstsSyntax.KindCallExpression &&
+    getNodeExpression(parent) === node
+  ) {
+    return true;
+  }
+  if (
+    parent?.Kind === TstsSyntax.KindTypeQuery &&
+    TstsSyntax.AsTypeQueryNode(parent)?.ExprName === node
+  ) {
+    return true;
+  }
+  if (parent?.Kind === TstsSyntax.KindExportSpecifier) {
+    return true;
+  }
+  if (
+    parent?.Kind === TstsSyntax.KindExportAssignment &&
+    TstsSyntax.AsExportAssignment(parent)?.Expression === node
+  ) {
+    return true;
+  }
 
   const contextualType = sourceSemantics.getContextualType(node);
   if (contextualType) {
-    const isNullishOnly = (type: ts.Type): boolean => {
-      return sourceSemantics.isNullishVoidOrNeverType(type);
-    };
+    const isNullishOnly = (type: SourceType): boolean =>
+      sourceSemantics.isNullishVoidOrNeverType(type);
 
-    const isMonomorphicCallableType = (type: ts.Type): boolean => {
+    const isMonomorphicCallableType = (type: SourceType): boolean => {
       const unionMembers = sourceSemantics.getUnionMembers(type);
       if (unionMembers) {
         return unionMembers.every(
@@ -306,15 +332,114 @@ export const isAllowedGenericFunctionValueIdentifierUse = (
     if (isMonomorphicCallableType(contextualType)) return true;
   }
 
+  return hasMonomorphicArrayElementContext(node, sourceSemantics);
+};
+
+const hasMonomorphicArrayElementContext = (
+  node: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView
+): boolean => {
+  const parent = nodeParent(node);
+  if (parent?.Kind !== TstsSyntax.KindArrayLiteralExpression) {
+    return false;
+  }
+
+  const arrayContext = sourceSemantics.getContextualType(parent);
+  if (!arrayContext) {
+    return false;
+  }
+
+  const directElementType = sourceSemantics.getElementTypeOfArrayType(
+    arrayContext
+  );
+  if (directElementType) {
+    return sourceSemantics.getCallSignatures(directElementType).every(
+      (signature) => !sourceSemantics.signatureHasTypeParameters(signature)
+    );
+  }
+
+  const arrayContextTypeNode = sourceSemantics.typeToTypeNode(
+    arrayContext,
+    parent,
+    0
+  );
+  const elementTypeNode = getArrayElementTypeNode(arrayContextTypeNode);
+  return isMonomorphicCallableTypeNode(elementTypeNode);
+};
+
+const getArrayElementTypeNode = (
+  typeNode: TstsNode | undefined
+): TstsNode | undefined => {
+  if (!typeNode) {
+    return undefined;
+  }
+
+  if (TstsSyntax.IsArrayTypeNode(typeNode)) {
+    return TstsSyntax.AsArrayTypeNode(typeNode)?.ElementType;
+  }
+
+  if (!TstsSyntax.IsTypeReferenceNode(typeNode)) {
+    return undefined;
+  }
+
+  const typeReference = TstsSyntax.AsTypeReferenceNode(typeNode);
+  const typeName = identifierText(typeReference?.TypeName);
+  if (typeName !== "Array" && typeName !== "ReadonlyArray") {
+    return undefined;
+  }
+
+  return getTypeArguments(typeNode)[0];
+};
+
+const isMonomorphicCallableTypeNode = (
+  typeNode: TstsNode | undefined
+): boolean => {
+  if (!typeNode) {
+    return false;
+  }
+
+  if (TstsSyntax.IsParenthesizedTypeNode(typeNode)) {
+    return isMonomorphicCallableTypeNode(getNodeType(typeNode));
+  }
+
+  if (TstsSyntax.IsFunctionTypeNode(typeNode)) {
+    return getNodeTypeParameters(typeNode).length === 0;
+  }
+
+  if (TstsSyntax.IsUnionTypeNode(typeNode)) {
+    return (
+      TstsSyntax.AsUnionTypeNode(typeNode)?.Types?.Nodes.every((member) =>
+        isNullishTypeNode(member) || isMonomorphicCallableTypeNode(member)
+      ) ?? false
+    );
+  }
+
+  if (TstsSyntax.IsIntersectionTypeNode(typeNode)) {
+    return (
+      TstsSyntax.AsIntersectionTypeNode(typeNode)?.Types?.Nodes.every((member) =>
+        isMonomorphicCallableTypeNode(member)
+      ) ?? false
+    );
+  }
+
   return false;
 };
 
+const isNullishTypeNode = (typeNode: TstsNode | undefined): boolean =>
+  typeNode?.Kind === TstsSyntax.KindNullKeyword ||
+  typeNode?.Kind === TstsSyntax.KindUndefinedKeyword ||
+  typeNode?.Kind === TstsSyntax.KindVoidKeyword ||
+  typeNode?.Kind === TstsSyntax.KindNeverKeyword;
+
 export const getReferencedIdentifierSymbol = (
-  sourceSemantics: FrontendSourceSemanticView,
-  node: ts.Identifier
-): ts.Symbol | undefined => {
-  const parent = node.parent;
-  if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  node: TstsNode
+): SourceSymbol | undefined => {
+  const parent = nodeParent(node);
+  if (
+    parent?.Kind === TstsSyntax.KindShorthandPropertyAssignment &&
+    TstsSyntax.Node_Name(parent) === node
+  ) {
     return sourceSemantics.getShorthandAssignmentValueSymbol(parent);
   }
   return sourceSemantics.getSymbol(node);

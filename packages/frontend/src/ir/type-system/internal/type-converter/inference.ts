@@ -10,7 +10,7 @@
  * are not used here. All typing is deterministic.
  */
 
-import type * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
 import type { IrType } from "../../../types.js";
 import type { Binding } from "../../../binding/index.js";
 
@@ -37,7 +37,7 @@ export type LambdaParamInferenceResult = {
  * The caller (expression converter) will use expectedType from the call site.
  */
 export const inferLambdaParamTypes = (
-  _node: ts.ArrowFunction | ts.FunctionExpression,
+  _node: TstsNode,
   _binding: Binding
 ): LambdaParamInferenceResult | undefined => {
   // Contextual inference is outside deterministic IR typing.

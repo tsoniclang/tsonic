@@ -9,6 +9,7 @@
  */
 
 import type { Diagnostic } from "../../types/diagnostic.js";
+import type { TstsNode } from "@tsonic/tsts";
 
 import type {
   TypeSystemState,
@@ -33,17 +34,16 @@ import {
 
 import {
   resolveCall as crResolveCall,
-  resolveCallableType as crResolveCallableType,
   collectExpectedReturnCandidates as crCollectExpectedReturnCandidates,
   collectNarrowingCandidates as crCollectNarrowingCandidates,
   delegateToFunctionType as crDelegateToFunctionType,
 } from "./type-system-call-resolution.js";
-import { selectBestCallCandidate as crSelectBestCallCandidate } from "./call-resolution-candidate-selection.js";
 
 import {
   typeOfDecl as infTypeOfDecl,
   typeOfValueRead as infTypeOfValueRead,
   typeOfMember as infTypeOfMember,
+  typeOfExternalBoundMember as infTypeOfExternalBoundMember,
   getIndexerInfo as infGetIndexerInfo,
   typeOfMemberId as infTypeOfMemberId,
   getFQNameOfDecl as infGetFQNameOfDecl,
@@ -97,7 +97,6 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     resolveCallSignature,
     resolveConstructorSignature,
     sourceSemantics,
-    tsCompilerOptions,
     sourceFilesByPath,
   } = config;
 
@@ -118,6 +117,23 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
    * Value: IrType
    */
   const memberDeclaredTypeCache = new Map<string, IrType>();
+
+  /**
+   * Cache for JS ambient interface declarations collected from loaded surface files.
+   * Key: interface name
+   * Value: declaration nodes
+   */
+  const ambientInterfaceDeclarationCache = new Map<
+    string,
+    readonly TstsNode[]
+  >();
+
+  /**
+   * Cache for source/JS ambient member lookups.
+   * Key: stable receiver type key + member name
+   * Value: IrType, or null when deterministically absent
+   */
+  const ambientMemberLookupCache = new Map<string, IrType | null>();
 
   /**
    * Cache for raw signature info (pre-substitution).
@@ -161,10 +177,11 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     resolveCallSignature,
     resolveConstructorSignature,
     sourceSemantics,
-    tsCompilerOptions,
     sourceFilesByPath,
     declTypeCache,
     memberDeclaredTypeCache,
+    ambientInterfaceDeclarationCache,
+    ambientMemberLookupCache,
     signatureRawCache,
     nominalMemberLookupCache,
     diagnostics,
@@ -191,20 +208,13 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
         receiver,
         member.kind === "byName" ? member.name : "unknown"
       ),
+    typeOfExternalBoundMember: (member) =>
+      infTypeOfExternalBoundMember(state, member),
     getIndexerInfo: (receiver, site) =>
       infGetIndexerInfo(state, receiver, site),
 
     // Call resolution (call-resolution module)
     resolveCall: (query) => crResolveCall(state, query),
-    resolveCallableType: (type, query) => {
-      const resolved = crResolveCallableType(state, type, query);
-      return {
-        callableType: resolved?.callableType,
-        resolved: resolved?.resolved,
-      };
-    },
-    selectBestCallCandidate: (fallbackSigId, candidateSigIds, query) =>
-      crSelectBestCallCandidate(state, fallbackSigId, candidateSigIds, query),
     collectExpectedReturnCandidates: (type) =>
       crCollectExpectedReturnCandidates(state, type),
     collectNarrowingCandidates: (type) =>

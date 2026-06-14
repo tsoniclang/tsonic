@@ -1,176 +1,180 @@
 /**
- * Export extraction from TypeScript source
+ * Export extraction from TSTS source files.
  *
  * Uses ProgramContext for statement/expression conversion.
  */
 
-import * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
+import {
+  getTstsStatementNodes,
+} from "@tsonic/tsts";
 import { IrExport, IrStatement } from "../types.js";
 import { convertExpression } from "../expression-converter.js";
-import { hasExportModifier, hasDefaultModifier } from "./helpers.js";
-import type { Binding } from "../binding/index.js";
 import type { ProgramContext } from "../program-context.js";
 
 const DEFAULT_EXPORT_NAME = "default";
 
-const getExportStarNames = (
-  node: ts.ExportDeclaration,
+const normalizeSourcePath = (fileName: string): string =>
+  fileName.replace(/\\/g, "/");
+
+const resolvedSourceFileForExport = (
+  sourceFile: TstsSourceFile,
+  sourceSpecifier: string,
   ctx: ProgramContext
-): readonly string[] => {
-  if (!node.moduleSpecifier || !ts.isStringLiteral(node.moduleSpecifier)) {
-    return [];
-  }
-
-  const moduleSymbol = ctx.sourceSemantics.getSymbol(node.moduleSpecifier);
-  if (!moduleSymbol) {
-    return [];
-  }
-
-  return ctx.sourceSemantics
-    .getExportsOfModule(moduleSymbol)
-    .map((symbol) => symbol.getName())
-    .filter((name) => name !== DEFAULT_EXPORT_NAME);
+): TstsSourceFile | undefined => {
+  const resolved =
+    ctx.moduleGraph.getResolvedModule(sourceFile, sourceSpecifier)
+      ?.resolvedFileName;
+  return resolved ? ctx.sourceFilesByPath.get(normalizeSourcePath(resolved)) : undefined;
 };
 
-/**
- * Extract export declarations from source file.
- *
- * This function has two signatures:
- * - With just Binding: Used when only export metadata is needed (no statement conversion)
- * - With ProgramContext: Used when exported declarations need to be converted
- *
- * @param sourceFile - The TypeScript source file
- * @param binding - The binding layer (for simple export extraction without conversion)
- */
-export const extractExports = (
-  sourceFile: ts.SourceFile,
-  _binding: Binding
-): readonly IrExport[] => {
-  const exports: IrExport[] = [];
+const expandExportStarNames = (
+  sourceFile: TstsSourceFile,
+  sourceSpecifier: string,
+  ctx: ProgramContext,
+  seen: Set<string>
+): readonly string[] => {
+  const targetSourceFile = resolvedSourceFileForExport(
+    sourceFile,
+    sourceSpecifier,
+    ctx
+  );
+  if (!targetSourceFile) return [];
 
-  const visitor = (node: ts.Node): void => {
-    if (ts.isExportDeclaration(node)) {
-      if (node.exportClause && ts.isNamedExports(node.exportClause)) {
-        // Check if this is a re-export (has moduleSpecifier)
-        if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-          // Re-export: export { x } from "./other.ts"
-          const fromModule = node.moduleSpecifier.text;
-          node.exportClause.elements.forEach((spec) => {
-            exports.push({
-              kind: "reexport",
-              name: spec.name.text, // Exported name
-              originalName: (spec.propertyName ?? spec.name).text, // Name in source module
-              fromModule,
-            });
-          });
-        } else {
-          // Regular named export: export { x }
-          node.exportClause.elements.forEach((spec) => {
-            exports.push({
-              kind: "named",
-              name: spec.name.text,
-              localName: (spec.propertyName ?? spec.name).text,
-            });
-          });
-        }
-      }
-    } else if (hasExportModifier(node)) {
-      // For exported declarations, we need the full context to convert them
-      // This is handled by extractExportsWithContext
-      // Here we just record that there's an export, but don't convert
-      // The actual conversion is done in extractStatements
+  const seenKey = `${normalizeSourcePath(targetSourceFile.FileName())}\0*`;
+  if (seen.has(seenKey)) return [];
+  seen.add(seenKey);
+
+  const names: string[] = [];
+  for (const binding of ctx.moduleGraph.getExports(targetSourceFile)) {
+    if (binding.kind === "star" && binding.sourceSpecifier) {
+      names.push(
+        ...expandExportStarNames(
+          targetSourceFile,
+          binding.sourceSpecifier,
+          ctx,
+          seen
+        )
+      );
+      continue;
     }
-    ts.forEachChild(node, visitor);
-  };
 
-  visitor(sourceFile);
-  return exports;
+    if (
+      binding.exportedName &&
+      binding.exportedName !== DEFAULT_EXPORT_NAME
+    ) {
+      names.push(binding.exportedName);
+    }
+  }
+  return [...new Set(names)];
 };
 
 /**
  * Extract export declarations from source file with full conversion.
  *
- * @param sourceFile - The TypeScript source file
+ * @param sourceFile - The TSTS source file
  * @param ctx - ProgramContext for full statement/expression conversion
  */
 export const extractExportsWithContext = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   topLevelStatementGroups: ReadonlyMap<number, readonly IrStatement[]>,
   ctx: ProgramContext
 ): readonly IrExport[] => {
   const exports: IrExport[] = [];
-
-  for (let index = 0; index < sourceFile.statements.length; index++) {
-    const node = sourceFile.statements[index] as ts.Statement;
-
-    if (ts.isExportDeclaration(node)) {
-      if (node.exportClause && ts.isNamedExports(node.exportClause)) {
-        // Check if this is a re-export (has moduleSpecifier)
-        if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-          // Re-export: export { x } from "./other.ts"
-          const fromModule = node.moduleSpecifier.text;
-          node.exportClause.elements.forEach((spec) => {
-            exports.push({
-              kind: "reexport",
-              name: spec.name.text, // Exported name
-              originalName: (spec.propertyName ?? spec.name).text, // Name in source module
-              fromModule,
-            });
-          });
-        } else {
-          // Regular named export: export { x }
-          node.exportClause.elements.forEach((spec) => {
-            exports.push({
-              kind: "named",
-              name: spec.name.text,
-              localName: (spec.propertyName ?? spec.name).text,
-            });
-          });
-        }
-      }
-      if (!node.exportClause && node.moduleSpecifier) {
-        if (ts.isStringLiteral(node.moduleSpecifier)) {
-          const fromModule = node.moduleSpecifier.text;
-          for (const name of getExportStarNames(node, ctx)) {
-            exports.push({
-              kind: "reexport",
-              name,
-              originalName: name,
-              fromModule,
-            });
-          }
-        }
-      }
-    } else if (ts.isExportAssignment(node)) {
-      exports.push({
-        kind: "default",
-        expression: convertExpression(node.expression, ctx, undefined),
-      });
-    } else if (hasExportModifier(node)) {
-      const hasDefault = hasDefaultModifier(node);
-      if (hasDefault) {
-        // export default function/class/etc
-        const statements = topLevelStatementGroups.get(index) ?? [];
-        if (statements.length > 0) {
-          exports.push({
-            kind: "default",
-            expression: {
-              kind: "identifier",
-              name: "_default",
-            }, // placeholder for now
-          });
-        }
-      } else {
-        // regular export - may produce multiple statements (e.g., type aliases with synthetics)
-        const statements = topLevelStatementGroups.get(index) ?? [];
-        for (const stmt of statements) {
-          exports.push({
-            kind: "declaration",
-            declaration: stmt,
-          });
-        }
-      }
+  const sourceStatements = getTstsStatementNodes(sourceFile).filter(
+    (statement): statement is TstsNode => statement !== undefined
+  );
+  const statementIndexByNode = new Map<TstsNode, number>();
+  for (let index = 0; index < sourceStatements.length; index += 1) {
+    const statement = sourceStatements[index];
+    if (statement) {
+      statementIndexByNode.set(statement, index);
     }
   }
+
+  const emittedDeclarationNodes = new Set<TstsNode>();
+
+  for (const exportBinding of ctx.moduleGraph.getExports(sourceFile)) {
+    const sourceSpecifier = exportBinding.sourceSpecifier;
+    if (exportBinding.kind === "star" && sourceSpecifier) {
+      for (const name of expandExportStarNames(
+        sourceFile,
+        sourceSpecifier,
+        ctx,
+        new Set()
+      )) {
+        exports.push({
+          kind: "reexport",
+          name,
+          originalName: name,
+          fromModule: sourceSpecifier,
+        });
+      }
+      continue;
+    }
+
+    if (sourceSpecifier && exportBinding.exportedName) {
+      exports.push({
+        kind: "reexport",
+        name: exportBinding.exportedName,
+        originalName: exportBinding.localName ?? exportBinding.exportedName,
+        fromModule: sourceSpecifier,
+      });
+      continue;
+    }
+
+    const exportNode = exportBinding.exportNode;
+    const statementIndex = exportNode
+      ? statementIndexByNode.get(exportNode)
+      : undefined;
+    const statements =
+      statementIndex === undefined
+        ? []
+        : (topLevelStatementGroups.get(statementIndex) ?? []);
+
+    if (exportBinding.kind === "default") {
+      if (statements.length > 0) {
+        exports.push({
+          kind: "default",
+          expression: {
+            kind: "identifier",
+            name: "_default",
+          },
+        });
+        continue;
+      }
+
+      if (exportBinding.bindingNode) {
+        exports.push({
+          kind: "default",
+          expression: convertExpression(exportBinding.bindingNode, ctx, undefined),
+        });
+      }
+      continue;
+    }
+
+    if (statements.length > 0 && exportNode) {
+      if (emittedDeclarationNodes.has(exportNode)) {
+        continue;
+      }
+      emittedDeclarationNodes.add(exportNode);
+      for (const stmt of statements) {
+        exports.push({
+          kind: "declaration",
+          declaration: stmt,
+        });
+      }
+      continue;
+    }
+
+    if (exportBinding.exportedName && exportBinding.localName) {
+      exports.push({
+        kind: "named",
+        name: exportBinding.exportedName,
+        localName: exportBinding.localName,
+      });
+    }
+  }
+
   return exports;
 };

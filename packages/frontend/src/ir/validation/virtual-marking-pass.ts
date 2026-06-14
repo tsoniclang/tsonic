@@ -4,8 +4,8 @@
  * Recomputes local TypeScript class override/shadow relationships after all IR
  * collection passes have attached final source-visible overload identities. This pass is the
  * single source of truth for local class hierarchies:
- * - no legacy overload helper bridges
- * - no widened-signature compatibility bridges
+ * - no overload helper bridges
+ * - no widened-signature bridges
  * - no source-name-only matching
  *
  * A derived member overrides a local base member only when the source-visible public name

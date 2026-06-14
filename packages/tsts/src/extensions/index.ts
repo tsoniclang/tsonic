@@ -5,34 +5,7 @@ export {
   type SourceFile,
 } from "./syntax.js";
 export * as TstsSyntax from "./syntax.js";
-export {
-  asTstsTypeReferenceNode,
-  forEachTstsChild,
-  getTstsCallExpressionDetails,
-  getTstsDeclaredTypeNode,
-  getTstsExpressionName,
-  getTstsExpressionWithTypeArgumentsName,
-  getTstsHeritageTypeNodes,
-  getTstsIdentifierText,
-  getTstsNodeSpan,
-  getTstsNodeNameText,
-  getTstsSourceFileName,
-  getTstsTypeArguments,
-  getTstsTypeReferenceDetails,
-  getTstsTypeReferenceName,
-  isTstsCallExpression,
-  isTstsClassDeclaration,
-  isTstsIdentifier,
-  isTstsInterfaceDeclaration,
-  isTstsParameterDeclaration,
-  isTstsPropertyDeclarationLike,
-  visitTstsSubtree,
-} from "./ast-helpers.js";
-export type {
-  TstsCallExpressionDetails,
-  TstsNodeSpan,
-  TstsTypeReferenceDetails,
-} from "./ast-helpers.js";
+export * from "./ast-helpers.js";
 export { parseTstsSourceFile } from "./parse-source.js";
 export type { ParseTstsSourceOptions } from "./parse-source.js";
 export { defineExtensionFactKey, ExtensionFacts } from "./facts.js";

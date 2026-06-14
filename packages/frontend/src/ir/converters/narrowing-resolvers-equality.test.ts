@@ -2,36 +2,51 @@ import { expect } from "chai";
 import { describe, it } from "mocha";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as ts from "typescript";
+import { parseTstsSourceFile, type TstsNode } from "@tsonic/tsts";
+import { getTstsIdentifierText, TstsSyntax, visitTstsSubtree } from "@tsonic/tsts";
 import type { ProgramContext } from "../program-context.js";
 import type { DeclId } from "../type-system/index.js";
 import type { IrType } from "../types.js";
-import { resolveInstanceofTargetType } from "./narrowing-resolvers-equality.js";
+import { resolveInstanceofTargetType } from "./instanceof-target-type.js";
 import type { SimpleBindingDescriptor } from "../../program/binding-types.js";
+import { createInlineTstsTestProgram } from "../../testing/tsts-test-program.js";
 
 const makeDeclId = (id: number): DeclId => ({ id }) as DeclId;
 
-const extractInstanceofRight = (sourceText: string): ts.Expression => {
-  const sourceFile = ts.createSourceFile(
-    "test.ts",
-    sourceText,
-    ts.ScriptTarget.ES2022,
-    true,
-    ts.ScriptKind.TS
-  );
-  const statement = sourceFile.statements[0];
-  if (!statement || !ts.isExpressionStatement(statement)) {
-    throw new Error("Expected expression statement");
+const extractInstanceofRight = (sourceText: string): TstsNode => {
+  const program = createInlineTstsTestProgram(sourceText);
+  let right: TstsNode | undefined;
+  visitTstsSubtree(program.sourceFile, (node) => {
+    if (right || !node || !TstsSyntax.IsBinaryExpression(node)) return;
+    const binary = TstsSyntax.AsBinaryExpression(node);
+    if (binary?.OperatorToken?.Kind === TstsSyntax.KindInstanceOfKeyword) {
+      right = binary.Right;
+    }
+  });
+  if (!right) {
+    throw new Error("Expected instanceof expression");
   }
-  const expression = statement.expression;
-  if (!ts.isBinaryExpression(expression)) {
-    throw new Error("Expected binary expression");
+  return right;
+};
+
+const findClassDeclaration = (
+  sourceText: string,
+  fileName = "/workspace/src/index.ts"
+): TstsNode => {
+  const sourceFile = parseTstsSourceFile(sourceText, { fileName });
+  let classDecl: TstsNode | undefined;
+  visitTstsSubtree(sourceFile, (node) => {
+    if (classDecl || !node || !TstsSyntax.IsClassDeclaration(node)) return;
+    classDecl = node;
+  });
+  if (!classDecl) {
+    throw new Error("Expected class declaration");
   }
-  return expression.right;
+  return classDecl;
 };
 
 const createMockContext = (options: {
-  readonly resolveIdentifier: (node: ts.Identifier) => DeclId | undefined;
+  readonly resolveIdentifier: (node: TstsNode) => DeclId | undefined;
   readonly typeOfDecl?: (declId: DeclId) => IrType;
   readonly typeOfValueRead?: (declId: DeclId) => IrType;
   readonly typeOfMember?: (
@@ -59,14 +74,14 @@ const createMockContext = (options: {
       getValueDeclarationNode: (declId: DeclId) => {
         const decl = options.getDecl?.(declId) as
           | {
-              readonly valueDeclNode?: ts.Node;
-              readonly declNode?: ts.Node;
+              readonly valueDeclNode?: TstsNode;
+              readonly declNode?: TstsNode;
             }
           | undefined;
         return decl?.valueDeclNode ?? decl?.declNode;
       },
       getTypeNodeOfDecl: () => undefined,
-      captureTypeSyntax: (node: ts.TypeNode) => node,
+      captureTypeSyntax: (node: TstsNode) => node,
     },
     typeSystem: {
       typeOfDecl:
@@ -94,13 +109,13 @@ const createMockContext = (options: {
     },
   }) as unknown as ProgramContext;
 
-describe("narrowing-resolvers-equality", () => {
+describe("instanceof-target-type", () => {
   it("derives constructor-instance targets from explicit prototype typing", () => {
     const widgetDecl = makeDeclId(2);
     const targetExpr = extractInstanceofRight("value instanceof Widget");
     const ctx = createMockContext({
       resolveIdentifier: (node) =>
-        node.text === "Widget" ? widgetDecl : undefined,
+        getTstsIdentifierText(node) === "Widget" ? widgetDecl : undefined,
       typeOfDecl: () => ({
         kind: "referenceType",
         name: "WidgetConstructor",
@@ -127,7 +142,7 @@ describe("narrowing-resolvers-equality", () => {
     const targetExpr = extractInstanceofRight("value instanceof Readable");
     const ctx = createMockContext({
       resolveIdentifier: (node) =>
-        node.text === "Readable" ? readableDecl : undefined,
+        getTstsIdentifierText(node) === "Readable" ? readableDecl : undefined,
       typeOfDecl: () => ({
         kind: "unknownType",
       }),
@@ -159,7 +174,7 @@ describe("narrowing-resolvers-equality", () => {
     const targetExpr = extractInstanceofRight("value instanceof crypto.ECDsa");
     const ctx = createMockContext({
       resolveIdentifier: (node) =>
-        node.text === "crypto" ? namespaceDecl : undefined,
+        getTstsIdentifierText(node) === "crypto" ? namespaceDecl : undefined,
       typeOfValueRead: () => ({
         kind: "referenceType",
         name: "CryptoNamespace",
@@ -203,7 +218,9 @@ describe("narrowing-resolvers-equality", () => {
     const targetExpr = extractInstanceofRight("value instanceof Uint8Array");
     const ctx = createMockContext({
       resolveIdentifier: (node) =>
-        node.text === "Uint8Array" ? uint8ArrayDecl : undefined,
+        getTstsIdentifierText(node) === "Uint8Array"
+          ? uint8ArrayDecl
+          : undefined,
       typeOfDecl: () => ({
         kind: "referenceType",
         name: "Uint8ArrayConstructor",
@@ -234,7 +251,7 @@ describe("narrowing-resolvers-equality", () => {
     const targetExpr = extractInstanceofRight("value instanceof Buffer");
     const ctx = createMockContext({
       resolveIdentifier: (node) =>
-        node.text === "Buffer" ? bufferDecl : undefined,
+        getTstsIdentifierText(node) === "Buffer" ? bufferDecl : undefined,
       typeOfDecl: () => ({
         kind: "referenceType",
         name: "BufferConstructor",
@@ -273,20 +290,10 @@ describe("narrowing-resolvers-equality", () => {
   it("derives local source class instanceof targets from declaration identity", () => {
     const bufferDecl = makeDeclId(7);
     const targetExpr = extractInstanceofRight("value instanceof Buffer");
-    const sourceFile = ts.createSourceFile(
-      "/workspace/src/index.ts",
-      "class Buffer {}",
-      ts.ScriptTarget.ES2022,
-      true,
-      ts.ScriptKind.TS
-    );
-    const classDecl = sourceFile.statements.find(ts.isClassDeclaration);
-    if (!classDecl) {
-      throw new Error("Expected class declaration");
-    }
+    const classDecl = findClassDeclaration("class Buffer {}");
     const ctx = createMockContext({
       resolveIdentifier: (node) =>
-        node.text === "Buffer" ? bufferDecl : undefined,
+        getTstsIdentifierText(node) === "Buffer" ? bufferDecl : undefined,
       getDecl: () => ({
         kind: "class",
         fqName: "Buffer",
@@ -356,22 +363,12 @@ describe("narrowing-resolvers-equality", () => {
 
       const sourceText = "export class RegExp {}";
       fs.writeFileSync(sourcePath, sourceText);
-      const sourceFile = ts.createSourceFile(
-        sourcePath,
-        sourceText,
-        ts.ScriptTarget.ES2022,
-        true,
-        ts.ScriptKind.TS
-      );
-      const classDecl = sourceFile.statements.find(ts.isClassDeclaration);
-      if (!classDecl) {
-        throw new Error("Expected class declaration");
-      }
+      const classDecl = findClassDeclaration(sourceText, sourcePath);
 
       const targetExpr = extractInstanceofRight("value instanceof RegExp");
       const ctx = createMockContext({
         resolveIdentifier: (node) =>
-          node.text === "RegExp" ? regexpDecl : undefined,
+          getTstsIdentifierText(node) === "RegExp" ? regexpDecl : undefined,
         getDecl: () => ({
           kind: "class",
           fqName: "RegExp",

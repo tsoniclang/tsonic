@@ -6,7 +6,7 @@ import * as path from "node:path";
 
 const normalizePathFragment = (fragment: string): string => {
   // Fast path: If the fragment is already a valid identifier fragment (letters/digits),
-  // keep it as-is (airplane-grade: no heuristics like camelCase word splitting).
+  // keep it as-is (airplane-grade: no camelCase word splitting).
   //
   // NOTE: We intentionally treat underscores as separators, not identifier characters,
   // so "foo_bar" behaves like "foo-bar" and becomes "FooBar" for readability.

@@ -2,34 +2,47 @@
  * Type alias declaration converter
  */
 
-import * as ts from "typescript";
+import {
+  getTstsContainingSourceFileName,
+  getTstsDeclaredTypeNode,
+  getTstsNodeNameText,
+  getTstsTypeParameterNodes,
+  type TstsNode,
+} from "@tsonic/tsts";
 import {
   IrType,
   IrStatement,
   IrTypeAliasDeclaration,
   stampRuntimeUnionAliasCarrier,
 } from "../../../types.js";
-import { hasExportModifier, convertTypeParameters } from "../helpers.js";
+import {
+  definedTstsNodes,
+  hasExportModifier,
+  convertTypeParameters,
+} from "../helpers.js";
 import { processTypeAliasForSynthetics } from "../../synthetic-types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { resolveSourceFileIdentity } from "../../../../program/source-file-identity.js";
 
 const stampAliasCarrier = (
   type: IrType,
-  node: ts.TypeAliasDeclaration,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrType => {
   const sourceIdentity = resolveSourceFileIdentity(
-    node.getSourceFile().fileName,
+    getTstsContainingSourceFileName(node) ?? "",
     ctx.sourceRoot,
     ctx.rootNamespace
   );
+  const name = getTstsNodeNameText(node) ?? "_";
 
   return stampRuntimeUnionAliasCarrier(type, {
-    aliasName: node.name.text,
-    fullyQualifiedName: `${sourceIdentity.namespace}.${node.name.text}`,
+    aliasName: name,
+    fullyQualifiedName: `${sourceIdentity.namespace}.${name}`,
     namespaceName: sourceIdentity.namespace,
-    typeParameters: (node.typeParameters ?? []).map((tp) => tp.name.text),
+    typeParameters: definedTstsNodes(getTstsTypeParameterNodes(node)).map(
+      (tp) => getTstsNodeNameText(tp) ?? "_"
+    ),
   });
 };
 
@@ -42,16 +55,23 @@ const stampAliasCarrier = (
  * @returns Array of statements: [synthetic interfaces..., type alias]
  */
 export const convertTypeAliasDeclaration = (
-  node: ts.TypeAliasDeclaration,
+  node: TstsNode,
   ctx: ProgramContext
 ): readonly IrStatement[] => {
   // Convert type alias syntax through the TypeSystem.
   // Type aliases are converted through the unified type conversion path.
-  const typeSyntaxId = ctx.binding.captureTypeSyntax(node.type);
+  const typeNode = getTstsDeclaredTypeNode(node);
+  if (!typeNode) {
+    return [];
+  }
+  const typeSyntaxId = ctx.binding.captureTypeSyntax(typeNode);
   const baseAlias: IrTypeAliasDeclaration = {
     kind: "typeAliasDeclaration",
-    name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, ctx),
+    name: getTstsNodeNameText(node) ?? "_",
+    typeParameters: convertTypeParameters(
+      definedTstsNodes(getTstsTypeParameterNodes(node)),
+      ctx
+    ),
     type: stampAliasCarrier(
       ctx.typeSystem.typeFromSyntax(typeSyntaxId),
       node,

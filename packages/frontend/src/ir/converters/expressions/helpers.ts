@@ -1,381 +1,314 @@
 /**
- * Helper functions for expression conversion
+ * Helper functions for expression conversion.
  *
- * All type resolution goes through TypeSystem.
- * NO getHandleRegistry() calls allowed here.
+ * Source syntax comes from TSTS. Type information comes from TypeSystem and the
+ * TSTS-backed source semantic boundary; this file must not import TypeScript.
  */
 
-import * as ts from "typescript";
-import { IrType } from "../../types.js";
-import { SourceLocation } from "../../../types/diagnostic.js";
-import { getSourceLocation } from "../../../program/diagnostics.js";
+import {
+  getTstsContainingSourceFile,
+  getTstsIdentifierText,
+  getTstsInitializerNode,
+  isTstsFunctionLikeDeclaration,
+  getTstsNodeLocation,
+  getTstsNodeText,
+  getTstsPropertyNameText,
+  getTstsStatementNodes,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
+import type { IrType } from "../../types.js";
+import type { SourceLocation } from "../../../types/diagnostic.js";
 import type { ProgramContext } from "../../program-context.js";
 import { expandParameterTypesForArguments } from "../../type-system/type-system-call-resolution.js";
 
-/**
- * Get source span for a TypeScript node.
- * Returns a SourceLocation that can be used for diagnostics.
- */
-export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
-  try {
-    const sourceFile = node.getSourceFile();
-    if (!sourceFile) {
-      return undefined;
+export const getSourceSpan = (node: TstsNode): SourceLocation | undefined =>
+  getTstsNodeLocation(getTstsContainingSourceFile(node), node);
+
+export const getTstsText = (node: TstsNode | undefined): string | undefined =>
+  node ? getTstsNodeText(node) : undefined;
+
+export const getTstsNameText = (
+  node: TstsNode | undefined
+): string | undefined =>
+  node ? getTstsIdentifierText(TstsSyntax.Node_Name(node)) : undefined;
+
+export const getTstsPropertyKeyText = (
+  node: TstsNode | undefined
+): string | undefined => getTstsPropertyNameText(node) ?? getTstsText(node);
+
+export const getTstsNodeKind = (
+  token: TstsNode | number | undefined
+): number | undefined =>
+  typeof token === "number" ? token : token?.Kind;
+
+export const getTstsExpression = (
+  node: TstsNode | undefined
+): TstsNode | undefined => (node ? TstsSyntax.Node_Expression(node) : undefined);
+
+const concreteTstsNodes = (
+  nodes: readonly (TstsNode | undefined)[] | undefined
+): readonly TstsNode[] =>
+  (nodes ?? []).filter((node): node is TstsNode => node !== undefined);
+
+export const getTstsArguments = (
+  node: TstsNode | undefined
+): readonly TstsNode[] =>
+  node ? concreteTstsNodes(TstsSyntax.Node_Arguments(node)) : [];
+
+export const getTstsTypeArguments = (
+  node: TstsNode | undefined
+): readonly TstsNode[] =>
+  node ? concreteTstsNodes(TstsSyntax.Node_TypeArguments(node)) : [];
+
+export const getTstsParameters = (
+  node: TstsNode | undefined
+): readonly TstsNode[] =>
+  node ? concreteTstsNodes(TstsSyntax.Node_Parameters(node)) : [];
+
+export const getTstsObjectProperties = (
+  node: TstsNode | undefined
+): readonly TstsNode[] =>
+  node ? concreteTstsNodes(TstsSyntax.Node_Properties(node)) : [];
+
+export const getTstsArrayElements = (
+  node: TstsNode | undefined
+): readonly TstsNode[] =>
+  node ? concreteTstsNodes(TstsSyntax.Node_Elements(node)) : [];
+
+export const getTstsDeclaredType = (
+  node: TstsNode | undefined
+): TstsNode | undefined => (node ? TstsSyntax.Node_Type(node) : undefined);
+
+export const isTstsAsync = (node: TstsNode): boolean =>
+  (TstsSyntax.Node_ModifierNodes(node) ?? []).some(
+    (modifier) => modifier?.Kind === TstsSyntax.KindAsyncKeyword
+  );
+
+const stripParenthesizedExpression = (node: TstsNode): TstsNode => {
+  let current = node;
+  while (current.Kind === TstsSyntax.KindParenthesizedExpression) {
+    const inner = getTstsExpression(current);
+    if (!inner) {
+      return current;
     }
-    return getSourceLocation(
-      sourceFile,
-      node.getStart(sourceFile),
-      node.getWidth(sourceFile)
-    );
-  } catch {
-    return undefined;
+    current = inner;
   }
+  return current;
 };
 
-/**
- * Derive identifier type from declaration TypeNode (DETERMINISTIC).
- *
- * This function looks up the identifier's declaration and extracts the type
- * from the TypeNode, NOT from TypeScript's computed type. This ensures:
- * - native target type aliases like `int`, `byte`, `long` are preserved
- * - Types are deterministic and don't depend on TypeScript inference
- *
- * For variables without explicit type annotation (e.g., `const x = createArray()`),
- * derives the type from the initializer's declared return type.
- *
- * Returns undefined if:
- * - No declaration found
- * - Declaration has no TypeNode and no derivable initializer
- */
-/**
- * Derive the return type of a call expression from its declaration.
- *
- * Uses TypeSystem.resolveCall() exclusively.
- * This is a simplified version for use in deriveIdentifierType to avoid
- * circular dependencies with calls.ts.
- */
 const deriveCallReturnType = (
-  node: ts.CallExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrType | undefined => {
-  const typeSystem = ctx.typeSystem;
-
   const sigId = ctx.binding.resolveCallSignature(node);
   if (!sigId) return undefined;
 
-  // Use TypeSystem.resolveCall() - returns fully resolved return type
-  const resolved = typeSystem.resolveCall({
+  const resolved = ctx.typeSystem.resolveCall({
     sigId,
-    argumentCount: node.arguments.length,
+    argumentCount: getTstsArguments(node).length,
   });
 
-  // If TypeSystem returns unknownType, treat it as unresolvable
-  if (resolved.returnType.kind === "unknownType") {
-    return undefined;
-  }
-
-  return resolved.returnType;
+  return resolved.returnType.kind === "unknownType"
+    ? undefined
+    : resolved.returnType;
 };
 
-/**
- * Derive the constructed type from a new expression.
- *
- * Uses constructor-signature-based logic with resolveCall for deterministic
- * generic inference from argument types.
- */
 const deriveNewExpressionType = (
-  node: ts.NewExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrType | undefined => {
-  const typeSystem = ctx.typeSystem;
-
-  // Get constructor signature ID
   const sigId = ctx.binding.resolveConstructorSignature(node);
   if (!sigId) return undefined;
 
-  // Extract explicit type arguments
-  const explicitTypeArgs = node.typeArguments
-    ? node.typeArguments.map((ta) =>
-        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
-      )
-    : undefined;
+  const explicitTypeArgs = getTstsTypeArguments(node).map((typeArg) =>
+    ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(typeArg))
+  );
 
-  // Derive argTypes conservatively from syntax (similar to deriveTypeFromInitializer)
   const argTypes: (IrType | undefined)[] = [];
-  const args = node.arguments ?? [];
+  const args = getTstsArguments(node);
   for (const arg of args) {
-    if (ts.isSpreadElement(arg)) {
+    if (arg.Kind === TstsSyntax.KindSpreadElement) {
       argTypes.push(undefined);
-    } else if (ts.isNumericLiteral(arg)) {
+    } else if (arg.Kind === TstsSyntax.KindNumericLiteral) {
       argTypes.push({ kind: "primitiveType", name: "number" });
-    } else if (ts.isStringLiteral(arg)) {
+    } else if (arg.Kind === TstsSyntax.KindStringLiteral) {
       argTypes.push({ kind: "primitiveType", name: "string" });
     } else if (
-      arg.kind === ts.SyntaxKind.TrueKeyword ||
-      arg.kind === ts.SyntaxKind.FalseKeyword
+      arg.Kind === TstsSyntax.KindTrueKeyword ||
+      arg.Kind === TstsSyntax.KindFalseKeyword
     ) {
       argTypes.push({ kind: "primitiveType", name: "boolean" });
-    } else if (ts.isIdentifier(arg)) {
+    } else if (arg.Kind === TstsSyntax.KindIdentifier) {
       argTypes.push(deriveIdentifierType(arg, ctx));
-    } else if (ts.isNewExpression(arg)) {
-      // Recursive call for nested new expressions
+    } else if (arg.Kind === TstsSyntax.KindNewExpression) {
       argTypes.push(deriveNewExpressionType(arg, ctx));
     } else {
       argTypes.push(undefined);
     }
   }
 
-  // Resolve the constructor call with argTypes for inference
-  const resolved = typeSystem.resolveCall({
+  const resolved = ctx.typeSystem.resolveCall({
     sigId,
     argumentCount: args.length,
-    explicitTypeArgs,
+    explicitTypeArgs: explicitTypeArgs.length > 0 ? explicitTypeArgs : undefined,
     argTypes,
   });
 
-  // Return the resolved returnType (the constructed type)
-  if (resolved.returnType.kind === "unknownType") {
-    return undefined;
-  }
-
-  return resolved.returnType;
+  return resolved.returnType.kind === "unknownType"
+    ? undefined
+    : resolved.returnType;
 };
 
-/**
- * Derive type from an initializer expression.
- *
- * DETERMINISTIC: Only uses TypeNodes from declarations, not TS type inference.
- * Returns undefined if type cannot be determined from declarations alone.
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- recursive helper, retained for future use
 const deriveTypeFromInitializer = (
-  initializer: ts.Expression,
+  initializer: TstsNode,
   ctx: ProgramContext
 ): IrType | undefined => {
-  // Call expression: const arr = createArray()
-  if (ts.isCallExpression(initializer)) {
+  if (initializer.Kind === TstsSyntax.KindCallExpression) {
     return deriveCallReturnType(initializer, ctx);
   }
-
-  // New expression: const list = new List<int>()
-  if (ts.isNewExpression(initializer)) {
+  if (initializer.Kind === TstsSyntax.KindNewExpression) {
     return deriveNewExpressionType(initializer, ctx);
   }
-
-  // Identifier: const y = x (derive type from x's declaration)
-  if (ts.isIdentifier(initializer)) {
-    // Recursive call - will look up the identifier's declaration
-    // Note: This uses the main function, which is defined below
-    // TypeScript hoisting makes this work
+  if (initializer.Kind === TstsSyntax.KindIdentifier) {
     return deriveIdentifierType(initializer, ctx);
   }
-
-  // Literals - derive from the literal itself
-  if (ts.isNumericLiteral(initializer)) {
+  if (initializer.Kind === TstsSyntax.KindNumericLiteral) {
     return { kind: "primitiveType", name: "number" };
   }
-  if (ts.isStringLiteral(initializer)) {
+  if (initializer.Kind === TstsSyntax.KindStringLiteral) {
     return { kind: "primitiveType", name: "string" };
   }
   if (
-    initializer.kind === ts.SyntaxKind.TrueKeyword ||
-    initializer.kind === ts.SyntaxKind.FalseKeyword
+    initializer.Kind === TstsSyntax.KindTrueKeyword ||
+    initializer.Kind === TstsSyntax.KindFalseKeyword
   ) {
     return { kind: "primitiveType", name: "boolean" };
   }
-
-  // Array literal - return Array type (element type from first element if possible)
-  if (ts.isArrayLiteralExpression(initializer)) {
-    // For array literals, we can try to derive element type from first element
-    if (initializer.elements.length > 0) {
-      const firstElem = initializer.elements[0];
-      if (firstElem && !ts.isSpreadElement(firstElem)) {
-        const elementType = deriveTypeFromInitializer(firstElem, ctx);
-        if (elementType) {
-          return { kind: "arrayType", elementType };
-        }
-      }
+  if (initializer.Kind === TstsSyntax.KindArrayLiteralExpression) {
+    const [firstElem] = getTstsArrayElements(initializer);
+    if (firstElem && firstElem.Kind !== TstsSyntax.KindSpreadElement) {
+      const elementType = deriveTypeFromInitializer(firstElem, ctx);
+      return elementType ? { kind: "arrayType", elementType } : undefined;
     }
-    // Empty array or couldn't derive element type
-    return undefined;
   }
-
-  // Property access: const len = arr.length (need to trace through)
-  // Member access typing is complex - defer to undefined for now
-  // The proof pass will handle this
-
   return undefined;
 };
 
 export const deriveIdentifierType = (
-  node: ts.Identifier,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrType | undefined => {
-  const typeSystem = ctx.typeSystem;
-
   const declId = ctx.binding.resolveIdentifier(node);
   if (!declId) return undefined;
 
-  // Use TypeSystem.typeOfDecl() exclusively.
-  const declType = typeSystem.typeOfValueRead(declId);
-
-  // TypeSystem returns unknownType if it can't resolve - treat as unresolvable
-  if (declType.kind === "unknownType") {
-    return undefined;
-  }
-
-  return declType;
+  const declType = ctx.typeSystem.typeOfValueRead(declId);
+  return declType.kind === "unknownType" ? undefined : declType;
 };
 
-/**
- * Extract explicit type arguments from a call or new expression.
- *
- * DETERMINISTIC TYPING: Only returns type arguments that are explicitly
- * specified in the source code. Does NOT use TypeScript's type inference
- * to infer type arguments. For inferred type arguments, use expectedType
- * threading in the caller (Step 6 of deterministic typing).
- */
 export const extractTypeArguments = (
-  node: ts.CallExpression | ts.NewExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): readonly IrType[] | undefined => {
   try {
-    // Only return explicitly specified type arguments
-    // DETERMINISTIC: No typeToTypeNode for inferred type args
-    if (node.typeArguments && node.typeArguments.length > 0) {
-      // Convert explicit syntax through the TypeSystem.
-      const typeSystem = ctx.typeSystem;
-      return node.typeArguments.map((typeArg) =>
-        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(typeArg))
-      );
-    }
-
-    // No explicit type arguments - return undefined
-    // The caller should use expectedType threading if type args are needed
-    return undefined;
+    const typeArguments = getTstsTypeArguments(node);
+    return typeArguments.length > 0
+      ? typeArguments.map((typeArg) =>
+          ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(typeArg))
+        )
+      : undefined;
   } catch {
     return undefined;
   }
 };
 
-/**
- * Check if a call/new expression requires specialization
- * Returns true for conditional types, infer, variadic generics, this typing
- *
- * DETERMINISTIC: Uses Binding API to resolve signatures and extract declaration info.
- */
 export const checkIfRequiresSpecialization = (
-  node: ts.CallExpression | ts.NewExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): boolean => {
   try {
-    // Handle both CallExpression and NewExpression
-    const sigId = ts.isCallExpression(node)
-      ? ctx.binding.resolveCallSignature(node)
-      : ctx.binding.resolveConstructorSignature(node);
+    const sigId =
+      node.Kind === TstsSyntax.KindCallExpression
+        ? ctx.binding.resolveCallSignature(node)
+        : ctx.binding.resolveConstructorSignature(node);
     if (!sigId) return false;
 
-    // Use TypeSystem for all type checks.
-    const typeSystem = ctx.typeSystem;
-
-    // Use semantic methods instead of direct signature-info access.
-
-    // Check for conditional return types
-    if (typeSystem.signatureHasConditionalReturn(sigId)) {
-      return true;
-    }
-
-    // Check for variadic type parameters (e.g., T extends unknown[])
-    if (typeSystem.signatureHasVariadicTypeParams(sigId)) {
-      return true;
-    }
-
-    return false;
+    return (
+      ctx.typeSystem.signatureHasConditionalReturn(sigId) ||
+      ctx.typeSystem.signatureHasVariadicTypeParams(sigId)
+    );
   } catch {
     return false;
   }
 };
 
-/**
- * Convert TypeScript binary operator token to string
- */
 export const convertBinaryOperator = (
-  token: ts.BinaryOperatorToken
+  token: TstsNode | number | undefined
 ): string => {
   const operatorMap: Record<number, string> = {
-    [ts.SyntaxKind.PlusToken]: "+",
-    [ts.SyntaxKind.MinusToken]: "-",
-    [ts.SyntaxKind.AsteriskToken]: "*",
-    [ts.SyntaxKind.SlashToken]: "/",
-    [ts.SyntaxKind.PercentToken]: "%",
-    [ts.SyntaxKind.AsteriskAsteriskToken]: "**",
-    [ts.SyntaxKind.EqualsEqualsToken]: "==",
-    [ts.SyntaxKind.ExclamationEqualsToken]: "!=",
-    [ts.SyntaxKind.EqualsEqualsEqualsToken]: "===",
-    [ts.SyntaxKind.ExclamationEqualsEqualsToken]: "!==",
-    [ts.SyntaxKind.LessThanToken]: "<",
-    [ts.SyntaxKind.GreaterThanToken]: ">",
-    [ts.SyntaxKind.LessThanEqualsToken]: "<=",
-    [ts.SyntaxKind.GreaterThanEqualsToken]: ">=",
-    [ts.SyntaxKind.LessThanLessThanToken]: "<<",
-    [ts.SyntaxKind.GreaterThanGreaterThanToken]: ">>",
-    [ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken]: ">>>",
-    [ts.SyntaxKind.AmpersandToken]: "&",
-    [ts.SyntaxKind.BarToken]: "|",
-    [ts.SyntaxKind.CaretToken]: "^",
-    [ts.SyntaxKind.AmpersandAmpersandToken]: "&&",
-    [ts.SyntaxKind.BarBarToken]: "||",
-    [ts.SyntaxKind.QuestionQuestionToken]: "??",
-    [ts.SyntaxKind.InKeyword]: "in",
-    [ts.SyntaxKind.InstanceOfKeyword]: "instanceof",
-    [ts.SyntaxKind.EqualsToken]: "=",
-    [ts.SyntaxKind.PlusEqualsToken]: "+=",
-    [ts.SyntaxKind.MinusEqualsToken]: "-=",
-    [ts.SyntaxKind.AsteriskEqualsToken]: "*=",
-    [ts.SyntaxKind.SlashEqualsToken]: "/=",
-    [ts.SyntaxKind.PercentEqualsToken]: "%=",
-    [ts.SyntaxKind.AsteriskAsteriskEqualsToken]: "**=",
-    [ts.SyntaxKind.LessThanLessThanEqualsToken]: "<<=",
-    [ts.SyntaxKind.GreaterThanGreaterThanEqualsToken]: ">>=",
-    [ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken]: ">>>=",
-    [ts.SyntaxKind.AmpersandEqualsToken]: "&=",
-    [ts.SyntaxKind.BarEqualsToken]: "|=",
-    [ts.SyntaxKind.CaretEqualsToken]: "^=",
-    [ts.SyntaxKind.AmpersandAmpersandEqualsToken]: "&&=",
-    [ts.SyntaxKind.BarBarEqualsToken]: "||=",
-    [ts.SyntaxKind.QuestionQuestionEqualsToken]: "??=",
+    [TstsSyntax.KindPlusToken]: "+",
+    [TstsSyntax.KindMinusToken]: "-",
+    [TstsSyntax.KindAsteriskToken]: "*",
+    [TstsSyntax.KindSlashToken]: "/",
+    [TstsSyntax.KindPercentToken]: "%",
+    [TstsSyntax.KindAsteriskAsteriskToken]: "**",
+    [TstsSyntax.KindEqualsEqualsToken]: "==",
+    [TstsSyntax.KindExclamationEqualsToken]: "!=",
+    [TstsSyntax.KindEqualsEqualsEqualsToken]: "===",
+    [TstsSyntax.KindExclamationEqualsEqualsToken]: "!==",
+    [TstsSyntax.KindLessThanToken]: "<",
+    [TstsSyntax.KindGreaterThanToken]: ">",
+    [TstsSyntax.KindLessThanEqualsToken]: "<=",
+    [TstsSyntax.KindGreaterThanEqualsToken]: ">=",
+    [TstsSyntax.KindLessThanLessThanToken]: "<<",
+    [TstsSyntax.KindGreaterThanGreaterThanToken]: ">>",
+    [TstsSyntax.KindGreaterThanGreaterThanGreaterThanToken]: ">>>",
+    [TstsSyntax.KindAmpersandToken]: "&",
+    [TstsSyntax.KindBarToken]: "|",
+    [TstsSyntax.KindCaretToken]: "^",
+    [TstsSyntax.KindAmpersandAmpersandToken]: "&&",
+    [TstsSyntax.KindBarBarToken]: "||",
+    [TstsSyntax.KindQuestionQuestionToken]: "??",
+    [TstsSyntax.KindInKeyword]: "in",
+    [TstsSyntax.KindInstanceOfKeyword]: "instanceof",
+    [TstsSyntax.KindEqualsToken]: "=",
+    [TstsSyntax.KindPlusEqualsToken]: "+=",
+    [TstsSyntax.KindMinusEqualsToken]: "-=",
+    [TstsSyntax.KindAsteriskEqualsToken]: "*=",
+    [TstsSyntax.KindSlashEqualsToken]: "/=",
+    [TstsSyntax.KindPercentEqualsToken]: "%=",
+    [TstsSyntax.KindAsteriskAsteriskEqualsToken]: "**=",
+    [TstsSyntax.KindLessThanLessThanEqualsToken]: "<<=",
+    [TstsSyntax.KindGreaterThanGreaterThanEqualsToken]: ">>=",
+    [TstsSyntax.KindGreaterThanGreaterThanGreaterThanEqualsToken]: ">>>=",
+    [TstsSyntax.KindAmpersandEqualsToken]: "&=",
+    [TstsSyntax.KindBarEqualsToken]: "|=",
+    [TstsSyntax.KindCaretEqualsToken]: "^=",
+    [TstsSyntax.KindAmpersandAmpersandEqualsToken]: "&&=",
+    [TstsSyntax.KindBarBarEqualsToken]: "||=",
+    [TstsSyntax.KindQuestionQuestionEqualsToken]: "??=",
   };
 
-  return operatorMap[token.kind] ?? "=";
+  return operatorMap[getTstsNodeKind(token) ?? TstsSyntax.KindEqualsToken] ?? "=";
 };
 
-/**
- * Check if a binary operator token is an assignment operator
- */
 export const isAssignmentOperator = (
-  token: ts.BinaryOperatorToken
+  token: TstsNode | number | undefined
 ): boolean => {
-  return (
-    token.kind >= ts.SyntaxKind.FirstAssignment &&
-    token.kind <= ts.SyntaxKind.LastAssignment
-  );
-};
-
-const stripParenthesizedExpression = (node: ts.Expression): ts.Expression => {
-  let current = node;
-  while (ts.isParenthesizedExpression(current)) {
-    current = current.expression;
-  }
-  return current;
+  const kind = getTstsNodeKind(token);
+  return kind !== undefined && TstsSyntax.IsAssignmentOperator(kind);
 };
 
 const getIdentifierCallableArgumentType = (
-  call: ts.CallExpression,
+  call: TstsNode,
   argumentIndex: number,
   ctx: ProgramContext
 ): IrType | undefined => {
-  const target = stripParenthesizedExpression(call.expression);
-  if (!ts.isIdentifier(target)) {
+  const callee = getTstsExpression(call);
+  if (!callee) return undefined;
+
+  const target = stripParenthesizedExpression(callee);
+  if (target.Kind !== TstsSyntax.KindIdentifier) {
     return undefined;
   }
 
@@ -398,7 +331,7 @@ const getIdentifierCallableArgumentType = (
   const parameterType = expandParameterTypesForArguments(
     callableType.parameters,
     callableType.parameters.map((parameter) => parameter.type),
-    call.arguments.length
+    getTstsArguments(call).length
   )[argumentIndex];
 
   if (
@@ -412,57 +345,41 @@ const getIdentifierCallableArgumentType = (
   return parameterType;
 };
 
-/**
- * Get the contextual type for an expression from explicit TypeNodes.
- *
- * DETERMINISTIC TYPING: Only extracts types from explicit TypeNodes in the
- * source code. Does NOT use TypeScript's getContextualType (banned API).
- * Returns undefined if no explicit type annotation is found.
- *
- * For complete expectedType threading (covering all contexts), see Step 6
- * of deterministic typing implementation.
- */
 export const getContextualType = (
-  node: ts.Expression,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrType | undefined => {
   try {
-    // Convert contextual syntax through the TypeSystem.
-    const typeSystem = ctx.typeSystem;
+    const parent = node.Parent;
+    if (!parent) return undefined;
 
-    const parent = node.parent;
-
-    // Variable declaration: const x: Foo = { ... }
-    if (ts.isVariableDeclaration(parent) && parent.type) {
-      return typeSystem.typeFromSyntax(
-        ctx.binding.captureTypeSyntax(parent.type)
-      );
+    if (parent.Kind === TstsSyntax.KindVariableDeclaration) {
+      const typeNode = getTstsDeclaredType(parent);
+      return typeNode
+        ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(typeNode))
+        : undefined;
     }
 
-    // Return statement: function f(): Foo { return { ... } }
-    if (ts.isReturnStatement(parent)) {
-      // Walk up to find enclosing function
-      let current: ts.Node = parent;
-      while (current && !ts.isFunctionLike(current)) {
-        current = current.parent;
+    if (parent.Kind === TstsSyntax.KindReturnStatement) {
+      let current: TstsNode | undefined = parent;
+      while (current && !isTstsFunctionLikeDeclaration(current)) {
+        current = current.Parent;
       }
-      if (current && ts.isFunctionLike(current) && current.type) {
-        return typeSystem.typeFromSyntax(
-          ctx.binding.captureTypeSyntax(current.type)
-        );
-      }
+      const returnTypeNode = getTstsDeclaredType(current);
+      return returnTypeNode
+        ? ctx.typeSystem.typeFromSyntax(
+            ctx.binding.captureTypeSyntax(returnTypeNode)
+          )
+        : undefined;
     }
 
-    // Property assignment in object literal: { prop: { ... } }
-    if (ts.isPropertyAssignment(parent)) {
-      const propName = ts.isIdentifier(parent.name)
-        ? parent.name.text
-        : ts.isStringLiteral(parent.name)
-          ? parent.name.text
-          : undefined;
-
-      if (propName && ts.isObjectLiteralExpression(parent.parent)) {
-        const parentType = getContextualType(parent.parent, ctx);
+    if (parent.Kind === TstsSyntax.KindPropertyAssignment) {
+      const propName = getTstsPropertyKeyText(TstsSyntax.Node_Name(parent));
+      if (
+        propName &&
+        parent.Parent?.Kind === TstsSyntax.KindObjectLiteralExpression
+      ) {
+        const parentType = getContextualType(parent.Parent, ctx);
         if (parentType?.kind === "objectType") {
           const member = parentType.members.find(
             (m) => m.kind === "propertySignature" && m.name === propName
@@ -471,59 +388,67 @@ export const getContextualType = (
             return member.type;
           }
         }
-        // For referenceType, we would need TypeRegistry to find member type
-        // This will be handled in Step 6 with full expectedType threading
       }
     }
 
-    // Array element: const arr: Foo[] = [{ ... }]
-    if (ts.isArrayLiteralExpression(parent)) {
+    if (parent.Kind === TstsSyntax.KindArrayLiteralExpression) {
       const arrayType = getContextualType(parent, ctx);
-      if (arrayType?.kind === "arrayType") {
-        return arrayType.elementType;
-      }
+      return arrayType?.kind === "arrayType" ? arrayType.elementType : undefined;
     }
 
-    // Call argument: f({ ... }) where f(x: Foo)
-    // Use TypeSystem.resolveCall() to get parameter types
-    if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) {
-      const argIndex = parent.arguments
-        ? parent.arguments.indexOf(node as ts.Expression)
-        : -1;
-      if (argIndex >= 0) {
-        if (ts.isCallExpression(parent)) {
-          const directCallableParameterType = getIdentifierCallableArgumentType(
-            parent,
-            argIndex,
-            ctx
-          );
-          if (directCallableParameterType) {
-            return directCallableParameterType;
-          }
-        }
+    if (
+      parent.Kind === TstsSyntax.KindCallExpression ||
+      parent.Kind === TstsSyntax.KindNewExpression
+    ) {
+      const args = getTstsArguments(parent);
+      const argIndex = args.indexOf(node);
+      if (argIndex < 0) return undefined;
 
-        // Handle both CallExpression and NewExpression
-        const sigId = ts.isCallExpression(parent)
+      if (parent.Kind === TstsSyntax.KindCallExpression) {
+        const directCallableParameterType = getIdentifierCallableArgumentType(
+          parent,
+          argIndex,
+          ctx
+        );
+        if (directCallableParameterType) {
+          return directCallableParameterType;
+        }
+      }
+
+      const sigId =
+        parent.Kind === TstsSyntax.KindCallExpression
           ? ctx.binding.resolveCallSignature(parent)
           : ctx.binding.resolveConstructorSignature(parent);
-        if (sigId) {
-          // Use TypeSystem.resolveCall() for parameter types.
-          const resolved = typeSystem.resolveCall({
-            sigId,
-            argumentCount: parent.arguments?.length ?? 0,
-          });
-          const paramType = resolved.parameterTypes[argIndex];
-          if (paramType && paramType.kind !== "unknownType") {
-            return paramType;
-          }
+      if (sigId) {
+        const resolved = ctx.typeSystem.resolveCall({
+          sigId,
+          argumentCount: args.length,
+        });
+        const paramType = resolved.parameterTypes[argIndex];
+        if (paramType && paramType.kind !== "unknownType") {
+          return paramType;
         }
       }
     }
 
-    // DETERMINISTIC: No fallback to source checker contextual queries.
-    // Return undefined if we can't find an explicit type annotation
-    return undefined;
+    const initializer = getTstsInitializerNode(parent);
+    return initializer === node
+      ? deriveTypeFromInitializer(initializer, ctx)
+      : undefined;
   } catch {
     return undefined;
   }
+};
+
+export const getTstsTopLevelStatementContaining = (
+  node: TstsNode
+): TstsNode | undefined => {
+  const sourceFile = getTstsContainingSourceFile(node);
+  if (!sourceFile) return undefined;
+  const statements = getTstsStatementNodes(sourceFile);
+  let current: TstsNode | undefined = node;
+  while (current?.Parent && current.Parent !== sourceFile) {
+    current = current.Parent;
+  }
+  return current && statements.includes(current) ? current : undefined;
 };

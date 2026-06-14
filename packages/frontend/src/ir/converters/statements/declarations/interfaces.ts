@@ -2,7 +2,17 @@
  * Interface declaration converter
  */
 
-import * as ts from "typescript";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsHeritageClauseDetails,
+  getTstsMemberNodes,
+  getTstsNodeNameText,
+  getTstsParameters,
+  getTstsTypeArguments,
+  getTstsTypeParameterNodes,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import {
   IrInterfaceDeclaration,
   IrInterfaceMember,
@@ -15,6 +25,7 @@ import {
   hasReadonlyModifier,
   convertTypeParameters,
   convertParameters,
+  definedTstsNodes,
 } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
@@ -29,34 +40,44 @@ import {
  * Convert interface member
  */
 export const convertInterfaceMember = (
-  node: ts.TypeElement,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrInterfaceMember | null => {
-  if (ts.isPropertySignature(node) && node.type) {
-    const memberName = tryResolveDeterministicPropertyName(node.name);
+  if (TstsSyntax.IsPropertySignatureDeclaration(node) && getTstsDeclaredTypeNode(node)) {
+    const memberName = tryResolveDeterministicPropertyName(
+      TstsSyntax.Node_Name(node)
+    );
     if (!memberName) return null;
+    const typeNode = getTstsDeclaredTypeNode(node);
+    if (!typeNode) return null;
     return {
       kind: "propertySignature",
       name: memberName,
       type: ctx.typeSystem.typeFromSyntax(
-        ctx.binding.captureTypeSyntax(node.type)
+        ctx.binding.captureTypeSyntax(typeNode)
       ),
-      isOptional: !!node.questionToken,
+      isOptional: TstsSyntax.Node_QuestionToken(node) !== undefined,
       isReadonly: hasReadonlyModifier(node),
     };
   }
 
-  if (ts.isMethodSignature(node)) {
-    const memberName = tryResolveDeterministicPropertyName(node.name);
+  if (TstsSyntax.IsMethodSignatureDeclaration(node)) {
+    const memberName = tryResolveDeterministicPropertyName(
+      TstsSyntax.Node_Name(node)
+    );
     if (!memberName) return null;
+    const returnTypeNode = getTstsDeclaredTypeNode(node);
     return {
       kind: "methodSignature",
       name: memberName,
-      typeParameters: convertTypeParameters(node.typeParameters, ctx),
-      parameters: convertParameters(node.parameters, ctx),
-      returnType: node.type
+      typeParameters: convertTypeParameters(
+        definedTstsNodes(getTstsTypeParameterNodes(node)),
+        ctx
+      ),
+      parameters: convertParameters(definedTstsNodes(getTstsParameters(node)), ctx),
+      returnType: returnTypeNode
         ? ctx.typeSystem.typeFromSyntax(
-            ctx.binding.captureTypeSyntax(node.type)
+            ctx.binding.captureTypeSyntax(returnTypeNode)
           )
         : undefined,
     };
@@ -66,7 +87,7 @@ export const convertInterfaceMember = (
 };
 
 const isStructMarker = (
-  typeRef: ts.ExpressionWithTypeArguments,
+  typeRef: TstsNode,
   ctx: ProgramContext
 ): boolean =>
   isSourceTypeKind(
@@ -83,16 +104,16 @@ const isStructMarker = (
  * For IR + target emission, we want the underlying native target interface `IFoo`.
  */
 const unwrapInterfaceHeritageType = (
-  typeRef: ts.ExpressionWithTypeArguments,
+  typeRef: TstsNode,
   ctx: ProgramContext
-): ts.ExpressionWithTypeArguments | ts.TypeNode => {
+): TstsNode => {
   if (
     isHeritageInterfaceErasure(
       ctx.sourceSemantics.getFact(typeRef, heritageWrapperSemanticsFactKey)
     ) &&
-    typeRef.typeArguments?.length === 1
+    definedTstsNodes(getTstsTypeArguments(typeRef)).length === 1
   ) {
-    const only = typeRef.typeArguments[0];
+    const only = definedTstsNodes(getTstsTypeArguments(typeRef))[0];
     if (only) return only;
   }
 
@@ -109,10 +130,10 @@ const unwrapInterfaceHeritageType = (
  * These should be lowered to type aliases for Dictionary<K, V>.
  */
 const extractIndexSignatureOnlyInterface = (
-  node: ts.InterfaceDeclaration,
+  node: TstsNode,
   ctx: ProgramContext
 ): { keyType: IrType; valueType: IrType } | undefined => {
-  const members = node.members;
+  const members = definedTstsNodes(getTstsMemberNodes(node));
 
   // Must have exactly one member
   if (members.length !== 1) {
@@ -120,18 +141,19 @@ const extractIndexSignatureOnlyInterface = (
   }
 
   const member = members[0];
-  if (!member || !ts.isIndexSignatureDeclaration(member)) {
+  if (!member || !TstsSyntax.IsIndexSignatureDeclaration(member)) {
     return undefined;
   }
 
   // Extract key type from the index signature parameter
-  const param = member.parameters[0];
-  if (!param || !param.type) {
+  const param = definedTstsNodes(getTstsParameters(member))[0];
+  const paramType = param ? getTstsDeclaredTypeNode(param) : undefined;
+  if (!param || !paramType) {
     return undefined;
   }
 
   const keyType = ctx.typeSystem.typeFromSyntax(
-    ctx.binding.captureTypeSyntax(param.type)
+    ctx.binding.captureTypeSyntax(paramType)
   );
 
   // Only allow string or number keys (enforced by TSN7413)
@@ -143,54 +165,57 @@ const extractIndexSignatureOnlyInterface = (
   }
 
   // Extract value type
-  if (!member.type) {
+  const memberType = getTstsDeclaredTypeNode(member);
+  if (!memberType) {
     return undefined;
   }
 
   const valueType = ctx.typeSystem.typeFromSyntax(
-    ctx.binding.captureTypeSyntax(member.type)
+    ctx.binding.captureTypeSyntax(memberType)
   );
 
   return { keyType, valueType };
 };
 
 const convertCallSignatureType = (
-  node: ts.CallSignatureDeclaration,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrFunctionType | undefined => {
-  if (node.typeParameters && node.typeParameters.length > 0) {
+  if (getTstsTypeParameterNodes(node).length > 0) {
     return undefined;
   }
 
+  const returnTypeNode = getTstsDeclaredTypeNode(node);
   return {
     kind: "functionType",
-    parameters: convertParameters(node.parameters, ctx),
-    returnType: node.type
-      ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
+    parameters: convertParameters(definedTstsNodes(getTstsParameters(node)), ctx),
+    returnType: returnTypeNode
+      ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(returnTypeNode))
       : { kind: "voidType" },
   };
 };
 
 const extractCallableInterfaceOnlyType = (
-  node: ts.InterfaceDeclaration,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrType | undefined => {
-  if (node.typeParameters && node.typeParameters.length > 0) {
+  if (getTstsTypeParameterNodes(node).length > 0) {
     return undefined;
   }
-  if (node.heritageClauses && node.heritageClauses.length > 0) {
+  if (getTstsHeritageClauseDetails(node).length > 0) {
     return undefined;
   }
-  if (node.members.length === 0) {
+  const members = definedTstsNodes(getTstsMemberNodes(node));
+  if (members.length === 0) {
     return undefined;
   }
-  if (!node.members.every((member) => ts.isCallSignatureDeclaration(member))) {
+  if (!members.every((member) => TstsSyntax.IsCallSignatureDeclaration(member))) {
     return undefined;
   }
 
   const signatures: IrFunctionType[] = [];
-  for (const member of node.members) {
-    if (!ts.isCallSignatureDeclaration(member)) {
+  for (const member of members) {
+    if (!TstsSyntax.IsCallSignatureDeclaration(member)) {
       return undefined;
     }
     const signature = convertCallSignatureType(member, ctx);
@@ -219,7 +244,7 @@ const extractCallableInterfaceOnlyType = (
  * Returns a type alias for index-signature-only interfaces (lowered to Dictionary).
  */
 export const convertInterfaceDeclaration = (
-  node: ts.InterfaceDeclaration,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrInterfaceDeclaration | IrTypeAliasDeclaration | null => {
   // Check for index-signature-only interface → lower to type alias for dictionary
@@ -227,8 +252,11 @@ export const convertInterfaceDeclaration = (
   if (dictInfo) {
     return {
       kind: "typeAliasDeclaration",
-      name: node.name.text,
-      typeParameters: convertTypeParameters(node.typeParameters, ctx),
+      name: getTstsNodeNameText(node) ?? "_",
+      typeParameters: convertTypeParameters(
+        definedTstsNodes(getTstsTypeParameterNodes(node)),
+        ctx
+      ),
       type: {
         kind: "dictionaryType",
         keyType: dictInfo.keyType,
@@ -243,7 +271,7 @@ export const convertInterfaceDeclaration = (
   if (callableType) {
     return {
       kind: "typeAliasDeclaration",
-      name: node.name.text,
+      name: getTstsNodeNameText(node) ?? "_",
       typeParameters: [],
       type: callableType,
       isExported: hasExportModifier(node),
@@ -256,11 +284,12 @@ export const convertInterfaceDeclaration = (
       ctx.sourceSemantics.getFact(node, sourceTypeSemanticsFactKey),
       "struct"
     );
-  const extendsClause = node.heritageClauses?.find(
-    (h) => h.token === ts.SyntaxKind.ExtendsKeyword
+  const extendsClause = getTstsHeritageClauseDetails(node).find(
+    (h) => h.kind === "extends"
   );
   const extendsTypes =
     extendsClause?.types
+      .filter((t): t is TstsNode => t !== undefined)
       .filter((t) => {
         if (isStructMarker(t, ctx)) {
           isStruct = true;
@@ -274,7 +303,7 @@ export const convertInterfaceDeclaration = (
         )
       ) ?? [];
 
-  const allMembers = node.members
+  const allMembers = definedTstsNodes(getTstsMemberNodes(node))
     .map((m) => convertInterfaceMember(m, ctx))
     .filter((m): m is IrInterfaceMember => m !== null);
 
@@ -287,8 +316,11 @@ export const convertInterfaceDeclaration = (
 
   return {
     kind: "interfaceDeclaration",
-    name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, ctx),
+    name: getTstsNodeNameText(node) ?? "_",
+    typeParameters: convertTypeParameters(
+      definedTstsNodes(getTstsTypeParameterNodes(node)),
+      ctx
+    ),
     extends: extendsTypes,
     members: finalMembers,
     isExported: hasExportModifier(node),

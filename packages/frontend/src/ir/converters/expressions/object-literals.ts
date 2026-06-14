@@ -2,7 +2,11 @@
  * Object literal expression converter
  */
 
-import * as ts from "typescript";
+import {
+  getTstsIdentifierText,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import {
   IrClassMember,
   IrFunctionType,
@@ -33,6 +37,7 @@ import {
   rebindObjectLiteralThisInExpression,
 } from "./object-literal-helpers.js";
 import { isAttributeMetadataNamedArgumentObjectLiteral } from "./attribute-metadata-context.js";
+import { convertFunctionExpression } from "./functions.js";
 
 const isDirectBroadObjectLiteralContext = (
   type: IrType | undefined
@@ -138,6 +143,28 @@ const createDynamicJsonObjectType = (): IrType => ({
   valueType: createJsValueReferenceType(),
 });
 
+const isObjectLiteralContextualTypeCandidate = (
+  type: IrType | undefined
+): boolean => {
+  if (!type) {
+    return true;
+  }
+
+  switch (type.kind) {
+    case "anyType":
+    case "unknownType":
+    case "objectType":
+    case "referenceType":
+    case "dictionaryType":
+    case "unionType":
+    case "intersectionType":
+    case "typeParameterType":
+      return true;
+    default:
+      return false;
+  }
+};
+
 /**
  * Convert object literal expression
  *
@@ -147,17 +174,18 @@ const createDynamicJsonObjectType = (): IrType => ({
  * Threads expectedType to property values when the expected type is an objectType.
  */
 export const convertObjectLiteral = (
-  node: ts.ObjectLiteralExpression,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedType?: IrType
 ): IrObjectExpression => {
+  const objectProperties = TstsSyntax.Node_Properties(node) ?? [];
   const properties: IrObjectProperty[] = [];
   const behaviorMembers: IrClassMember[] = [];
   const emitAsAnonymousObject = (ctx.expressionTreeLambdaDepth ?? 0) > 0;
   const pendingMethods: {
     readonly key: string | IrExpression;
     readonly keyName: string;
-    readonly node: ts.MethodDeclaration;
+    readonly node: TstsNode;
     readonly propExpectedType: IrType | undefined;
     readonly capturesObjectLiteralThis: boolean;
     readonly functionType: IrFunctionType;
@@ -165,8 +193,8 @@ export const convertObjectLiteral = (
   const accessorGroups = new Map<
     string,
     {
-      getter?: ts.GetAccessorDeclaration;
-      setter?: ts.SetAccessorDeclaration;
+      getter?: TstsNode;
+      setter?: TstsNode;
     }
   >();
 
@@ -191,24 +219,32 @@ export const convertObjectLiteral = (
   )
     ? createDynamicJsonObjectType()
     : undefined;
-  const contextualCandidateRaw =
-    dynamicJsonObjectContext ?? contextualCandidateFromParent;
-  const literalKeys = node.properties
+  const contextualCandidateRaw = (() => {
+    const candidate = dynamicJsonObjectContext ?? contextualCandidateFromParent;
+    return isObjectLiteralContextualTypeCandidate(candidate)
+      ? candidate
+      : undefined;
+  })();
+  const literalKeys = objectProperties
     .map((prop) => {
-      if (ts.isPropertyAssignment(prop)) {
-        return resolveObjectLiteralMemberKey(prop.name, ctx).keyName;
+      if (!prop) return undefined;
+      if (prop.Kind === TstsSyntax.KindPropertyAssignment) {
+        const name = TstsSyntax.Node_Name(prop);
+        return name ? resolveObjectLiteralMemberKey(name, ctx).keyName : undefined;
       }
-      if (ts.isShorthandPropertyAssignment(prop)) {
-        return prop.name.text;
+      if (prop.Kind === TstsSyntax.KindShorthandPropertyAssignment) {
+        return getTstsIdentifierText(TstsSyntax.Node_Name(prop));
       }
-      if (ts.isMethodDeclaration(prop)) {
-        return resolveObjectLiteralMemberKey(prop.name, ctx).keyName;
+      if (prop.Kind === TstsSyntax.KindMethodDeclaration) {
+        const name = TstsSyntax.Node_Name(prop);
+        return name ? resolveObjectLiteralMemberKey(name, ctx).keyName : undefined;
       }
       if (
-        ts.isGetAccessorDeclaration(prop) ||
-        ts.isSetAccessorDeclaration(prop)
+        prop.Kind === TstsSyntax.KindGetAccessor ||
+        prop.Kind === TstsSyntax.KindSetAccessor
       ) {
-        return resolveObjectLiteralMemberKey(prop.name, ctx).keyName;
+        const name = TstsSyntax.Node_Name(prop);
+        return name ? resolveObjectLiteralMemberKey(name, ctx).keyName : undefined;
       }
       return undefined;
     })
@@ -216,12 +252,15 @@ export const convertObjectLiteral = (
   const literalValues = collectObjectLiteralPrimitiveValues(node, ctx);
 
   if (emitAsAnonymousObject) {
-    for (const prop of node.properties) {
+    for (const prop of objectProperties) {
+      if (!prop) continue;
+      const propName = TstsSyntax.Node_Name(prop);
       const isSupportedAnonymousProperty =
-        (ts.isPropertyAssignment(prop) &&
-          !ts.isComputedPropertyName(prop.name) &&
-          (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))) ||
-        ts.isShorthandPropertyAssignment(prop);
+        (prop.Kind === TstsSyntax.KindPropertyAssignment &&
+          propName?.Kind !== TstsSyntax.KindComputedPropertyName &&
+          (propName?.Kind === TstsSyntax.KindIdentifier ||
+            propName?.Kind === TstsSyntax.KindStringLiteral)) ||
+        prop.Kind === TstsSyntax.KindShorthandPropertyAssignment;
       if (isSupportedAnonymousProperty) {
         continue;
       }
@@ -273,19 +312,23 @@ export const convertObjectLiteral = (
   // Track if we have any spreads (needed for emitter IIFE lowering)
   let hasSpreads = false;
 
-  node.properties.forEach((prop) => {
-    if (ts.isPropertyAssignment(prop)) {
-      const { key, keyName } = resolveObjectLiteralMemberKey(prop.name, ctx);
+  objectProperties.forEach((prop) => {
+    if (!prop) return;
+    if (prop.Kind === TstsSyntax.KindPropertyAssignment) {
+      const propName = TstsSyntax.Node_Name(prop);
+      const initializer = TstsSyntax.Node_Initializer(prop);
+      if (!propName || !initializer) return;
+      const { key, keyName } = resolveObjectLiteralMemberKey(propName, ctx);
 
       const propExpectedType = getObjectLiteralPropertyExpectedType(keyName);
 
       properties.push({
         kind: "property",
         key,
-        value: convertExpression(prop.initializer, ctx, propExpectedType),
+        value: convertExpression(initializer, ctx, propExpectedType),
         shorthand: false,
       });
-    } else if (ts.isShorthandPropertyAssignment(prop)) {
+    } else if (prop.Kind === TstsSyntax.KindShorthandPropertyAssignment) {
       // DETERMINISTIC: Derive identifier type from the VALUE being assigned, not the property
       // For { value }, we need to get the type of the variable `value`, not the property `value`
       // Prefer lexical flow/local env types first so shorthand properties preserve
@@ -310,27 +353,33 @@ export const convertObjectLiteral = (
           }
         }
       }
+      const propName = TstsSyntax.Node_Name(prop);
+      const nameText = getTstsIdentifierText(propName) ?? "";
 
       properties.push({
         kind: "property",
-        key: prop.name.text,
+        key: nameText,
         value: {
           kind: "identifier",
-          name: prop.name.text,
+          name: nameText,
           inferredType,
-          sourceSpan: getSourceSpan(prop.name),
+          sourceSpan: propName ? getSourceSpan(propName) : getSourceSpan(prop),
           declId,
         },
         shorthand: true,
       });
-    } else if (ts.isSpreadAssignment(prop)) {
+    } else if (prop.Kind === TstsSyntax.KindSpreadAssignment) {
+      const spreadExpression = TstsSyntax.AsSpreadAssignment(prop)?.Expression;
+      if (!spreadExpression) return;
       hasSpreads = true;
       properties.push({
         kind: "spread",
-        expression: convertExpression(prop.expression, ctx, undefined),
+        expression: convertExpression(spreadExpression, ctx, undefined),
       });
-    } else if (ts.isMethodDeclaration(prop)) {
-      const { key, keyName } = resolveObjectLiteralMemberKey(prop.name, ctx);
+    } else if (prop.Kind === TstsSyntax.KindMethodDeclaration) {
+      const propName = TstsSyntax.Node_Name(prop);
+      if (!propName) return;
+      const { key, keyName } = resolveObjectLiteralMemberKey(propName, ctx);
 
       if (!keyName) {
         ctx.diagnostics.push(
@@ -359,11 +408,13 @@ export const convertObjectLiteral = (
         ),
       });
     } else if (
-      ts.isGetAccessorDeclaration(prop) ||
-      ts.isSetAccessorDeclaration(prop)
+      prop.Kind === TstsSyntax.KindGetAccessor ||
+      prop.Kind === TstsSyntax.KindSetAccessor
     ) {
+      const propName = TstsSyntax.Node_Name(prop);
+      if (!propName) return;
       const { keyName: memberName } = resolveObjectLiteralMemberKey(
-        prop.name,
+        propName,
         ctx
       );
       if (!memberName) {
@@ -380,7 +431,7 @@ export const convertObjectLiteral = (
       }
 
       const existing = accessorGroups.get(memberName) ?? {};
-      if (ts.isGetAccessorDeclaration(prop)) {
+      if (prop.Kind === TstsSyntax.KindGetAccessor) {
         existing.getter = prop;
       } else {
         existing.setter = prop;
@@ -511,45 +562,41 @@ export const convertObjectLiteral = (
   const resolvedMethodTypes = new Map<string, IrFunctionType>();
 
   for (const pendingMethod of pendingMethods) {
-    const methodPrelude = createObjectLiteralMethodArgumentPrelude(
-      pendingMethod.node
-    );
-    const methodBody = pendingMethod.node.body
-      ? methodPrelude.length > 0
-        ? ts.factory.updateBlock(pendingMethod.node.body, [
-            ...methodPrelude,
-            ...pendingMethod.node.body.statements,
-          ])
-        : pendingMethod.node.body
-      : ts.factory.createBlock(methodPrelude, true);
-    const methodModifiers = pendingMethod.node.modifiers?.filter(ts.isModifier);
-    const methodAsFunctionExpr = ts.setTextRange(
-      ts.factory.createFunctionExpression(
-        methodModifiers,
-        pendingMethod.node.asteriskToken,
-        undefined,
-        pendingMethod.node.typeParameters,
-        pendingMethod.node.parameters,
-        pendingMethod.node.type,
-        methodBody
-      ),
-      pendingMethod.node
-    );
     const convertedValue = finalizeObjectLiteralMethodExpression(
-      convertExpression(
-        methodAsFunctionExpr,
+      convertFunctionExpression(
+        pendingMethod.node,
         objectBehaviorContext,
         pendingMethod.propExpectedType
       )
     );
+    const methodPrelude =
+      convertedValue.kind === "functionExpression"
+        ? createObjectLiteralMethodArgumentPrelude(
+            pendingMethod.node,
+            convertedValue.parameters
+          )
+        : [];
+    const convertedValueWithPrelude =
+      convertedValue.kind === "functionExpression" && methodPrelude.length > 0
+        ? {
+            ...convertedValue,
+            body: {
+              ...convertedValue.body,
+              statements: [
+                ...methodPrelude,
+                ...convertedValue.body.statements,
+              ],
+            },
+          }
+        : convertedValue;
 
     if (
-      convertedValue.kind === "functionExpression" &&
-      convertedValue.inferredType?.kind === "functionType"
+      convertedValueWithPrelude.kind === "functionExpression" &&
+      convertedValueWithPrelude.inferredType?.kind === "functionType"
     ) {
       resolvedMethodTypes.set(
         pendingMethod.keyName,
-        convertedValue.inferredType
+        convertedValueWithPrelude.inferredType
       );
     }
 
@@ -557,13 +604,13 @@ export const convertObjectLiteral = (
       kind: "property",
       key: pendingMethod.key,
       value:
-        convertedValue.kind === "functionExpression" &&
+        convertedValueWithPrelude.kind === "functionExpression" &&
         pendingMethod.capturesObjectLiteralThis
           ? {
-              ...convertedValue,
+              ...convertedValueWithPrelude,
               capturesObjectLiteralThis: true,
             }
-          : convertedValue,
+          : convertedValueWithPrelude,
       shorthand: false,
     });
   }

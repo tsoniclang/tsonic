@@ -9,15 +9,22 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as ts from "typescript";
+import {
+  TstsSyntax,
+  getTstsIdentifierText,
+  getTstsNodeText,
+  getTstsTypeReferenceName,
+  visitTstsSubtree,
+  type TstsNode,
+} from "@tsonic/tsts";
 import {
   expandUtilityType,
   expandConditionalUtilityType,
   expandRecordType,
 } from "../utility-types.js";
 import { IrType } from "../../../../types.js";
-import { createBinding, Binding } from "../../../../binding/index.js";
-import { createTypeScriptSemanticView } from "../../../../../source-frontend/typescript-semantic-view.js";
+import { Binding } from "../../../../binding/index.js";
+import { createInlineTstsTestProgram } from "../../../../../testing/tsts-test-program.js";
 
 /**
  * Assert value is not null/undefined and return it typed as non-null.
@@ -31,141 +38,116 @@ function assertDefined<T>(value: T, msg?: string): NonNullable<T> {
 }
 
 /**
- * Helper to create a TypeScript program from source code
+ * Helper to create a TSTS-backed program from source code
  */
 const createTestProgram = (
   source: string,
   fileName = "test.ts"
 ): {
-  program: ts.Program;
-  checker: ts.TypeChecker;
-  sourceFile: ts.SourceFile;
+  sourceFile: TstsNode;
   binding: Binding;
 } => {
-  const compilerOptions: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.NodeNext,
-    strict: true,
-    noEmit: true,
+  const program = createInlineTstsTestProgram(source, { fileName });
+  return {
+    sourceFile: program.sourceFile,
+    binding: program.binding,
   };
-
-  const host = ts.createCompilerHost(compilerOptions);
-  const originalGetSourceFile = host.getSourceFile;
-  const originalFileExists = host.fileExists;
-  const originalReadFile = host.readFile;
-
-  host.getSourceFile = (
-    name: string,
-    languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
-    onError?: (message: string) => void,
-    shouldCreateNewSourceFile?: boolean
-  ) => {
-    if (name === fileName) {
-      return ts.createSourceFile(
-        fileName,
-        source,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-    }
-    return originalGetSourceFile.call(
-      host,
-      name,
-      languageVersionOrOptions,
-      onError,
-      shouldCreateNewSourceFile
-    );
-  };
-
-  host.fileExists = (name: string) =>
-    name === fileName || originalFileExists.call(host, name);
-
-  host.readFile = (name: string) =>
-    name === fileName ? source : originalReadFile.call(host, name);
-
-  const program = ts.createProgram([fileName], compilerOptions, host);
-  const sourceFile = assertDefined(
-    program.getSourceFile(fileName),
-    `Source file ${fileName} not found`
-  );
-  const checker = program.getTypeChecker();
-  const binding = createBinding(createTypeScriptSemanticView(checker));
-
-  return { program, checker, sourceFile, binding };
 };
 
 /**
  * Helper to find a type alias by name and get its type reference node
  */
 const findTypeAliasReference = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsNode,
   aliasName: string
-): ts.TypeReferenceNode | null => {
-  let result: ts.TypeReferenceNode | null = null;
+): TstsNode | null => {
+  let result: TstsNode | null = null;
 
-  const visitor = (node: ts.Node): void => {
-    if (ts.isTypeAliasDeclaration(node) && node.name.text === aliasName) {
-      if (ts.isTypeReferenceNode(node.type)) {
-        result = node.type;
+  visitTstsSubtree(sourceFile, (node) => {
+    const alias = TstsSyntax.AsTypeAliasDeclaration(node);
+    if (alias && getTstsIdentifierText(alias.name) === aliasName) {
+      const typeNode = alias.Type;
+      if (TstsSyntax.IsTypeReferenceNode(typeNode)) {
+        result = typeNode ?? null;
       }
     }
-    ts.forEachChild(node, visitor);
-  };
+  });
+  return result;
+};
 
-  ts.forEachChild(sourceFile, visitor);
+const findFirstTypeReferenceNamed = (
+  sourceFile: TstsNode,
+  typeName: string
+): TstsNode | null => {
+  let result: TstsNode | null = null;
+  visitTstsSubtree(sourceFile, (node) => {
+    if (result) return;
+    const typeReference = TstsSyntax.AsTypeReferenceNode(node);
+    if (
+      typeReference &&
+      getTstsIdentifierText(typeReference.TypeName) === typeName
+    ) {
+      result = node ?? null;
+    }
+  });
   return result;
 };
 
 /**
  * Stub convertType for testing - just returns the type name
  */
-const stubConvertType = (node: ts.TypeNode, _binding: Binding): IrType => {
-  if (ts.isTypeReferenceNode(node)) {
-    const name = ts.isIdentifier(node.typeName)
-      ? node.typeName.text
-      : node.typeName.getText();
+const stubConvertType = (node: TstsNode, _binding: Binding): IrType => {
+  if (TstsSyntax.IsTypeReferenceNode(node)) {
+    const name = getTstsTypeReferenceName(node) ?? "unknown";
     return { kind: "referenceType", name, typeArguments: [] };
   }
-  if (node.kind === ts.SyntaxKind.StringKeyword) {
+  if (node.Kind === TstsSyntax.KindStringKeyword) {
     return { kind: "primitiveType", name: "string" };
   }
-  if (node.kind === ts.SyntaxKind.NumberKeyword) {
+  if (node.Kind === TstsSyntax.KindNumberKeyword) {
     return { kind: "primitiveType", name: "number" };
   }
-  if (node.kind === ts.SyntaxKind.BooleanKeyword) {
+  if (node.Kind === TstsSyntax.KindBooleanKeyword) {
     return { kind: "primitiveType", name: "boolean" };
   }
-  if (node.kind === ts.SyntaxKind.BigIntKeyword) {
+  if (node.Kind === TstsSyntax.KindBigIntKeyword) {
     return { kind: "primitiveType", name: "bigint" };
   }
-  if (node.kind === ts.SyntaxKind.UndefinedKeyword) {
+  if (node.Kind === TstsSyntax.KindUndefinedKeyword) {
     return { kind: "primitiveType", name: "undefined" };
   }
-  if (node.kind === ts.SyntaxKind.NullKeyword) {
+  if (node.Kind === TstsSyntax.KindNullKeyword) {
     return { kind: "primitiveType", name: "null" };
   }
-  if (node.kind === ts.SyntaxKind.NeverKeyword) {
+  if (node.Kind === TstsSyntax.KindNeverKeyword) {
     return { kind: "neverType" };
   }
   // Handle literal type nodes (e.g., "a", 1, null, undefined)
-  if (ts.isLiteralTypeNode(node)) {
-    const literal = node.literal;
-    if (ts.isStringLiteral(literal)) {
-      return { kind: "literalType", value: literal.text } as IrType;
+  if (TstsSyntax.IsLiteralTypeNode(node)) {
+    const literal = TstsSyntax.AsLiteralTypeNode(node)?.Literal;
+    if (literal?.Kind === TstsSyntax.KindStringLiteral) {
+      return {
+        kind: "literalType",
+        value: getTstsNodeText(literal) ?? "",
+      } as IrType;
     }
-    if (ts.isNumericLiteral(literal)) {
-      return { kind: "literalType", value: Number(literal.text) } as IrType;
+    if (literal?.Kind === TstsSyntax.KindNumericLiteral) {
+      return {
+        kind: "literalType",
+        value: Number(getTstsNodeText(literal) ?? "0"),
+      } as IrType;
     }
     // null can appear as LiteralTypeNode in type positions
-    if (literal.kind === ts.SyntaxKind.NullKeyword) {
+    if (literal?.Kind === TstsSyntax.KindNullKeyword) {
       return { kind: "primitiveType", name: "null" };
     }
   }
-  if (ts.isUnionTypeNode(node)) {
+  if (TstsSyntax.IsUnionTypeNode(node)) {
     return {
       kind: "unionType",
-      types: node.types.map((t) => stubConvertType(t, _binding)),
+      types: (TstsSyntax.AsUnionTypeNode(node)?.Types?.Nodes ?? []).map((t) =>
+        t ? stubConvertType(t, _binding) : { kind: "anyType" }
+      ),
     };
   }
   return { kind: "anyType" };
@@ -175,12 +157,14 @@ export {
   describe,
   it,
   expect,
-  ts,
+  TstsSyntax,
+  type TstsNode,
   expandUtilityType,
   expandConditionalUtilityType,
   expandRecordType,
   assertDefined,
   createTestProgram,
   findTypeAliasReference,
+  findFirstTypeReferenceNamed,
   stubConvertType,
 };

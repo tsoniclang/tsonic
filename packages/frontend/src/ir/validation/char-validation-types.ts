@@ -101,7 +101,11 @@ export const isCharType = (
   const resolved = stripNullish(resolveTypeAliases(type, ctx));
   if (!resolved) return false;
   if (resolved.kind === "primitiveType") return resolved.name === "char";
-  if (resolved.kind === "referenceType") return resolved.name === "char";
+  if (resolved.kind === "referenceType") {
+    const sourceName = resolved.typeId?.sourceName ?? resolved.name;
+    const simpleName = sourceName.split(".").pop() ?? sourceName;
+    return simpleName.length > 0 && simpleName.toLowerCase() === "char";
+  }
   return false;
 };
 

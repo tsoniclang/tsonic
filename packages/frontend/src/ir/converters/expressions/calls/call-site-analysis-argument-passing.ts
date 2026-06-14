@@ -6,7 +6,7 @@
  * call-site-analysis.ts for file-size compliance.
  */
 
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import { getSourceSpan } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import type { IrType } from "../../../types.js";
@@ -32,19 +32,23 @@ type PassingMode = "value" | "ref" | "out" | "in";
  * normal calls.
  */
 export const unwrapCallSiteArgumentModifier = (
-  expr: ts.Expression,
+  expr: TstsNode,
   ctx: ProgramContext
 ): {
-  readonly expression: ts.Expression;
+  readonly expression: TstsNode;
   readonly modifier?: CallSiteArgModifier;
 } => {
   // Unwrap parentheses first (out((x)) etc).
-  let current: ts.Expression = expr;
-  while (ts.isParenthesizedExpression(current)) {
-    current = current.expression;
+  let current: TstsNode = expr;
+  while (current.Kind === TstsSyntax.KindParenthesizedExpression) {
+    const inner = TstsSyntax.AsParenthesizedExpression(current)?.Expression;
+    if (!inner) return { expression: expr };
+    current = inner;
   }
 
-  if (!ts.isCallExpression(current)) return { expression: expr };
+  if (current.Kind !== TstsSyntax.KindCallExpression) {
+    return { expression: expr };
+  }
 
   const modifier = callSitePassingModifierFromFact(
     ctx.sourceSemantics.getFact(current, parameterPassingFactKey)
@@ -54,14 +58,16 @@ export const unwrapCallSiteArgumentModifier = (
   }
 
   // Markers are non-generic and take exactly one argument.
-  if (current.typeArguments && current.typeArguments.length > 0) {
+  const typeArguments = TstsSyntax.Node_TypeArguments(current) ?? [];
+  const args = TstsSyntax.Node_Arguments(current) ?? [];
+  if (typeArguments.length > 0) {
     return { expression: expr };
   }
-  if (current.arguments.length !== 1) {
+  if (args.length !== 1) {
     return { expression: expr };
   }
 
-  const inner = current.arguments[0];
+  const inner = args[0];
   if (!inner) return { expression: expr };
 
   return { expression: inner, modifier };
@@ -72,7 +78,7 @@ export const applyCallSiteArgumentModifiers = (
   overrides: readonly (CallSiteArgModifier | undefined)[],
   argCount: number,
   ctx: ProgramContext,
-  node: ts.CallExpression | ts.NewExpression
+  node: TstsNode
 ): readonly PassingMode[] | undefined => {
   const hasOverrides = overrides.some((m) => m !== undefined);
   if (!hasOverrides) return base;
@@ -114,14 +120,14 @@ export const applyCallSiteArgumentModifiers = (
  * Parameter modes were normalized in Binding at registration time.
  */
 export const extractArgumentPassing = (
-  node: ts.CallExpression | ts.NewExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): readonly PassingMode[] | undefined => {
   // Get the TypeSystem
   const typeSystem = ctx.typeSystem;
 
   // Handle both CallExpression and NewExpression
-  const sigId = ts.isCallExpression(node)
+  const sigId = node.Kind === TstsSyntax.KindCallExpression
     ? ctx.binding.resolveCallSignature(node)
     : ctx.binding.resolveConstructorSignature(node);
   if (!sigId) return undefined;
@@ -129,9 +135,7 @@ export const extractArgumentPassing = (
   // Use TypeSystem.resolveCall() to get parameter modes
   const resolved = typeSystem.resolveCall({
     sigId,
-    argumentCount: ts.isCallExpression(node)
-      ? node.arguments.length
-      : (node.arguments?.length ?? 0),
+    argumentCount: (TstsSyntax.Node_Arguments(node) ?? []).length,
   });
 
   // Return parameter modes from TypeSystem (already normalized in Binding)

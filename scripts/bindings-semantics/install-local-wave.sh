@@ -8,6 +8,7 @@ fi
 
 TARGET_ROOT="$(cd "$1" && pwd -P)"
 TSONICLANG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+TSONIC_REPO_ROOT="$TSONICLANG_ROOT/tsonic"
 
 declare -a package_paths=()
 declare -A package_map=()
@@ -223,6 +224,13 @@ expand_package_closure() {
 install_into_root() {
   local install_root="$(cd "$1" && pwd -P)"
   local mode="$2"
+
+  case "$install_root" in
+    "$TSONIC_REPO_ROOT"/packages/*|"$TSONIC_REPO_ROOT"/npm/*)
+      echo "skip: package-local @tsonic installs are banned for $install_root ($mode)"
+      return 0
+      ;;
+  esac
 
   if [[ -n "${visited_roots["$install_root"]:-}" ]]; then
     return 0

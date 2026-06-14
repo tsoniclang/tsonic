@@ -581,11 +581,20 @@ export const emitArrayMutationInteropCall = (
     returnExpression = mutatedArrayAst;
   }
 
-  const returnType = expr.inferredType ?? {
-    kind: "arrayType",
-    elementType: receiverElementType,
-    origin: "explicit" as const,
-  };
+  const returnsConcreteReceiverArray =
+    surfaceMemberReturnsArray(binding, context) ||
+    surfaceMemberReturnsReceiver(binding, context);
+  const returnType = returnsConcreteReceiverArray
+    ? {
+        kind: "arrayType" as const,
+        elementType: receiverElementType,
+        origin: "explicit" as const,
+      }
+    : (expr.inferredType ?? {
+        kind: "arrayType" as const,
+        elementType: receiverElementType,
+        origin: "explicit" as const,
+      });
   const [returnTypeAst, returnTypeContext] = emitTypeAst(
     returnType,
     currentContext

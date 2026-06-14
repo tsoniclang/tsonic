@@ -7,7 +7,26 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
+import {
+  createExtensionModuleGraph,
+  getTstsDeclaredTypeNode,
+  getTstsHeritageClauseDetails,
+  getTstsIdentifierText,
+  getTstsInitializerNode,
+  getTstsMemberNodes,
+  getTstsNodeNameText,
+  getTstsNodeText,
+  getTstsParameters,
+  getTstsPropertyNameText,
+  getTstsStatementNodes,
+  hasTstsPrivateModifier,
+  hasTstsProtectedModifier,
+  hasTstsStaticModifier,
+  parseTstsSourceFile,
+  TstsSyntax,
+  type ExtensionSourceModule,
+} from "@tsonic/tsts";
 import type {
   BindingFile,
   MemberBinding,
@@ -48,12 +67,10 @@ export const scanForDeclarationFiles = (dir: string): readonly string[] => {
   return results;
 };
 
-const isExportedTopLevelStatement = (statement: ts.Statement): boolean =>
-  !!(ts.canHaveModifiers(statement)
-    ? ts
-        .getModifiers(statement)
-        ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
-    : false);
+const definedNodes = (
+  nodes: readonly (TstsNode | undefined)[]
+): readonly TstsNode[] =>
+  nodes.filter((node): node is TstsNode => node !== undefined);
 
 type TopLevelSymbolKind =
   | "class"
@@ -65,24 +82,14 @@ type TopLevelSymbolKind =
 type TopLevelSymbol = {
   readonly name: string;
   readonly kind: TopLevelSymbolKind;
-  readonly node:
-    | ts.ClassDeclaration
-    | ts.EnumDeclaration
-    | ts.FunctionDeclaration
-    | ts.InterfaceDeclaration
-    | ts.VariableDeclaration;
+  readonly node: TstsNode;
 };
 
 type ExportedTopLevelSymbol = {
   readonly exportName: string;
   readonly localName: string;
   readonly kind: TopLevelSymbolKind;
-  readonly node:
-    | ts.ClassDeclaration
-    | ts.EnumDeclaration
-    | ts.FunctionDeclaration
-    | ts.InterfaceDeclaration
-    | ts.VariableDeclaration;
+  readonly node: TstsNode;
 };
 
 type SyntheticSourceMember = {
@@ -96,23 +103,21 @@ type SyntheticClassMemberScope = "instance" | "static";
 const getSourcePackageNamespace = (metadata: SourcePackageMetadata): string =>
   metadata.namespace;
 
-const readSourceFile = (sourceFilePath: string): ts.SourceFile | undefined => {
+const readSourceFile = (
+  sourceFilePath: string
+): TstsSourceFile | undefined => {
   if (!fs.existsSync(sourceFilePath)) {
     return undefined;
   }
 
-  return ts.createSourceFile(
-    sourceFilePath,
-    fs.readFileSync(sourceFilePath, "utf-8"),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
+  return parseTstsSourceFile(fs.readFileSync(sourceFilePath, "utf-8"), {
+    fileName: sourceFilePath,
+  });
 };
 
 type AmbientSourceFile = {
   readonly filePath: string;
-  readonly sourceFile: ts.SourceFile;
+  readonly sourceFile: TstsSourceFile;
 };
 
 const readAmbientSourceFiles = (
@@ -124,6 +129,58 @@ const readAmbientSourceFiles = (
       return sourceFile ? { filePath, sourceFile } : undefined;
     })
     .filter((entry): entry is AmbientSourceFile => entry !== undefined);
+
+const getVariableDeclarations = (
+  statement: TstsNode
+): readonly TstsNode[] => {
+  const declarationList = TstsSyntax.AsVariableStatement(statement)
+    ?.DeclarationList;
+  return definedNodes(
+    TstsSyntax.AsVariableDeclarationList(declarationList)?.Declarations
+      ?.Nodes ?? []
+  );
+};
+
+const getSourceFileStatements = (
+  sourceFile: TstsSourceFile
+): readonly TstsNode[] => definedNodes(getTstsStatementNodes(sourceFile));
+
+const getStringLiteralText = (node: TstsNode | undefined): string | undefined =>
+  node && TstsSyntax.IsStringLiteral(node) ? getTstsNodeText(node) : undefined;
+
+const sourceModuleCache = new WeakMap<TstsSourceFile, ExtensionSourceModule>();
+
+const getSourceModule = (
+  sourceFile: TstsSourceFile
+): ExtensionSourceModule | undefined => {
+  const cached = sourceModuleCache.get(sourceFile);
+  if (cached) {
+    return cached;
+  }
+  const module =
+    createExtensionModuleGraph(undefined, [sourceFile]).getSourceFileModule(
+      sourceFile
+    );
+  if (module) {
+    sourceModuleCache.set(sourceFile, module);
+  }
+  return module;
+};
+
+const getRightmostEntityNameText = (node: TstsNode): string | undefined => {
+  const identifier = getTstsIdentifierText(node);
+  if (identifier) return identifier;
+  const qualified = TstsSyntax.AsQualifiedName(node);
+  return qualified?.Right
+    ? getRightmostEntityNameText(qualified.Right)
+    : undefined;
+};
+
+const getLeftmostEntityName = (node: TstsNode): TstsNode | undefined => {
+  if (TstsSyntax.IsIdentifier(node)) return node;
+  const qualified = TstsSyntax.AsQualifiedName(node);
+  return qualified?.Left ? getLeftmostEntityName(qualified.Left) : undefined;
+};
 
 const resolveExplicitSourceExportPath = (
   metadata: SourcePackageMetadata,
@@ -139,58 +196,61 @@ const resolveExplicitSourceExportPath = (
 };
 
 const collectTopLevelSymbols = (
-  sourceFile: ts.SourceFile
+  sourceFile: TstsSourceFile
 ): ReadonlyMap<string, TopLevelSymbol> => {
   const symbols = new Map<string, TopLevelSymbol>();
 
-  for (const statement of sourceFile.statements) {
-    if (ts.isClassDeclaration(statement) && statement.name?.text) {
-      symbols.set(statement.name.text, {
-        name: statement.name.text,
+  for (const statement of getTstsStatementNodes(sourceFile)) {
+    if (!statement) continue;
+    const name = getTstsNodeNameText(statement);
+    if (TstsSyntax.IsClassDeclaration(statement) && name) {
+      symbols.set(name, {
+        name,
         kind: "class",
         node: statement,
       });
       continue;
     }
 
-    if (ts.isEnumDeclaration(statement) && statement.name.text) {
-      symbols.set(statement.name.text, {
-        name: statement.name.text,
+    if (TstsSyntax.IsEnumDeclaration(statement) && name) {
+      symbols.set(name, {
+        name,
         kind: "enum",
         node: statement,
       });
       continue;
     }
 
-    if (ts.isFunctionDeclaration(statement) && statement.name?.text) {
-      symbols.set(statement.name.text, {
-        name: statement.name.text,
+    if (TstsSyntax.IsFunctionDeclaration(statement) && name) {
+      symbols.set(name, {
+        name,
         kind: "function",
         node: statement,
       });
       continue;
     }
 
-    if (ts.isInterfaceDeclaration(statement) && statement.name.text) {
-      symbols.set(statement.name.text, {
-        name: statement.name.text,
+    if (TstsSyntax.IsInterfaceDeclaration(statement) && name) {
+      symbols.set(name, {
+        name,
         kind: "interface",
         node: statement,
       });
       continue;
     }
 
-    if (!ts.isVariableStatement(statement)) {
+    if (!TstsSyntax.IsVariableStatement(statement)) {
       continue;
     }
 
-    for (const declaration of statement.declarationList.declarations) {
-      if (!ts.isIdentifier(declaration.name)) {
-        continue;
-      }
+    for (const declaration of getVariableDeclarations(statement)) {
+      const declarationName = getTstsIdentifierText(
+        TstsSyntax.Node_Name(declaration)
+      );
+      if (!declarationName) continue;
 
-      symbols.set(declaration.name.text, {
-        name: declaration.name.text,
+      symbols.set(declarationName, {
+        name: declarationName,
         kind: "variable",
         node: declaration,
       });
@@ -201,7 +261,7 @@ const collectTopLevelSymbols = (
 };
 
 const collectExportedTopLevelSymbols = (
-  sourceFile: ts.SourceFile
+  sourceFile: TstsSourceFile
 ): readonly ExportedTopLevelSymbol[] => {
   const topLevel = collectTopLevelSymbols(sourceFile);
   const exported: ExportedTopLevelSymbol[] = [];
@@ -228,89 +288,20 @@ const collectExportedTopLevelSymbols = (
     });
   };
 
-  for (const statement of sourceFile.statements) {
-    if (
-      ts.isClassDeclaration(statement) &&
-      statement.name?.text &&
-      isExportedTopLevelStatement(statement)
-    ) {
-      pushSymbol(
-        statement.name.text,
-        statement.name.text,
-        topLevel.get(statement.name.text)
-      );
+  for (const binding of getSourceModule(sourceFile)?.exports ?? []) {
+    if (binding.sourceSpecifier) {
       continue;
     }
-
-    if (
-      ts.isEnumDeclaration(statement) &&
-      statement.name.text &&
-      isExportedTopLevelStatement(statement)
-    ) {
-      pushSymbol(
-        statement.name.text,
-        statement.name.text,
-        topLevel.get(statement.name.text)
-      );
+    const exportName =
+      binding.exportedName ??
+      (binding.kind === "default" || binding.kind === "export-equals"
+        ? "default"
+        : undefined);
+    const localName = binding.localName ?? exportName;
+    if (!exportName || !localName) {
       continue;
     }
-
-    if (
-      ts.isFunctionDeclaration(statement) &&
-      statement.name?.text &&
-      isExportedTopLevelStatement(statement)
-    ) {
-      pushSymbol(
-        statement.name.text,
-        statement.name.text,
-        topLevel.get(statement.name.text)
-      );
-      continue;
-    }
-
-    if (
-      ts.isInterfaceDeclaration(statement) &&
-      statement.name.text &&
-      isExportedTopLevelStatement(statement)
-    ) {
-      pushSymbol(
-        statement.name.text,
-        statement.name.text,
-        topLevel.get(statement.name.text)
-      );
-      continue;
-    }
-
-    if (
-      ts.isVariableStatement(statement) &&
-      isExportedTopLevelStatement(statement)
-    ) {
-      for (const declaration of statement.declarationList.declarations) {
-        if (!ts.isIdentifier(declaration.name)) {
-          continue;
-        }
-        pushSymbol(
-          declaration.name.text,
-          declaration.name.text,
-          topLevel.get(declaration.name.text)
-        );
-      }
-      continue;
-    }
-
-    if (
-      !ts.isExportDeclaration(statement) ||
-      !!statement.moduleSpecifier ||
-      !statement.exportClause ||
-      !ts.isNamedExports(statement.exportClause)
-    ) {
-      continue;
-    }
-
-    for (const element of statement.exportClause.elements) {
-      const localName = element.propertyName?.text ?? element.name.text;
-      pushSymbol(element.name.text, localName, topLevel.get(localName));
-    }
+    pushSymbol(exportName, localName, topLevel.get(localName));
   }
 
   return exported;
@@ -388,11 +379,10 @@ const collectSyntheticSourceMembers = (
 
   for (const symbol of collectExportedTopLevelSymbols(sourceFile)) {
     if (symbol.kind === "function") {
-      const declaration = symbol.node as ts.FunctionDeclaration;
       members.push({
         alias: symbol.exportName,
         kind: "method",
-        parameterCount: declaration.parameters.length,
+        parameterCount: getTstsParameters(symbol.node).length,
       });
       continue;
     }
@@ -401,16 +391,16 @@ const collectSyntheticSourceMembers = (
       continue;
     }
 
-    const declaration = symbol.node as ts.VariableDeclaration;
-    const initializer = declaration.initializer;
+    const initializer = getTstsInitializerNode(symbol.node);
     if (
       initializer &&
-      (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))
+      (TstsSyntax.IsArrowFunction(initializer) ||
+        TstsSyntax.IsFunctionExpression(initializer))
     ) {
       members.push({
         alias: symbol.exportName,
         kind: "method",
-        parameterCount: initializer.parameters.length,
+        parameterCount: getTstsParameters(initializer).length,
       });
       continue;
     }
@@ -422,75 +412,44 @@ const collectSyntheticSourceMembers = (
 };
 
 const readClassMemberName = (
-  member:
-    | ts.ClassElement
-    | ts.TypeElement
-    | ts.GetAccessorDeclaration
-    | ts.SetAccessorDeclaration
+  member: TstsNode
 ): string | undefined => {
-  const name = member.name;
-  if (!name) {
-    return undefined;
-  }
-
-  if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
-    return name.text;
-  }
-
-  return undefined;
+  return getTstsPropertyNameText(member);
 };
 
 const collectSyntheticClassMembers = (
-  declaration: ts.ClassDeclaration,
+  declaration: TstsNode,
   scope: SyntheticClassMemberScope
 ): readonly SyntheticSourceMember[] => {
   const members: SyntheticSourceMember[] = [];
 
-  const matchesScope = (member: ts.ClassElement): boolean => {
-    const isStatic =
-      ts.canHaveModifiers(member) &&
-      ts
-        .getModifiers(member)
-        ?.some((modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword) ===
-        true;
+  const matchesScope = (member: TstsNode): boolean => {
+    const isStatic = hasTstsStaticModifier(member);
     return scope === "static" ? isStatic : !isStatic;
   };
 
-  const isPubliclyAccessible = (member: ts.ClassElement): boolean => {
-    if (!ts.canHaveModifiers(member)) {
-      return true;
-    }
+  const isPubliclyAccessible = (member: TstsNode): boolean =>
+    !hasTstsPrivateModifier(member) && !hasTstsProtectedModifier(member);
 
-    return !(
-      ts
-        .getModifiers(member)
-        ?.some(
-          (modifier) =>
-            modifier.kind === ts.SyntaxKind.PrivateKeyword ||
-            modifier.kind === ts.SyntaxKind.ProtectedKeyword
-        ) ?? false
-    );
-  };
-
-  for (const member of declaration.members) {
+  for (const member of definedNodes(getTstsMemberNodes(declaration))) {
     if (!matchesScope(member) || !isPubliclyAccessible(member)) {
       continue;
     }
     const memberName = readClassMemberName(member);
 
-    if (ts.isMethodDeclaration(member) && memberName) {
+    if (TstsSyntax.IsMethodDeclaration(member) && memberName) {
       members.push({
         alias: memberName,
         kind: "method",
-        parameterCount: member.parameters.length,
+        parameterCount: getTstsParameters(member).length,
       });
       continue;
     }
 
     if (
-      (ts.isPropertyDeclaration(member) ||
-        ts.isGetAccessorDeclaration(member) ||
-        ts.isSetAccessorDeclaration(member)) &&
+      (TstsSyntax.IsPropertyDeclaration(member) ||
+        TstsSyntax.IsGetAccessorDeclaration(member) ||
+        TstsSyntax.IsSetAccessorDeclaration(member)) &&
       memberName
     ) {
       members.push({
@@ -504,22 +463,22 @@ const collectSyntheticClassMembers = (
 };
 
 const collectSyntheticInterfaceMembers = (
-  declaration: ts.InterfaceDeclaration
+  declaration: TstsNode
 ): readonly SyntheticSourceMember[] => {
   const members: SyntheticSourceMember[] = [];
 
-  for (const member of declaration.members) {
+  for (const member of definedNodes(getTstsMemberNodes(declaration))) {
     const memberName = readClassMemberName(member);
-    if (ts.isMethodSignature(member) && memberName) {
+    if (TstsSyntax.IsMethodSignatureDeclaration(member) && memberName) {
       members.push({
         alias: memberName,
         kind: "method",
-        parameterCount: member.parameters.length,
+        parameterCount: getTstsParameters(member).length,
       });
       continue;
     }
 
-    if (ts.isPropertySignature(member) && memberName) {
+    if (TstsSyntax.IsPropertySignatureDeclaration(member) && memberName) {
       members.push({
         alias: memberName,
         kind: "property",
@@ -531,53 +490,38 @@ const collectSyntheticInterfaceMembers = (
 };
 
 const getAmbientGlobalStatements = (
-  sourceFile: ts.SourceFile
-): readonly ts.Statement[] => {
-  const declareGlobalStatements = sourceFile.statements.flatMap((statement) => {
+  sourceFile: TstsSourceFile
+): readonly TstsNode[] => {
+  const declareGlobalStatements = getSourceFileStatements(sourceFile).flatMap((statement) => {
     if (
-      ts.isModuleDeclaration(statement) &&
-      ts.isIdentifier(statement.name) &&
-      statement.name.text === "global" &&
-      statement.body &&
-      ts.isModuleBlock(statement.body)
+      TstsSyntax.IsModuleDeclaration(statement) &&
+      getTstsNodeNameText(statement) === "global"
     ) {
-      return [...statement.body.statements];
+      const body = TstsSyntax.Node_Body(statement);
+      return body && TstsSyntax.IsModuleBlock(body)
+        ? definedNodes(getTstsStatementNodes(body))
+        : [];
     }
     return [];
   });
 
   return declareGlobalStatements.length > 0
     ? declareGlobalStatements
-    : [...sourceFile.statements];
+    : getSourceFileStatements(sourceFile);
 };
 
 const findImportedTypeTarget = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   localName: string
 ): { readonly specifier: string; readonly exportName: string } | undefined => {
-  for (const statement of sourceFile.statements) {
-    if (
-      !ts.isImportDeclaration(statement) ||
-      !statement.importClause ||
-      !statement.moduleSpecifier ||
-      !ts.isStringLiteral(statement.moduleSpecifier)
-    ) {
-      continue;
-    }
-
-    const namedBindings = statement.importClause.namedBindings;
-    if (!namedBindings || !ts.isNamedImports(namedBindings)) {
-      continue;
-    }
-
-    for (const element of namedBindings.elements) {
-      if (element.name.text !== localName) {
+  for (const importModule of getSourceModule(sourceFile)?.imports ?? []) {
+    for (const binding of importModule.bindings) {
+      if (binding.localName !== localName) {
         continue;
       }
-
       return {
-        specifier: statement.moduleSpecifier.text,
-        exportName: element.propertyName?.text ?? element.name.text,
+        specifier: importModule.specifier,
+        exportName: binding.importedName,
       };
     }
   }
@@ -586,57 +530,13 @@ const findImportedTypeTarget = (
 };
 
 const hasExportedTypeLikeSymbol = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   exportName: string
 ): boolean => {
-  for (const statement of sourceFile.statements) {
-    if (
-      (ts.isClassDeclaration(statement) ||
-        ts.isEnumDeclaration(statement) ||
-        ts.isFunctionDeclaration(statement) ||
-        ts.isInterfaceDeclaration(statement) ||
-        ts.isTypeAliasDeclaration(statement)) &&
-      statement.name?.text === exportName &&
-      isExportedTopLevelStatement(statement)
-    ) {
-      return true;
-    }
-
-    if (ts.isVariableStatement(statement)) {
-      if (!isExportedTopLevelStatement(statement)) {
-        continue;
-      }
-
-      for (const declaration of statement.declarationList.declarations) {
-        if (
-          ts.isIdentifier(declaration.name) &&
-          declaration.name.text === exportName
-        ) {
-          return true;
-        }
-      }
-
-      continue;
-    }
-
-    if (
-      !ts.isExportDeclaration(statement) ||
-      !!statement.moduleSpecifier ||
-      !statement.exportClause ||
-      !ts.isNamedExports(statement.exportClause)
-    ) {
-      continue;
-    }
-
-    for (const element of statement.exportClause.elements) {
-      const local = element.propertyName?.text ?? element.name.text;
-      if (element.name.text === exportName || local === exportName) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  return collectExportedTopLevelSymbols(sourceFile).some(
+    (symbol) =>
+      symbol.localName === exportName || symbol.exportName === exportName
+  );
 };
 
 type AmbientInterfaceSourceOwner = {
@@ -672,16 +572,15 @@ const listAmbientInterfaceOwnerMembers = (
   }
 
   if (exportedSymbol.kind === "class") {
-    const classDeclaration = exportedSymbol.node as ts.ClassDeclaration;
     const instanceMembers = collectSyntheticClassMembers(
-      classDeclaration,
+      exportedSymbol.node,
       "instance"
     );
     if (instanceMembers.length > 0) {
       return instanceMembers;
     }
 
-    return collectSyntheticClassMembers(classDeclaration, "static")
+    return collectSyntheticClassMembers(exportedSymbol.node, "static")
       .filter((member) => member.kind === "method")
       .map((member) => ({
         ...member,
@@ -693,9 +592,7 @@ const listAmbientInterfaceOwnerMembers = (
   }
 
   if (exportedSymbol.kind === "interface") {
-    return collectSyntheticInterfaceMembers(
-      exportedSymbol.node as ts.InterfaceDeclaration
-    );
+    return collectSyntheticInterfaceMembers(exportedSymbol.node);
   }
 
   return collectSyntheticSourceMembers(ownerFile);
@@ -723,24 +620,28 @@ const resolveAmbientInterfaceExplicitOwners = (
 
 const resolveAmbientInterfaceSourceOwners = (
   ambientFilePath: string,
-  declaration: ts.InterfaceDeclaration
+  declaration: TstsNode
 ): readonly AmbientInterfaceSourceOwner[] => {
   const owners: AmbientInterfaceSourceOwner[] = [];
   const seen = new Set<string>();
+  const ambientSourceFile = readSourceFile(ambientFilePath);
+  if (!ambientSourceFile) {
+    return [];
+  }
 
-  for (const heritageClause of declaration.heritageClauses ?? []) {
-    if (heritageClause.token !== ts.SyntaxKind.ExtendsKeyword) {
-      continue;
-    }
+  for (const heritageClause of getTstsHeritageClauseDetails(declaration)) {
+    if (heritageClause.kind !== "extends") continue;
 
     for (const heritageType of heritageClause.types) {
-      if (!ts.isIdentifier(heritageType.expression)) {
-        continue;
-      }
-
+      if (!heritageType) continue;
+      const expression = TstsSyntax.Node_Expression(heritageType);
+      const expressionName = expression
+        ? getTstsIdentifierText(expression)
+        : undefined;
+      if (!expressionName) continue;
       const target = findImportedTypeTarget(
-        declaration.getSourceFile(),
-        heritageType.expression.text
+        ambientSourceFile,
+        expressionName
       );
       if (!target) {
         continue;
@@ -787,19 +688,22 @@ const resolveAmbientInterfaceValueOwners = (
   const seen = new Set<string>();
 
   for (const statement of getAmbientGlobalStatements(ambientSourceFile)) {
-    if (!ts.isVariableStatement(statement)) {
+    if (!TstsSyntax.IsVariableStatement(statement)) {
       continue;
     }
 
-    for (const declaration of statement.declarationList.declarations) {
-      if (
-        !ts.isIdentifier(declaration.name) ||
-        declaration.name.text !== interfaceName
-      ) {
+    for (const declaration of getVariableDeclarations(statement)) {
+      const declarationName = getTstsIdentifierText(
+        TstsSyntax.Node_Name(declaration)
+      );
+      if (declarationName !== interfaceName) {
         continue;
       }
 
-      for (const target of extractImportTypeTargets(declaration)) {
+      for (const target of extractImportTypeTargets(
+        declaration,
+        ambientSourceFile
+      )) {
         const sourceFilePath = resolveSourceImportFilePath(
           ambientFilePath,
           target.specifier
@@ -879,9 +783,8 @@ const resolveAmbientInterfaceOwnerMember = (
   }
 
   if (exportedSymbol?.kind === "class") {
-    const classDeclaration = exportedSymbol.node as ts.ClassDeclaration;
     const instanceMembers = collectSyntheticClassMembers(
-      classDeclaration,
+      exportedSymbol.node,
       "instance"
     );
     const instanceMember = instanceMembers.find(
@@ -901,7 +804,7 @@ const resolveAmbientInterfaceOwnerMember = (
 
     if (surfacedMember.kind === "method") {
       const staticMembers = collectSyntheticClassMembers(
-        classDeclaration,
+        exportedSymbol.node,
         "static"
       );
       const staticExtensionMember = staticMembers.find(
@@ -932,7 +835,7 @@ const resolveAmbientInterfaceOwnerMember = (
 
   if (exportedSymbol?.kind === "interface") {
     const interfaceMembers = collectSyntheticInterfaceMembers(
-      exportedSymbol.node as ts.InterfaceDeclaration
+      exportedSymbol.node
     );
     const interfaceMember = interfaceMembers.find(
       (member) => member.alias === surfacedMember.alias
@@ -956,19 +859,19 @@ const resolveAmbientInterfaceOwnerMember = (
 };
 
 const collectAmbientTypeIdentityNames = (
-  sourceFile: ts.SourceFile
+  sourceFile: TstsSourceFile
 ): ReadonlySet<string> => {
   const names = new Set<string>();
 
   for (const statement of getAmbientGlobalStatements(sourceFile)) {
     if (
-      (ts.isInterfaceDeclaration(statement) ||
-        ts.isClassDeclaration(statement) ||
-        ts.isEnumDeclaration(statement) ||
-        ts.isTypeAliasDeclaration(statement)) &&
-      statement.name
+      TstsSyntax.IsInterfaceDeclaration(statement) ||
+      TstsSyntax.IsClassDeclaration(statement) ||
+      TstsSyntax.IsEnumDeclaration(statement) ||
+      TstsSyntax.IsTypeAliasDeclaration(statement)
     ) {
-      names.add(statement.name.text);
+      const name = getTstsNodeNameText(statement);
+      if (name) names.add(name);
     }
   }
 
@@ -988,15 +891,17 @@ const createSyntheticAmbientInterfaceBindings = (
 
   for (const { filePath, sourceFile } of ambientSources) {
     for (const statement of getAmbientGlobalStatements(sourceFile)) {
-      if (!ts.isInterfaceDeclaration(statement) || !statement.name.text) {
+      if (!TstsSyntax.IsInterfaceDeclaration(statement)) {
         continue;
       }
+      const interfaceName = getTstsNodeNameText(statement);
+      if (!interfaceName) continue;
 
       const declaredMembers = collectSyntheticInterfaceMembers(statement);
 
       const ownerTargets = resolveAmbientInterfaceExplicitOwners(
         metadata,
-        statement.name.text
+        interfaceName
       );
       const explicitOrHeritageOwners =
         ownerTargets.length > 0
@@ -1005,9 +910,9 @@ const createSyntheticAmbientInterfaceBindings = (
       const resolvedOwnerTargets =
         explicitOrHeritageOwners.length > 0
           ? explicitOrHeritageOwners
-          : resolveAmbientInterfaceValueOwners(filePath, statement.name.text);
+          : resolveAmbientInterfaceValueOwners(filePath, interfaceName);
 
-      const alias = statement.name.text;
+      const alias = interfaceName;
       const existing = bindings.get(alias) ?? {
         name: `${sourceNamespace}.${alias}`,
         alias,
@@ -1148,7 +1053,7 @@ const createSyntheticWrapperType = (
   const members =
     exportedSymbol?.kind === "class"
       ? collectSyntheticClassMembers(
-          exportedSymbol.node as ts.ClassDeclaration,
+          exportedSymbol.node,
           "static"
         )
       : collectSyntheticSourceMembers(sourceFilePath);
@@ -1238,7 +1143,7 @@ const createSyntheticSourceTypeBindings = (
         alias,
         kind: symbol.kind === "enum" ? "enum" : "class",
         members:
-          symbol.kind === "class" && ts.isClassDeclaration(symbol.node)
+          symbol.kind === "class" && TstsSyntax.IsClassDeclaration(symbol.node)
             ? collectSyntheticClassMembers(symbol.node, "static").map(
                 (member): MemberBinding => ({
                   kind: member.kind,
@@ -1344,75 +1249,53 @@ const resolveGlobalOwnerByExportName = (
 };
 
 const extractImportTypeTargetFromTypeNode = (
-  typeNode: ts.TypeNode,
-  declaration: ts.VariableDeclaration
+  typeNode: TstsNode,
+  sourceFile: TstsSourceFile
 ): { readonly specifier: string; readonly exportName: string } | undefined => {
-  if (ts.isImportTypeNode(typeNode) && typeNode.isTypeOf) {
-    const literal =
-      ts.isLiteralTypeNode(typeNode.argument) &&
-      ts.isStringLiteral(typeNode.argument.literal)
-        ? typeNode.argument.literal
+  if (TstsSyntax.IsImportTypeNode(typeNode)) {
+    const importType = TstsSyntax.AsImportTypeNode(typeNode);
+    if (importType?.IsTypeOf !== true) {
+      return undefined;
+    }
+    const argumentLiteral =
+      importType.Argument && TstsSyntax.IsLiteralTypeNode(importType.Argument)
+        ? TstsSyntax.AsLiteralTypeNode(importType.Argument)?.Literal
         : undefined;
-    if (!literal || !typeNode.qualifier) {
+    const specifier = getStringLiteralText(argumentLiteral);
+    if (!specifier || !importType.Qualifier) {
       return undefined;
     }
 
-    const exportName = typeNode.qualifier.getText().trim();
-    if (exportName.length === 0) {
+    const exportName = getRightmostEntityNameText(importType.Qualifier);
+    if (!exportName || exportName.length === 0) {
       return undefined;
     }
 
     return {
-      specifier: literal.text,
+      specifier,
       exportName,
     };
   }
 
-  if (!ts.isTypeQueryNode(typeNode)) {
+  if (!TstsSyntax.IsTypeQueryNode(typeNode)) {
     return undefined;
   }
 
-  const exprName = typeNode.exprName;
-  const rootIdentifier = ts.isIdentifier(exprName)
-    ? exprName
-    : ts.isQualifiedName(exprName)
-      ? exprName.left
-      : undefined;
-  if (!rootIdentifier || !ts.isIdentifier(rootIdentifier)) {
+  const exprName = TstsSyntax.AsTypeQueryNode(typeNode)?.ExprName;
+  const rootIdentifier = exprName ? getLeftmostEntityName(exprName) : undefined;
+  const rootIdentifierText = rootIdentifier
+    ? getTstsIdentifierText(rootIdentifier)
+    : undefined;
+  if (!rootIdentifierText) {
     return undefined;
   }
 
-  const sourceFile = declaration.getSourceFile();
-  for (const statement of sourceFile.statements) {
-    if (
-      !ts.isImportDeclaration(statement) ||
-      !statement.importClause ||
-      !statement.moduleSpecifier ||
-      !ts.isStringLiteral(statement.moduleSpecifier)
-    ) {
-      continue;
-    }
-
-    const namedBindings = statement.importClause.namedBindings;
-    if (namedBindings && ts.isNamedImports(namedBindings)) {
-      for (const element of namedBindings.elements) {
-        if (element.name.text !== rootIdentifier.text) {
-          continue;
-        }
-
-        return {
-          specifier: statement.moduleSpecifier.text,
-          exportName: element.propertyName?.text ?? element.name.text,
-        };
-      }
-    }
-  }
-
-  return undefined;
+  return findImportedTypeTarget(sourceFile, rootIdentifierText);
 };
 
 const extractImportTypeTargets = (
-  declaration: ts.VariableDeclaration
+  declaration: TstsNode,
+  sourceFile: TstsSourceFile
 ): readonly { readonly specifier: string; readonly exportName: string }[] => {
   const seen = new Set<string>();
   const targets: { specifier: string; exportName: string }[] = [];
@@ -1437,29 +1320,33 @@ const extractImportTypeTargets = (
     targets.push(target);
   };
 
-  const visitTypeNode = (node: ts.TypeNode | undefined): void => {
+  const visitTypeNode = (node: TstsNode | undefined): void => {
     if (!node) {
       return;
     }
 
-    if (ts.isIntersectionTypeNode(node)) {
-      for (const member of node.types) {
+    if (TstsSyntax.IsIntersectionTypeNode(node)) {
+      for (const member of definedNodes(
+        TstsSyntax.AsIntersectionTypeNode(node)?.Types?.Nodes ?? []
+      )) {
         visitTypeNode(member);
       }
       return;
     }
 
-    if (ts.isParenthesizedTypeNode(node)) {
-      visitTypeNode(node.type);
+    if (TstsSyntax.IsParenthesizedTypeNode(node)) {
+      visitTypeNode(TstsSyntax.AsParenthesizedTypeNode(node)?.Type);
       return;
     }
 
-    if (ts.isImportTypeNode(node) || ts.isTypeQueryNode(node)) {
-      pushTarget(extractImportTypeTargetFromTypeNode(node, declaration));
+    if (TstsSyntax.IsImportTypeNode(node) || TstsSyntax.IsTypeQueryNode(node)) {
+      pushTarget(
+        extractImportTypeTargetFromTypeNode(node, sourceFile)
+      );
     }
   };
 
-  visitTypeNode(declaration.type);
+  visitTypeNode(getTstsDeclaredTypeNode(declaration));
   return targets;
 };
 
@@ -1510,14 +1397,17 @@ const collectSyntheticSourceGlobals = (
 
   for (const { filePath, sourceFile } of ambientSources) {
     for (const globalStatement of getAmbientGlobalStatements(sourceFile)) {
-      if (ts.isVariableStatement(globalStatement)) {
-        for (const declaration of globalStatement.declarationList
-          .declarations) {
-          if (!ts.isIdentifier(declaration.name)) {
-            continue;
-          }
+      if (TstsSyntax.IsVariableStatement(globalStatement)) {
+        for (const declaration of getVariableDeclarations(globalStatement)) {
+          const declarationName = getTstsIdentifierText(
+            TstsSyntax.Node_Name(declaration)
+          );
+          if (!declarationName) continue;
 
-          const explicitTargets = extractImportTypeTargets(declaration);
+          const explicitTargets = extractImportTypeTargets(
+            declaration,
+            sourceFile
+          );
           let ownerType: string | undefined;
           let staticType: string | undefined;
           let sourceImport: string | undefined;
@@ -1578,7 +1468,7 @@ const collectSyntheticSourceGlobals = (
           } else {
             const inferred = resolveGlobalOwnerByExportName(
               metadata,
-              declaration.name.text
+              declarationName
             );
             ownerType = inferred?.ownerType;
             staticType = inferred?.ownerType;
@@ -1589,14 +1479,14 @@ const collectSyntheticSourceGlobals = (
             continue;
           }
 
-          bindings[declaration.name.text] = {
+          bindings[declarationName] = {
             kind: "global",
             ownerIdentity: sourceNamespace,
             type: ownerType,
             staticType,
             sourceImport,
-            ...(getTypeSemantics(declaration.name.text)
-              ? { typeSemantics: getTypeSemantics(declaration.name.text) }
+            ...(getTypeSemantics(declarationName)
+              ? { typeSemantics: getTypeSemantics(declarationName) }
               : {}),
           };
         }
@@ -1604,41 +1494,42 @@ const collectSyntheticSourceGlobals = (
       }
 
       if (
-        ts.isFunctionDeclaration(globalStatement) &&
-        globalStatement.name?.text
+        TstsSyntax.IsFunctionDeclaration(globalStatement) &&
+        getTstsNodeNameText(globalStatement)
       ) {
-        bindGlobalName(globalStatement.name.text);
+        bindGlobalName(getTstsNodeNameText(globalStatement) ?? "");
         continue;
       }
 
       if (
-        ts.isClassDeclaration(globalStatement) &&
-        globalStatement.name?.text
+        TstsSyntax.IsClassDeclaration(globalStatement) &&
+        getTstsNodeNameText(globalStatement)
       ) {
-        bindGlobalName(globalStatement.name.text);
+        bindGlobalName(getTstsNodeNameText(globalStatement) ?? "");
         continue;
       }
 
-      if (ts.isEnumDeclaration(globalStatement)) {
-        bindGlobalName(globalStatement.name.text);
+      if (TstsSyntax.IsEnumDeclaration(globalStatement)) {
+        const name = getTstsNodeNameText(globalStatement);
+        if (name) bindGlobalName(name);
         continue;
       }
 
-      if (ts.isVariableDeclaration(globalStatement)) {
-        if (ts.isIdentifier(globalStatement.name)) {
-          bindGlobalName(globalStatement.name.text);
-        }
+      if (TstsSyntax.IsVariableDeclaration(globalStatement)) {
+        const name = getTstsIdentifierText(TstsSyntax.Node_Name(globalStatement));
+        if (name) bindGlobalName(name);
         continue;
       }
 
-      if (ts.isModuleDeclaration(globalStatement)) {
-        const body = globalStatement.body;
-        if (!body || !ts.isModuleBlock(body)) {
+      if (TstsSyntax.IsModuleDeclaration(globalStatement)) {
+        const body = TstsSyntax.Node_Body(globalStatement);
+        if (!body || !TstsSyntax.IsModuleBlock(body)) {
           continue;
         }
-        for (const nested of body.statements) {
-          if (ts.isFunctionDeclaration(nested) && nested.name?.text) {
-            bindGlobalName(nested.name.text);
+        for (const nested of definedNodes(getTstsStatementNodes(body))) {
+          if (TstsSyntax.IsFunctionDeclaration(nested)) {
+            const name = getTstsNodeNameText(nested);
+            if (name) bindGlobalName(name);
           }
         }
       }

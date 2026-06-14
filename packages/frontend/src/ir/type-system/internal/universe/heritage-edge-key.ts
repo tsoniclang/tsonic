@@ -16,7 +16,7 @@ const createHeritageKeyState = (): HeritageKeyState => ({
   nextCycleId: 0,
 });
 
-const fallbackReferenceTypeKey = (
+const unresolvedReferenceTypeKey = (
   type: Extract<IrType, { kind: "referenceType" }>,
   state: HeritageKeyState
 ): string => {
@@ -142,7 +142,7 @@ const heritageTypeArgumentKey = (
         return `dict:${heritageTypeArgumentKey(type.keyType, state)}=>${heritageTypeArgumentKey(type.valueType, state)}`;
 
       case "referenceType":
-        return fallbackReferenceTypeKey(type, state);
+        return unresolvedReferenceTypeKey(type, state);
 
       case "functionType":
         return `fn:${type.parameters

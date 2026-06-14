@@ -256,7 +256,7 @@ describe("architecture completion tracker", () => {
       "utf8"
     );
     expect(dependencyGraph).to.include(
-      "targetSurfaceProvider?.getArtifacts().renderTable"
+      "getProgramTargetSurfaceArtifacts(tsonicProgram)?.renderTable"
     );
   });
 

@@ -6,7 +6,6 @@
 export type { IrBuildOptions } from "./builder/types.js";
 export { buildIrModule, buildIr } from "./builder/orchestrator.js";
 export { extractImports, extractImportSpecifiers } from "./builder/imports.js";
-export { extractExports } from "./builder/exports.js";
 export {
   extractStatements,
   isExecutableStatement,

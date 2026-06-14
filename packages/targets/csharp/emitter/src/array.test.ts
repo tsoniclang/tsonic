@@ -432,6 +432,99 @@ describe("Array Emission", () => {
     );
   });
 
+  it("should use concrete receiver element type for generic array receiver mutators", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/test/generic-array-mutation.ts",
+      namespace: "Test",
+      className: "genericArrayMutation",
+      isStaticContainer: true,
+      imports: [],
+      exports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "reverseValues",
+          typeParameters: [{ kind: "typeParameter", name: "TElement" }],
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "values" },
+              type: {
+                kind: "arrayType",
+                elementType: {
+                  kind: "typeParameterType",
+                  name: "TElement",
+                },
+                origin: "explicit",
+              },
+              initializer: undefined,
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "call",
+                  callee: {
+                    kind: "memberAccess",
+                    object: {
+                      kind: "identifier",
+                      name: "values",
+                      inferredType: {
+                        kind: "arrayType",
+                        elementType: {
+                          kind: "typeParameterType",
+                          name: "TElement",
+                        },
+                        origin: "explicit",
+                      },
+                    },
+                    property: "reverse",
+                    isComputed: false,
+                    isOptional: false,
+                    memberBinding: {
+                      kind: "method",
+                      ownerIdentity: "js",
+                      type: "js.Array",
+                      member: "reverse",
+                      isExtensionMethod: false,
+                    },
+                  },
+                  arguments: [],
+                  isOptional: false,
+                  inferredType: {
+                    kind: "arrayType",
+                    elementType: { kind: "typeParameterType", name: "T" },
+                    origin: "explicit",
+                  },
+                },
+              },
+            ],
+          },
+          isExported: false,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+    };
+
+    const code = emitModule(module, {
+      surface: "@tsonic/js",
+      bindingRegistry: jsSurfaceBindingRegistry,
+      surfaceCapabilities: jsSurfaceCapabilities,
+    });
+
+    expect(code).to.include("global::System.Func<TElement[]>");
+    expect(code).to.not.include("global::System.Func<T[]>");
+  });
+
   it("should preserve write-back for lifted module arrays referenced inside class methods", () => {
     const module: IrModule = {
       kind: "module",

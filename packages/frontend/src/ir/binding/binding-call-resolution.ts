@@ -3,13 +3,8 @@
  *
  * Re-exports from sub-modules:
  * - binding-call-resolution-calls: resolveCallSignature
- * - binding-call-resolution-candidates: resolveCallSignatureCandidates,
- *     resolveConstructorSignature, resolveConstructorSignatureCandidates
+ * - binding-call-resolution-candidates: resolveConstructorSignature
  */
 
 export { resolveCallSignature } from "./binding-call-resolution-calls.js";
-export {
-  resolveCallSignatureCandidates,
-  resolveConstructorSignature,
-  resolveConstructorSignatureCandidates,
-} from "./binding-call-resolution-candidates.js";
+export { resolveConstructorSignature } from "./binding-call-resolution-candidates.js";

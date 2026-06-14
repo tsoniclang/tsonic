@@ -1,22 +1,25 @@
 /**
  * Binding Layer — Factory Function (Facade)
  *
- * Creates a BindingInternal instance by composing sub-modules:
- * - binding-registry.ts: Registry management and simple resolution
- * - binding-call-resolution.ts: Call/constructor signature resolution
- *
- * This module assembles the final BindingInternal object, the handle registry,
- * and the remaining simple accessor/capture methods.
+ * Composes the TSTS-backed binding registry and exposes opaque declaration,
+ * signature, member, and type-syntax handles to the IR/type-system layers.
  */
 
-import ts from "typescript";
+import type {
+  TstsNode,
+} from "@tsonic/tsts";
 import {
+  getTstsContainingSourceFileName,
+  getTstsNodeNameText,
+  TstsSyntax,
+} from "@tsonic/tsts";
+import type {
   DeclId,
   SignatureId,
   MemberId,
   TypeSyntaxId,
-  makeTypeSyntaxId,
 } from "../type-system/types.js";
+import { makeTypeSyntaxId } from "../type-system/types.js";
 import type {
   HandleRegistry,
   DeclInfo,
@@ -26,11 +29,12 @@ import type {
 } from "../type-system/internal/handle-types.js";
 import type { BindingInternal, TypePredicateInfo } from "./binding-types.js";
 import type {
-  FrontendSourceSemanticView,
+  TstsFrontendSourceSemanticView,
   SourceSemanticFactKey,
 } from "../../source-frontend/index.js";
 import {
   createBindingContext,
+  type BindingModuleGraphInput,
   getOrCreateDeclId,
   resolveTransparentAliases,
   resolveIdentifier as resolveIdentifierImpl,
@@ -41,173 +45,125 @@ import {
 } from "./binding-registry.js";
 import {
   resolveCallSignature as resolveCallSignatureImpl,
-  resolveCallSignatureCandidates as resolveCallSignatureCandidatesImpl,
   resolveConstructorSignature as resolveConstructorSignatureImpl,
-  resolveConstructorSignatureCandidates as resolveConstructorSignatureCandidatesImpl,
 } from "./binding-call-resolution.js";
+import {
+  resolveExternalImportType as resolveExternalImportTypeImpl,
+  resolveImportedSourceNamespaceMember as resolveImportedSourceNamespaceMemberImpl,
+  resolveImportedSourceValue as resolveImportedSourceValueImpl,
+} from "./binding-external-imports.js";
 
-// ═══════════════════════════════════════════════════════════════════════════
-// BINDING IMPLEMENTATION
-// ═══════════════════════════════════════════════════════════════════════════
+const getDeclaringTypeNameFromParent = (
+  parent: TstsNode | undefined
+): string | undefined => {
+  if (!parent) return undefined;
 
-/**
- * Create a Binding instance for a TypeScript program.
- *
- * Returns BindingInternal which includes _getHandleRegistry() for TypeSystem.
- * Cast to Binding when passing to regular converters.
- */
+  if (
+    TstsSyntax.IsInterfaceDeclaration(parent) ||
+    TstsSyntax.IsClassDeclaration(parent) ||
+    TstsSyntax.IsTypeAliasDeclaration(parent)
+  ) {
+    return getBindingAliasFromDeclaration(parent) ?? getTstsNodeNameText(parent);
+  }
+
+  if (TstsSyntax.IsTypeLiteralNode(parent)) {
+    const container = parent.Parent;
+    return TstsSyntax.IsVariableDeclaration(container)
+      ? getTstsNodeNameText(container)
+      : undefined;
+  }
+
+  return undefined;
+};
+
+const toConcreteTstsNode = (value: unknown): TstsNode | undefined =>
+  value !== null && typeof value === "object" ? (value as TstsNode) : undefined;
+
 export const createBinding = (
-  sourceSemantics: FrontendSourceSemanticView
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  moduleGraphInput: BindingModuleGraphInput = {}
 ): BindingInternal => {
-  const ctx = createBindingContext(sourceSemantics);
+  const ctx = createBindingContext(sourceSemantics, moduleGraphInput);
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // SIMPLE RESOLUTION METHODS (remaining methods not in sub-modules)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const resolveImport = (node: ts.ImportSpecifier): DeclId | undefined => {
-    const symbol = sourceSemantics.getSymbol(node.name);
+  const resolveImport = (node: TstsNode): DeclId | undefined => {
+    const symbol = sourceSemantics.getSymbol(TstsSyntax.Node_Name(node) ?? node);
     if (!symbol) return undefined;
-
     return getOrCreateDeclId(ctx, resolveTransparentAliases(ctx, symbol));
   };
 
-  const resolveShorthandAssignment = (
-    node: ts.ShorthandPropertyAssignment
-  ): DeclId | undefined => {
+  const resolveShorthandAssignment = (node: TstsNode): DeclId | undefined => {
     const symbol = sourceSemantics.getShorthandAssignmentValueSymbol(node);
     if (!symbol) return undefined;
-    return getOrCreateDeclId(ctx, symbol);
+    return getOrCreateDeclId(ctx, resolveTransparentAliases(ctx, symbol));
   };
 
   const getDeclaringTypeNameOfMember = (
     member: MemberId
   ): string | undefined => {
     const key = `${member.declId.id}:${member.name}`;
-    const entry = ctx.memberMap.get(key);
-    const decl = entry?.decl;
-    if (!decl) return undefined;
-
-    const parent = decl.parent;
-    if (ts.isInterfaceDeclaration(parent) && parent.name)
-      return getBindingAliasFromDeclaration(parent) ?? parent.name.text;
-    if (ts.isClassDeclaration(parent) && parent.name)
-      return getBindingAliasFromDeclaration(parent) ?? parent.name.text;
-    if (ts.isTypeAliasDeclaration(parent) && parent.name)
-      return getBindingAliasFromDeclaration(parent) ?? parent.name.text;
-
-    // tsbindgen static containers can be emitted as:
-    //   export const Foo: { bar(...): ... }
-    //
-    // In this case, member declarations live under a TypeLiteralNode whose parent
-    // is the VariableDeclaration for `Foo`. We treat `Foo` as the declaring "type"
-    // name for binding disambiguation purposes.
-    if (ts.isTypeLiteralNode(parent)) {
-      const container = parent.parent;
-      if (
-        ts.isVariableDeclaration(container) &&
-        ts.isIdentifier(container.name)
-      ) {
-        return container.name.text;
-      }
-    }
-
-    return undefined;
+    return getDeclaringTypeNameFromParent(ctx.memberMap.get(key)?.decl?.Parent);
   };
 
   const getSourceFilePathOfMember = (member: MemberId): string | undefined => {
     const key = `${member.declId.id}:${member.name}`;
-    const entry = ctx.memberMap.get(key);
-    const decl = entry?.decl;
-    if (!decl) return undefined;
-    return decl.getSourceFile().fileName;
+    return getTstsContainingSourceFileName(ctx.memberMap.get(key)?.decl);
   };
 
   const getSourceFilePathOfDecl = (declId: DeclId): string | undefined => {
     const entry = ctx.declMap.get(declId.id);
-    if (!entry) return undefined;
-    const decl = entry.decl ?? entry.typeDeclNode ?? entry.valueDeclNode;
-    if (!decl) return undefined;
-    return decl.getSourceFile().fileName;
+    const decl = entry?.decl ?? entry?.typeDeclNode ?? entry?.valueDeclNode;
+    return getTstsContainingSourceFileName(decl);
   };
 
   const getFullyQualifiedName = (declId: DeclId): string | undefined => {
     const entry = ctx.declMap.get(declId.id);
-    if (!entry) return undefined;
-    return sourceSemantics.getFullyQualifiedName(entry.symbol);
+    return entry?.fqName;
   };
 
   const getKindOfDecl = (declId: DeclId) => ctx.declMap.get(declId.id)?.kind;
 
-  const getTypeNodeOfDecl = (declId: DeclId): ts.TypeNode | undefined => {
-    const node = ctx.declMap.get(declId.id)?.typeNode;
-    return node && ts.isTypeNode(node) ? node : undefined;
-  };
+  const getTypeNodeOfDecl = (declId: DeclId): TstsNode | undefined =>
+    ctx.declMap.get(declId.id)?.typeNode;
 
-  const getValueDeclarationNode = (
-    declId: DeclId
-  ): ts.Declaration | undefined => {
+  const getValueDeclarationNode = (declId: DeclId): TstsNode | undefined => {
     const entry = ctx.declMap.get(declId.id);
     return entry?.valueDeclNode ?? entry?.decl;
   };
 
   const getDeclarationNodesOfDecl = (
     declId: DeclId
-  ): readonly ts.Declaration[] => {
+  ): readonly TstsNode[] => {
     const entry = ctx.declMap.get(declId.id);
     if (!entry) return [];
-
     return [entry.decl, entry.valueDeclNode, entry.typeDeclNode].filter(
-      (node): node is ts.Declaration => node !== undefined
+      (node): node is TstsNode => node !== undefined
     );
   };
 
-  const getTypeNodeOfMember = (member: MemberId): ts.TypeNode | undefined => {
+  const getTypeNodeOfMember = (member: MemberId): TstsNode | undefined => {
     const key = `${member.declId.id}:${member.name}`;
-    const node = ctx.memberMap.get(key)?.typeNode;
-    return node && ts.isTypeNode(node) ? node : undefined;
+    return ctx.memberMap.get(key)?.typeNode;
   };
 
   const getTypePredicateOfSignature = (
     sigId: SignatureId
   ): TypePredicateInfo | undefined => {
-    const entry = ctx.signatureMap.get(sigId.id);
-    if (!entry) return undefined;
-
-    const predicate = sourceSemantics.getTypePredicateOfSignature(
-      entry.signature
-    ) as ts.TypePredicate | undefined;
-    if (!predicate || predicate.kind !== ts.TypePredicateKind.Identifier) {
-      return undefined;
-    }
-
+    const predicate = ctx.signatureMap.get(sigId.id)?.typePredicate;
+    if (predicate?.kind !== "param") return undefined;
     return {
       kind: "typePredicate",
-      parameterIndex: predicate.parameterIndex ?? 0,
-      typeNode:
-        entry.typePredicate?.kind === "param"
-          ? (entry.typePredicate.targetTypeNode as ts.TypeNode)
-          : undefined,
+      parameterIndex: predicate.parameterIndex,
+      typeNode: toConcreteTstsNode(predicate.targetTypeNode),
     };
   };
 
   const getThisTypeNodeOfSignature = (
     sigId: SignatureId
-  ): ts.TypeNode | undefined => {
-    const entry = ctx.signatureMap.get(sigId.id);
-    return entry?.thisTypeNode;
-  };
+  ): TstsNode | undefined => ctx.signatureMap.get(sigId.id)?.thisTypeNode;
 
   const getDeclaringTypeNameOfSignature = (
     sigId: SignatureId
-  ): string | undefined => {
-    const entry = ctx.signatureMap.get(sigId.id);
-    return entry?.declaringTypeTsName;
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // HANDLE REGISTRY IMPLEMENTATION
-  // ─────────────────────────────────────────────────────────────────────────
+  ): string | undefined => ctx.signatureMap.get(sigId.id)?.declaringTypeTsName;
 
   const handleRegistry: HandleRegistry = {
     getDecl: (id: DeclId): DeclInfo | undefined => {
@@ -233,12 +189,9 @@ export const createBinding = (
         thisTypeNode: entry.thisTypeNode,
         returnTypeNode: entry.returnTypeNode,
         typeParameters: entry.typeParameters,
-        // Declaring identity lets resolveCall apply inheritance substitution.
-        // Uses simple TS name, resolved via UnifiedTypeCatalog.resolveTsName().
         declaringTypeTsName: entry.declaringTypeTsName,
         declaringTypeParameterNames: entry.declaringTypeParameterNames,
         declaringMemberName: entry.declaringMemberName,
-        // Type predicates are extracted at registration time.
         typePredicate: entry.typePredicate,
       };
     },
@@ -258,29 +211,13 @@ export const createBinding = (
 
     getTypeSyntax: (id: TypeSyntaxId): TypeSyntaxInfo | undefined => {
       const entry = ctx.typeSyntaxMap.get(id.id);
-      if (!entry) return undefined;
-      return {
-        typeNode: entry.typeNode,
-      };
+      return entry ? { typeNode: entry.typeNode } : undefined;
     },
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // TYPE SYNTAX CAPTURE
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Capture a type syntax node for later conversion.
-   *
-   * This creates an opaque TypeSyntaxId handle that can be passed to
-   * TypeSystem.typeFromSyntax() for conversion. Used for inline type syntax
-   * that cannot be captured at catalog-build time.
-   */
-  const captureTypeSyntax = (
-    node: ts.TypeNode | ts.ExpressionWithTypeArguments
-  ): TypeSyntaxId => {
+  const captureTypeSyntax = (node: TstsNode): TypeSyntaxId => {
     const id = makeTypeSyntaxId(ctx.nextTypeSyntaxId.value++);
-    const referenceDeclId = ts.isTypeReferenceNode(node)
+    const referenceDeclId = TstsSyntax.IsTypeReferenceNode(node)
       ? resolveTypeReferenceImpl(ctx, node)
       : undefined;
     ctx.typeSyntaxMap.set(id.id, {
@@ -290,32 +227,27 @@ export const createBinding = (
     return id;
   };
 
-  /**
-   * Capture multiple type arguments.
-   *
-   * Convenience method for capturing generic type arguments.
-   */
   const captureTypeArgs = (
-    nodes: readonly ts.TypeNode[]
-  ): readonly TypeSyntaxId[] => {
-    return nodes.map((node) => captureTypeSyntax(node));
-  };
+    nodes: readonly TstsNode[]
+  ): readonly TypeSyntaxId[] => nodes.map(captureTypeSyntax);
 
   return {
     resolveIdentifier: (node) => resolveIdentifierImpl(ctx, node),
     resolveTypeReference: (node) => resolveTypeReferenceImpl(ctx, node),
     resolvePropertyAccess: (node) => resolvePropertyAccessImpl(ctx, node),
-    resolveElementAccess: (node) => resolveElementAccessImpl(node),
+    resolveElementAccess: (node) => resolveElementAccessImpl(ctx, node),
     resolveCallSignature: (node) => resolveCallSignatureImpl(ctx, node),
-    resolveCallSignatureCandidates: (node) =>
-      resolveCallSignatureCandidatesImpl(ctx, node),
     resolveConstructorSignature: (node) =>
       resolveConstructorSignatureImpl(ctx, node),
-    resolveConstructorSignatureCandidates: (node) =>
-      resolveConstructorSignatureCandidatesImpl(ctx, node),
-    getSourceFact: <T>(node: ts.Node, key: SourceSemanticFactKey<T>) =>
+    getSourceFact: <T>(node: TstsNode, key: SourceSemanticFactKey<T>) =>
       sourceSemantics.getFact(node, key),
     resolveImport,
+    resolveExternalImportType: (node) =>
+      resolveExternalImportTypeImpl(ctx, node),
+    resolveImportedSourceValue: (node) =>
+      resolveImportedSourceValueImpl(ctx, node),
+    resolveImportedSourceNamespaceMember: (node) =>
+      resolveImportedSourceNamespaceMemberImpl(ctx, node),
     resolveShorthandAssignment,
     getDeclaringTypeNameOfMember,
     getSourceFilePathOfMember,
@@ -329,10 +261,8 @@ export const createBinding = (
     getTypePredicateOfSignature,
     getThisTypeNodeOfSignature,
     getDeclaringTypeNameOfSignature,
-    // Type syntax capture.
     captureTypeSyntax,
     captureTypeArgs,
-    // Internal method for TypeSystem construction only
     _getHandleRegistry: () => handleRegistry,
   };
 };

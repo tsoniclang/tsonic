@@ -1,9 +1,17 @@
 /**
- * Import validation
+ * Import validation.
+ *
+ * Import syntax and module resolution are TSTS-owned. Tsonic validates only
+ * product policy on top of the TSTS module graph.
  */
 
-import * as ts from "typescript";
-import * as fs from "node:fs";
+import type {
+  ExtensionModuleImport,
+  ExtensionSourceModule,
+  TstsSourceFile,
+} from "@tsonic/tsts";
+import { createExtensionModuleGraph, parseTstsSourceFile } from "@tsonic/tsts";
+import fs from "node:fs";
 import { TsonicProgram } from "../program.js";
 import {
   DiagnosticsCollector,
@@ -13,114 +21,94 @@ import {
 import { resolveImport } from "../resolver.js";
 import { getNodeLocation } from "./helpers.js";
 
-const hasDefaultModifier = (node: ts.Node): boolean => {
-  if (!ts.canHaveModifiers(node)) {
-    return false;
-  }
-  const modifiers = ts.getModifiers(node);
-  return (
-    modifiers?.some(
-      (modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword
-    ) ?? false
-  );
-};
+const hasExplicitDefaultExport = (
+  target: ExtensionSourceModule | undefined
+): boolean =>
+  target?.exports.some(
+    (binding) =>
+      binding.kind === "default" ||
+      binding.kind === "export-equals" ||
+      binding.exportedName === "default"
+  ) === true;
 
-const moduleHasExplicitDefaultExport = (resolvedPath: string): boolean => {
-  if (resolvedPath.length === 0 || !fs.existsSync(resolvedPath)) {
-    return false;
-  }
-
-  const sourceText = fs.readFileSync(resolvedPath, "utf8");
-  const sourceFile = ts.createSourceFile(
-    resolvedPath,
-    sourceText,
-    ts.ScriptTarget.Latest,
-    false,
-    resolvedPath.endsWith(".d.ts") ? ts.ScriptKind.TS : ts.ScriptKind.TS
+const findResolvedSourceModule = (
+  program: TsonicProgram,
+  resolvedPath: string
+): ExtensionSourceModule | undefined =>
+  program.sourceProgram.moduleGraph.modules.find(
+    (module) => module.fileName === resolvedPath
   );
 
-  for (const statement of sourceFile.statements) {
-    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
-      return true;
-    }
-
-    if (hasDefaultModifier(statement)) {
-      return true;
-    }
-
-    if (
-      ts.isExportDeclaration(statement) &&
-      statement.exportClause &&
-      ts.isNamedExports(statement.exportClause) &&
-      statement.exportClause.elements.some(
-        (element) => element.name.text === "default"
-      )
-    ) {
-      return true;
-    }
+const loadResolvedSourceModule = (
+  program: TsonicProgram,
+  resolvedPath: string
+): ExtensionSourceModule | undefined => {
+  const existing = findResolvedSourceModule(program, resolvedPath);
+  if (existing) {
+    return existing;
+  }
+  if (!fs.existsSync(resolvedPath)) {
+    return undefined;
   }
 
-  return false;
+  const parsed = parseTstsSourceFile(fs.readFileSync(resolvedPath, "utf-8"), {
+    fileName: resolvedPath,
+  });
+  return createExtensionModuleGraph(undefined, [parsed]).getSourceFileModule(parsed);
 };
+
+const addDefaultImportDiagnostic = (
+  collector: DiagnosticsCollector,
+  sourceFile: TstsSourceFile,
+  importModule: ExtensionModuleImport
+): DiagnosticsCollector =>
+  addDiagnostic(
+    collector,
+    createDiagnostic(
+      "TSN2002",
+      "error",
+      `Default import requires an explicit default export: "${importModule.specifier}"`,
+      getNodeLocation(sourceFile, importModule.importNode ?? sourceFile),
+      "Use a namespace import, a named import, or add `export default` to the source module"
+    )
+  );
 
 /**
- * Validate all imports in a source file
+ * Validate all imports in a source file.
  */
 export const validateImports = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
   let currentCollector = collector;
-  const visitor = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node)) {
-      currentCollector = validateImportDeclaration(
-        node,
-        sourceFile,
-        program,
-        currentCollector
-      );
-      return;
-    }
+  const module = program.sourceProgram.moduleGraph.getSourceFileModule(sourceFile);
+  if (!module) {
+    return currentCollector;
+  }
 
-    if (ts.isImportTypeNode(node)) {
-      // Supported: type-only imports are erased at runtime.
-      return;
-    }
-
-    ts.forEachChild(node, visitor);
-  };
-
-  visitor(sourceFile);
-  return currentCollector;
-};
-
-/**
- * Validate a specific import declaration
- */
-export const validateImportDeclaration = (
-  node: ts.ImportDeclaration,
-  sourceFile: ts.SourceFile,
-  program: TsonicProgram,
-  collector: DiagnosticsCollector
-): DiagnosticsCollector => {
-  if (!ts.isStringLiteral(node.moduleSpecifier)) {
-    return addDiagnostic(
-      collector,
-      createDiagnostic(
-        "TSN2001",
-        "error",
-        "Dynamic imports not supported",
-        getNodeLocation(sourceFile, node),
-        "Use static import statements"
-      )
+  for (const importModule of module.imports) {
+    currentCollector = validateImportModule(
+      importModule,
+      sourceFile,
+      program,
+      currentCollector
     );
   }
 
-  const importPath = node.moduleSpecifier.text;
+  return currentCollector;
+};
+
+export const validateImportModule = (
+  importModule: ExtensionModuleImport,
+  sourceFile: TstsSourceFile,
+  program: TsonicProgram,
+  collector: DiagnosticsCollector
+): DiagnosticsCollector => {
+  const importNode = importModule.importNode ?? sourceFile;
   const result = resolveImport(
-    importPath,
-    sourceFile.fileName,
+    importModule.specifier,
+    sourceFile.FileName(),
     program.options.sourceRoot,
     {
       bindings: program.bindings,
@@ -134,24 +122,33 @@ export const validateImportDeclaration = (
   );
 
   if (!result.ok) {
-    const location = getNodeLocation(sourceFile, node.moduleSpecifier);
-    return addDiagnostic(collector, { ...result.error, location });
+    return addDiagnostic(collector, {
+      ...result.error,
+      location: getNodeLocation(sourceFile, importNode),
+    });
   }
 
-  if (node.importClause?.name) {
-    const resolvedPath = result.value.resolvedPath;
-    if (!moduleHasExplicitDefaultExport(resolvedPath)) {
-      return addDiagnostic(
-        collector,
-        createDiagnostic(
-          "TSN2002",
-          "error",
-          `Default import requires an explicit default export: "${importPath}"`,
-          getNodeLocation(sourceFile, node.importClause),
-          "Use a namespace import, a named import, or add `export default` to the source module"
-        )
-      );
-    }
+  const hasDefaultBinding = importModule.bindings.some(
+    (binding) =>
+      binding.kind === "default" || binding.importedName === "default"
+  );
+  if (!hasDefaultBinding) {
+    return collector;
+  }
+
+  if (result.value.resolutionKind === "externalSurface") {
+    return addDefaultImportDiagnostic(collector, sourceFile, importModule);
+  }
+
+  const resolvedFileName =
+    importModule.resolvedModule?.resolvedFileName || result.value.resolvedPath;
+  const targetModule =
+    resolvedFileName === ""
+      ? undefined
+      : loadResolvedSourceModule(program, resolvedFileName);
+
+  if (targetModule !== undefined && !hasExplicitDefaultExport(targetModule)) {
+    return addDefaultImportDiagnostic(collector, sourceFile, importModule);
   }
 
   return collector;

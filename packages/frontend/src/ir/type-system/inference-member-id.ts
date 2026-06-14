@@ -17,7 +17,18 @@ import type {
   IrReferenceType,
   IrTypeParameter,
 } from "../types/index.js";
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsNodeNameText,
+  getTstsParameters,
+  getTstsStatementNodes,
+  getTstsTypeParameterNodes,
+  hasTstsStaticModifier,
+  isTstsOptionalParameter,
+  isTstsRestParameter,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
@@ -43,39 +54,49 @@ import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js
 import {
   buildFunctionTypeFromSignatureShape,
   buildCallableOverloadFamilyType,
-  hasStaticModifier,
 } from "./inference-utilities.js";
 import { tryInferTypeFromInitializer } from "./inference-initializers.js";
 
 const indexerInstantiationTypeKeyState = createLocalTypeIdentityState();
+
+const isTstsNode = (node: unknown): node is TstsNode =>
+  typeof node === "object" && node !== null && "Kind" in node;
+
+const concreteTstsNodes = (
+  nodes: readonly (TstsNode | undefined)[]
+): readonly TstsNode[] =>
+  nodes.filter((node): node is TstsNode => node !== undefined);
 
 const indexerInstantiationTypeArgKey = (type: IrType): string =>
   localTypeIdentityKey(type, indexerInstantiationTypeKeyState);
 
 const convertMethodTypeParameters = (
   state: TypeSystemState,
-  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
+  typeParameters: readonly TstsNode[] | undefined,
   applySubstitution: (type: IrType) => IrType
 ): readonly IrTypeParameter[] | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
     return undefined;
   }
 
-  return typeParameters.map((typeParameter) => ({
-    kind: "typeParameter",
-    name: typeParameter.name.text,
-    constraint: typeParameter.constraint
-      ? applySubstitution(convertTypeNode(state, typeParameter.constraint))
-      : undefined,
-    default: typeParameter.default
-      ? applySubstitution(convertTypeNode(state, typeParameter.default))
-      : undefined,
-    variance: undefined,
-    isStructuralConstraint:
-      !!typeParameter.constraint &&
-      ts.isTypeLiteralNode(typeParameter.constraint),
-    structuralMembers: undefined,
-  }));
+  return typeParameters.map((typeParameter) => {
+    const data = TstsSyntax.AsTypeParameterDeclaration(typeParameter);
+    const constraint = data?.Constraint;
+    const defaultType = data?.DefaultType;
+    return {
+      kind: "typeParameter",
+      name: getTstsNodeNameText(typeParameter) ?? "T",
+      constraint: constraint
+        ? applySubstitution(convertTypeNode(state, constraint))
+        : undefined,
+      default: defaultType
+        ? applySubstitution(convertTypeNode(state, defaultType))
+        : undefined,
+      variance: undefined,
+      isStructuralConstraint: constraint?.Kind === TstsSyntax.KindTypeLiteral,
+      structuralMembers: undefined,
+    };
+  });
 };
 
 export const parseIndexerKeyTypeName = (
@@ -343,28 +364,34 @@ export const typeOfMemberId = (
   }
 
   const requiresExactDeclarationStaticPartition = (() => {
-    const decl = memberInfo.declNode as ts.Declaration | undefined;
-    if (!decl || !ts.isMethodDeclaration(decl)) {
+    const decl = isTstsNode(memberInfo.declNode)
+      ? memberInfo.declNode
+      : undefined;
+    if (!decl || !TstsSyntax.IsMethodDeclaration(decl)) {
       return false;
     }
 
-    const parent = decl.parent;
-    if (!ts.isClassDeclaration(parent)) {
+    const parent = decl.Parent;
+    if (!parent || !TstsSyntax.IsClassDeclaration(parent)) {
       return false;
     }
 
-    const methodName = tryResolveDeterministicPropertyName(decl.name);
+    const methodName = tryResolveDeterministicPropertyName(
+      TstsSyntax.Node_PropertyNameOrName(decl)
+    );
     if (!methodName) {
       return false;
     }
 
-    const staticIntent = hasStaticModifier(decl);
-    return parent.members.some(
+    const staticIntent = hasTstsStaticModifier(decl);
+    return concreteTstsNodes(TstsSyntax.Node_Members(parent) ?? []).some(
       (member) =>
         member !== decl &&
-        ts.isMethodDeclaration(member) &&
-        tryResolveDeterministicPropertyName(member.name) === methodName &&
-        hasStaticModifier(member) !== staticIntent
+        TstsSyntax.IsMethodDeclaration(member) &&
+        tryResolveDeterministicPropertyName(
+          TstsSyntax.Node_PropertyNameOrName(member)
+        ) === methodName &&
+        hasTstsStaticModifier(member) !== staticIntent
     );
   })();
 
@@ -441,15 +468,19 @@ export const typeOfMemberId = (
   // Otherwise, attempt to recover type deterministically from the member declaration.
   // This is required for namespace imports (`import * as X`) where members are
   // function declarations / const declarations (no typeNode captured by Binding).
-  const decl = memberInfo.declNode as ts.Declaration | undefined;
+  const decl = isTstsNode(memberInfo.declNode) ? memberInfo.declNode : undefined;
   if (decl) {
-    if (ts.isEnumMember(decl) && ts.isEnumDeclaration(decl.parent)) {
+    if (
+      TstsSyntax.IsEnumMember(decl) &&
+      decl.Parent &&
+      TstsSyntax.IsEnumDeclaration(decl.Parent)
+    ) {
       const enumReceiver =
         receiverType?.kind === "referenceType"
           ? receiverType
           : ({
               kind: "referenceType",
-              name: decl.parent.name.text,
+              name: getTstsNodeNameText(decl.Parent) ?? "enum",
             } satisfies IrReferenceType);
       return attachTypeIds(state, enumReceiver);
     }
@@ -558,21 +589,26 @@ export const typeOfMemberId = (
         return undefined;
       }
 
-      const parent = decl.parent;
+      const parent = decl.Parent;
       const declaringType =
-        ts.isInterfaceDeclaration(parent) || ts.isClassDeclaration(parent)
+        parent &&
+        (TstsSyntax.IsInterfaceDeclaration(parent) ||
+          TstsSyntax.IsClassDeclaration(parent))
           ? parent
           : undefined;
-      if (!declaringType?.name) {
+      const declaringTypeName = declaringType
+        ? getTstsNodeNameText(declaringType)
+        : undefined;
+      if (!declaringTypeName) {
         return undefined;
       }
 
       const normalizedReceiver = normalizeToNominal(state, receiverType);
       if (normalizedReceiver) {
-        const declaringArity = declaringType.typeParameters?.length;
+        const declaringArity = getTstsTypeParameterNodes(declaringType).length;
         const declaringTypeId =
-          resolveTypeIdByName(state, declaringType.name.text, declaringArity) ??
-          resolveTypeIdByName(state, declaringType.name.text);
+          resolveTypeIdByName(state, declaringTypeName, declaringArity) ??
+          resolveTypeIdByName(state, declaringTypeName);
         if (declaringTypeId) {
           const nominalSubstitution = state.nominalEnv.getInstantiation(
             normalizedReceiver.typeId,
@@ -585,13 +621,15 @@ export const typeOfMemberId = (
         }
       }
 
-      const typeParams = declaringType.typeParameters;
+      const typeParams = concreteTstsNodes(
+        getTstsTypeParameterNodes(declaringType)
+      );
       if (!typeParams || typeParams.length === 0) {
         return undefined;
       }
 
       if (
-        !declaringNamesCompatible(receiverRef.name, declaringType.name.text)
+        !declaringNamesCompatible(receiverRef.name, declaringTypeName)
       ) {
         return undefined;
       }
@@ -608,10 +646,14 @@ export const typeOfMemberId = (
       const entries: [string, IrType][] = [];
       for (const [index, param] of typeParams.entries()) {
         const arg = receiverTypeArguments[index];
+        const paramName = getTstsNodeNameText(param);
         if (!arg) {
           return undefined;
         }
-        entries.push([param.name.text, arg]);
+        if (!paramName) {
+          return undefined;
+        }
+        entries.push([paramName, arg]);
       }
 
       return new Map(entries);
@@ -624,52 +666,60 @@ export const typeOfMemberId = (
         : type;
 
     const getMethodFamily = ():
-      | readonly (
-          | ts.MethodDeclaration
-          | ts.MethodSignature
-          | ts.FunctionDeclaration
-        )[]
+      | readonly TstsNode[]
       | undefined => {
-      const parent = decl.parent;
+      const parent = decl.Parent;
 
       if (
-        ts.isSourceFile(parent) &&
-        ts.isFunctionDeclaration(decl) &&
-        decl.name
+        parent?.Kind === TstsSyntax.KindSourceFile &&
+        TstsSyntax.IsFunctionDeclaration(decl) &&
+        getTstsNodeNameText(decl)
       ) {
-        const family = parent.statements.filter(
-          (statement): statement is ts.FunctionDeclaration =>
-            ts.isFunctionDeclaration(statement) &&
-            statement.name?.text === decl.name?.text
+        const functionName = getTstsNodeNameText(decl);
+        const family = concreteTstsNodes(getTstsStatementNodes(parent)).filter(
+          (statement) =>
+            TstsSyntax.IsFunctionDeclaration(statement) &&
+            getTstsNodeNameText(statement) === functionName
         );
         if (family.length === 0) return undefined;
-        const overloadSurface = family.filter((member) => !member.body);
+        const overloadSurface = family.filter(
+          (member) => TstsSyntax.Node_Body(member) === undefined
+        );
         return overloadSurface.length > 0 ? overloadSurface : family;
       }
 
       if (
-        (ts.isClassDeclaration(parent) ||
-          ts.isInterfaceDeclaration(parent) ||
-          ts.isTypeLiteralNode(parent)) &&
-        (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl))
+        parent &&
+        (TstsSyntax.IsClassDeclaration(parent) ||
+          TstsSyntax.IsInterfaceDeclaration(parent) ||
+          parent.Kind === TstsSyntax.KindTypeLiteral) &&
+        (TstsSyntax.IsMethodDeclaration(decl) ||
+          TstsSyntax.IsMethodSignatureDeclaration(decl))
       ) {
-        const methodName = tryResolveDeterministicPropertyName(decl.name);
+        const methodName = tryResolveDeterministicPropertyName(
+          TstsSyntax.Node_PropertyNameOrName(decl)
+        );
         if (!methodName) return undefined;
 
-        const family = parent.members.filter(
-          (member): member is ts.MethodDeclaration | ts.MethodSignature =>
-            (ts.isMethodDeclaration(member) || ts.isMethodSignature(member)) &&
-            tryResolveDeterministicPropertyName(member.name) === methodName &&
-            (ts.isMethodDeclaration(member) && ts.isMethodDeclaration(decl)
-              ? hasStaticModifier(member) === hasStaticModifier(decl)
+        const family = concreteTstsNodes(TstsSyntax.Node_Members(parent) ?? []).filter(
+          (member) =>
+            (TstsSyntax.IsMethodDeclaration(member) ||
+              TstsSyntax.IsMethodSignatureDeclaration(member)) &&
+            tryResolveDeterministicPropertyName(
+              TstsSyntax.Node_PropertyNameOrName(member)
+            ) === methodName &&
+            (TstsSyntax.IsMethodDeclaration(member) &&
+            TstsSyntax.IsMethodDeclaration(decl)
+              ? hasTstsStaticModifier(member) === hasTstsStaticModifier(decl)
               : true)
         );
         if (family.length === 0) return undefined;
 
         const overloadSurface = family.filter(
           (member) =>
-            ts.isMethodSignature(member) ||
-            (ts.isMethodDeclaration(member) && !member.body)
+            TstsSyntax.IsMethodSignatureDeclaration(member) ||
+            (TstsSyntax.IsMethodDeclaration(member) &&
+              TstsSyntax.Node_Body(member) === undefined)
         );
         return overloadSurface.length > 0 ? overloadSurface : family;
       }
@@ -681,30 +731,30 @@ export const typeOfMemberId = (
     if (methodFamily && methodFamily.length > 0) {
       const overloads: IrFunctionType[] = [];
       for (const method of methodFamily) {
-        if (!method.type) return unknownType;
-        if (
-          method.parameters.some((parameter) => parameter.type === undefined)
-        ) {
+        const methodType = getTstsDeclaredTypeNode(method);
+        const parameters = concreteTstsNodes(getTstsParameters(method));
+        if (!methodType) return unknownType;
+        if (parameters.some((parameter) => !getTstsDeclaredTypeNode(parameter))) {
           return unknownType;
         }
 
         overloads.push(
           buildFunctionTypeFromSignatureShape(
-            method.parameters.map((parameter, index) => ({
-              name: ts.isIdentifier(parameter.name)
-                ? parameter.name.text
-                : `param${index}`,
-              type: parameter.type
-                ? applySubstitution(convertTypeNode(state, parameter.type))
+            parameters.map((parameter, index) => ({
+              name: getTstsNodeNameText(parameter) ?? `param${index}`,
+              type: getTstsDeclaredTypeNode(parameter)
+                ? applySubstitution(
+                    convertTypeNode(state, getTstsDeclaredTypeNode(parameter))
+                  )
                 : unknownType,
-              isOptional: !!parameter.questionToken || !!parameter.initializer,
-              isRest: !!parameter.dotDotDotToken,
+              isOptional: isTstsOptionalParameter(parameter),
+              isRest: isTstsRestParameter(parameter),
               mode: "value",
             })),
-            applySubstitution(convertTypeNode(state, method.type)),
+            applySubstitution(convertTypeNode(state, methodType)),
             convertMethodTypeParameters(
               state,
-              method.typeParameters,
+              concreteTstsNodes(getTstsTypeParameterNodes(method)),
               applySubstitution
             )
           )
@@ -719,28 +769,34 @@ export const typeOfMemberId = (
       return applySubstitution(convertTypeNode(state, memberInfo.typeNode));
     }
 
-    if (ts.isFunctionDeclaration(decl)) {
+    if (TstsSyntax.IsFunctionDeclaration(decl)) {
       // Determinism: require explicit parameter + return annotations.
-      if (!decl.type) return unknownType;
-      if (decl.parameters.some((p) => p.type === undefined)) return unknownType;
+      const returnTypeNode = getTstsDeclaredTypeNode(decl);
+      const parametersNodes = concreteTstsNodes(getTstsParameters(decl));
+      if (!returnTypeNode) return unknownType;
+      if (parametersNodes.some((p) => getTstsDeclaredTypeNode(p) === undefined)) {
+        return unknownType;
+      }
 
-      const parameters: readonly IrParameter[] = decl.parameters.map((p) => ({
+      const parameters: readonly IrParameter[] = parametersNodes.map((p) => ({
         kind: "parameter",
         pattern: {
           kind: "identifierPattern",
-          name: ts.isIdentifier(p.name) ? p.name.text : "param",
+          name: getTstsNodeNameText(p) ?? "param",
         },
-        type: p.type ? convertTypeNode(state, p.type) : undefined,
+        type: getTstsDeclaredTypeNode(p)
+          ? convertTypeNode(state, getTstsDeclaredTypeNode(p))
+          : undefined,
         initializer: undefined,
-        isOptional: !!p.questionToken || !!p.initializer,
-        isRest: !!p.dotDotDotToken,
+        isOptional: isTstsOptionalParameter(p),
+        isRest: isTstsRestParameter(p),
         passing: "value",
       }));
 
-      const returnType = convertTypeNode(state, decl.type);
+      const returnType = convertTypeNode(state, returnTypeNode);
       const typeParameters = convertMethodTypeParameters(
         state,
-        decl.typeParameters,
+        concreteTstsNodes(getTstsTypeParameterNodes(decl)),
         (type) => type
       );
       const fnType: IrFunctionType = {
@@ -752,29 +808,38 @@ export const typeOfMemberId = (
       return fnType;
     }
 
-    if (ts.isVariableDeclaration(decl)) {
-      if (decl.type) return convertTypeNode(state, decl.type);
+    if (TstsSyntax.IsVariableDeclaration(decl)) {
+      const typeNode = getTstsDeclaredTypeNode(decl);
+      if (typeNode) return convertTypeNode(state, typeNode);
       const inferred = tryInferTypeFromInitializer(state, decl);
       return inferred ?? unknownType;
     }
 
-    if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)) {
-      if (decl.type)
-        return applySubstitution(convertTypeNode(state, decl.type));
+    if (
+      TstsSyntax.IsPropertyDeclaration(decl) ||
+      TstsSyntax.IsPropertySignatureDeclaration(decl)
+    ) {
+      const typeNode = getTstsDeclaredTypeNode(decl);
+      if (typeNode)
+        return applySubstitution(convertTypeNode(state, typeNode));
       const inferred = tryInferTypeFromInitializer(state, decl);
       return inferred ? applySubstitution(inferred) : unknownType;
     }
 
-    if (ts.isGetAccessorDeclaration(decl)) {
-      if (decl.type)
-        return applySubstitution(convertTypeNode(state, decl.type));
+    if (TstsSyntax.IsGetAccessorDeclaration(decl)) {
+      const typeNode = getTstsDeclaredTypeNode(decl);
+      if (typeNode)
+        return applySubstitution(convertTypeNode(state, typeNode));
       return unknownType;
     }
 
-    if (ts.isSetAccessorDeclaration(decl)) {
-      const setterParam = decl.parameters[0];
-      if (!setterParam?.type) return unknownType;
-      return applySubstitution(convertTypeNode(state, setterParam.type));
+    if (TstsSyntax.IsSetAccessorDeclaration(decl)) {
+      const setterParam = concreteTstsNodes(getTstsParameters(decl))[0];
+      const typeNode = setterParam
+        ? getTstsDeclaredTypeNode(setterParam)
+        : undefined;
+      if (!typeNode) return unknownType;
+      return applySubstitution(convertTypeNode(state, typeNode));
     }
   }
 

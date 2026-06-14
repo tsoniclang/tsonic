@@ -11,14 +11,11 @@
  * - TSN7419: 'never' cannot be used as a generic type argument
  * - TSN7430: Arrow function requires explicit types (escape hatch)
  * - TSN7432: Generic function value restrictions
- *
- * This ensures deterministic native-safe, predictable-performance output.
- *
  */
 
-import * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
+import { forEachTstsChild, TstsSyntax } from "@tsonic/tsts";
 import { TsonicProgram } from "../program.js";
-import { isOverloadStubImplementation } from "../ir/syntax/overload-stubs.js";
 import {
   DiagnosticsCollector,
   addDiagnostic,
@@ -38,8 +35,8 @@ import {
   getSupportedGenericFunctionValueSymbol,
   isGenericFunctionDeclarationNode,
   isGenericFunctionValueNode,
-} from "../generic-function-values.js";
-import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
+} from "./generic-function-values.js";
+import type { TstsFrontendSourceSemanticView } from "../source-frontend/index.js";
 import {
   checkBasicSynthesisEligibility,
   lambdaHasExpectedTypeContext,
@@ -50,11 +47,28 @@ import {
 } from "./contextual-type-analysis.js";
 import { isAllowedKeyType } from "./static-safety-dictionary-keys.js";
 import { validateArrowEscapeHatch } from "./static-safety-arrow-rules.js";
+import {
+  getCallArguments,
+  getNodeElements,
+  getNodeExpression,
+  getNodeInitializer,
+  getNodeParameters,
+  getNodeType,
+  getTypeArguments,
+  identifierText,
+  isIdentifier,
+  isIdentifierNamed,
+  nodeParent,
+  staticPropertyNameText,
+  type SourceSymbol,
+  type SourceType,
+  unwrapExpression,
+} from "./tsts-helpers.js";
 
 const createBackendCapabilityDiagnostic = (
   program: TsonicProgram,
   capabilityName: FeatureKey,
-  fallback: Diagnostic
+  baseDiagnostic: Diagnostic
 ): Diagnostic | undefined => {
   if (
     !isCapabilityUnavailable(
@@ -69,25 +83,86 @@ const createBackendCapabilityDiagnostic = (
     capabilityName
   );
   return {
-    ...fallback,
-    code: backendCapability?.diagnosticCode ?? fallback.code,
-    message: backendCapability?.diagnosticMessage ?? fallback.message,
-    hint: backendCapability?.remediation ?? fallback.hint,
+    ...baseDiagnostic,
+    code: backendCapability?.diagnosticCode ?? baseDiagnostic.code,
+    message: backendCapability?.diagnosticMessage ?? baseDiagnostic.message,
+    hint: backendCapability?.remediation ?? baseDiagnostic.hint,
   };
 };
 
-const nodeIsWithin = (node: ts.Node, container: ts.Node | undefined): boolean =>
-  !!container && node.pos >= container.pos && node.end <= container.end;
+const nodeIsWithin = (
+  node: TstsNode,
+  container: TstsNode | undefined
+): boolean =>
+  !!container && node.Loc.pos >= container.Loc.pos && node.Loc.end <= container.Loc.end;
 
-const isInsideOverloadStubSignatureType = (node: ts.Node): boolean => {
+const hasFunctionBody = (node: TstsNode): boolean =>
+  TstsSyntax.Node_Body(node) !== undefined;
+
+const propertyNameText = (node: TstsNode | undefined): string | undefined =>
+  staticPropertyNameText(node);
+
+const isOverloadSurfaceDeclaration = (node: TstsNode): boolean =>
+  (node.Kind === TstsSyntax.KindFunctionDeclaration ||
+    node.Kind === TstsSyntax.KindMethodDeclaration) &&
+  !hasFunctionBody(node);
+
+const isOverloadStubImplementation = (node: TstsNode): boolean => {
+  if (!hasFunctionBody(node)) {
+    return false;
+  }
+
+  if (node.Kind === TstsSyntax.KindFunctionDeclaration) {
+    const name = identifierText(TstsSyntax.Node_Name(node));
+    if (!name || node.Parent?.Kind !== TstsSyntax.KindSourceFile) {
+      return false;
+    }
+
+    return (
+      TstsSyntax.Node_Statements(node.Parent)?.some(
+        (statement) =>
+          statement?.Kind === TstsSyntax.KindFunctionDeclaration &&
+          statement !== node &&
+          identifierText(TstsSyntax.Node_Name(statement)) === name &&
+          isOverloadSurfaceDeclaration(statement)
+      ) ?? false
+    );
+  }
+
+  if (
+    node.Kind !== TstsSyntax.KindMethodDeclaration ||
+    !node.Parent ||
+    (node.Parent.Kind !== TstsSyntax.KindClassDeclaration &&
+      node.Parent.Kind !== TstsSyntax.KindClassExpression)
+  ) {
+    return false;
+  }
+
+  const memberName = propertyNameText(TstsSyntax.Node_Name(node));
+  if (!memberName) {
+    return false;
+  }
+
+  return (
+    TstsSyntax.Node_Members(node.Parent)?.some(
+      (member) =>
+        member?.Kind === TstsSyntax.KindMethodDeclaration &&
+        member !== node &&
+        propertyNameText(TstsSyntax.Node_Name(member)) === memberName &&
+        isOverloadSurfaceDeclaration(member)
+    ) ?? false
+  );
+};
+
+const isInsideOverloadStubSignatureType = (node: TstsNode): boolean => {
   for (
-    let current: ts.Node | undefined = node.parent;
+    let current: TstsNode | undefined = node.Parent;
     current;
-    current = current.parent
+    current = current.Parent
   ) {
     if (
-      !ts.isFunctionDeclaration(current) &&
-      !ts.isMethodDeclaration(current)
+      current.Kind !== TstsSyntax.KindFunctionDeclaration &&
+      current.Kind !== TstsSyntax.KindMethodDeclaration
     ) {
       continue;
     }
@@ -96,137 +171,134 @@ const isInsideOverloadStubSignatureType = (node: ts.Node): boolean => {
       return false;
     }
 
-    if (nodeIsWithin(node, current.type)) {
+    if (nodeIsWithin(node, getNodeType(current))) {
       return true;
     }
 
-    return current.parameters.some((parameter) =>
-      nodeIsWithin(node, parameter.type)
+    return getNodeParameters(current).some((parameter) =>
+      nodeIsWithin(node, getNodeType(parameter))
     );
   }
 
   return false;
 };
 
-const getAssertionTargetTypeNode = (node: ts.Node): ts.TypeNode | undefined => {
-  if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
-    return node.type;
+const getAssertionTargetTypeNode = (
+  node: TstsNode
+): TstsNode | undefined => {
+  if (
+    node.Kind === TstsSyntax.KindAsExpression ||
+    node.Kind === TstsSyntax.KindTypeAssertionExpression
+  ) {
+    return getNodeType(node);
   }
   return undefined;
 };
 
-const isJsonParseCall = (node: ts.Node): node is ts.CallExpression => {
-  if (!ts.isCallExpression(node)) {
+const isPropertyCall = (
+  node: TstsNode,
+  objectName: string,
+  memberName: string
+): boolean => {
+  if (node.Kind !== TstsSyntax.KindCallExpression) {
     return false;
   }
 
-  const expression = node.expression;
-  return (
-    ts.isPropertyAccessExpression(expression) &&
-    ts.isIdentifier(expression.expression) &&
-    expression.expression.text === "JSON" &&
-    expression.name.text === "parse"
-  );
-};
-
-const isJsonStringifyCall = (node: ts.Node): node is ts.CallExpression => {
-  if (!ts.isCallExpression(node)) {
+  const expression = TstsSyntax.AsCallExpression(node)?.Expression;
+  if (expression?.Kind !== TstsSyntax.KindPropertyAccessExpression) {
     return false;
   }
 
-  const expression = node.expression;
+  const access = TstsSyntax.AsPropertyAccessExpression(expression);
   return (
-    ts.isPropertyAccessExpression(expression) &&
-    ts.isIdentifier(expression.expression) &&
-    expression.expression.text === "JSON" &&
-    expression.name.text === "stringify"
+    isIdentifierNamed(access?.Expression, objectName) &&
+    isIdentifierNamed(access?.name, memberName)
   );
 };
 
-const isArrayIsArrayCall = (node: ts.Node): node is ts.CallExpression => {
-  if (!ts.isCallExpression(node)) {
-    return false;
-  }
+const isJsonParseCall = (node: TstsNode): boolean =>
+  isPropertyCall(node, "JSON", "parse");
 
-  const expression = node.expression;
-  return (
-    ts.isPropertyAccessExpression(expression) &&
-    ts.isIdentifier(expression.expression) &&
-    expression.expression.text === "Array" &&
-    expression.name.text === "isArray"
-  );
-};
+const isJsonStringifyCall = (node: TstsNode): boolean =>
+  isPropertyCall(node, "JSON", "stringify");
 
-const unwrapContextualJsonParseParent = (node: ts.Node): ts.Node => {
+const isArrayIsArrayCall = (node: TstsNode): boolean =>
+  isPropertyCall(node, "Array", "isArray");
+
+const unwrapContextualJsonParseParent = (node: TstsNode): TstsNode | undefined => {
   let current = node;
   while (
-    ts.isParenthesizedExpression(current.parent) ||
-    ts.isNonNullExpression(current.parent)
+    current.Parent?.Kind === TstsSyntax.KindParenthesizedExpression ||
+    current.Parent?.Kind === TstsSyntax.KindNonNullExpression
   ) {
-    current = current.parent;
+    current = current.Parent;
   }
-  return current.parent;
+  return current.Parent;
 };
 
 const getJsonParseContextualTargetTypeNode = (
-  node: ts.CallExpression
-): ts.TypeNode | undefined => {
+  node: TstsNode
+): TstsNode | undefined => {
   const parent = unwrapContextualJsonParseParent(node);
 
   if (
-    ts.isVariableDeclaration(parent) &&
-    parent.initializer === node &&
-    parent.type
+    parent?.Kind === TstsSyntax.KindVariableDeclaration &&
+    getNodeInitializer(parent) === node
   ) {
-    return parent.type;
+    return getNodeType(parent);
   }
 
   if (
-    (ts.isAsExpression(parent) || ts.isTypeAssertionExpression(parent)) &&
-    parent.expression === node
+    (parent?.Kind === TstsSyntax.KindAsExpression ||
+      parent?.Kind === TstsSyntax.KindTypeAssertionExpression) &&
+    getNodeExpression(parent) === node
   ) {
-    return parent.type;
+    return getNodeType(parent);
   }
 
   return undefined;
 };
 
-const isBroadJsonTargetTypeNode = (node: ts.TypeNode): boolean => {
+const isBroadJsonTargetTypeNode = (node: TstsNode): boolean => {
   if (
-    node.kind === ts.SyntaxKind.UnknownKeyword ||
-    node.kind === ts.SyntaxKind.AnyKeyword ||
-    node.kind === ts.SyntaxKind.ObjectKeyword
+    node.Kind === TstsSyntax.KindUnknownKeyword ||
+    node.Kind === TstsSyntax.KindAnyKeyword ||
+    node.Kind === TstsSyntax.KindObjectKeyword
   ) {
     return true;
   }
 
-  if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) {
+  if (
+    node.Kind === TstsSyntax.KindUnionType ||
+    node.Kind === TstsSyntax.KindIntersectionType
+  ) {
     return true;
   }
 
-  if (ts.isArrayTypeNode(node)) {
-    return isBroadJsonTargetTypeNode(node.elementType);
+  if (node.Kind === TstsSyntax.KindArrayType) {
+    const elementType = TstsSyntax.AsArrayTypeNode(node)?.ElementType;
+    return elementType ? isBroadJsonTargetTypeNode(elementType) : false;
   }
 
-  if (ts.isTupleTypeNode(node)) {
-    return node.elements.some((element) =>
-      isBroadJsonTargetTypeNode(element as ts.TypeNode)
+  if (node.Kind === TstsSyntax.KindTupleType) {
+    return getNodeElements(node).some((element) =>
+      isBroadJsonTargetTypeNode(element)
     );
   }
 
-  if (ts.isParenthesizedTypeNode(node)) {
-    return isBroadJsonTargetTypeNode(node.type);
+  if (node.Kind === TstsSyntax.KindParenthesizedType) {
+    const inner = getNodeType(node);
+    return inner ? isBroadJsonTargetTypeNode(inner) : false;
   }
 
-  if (ts.isTypeReferenceNode(node)) {
-    if (ts.isIdentifier(node.typeName) && node.typeName.text === "JsValue") {
+  if (node.Kind === TstsSyntax.KindTypeReference) {
+    const typeName = TstsSyntax.AsTypeReferenceNode(node)?.TypeName;
+    if (identifierText(typeName) === "JsValue") {
       return false;
     }
 
-    return (
-      node.typeArguments?.some((typeArg) =>
-        isBroadJsonTargetTypeNode(typeArg)
-      ) ?? false
+    return getTypeArguments(node).some((typeArg) =>
+      isBroadJsonTargetTypeNode(typeArg)
     );
   }
 
@@ -234,14 +306,14 @@ const isBroadJsonTargetTypeNode = (node: ts.TypeNode): boolean => {
 };
 
 const getJsonParseTargetTypeNode = (
-  node: ts.CallExpression
-): ts.TypeNode | undefined =>
-  node.typeArguments?.[0] ?? getJsonParseContextualTargetTypeNode(node);
+  node: TstsNode
+): TstsNode | undefined =>
+  getTypeArguments(node)[0] ?? getJsonParseContextualTargetTypeNode(node);
 
 const isBroadJsonSourceType = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView,
-  seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  seen: ReadonlySet<SourceType> = new Set<SourceType>()
 ): boolean => {
   if (seen.has(type)) {
     return false;
@@ -300,8 +372,8 @@ const isBroadJsonSourceType = (
 };
 
 const isDynamicJsonCarrierType = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const displayName = sourceSemantics.typeToString(type);
   const aliasName = sourceSemantics.getTypeAliasSymbolName(type);
@@ -317,20 +389,34 @@ const isDynamicJsonCarrierType = (
 };
 
 const typeHasDynamicJsonCarrierStringIndex = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const stringIndexType = sourceSemantics.getStringIndexType(type);
-  return (
-    !!stringIndexType &&
+  if (
+    stringIndexType &&
     isDynamicJsonCarrierType(stringIndexType, sourceSemantics)
+  ) {
+    return true;
+  }
+
+  if (sourceSemantics.getTypeAliasSymbolName(type) !== "Record") {
+    return false;
+  }
+
+  const [keyType, valueType] = sourceSemantics.getAliasTypeArguments(type);
+  return (
+    !!keyType &&
+    !!valueType &&
+    sourceSemantics.isStringLikeType(keyType) &&
+    isDynamicJsonCarrierType(valueType, sourceSemantics)
   );
 };
 
 const isBroadArrayIsArraySourceType = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView,
-  seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  seen: ReadonlySet<SourceType> = new Set<SourceType>()
 ): boolean => {
   if (seen.has(type)) {
     return false;
@@ -362,163 +448,161 @@ const isBroadArrayIsArraySourceType = (
   return false;
 };
 
-const isDirectBooleanReturnExpression = (node: ts.Node): boolean => {
-  let current: ts.Node = node;
+const isDirectBooleanReturnExpression = (node: TstsNode): boolean => {
+  let current = node;
   for (
-    let parent: ts.Node | undefined = current.parent;
+    let parent: TstsNode | undefined = current.Parent;
     parent;
-    current = parent, parent = parent.parent
+    current = parent, parent = parent.Parent
   ) {
-    if (ts.isParenthesizedExpression(parent)) {
+    if (parent.Kind === TstsSyntax.KindParenthesizedExpression) {
       continue;
     }
 
-    return ts.isReturnStatement(parent) && parent.expression === current;
+    return (
+      parent.Kind === TstsSyntax.KindReturnStatement &&
+      getNodeExpression(parent) === current
+    );
   }
 
   return false;
 };
 
-const unwrapExpression = (expr: ts.Expression): ts.Expression => {
-  let current = expr;
-  while (
-    ts.isParenthesizedExpression(current) ||
-    ts.isNonNullExpression(current)
-  ) {
-    current = current.expression;
-  }
-  return current;
-};
-
-const isJsonParseInitializedSymbol = (
-  expr: ts.Expression,
+const resolveSymbolDeclaration = (
+  expr: TstsNode,
   program: TsonicProgram
-): boolean => {
-  const unwrapped = unwrapExpression(expr);
-  if (!ts.isIdentifier(unwrapped)) {
-    return false;
-  }
-
-  const symbol = program.sourceSemantics.getSymbol(unwrapped);
+): { readonly symbol: SourceSymbol; readonly declaration: TstsNode } | undefined => {
+  const symbol = program.sourceSemantics.getSymbol(expr);
   const declaration = symbol
     ? (program.sourceSemantics.getSymbolValueDeclaration(symbol) ??
       program.sourceSemantics.getSymbolDeclarations(symbol)[0])
     : undefined;
-  if (!declaration || !ts.isVariableDeclaration(declaration)) {
+  return symbol && declaration ? { symbol, declaration } : undefined;
+};
+
+const isJsonParseInitializedSymbol = (
+  expr: TstsNode,
+  program: TsonicProgram
+): boolean => {
+  const unwrapped = unwrapExpression(expr);
+  if (!unwrapped || !isIdentifier(unwrapped)) {
     return false;
   }
 
-  const initializer = declaration.initializer
-    ? unwrapExpression(declaration.initializer)
-    : undefined;
+  const resolved = resolveSymbolDeclaration(unwrapped, program);
+  if (
+    !resolved ||
+    resolved.declaration.Kind !== TstsSyntax.KindVariableDeclaration
+  ) {
+    return false;
+  }
+
+  const initializer = unwrapExpression(getNodeInitializer(resolved.declaration));
   return !!initializer && isJsonParseCall(initializer);
 };
 
 const isDeclaredDynamicJsonCarrierSymbol = (
-  expr: ts.Expression,
+  expr: TstsNode,
   program: TsonicProgram
 ): boolean => {
   const unwrapped = unwrapExpression(expr);
-  if (!ts.isIdentifier(unwrapped)) {
+  if (!unwrapped || !isIdentifier(unwrapped)) {
     return false;
   }
 
-  const symbol = program.sourceSemantics.getSymbol(unwrapped);
-  const declaration = symbol
-    ? (program.sourceSemantics.getSymbolValueDeclaration(symbol) ??
-      program.sourceSemantics.getSymbolDeclarations(symbol)[0])
-    : undefined;
-  if (!symbol || !declaration) {
+  const resolved = resolveSymbolDeclaration(unwrapped, program);
+  if (!resolved) {
     return false;
   }
 
   return isDynamicJsonCarrierType(
-    program.sourceSemantics.getTypeOfSymbolAtLocation(symbol, declaration),
+    program.sourceSemantics.getTypeOfSymbolAtLocation(
+      resolved.symbol,
+      resolved.declaration
+    ),
     program.sourceSemantics
   );
 };
 
 const getObjectEntriesSource = (
-  expr: ts.Expression,
+  expr: TstsNode,
   program: TsonicProgram
-): ts.Expression | undefined => {
+): TstsNode | undefined => {
   const unwrapped = unwrapExpression(expr);
 
-  if (ts.isCallExpression(unwrapped)) {
-    const callee = unwrapped.expression;
-    return ts.isPropertyAccessExpression(callee) &&
-      ts.isIdentifier(callee.expression) &&
-      callee.expression.text === "Object" &&
-      callee.name.text === "entries"
-      ? unwrapped.arguments[0]
+  if (unwrapped?.Kind === TstsSyntax.KindCallExpression) {
+    const callee = TstsSyntax.AsCallExpression(unwrapped)?.Expression;
+    if (callee?.Kind !== TstsSyntax.KindPropertyAccessExpression) {
+      return undefined;
+    }
+    const access = TstsSyntax.AsPropertyAccessExpression(callee);
+    return isIdentifierNamed(access?.Expression, "Object") &&
+      isIdentifierNamed(access?.name, "entries")
+      ? getCallArguments(unwrapped)[0]
       : undefined;
   }
 
-  if (!ts.isElementAccessExpression(unwrapped)) {
+  if (unwrapped?.Kind !== TstsSyntax.KindElementAccessExpression) {
     return undefined;
   }
 
-  const collection = unwrapExpression(unwrapped.expression);
-  if (ts.isCallExpression(collection)) {
+  const collection = unwrapExpression(
+    TstsSyntax.AsElementAccessExpression(unwrapped)?.Expression
+  );
+  if (collection?.Kind === TstsSyntax.KindCallExpression) {
     return getObjectEntriesSource(collection, program);
   }
 
-  if (!ts.isIdentifier(collection)) {
+  if (!collection || !isIdentifier(collection)) {
     return undefined;
   }
 
-  const symbol = program.sourceSemantics.getSymbol(collection);
-  const declaration = symbol
-    ? (program.sourceSemantics.getSymbolValueDeclaration(symbol) ??
-      program.sourceSemantics.getSymbolDeclarations(symbol)[0])
-    : undefined;
-  if (!declaration || !ts.isVariableDeclaration(declaration)) {
+  const resolved = resolveSymbolDeclaration(collection, program);
+  if (
+    !resolved ||
+    resolved.declaration.Kind !== TstsSyntax.KindVariableDeclaration
+  ) {
     return undefined;
   }
 
-  const initializer = declaration.initializer
-    ? unwrapExpression(declaration.initializer)
-    : undefined;
+  const initializer = unwrapExpression(getNodeInitializer(resolved.declaration));
   return initializer ? getObjectEntriesSource(initializer, program) : undefined;
 };
 
 const isObjectEntriesValueFromDynamicJsonCarrier = (
-  expr: ts.Expression,
+  expr: TstsNode,
   program: TsonicProgram
 ): boolean => {
   const unwrapped = unwrapExpression(expr);
-  if (!ts.isIdentifier(unwrapped)) {
+  if (!unwrapped || !isIdentifier(unwrapped)) {
     return false;
   }
 
-  const symbol = program.sourceSemantics.getSymbol(unwrapped);
-  const declaration = symbol
-    ? (program.sourceSemantics.getSymbolValueDeclaration(symbol) ??
-      program.sourceSemantics.getSymbolDeclarations(symbol)[0])
-    : undefined;
+  const resolved = resolveSymbolDeclaration(unwrapped, program);
+  const declaration = resolved?.declaration;
   if (
     !declaration ||
-    !ts.isBindingElement(declaration) ||
-    !ts.isArrayBindingPattern(declaration.parent)
+    declaration.Kind !== TstsSyntax.KindBindingElement ||
+    declaration.Parent?.Kind !== TstsSyntax.KindArrayBindingPattern
   ) {
     return false;
   }
 
-  const arrayPattern = declaration.parent;
-  if (arrayPattern.elements.indexOf(declaration) !== 1) {
+  const arrayElements = TstsSyntax.Node_Elements(declaration.Parent) ?? [];
+  if (arrayElements.indexOf(declaration) !== 1) {
     return false;
   }
 
-  const variableDeclaration = arrayPattern.parent;
+  const variableDeclaration = declaration.Parent.Parent;
   if (
-    !ts.isVariableDeclaration(variableDeclaration) ||
-    !variableDeclaration.initializer
+    variableDeclaration?.Kind !== TstsSyntax.KindVariableDeclaration ||
+    !getNodeInitializer(variableDeclaration)
   ) {
     return false;
   }
 
   const entriesSource = getObjectEntriesSource(
-    variableDeclaration.initializer,
+    getNodeInitializer(variableDeclaration)!,
     program
   );
   return entriesSource
@@ -530,11 +614,8 @@ const isObjectEntriesValueFromDynamicJsonCarrier = (
     : false;
 };
 
-/**
- * Validate a source file for static safety violations.
- */
 export const validateStaticSafety = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
@@ -550,9 +631,10 @@ export const validateStaticSafety = (
     );
 
   const visitor = (
-    node: ts.Node,
+    node: TstsNode | undefined,
     accCollector: DiagnosticsCollector
   ): DiagnosticsCollector => {
+    if (!node) return accCollector;
     let currentCollector = accCollector;
 
     const isBroadOverloadStubType = isInsideOverloadStubSignatureType(node);
@@ -578,10 +660,10 @@ export const validateStaticSafety = (
     }
 
     if (isJsonStringifyCall(node)) {
-      const sourceExpression = node.arguments[0];
+      const sourceExpression = getCallArguments(node)[0];
       if (
         !sourceExpression ||
-        ts.isSpreadElement(sourceExpression) ||
+        sourceExpression.Kind === TstsSyntax.KindSpreadElement ||
         isBroadJsonSourceType(
           program.sourceSemantics.getExpressionType(sourceExpression),
           program.sourceSemantics
@@ -605,10 +687,10 @@ export const validateStaticSafety = (
     }
 
     if (isArrayIsArrayCall(node)) {
-      const sourceExpression = node.arguments[0];
+      const sourceExpression = getCallArguments(node)[0];
       if (
         !sourceExpression ||
-        ts.isSpreadElement(sourceExpression) ||
+        sourceExpression.Kind === TstsSyntax.KindSpreadElement ||
         (!isJsonParseInitializedSymbol(sourceExpression, program) &&
           !isDeclaredDynamicJsonCarrierSymbol(sourceExpression, program) &&
           !isObjectEntriesValueFromDynamicJsonCarrier(
@@ -638,8 +720,7 @@ export const validateStaticSafety = (
       }
     }
 
-    // TSN7401: Check for explicit 'any' type annotations
-    if (node.kind === ts.SyntaxKind.AnyKeyword && !isBroadOverloadStubType) {
+    if (node.Kind === TstsSyntax.KindAnyKeyword && !isBroadOverloadStubType) {
       currentCollector = addDiagnostic(
         currentCollector,
         createDiagnostic(
@@ -652,9 +733,8 @@ export const validateStaticSafety = (
       );
     }
 
-    // TSN7401: Check for broad type assertions
     const assertionTargetType = getAssertionTargetTypeNode(node);
-    if (assertionTargetType?.kind === ts.SyntaxKind.AnyKeyword) {
+    if (assertionTargetType?.Kind === TstsSyntax.KindAnyKeyword) {
       currentCollector = addDiagnostic(
         currentCollector,
         createDiagnostic(
@@ -667,28 +747,17 @@ export const validateStaticSafety = (
       );
     }
 
-    // TSN7405: Check for untyped function parameters
-    // Covers: function declarations, methods, constructors, arrow functions, function expressions
-    if (ts.isParameter(node) && !node.type) {
-      const parent = node.parent;
-
-      // For lambdas (arrow functions and function expressions), allow inference from context
+    if (node.Kind === TstsSyntax.KindParameter && !getNodeType(node)) {
+      const parent = nodeParent(node);
       const isLambda =
-        ts.isArrowFunction(parent) || ts.isFunctionExpression(parent);
+        parent?.Kind === TstsSyntax.KindArrowFunction ||
+        parent?.Kind === TstsSyntax.KindFunctionExpression;
 
       if (isLambda) {
-        // DETERMINISTIC IR TYPING (INV-0 compliant):
-        // Check if lambda is in a position where expected types provide parameter types.
-        // This replaces the old getContextualType-based inference.
         const hasExpectedTypeContext = lambdaHasExpectedTypeContext(parent);
 
-        if (hasExpectedTypeContext) {
-          // Lambda is in a contextual position - converter will get types from expected type
-        } else {
-          // No expected type context - emit TSN7405
-          const paramName = ts.isIdentifier(node.name)
-            ? node.name.text
-            : "param";
+        if (!hasExpectedTypeContext) {
+          const paramName = identifierText(TstsSyntax.Node_Name(node)) ?? "param";
           currentCollector = addDiagnostic(
             currentCollector,
             createDiagnostic(
@@ -701,19 +770,15 @@ export const validateStaticSafety = (
           );
         }
       } else {
-        // For non-lambdas (function declarations, methods, constructors, accessors),
-        // always require explicit type annotations
         const isFunctionLike =
-          ts.isFunctionDeclaration(parent) ||
-          ts.isMethodDeclaration(parent) ||
-          ts.isConstructorDeclaration(parent) ||
-          ts.isGetAccessorDeclaration(parent) ||
-          ts.isSetAccessorDeclaration(parent);
+          parent?.Kind === TstsSyntax.KindFunctionDeclaration ||
+          parent?.Kind === TstsSyntax.KindMethodDeclaration ||
+          parent?.Kind === TstsSyntax.KindConstructor ||
+          parent?.Kind === TstsSyntax.KindGetAccessor ||
+          parent?.Kind === TstsSyntax.KindSetAccessor;
 
         if (isFunctionLike) {
-          const paramName = ts.isIdentifier(node.name)
-            ? node.name.text
-            : "param";
+          const paramName = identifierText(TstsSyntax.Node_Name(node)) ?? "param";
           currentCollector = addDiagnostic(
             currentCollector,
             createDiagnostic(
@@ -728,10 +793,7 @@ export const validateStaticSafety = (
       }
     }
 
-    // TSN7403: Check for object literals without contextual nominal type
-    // Now supports auto-synthesis for eligible object literals (spreads, arrow props)
-    // DETERMINISTIC (INV-0): Uses AST-based contextual type detection, not getContextualType
-    if (ts.isObjectLiteralExpression(node)) {
+    if (node.Kind === TstsSyntax.KindObjectLiteralExpression) {
       if (objectLiteralHasBroadContextualType(node)) {
         currentCollector = addDiagnostic(
           currentCollector,
@@ -745,18 +807,11 @@ export const validateStaticSafety = (
         );
       }
 
-      // Check if object literal has a contextual type using deterministic AST analysis
       const hasContextualType = objectLiteralHasContextualType(node);
 
-      if (hasContextualType) {
-        // Has contextual type - type checking will validate compatibility during IR conversion
-      } else {
-        // No contextual type - check basic synthesis eligibility
-        // Full eligibility check (including spread type annotations) happens during IR conversion
-        // when we have TypeSystem access.
+      if (!hasContextualType) {
         const eligibility = checkBasicSynthesisEligibility(node, program);
         if (!eligibility.eligible) {
-          // Not eligible for synthesis - emit diagnostic with specific reason
           currentCollector = addDiagnostic(
             currentCollector,
             createDiagnostic(
@@ -768,24 +823,19 @@ export const validateStaticSafety = (
             )
           );
         }
-        // If eligible, full synthesis check happens during IR conversion
       }
     }
 
-    // Check TypeReferenceNode for utility types and dictionary keys
-    if (ts.isTypeReferenceNode(node)) {
-      const typeName = node.typeName;
-      if (ts.isIdentifier(typeName)) {
-        const name = typeName.text;
-        const hasTypeArgs = node.typeArguments && node.typeArguments.length > 0;
+    if (node.Kind === TstsSyntax.KindTypeReference) {
+      const typeName = TstsSyntax.AsTypeReferenceNode(node)?.TypeName;
+      const name = identifierText(typeName);
+      if (name) {
+        const typeArgs = getTypeArguments(node);
+        const hasTypeArgs = typeArgs.length > 0;
 
-        // TSN7419: 'never' cannot be used as a generic type argument.
-        //
-        // This is airplane-grade: the current native backend has no bottom
-        // runtime type usable as a generic argument.
         if (
           hasTypeArgs &&
-          node.typeArguments?.some((a) => a.kind === ts.SyntaxKind.NeverKeyword)
+          typeArgs.some((argument) => argument.Kind === TstsSyntax.KindNeverKeyword)
         ) {
           currentCollector = addDiagnostic(
             currentCollector,
@@ -799,74 +849,41 @@ export const validateStaticSafety = (
           );
         }
 
-        // TSN7413: Record<K, V> where K is not an allowed key type
         if (name === "Record") {
-          const typeArgs = node.typeArguments;
-          const keyTypeNode = typeArgs?.[0];
-          if (keyTypeNode !== undefined) {
-            if (!isAllowedKeyType(keyTypeNode)) {
-              currentCollector = addDiagnostic(
-                currentCollector,
-                createDiagnostic(
-                  "TSN7413",
-                  "error",
-                  "Dictionary key type must be 'string' or 'number'. Other key types are not supported.",
-                  getNodeLocation(sourceFile, keyTypeNode),
-                  "Use Record<string, V> or Record<number, V>."
-                )
-              );
-            }
+          const keyTypeNode = typeArgs[0];
+          if (keyTypeNode !== undefined && !isAllowedKeyType(keyTypeNode)) {
+            currentCollector = addDiagnostic(
+              currentCollector,
+              createDiagnostic(
+                "TSN7413",
+                "error",
+                "Dictionary key type must be 'string' or 'number'. Other key types are not supported.",
+                getNodeLocation(sourceFile, keyTypeNode),
+                "Use Record<string, V> or Record<number, V>."
+              )
+            );
           }
         }
       }
     }
 
-    // TSN7413: Check for unsupported index signature key types
-    if (ts.isIndexSignatureDeclaration(node)) {
-      const keyParam = node.parameters[0];
-      if (keyParam?.type && !isAllowedKeyType(keyParam.type)) {
+    if (node.Kind === TstsSyntax.KindIndexSignature) {
+      const keyParam = getNodeParameters(node)[0];
+      const keyType = keyParam ? getNodeType(keyParam) : undefined;
+      if (keyType && !isAllowedKeyType(keyType)) {
         currentCollector = addDiagnostic(
           currentCollector,
           createDiagnostic(
             "TSN7413",
             "error",
             "Index signature key type must be 'string' or 'number'. Other key types are not supported.",
-            getNodeLocation(sourceFile, keyParam.type),
+            getNodeLocation(sourceFile, keyType),
             "Use { [key: string]: V } or { [key: number]: V }."
           )
         );
       }
     }
 
-    // TSN7406 retired:
-    // Mapped types are handled by type conversion + specialization.
-
-    // TSN7407 retired:
-    // Conditional types are handled by utility expansion and type conversion.
-
-    // TSN7408 retired:
-    // Mixed variadic tuples are now lowered to array types in the converter.
-
-    // TSN7409 retired:
-    // infer clauses are handled by conditional/type evaluator paths.
-
-    // TSN7410 retired:
-    // Intersection types are lowered by the type emitter.
-
-    // JavaScript Array constructor calls are surface APIs and are rejected by
-    // validateUnsupportedFeatures when the active surface does not include JS.
-
-    // TSN7417 retired:
-    // Empty arrays are inferred/erased deterministically by array conversion rules.
-
-    // TSN7432:
-    // Generic function values are supported for deterministic declaration/alias
-    // forms that can be lowered to native generic method declarations:
-    // - direct generic function value declarations (`const` + never-reassigned `let`)
-    // - direct generic function declarations (`function f<T>(...) { ... }`)
-    // - deterministic alias declarations that point at supported symbols
-    //   (`const` aliases + never-reassigned `let` aliases).
-    // Non-deterministic or non-transpilable value-level usages remain hard errors.
     if (isGenericFunctionValueNode(node)) {
       const symbol = getSupportedGenericFunctionValueSymbol(
         node,
@@ -913,20 +930,20 @@ export const validateStaticSafety = (
       }
     }
 
-    if (ts.isIdentifier(node)) {
+    if (isIdentifier(node)) {
       const symbol = getReferencedIdentifierSymbol(
         program.sourceSemantics,
         node
       );
       if (
-          symbol &&
-          supportedGenericFunctionValueSymbols.has(symbol) &&
+        symbol &&
+        supportedGenericFunctionValueSymbols.has(symbol) &&
         !isAllowedGenericFunctionValueIdentifierUse(
           node,
           program.sourceSemantics
         )
       ) {
-        const name = node.text;
+        const name = identifierText(node) ?? "";
         currentCollector = addDiagnostic(
           currentCollector,
           createDiagnostic(
@@ -940,9 +957,7 @@ export const validateStaticSafety = (
       }
     }
 
-    // TSN7430: Arrow function escape hatch validation
-    // Non-simple arrows must have explicit type annotations
-    if (ts.isArrowFunction(node)) {
+    if (node.Kind === TstsSyntax.KindArrowFunction) {
       currentCollector = validateArrowEscapeHatch(
         node,
         sourceFile,
@@ -950,8 +965,7 @@ export const validateStaticSafety = (
       );
     }
 
-    // Continue visiting children
-    ts.forEachChild(node, (child) => {
+    forEachTstsChild(node, (child) => {
       currentCollector = visitor(child, currentCollector);
     });
 

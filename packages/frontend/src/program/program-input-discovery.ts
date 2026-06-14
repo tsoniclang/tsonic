@@ -1,19 +1,26 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as ts from "typescript";
 import type { CompilerOptions } from "./types.js";
 import { resolveDependencyPackageRoot } from "./package-roots.js";
 import {
   collectProjectIncludedDeclarationFiles,
-  createCompilerOptions,
   scanForDeclarationFiles,
 } from "./core-declarations.js";
 import {
+  discoverDeclarationGlobalImports,
   discoverDeclarationModuleAliases,
   type DeclarationModuleAlias,
 } from "./declaration-module-aliases.js";
 import { readPackageName } from "./module-resolution.js";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
+import { resolveImport } from "../resolver.js";
+import { parsePackageSpecifier } from "../resolver/source-package-resolution.js";
+import { createDiagnostic, type Diagnostic } from "../types/diagnostic.js";
+import type { WorkspaceGraphEdge } from "./workspace-fingerprint.js";
+import {
+  createExtensionModuleGraph,
+  parseTstsSourceFile,
+} from "@tsonic/tsts";
 
 type SurfaceCapabilitiesLike = {
   readonly requiredTypeRoots: readonly string[];
@@ -31,35 +38,6 @@ const canonicalizeRootDirPath = (filePath: string): string => {
     return fs.realpathSync(normalizedPath);
   } catch {
     return normalizedPath;
-  }
-};
-
-const resolveCommonRootDir = (paths: readonly string[]): string => {
-  const [first, ...remaining] = paths;
-  if (!first) {
-    throw new Error("resolveCommonRootDir requires at least one path");
-  }
-  const rest = remaining.map(canonicalizeRootDirPath);
-  let current = canonicalizeRootDirPath(first);
-
-  for (;;) {
-    const containsAll = rest.every((candidate) => {
-      const relative = path.relative(current, candidate);
-      return (
-        relative === "" ||
-        (!relative.startsWith("..") && !path.isAbsolute(relative))
-      );
-    });
-
-    if (containsAll) {
-      return current;
-    }
-
-    const parent = path.dirname(current);
-    if (parent === current) {
-      return current;
-    }
-    current = parent;
   }
 };
 
@@ -266,8 +244,338 @@ export type ProgramInputDiscovery = {
     string,
     DeclarationModuleAlias
   >;
+  readonly ambientSupportFiles: readonly string[];
+  readonly dependencyEdges: readonly WorkspaceGraphEdge[];
+  readonly diagnostics: readonly Diagnostic[];
   readonly allFiles: readonly string[];
-  readonly tsOptions: ts.CompilerOptions;
+  readonly emittableSourceFiles: readonly string[];
+};
+
+const isQueueableTsSourceDependency = (resolvedPath: string): boolean =>
+  (resolvedPath.endsWith(".ts") ||
+    resolvedPath.endsWith(".mts") ||
+    resolvedPath.endsWith(".cts")) &&
+  !resolvedPath.endsWith(".d.ts") &&
+  !resolvedPath.endsWith(".d.mts") &&
+  !resolvedPath.endsWith(".d.cts");
+
+const isDeclarationDependency = (resolvedPath: string): boolean =>
+  resolvedPath.endsWith(".d.ts") ||
+  resolvedPath.endsWith(".d.mts") ||
+  resolvedPath.endsWith(".d.cts");
+
+const appendUniquePath = (
+  files: string[],
+  seenCanonicalPaths: Set<string>,
+  filePath: string
+): boolean => {
+  const canonicalPath = canonicalizeRootDirPath(filePath);
+  if (seenCanonicalPaths.has(canonicalPath)) {
+    return false;
+  }
+  seenCanonicalPaths.add(canonicalPath);
+  files.push(path.resolve(filePath));
+  return true;
+};
+
+const getModuleSpecifiers = (
+  sourceFile: ReturnType<typeof parseTstsSourceFile>
+): readonly string[] => {
+  const moduleGraph = createExtensionModuleGraph(undefined, [sourceFile]);
+  const module = moduleGraph.getSourceFileModule(sourceFile);
+  if (!module) {
+    return [];
+  }
+  return [
+    ...module.imports
+      .filter(
+        (importModule) =>
+          !(importModule.isTypeOnly && importModule.bindings.length === 0)
+      )
+      .map((importModule) => importModule.specifier),
+    ...module.exports
+      .map((binding) => binding.sourceSpecifier)
+      .filter((specifier): specifier is string => specifier !== undefined),
+  ];
+};
+
+const findAuthoritativePackageRootForImport = (
+  importSpecifier: string,
+  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
+): string | undefined => {
+  const parsed = parsePackageSpecifier(importSpecifier);
+  if (!parsed) {
+    return undefined;
+  }
+  return authoritativeTsonicPackageRoots.get(parsed.packageName);
+};
+
+const shouldReportImportDiscoveryDiagnostic = (
+  importSpecifier: string,
+  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>,
+  declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>
+): boolean => {
+  if (importSpecifier.startsWith(".") || importSpecifier.startsWith("/")) {
+    return true;
+  }
+  if (declarationModuleAliases.has(importSpecifier)) {
+    return true;
+  }
+  return (
+    findAuthoritativePackageRootForImport(
+      importSpecifier,
+      authoritativeTsonicPackageRoots
+    ) !== undefined
+  );
+};
+
+export const collectSourceImportClosure = (input: {
+  readonly seedFiles: readonly string[];
+  readonly sourceRoot: string;
+  readonly projectRoot: string;
+  readonly surface: CompilerOptions["surface"];
+  readonly backendTargetId?: string;
+  readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
+  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
+}): {
+  readonly files: readonly string[];
+  readonly dependencyEdges: readonly WorkspaceGraphEdge[];
+  readonly diagnostics: readonly Diagnostic[];
+} => {
+  const files: string[] = [];
+  const queue: string[] = [];
+  const visited = new Set<string>();
+  const seenFiles = new Set<string>();
+  const dependencyEdges: WorkspaceGraphEdge[] = [];
+  const diagnostics: Diagnostic[] = [];
+
+  for (const filePath of input.seedFiles) {
+    appendUniquePath(queue, visited, filePath);
+  }
+  visited.clear();
+
+  while (queue.length > 0) {
+    const currentFile = queue.shift();
+    if (!currentFile) {
+      continue;
+    }
+
+    const resolvedCurrentFile = path.resolve(currentFile);
+    const canonicalCurrentFile = canonicalizeRootDirPath(resolvedCurrentFile);
+    if (visited.has(canonicalCurrentFile)) {
+      continue;
+    }
+    visited.add(canonicalCurrentFile);
+    appendUniquePath(files, seenFiles, resolvedCurrentFile);
+
+    let sourceText: string;
+    try {
+      sourceText = fs.readFileSync(resolvedCurrentFile, "utf-8");
+    } catch {
+      diagnostics.push(
+        createDiagnostic("TSN1002", "error", `Cannot find module '${currentFile}'`, {
+          file: currentFile,
+          line: 1,
+          column: 1,
+          length: 1,
+        })
+      );
+      continue;
+    }
+
+    const sourceFile = parseTstsSourceFile(sourceText, {
+      fileName: resolvedCurrentFile,
+    });
+    for (const importSpecifier of getModuleSpecifiers(sourceFile)) {
+      const resolved = resolveImport(
+        importSpecifier,
+        resolvedCurrentFile,
+        input.sourceRoot,
+        {
+          projectRoot: input.projectRoot,
+          surface: input.surface,
+          backendTargetId: input.backendTargetId,
+          authoritativeTsonicPackageRoots: input.authoritativeTsonicPackageRoots,
+          declarationModuleAliases: input.declarationModuleAliases,
+          bindings: undefined,
+        }
+      );
+      if (!resolved.ok) {
+        if (
+          shouldReportImportDiscoveryDiagnostic(
+            importSpecifier,
+            input.authoritativeTsonicPackageRoots,
+            input.declarationModuleAliases
+          )
+        ) {
+          diagnostics.push({
+            ...resolved.error,
+            location: {
+              file: canonicalCurrentFile,
+              line: 1,
+              column: 1,
+              length: importSpecifier.length,
+            },
+          });
+        }
+        continue;
+      }
+
+      const resolvedPath = resolved.value.resolvedPath;
+      if (!resolvedPath) {
+        continue;
+      }
+
+      const resolvedDependencyPath = path.resolve(resolvedPath);
+      dependencyEdges.push({
+        from: resolvedCurrentFile,
+        to: resolvedDependencyPath,
+        specifier: importSpecifier,
+      });
+
+      if (isDeclarationDependency(resolvedDependencyPath)) {
+        appendUniquePath(files, seenFiles, resolvedDependencyPath);
+        continue;
+      }
+
+      if (!isQueueableTsSourceDependency(resolvedDependencyPath)) {
+        continue;
+      }
+
+      queue.push(resolvedDependencyPath);
+    }
+  }
+
+  return {
+    files,
+    dependencyEdges,
+    diagnostics,
+  };
+};
+
+export const collectDeclarationImportClosure = (input: {
+  readonly files: readonly string[];
+  readonly sourceRoot: string;
+  readonly projectRoot: string;
+  readonly surface?: string;
+  readonly backendTargetId?: string;
+  readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
+  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
+}): {
+  readonly files: readonly string[];
+  readonly dependencyEdges: readonly WorkspaceGraphEdge[];
+  readonly diagnostics: readonly Diagnostic[];
+} => {
+  const files: string[] = [];
+  const queue: string[] = [];
+  const seenFiles = new Set<string>();
+  const visited = new Set<string>();
+  const dependencyEdges: WorkspaceGraphEdge[] = [];
+  const diagnostics: Diagnostic[] = [];
+  const seenEdges = new Set<string>();
+
+  for (const filePath of input.files) {
+    if (!isDeclarationDependency(path.resolve(filePath))) {
+      continue;
+    }
+    if (appendUniquePath(files, seenFiles, filePath)) {
+      queue.push(path.resolve(filePath));
+    }
+  }
+
+  while (queue.length > 0) {
+    const nextFile = queue.shift();
+    if (!nextFile) {
+      continue;
+    }
+
+    const resolvedFile = path.resolve(nextFile);
+    const canonicalFile = canonicalizeRootDirPath(resolvedFile);
+    if (visited.has(canonicalFile)) {
+      continue;
+    }
+    visited.add(canonicalFile);
+
+    let sourceText: string;
+    try {
+      sourceText = fs.readFileSync(resolvedFile, "utf-8");
+    } catch {
+      diagnostics.push(
+        createDiagnostic("TSN1002", "error", `Cannot find module '${nextFile}'`, {
+          file: nextFile,
+          line: 1,
+          column: 1,
+          length: 1,
+        })
+      );
+      continue;
+    }
+
+    const sourceFile = parseTstsSourceFile(sourceText, {
+      fileName: resolvedFile,
+    });
+    for (const importSpecifier of getModuleSpecifiers(sourceFile)) {
+      const resolved = resolveImport(
+        importSpecifier,
+        resolvedFile,
+        input.sourceRoot,
+        {
+          projectRoot: input.projectRoot,
+          surface: input.surface,
+          backendTargetId: input.backendTargetId,
+          authoritativeTsonicPackageRoots: input.authoritativeTsonicPackageRoots,
+          declarationModuleAliases: input.declarationModuleAliases,
+          bindings: undefined,
+        }
+      );
+      if (!resolved.ok) {
+        if (
+          shouldReportImportDiscoveryDiagnostic(
+            importSpecifier,
+            input.authoritativeTsonicPackageRoots,
+            input.declarationModuleAliases
+          )
+        ) {
+          diagnostics.push({
+            ...resolved.error,
+            location: {
+              file: resolvedFile,
+              line: 1,
+              column: 1,
+              length: importSpecifier.length,
+            },
+          });
+        }
+        continue;
+      }
+
+      const resolvedPath = resolved.value.resolvedPath;
+      if (!resolvedPath) {
+        continue;
+      }
+
+      const resolvedDependencyPath = path.resolve(resolvedPath);
+      const edge = {
+        from: resolvedFile,
+        to: resolvedDependencyPath,
+        specifier: importSpecifier,
+      };
+      const edgeId = `${edge.from}\0${edge.specifier}\0${edge.to}`;
+      if (!seenEdges.has(edgeId)) {
+        seenEdges.add(edgeId);
+        dependencyEdges.push(edge);
+      }
+
+      if (
+        isDeclarationDependency(resolvedDependencyPath) &&
+        appendUniquePath(files, seenFiles, resolvedDependencyPath)
+      ) {
+        queue.push(resolvedDependencyPath);
+      }
+    }
+  }
+
+  return { files, dependencyEdges, diagnostics };
 };
 
 export const discoverProgramInputs = (
@@ -464,7 +772,7 @@ export const discoverProgramInputs = (
     readSourcePackageAmbientPaths(typeRoot)
   );
   const sourcePackageExportPaths =
-    includeCurrentPackageExports && currentProjectSourceMetadata
+    currentProjectSourceMetadata && includeCurrentPackageExports
       ? readSourcePackageExportPaths(currentProjectSourceMetadata.packageRoot)
       : [];
 
@@ -505,18 +813,8 @@ export const discoverProgramInputs = (
     }
   }
 
-  const tsOptions = createCompilerOptions(options);
-  if (typeof tsOptions.rootDir === "string" && absolutePaths.length > 0) {
-    tsOptions.rootDir = resolveCommonRootDir([
-      tsOptions.rootDir,
-      ...absolutePaths,
-      ...sourcePackageAmbientPaths,
-      ...activeAuthoritativeSourcePackageRoots.values(),
-    ]);
-  }
   const projectDeclarationFiles = collectProjectIncludedDeclarationFiles(
-    options.projectRoot,
-    tsOptions
+    options.projectRoot
   );
 
   const declarationModuleAliases = new Map(
@@ -536,14 +834,107 @@ export const discoverProgramInputs = (
     }
   }
 
-  const allFiles = Array.from(
+  const ambientSupportFiles = Array.from(
     new Set([
-      ...absolutePaths,
       ...sourcePackageAmbientPaths,
-      ...sourcePackageExportPaths,
       ...projectDeclarationFiles,
       ...declarationFiles,
       ...namespaceIndexFiles,
+    ])
+  );
+  const ambientGlobalSourceFiles: string[] = [];
+  const discoveryDiagnostics: Diagnostic[] = [];
+  for (const declarationGlobalImport of discoverDeclarationGlobalImports(
+    ambientSupportFiles
+  )) {
+    const resolvedGlobalImport = resolveImport(
+      declarationGlobalImport.targetSpecifier,
+      declarationGlobalImport.declarationFile,
+      path.resolve(options.sourceRoot),
+      {
+        projectRoot: options.projectRoot,
+        surface: options.surface,
+        backendTargetId:
+          options.backendTargetId === undefined
+            ? undefined
+            : String(options.backendTargetId),
+        authoritativeTsonicPackageRoots,
+        declarationModuleAliases,
+        bindings: undefined,
+      }
+    );
+    if (!resolvedGlobalImport.ok) {
+      discoveryDiagnostics.push(resolvedGlobalImport.error);
+      continue;
+    }
+    if (
+      resolvedGlobalImport.value.resolvedPath &&
+      isQueueableTsSourceDependency(resolvedGlobalImport.value.resolvedPath)
+    ) {
+      ambientGlobalSourceFiles.push(resolvedGlobalImport.value.resolvedPath);
+    }
+  }
+
+  const runtimeSourceClosure = collectSourceImportClosure({
+    seedFiles: [
+      ...absolutePaths,
+      ...sourcePackageExportPaths,
+    ],
+    sourceRoot: path.resolve(options.sourceRoot),
+    projectRoot: options.projectRoot,
+    surface: options.surface,
+    backendTargetId:
+      options.backendTargetId === undefined
+        ? undefined
+        : String(options.backendTargetId),
+    authoritativeTsonicPackageRoots,
+    declarationModuleAliases,
+  });
+  const semanticSupportClosure = collectSourceImportClosure({
+    seedFiles: [
+      ...sourcePackageAmbientPaths,
+      ...ambientGlobalSourceFiles,
+    ],
+    sourceRoot: path.resolve(options.sourceRoot),
+    projectRoot: options.projectRoot,
+    surface: options.surface,
+    backendTargetId:
+      options.backendTargetId === undefined
+        ? undefined
+        : String(options.backendTargetId),
+    authoritativeTsonicPackageRoots,
+    declarationModuleAliases,
+  });
+
+  const initialAllFiles = Array.from(
+    new Set([
+      ...runtimeSourceClosure.files,
+      ...semanticSupportClosure.files,
+      ...projectDeclarationFiles,
+      ...declarationFiles,
+      ...namespaceIndexFiles,
+    ])
+  );
+  const declarationClosure = collectDeclarationImportClosure({
+    files: initialAllFiles,
+    sourceRoot: path.resolve(options.sourceRoot),
+    projectRoot: options.projectRoot,
+    surface: options.surface,
+    backendTargetId:
+      options.backendTargetId === undefined
+        ? undefined
+        : String(options.backendTargetId),
+    authoritativeTsonicPackageRoots,
+    declarationModuleAliases,
+  });
+
+  const allFiles = Array.from(
+    new Set([...initialAllFiles, ...declarationClosure.files])
+  );
+  const emittableSourceFiles = Array.from(
+    new Set([
+      ...runtimeSourceClosure.files,
+      ...semanticSupportClosure.files,
     ])
   );
 
@@ -553,7 +944,19 @@ export const discoverProgramInputs = (
     authoritativeTsonicPackageRoots,
     namespaceIndexFiles,
     declarationModuleAliases,
+    ambientSupportFiles,
+    dependencyEdges: [
+      ...runtimeSourceClosure.dependencyEdges,
+      ...semanticSupportClosure.dependencyEdges,
+      ...declarationClosure.dependencyEdges,
+    ],
+    diagnostics: [
+      ...discoveryDiagnostics,
+      ...runtimeSourceClosure.diagnostics,
+      ...semanticSupportClosure.diagnostics,
+      ...declarationClosure.diagnostics,
+    ],
     allFiles,
-    tsOptions,
+    emittableSourceFiles,
   };
 };

@@ -212,8 +212,7 @@ describe("Binding Resolution in IR", () => {
 
     it("prefers the exact CLR numeric alias overload for explicitly typed arguments", () => {
       const source = `
-        type byte = number;
-        type int = number;
+        import type { byte, int } from "@tsonic/core/types.js";
 
         class JsonValue {
           static Create(value: byte): JsonValue;
@@ -265,7 +264,7 @@ describe("Binding Resolution in IR", () => {
 
     it("keeps the resolved CLR overload when an unannotated number also matches a non-numeric overload", () => {
       const source = `
-        type int = number;
+        import type { int } from "@tsonic/core/types.js";
 
         declare class TimeSpan {
           readonly ticks: int;
@@ -316,7 +315,7 @@ describe("Binding Resolution in IR", () => {
 
     it("does not let broad-number evidence override a distinct first-argument shape", () => {
       const source = `
-        type int = number;
+        import type { int } from "@tsonic/core/types.js";
 
         declare const values: Iterable<number>;
 
@@ -378,7 +377,7 @@ describe("Binding Resolution in IR", () => {
 
     it("keeps explicit string-return overloads over sibling char overloads", () => {
       const source = `
-        type char = string;
+        import type { char } from "@tsonic/core/types.js";
 
         declare const Console: {
           WriteLine(value: char): void;
@@ -427,7 +426,7 @@ describe("Binding Resolution in IR", () => {
 
     it("keeps string overloads for multi-character ternary expressions", () => {
       const source = `
-        type char = string;
+        import type { char } from "@tsonic/core/types.js";
 
         declare const Console: {
           WriteLine(value: char): void;
@@ -474,7 +473,7 @@ describe("Binding Resolution in IR", () => {
 
     it("keeps string overloads for identifiers inferred from multi-character literals", () => {
       const source = `
-        type char = string;
+        import type { char } from "@tsonic/core/types.js";
 
         declare const Console: {
           WriteLine(value: char): void;
@@ -520,7 +519,7 @@ describe("Binding Resolution in IR", () => {
 
     it("keeps exact string overloads over sibling char and rest-format overloads", () => {
       const source = `
-        type char = string;
+        import type { char } from "@tsonic/core/types.js";
 
         declare const Console: {
           WriteLine(value: char): void;
@@ -571,7 +570,7 @@ describe("Binding Resolution in IR", () => {
 
     it("keeps string overloads for concatenation expressions", () => {
       const source = `
-        type char = string;
+        import type { char } from "@tsonic/core/types.js";
 
         declare const Console: {
           WriteLine(value: char): void;
@@ -620,7 +619,7 @@ describe("Binding Resolution in IR", () => {
 
     it("keeps string overloads for null-checked string identifiers", () => {
       const source = `
-        type char = string;
+        import type { char } from "@tsonic/core/types.js";
 
         declare const writer: {
           Write(value: char): void;
@@ -677,8 +676,7 @@ describe("Binding Resolution in IR", () => {
 
     it("keeps exact-arity string overloads over longer sibling overloads", () => {
       const source = `
-        type char = string;
-        type int = number;
+        import type { char, int } from "@tsonic/core/types.js";
 
         declare const value: {
           Split(separator: char, options: boolean): string[];
@@ -729,8 +727,7 @@ describe("Binding Resolution in IR", () => {
 
     it("keeps exact numeric aliases returned from helper calls when sibling overloads share the same first argument shape", () => {
       const source = `
-        type char = string;
-        type int = number;
+        import type { char, int } from "@tsonic/core/types.js";
 
         declare enum StringComparison {
           CurrentCulture = 0,

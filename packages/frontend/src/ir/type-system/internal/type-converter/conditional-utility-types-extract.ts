@@ -1,16 +1,4 @@
-/**
- * Conditional utility type expansion - ReturnType, Parameters, Awaited,
- * ConstructorParameters, InstanceType.
- *
- * DETERMINISTIC IR TYPING (INV-0 compliant):
- * These utility types are expanded using AST-based syntactic algorithms only.
- * No banned APIs (getTypeAtLocation, getTypeOfSymbolAtLocation, typeToTypeNode).
- * Uses Binding for symbol resolution and extracts types from TypeNodes.
- *
- * Split from conditional-utility-types.ts for file-size compliance (< 500 LOC).
- */
-
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import { IrType } from "../../../types.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 import {
@@ -21,225 +9,206 @@ import {
   unwrapParens,
   flattenUnionTypeNodes,
 } from "./conditional-utility-types-core.js";
+import {
+  asConverterNode,
+  identifierText,
+  nodeMembers,
+  nodeParameters,
+  nodeType,
+  nodeTypeArguments,
+} from "./tsts-syntax.js";
 
-/**
- * Expand ReturnType<F> by extracting from function type declaration (INV-0 compliant).
- */
-export const expandReturnType = (
-  fArg: ts.TypeNode,
+const convertParameterTuple = (
+  parameters: readonly TstsNode[],
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType,
+  defaultElementType: IrType
+): IrType => ({
+  kind: "tupleType",
+  elementTypes: parameters.map((param) =>
+    nodeType(param) ? convertType(nodeType(param)!, binding) : defaultElementType
+  ),
+});
+
+const resolveTypeReferenceAliasDeclaration = (
+  node: TstsNode,
+  binding: Binding
+): TstsNode | undefined => {
+  if (!TstsSyntax.IsTypeReferenceNode(node)) return undefined;
+  const declId = binding.resolveTypeReference(node);
+  if (!declId) return undefined;
+  const declInfo = (binding as BindingInternal)
+    ._getHandleRegistry()
+    .getDecl(declId);
+  const decl = asConverterNode(declInfo?.declNode);
+  return decl && TstsSyntax.IsTypeAliasDeclaration(decl) ? decl : undefined;
+};
+
+export const expandReturnType = (
+  fArg: TstsNode,
+  binding: Binding,
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | null => {
-  // Check for type parameter
   if (isTypeParameterNode(fArg, binding)) {
     return null;
   }
 
-  // Distribute over unions: ReturnType<F1 | F2> = ReturnType<F1> | ReturnType<F2>
   const unwrapped = unwrapParens(fArg);
-  if (ts.isUnionTypeNode(unwrapped)) {
+  if (TstsSyntax.IsUnionTypeNode(unwrapped)) {
     const results: IrType[] = [];
     for (const member of flattenUnionTypeNodes(unwrapped)) {
       const result = expandReturnType(member, binding, convertType);
       if (!result) return null;
       results.push(result);
     }
-    const flat = results.flatMap((t) => flattenUnionIrType(t));
+    const flat = results.flatMap((type) => flattenUnionIrType(type));
     if (flat.length === 0) return { kind: "neverType" };
     if (flat.length === 1) return flat[0] ?? { kind: "neverType" };
     return { kind: "unionType", types: flat };
   }
 
-  // Case 1: Direct function type node
-  if (ts.isFunctionTypeNode(unwrapped)) {
-    return unwrapped.type
-      ? convertType(unwrapped.type, binding)
+  if (TstsSyntax.IsFunctionTypeNode(unwrapped)) {
+    return nodeType(unwrapped)
+      ? convertType(nodeType(unwrapped)!, binding)
       : { kind: "voidType" };
   }
 
-  // Case 2: Type reference to function type alias
-  if (
-    ts.isTypeReferenceNode(unwrapped) &&
-    ts.isIdentifier(unwrapped.typeName)
-  ) {
-    const declId = binding.resolveTypeReference(unwrapped);
-    if (declId) {
-      const declInfo = (binding as BindingInternal)
-        ._getHandleRegistry()
-        .getDecl(declId);
-      const decl = declInfo?.declNode as ts.Declaration | undefined;
-      if (
-        decl &&
-        ts.isTypeAliasDeclaration(decl) &&
-        ts.isFunctionTypeNode(decl.type)
-      ) {
-        return decl.type.type
-          ? convertType(decl.type.type, binding)
-          : { kind: "voidType" };
+  const aliasDecl = resolveTypeReferenceAliasDeclaration(unwrapped, binding);
+  const aliasType = aliasDecl
+    ? TstsSyntax.AsTypeAliasDeclaration(aliasDecl)?.Type
+    : undefined;
+  if (aliasType && TstsSyntax.IsFunctionTypeNode(aliasType)) {
+    return nodeType(aliasType)
+      ? convertType(nodeType(aliasType)!, binding)
+      : { kind: "voidType" };
+  }
+
+  if (TstsSyntax.IsTypeQueryNode(unwrapped)) {
+    const exprName = TstsSyntax.AsTypeQueryNode(unwrapped)?.ExprName;
+    if (exprName && TstsSyntax.IsIdentifier(exprName)) {
+      const declId = binding.resolveIdentifier(exprName);
+      if (declId) {
+        const declInfo = (binding as BindingInternal)
+          ._getHandleRegistry()
+          .getDecl(declId);
+        const decl = asConverterNode(declInfo?.declNode);
+
+        if (
+          decl &&
+          (TstsSyntax.IsFunctionDeclaration(decl) ||
+            TstsSyntax.IsMethodDeclaration(decl))
+        ) {
+          return nodeType(decl) ? convertType(nodeType(decl)!, binding) : null;
+        }
+
+        if (decl && TstsSyntax.IsVariableDeclaration(decl) && nodeType(decl)) {
+          return expandReturnType(nodeType(decl)!, binding, convertType);
+        }
       }
     }
   }
 
-  // Case 3: typeof function value (ReturnType<typeof fn>)
-  //
-  // INV-0 COMPLIANT: Resolve the identifier to a declaration via Binding and
-  // read the syntactic return type annotation (no ts.Type queries).
-  if (ts.isTypeQueryNode(unwrapped) && ts.isIdentifier(unwrapped.exprName)) {
-    const declId = binding.resolveIdentifier(unwrapped.exprName);
-    if (declId) {
-      const declInfo = (binding as BindingInternal)
-        ._getHandleRegistry()
-        .getDecl(declId);
-      const decl = declInfo?.declNode as ts.Declaration | undefined;
-
-      if (
-        decl &&
-        (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl))
-      ) {
-        return decl.type ? convertType(decl.type, binding) : null;
-      }
-
-      if (decl && ts.isVariableDeclaration(decl) && decl.type) {
-        return expandReturnType(decl.type, binding, convertType);
-      }
-    }
-  }
-
-  return null; // Can't extract return type
+  return null;
 };
 
-/**
- * Expand Parameters<F> by extracting from function type declaration (INV-0 compliant).
- */
 export const expandParameters = (
-  fArg: ts.TypeNode,
+  fArg: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | null => {
-  // Check for type parameter
   if (isTypeParameterNode(fArg, binding)) {
     return null;
   }
 
-  let functionType: ts.FunctionTypeNode | undefined;
+  let functionType: TstsNode | undefined;
 
-  // Case 1: Direct function type node
-  if (ts.isFunctionTypeNode(fArg)) {
+  if (TstsSyntax.IsFunctionTypeNode(fArg)) {
     functionType = fArg;
   }
 
-  // Case 2: Type reference to function type alias
-  if (
-    !functionType &&
-    ts.isTypeReferenceNode(fArg) &&
-    ts.isIdentifier(fArg.typeName)
-  ) {
-    const declId = binding.resolveTypeReference(fArg);
-    if (declId) {
-      const declInfo = (binding as BindingInternal)
-        ._getHandleRegistry()
-        .getDecl(declId);
-      const decl = declInfo?.declNode as ts.Declaration | undefined;
-      if (
-        decl &&
-        ts.isTypeAliasDeclaration(decl) &&
-        ts.isFunctionTypeNode(decl.type)
-      ) {
-        functionType = decl.type;
-      }
+  if (!functionType && TstsSyntax.IsTypeReferenceNode(fArg)) {
+    const aliasDecl = resolveTypeReferenceAliasDeclaration(fArg, binding);
+    const aliasType = aliasDecl
+      ? TstsSyntax.AsTypeAliasDeclaration(aliasDecl)?.Type
+      : undefined;
+    if (aliasType && TstsSyntax.IsFunctionTypeNode(aliasType)) {
+      functionType = aliasType;
     }
   }
 
-  // Case 3: typeof function value (Parameters<typeof fn>)
-  //
-  // INV-0 COMPLIANT: Resolve the identifier to a declaration via Binding and
-  // read syntactic parameter type annotations (no ts.Type queries).
-  if (
-    !functionType &&
-    ts.isTypeQueryNode(fArg) &&
-    ts.isIdentifier(fArg.exprName)
-  ) {
-    const declId = binding.resolveIdentifier(fArg.exprName);
-    if (declId) {
-      const declInfo = (binding as BindingInternal)
-        ._getHandleRegistry()
-        .getDecl(declId);
-      const decl = declInfo?.declNode as ts.Declaration | undefined;
+  if (!functionType && TstsSyntax.IsTypeQueryNode(fArg)) {
+    const exprName = TstsSyntax.AsTypeQueryNode(fArg)?.ExprName;
+    if (exprName && TstsSyntax.IsIdentifier(exprName)) {
+      const declId = binding.resolveIdentifier(exprName);
+      if (declId) {
+        const declInfo = (binding as BindingInternal)
+          ._getHandleRegistry()
+          .getDecl(declId);
+        const decl = asConverterNode(declInfo?.declNode);
 
-      if (
-        decl &&
-        (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl))
-      ) {
-        const paramTypes: IrType[] = decl.parameters.map((param) =>
-          param.type ? convertType(param.type, binding) : { kind: "anyType" }
-        );
-        return { kind: "tupleType", elementTypes: paramTypes };
-      }
+        if (
+          decl &&
+          (TstsSyntax.IsFunctionDeclaration(decl) ||
+            TstsSyntax.IsMethodDeclaration(decl))
+        ) {
+          return convertParameterTuple(
+            nodeParameters(decl),
+            binding,
+            convertType,
+            { kind: "anyType" }
+          );
+        }
 
-      if (decl && ts.isVariableDeclaration(decl) && decl.type) {
-        return expandParameters(decl.type, binding, convertType);
+        if (decl && TstsSyntax.IsVariableDeclaration(decl) && nodeType(decl)) {
+          return expandParameters(nodeType(decl)!, binding, convertType);
+        }
       }
     }
   }
 
   if (!functionType) {
-    return null; // Can't extract parameters
+    return null;
   }
 
-  // Build tuple type from parameters
-  const paramTypes: IrType[] = functionType.parameters.map((param) =>
-    param.type ? convertType(param.type, binding) : { kind: "anyType" }
-  );
-
-  return { kind: "tupleType", elementTypes: paramTypes };
+  return convertParameterTuple(nodeParameters(functionType), binding, convertType, {
+    kind: "anyType",
+  });
 };
 
-/**
- * Expand Awaited<T> by extracting from Promise type parameter (INV-0 compliant).
- */
 export const expandAwaited = (
-  tArg: ts.TypeNode,
+  tArg: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | null => {
-  // Check for type parameter
   if (isTypeParameterNode(tArg, binding)) {
     return null;
   }
 
-  // Handle Promise<T> or PromiseLike<T>
-  if (ts.isTypeReferenceNode(tArg) && ts.isIdentifier(tArg.typeName)) {
-    const name = tArg.typeName.text;
-    if ((name === "Promise" || name === "PromiseLike") && tArg.typeArguments) {
-      const innerArg = tArg.typeArguments[0];
-      if (innerArg) {
-        // Recursively unwrap nested promises
-        return (
-          expandAwaited(innerArg, binding, convertType) ??
-          convertType(innerArg, binding)
-        );
-      }
+  if (TstsSyntax.IsTypeReferenceNode(tArg)) {
+    const name = identifierText(TstsSyntax.AsTypeReferenceNode(tArg)?.TypeName);
+    const innerArg = nodeTypeArguments(tArg)[0];
+    if ((name === "Promise" || name === "PromiseLike") && innerArg) {
+      return (
+        expandAwaited(innerArg, binding, convertType) ??
+        convertType(innerArg, binding)
+      );
     }
   }
 
-  // Not a Promise type - return as-is
   return convertType(tArg, binding);
 };
 
-/**
- * Expand ConstructorParameters<C> by extracting constructor parameter types.
- */
 export const expandConstructorParameters = (
-  ctorArg: ts.TypeNode,
+  ctorArg: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | null => {
   if (isTypeParameterNode(ctorArg, binding)) {
     return null;
   }
 
   const unwrapped = unwrapParens(ctorArg);
-  if (ts.isUnionTypeNode(unwrapped)) {
+  if (TstsSyntax.IsUnionTypeNode(unwrapped)) {
     const members: IrType[] = [];
     for (const member of flattenUnionTypeNodes(unwrapped)) {
       const expanded = expandConstructorParameters(
@@ -255,86 +224,70 @@ export const expandConstructorParameters = (
     return { kind: "unionType", types: members };
   }
 
-  if (ts.isConstructorTypeNode(unwrapped)) {
-    return {
-      kind: "tupleType",
-      elementTypes: unwrapped.parameters.map((param) =>
-        param.type ? convertType(param.type, binding) : { kind: "unknownType" }
-      ),
-    };
+  if (TstsSyntax.IsConstructorTypeNode(unwrapped)) {
+    return convertParameterTuple(
+      nodeParameters(unwrapped),
+      binding,
+      convertType,
+      { kind: "unknownType" }
+    );
   }
 
-  if (
-    ts.isTypeReferenceNode(unwrapped) &&
-    ts.isIdentifier(unwrapped.typeName)
-  ) {
-    const declId = binding.resolveTypeReference(unwrapped);
-    if (declId) {
-      const declInfo = (binding as BindingInternal)
-        ._getHandleRegistry()
-        .getDecl(declId);
-      const decl = declInfo?.declNode as ts.Declaration | undefined;
-      if (
-        decl &&
-        ts.isTypeAliasDeclaration(decl) &&
-        ts.isConstructorTypeNode(decl.type)
-      ) {
-        return {
-          kind: "tupleType",
-          elementTypes: decl.type.parameters.map((param) =>
-            param.type
-              ? convertType(param.type, binding)
-              : { kind: "unknownType" }
-          ),
-        };
-      }
-    }
+  const aliasDecl = resolveTypeReferenceAliasDeclaration(unwrapped, binding);
+  const aliasType = aliasDecl
+    ? TstsSyntax.AsTypeAliasDeclaration(aliasDecl)?.Type
+    : undefined;
+  if (aliasType && TstsSyntax.IsConstructorTypeNode(aliasType)) {
+    return convertParameterTuple(
+      nodeParameters(aliasType),
+      binding,
+      convertType,
+      { kind: "unknownType" }
+    );
   }
 
-  if (ts.isTypeQueryNode(unwrapped) && ts.isIdentifier(unwrapped.exprName)) {
-    const declId = binding.resolveIdentifier(unwrapped.exprName);
+  if (TstsSyntax.IsTypeQueryNode(unwrapped)) {
+    const exprName = TstsSyntax.AsTypeQueryNode(unwrapped)?.ExprName;
+    if (!exprName || !TstsSyntax.IsIdentifier(exprName)) return null;
+    const declId = binding.resolveIdentifier(exprName);
     if (!declId) return null;
     const declInfo = (binding as BindingInternal)
       ._getHandleRegistry()
       .getDecl(declId);
-    const decl = declInfo?.declNode as ts.Declaration | undefined;
+    const decl = asConverterNode(declInfo?.declNode);
     if (!decl) return null;
 
-    if (ts.isClassDeclaration(decl)) {
-      const ctor = decl.members.find(ts.isConstructorDeclaration);
-      const parameters = ctor?.parameters ?? [];
-      return {
-        kind: "tupleType",
-        elementTypes: parameters.map((param) =>
-          param.type
-            ? convertType(param.type, binding)
-            : { kind: "unknownType" }
-        ),
-      };
+    if (TstsSyntax.IsClassDeclaration(decl)) {
+      const ctor = nodeMembers(decl).find(
+        TstsSyntax.IsConstructorDeclaration
+      );
+      return convertParameterTuple(
+        ctor ? nodeParameters(ctor) : [],
+        binding,
+        convertType,
+        { kind: "unknownType" }
+      );
     }
 
-    if (ts.isVariableDeclaration(decl) && decl.type) {
-      return expandConstructorParameters(decl.type, binding, convertType);
+    if (TstsSyntax.IsVariableDeclaration(decl) && nodeType(decl)) {
+      return expandConstructorParameters(nodeType(decl)!, binding, convertType);
     }
   }
 
   return null;
 };
 
-/**
- * Expand InstanceType<C> by extracting constructor instance result type.
- */
 export const expandInstanceType = (
-  ctorArg: ts.TypeNode,
+  ctorArg: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | null => {
   if (isTypeParameterNode(ctorArg, binding)) {
     return null;
   }
 
   const unwrapped = unwrapParens(ctorArg);
-  if (ts.isUnionTypeNode(unwrapped)) {
+  if (TstsSyntax.IsUnionTypeNode(unwrapped)) {
     const members: IrType[] = [];
     for (const member of flattenUnionTypeNodes(unwrapped)) {
       const expanded = expandInstanceType(member, binding, convertType);
@@ -346,50 +299,42 @@ export const expandInstanceType = (
     return { kind: "unionType", types: members };
   }
 
-  if (ts.isConstructorTypeNode(unwrapped)) {
-    return unwrapped.type
-      ? convertType(unwrapped.type, binding)
+  if (TstsSyntax.IsConstructorTypeNode(unwrapped)) {
+    return nodeType(unwrapped)
+      ? convertType(nodeType(unwrapped)!, binding)
       : { kind: "unknownType" };
   }
 
-  if (
-    ts.isTypeReferenceNode(unwrapped) &&
-    ts.isIdentifier(unwrapped.typeName)
-  ) {
-    const declId = binding.resolveTypeReference(unwrapped);
-    if (declId) {
-      const declInfo = (binding as BindingInternal)
-        ._getHandleRegistry()
-        .getDecl(declId);
-      const decl = declInfo?.declNode as ts.Declaration | undefined;
-      if (
-        decl &&
-        ts.isTypeAliasDeclaration(decl) &&
-        ts.isConstructorTypeNode(decl.type)
-      ) {
-        return decl.type.type
-          ? convertType(decl.type.type, binding)
-          : { kind: "unknownType" };
-      }
-    }
+  const aliasDecl = resolveTypeReferenceAliasDeclaration(unwrapped, binding);
+  const aliasType = aliasDecl
+    ? TstsSyntax.AsTypeAliasDeclaration(aliasDecl)?.Type
+    : undefined;
+  if (aliasType && TstsSyntax.IsConstructorTypeNode(aliasType)) {
+    return nodeType(aliasType)
+      ? convertType(nodeType(aliasType)!, binding)
+      : { kind: "unknownType" };
   }
 
-  if (ts.isTypeQueryNode(unwrapped) && ts.isIdentifier(unwrapped.exprName)) {
-    const declId = binding.resolveIdentifier(unwrapped.exprName);
+  if (TstsSyntax.IsTypeQueryNode(unwrapped)) {
+    const exprName = TstsSyntax.AsTypeQueryNode(unwrapped)?.ExprName;
+    if (!exprName || !TstsSyntax.IsIdentifier(exprName)) return null;
+    const declId = binding.resolveIdentifier(exprName);
     if (!declId) return null;
     const declInfo = (binding as BindingInternal)
       ._getHandleRegistry()
       .getDecl(declId);
-    const decl = declInfo?.declNode as ts.Declaration | undefined;
+    const decl = asConverterNode(declInfo?.declNode);
     if (!decl) return null;
 
-    if (ts.isClassDeclaration(decl)) {
-      if (!decl.name) return { kind: "unknownType" };
-      return { kind: "referenceType", name: decl.name.text };
+    if (TstsSyntax.IsClassDeclaration(decl)) {
+      const className = identifierText(TstsSyntax.Node_Name(decl));
+      return className
+        ? { kind: "referenceType", name: className }
+        : { kind: "unknownType" };
     }
 
-    if (ts.isVariableDeclaration(decl) && decl.type) {
-      return expandInstanceType(decl.type, binding, convertType);
+    if (TstsSyntax.IsVariableDeclaration(decl) && nodeType(decl)) {
+      return expandInstanceType(nodeType(decl)!, binding, convertType);
     }
   }
 

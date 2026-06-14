@@ -5,7 +5,8 @@
  * Type conversion should NOT depend on statement conversion.
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { TstsSyntax } from "@tsonic/tsts";
 import {
   IrType,
   IrObjectType,
@@ -18,7 +19,16 @@ import {
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
 import type { Binding } from "../../../binding/index.js";
-import { unwrapSourceParameterType } from "../../../source-wrapper-semantics.js";
+import {
+  isOptionalParameter,
+  isReadonlyMember,
+  isRestParameter,
+  nodeMembers,
+  nodeNameText,
+  nodeParameters,
+  nodeType,
+  unwrapSourceParameterType,
+} from "./tsts-syntax.js";
 
 /**
  * Convert TypeScript object literal type to IR type.
@@ -30,14 +40,17 @@ import { unwrapSourceParameterType } from "../../../source-wrapper-semantics.js"
  * Returns IrObjectType for regular object types with named members.
  */
 export const convertObjectType = (
-  node: ts.TypeLiteralNode,
+  node: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrObjectType | IrDictionaryType => {
   // Check for pure index signature type (no other members)
-  const indexSignatures = node.members.filter(ts.isIndexSignatureDeclaration);
-  const otherMembers = node.members.filter(
-    (m) => !ts.isIndexSignatureDeclaration(m)
+  const membersSyntax = nodeMembers(node);
+  const indexSignatures = membersSyntax.filter(
+    TstsSyntax.IsIndexSignatureDeclaration
+  );
+  const otherMembers = membersSyntax.filter(
+    (member) => !TstsSyntax.IsIndexSignatureDeclaration(member)
   );
 
   // If ONLY index signature(s) exist, convert to dictionary type
@@ -45,17 +58,17 @@ export const convertObjectType = (
   if (firstIndexSig !== undefined && otherMembers.length === 0) {
     // Use the first index signature (TypeScript allows multiple, but we take first)
     const indexSig = firstIndexSig;
-    const keyParam = indexSig.parameters[0];
+    const keyParam = nodeParameters(indexSig)[0];
 
     // Determine key type from parameter type
-    const keyType: IrType = keyParam?.type
-      ? convertKeyType(keyParam.type)
+    const keyType: IrType = keyParam && nodeType(keyParam)
+      ? convertKeyType(nodeType(keyParam)!)
       : { kind: "primitiveType", name: "string" };
 
     // Determine value type - use anyType as marker if not specified
     // The IR soundness gate will catch this and emit TSN7414
-    const valueType: IrType = indexSig.type
-      ? convertType(indexSig.type, binding)
+    const valueType: IrType = nodeType(indexSig)
+      ? convertType(nodeType(indexSig)!, binding)
       : { kind: "anyType" };
 
     return {
@@ -68,24 +81,26 @@ export const convertObjectType = (
   // Regular object type with named members
   const members: IrInterfaceMember[] = [];
 
-  node.members.forEach((member) => {
-    if (ts.isPropertySignature(member) && member.type) {
-      const memberName = tryResolveDeterministicPropertyName(member.name);
+  membersSyntax.forEach((member) => {
+    if (TstsSyntax.IsPropertySignatureDeclaration(member) && nodeType(member)) {
+      const memberName = tryResolveDeterministicPropertyName(
+        TstsSyntax.Node_Name(member)
+      );
       if (!memberName) {
         return;
       }
       const propSig: IrPropertySignature = {
         kind: "propertySignature",
         name: memberName,
-        type: convertType(member.type, binding),
-        isOptional: !!member.questionToken,
-        isReadonly: !!member.modifiers?.some(
-          (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-        ),
+        type: convertType(nodeType(member)!, binding),
+        isOptional: TstsSyntax.Node_QuestionToken(member) !== undefined,
+        isReadonly: isReadonlyMember(member),
       };
       members.push(propSig);
-    } else if (ts.isMethodSignature(member)) {
-      const memberName = tryResolveDeterministicPropertyName(member.name);
+    } else if (TstsSyntax.IsMethodSignatureDeclaration(member)) {
+      const memberName =
+        tryResolveDeterministicPropertyName(TstsSyntax.Node_Name(member)) ??
+        nodeNameText(member);
       if (!memberName) {
         return;
       }
@@ -93,11 +108,13 @@ export const convertObjectType = (
         kind: "methodSignature",
         name: memberName,
         parameters: convertTypeParameters(
-          member.parameters,
+          nodeParameters(member),
           binding,
           convertType
         ),
-        returnType: member.type ? convertType(member.type, binding) : undefined,
+        returnType: nodeType(member)
+          ? convertType(nodeType(member)!, binding)
+          : undefined,
       };
       members.push(methSig);
     }
@@ -110,18 +127,17 @@ export const convertObjectType = (
  * Convert index signature key type to IR type.
  * Supported key domains are string, number, and symbol.
  */
-const convertKeyType = (typeNode: ts.TypeNode): IrType => {
-  if (typeNode.kind === ts.SyntaxKind.StringKeyword) {
+const convertKeyType = (typeNode: TstsNode): IrType => {
+  if (typeNode.Kind === TstsSyntax.KindStringKeyword) {
     return { kind: "primitiveType", name: "string" };
   }
-  if (typeNode.kind === ts.SyntaxKind.NumberKeyword) {
+  if (typeNode.Kind === TstsSyntax.KindNumberKeyword) {
     return { kind: "primitiveType", name: "number" };
   }
   if (
-    typeNode.kind === ts.SyntaxKind.SymbolKeyword ||
-    (ts.isTypeReferenceNode(typeNode) &&
-      ts.isIdentifier(typeNode.typeName) &&
-      typeNode.typeName.text === "symbol")
+    typeNode.Kind === TstsSyntax.KindSymbolKeyword ||
+    (TstsSyntax.IsTypeReferenceNode(typeNode) &&
+      nodeNameText(typeNode) === "symbol")
   ) {
     return { kind: "referenceType", name: "object" };
   }
@@ -139,13 +155,13 @@ const convertKeyType = (typeNode: ts.TypeNode): IrType => {
  * - Takes a convertType function for type node conversion
  */
 const convertTypeParameters = (
-  parameters: ts.NodeArray<ts.ParameterDeclaration>,
+  parameters: readonly TstsNode[],
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): readonly IrParameter[] => {
   return parameters.map((param) => {
     const unwrapped = unwrapSourceParameterType(
-      param.type,
+      nodeType(param),
       binding.getSourceFact
     );
 
@@ -156,12 +172,14 @@ const convertTypeParameters = (
 
     return {
       kind: "parameter" as const,
-      pattern: convertBindingName(param.name),
+      pattern: TstsSyntax.Node_Name(param)
+        ? convertBindingName(TstsSyntax.Node_Name(param)!)
+        : { kind: "identifierPattern", name: "_unknown" },
       type: paramType,
       // Type signatures don't have initializers
       initializer: undefined,
-      isOptional: !!param.questionToken,
-      isRest: !!param.dotDotDotToken,
+      isOptional: isOptionalParameter(param),
+      isRest: isRestParameter(param),
       passing: unwrapped.passing,
     };
   });

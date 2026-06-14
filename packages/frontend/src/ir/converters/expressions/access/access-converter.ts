@@ -5,7 +5,7 @@
  * property access and element access expressions.
  */
 
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import { IrExpression } from "../../../types.js";
 import { getSourceSpan } from "../helpers.js";
 import { convertExpression } from "../../../expression-converter.js";
@@ -29,6 +29,7 @@ import {
 } from "./binding-resolution.js";
 import {
   isWellKnownSymbolPropertyName,
+  tryResolveDeterministicPropertyName,
   tryResolveDeterministicPropertyNameFromExpression,
 } from "../../../syntax/property-names.js";
 import {
@@ -36,6 +37,10 @@ import {
   tryGetObjectLiteralMethodArgumentsLength,
 } from "../../../../object-literal-method-runtime.js";
 import { selectUnionArm } from "../../union-arm-selection.js";
+import {
+  chooseUseSiteType,
+  getSourceUseSiteType,
+} from "../../../expression-converter-helpers.js";
 
 const typeHasTargetIdentity = (
   type: IrExpression["inferredType"] | undefined
@@ -69,13 +74,20 @@ const expressionHasTargetIdentity = (expr: IrExpression): boolean =>
  * Convert property access or element access expression
  */
 export const convertMemberExpression = (
-  node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrExpression => {
-  const isOptional = node.questionDotToken !== undefined;
+  const isOptional = TstsSyntax.Node_QuestionDotToken(node) !== undefined;
   const sourceSpan = getSourceSpan(node);
 
-  if (ts.isPropertyAccessExpression(node)) {
+  if (node.Kind === TstsSyntax.KindPropertyAccessExpression) {
+    const propertyAccess = TstsSyntax.AsPropertyAccessExpression(node);
+    if (!propertyAccess?.Expression) {
+      throw new Error("Invalid TSTS property access expression.");
+    }
+    const receiver = propertyAccess.Expression;
+    const propertyName =
+      tryResolveDeterministicPropertyName(propertyAccess.name) ?? "";
     const objectMethodArgumentsLength =
       tryGetObjectLiteralMethodArgumentsLength(node);
     if (objectMethodArgumentsLength !== undefined) {
@@ -88,12 +100,11 @@ export const convertMemberExpression = (
       };
     }
 
-    const object = convertExpression(node.expression, ctx, undefined);
-    const propertyName = node.name.text;
-    const currentReceiverType = getCurrentTypeForAccessExpression(
-      node.expression,
-      ctx
-    );
+    const object = convertExpression(receiver, ctx, undefined);
+    const sourceReceiverType = getSourceUseSiteType(receiver, ctx);
+    const currentReceiverType =
+      chooseUseSiteType(object.inferredType, sourceReceiverType, ctx) ??
+      getCurrentTypeForAccessExpression(receiver, ctx);
     const bindingResolutionObject =
       currentReceiverType !== undefined
         ? { ...object, inferredType: currentReceiverType }
@@ -152,6 +163,10 @@ export const convertMemberExpression = (
       currentReceiverType ?? object.inferredType,
       ctx
     );
+    const externalBoundMemberType =
+      declaredType === undefined && memberBinding !== undefined
+        ? ctx.typeSystem.typeOfExternalBoundMember(memberBinding)
+        : undefined;
     const propertyAccessKind = classifyComputedAccess(
       currentReceiverType ?? object.inferredType,
       ctx
@@ -179,8 +194,9 @@ export const convertMemberExpression = (
     //
     // Priority order for inferredType:
     // 1. If declaredType exists, use it.
-    // 2. If memberBinding exists but no declaredType, use undefined (pure external-bound)
-    // 3. Otherwise, poison with unknownType for validation (TSN5203)
+    // 2. If memberBinding has catalog metadata, use the unified-catalog member type.
+    // 3. If memberBinding exists but no catalog type, use undefined (pure external-bound)
+    // 4. Otherwise, poison with unknownType for validation (TSN5203)
     //
     // Note: Both memberBinding AND inferredType can be set - they serve different purposes:
     // - memberBinding: used by emitter for target member names
@@ -188,15 +204,21 @@ export const convertMemberExpression = (
     //
     // Class fields without explicit type annotations will emit TSN5203.
     // Users must add explicit types like `count: int = 0` instead of `count = 0`.
-    const propertyInferredType = declaredType
+    const propertyUseSiteType = getSourceUseSiteType(node, ctx);
+    const declaredPropertyType = declaredType
       ? declaredType
       : dictionaryPropertyType
         ? dictionaryPropertyType
+        : externalBoundMemberType
+          ? externalBoundMemberType
         : isNamespaceTypeReference
           ? undefined
           : memberBinding
             ? undefined
             : { kind: "unknownType" as const };
+    const propertyInferredType =
+      chooseUseSiteType(declaredPropertyType, propertyUseSiteType, ctx) ??
+      declaredPropertyType;
 
     const baseMemberAccess: IrExpression = {
       kind: "memberAccess",
@@ -204,7 +226,7 @@ export const convertMemberExpression = (
       property: propertyName,
       isComputed: false,
       isOptional,
-      inferredType: declaredType ?? propertyInferredType,
+      inferredType: propertyInferredType,
       sourceSpan,
       receiverArmSelection:
         currentReceiverType && object.inferredType?.kind === "unionType"
@@ -241,11 +263,12 @@ export const convertMemberExpression = (
     const objectMethodArgumentCapture =
       tryGetObjectLiteralMethodArgumentCapture(node);
     if (objectMethodArgumentCapture) {
-      const inferredType = objectMethodArgumentCapture.parameter.type
+      const parameterType = TstsSyntax.Node_Type(
+        objectMethodArgumentCapture.parameter
+      );
+      const inferredType = parameterType
         ? ctx.typeSystem.typeFromSyntax(
-            ctx.binding.captureTypeSyntax(
-              objectMethodArgumentCapture.parameter.type
-            )
+            ctx.binding.captureTypeSyntax(parameterType)
           )
         : undefined;
       return {
@@ -256,13 +279,20 @@ export const convertMemberExpression = (
       };
     }
 
+    const elementAccess = TstsSyntax.AsElementAccessExpression(node);
+    if (!elementAccess?.Expression || !elementAccess.ArgumentExpression) {
+      throw new Error("Invalid TSTS element access expression.");
+    }
+    const receiver = elementAccess.Expression;
+    const argumentExpression = elementAccess.ArgumentExpression;
     // Element access (computed): obj[expr]
-    const object = convertExpression(node.expression, ctx, undefined);
+    const object = convertExpression(receiver, ctx, undefined);
 
     const deterministicPropertyName = (() => {
-      const arg = node.argumentExpression;
-      if (!arg) return undefined;
-      return tryResolveDeterministicPropertyNameFromExpression(arg);
+      if (!argumentExpression) return undefined;
+      return tryResolveDeterministicPropertyNameFromExpression(
+        argumentExpression
+      );
     })();
 
     const computedAccessKind = classifyComputedAccess(object.inferredType, ctx);
@@ -343,10 +373,10 @@ export const convertMemberExpression = (
     }
 
     // DETERMINISTIC TYPING: Use object's inferredType (not getInferredType)
-    const currentReceiverType = getCurrentTypeForAccessExpression(
-      node.expression,
-      ctx
-    );
+    const sourceReceiverType = getSourceUseSiteType(receiver, ctx);
+    const currentReceiverType =
+      chooseUseSiteType(object.inferredType, sourceReceiverType, ctx) ??
+      getCurrentTypeForAccessExpression(receiver, ctx);
     const objectType = currentReceiverType ?? object.inferredType;
 
     // Classify the access kind for proof pass
@@ -359,18 +389,25 @@ export const convertMemberExpression = (
         : undefined;
 
     // Derive element type from object type
+    const declaredElementType = deriveElementType(
+      objectType,
+      ctx,
+      argumentExpression
+    );
+    const elementUseSiteType = getSourceUseSiteType(node, ctx);
     const elementType =
       narrowedAccessType ??
-      deriveElementType(objectType, ctx, node.argumentExpression);
+      chooseUseSiteType(declaredElementType, elementUseSiteType, ctx) ??
+      declaredElementType;
     const accessProtocol = resolveComputedAccessProtocol(objectType, ctx);
 
     const baseElementAccess: IrExpression = {
       kind: "memberAccess",
       object,
-      property: convertExpression(node.argumentExpression, ctx, undefined),
+      property: convertExpression(argumentExpression, ctx, undefined),
       isComputed: true,
       isOptional,
-      inferredType: deriveElementType(objectType, ctx, node.argumentExpression),
+      inferredType: declaredElementType,
       sourceSpan,
       receiverArmSelection:
         currentReceiverType && object.inferredType?.kind === "unionType"
@@ -386,10 +423,10 @@ export const convertMemberExpression = (
     if (
       narrowedAccessType &&
       shouldWrapExpressionWithAssertion(
-        ctx,
-        deriveElementType(objectType, ctx, node.argumentExpression),
-        narrowedAccessType
-      )
+            ctx,
+            declaredElementType,
+            narrowedAccessType
+          )
     ) {
       return {
         kind: "typeAssertion",

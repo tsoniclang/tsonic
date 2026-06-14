@@ -1,21 +1,23 @@
-import * as ts from "typescript";
-import type { FrontendSourceSemanticView } from "../../../source-frontend/index.js";
+import { getTstsIdentifierText, TstsSyntax, type TstsNode } from "@tsonic/tsts";
+import type { TstsFrontendSourceSemanticView } from "../../../source-frontend/index.js";
 import {
   isMarkerApiKind,
   markerApiSemanticsFactKey,
 } from "../../../source-frontend/index.js";
 
-const stripParentheses = (expr: ts.Expression): ts.Expression => {
+const stripParentheses = (expr: TstsNode): TstsNode => {
   let current = expr;
-  while (ts.isParenthesizedExpression(current)) {
-    current = current.expression;
+  while (current.Kind === TstsSyntax.KindParenthesizedExpression) {
+    const inner = TstsSyntax.AsParenthesizedExpression(current)?.Expression;
+    if (!inner) break;
+    current = inner;
   }
   return current;
 };
 
 const isAttributesApiIdentifier = (
-  expression: ts.Identifier,
-  sourceSemantics: FrontendSourceSemanticView
+  expression: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean =>
   isMarkerApiKind(
     sourceSemantics.getFact(expression, markerApiSemanticsFactKey),
@@ -23,34 +25,41 @@ const isAttributesApiIdentifier = (
   );
 
 const isAttributesApiRootExpression = (
-  expression: ts.Expression,
-  sourceSemantics: FrontendSourceSemanticView
+  expression: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const current = stripParentheses(expression);
 
-  if (ts.isIdentifier(current)) {
+  if (current.Kind === TstsSyntax.KindIdentifier) {
     return isAttributesApiIdentifier(current, sourceSemantics);
   }
 
-  if (ts.isCallExpression(current)) {
-    return isAttributesApiRootExpression(current.expression, sourceSemantics);
+  if (current.Kind === TstsSyntax.KindCallExpression) {
+    const expressionNode = TstsSyntax.AsCallExpression(current)?.Expression;
+    return expressionNode
+      ? isAttributesApiRootExpression(expressionNode, sourceSemantics)
+      : false;
   }
 
-  if (ts.isPropertyAccessExpression(current)) {
-    return isAttributesApiRootExpression(current.expression, sourceSemantics);
+  if (current.Kind === TstsSyntax.KindPropertyAccessExpression) {
+    const expressionNode =
+      TstsSyntax.AsPropertyAccessExpression(current)?.Expression;
+    return expressionNode
+      ? isAttributesApiRootExpression(expressionNode, sourceSemantics)
+      : false;
   }
 
   return false;
 };
 
 export const isAttributeMetadataNamedArgumentPosition = (
-  call: ts.CallExpression,
+  call: TstsNode,
   argumentIndex: number,
-  expression: ts.Expression,
-  sourceSemantics: FrontendSourceSemanticView
+  expression: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const unwrapped = stripParentheses(expression);
-  if (!ts.isObjectLiteralExpression(unwrapped)) {
+  if (unwrapped.Kind !== TstsSyntax.KindObjectLiteralExpression) {
     return false;
   }
 
@@ -58,34 +67,46 @@ export const isAttributeMetadataNamedArgumentPosition = (
     return false;
   }
 
-  const callee = stripParentheses(call.expression);
-  if (!ts.isPropertyAccessExpression(callee)) {
+  const callExpression = TstsSyntax.AsCallExpression(call);
+  if (!callExpression?.Expression) {
     return false;
   }
 
-  if (callee.name.text !== "add" && callee.name.text !== "attr") {
+  const callee = stripParentheses(callExpression.Expression);
+  if (callee.Kind !== TstsSyntax.KindPropertyAccessExpression) {
     return false;
   }
 
-  return isAttributesApiRootExpression(callee.expression, sourceSemantics);
+  const calleeName = getTstsIdentifierText(TstsSyntax.Node_Name(callee));
+  if (calleeName !== "add" && calleeName !== "attr") {
+    return false;
+  }
+
+  const receiver = TstsSyntax.AsPropertyAccessExpression(callee)?.Expression;
+  return receiver
+    ? isAttributesApiRootExpression(receiver, sourceSemantics)
+    : false;
 };
 
 export const isAttributeMetadataNamedArgumentObjectLiteral = (
-  node: ts.ObjectLiteralExpression,
-  sourceSemantics: FrontendSourceSemanticView
+  node: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
-  let expression: ts.Expression = node;
-  let parent = node.parent;
-  while (parent && ts.isParenthesizedExpression(parent)) {
+  let expression: TstsNode = node;
+  let parent = node.Parent;
+  while (parent?.Kind === TstsSyntax.KindParenthesizedExpression) {
     expression = parent;
-    parent = parent.parent;
+    parent = parent.Parent;
   }
 
-  if (!parent || !ts.isCallExpression(parent)) {
+  if (!parent || parent.Kind !== TstsSyntax.KindCallExpression) {
     return false;
   }
 
-  const argumentIndex = parent.arguments.findIndex(
+  const argumentsList = (TstsSyntax.Node_Arguments(parent) ?? []).filter(
+    (argument): argument is TstsNode => argument !== undefined
+  );
+  const argumentIndex = argumentsList.findIndex(
     (argument) => stripParentheses(argument) === node
   );
   if (argumentIndex < 0) {

@@ -1,6 +1,7 @@
 import type { ProgramContext } from "../../../program-context.js";
 import type { IrExpression, IrType } from "../../../types.js";
 import { referenceTypeIdentity } from "../../../types/type-ops.js";
+import { getNumericKindFromIrType } from "../../../type-system/inference-utilities.js";
 import {
   expandParameterTypesForArguments,
   substitutePolymorphicThis,
@@ -123,6 +124,82 @@ export const containsTypeParameter = (
       );
     default:
       return false;
+  }
+};
+
+export const collectTypeParameterNames = (
+  type: IrType | undefined,
+  names: Set<string> = new Set(),
+  seen: WeakSet<object> = new WeakSet<object>()
+): Set<string> => {
+  if (!type) {
+    return names;
+  }
+
+  if (seen.has(type)) {
+    return names;
+  }
+  seen.add(type);
+
+  switch (type.kind) {
+    case "typeParameterType":
+      names.add(type.name);
+      return names;
+    case "arrayType":
+      collectTypeParameterNames(type.elementType, names, seen);
+      return names;
+    case "tupleType":
+      type.elementTypes.forEach((elementType) =>
+        collectTypeParameterNames(elementType, names, seen)
+      );
+      return names;
+    case "dictionaryType":
+      collectTypeParameterNames(type.keyType, names, seen);
+      collectTypeParameterNames(type.valueType, names, seen);
+      return names;
+    case "referenceType":
+      type.typeArguments?.forEach((typeArgument) =>
+        collectTypeParameterNames(typeArgument, names, seen)
+      );
+      type.structuralMembers?.forEach((member) => {
+        if (member.kind === "propertySignature") {
+          collectTypeParameterNames(member.type, names, seen);
+          return;
+        }
+
+        member.parameters.forEach((parameter) =>
+          collectTypeParameterNames(parameter.type, names, seen)
+        );
+        collectTypeParameterNames(member.returnType, names, seen);
+      });
+      return names;
+    case "unionType":
+    case "intersectionType":
+      type.types.forEach((memberType) =>
+        collectTypeParameterNames(memberType, names, seen)
+      );
+      return names;
+    case "functionType":
+      type.parameters.forEach((parameter) =>
+        collectTypeParameterNames(parameter.type, names, seen)
+      );
+      collectTypeParameterNames(type.returnType, names, seen);
+      return names;
+    case "objectType":
+      type.members.forEach((member) => {
+        if (member.kind === "propertySignature") {
+          collectTypeParameterNames(member.type, names, seen);
+          return;
+        }
+
+        member.parameters.forEach((parameter) =>
+          collectTypeParameterNames(parameter.type, names, seen)
+        );
+        collectTypeParameterNames(member.returnType, names, seen);
+      });
+      return names;
+    default:
+      return names;
   }
 };
 
@@ -489,7 +566,11 @@ export const shouldPreferExactMemberType = (
     return false;
   };
 
-  if (!exactType || exactType.kind === "unknownType") {
+  if (
+    !exactType ||
+    exactType.kind === "unknownType" ||
+    exactType.kind === "anyType"
+  ) {
     return false;
   }
 
@@ -520,31 +601,31 @@ export const shouldPreferExactMemberType = (
 
 const choosePreferredExactTypeArrayPair = (
   primary: readonly (IrType | undefined)[] | undefined,
-  fallback: readonly (IrType | undefined)[] | undefined,
+  candidate: readonly (IrType | undefined)[] | undefined,
   ctx: ProgramContext
 ): readonly (IrType | undefined)[] | undefined => {
   if (!primary) {
-    return fallback;
+    return candidate;
   }
 
-  if (!fallback) {
+  if (!candidate) {
     return primary;
   }
 
   let primaryWins = 0;
-  let fallbackWins = 0;
-  const count = Math.max(primary.length, fallback.length);
+  let candidateWins = 0;
+  const count = Math.max(primary.length, candidate.length);
   for (let index = 0; index < count; index += 1) {
-    if (shouldPreferExactMemberType(primary[index], fallback[index], ctx)) {
-      fallbackWins += 1;
+    if (shouldPreferExactMemberType(primary[index], candidate[index], ctx)) {
+      candidateWins += 1;
       continue;
     }
-    if (shouldPreferExactMemberType(fallback[index], primary[index], ctx)) {
+    if (shouldPreferExactMemberType(candidate[index], primary[index], ctx)) {
       primaryWins += 1;
     }
   }
 
-  return fallbackWins > primaryWins ? fallback : primary;
+  return candidateWins > primaryWins ? candidate : primary;
 };
 
 export const choosePreferredExactTypeArray = (
@@ -582,6 +663,9 @@ const NUMERIC_SOURCE_BACKED_TYPE_NAMES = new Set([
   "decimal",
 ]);
 
+const isBroadSourceNumberType = (type: IrType | undefined): boolean =>
+  !!type && getNumericKindFromIrType(type) === "float64";
+
 const isNumericSourceBackedType = (type: IrType | undefined): boolean => {
   if (!type) {
     return false;
@@ -609,6 +693,45 @@ const isNumericSourceBackedType = (type: IrType | undefined): boolean => {
   return false;
 };
 
+export const sourceBackedParameterExplicitlyAcceptsBroadNumber = (
+  type: IrType | undefined
+): boolean => {
+  if (!type) {
+    return false;
+  }
+
+  if (isBroadSourceNumberType(type)) {
+    return true;
+  }
+
+  if (type.kind === "unionType") {
+    return type.types.some((member) =>
+      sourceBackedParameterExplicitlyAcceptsBroadNumber(member)
+    );
+  }
+
+  return false;
+};
+
+export const sourceBackedParameterAcceptsActualArgument = (
+  parameterType: IrType | undefined,
+  actualArgType: IrType | undefined,
+  ctx: ProgramContext
+): boolean => {
+  if (!parameterType || !actualArgType) {
+    return false;
+  }
+
+  if (isBroadSourceNumberType(actualArgType)) {
+    return sourceBackedParameterExplicitlyAcceptsBroadNumber(parameterType);
+  }
+
+  return (
+    ctx.typeSystem.typesEqual(actualArgType, parameterType) ||
+    ctx.typeSystem.isAssignableTo(actualArgType, parameterType)
+  );
+};
+
 export const selectDeterministicSourceBackedParameterType = (
   parameterType: IrType | undefined,
   actualArgType: IrType | undefined,
@@ -631,6 +754,15 @@ export const selectDeterministicSourceBackedParameterType = (
       return undefined;
     }
 
+    if (isBroadSourceNumberType(actualArgType)) {
+      const broadNumberMembers = members.filter((member) =>
+        sourceBackedParameterExplicitlyAcceptsBroadNumber(member)
+      );
+      return broadNumberMembers.length === 1
+        ? broadNumberMembers[0]
+        : undefined;
+    }
+
     const numericMembers = members.filter((member) =>
       isNumericSourceBackedType(member)
     );
@@ -642,8 +774,7 @@ export const selectDeterministicSourceBackedParameterType = (
   if (hasNullishWrapperMember) {
     const matchingConcreteMembers = concreteMembers.filter(
       (member) =>
-        ctx.typeSystem.typesEqual(actualArgType, member) ||
-        ctx.typeSystem.isAssignableTo(actualArgType, member)
+        sourceBackedParameterAcceptsActualArgument(member, actualArgType, ctx)
     );
     if (matchingConcreteMembers.length === 1) {
       return matchingConcreteMembers[0];
@@ -654,8 +785,7 @@ export const selectDeterministicSourceBackedParameterType = (
 
   const matchingMembers = parameterType.types.filter(
     (member) =>
-      ctx.typeSystem.typesEqual(actualArgType, member) ||
-      ctx.typeSystem.isAssignableTo(actualArgType, member)
+      sourceBackedParameterAcceptsActualArgument(member, actualArgType, ctx)
   );
   if (matchingMembers.length === 1) {
     return matchingMembers[0];
@@ -710,13 +840,29 @@ export const expandAuthoritativeSourceBackedSurfaceType = (
             options
           ) ?? typeArgument
       );
+      if (
+        preserveCarrierIdentity === false &&
+        type.iterableShape &&
+        type.typeId?.origin === "external"
+      ) {
+        const { typeId: _typeId, ...carrierBase } = type;
+        return {
+          ...carrierBase,
+          name: `${type.typeId.sourceName}$instance`,
+          ...(expandedTypeArguments
+            ? { typeArguments: expandedTypeArguments }
+            : {}),
+        };
+      }
       const expandedAlias = ctx.typeSystem
         .collectExpectedReturnCandidates(type)
         .find(
           (candidate) =>
             !ctx.typeSystem.typesEqual(candidate, type) &&
             (candidate.kind === "unionType" ||
-              candidate.kind === "intersectionType")
+              candidate.kind === "intersectionType" ||
+              (preserveCarrierIdentity === false &&
+                candidate.kind === "referenceType"))
         );
       if (expandedAlias) {
         if (
@@ -1128,7 +1274,10 @@ export const deriveInvocationTypeSubstitutions = (
         continue;
       }
       const attempt = new Map(substitutions);
-      if (!unifyTypeTemplate(parameterType, actualArgType, attempt)) {
+      if (
+        !unifyTypeTemplate(parameterType, actualArgType, attempt) &&
+        !unifyIterableTemplate(parameterType, actualArgType, attempt, ctx)
+      ) {
         continue;
       }
       substitutions.clear();
@@ -1171,6 +1320,56 @@ export const deriveInvocationTypeSubstitutions = (
   return substitutions.size > 0 ? substitutions : undefined;
 };
 
+const nonNullishTemplateMembers = (type: IrType): readonly IrType[] => {
+  if (type.kind !== "unionType") {
+    return [type];
+  }
+
+  return type.types.filter(
+    (member) =>
+      !(
+        member.kind === "primitiveType" &&
+        (member.name === "null" || member.name === "undefined")
+      )
+  );
+};
+
+const unifyIterableTemplate = (
+  template: IrType,
+  actual: IrType,
+  substitutions: Map<string, IrType>,
+  ctx: ProgramContext
+): boolean => {
+  for (const candidate of nonNullishTemplateMembers(template)) {
+    const templateIterable = ctx.typeSystem.getIterableShape(candidate);
+    const actualIterable = ctx.typeSystem.getIterableShape(actual);
+    if (
+      !templateIterable ||
+      !actualIterable ||
+      templateIterable.mode !== actualIterable.mode
+    ) {
+      continue;
+    }
+
+    const attempt = new Map(substitutions);
+    if (
+      unifyTypeTemplate(
+        templateIterable.elementType,
+        actualIterable.elementType,
+        attempt
+      )
+    ) {
+      substitutions.clear();
+      for (const [name, type] of attempt) {
+        substitutions.set(name, type);
+      }
+      return true;
+    }
+  }
+
+  return false;
+};
+
 type InvocationFinalizationInput = {
   readonly ctx: ProgramContext;
   readonly callee: IrExpression;
@@ -1205,8 +1404,8 @@ type InvocationFinalizationInput = {
     | readonly (IrType | undefined)[]
     | undefined;
   readonly resolvedReturnType: IrType | undefined;
-  readonly fallbackParameterTypes: readonly (IrType | undefined)[] | undefined;
-  readonly fallbackSurfaceParameterTypes:
+  readonly contextualParameterTypes: readonly (IrType | undefined)[] | undefined;
+  readonly contextualSurfaceParameterTypes:
     | readonly (IrType | undefined)[]
     | undefined;
   readonly exactParameterCandidates: readonly (
@@ -1257,8 +1456,8 @@ export const finalizeInvocationMetadata = ({
   resolvedParameterTypes,
   resolvedSurfaceParameterTypes,
   resolvedReturnType,
-  fallbackParameterTypes,
-  fallbackSurfaceParameterTypes,
+  contextualParameterTypes,
+  contextualSurfaceParameterTypes,
   exactParameterCandidates,
   exactSurfaceParameterCandidates,
   exactReturnCandidates,
@@ -1331,11 +1530,11 @@ export const finalizeInvocationMetadata = ({
   );
   const specializedResolvedSurfaceParameterTypes =
     applyInvocationSpecializationArray(resolvedSurfaceParameterTypes);
-  const specializedFallbackParameterTypes = applyInvocationSpecializationArray(
-    fallbackParameterTypes
+  const specializedContextualParameterTypes = applyInvocationSpecializationArray(
+    contextualParameterTypes
   );
-  const specializedFallbackSurfaceParameterTypes =
-    applyInvocationSpecializationArray(fallbackSurfaceParameterTypes);
+  const specializedContextualSurfaceParameterTypes =
+    applyInvocationSpecializationArray(contextualSurfaceParameterTypes);
   const specializedAmbientBoundGlobalSurfaceParameterTypes =
     applyInvocationSpecializationArray(ambientBoundGlobalSurfaceParameterTypes);
   const specializedSourceBackedReturnType = applyInvocationSpecialization(
@@ -1387,6 +1586,26 @@ export const finalizeInvocationMetadata = ({
         ? specializedExactSurfaceParameterTypes?.[index]
         : parameterType
     );
+  const resolvedCoherentSourceBackedParameterTypes =
+    refinedSourceBackedParameterTypes?.map((parameterType, index) =>
+      shouldPreferExactMemberType(
+        parameterType,
+        specializedResolvedParameterTypes?.[index],
+        ctx
+      )
+        ? specializedResolvedParameterTypes?.[index]
+        : parameterType
+    );
+  const resolvedCoherentSourceBackedSurfaceParameterTypes =
+    refinedSourceBackedSurfaceParameterTypes?.map((parameterType, index) =>
+      shouldPreferExactMemberType(
+        parameterType,
+        specializedResolvedSurfaceParameterTypes?.[index],
+        ctx
+      )
+        ? specializedResolvedSurfaceParameterTypes?.[index]
+        : parameterType
+    );
 
   const finalSourceBackedReturnType = (() => {
     const baselineReturnType =
@@ -1409,11 +1628,11 @@ export const finalizeInvocationMetadata = ({
       ctx
     );
   const coherentSourceBackedParameterTypes = shouldUseSourceBackedSignature
-    ? refinedSourceBackedParameterTypes
+    ? resolvedCoherentSourceBackedParameterTypes
     : undefined;
   const coherentSourceBackedSurfaceParameterTypes =
     shouldUseSourceBackedSignature
-      ? refinedSourceBackedSurfaceParameterTypes
+      ? resolvedCoherentSourceBackedSurfaceParameterTypes
       : undefined;
 
   const preferResolvedExplicitGenericSurface =
@@ -1427,7 +1646,7 @@ export const finalizeInvocationMetadata = ({
       : coherentSourceBackedParameterTypes) ??
     coherentSourceBackedParameterTypes ??
     specializedResolvedParameterTypes ??
-    specializedFallbackParameterTypes;
+    specializedContextualParameterTypes;
   const parameterTypes = baselineParameterTypes?.map((parameterType, index) =>
     specializedBoundGlobalParameterTypes
       ? parameterType
@@ -1448,7 +1667,7 @@ export const finalizeInvocationMetadata = ({
     coherentSourceBackedSurfaceParameterTypes ??
     specializedAmbientBoundGlobalSurfaceParameterTypes ??
     specializedResolvedSurfaceParameterTypes ??
-    specializedFallbackSurfaceParameterTypes ??
+    specializedContextualSurfaceParameterTypes ??
     parameterTypes;
   const selectionSurfaceParameterTypes = baselineSurfaceParameterTypes?.map(
     (parameterType) =>

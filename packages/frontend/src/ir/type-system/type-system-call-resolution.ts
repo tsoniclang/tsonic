@@ -7,7 +7,7 @@
  * - call-resolution-utilities: Pure type helpers, type ID attachment, parameter expansion
  * - call-resolution-signatures: Signature extraction, structural lookup, delegate conversion,
  *   receiver substitution
- * - call-resolution-inference: Generic type argument inference, overload scoring, parameter refinement
+ * - call-resolution-inference: Generic type argument inference and selected-signature parameter refinement
  * - call-resolution-resolve: Main resolveCall entry point
  */
 
@@ -40,11 +40,8 @@ export {
 
 export {
   inferMethodTypeArgsFromArguments,
-  isArityCompatible,
-  scoreSignatureMatch,
   refineParameterTypeForConcreteArgument,
   refineResolvedParameterTypesForArguments,
 } from "./call-resolution-inference.js";
 
 export { resolveCall } from "./call-resolution-resolve.js";
-export { resolveCallableType } from "./call-resolution-callable-types.js";

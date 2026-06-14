@@ -8,9 +8,25 @@
  */
 
 import * as fs from "fs";
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsHeritageClauseDetails,
+  getTstsIdentifierText,
+  getTstsMemberNodes,
+  getTstsNodeNameText,
+  getTstsParameters,
+  getTstsPropertyNameText,
+  getTstsStatementNodes,
+  getTstsTypeArguments,
+  getTstsTypeParameterNodes,
+  hasTstsStaticModifier,
+  isTstsOptionalParameter,
+  isTstsRestParameter,
+  parseTstsSourceFile,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import type { IrType } from "../../../types/index.js";
-import { tryResolveDeterministicPropertyName } from "../../../syntax/property-names.js";
 import type { TypeId, NominalEntry, HeritageEdge } from "./types.js";
 import {
   dtsTypeNodeToIrType,
@@ -26,6 +42,7 @@ import { compareHeritageEdges, heritageEdgeKey } from "./heritage-edge-key.js";
 
 export type TsBindgenDtsTypeInfo = {
   readonly typeParametersByTsName: ReadonlyMap<string, readonly string[]>;
+  readonly sourceCarrierNamesByTsName: ReadonlyMap<string, string>;
   readonly heritageByTsName: ReadonlyMap<string, readonly HeritageEdge[]>;
   readonly memberTypesByTsName: ReadonlyMap<
     string,
@@ -57,6 +74,7 @@ export const extractHeritageFromTsBindgenDts = (
   entries: ReadonlyMap<string, NominalEntry>
 ): TsBindgenDtsTypeInfo => {
   const typeParametersByTsName = new Map<string, readonly string[]>();
+  const sourceCarrierNamesByTsName = new Map<string, string>();
   const heritageByTsName = new Map<string, HeritageEdge[]>();
   const memberTypesByTsName = new Map<string, Map<string, IrType>>();
   const methodSignatureSurfacesByTsName = new Map<
@@ -69,13 +87,7 @@ export const extractHeritageFromTsBindgenDts = (
   >();
 
   const content = fs.readFileSync(dtsPath, "utf-8");
-  const sf = ts.createSourceFile(
-    dtsPath,
-    content,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
+  const sf = parseTstsSourceFile(content, { fileName: dtsPath });
 
   const getEntry = (tsName: string): NominalEntry | undefined => {
     const id = tsNameToTypeId.get(tsName);
@@ -131,39 +143,41 @@ export const extractHeritageFromTsBindgenDts = (
     }
   };
 
-  const getPropertyNameText = (name: ts.PropertyName): string | undefined =>
-    tryResolveDeterministicPropertyName(name);
+  const getPropertyNameText = (member: TstsNode): string | undefined =>
+    getTstsPropertyNameText(member);
 
   const extractMethodSignatureOptionalsFromMembers = (
     baseTsName: string,
-    members: readonly ts.Node[],
+    members: readonly TstsNode[],
     typeTypeParams: readonly string[],
     staticOverride?: boolean
   ): void => {
     const typeScope = new Set<string>(typeTypeParams);
 
     for (const member of members) {
-      if (!ts.isMethodSignature(member) && !ts.isMethodDeclaration(member))
+      if (
+        !TstsSyntax.IsMethodSignatureDeclaration(member) &&
+        !TstsSyntax.IsMethodDeclaration(member)
+      ) {
         continue;
+      }
 
-      const methodName =
-        member.name && ts.isIdentifier(member.name)
-          ? member.name.text
-          : undefined;
+      const methodName = getTstsPropertyNameText(member);
       if (!methodName) continue;
 
-      const methodTypeParams = (member.typeParameters ?? []).map(
-        (p) => p.name.text
+      const methodTypeParams = getTstsTypeParameterNodes(member).map(
+        (p) => getTstsNodeNameText(p) ?? ""
       );
       const inScopeTypeParams = new Set<string>([
         ...Array.from(typeScope),
-        ...methodTypeParams,
+        ...methodTypeParams.filter((name) => name.length > 0),
       ]);
 
       const params: { type: IrType; isRest: boolean; isOptional: boolean }[] =
         [];
-      for (const param of member.parameters) {
-        if (!param.type) {
+      for (const param of getTstsParameters(member)) {
+        const paramType = getTstsDeclaredTypeNode(param);
+        if (!paramType) {
           // Deterministic: without an explicit type, we can't match this overload to metadata.
           params.length = 0;
           break;
@@ -171,32 +185,26 @@ export const extractHeritageFromTsBindgenDts = (
 
         params.push({
           type: dtsTypeNodeToIrType(
-            param.type,
+            paramType,
             inScopeTypeParams,
             tsNameToTypeId
           ),
-          isRest: param.dotDotDotToken !== undefined,
-          isOptional:
-            param.questionToken !== undefined ||
-            param.initializer !== undefined,
+          isRest: isTstsRestParameter(param),
+          isOptional: isTstsOptionalParameter(param),
         });
       }
 
-      if (params.length === 0 && member.parameters.length > 0) {
+      if (params.length === 0 && getTstsParameters(member).length > 0) {
         continue;
       }
 
-      const returnType = member.type
-        ? dtsTypeNodeToIrType(member.type, inScopeTypeParams, tsNameToTypeId)
+      const memberType = getTstsDeclaredTypeNode(member);
+      const returnType = memberType
+        ? dtsTypeNodeToIrType(memberType, inScopeTypeParams, tsNameToTypeId)
         : ({ kind: "voidType" } as const);
 
       const isStatic =
-        staticOverride ??
-        (ts.isMethodDeclaration(member) &&
-          (member.modifiers?.some(
-            (m) => m.kind === ts.SyntaxKind.StaticKeyword
-          ) ??
-            false));
+        staticOverride ?? hasTstsStaticModifier(member);
 
       const signatureKey = makeMethodOverloadKey({
         isStatic,
@@ -220,45 +228,42 @@ export const extractHeritageFromTsBindgenDts = (
 
   const extractMemberTypesFromInstanceDecl = (
     baseTsName: string,
-    members: readonly ts.Node[],
+    members: readonly TstsNode[],
     inScopeTypeParams: ReadonlySet<string>
   ): void => {
     for (const member of members) {
-      if (ts.isPropertySignature(member)) {
-        const nameText = member.name
-          ? getPropertyNameText(member.name)
-          : undefined;
-        if (!nameText || !member.type) continue;
+      if (TstsSyntax.IsPropertySignatureDeclaration(member)) {
+        const nameText = getPropertyNameText(member);
+        const memberType = getTstsDeclaredTypeNode(member);
+        if (!nameText || !memberType) continue;
         recordMemberType(
           baseTsName,
           nameText,
-          dtsTypeNodeToIrType(member.type, inScopeTypeParams, tsNameToTypeId)
+          dtsTypeNodeToIrType(memberType, inScopeTypeParams, tsNameToTypeId)
         );
         continue;
       }
 
-      if (ts.isPropertyDeclaration(member)) {
-        const nameText = member.name
-          ? getPropertyNameText(member.name)
-          : undefined;
-        if (!nameText || !member.type) continue;
+      if (TstsSyntax.IsPropertyDeclaration(member)) {
+        const nameText = getPropertyNameText(member);
+        const memberType = getTstsDeclaredTypeNode(member);
+        if (!nameText || !memberType) continue;
         recordMemberType(
           baseTsName,
           nameText,
-          dtsTypeNodeToIrType(member.type, inScopeTypeParams, tsNameToTypeId)
+          dtsTypeNodeToIrType(memberType, inScopeTypeParams, tsNameToTypeId)
         );
         continue;
       }
 
-      if (ts.isGetAccessorDeclaration(member)) {
-        const nameText = member.name
-          ? getPropertyNameText(member.name)
-          : undefined;
-        if (!nameText || !member.type) continue;
+      if (TstsSyntax.IsGetAccessorDeclaration(member)) {
+        const nameText = getPropertyNameText(member);
+        const memberType = getTstsDeclaredTypeNode(member);
+        if (!nameText || !memberType) continue;
         recordMemberType(
           baseTsName,
           nameText,
-          dtsTypeNodeToIrType(member.type, inScopeTypeParams, tsNameToTypeId)
+          dtsTypeNodeToIrType(memberType, inScopeTypeParams, tsNameToTypeId)
         );
         continue;
       }
@@ -279,14 +284,19 @@ export const extractHeritageFromTsBindgenDts = (
     sourceTsName: string,
     sourceEntry: NominalEntry,
     inScopeTypeParams: ReadonlySet<string>,
-    clauses: readonly ts.HeritageClause[] | undefined,
+    clauses: readonly {
+      readonly kind: "extends" | "implements";
+      readonly types: readonly (TstsNode | undefined)[];
+    }[],
     forceKind?: HeritageEdge["kind"]
   ) => {
-    if (!clauses) return;
-
     for (const clause of clauses) {
       for (const t of clause.types) {
-        const rawTarget = getRightmostPropertyAccessText(t.expression);
+        if (!t) continue;
+        const expression = TstsSyntax.Node_Expression(t);
+        const rawTarget = expression
+          ? getRightmostPropertyAccessText(expression)
+          : undefined;
         if (!rawTarget) continue;
         const targetTsName = stripTsBindgenInstanceSuffix(rawTarget);
 
@@ -295,7 +305,9 @@ export const extractHeritageFromTsBindgenDts = (
         const targetEntry = entries.get(targetTypeId.stableId);
         if (!targetEntry) continue;
 
-        const typeArguments = (t.typeArguments ?? []).map((a) =>
+        const typeArguments = getTstsTypeArguments(t)
+          .filter((a): a is TstsNode => a !== undefined)
+          .map((a) =>
           dtsTypeNodeToIrType(a, inScopeTypeParams, tsNameToTypeId)
         );
 
@@ -308,28 +320,29 @@ export const extractHeritageFromTsBindgenDts = (
     }
   };
 
-  const addHeritageFromViewsInterface = (
-    viewsDecl: ts.InterfaceDeclaration
-  ) => {
-    const baseTsName = stripTsBindgenViewsWrapper(viewsDecl.name.text);
+  const addHeritageFromViewsInterface = (viewsDecl: TstsNode) => {
+    const viewName = getTstsNodeNameText(viewsDecl);
+    const baseTsName = viewName ? stripTsBindgenViewsWrapper(viewName) : undefined;
     if (!baseTsName) return;
 
     const sourceEntry = getEntry(baseTsName);
     if (!sourceEntry) return;
 
     const inScopeTypeParams = new Set<string>(
-      (viewsDecl.typeParameters ?? []).map((p) => p.name.text)
+      getTstsTypeParameterNodes(viewsDecl)
+        .map((p) => getTstsNodeNameText(p) ?? "")
+        .filter((name) => name.length > 0)
     );
 
-    for (const m of viewsDecl.members) {
-      if (!ts.isMethodSignature(m)) continue;
-      const methodName =
-        m.name && ts.isIdentifier(m.name) ? m.name.text : undefined;
+    for (const m of getTstsMemberNodes(viewsDecl)) {
+      if (!m || !TstsSyntax.IsMethodSignatureDeclaration(m)) continue;
+      const methodName = getTstsPropertyNameText(m);
       if (!methodName || !methodName.startsWith("As_")) continue;
-      if (!m.type) continue;
+      const methodType = getTstsDeclaredTypeNode(m);
+      if (!methodType) continue;
 
       const returnType = dtsTypeNodeToIrType(
-        m.type,
+        methodType,
         inScopeTypeParams,
         tsNameToTypeId
       );
@@ -349,10 +362,12 @@ export const extractHeritageFromTsBindgenDts = (
     }
   };
 
-  for (const stmt of sf.statements) {
+  for (const stmt of getTstsStatementNodes(sf)) {
+    if (!stmt) continue;
     // export interface Foo$instance<T> ...
-    if (ts.isInterfaceDeclaration(stmt) && stmt.name) {
-      const nameText = stmt.name.text;
+    if (TstsSyntax.IsInterfaceDeclaration(stmt)) {
+      const nameText = getTstsNodeNameText(stmt);
+      if (!nameText) continue;
 
       // Views wrapper: __Foo$views<T> { As_ProviderIterable_1(): ProviderIterable_1$instance<T> }
       if (
@@ -367,8 +382,13 @@ export const extractHeritageFromTsBindgenDts = (
       const baseTsName = stripTsBindgenInstanceSuffix(nameText);
       const sourceEntry = getEntry(baseTsName);
       if (!sourceEntry) continue;
+      if (!sourceCarrierNamesByTsName.has(baseTsName)) {
+        sourceCarrierNamesByTsName.set(baseTsName, nameText);
+      }
 
-      const typeParams = (stmt.typeParameters ?? []).map((p) => p.name.text);
+      const typeParams = getTstsTypeParameterNodes(stmt)
+        .map((p) => getTstsNodeNameText(p) ?? "")
+        .filter((name) => name.length > 0);
       if (!typeParametersByTsName.has(baseTsName)) {
         typeParametersByTsName.set(baseTsName, typeParams);
       }
@@ -378,71 +398,72 @@ export const extractHeritageFromTsBindgenDts = (
         baseTsName,
         sourceEntry,
         inScopeTypeParams,
-        stmt.heritageClauses
+        getTstsHeritageClauseDetails(stmt)
       );
 
       extractMemberTypesFromInstanceDecl(
         baseTsName,
-        stmt.members,
+        getTstsMemberNodes(stmt).filter(
+          (member): member is TstsNode => member !== undefined
+        ),
         inScopeTypeParams
       );
 
       extractMethodSignatureOptionalsFromMembers(
         baseTsName,
-        stmt.members,
+        getTstsMemberNodes(stmt).filter(
+          (member): member is TstsNode => member !== undefined
+        ),
         typeParams
       );
       continue;
     }
 
     // export abstract class Foo$instance { ... } (static namespaces)
-    if (ts.isClassDeclaration(stmt) && stmt.name) {
-      const nameText = stmt.name.text;
+    if (TstsSyntax.IsClassDeclaration(stmt)) {
+      const nameText = getTstsNodeNameText(stmt);
+      if (!nameText) continue;
       if (!nameText.endsWith(INSTANCE_SUFFIX)) continue;
 
       const baseTsName = stripTsBindgenInstanceSuffix(nameText);
       const sourceEntry = getEntry(baseTsName);
       if (!sourceEntry) continue;
+      if (!sourceCarrierNamesByTsName.has(baseTsName)) {
+        sourceCarrierNamesByTsName.set(baseTsName, nameText);
+      }
 
-      const typeParams = (stmt.typeParameters ?? []).map((p) => p.name.text);
+      const typeParams = getTstsTypeParameterNodes(stmt)
+        .map((p) => getTstsNodeNameText(p) ?? "")
+        .filter((name) => name.length > 0);
       if (!typeParametersByTsName.has(baseTsName)) {
         typeParametersByTsName.set(baseTsName, typeParams);
       }
 
       const inScopeTypeParams = new Set<string>(typeParams);
 
-      // In a class declaration, TS encodes extends/implements explicitly.
-      if (stmt.heritageClauses) {
-        for (const clause of stmt.heritageClauses) {
-          if (clause.token === ts.SyntaxKind.ExtendsKeyword) {
-            addHeritageFromHeritageClauses(
-              baseTsName,
-              sourceEntry,
-              inScopeTypeParams,
-              [clause],
-              "extends"
-            );
-          } else if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
-            addHeritageFromHeritageClauses(
-              baseTsName,
-              sourceEntry,
-              inScopeTypeParams,
-              [clause],
-              "implements"
-            );
-          }
-        }
+      for (const clause of getTstsHeritageClauseDetails(stmt)) {
+        addHeritageFromHeritageClauses(
+          baseTsName,
+          sourceEntry,
+          inScopeTypeParams,
+          [clause],
+          clause.kind
+        );
       }
 
       extractMemberTypesFromInstanceDecl(
         baseTsName,
-        stmt.members,
+        getTstsMemberNodes(stmt).filter(
+          (member): member is TstsNode => member !== undefined
+        ),
         inScopeTypeParams
       );
 
       extractMethodSignatureOptionalsFromMembers(
         baseTsName,
-        stmt.members,
+        getTstsMemberNodes(stmt).filter(
+          (member): member is TstsNode => member !== undefined
+        ),
         typeParams
       );
     }
@@ -452,15 +473,30 @@ export const extractHeritageFromTsBindgenDts = (
     //
     // native target metadata lacks optional parameter flags, so we hydrate them from the d.ts
     // surface to support deterministic arity checks (and thus overload correction).
-    if (ts.isVariableStatement(stmt)) {
-      for (const decl of stmt.declarationList.declarations) {
-        if (!ts.isIdentifier(decl.name)) continue;
-        if (!decl.type || !ts.isTypeLiteralNode(decl.type)) continue;
+    if (TstsSyntax.IsVariableStatement(stmt)) {
+      const declarationList = TstsSyntax.AsVariableStatement(stmt)
+        ?.DeclarationList;
+      const declarations =
+        TstsSyntax.AsVariableDeclarationList(declarationList)?.Declarations
+          ?.Nodes ?? [];
+      for (const decl of declarations) {
+        if (!decl) continue;
+        const declarationName = getTstsIdentifierText(TstsSyntax.Node_Name(decl));
+        const declarationType = getTstsDeclaredTypeNode(decl);
+        if (
+          !declarationName ||
+          !declarationType ||
+          !TstsSyntax.IsTypeLiteralNode(declarationType)
+        ) {
+          continue;
+        }
 
-        const baseTsName = stripTsBindgenInstanceSuffix(decl.name.text);
+        const baseTsName = stripTsBindgenInstanceSuffix(declarationName);
         extractMethodSignatureOptionalsFromMembers(
           baseTsName,
-          decl.type.members,
+          getTstsMemberNodes(declarationType).filter(
+            (member): member is TstsNode => member !== undefined
+          ),
           [],
           true
         );
@@ -484,6 +520,7 @@ export const extractHeritageFromTsBindgenDts = (
 
   return {
     typeParametersByTsName,
+    sourceCarrierNamesByTsName,
     heritageByTsName: dedupedHeritageByTsName,
     memberTypesByTsName,
     methodSignatureSurfacesByTsName,

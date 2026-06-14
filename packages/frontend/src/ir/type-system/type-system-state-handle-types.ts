@@ -150,6 +150,7 @@ export type TypeRegistryEntry = {
   readonly ownerIdentity?: string;
   readonly typeParameters: readonly TypeParameterEntry[];
   readonly members: ReadonlyMap<string, TypeRegistryMemberInfo>;
+  readonly aliasedType?: IrType;
 };
 
 export type TypeRegistryMemberInfo = {

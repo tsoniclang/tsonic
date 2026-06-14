@@ -9,15 +9,12 @@ import {
   IrType,
 } from "../types.js";
 import { getAwaitedIrType, referenceTypeIdentity } from "../types/type-ops.js";
-import {
-  collectResolutionArguments,
-  resolveCallableCandidate,
-} from "../converters/expressions/calls/call-resolution.js";
+import { collectResolutionArguments } from "../converters/expressions/calls/call-resolution.js";
 import { getBoundGlobalCallParameterTypes } from "../converters/expressions/calls/bound-global-call-parameters.js";
 import {
+  collectTypeParameterNames,
   finalizeInvocationMetadata,
   getAuthoritativeDirectCalleeParameterTypes,
-  getDirectStructuralMemberType,
   invocationTypesEquivalent,
 } from "../converters/expressions/calls/invocation-finalization.js";
 
@@ -155,11 +152,91 @@ const hasDeterministicIdentityConflict = (
   }
 };
 
+const containsWeakUnknownishType = (
+  type: IrType | undefined,
+  seen: WeakSet<object> = new WeakSet<object>()
+): boolean => {
+  if (!type) {
+    return true;
+  }
+  if (seen.has(type)) {
+    return false;
+  }
+  seen.add(type);
+
+  switch (type.kind) {
+    case "unknownType":
+    case "anyType":
+      return true;
+    case "arrayType":
+      return containsWeakUnknownishType(type.elementType, seen);
+    case "tupleType":
+      return type.elementTypes.some((elementType) =>
+        containsWeakUnknownishType(elementType, seen)
+      );
+    case "dictionaryType":
+      return (
+        containsWeakUnknownishType(type.keyType, seen) ||
+        containsWeakUnknownishType(type.valueType, seen)
+      );
+    case "referenceType":
+      return (
+        type.typeArguments?.some((typeArgument) =>
+          containsWeakUnknownishType(typeArgument, seen)
+        ) === true
+      );
+    case "functionType":
+      return (
+        type.parameters.some((parameter) =>
+          containsWeakUnknownishType(parameter.type, seen)
+        ) || containsWeakUnknownishType(type.returnType, seen)
+      );
+    case "objectType":
+      return type.members.some((member) =>
+        member.kind === "propertySignature"
+          ? containsWeakUnknownishType(member.type, seen)
+          : member.parameters.some((parameter) =>
+              containsWeakUnknownishType(parameter.type, seen)
+            ) || containsWeakUnknownishType(member.returnType, seen)
+      );
+    case "unionType":
+    case "intersectionType":
+      return type.types.some((member) =>
+        containsWeakUnknownishType(member, seen)
+      );
+    default:
+      return false;
+  }
+};
+
 const cohereSourceBackedReturnType = (
   inferredType: IrExpression["inferredType"],
   sourceBackedReturnType: IrExpression["inferredType"] | undefined,
   ctx: ProgramContext
 ): IrExpression["inferredType"] | undefined => {
+  if (
+    inferredType &&
+    sourceBackedReturnType &&
+    containsWeakUnknownishType(sourceBackedReturnType) &&
+    !containsWeakUnknownishType(inferredType)
+  ) {
+    return inferredType;
+  }
+
+  if (inferredType && sourceBackedReturnType) {
+    const sourceBackedTypeParameters =
+      collectTypeParameterNames(sourceBackedReturnType);
+    if (sourceBackedTypeParameters.size > 0) {
+      const inferredTypeParameters = collectTypeParameterNames(inferredType);
+      const hasUnresolvedSourceBackedParameter = [
+        ...sourceBackedTypeParameters,
+      ].some((name) => !inferredTypeParameters.has(name));
+      if (hasUnresolvedSourceBackedParameter) {
+        return inferredType;
+      }
+    }
+  }
+
   if (
     inferredType &&
     sourceBackedReturnType &&
@@ -637,25 +714,21 @@ const refreshExpression = (
           : arguments_.map((argument) =>
               argument.kind === "spread" ? undefined : argument.inferredType
             );
-      const selection = ctx.typeSystem.selectBestCallCandidate(
-        expr.signatureId,
-        expr.candidateSignatureIds,
-        {
-          argumentCount,
-          receiverType:
-            callee.kind === "memberAccess"
-              ? callee.object.inferredType
-              : undefined,
-          explicitTypeArgs: expr.explicitTypeArguments,
-          argTypes,
-          expectedReturnType: expr.resolutionExpectedReturnType,
-        }
-      );
-      const resolved = selection.resolved;
+      const resolved = ctx.typeSystem.resolveCall({
+        sigId: expr.signatureId,
+        argumentCount,
+        receiverType:
+          callee.kind === "memberAccess" ? callee.object.inferredType : undefined,
+        explicitTypeArgs: expr.explicitTypeArguments,
+        argTypes,
+        expectedReturnType: expr.resolutionExpectedReturnType,
+      });
+      const effectiveResolved = resolved;
       const usesAuthoritativeSurfaceBindings = ctx.surface !== "core";
       const boundGlobalCallParameterTypes = getBoundGlobalCallParameterTypes(
         callee,
         argumentCount,
+        argTypes,
         ctx
       );
       const authoritativeBoundGlobalSurfaceParameterTypes =
@@ -669,36 +742,6 @@ const refreshExpression = (
       const preservedAmbientBoundGlobalSurfaceParameterTypes =
         !usesAuthoritativeSurfaceBindings && boundGlobalCallParameterTypes
           ? expr.surfaceParameterTypes
-          : undefined;
-      const directStructuralResolution =
-        callee.kind === "memberAccess" && typeof callee.property === "string"
-          ? (() => {
-              const directStructuralMemberType = getDirectStructuralMemberType(
-                callee.object.inferredType,
-                callee.property
-              );
-              return directStructuralMemberType
-                ? resolveCallableCandidate(
-                    directStructuralMemberType,
-                    argumentCount,
-                    ctx,
-                    argTypes,
-                    expr.typeArguments,
-                    expr.resolutionExpectedReturnType
-                  )
-                : undefined;
-            })()
-          : undefined;
-      const directCalleeResolution =
-        callee.inferredType && callee.inferredType.kind !== "unknownType"
-          ? resolveCallableCandidate(
-              callee.inferredType,
-              argumentCount,
-              ctx,
-              argTypes,
-              expr.typeArguments,
-              expr.resolutionExpectedReturnType
-            )
           : undefined;
       const authoritativeDirectCalleeParameterTypes =
         getAuthoritativeDirectCalleeParameterTypes(callee, argumentCount, ctx);
@@ -715,11 +758,9 @@ const refreshExpression = (
             ? callee.object.inferredType
             : undefined,
         callableType:
-          directStructuralResolution?.callableType ??
-          directCalleeResolution?.callableType ??
-          (callee.inferredType?.kind === "functionType"
+          callee.inferredType?.kind === "functionType"
             ? callee.inferredType
-            : undefined),
+            : undefined,
         argumentCount,
         argTypes,
         explicitTypeArgs: expr.explicitTypeArguments,
@@ -736,25 +777,14 @@ const refreshExpression = (
           preservedAmbientBoundGlobalSurfaceParameterTypes,
         authoritativeDirectParameterTypes:
           authoritativeDirectCalleeParameterTypes,
-        resolvedParameterTypes: resolved?.parameterTypes,
-        resolvedSurfaceParameterTypes: resolved?.surfaceParameterTypes,
-        resolvedReturnType: resolved?.returnType,
-        fallbackParameterTypes: expr.parameterTypes,
-        fallbackSurfaceParameterTypes: expr.surfaceParameterTypes,
-        exactParameterCandidates: [
-          directStructuralResolution?.resolved?.parameterTypes,
-          directCalleeResolution?.resolved?.parameterTypes,
-        ],
-        exactSurfaceParameterCandidates: [
-          directStructuralResolution?.resolved?.surfaceParameterTypes ??
-            directStructuralResolution?.resolved?.parameterTypes,
-          directCalleeResolution?.resolved?.surfaceParameterTypes ??
-            directCalleeResolution?.resolved?.parameterTypes,
-        ],
-        exactReturnCandidates: [
-          directStructuralResolution?.resolved?.returnType,
-          directCalleeResolution?.resolved?.returnType,
-        ],
+        resolvedParameterTypes: effectiveResolved?.parameterTypes,
+        resolvedSurfaceParameterTypes: effectiveResolved?.surfaceParameterTypes,
+        resolvedReturnType: effectiveResolved?.returnType,
+        contextualParameterTypes: expr.parameterTypes,
+        contextualSurfaceParameterTypes: expr.surfaceParameterTypes,
+        exactParameterCandidates: [],
+        exactSurfaceParameterCandidates: [],
+        exactReturnCandidates: [],
         preserveDirectSurfaceIdentity:
           preserveAuthoritativeDirectCalleeSurfaceIdentity,
       });
@@ -818,12 +848,12 @@ const refreshExpression = (
         arguments: arguments_,
         inferredType: preserveResolvedReturnType(
           expr.inferredType,
-          coherentSourceBackedReturnType ?? resolved?.returnType,
-          resolved?.hasDeclaredReturnType
+          coherentSourceBackedReturnType ?? effectiveResolved?.returnType,
+          effectiveResolved?.hasDeclaredReturnType
         ),
         typeArguments:
           expr.explicitTypeArguments ??
-          resolved?.typeArguments ??
+          effectiveResolved?.typeArguments ??
           expr.typeArguments,
         parameterTypes: visibleParameterTypes,
         surfaceParameterTypes: visibleSurfaceParameterTypes,
@@ -905,8 +935,8 @@ const refreshExpression = (
         resolvedParameterTypes: resolved.parameterTypes,
         resolvedSurfaceParameterTypes: resolved.surfaceParameterTypes,
         resolvedReturnType: resolved.returnType,
-        fallbackParameterTypes: expr.parameterTypes,
-        fallbackSurfaceParameterTypes: expr.surfaceParameterTypes,
+        contextualParameterTypes: expr.parameterTypes,
+        contextualSurfaceParameterTypes: expr.surfaceParameterTypes,
         exactParameterCandidates: [],
         exactSurfaceParameterCandidates: [],
         exactReturnCandidates: [],

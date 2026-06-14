@@ -5,7 +5,8 @@
  * and computing signature keys for deterministic overload matching.
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { getTstsIdentifierText, getTstsNodeText, TstsSyntax } from "@tsonic/tsts";
 import type { IrType } from "../../../types/index.js";
 import type { TypeId } from "./types.js";
 
@@ -31,34 +32,52 @@ export const stripTsBindgenViewsWrapper = (
   return name.slice(VIEWS_PREFIX.length, -VIEWS_SUFFIX.length);
 };
 
-export const getRightmostQualifiedNameText = (name: ts.EntityName): string => {
-  if (ts.isIdentifier(name)) return name.text;
-  return getRightmostQualifiedNameText(name.right);
-};
+const listNodes = (
+  list: { readonly Nodes?: readonly (TstsNode | undefined)[] } | undefined
+): readonly TstsNode[] =>
+  (list?.Nodes ?? []).filter((node): node is TstsNode => node !== undefined);
 
-export const getRightmostPropertyAccessText = (
-  expr: ts.Expression
+export const getRightmostQualifiedNameText = (
+  name: TstsNode
 ): string | undefined => {
-  if (ts.isIdentifier(expr)) return expr.text;
-  if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
-  if (ts.isCallExpression(expr))
-    return getRightmostPropertyAccessText(expr.expression);
-  if (ts.isParenthesizedExpression(expr))
-    return getRightmostPropertyAccessText(expr.expression);
+  const identifier = getTstsIdentifierText(name);
+  if (identifier) return identifier;
+  const qualified = TstsSyntax.AsQualifiedName(name);
+  if (qualified?.Right) return getRightmostQualifiedNameText(qualified.Right);
   return undefined;
 };
 
-const isSymbolTypeNode = (node: ts.TypeNode): boolean =>
-  node.kind === ts.SyntaxKind.SymbolKeyword ||
-  (ts.isTypeReferenceNode(node) &&
-    ts.isIdentifier(node.typeName) &&
-    node.typeName.text === "symbol");
+export const getRightmostPropertyAccessText = (
+  expr: TstsNode
+): string | undefined => {
+  const identifier = getTstsIdentifierText(expr);
+  if (identifier) return identifier;
+  if (TstsSyntax.IsPropertyAccessExpression(expr)) {
+    return getTstsIdentifierText(TstsSyntax.Node_Name(expr));
+  }
+  if (TstsSyntax.IsCallExpression(expr)) {
+    const inner = TstsSyntax.Node_Expression(expr);
+    return inner ? getRightmostPropertyAccessText(inner) : undefined;
+  }
+  if (TstsSyntax.IsParenthesizedExpression(expr)) {
+    const inner = TstsSyntax.Node_Expression(expr);
+    return inner ? getRightmostPropertyAccessText(inner) : undefined;
+  }
+  return undefined;
+};
+
+const isSymbolTypeNode = (node: TstsNode): boolean =>
+  node.Kind === TstsSyntax.KindSymbolKeyword ||
+  (TstsSyntax.IsTypeReferenceNode(node) &&
+    getRightmostQualifiedNameText(
+      TstsSyntax.AsTypeReferenceNode(node)?.TypeName as TstsNode
+    ) === "symbol");
 
 const classifyRecordKeyTypeNode = (
-  keyTypeNode: ts.TypeNode
+  keyTypeNode: TstsNode
 ): IrType | undefined => {
-  const nodes = ts.isUnionTypeNode(keyTypeNode)
-    ? keyTypeNode.types
+  const nodes = TstsSyntax.IsUnionTypeNode(keyTypeNode)
+    ? listNodes(TstsSyntax.AsUnionTypeNode(keyTypeNode)?.Types)
     : [keyTypeNode];
 
   let sawString = false;
@@ -66,11 +85,11 @@ const classifyRecordKeyTypeNode = (
   let sawSymbol = false;
 
   for (const node of nodes) {
-    if (node.kind === ts.SyntaxKind.StringKeyword) {
+    if (node.Kind === TstsSyntax.KindStringKeyword) {
       sawString = true;
       continue;
     }
-    if (node.kind === ts.SyntaxKind.NumberKeyword) {
+    if (node.Kind === TstsSyntax.KindNumberKeyword) {
       sawNumber = true;
       continue;
     }
@@ -78,12 +97,13 @@ const classifyRecordKeyTypeNode = (
       sawSymbol = true;
       continue;
     }
-    if (ts.isLiteralTypeNode(node)) {
-      if (ts.isStringLiteral(node.literal)) {
+    if (TstsSyntax.IsLiteralTypeNode(node)) {
+      const literal = TstsSyntax.AsLiteralTypeNode(node)?.Literal;
+      if (literal && TstsSyntax.IsStringLiteral(literal)) {
         sawString = true;
         continue;
       }
-      if (ts.isNumericLiteral(node.literal)) {
+      if (literal && TstsSyntax.IsNumericLiteral(literal)) {
         sawNumber = true;
         continue;
       }
@@ -107,26 +127,35 @@ const classifyRecordKeyTypeNode = (
 };
 
 export const dtsTypeNodeToIrType = (
-  node: ts.TypeNode,
+  node: TstsNode,
   inScopeTypeParams: ReadonlySet<string>,
   tsNameToTypeId: ReadonlyMap<string, TypeId>
 ): IrType => {
   // Parenthesized type
-  if (ts.isParenthesizedTypeNode(node)) {
-    return dtsTypeNodeToIrType(node.type, inScopeTypeParams, tsNameToTypeId);
+  if (TstsSyntax.IsParenthesizedTypeNode(node)) {
+    const inner = TstsSyntax.AsParenthesizedTypeNode(node)?.Type;
+    return inner
+      ? dtsTypeNodeToIrType(inner, inScopeTypeParams, tsNameToTypeId)
+      : { kind: "unknownType" };
   }
 
   // Type references (including type parameters)
-  if (ts.isTypeReferenceNode(node)) {
-    const rawName = getRightmostQualifiedNameText(node.typeName);
+  if (TstsSyntax.IsTypeReferenceNode(node)) {
+    const rawName =
+      getRightmostQualifiedNameText(
+        TstsSyntax.AsTypeReferenceNode(node)?.TypeName as TstsNode
+      ) ?? "";
     const baseName = stripTsBindgenInstanceSuffix(rawName);
+    const nodeTypeArguments = listNodes(
+      TstsSyntax.AsTypeReferenceNode(node)?.TypeArguments
+    );
 
     // Utility: Record<K, V> should lower to dictionaryType in external bindings paths too.
     // Without this, contextual object literals against imported native target interfaces can carry
     // unresolved `referenceType("Record")` and fail IR soundness.
-    if (baseName === "Record" && node.typeArguments?.length === 2) {
-      const keyTypeNode = node.typeArguments[0];
-      const valueTypeNode = node.typeArguments[1];
+    if (baseName === "Record" && nodeTypeArguments.length === 2) {
+      const keyTypeNode = nodeTypeArguments[0];
+      const valueTypeNode = nodeTypeArguments[1];
       if (keyTypeNode && valueTypeNode) {
         const keyType = classifyRecordKeyTypeNode(keyTypeNode);
         if (keyType) {
@@ -145,21 +174,21 @@ export const dtsTypeNodeToIrType = (
 
     // tsbindgen imports native target numeric aliases from @tsonic/core as type references.
     // For IR purposes, `int` is a distinct primitive type (not referenceType).
-    if (baseName === "int" && !node.typeArguments?.length) {
+    if (baseName === "int" && nodeTypeArguments.length === 0) {
       return { kind: "primitiveType", name: "int" };
     }
 
     // Type parameter reference: `T` (no type args) where T is in scope
-    if (inScopeTypeParams.has(baseName) && !node.typeArguments?.length) {
+    if (inScopeTypeParams.has(baseName) && nodeTypeArguments.length === 0) {
       return { kind: "typeParameterType", name: baseName };
     }
 
-    const typeArguments = node.typeArguments?.map((a) =>
+    const typeArguments = nodeTypeArguments.map((a) =>
       dtsTypeNodeToIrType(a, inScopeTypeParams, tsNameToTypeId)
     );
 
     const resolvedName =
-      typeArguments && typeArguments.length > 0
+      typeArguments.length > 0
         ? (() => {
             const arityName = `${baseName}_${typeArguments.length}`;
             return tsNameToTypeId.has(arityName) ? arityName : baseName;
@@ -170,89 +199,98 @@ export const dtsTypeNodeToIrType = (
       kind: "referenceType",
       name: resolvedName,
       typeArguments:
-        typeArguments && typeArguments.length > 0 ? typeArguments : undefined,
+        typeArguments.length > 0 ? typeArguments : undefined,
     };
   }
 
   // Array types
-  if (ts.isArrayTypeNode(node)) {
+  if (TstsSyntax.IsArrayTypeNode(node)) {
+    const elementType = TstsSyntax.AsArrayTypeNode(node)?.ElementType;
     return {
       kind: "arrayType",
-      elementType: dtsTypeNodeToIrType(
-        node.elementType,
-        inScopeTypeParams,
-        tsNameToTypeId
-      ),
+      elementType: elementType
+        ? dtsTypeNodeToIrType(elementType, inScopeTypeParams, tsNameToTypeId)
+        : { kind: "unknownType" },
     };
   }
 
   // Union / intersection
-  if (ts.isUnionTypeNode(node)) {
+  if (TstsSyntax.IsUnionTypeNode(node)) {
     return {
       kind: "unionType",
-      types: node.types.map((t) =>
+      types: listNodes(TstsSyntax.AsUnionTypeNode(node)?.Types).map((t) =>
         dtsTypeNodeToIrType(t, inScopeTypeParams, tsNameToTypeId)
       ),
     };
   }
-  if (ts.isIntersectionTypeNode(node)) {
+  if (TstsSyntax.IsIntersectionTypeNode(node)) {
     return {
       kind: "intersectionType",
-      types: node.types.map((t) =>
-        dtsTypeNodeToIrType(t, inScopeTypeParams, tsNameToTypeId)
+      types: listNodes(TstsSyntax.AsIntersectionTypeNode(node)?.Types).map(
+        (t) => dtsTypeNodeToIrType(t, inScopeTypeParams, tsNameToTypeId)
       ),
     };
   }
 
   // Literal types
-  if (ts.isLiteralTypeNode(node)) {
-    const lit = node.literal;
-    if (ts.isStringLiteral(lit))
-      return { kind: "literalType", value: lit.text };
-    if (ts.isNumericLiteral(lit))
-      return { kind: "literalType", value: Number(lit.text) };
+  if (TstsSyntax.IsLiteralTypeNode(node)) {
+    const lit = TstsSyntax.AsLiteralTypeNode(node)?.Literal;
+    if (lit && TstsSyntax.IsStringLiteral(lit))
+      return { kind: "literalType", value: getTstsNodeText(lit) ?? "" };
+    if (lit && TstsSyntax.IsNumericLiteral(lit))
+      return { kind: "literalType", value: Number(getTstsNodeText(lit) ?? "0") };
     if (
-      ts.isPrefixUnaryExpression(lit) &&
-      ts.isNumericLiteral(lit.operand) &&
-      (lit.operator === ts.SyntaxKind.MinusToken ||
-        lit.operator === ts.SyntaxKind.PlusToken)
+      lit &&
+      TstsSyntax.IsPrefixUnaryExpression(lit) &&
+      TstsSyntax.AsPrefixUnaryExpression(lit)?.Operand &&
+      TstsSyntax.IsNumericLiteral(
+        TstsSyntax.AsPrefixUnaryExpression(lit)?.Operand
+      ) &&
+      (TstsSyntax.AsPrefixUnaryExpression(lit)?.Operator ===
+        TstsSyntax.KindMinusToken ||
+        TstsSyntax.AsPrefixUnaryExpression(lit)?.Operator ===
+          TstsSyntax.KindPlusToken)
     ) {
-      const magnitude = Number(lit.operand.text);
+      const prefix = TstsSyntax.AsPrefixUnaryExpression(lit);
+      const operand = prefix?.Operand;
+      const magnitude = Number(operand ? getTstsNodeText(operand) : "0");
       return {
         kind: "literalType",
         value:
-          lit.operator === ts.SyntaxKind.MinusToken ? -magnitude : magnitude,
+          prefix?.Operator === TstsSyntax.KindMinusToken
+            ? -magnitude
+            : magnitude,
       };
     }
-    if (lit.kind === ts.SyntaxKind.TrueKeyword)
+    if (lit?.Kind === TstsSyntax.KindTrueKeyword)
       return { kind: "literalType", value: true };
-    if (lit.kind === ts.SyntaxKind.FalseKeyword)
+    if (lit?.Kind === TstsSyntax.KindFalseKeyword)
       return { kind: "literalType", value: false };
-    if (lit.kind === ts.SyntaxKind.NullKeyword)
+    if (lit?.Kind === TstsSyntax.KindNullKeyword)
       return { kind: "primitiveType", name: "null" };
   }
 
   // Keywords
-  switch (node.kind) {
-    case ts.SyntaxKind.StringKeyword:
+  switch (node.Kind) {
+    case TstsSyntax.KindStringKeyword:
       return { kind: "primitiveType", name: "string" };
-    case ts.SyntaxKind.NumberKeyword:
+    case TstsSyntax.KindNumberKeyword:
       return { kind: "primitiveType", name: "number" };
-    case ts.SyntaxKind.BooleanKeyword:
+    case TstsSyntax.KindBooleanKeyword:
       return { kind: "primitiveType", name: "boolean" };
-    case ts.SyntaxKind.SymbolKeyword:
+    case TstsSyntax.KindSymbolKeyword:
       return { kind: "referenceType", name: "object" };
-    case ts.SyntaxKind.VoidKeyword:
+    case TstsSyntax.KindVoidKeyword:
       return { kind: "voidType" };
-    case ts.SyntaxKind.AnyKeyword:
+    case TstsSyntax.KindAnyKeyword:
       return { kind: "anyType" };
-    case ts.SyntaxKind.UnknownKeyword:
+    case TstsSyntax.KindUnknownKeyword:
       return { kind: "unknownType", explicit: true };
-    case ts.SyntaxKind.NeverKeyword:
+    case TstsSyntax.KindNeverKeyword:
       return { kind: "neverType" };
-    case ts.SyntaxKind.NullKeyword:
+    case TstsSyntax.KindNullKeyword:
       return { kind: "primitiveType", name: "null" };
-    case ts.SyntaxKind.UndefinedKeyword:
+    case TstsSyntax.KindUndefinedKeyword:
       return { kind: "primitiveType", name: "undefined" };
     default:
       return { kind: "unknownType" };

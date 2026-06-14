@@ -1,60 +1,20 @@
 /**
  * Call resolution helpers
  *
- * Contains callable-candidate resolution, overload scoring, and
- * getDeclaredReturnType for call/new expressions.
- *
- * All call resolution goes through TypeSystem.resolveCall().
- * NO FALLBACKS ALLOWED. If TypeSystem can't resolve, return unknownType.
+ * Contains argument expansion and declared return helpers for call/new
+ * expressions. Selected-signature ownership sits behind the source semantic
+ * boundary and `TypeSystem.resolveCall`; this module must not rank callable
+ * candidates locally.
  */
 
-import * as ts from "typescript";
+import {
+  getTstsIdentifierText,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import { IrCallExpression, getSpreadTupleShape } from "../../../types.js";
 import { IrType } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
-import type { ResolvedCall } from "../../../type-system/type-system.js";
-
-export const flattenCallableCandidates = (
-  type: IrType | undefined,
-  ctx: ProgramContext
-): readonly Extract<IrType, { kind: "functionType" }>[] => {
-  if (!type) return [];
-
-  if (type.kind === "functionType") {
-    return [type];
-  }
-
-  if (type.kind === "intersectionType") {
-    return type.types.flatMap((member) =>
-      flattenCallableCandidates(member, ctx)
-    );
-  }
-
-  const delegated = ctx.typeSystem.delegateToFunctionType(type);
-  return delegated ? [delegated] : [];
-};
-
-export const countRequiredParameters = (
-  type: Extract<IrType, { kind: "functionType" }>
-): number =>
-  type.parameters.filter(
-    (parameter) => !parameter.isOptional && !parameter.isRest
-  ).length;
-
-export const canAcceptArgumentCount = (
-  type: Extract<IrType, { kind: "functionType" }>,
-  argumentCount: number
-): boolean => {
-  const required = countRequiredParameters(type);
-  if (argumentCount < required) return false;
-
-  const hasRest = type.parameters.some((parameter) => parameter.isRest);
-  if (!hasRest && argumentCount > type.parameters.length) {
-    return false;
-  }
-
-  return true;
-};
 
 export const collectResolutionArguments = (
   args: readonly IrCallExpression["arguments"][number][]
@@ -88,198 +48,32 @@ export const collectResolutionArguments = (
   };
 };
 
-export const scoreCallableCandidate = (
-  type: Extract<IrType, { kind: "functionType" }>,
-  argumentCount: number
-): readonly [number, number, number, number] => {
-  const hasRest = type.parameters.some((parameter) => parameter.isRest);
-  const required = countRequiredParameters(type);
-  return [
-    hasRest ? 0 : 1,
-    Math.max(0, required - argumentCount) === 0 ? 1 : 0,
-    type.parameters.length === argumentCount ? 1 : 0,
-    -type.parameters.length,
-  ];
-};
-
-const NUMERIC_TYPE_NAMES = new Set([
-  "number",
-  "int",
-  "byte",
-  "sbyte",
-  "short",
-  "ushort",
-  "uint",
-  "long",
-  "ulong",
-  "float",
-  "double",
-  "decimal",
-]);
-
-const isNumericType = (type: IrType): boolean => {
-  if (type.kind === "primitiveType") {
-    return NUMERIC_TYPE_NAMES.has(type.name);
-  }
-
-  if (type.kind === "referenceType") {
-    const simpleName = type.name.split(".").pop() ?? type.name;
-    return NUMERIC_TYPE_NAMES.has(simpleName);
-  }
-
-  return false;
-};
-
-const isDeterministicallyNumericCompatible = (
-  parameterType: IrType,
-  argumentType: IrType
-): boolean => {
-  if (parameterType.kind === "unionType") {
-    return parameterType.types.some((member) =>
-      isDeterministicallyNumericCompatible(member, argumentType)
-    );
-  }
-
-  if (argumentType.kind === "unionType") {
-    return argumentType.types.every((member) =>
-      isDeterministicallyNumericCompatible(parameterType, member)
-    );
-  }
-
-  return isNumericType(parameterType) && isNumericType(argumentType);
-};
-
-const _scoreTypeCompatibility = (
-  parameterType: IrType,
-  argumentType: IrType,
-  ctx: ProgramContext
-): number => {
-  if (ctx.typeSystem.typesEqual(parameterType, argumentType)) {
-    return 4;
-  }
-
-  if (ctx.typeSystem.isAssignableTo(argumentType, parameterType)) {
-    return 3;
-  }
-
-  if (isDeterministicallyNumericCompatible(parameterType, argumentType)) {
-    return 2;
-  }
-
-  const parameterFn =
-    parameterType.kind === "functionType"
-      ? parameterType
-      : ctx.typeSystem.delegateToFunctionType(parameterType);
-  const argumentFn =
-    argumentType.kind === "functionType"
-      ? argumentType
-      : ctx.typeSystem.delegateToFunctionType(argumentType);
-  if (parameterFn && argumentFn) {
-    let score = 0;
-
-    if (parameterFn.parameters.length === argumentFn.parameters.length) {
-      score += 8;
-    } else {
-      score -=
-        Math.abs(parameterFn.parameters.length - argumentFn.parameters.length) *
-        2;
-    }
-
-    const pairCount = Math.min(
-      parameterFn.parameters.length,
-      argumentFn.parameters.length
-    );
-    for (let index = 0; index < pairCount; index += 1) {
-      const parameter = parameterFn.parameters[index];
-      const argument = argumentFn.parameters[index];
-      if (!parameter?.type || !argument?.type) continue;
-      score += _scoreTypeCompatibility(parameter.type, argument.type, ctx);
-    }
-
-    if (
-      argumentFn.returnType.kind !== "unknownType" &&
-      argumentFn.returnType.kind !== "anyType"
-    ) {
-      score += _scoreTypeCompatibility(
-        parameterFn.returnType,
-        argumentFn.returnType,
-        ctx
-      );
-    }
-
-    return score;
-  }
-
-  return 0;
-};
-
-export const compareCallableScores = (
-  left: readonly [number, number, number, number],
-  right: readonly [number, number, number, number]
-): number => {
-  for (let index = 0; index < left.length; index += 1) {
-    const leftScore = left[index];
-    const rightScore = right[index];
-    if (leftScore === undefined || rightScore === undefined) {
-      continue;
-    }
-    const delta = leftScore - rightScore;
-    if (delta !== 0) return delta;
-  }
-  return 0;
-};
-
-export const chooseCallableCandidate = (
-  type: IrType | undefined,
-  argumentCount: number,
-  ctx: ProgramContext,
-  argTypes?: readonly (IrType | undefined)[]
-): Extract<IrType, { kind: "functionType" }> | undefined => {
-  return ctx.typeSystem.resolveCallableType(type, {
-    argumentCount,
-    argTypes,
-  }).callableType;
-};
-
-export const resolveCallableCandidate = (
-  type: IrType | undefined,
-  argumentCount: number,
-  ctx: ProgramContext,
-  argTypes?: readonly (IrType | undefined)[],
-  explicitTypeArgs?: readonly IrType[],
-  expectedReturnType?: IrType
-): {
-  readonly callableType: Extract<IrType, { kind: "functionType" }> | undefined;
-  readonly resolved: ResolvedCall | undefined;
-} =>
-  ctx.typeSystem.resolveCallableType(type, {
-    argumentCount,
-    argTypes,
-    explicitTypeArgs,
-    expectedReturnType,
-  });
-
 /**
  * Walk a property access chain and build a qualified name.
  * For `Foo.Bar.Baz`, returns "Foo.Bar.Baz" by walking the AST identifiers.
  * This avoids getText() which bakes source formatting into type identity.
  */
-export const buildQualifiedName = (expr: ts.Expression): string | undefined => {
-  if (ts.isIdentifier(expr)) {
-    return expr.text;
+export const buildQualifiedName = (expr: TstsNode): string | undefined => {
+  if (expr.Kind === TstsSyntax.KindIdentifier) {
+    return getTstsIdentifierText(expr);
   }
 
-  if (ts.isPropertyAccessExpression(expr)) {
+  if (expr.Kind === TstsSyntax.KindPropertyAccessExpression) {
     const parts: string[] = [];
-    let current: ts.Expression = expr;
+    let current: TstsNode = expr;
 
-    while (ts.isPropertyAccessExpression(current)) {
-      parts.unshift(current.name.text);
-      current = current.expression;
+    while (current.Kind === TstsSyntax.KindPropertyAccessExpression) {
+      const propertyAccess = TstsSyntax.AsPropertyAccessExpression(current);
+      if (!propertyAccess?.Expression) return undefined;
+      const name = getTstsIdentifierText(propertyAccess.name);
+      if (!name) return undefined;
+      parts.unshift(name);
+      current = propertyAccess.Expression;
     }
 
-    if (ts.isIdentifier(current)) {
-      parts.unshift(current.text);
+    const root = getTstsIdentifierText(current);
+    if (root) {
+      parts.unshift(root);
       return parts.join(".");
     }
   }
@@ -287,10 +81,12 @@ export const buildQualifiedName = (expr: ts.Expression): string | undefined => {
   return undefined;
 };
 
-export const unwrapExpr = (expr: ts.Expression): ts.Expression => {
+export const unwrapExpr = (expr: TstsNode): TstsNode => {
   let current = expr;
-  while (ts.isParenthesizedExpression(current)) {
-    current = current.expression;
+  while (current.Kind === TstsSyntax.KindParenthesizedExpression) {
+    const inner = TstsSyntax.AsParenthesizedExpression(current)?.Expression;
+    if (!inner) return current;
+    current = inner;
   }
   return current;
 };
@@ -305,14 +101,18 @@ export const unwrapExpr = (expr: ts.Expression): ts.Expression => {
  * This ensures any missing TypeSystem functionality surfaces as test failures.
  */
 export const getDeclaredReturnType = (
-  node: ts.CallExpression | ts.NewExpression,
+  node: TstsNode,
   ctx: ProgramContext,
   receiverIrType?: IrType
 ): IrType | undefined => {
   const DEBUG = process.env.DEBUG_RETURN_TYPE === "1";
+  const callTarget = TstsSyntax.Node_Expression(node);
   const methodName =
-    ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
-      ? node.expression.name.text
+    node.Kind === TstsSyntax.KindCallExpression &&
+    callTarget?.Kind === TstsSyntax.KindPropertyAccessExpression
+      ? getTstsIdentifierText(
+          TstsSyntax.AsPropertyAccessExpression(callTarget)?.name
+        )
       : undefined;
   if (DEBUG && methodName) {
     console.log(
@@ -324,7 +124,7 @@ export const getDeclaredReturnType = (
   }
 
   // Handle new expressions specially - they construct the type from the expression
-  if (ts.isNewExpression(node)) {
+  if (node.Kind === TstsSyntax.KindNewExpression) {
     const typeSystem = ctx.typeSystem;
     const sigId = ctx.binding.resolveConstructorSignature(node);
     if (!sigId) {
@@ -338,11 +138,15 @@ export const getDeclaredReturnType = (
       return undefined;
     }
 
-    const argumentCount = node.arguments?.length ?? 0;
-    const explicitTypeArgs = node.typeArguments
-      ? node.typeArguments.map((ta) =>
-          typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
-        )
+    const argumentCount = (TstsSyntax.Node_Arguments(node) ?? []).length;
+    const explicitTypeArgNodes = TstsSyntax.Node_TypeArguments(node) ?? [];
+    const explicitTypeArgs =
+      explicitTypeArgNodes.length > 0
+        ? explicitTypeArgNodes.flatMap((ta) =>
+            ta
+              ? [typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))]
+              : []
+          )
       : undefined;
     const resolved = typeSystem.resolveCall({
       sigId,
@@ -379,13 +183,17 @@ export const getDeclaredReturnType = (
   }
 
   // Get argument count for totality
-  const argumentCount = node.arguments.length;
+  const argumentCount = (TstsSyntax.Node_Arguments(node) ?? []).length;
 
   // Extract explicit type arguments from call syntax through the TypeSystem.
-  const explicitTypeArgs = node.typeArguments
-    ? node.typeArguments.map((ta) =>
-        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
-      )
+  const explicitTypeArgNodes = TstsSyntax.Node_TypeArguments(node) ?? [];
+  const explicitTypeArgs =
+    explicitTypeArgNodes.length > 0
+      ? explicitTypeArgNodes.flatMap((ta) =>
+          ta
+            ? [typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))]
+            : []
+        )
     : undefined;
 
   // Use TypeSystem.resolveCall() - guaranteed to return a result
@@ -406,6 +214,6 @@ export const getDeclaredReturnType = (
     );
   }
 
-  // Return TypeSystem's answer directly - no fallbacks
+  // Return TypeSystem's answer directly.
   return resolved.returnType;
 };

@@ -30,9 +30,10 @@ const normalizePath = (filePath: string): string =>
 const isBoundaryFile = (filePath: string): boolean => {
   const normalized = normalizePath(path.relative(frontendSrcRoot, filePath));
   return (
-    normalized === "source-frontend/typescript-semantic-view.ts" ||
     normalized.endsWith(".test.ts") ||
     normalized.includes("-cases/") ||
+    normalized === "source-frontend/tsts-semantic-view.ts" ||
+    normalized === "tsonic-extension/source-semantics.ts" ||
     normalized === "types/test-harness.ts"
   );
 };
@@ -62,7 +63,7 @@ const bannedSemanticQueries = [
 ] as const;
 
 describe("source semantic boundary", () => {
-  it("keeps source semantic queries behind sourceSemantics", () => {
+  it("keeps source semantic queries behind the TSTS semantic bridge", () => {
     const offenders = collectTypeScriptFiles(frontendSrcRoot)
       .filter((filePath) => !isBoundaryFile(filePath))
       .flatMap((filePath) => {
@@ -83,7 +84,7 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
-  it("keeps raw source symbol/type object methods behind the semantic bridge", () => {
+  it("keeps raw source symbol/type object methods behind the TSTS semantic bridge", () => {
     const bannedReads = [
       ".getDeclarations(",
       ".getConstructSignatures(",
@@ -186,6 +187,16 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("does not expose the raw TSTS compiler program outside the source-program adapter", () => {
+    const sourceProgramPath = path.join(
+      frontendSrcRoot,
+      "source-frontend/tsts-source-program.ts"
+    );
+    const text = fs.readFileSync(sourceProgramPath, "utf8");
+
+    expect(text).not.to.include("readonly compilerProgram");
+  });
+
   it("keeps source-front TSTS integration on the public TSTS API", () => {
     const tstsIntegrationRoots = [
       path.join(frontendSrcRoot, "source-frontend"),
@@ -241,13 +252,44 @@ describe("source semantic boundary", () => {
     expect(text).not.to.include("typescript-semantic-view.js");
   });
 
-  it("keeps product reads of raw program source-file fields behind program queries", () => {
+  it("does not keep the stale frontend semantic alias module", () => {
+    expect(
+      fs.existsSync(
+        path.join(
+          frontendSrcRoot,
+          "source-frontend/frontend-source-semantic-view.ts"
+        )
+      )
+    ).to.equal(false);
+  });
+
+  it("does not keep a TSTS-to-TypeScript fact projection bridge", () => {
+    const bannedProjectionTerms = [
+      "projectTstsFactsTo" + "TypeScriptSource",
+      "tsts-fact-" + "projection",
+    ] as const;
+    const offenders = collectTypeScriptFiles(frontendSrcRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) =>
+          bannedProjectionTerms.some((term) => line.includes(term))
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1}`,
+              ]
+            : []
+        );
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps product reads of raw program fields behind program queries", () => {
     const allowedFiles = new Set(["program/queries.ts"]);
     const bannedReads = [
       "program.sourceFiles",
       "program.declarationSourceFiles",
-      "program.tsCompilerOptions",
-      "program.targetSurfaceArtifacts",
       "program.targetSurfaceProvider",
     ] as const;
 

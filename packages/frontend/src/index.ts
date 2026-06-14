@@ -1,5 +1,5 @@
 /**
- * Tsonic Frontend - TypeScript parser and IR builder
+ * Tsonic Frontend - TSTS-backed source engine and IR builder
  */
 
 export {
@@ -22,7 +22,6 @@ export * from "./types/result.js";
 export * from "./program.js";
 export * from "./resolver.js";
 export * from "./validator.js";
-export * from "./symbol-table.js";
 export * from "./dependency-graph.js";
 export * from "./surface/profiles.js";
 export * from "./source-frontend/index.js";
@@ -48,13 +47,13 @@ export type CompileResult = {
 };
 
 /**
- * Main entry point for compiling TypeScript files
+ * Main entry point for compiling source files
  */
 export const compile = (
   filePaths: readonly string[],
   options: CompilerOptions
 ): Result<CompileResult, DiagnosticsCollector> => {
-  // Create TypeScript program
+  // Create Tsonic program through the TSTS source engine
   const programResult = createProgram(filePaths, options);
 
   if (!programResult.ok) {
@@ -63,16 +62,16 @@ export const compile = (
 
   const program = programResult.value;
 
-  // Validate ESM rules and TypeScript constraints
+  // Validate ESM rules and Tsonic source constraints
   const validationDiagnostics = validateProgram(program);
 
-  // Build dependency graph and symbol table
+  // Build dependency graph from the TSTS module graph.
   const analysis = buildDependencyGraph(program, filePaths);
 
   // Merge all diagnostics
   const allDiagnostics = mergeDiagnostics(
-    mergeDiagnostics(validationDiagnostics, analysis.diagnostics),
-    validationDiagnostics
+    validationDiagnostics,
+    analysis.diagnostics
   );
 
   if (allDiagnostics.hasErrors) {

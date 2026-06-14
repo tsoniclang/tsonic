@@ -1,355 +1,216 @@
 /**
- * Binding Layer — Signature Candidate Resolution & Constructor Resolution
+ * Binding Layer — Constructor Signature Resolution.
  *
- * Contains candidate collection for call overloads, plus constructor
- * signature resolution. Split from binding-call-resolution.ts for
- * file-size compliance.
+ * This module uses TSTS syntax and checker-facing semantic queries only.
  */
 
-import ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  getTstsNodeNameText,
+  getTstsTypeParameterNodes,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import type { SignatureId } from "../type-system/types.js";
 import type { BindingContext } from "./binding-registry.js";
 import {
   getOrCreateDeclId,
   getOrCreateSignatureId,
+  getOrCreateSyntheticConstructorSignatureId,
   resolveTransparentAliases,
 } from "./binding-registry.js";
 import {
-  extractParameterNodes,
   convertTypeParameterDeclarations,
   normalizeCapturedDeclaringTypeName,
 } from "./binding-helpers.js";
-import { isOverloadSurfaceDeclaration } from "../syntax/overload-stubs.js";
 
-const hasStaticModifier = (node: ts.Node): boolean => {
-  const modifiers = (
-    node as ts.Node & {
-      readonly modifiers?: readonly ts.ModifierLike[];
-    }
-  ).modifiers;
-  return !!modifiers?.some(
-    (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
-  );
-};
+const concreteTstsNodes = (
+  nodes: readonly (TstsNode | undefined)[]
+): readonly TstsNode[] =>
+  nodes.filter((node): node is TstsNode => node !== undefined);
 
-const getClassMemberStaticIntent = (
-  decl: ts.Declaration
-): boolean | undefined => {
-  if (
-    !(
-      ts.isMethodDeclaration(decl) ||
-      ts.isPropertyDeclaration(decl) ||
-      ts.isGetAccessorDeclaration(decl) ||
-      ts.isSetAccessorDeclaration(decl)
-    )
-  ) {
-    return undefined;
-  }
-
-  return ts.isClassLike(decl.parent) ? hasStaticModifier(decl) : undefined;
-};
-
-const isClassValueReceiver = (
+const getExpressionTargetSymbol = (
   ctx: BindingContext,
-  expr: ts.Expression
-): boolean =>
-  ctx.sourceSemantics.getConstructSignatures(
-    ctx.sourceSemantics.getExpressionType(expr)
-  ).length > 0;
-
-const filterPropertyAccessDeclarationsByReceiver = (
-  ctx: BindingContext,
-  node: ts.CallExpression,
-  decls: readonly ts.Declaration[]
-): readonly ts.Declaration[] => {
-  if (!ts.isPropertyAccessExpression(node.expression)) {
-    return decls;
+  expression: TstsNode | undefined
+) => {
+  if (!expression) return undefined;
+  if (TstsSyntax.IsIdentifier(expression)) {
+    return ctx.sourceSemantics.getSymbol(expression);
   }
-
-  const staticAwareDecls = decls.filter(
-    (decl) => getClassMemberStaticIntent(decl) !== undefined
-  );
-  if (staticAwareDecls.length === 0) {
-    return decls;
+  if (TstsSyntax.IsPropertyAccessExpression(expression)) {
+    const name = TstsSyntax.Node_Name(expression);
+    return name ? ctx.sourceSemantics.getSymbol(name) : undefined;
   }
-
-  const wantsStatic = isClassValueReceiver(ctx, node.expression.expression);
-  const filtered = decls.filter((decl) => {
-    const staticIntent = getClassMemberStaticIntent(decl);
-    return staticIntent === undefined || staticIntent === wantsStatic;
-  });
-
-  return filtered.length > 0 ? filtered : decls;
+  return undefined;
 };
-
-// ═══════════════════════════════════════════════════════════════════════════
-// CALL SIGNATURE CANDIDATES
-// ═══════════════════════════════════════════════════════════════════════════
-
-export const resolveCallTargetDeclarations = (
-  ctx: BindingContext,
-  node: ts.CallExpression
-): readonly ts.Declaration[] | undefined => {
-  const expr = node.expression;
-  const symbol = (() => {
-    if (ts.isIdentifier(expr)) return ctx.sourceSemantics.getSymbol(expr);
-    if (ts.isPropertyAccessExpression(expr)) {
-      return ctx.sourceSemantics.getSymbol(expr.name);
-    }
-    return undefined;
-  })();
-  if (!symbol) return undefined;
-
-  const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
-
-  return ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol);
-};
-
-export const resolveCallSignatureCandidates = (
-  ctx: BindingContext,
-  node: ts.CallExpression
-): readonly SignatureId[] | undefined => {
-  const collectSignatureCandidates = (
-    signatures: readonly ts.Signature[]
-  ): readonly SignatureId[] | undefined => {
-    const argCount = node.arguments.length;
-    const candidates: SignatureId[] = [];
-
-    for (const sig of signatures) {
-      const decl = ctx.sourceSemantics.getSignatureDeclaration(sig);
-      if (decl && ts.isFunctionLike(decl)) {
-        if (
-          ts.isConstructSignatureDeclaration(decl) ||
-          ts.isConstructorDeclaration(decl)
-        ) {
-          continue;
-        }
-
-        const params = extractParameterNodes(decl, ctx.sourceSemantics);
-        const required = params.filter(
-          (p) => !p.isOptional && !p.isRest
-        ).length;
-        const hasRest = params.some((p) => p.isRest);
-        if (argCount < required) continue;
-        if (!hasRest && argCount > params.length) continue;
-      }
-
-      candidates.push(getOrCreateSignatureId(ctx, sig));
-    }
-
-    return candidates.length > 0 ? candidates : undefined;
-  };
-
-  const expr = node.expression;
-  const decls = resolveCallTargetDeclarations(ctx, node);
-  if (decls && decls.length > 0) {
-    const overloadSurfaceDecls = decls.filter(isOverloadSurfaceDeclaration);
-    const unfilteredDirectDecls =
-      overloadSurfaceDecls.length > 0 ? overloadSurfaceDecls : decls;
-    const directDecls = filterPropertyAccessDeclarationsByReceiver(
-      ctx,
-      node,
-      unfilteredDirectDecls
-    );
-
-    const directSignatures = directDecls.flatMap((decl) => {
-      if (!ts.isFunctionLike(decl)) return [];
-      const sig = ctx.sourceSemantics.getSignatureFromDeclaration(decl);
-      return sig ? [sig] : [];
-    });
-    const directCandidates = collectSignatureCandidates(directSignatures);
-    if (directCandidates) return directCandidates;
-  }
-
-  const expressionType = ctx.sourceSemantics.getExpressionType(expr);
-  return collectSignatureCandidates(
-    ctx.sourceSemantics.getCallSignatures(expressionType)
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════════════════
-// CONSTRUCTOR SIGNATURE RESOLUTION
-// ═══════════════════════════════════════════════════════════════════════════
 
 export const resolveConstructorSignature = (
   ctx: BindingContext,
-  node: ts.NewExpression
+  node: TstsNode
 ): SignatureId | undefined => {
+  const expression = TstsSyntax.Node_Expression(node);
   const signature = ctx.sourceSemantics.getResolvedSignature(node);
-  if (!signature) return undefined;
-
-  const sigId = getOrCreateSignatureId(ctx, signature);
-  const declaredConstructorMetadata = (() => {
-    const decl = ctx.sourceSemantics.getSignatureDeclaration(signature);
-    if (!decl) {
-      return undefined;
-    }
-
-    if (ts.isConstructorDeclaration(decl)) {
-      const parent = decl.parent;
-      if (!ts.isClassDeclaration(parent) || !parent.name) {
-        return undefined;
-      }
-
-      const parentSymbol = ctx.sourceSemantics.getSymbol(parent.name);
-      const declId = parentSymbol
-        ? getOrCreateDeclId(ctx, resolveTransparentAliases(ctx, parentSymbol))
-        : undefined;
-      const declaringTypeTsName =
-        (declId ? ctx.declMap.get(declId.id)?.fqName : undefined) ??
-        normalizeCapturedDeclaringTypeName(parent.name.text);
-
-      return {
-        declaringTypeTsName,
-        typeParameters: convertTypeParameterDeclarations(parent.typeParameters),
-        declaringTypeParameterNames: parent.typeParameters?.map(
-          (tp) => tp.name.text
-        ),
-      };
-    }
-
-    if (ts.isConstructSignatureDeclaration(decl)) {
-      const parent = decl.parent;
-      if (!ts.isInterfaceDeclaration(parent) || !parent.name) {
-        return undefined;
-      }
-
-      return {
-        declaringTypeTsName: normalizeCapturedDeclaringTypeName(
-          parent.name.text
-        ),
-        typeParameters: convertTypeParameterDeclarations(decl.typeParameters),
-        declaringTypeParameterNames: decl.typeParameters?.map(
-          (tp) => tp.name.text
-        ),
-      };
-    }
-
-    return undefined;
-  })();
-
-  // For implicit default constructors, TypeScript may return a signature with no declaration.
-  // We still need a SignatureEntry that identifies the constructed type so TypeSystem can
-  // synthesize the constructor return type deterministically.
-  const entry = ctx.signatureMap.get(sigId.id);
-  if (entry && declaredConstructorMetadata) {
-    ctx.signatureMap.set(sigId.id, {
-      ...entry,
-      declaringTypeTsName: declaredConstructorMetadata.declaringTypeTsName,
-      declaringMemberName: "constructor",
-      typeParameters:
-        declaredConstructorMetadata.typeParameters ?? entry.typeParameters,
-      declaringTypeParameterNames:
-        declaredConstructorMetadata.declaringTypeParameterNames ??
-        entry.declaringTypeParameterNames,
-    });
-  }
-
-  if (entry && !entry.decl) {
-    const expr = node.expression;
-
-    const symbol = (() => {
-      if (ts.isIdentifier(expr)) return ctx.sourceSemantics.getSymbol(expr);
-      if (ts.isPropertyAccessExpression(expr)) {
-        return ctx.sourceSemantics.getSymbol(expr.name);
-      }
-      return undefined;
-    })();
-
+  const resolvedDeclarationNode = (() => {
+    const symbol = getExpressionTargetSymbol(ctx, expression);
     const resolvedSymbol = symbol
-      ? ctx.sourceSemantics.resolveAlias(symbol)
+      ? resolveTransparentAliases(ctx, symbol)
       : undefined;
-
-    const decl = resolvedSymbol
+    return resolvedSymbol
       ? ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol)[0]
       : undefined;
-
-    const declaringTypeTsName =
-      (() => {
-        if (decl && ts.isClassDeclaration(decl) && decl.name) {
-          const parentSymbol = ctx.sourceSemantics.getSymbol(decl.name);
-          if (parentSymbol) {
-            const declId = getOrCreateDeclId(
-              ctx,
-              resolveTransparentAliases(ctx, parentSymbol)
-            );
-            return ctx.declMap.get(declId.id)?.fqName ?? decl.name.text;
-          }
-        }
-
-        return undefined;
-      })() ??
-      (() => {
-        if (decl && ts.isClassDeclaration(decl) && decl.name)
-          return decl.name.text;
-        if (resolvedSymbol) return resolvedSymbol.getName();
-        if (ts.isIdentifier(expr)) return expr.text;
-        if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
-        return undefined;
-      })();
-
-    if (declaringTypeTsName) {
-      ctx.signatureMap.set(sigId.id, {
-        ...entry,
-        declaringTypeTsName,
-        declaringMemberName: "constructor",
-        typeParameters:
-          decl && ts.isClassDeclaration(decl)
-            ? convertTypeParameterDeclarations(decl.typeParameters)
-            : undefined,
-        declaringTypeParameterNames:
-          decl && ts.isClassDeclaration(decl) && decl.typeParameters
-            ? decl.typeParameters.map((tp) => tp.name.text)
-            : undefined,
-      });
+  })();
+  const declaringTypeName = (() => {
+    const symbol = getExpressionTargetSymbol(ctx, expression);
+    const resolvedSymbol = symbol
+      ? resolveTransparentAliases(ctx, symbol)
+      : undefined;
+    return (
+      getClassDeclaringTypeName(ctx, resolvedDeclarationNode) ??
+      (resolvedSymbol ? resolvedSymbol.Name : undefined) ??
+      getTstsNodeNameText(expression)
+    );
+  })();
+  const declaration = ctx.sourceSemantics.getSignatureDeclaration(signature);
+  const constructorMetadata = getDeclaredConstructorMetadata(ctx, declaration);
+  if (!signature || !declaration) {
+    const canSynthesizeConstructor =
+      constructorMetadata !== undefined ||
+      resolvedDeclarationNode !== undefined;
+    if (!canSynthesizeConstructor) {
+      return undefined;
     }
+    const syntheticDeclaringTypeName =
+      constructorMetadata?.declaringTypeTsName ?? declaringTypeName;
+    return syntheticDeclaringTypeName
+      ? getOrCreateSyntheticConstructorSignatureId(
+          ctx,
+          node,
+          syntheticDeclaringTypeName,
+          constructorMetadata?.typeParameters,
+          constructorMetadata?.declaringTypeParameterNames
+        )
+      : undefined;
+  }
+
+  const sigId = getOrCreateSignatureId(ctx, signature);
+  const entry = ctx.signatureMap.get(sigId.id);
+  if (!entry) return sigId;
+
+  if (constructorMetadata) {
+    ctx.signatureMap.set(sigId.id, {
+      ...entry,
+      declaringTypeTsName: constructorMetadata.declaringTypeTsName,
+      declaringMemberName: "constructor",
+      typeParameters: constructorMetadata.typeParameters ?? entry.typeParameters,
+      declaringTypeParameterNames:
+        constructorMetadata.declaringTypeParameterNames ??
+        entry.declaringTypeParameterNames,
+    });
+    return sigId;
+  }
+
+  if (entry.decl) return sigId;
+
+  if (declaringTypeName) {
+    ctx.signatureMap.set(sigId.id, {
+      ...entry,
+      declaringTypeTsName: declaringTypeName,
+      declaringMemberName: "constructor",
+    });
   }
 
   return sigId;
 };
 
-export const resolveConstructorSignatureCandidates = (
+type ConstructorMetadata = {
+  readonly declaringTypeTsName: string;
+  readonly typeParameters?: ReturnType<typeof convertTypeParameterDeclarations>;
+  readonly declaringTypeParameterNames?: readonly string[];
+};
+
+const getDeclaredConstructorMetadata = (
   ctx: BindingContext,
-  node: ts.NewExpression
-): readonly SignatureId[] | undefined => {
-  const expr = node.expression;
-  const symbol = (() => {
-    if (ts.isIdentifier(expr)) return ctx.sourceSemantics.getSymbol(expr);
-    if (ts.isPropertyAccessExpression(expr)) {
-      return ctx.sourceSemantics.getSymbol(expr.name);
-    }
-    return undefined;
-  })();
-  if (!symbol) return undefined;
+  declaration: TstsNode | undefined
+): ConstructorMetadata | undefined => {
+  if (!declaration) return undefined;
 
-  const resolvedSymbol = ctx.sourceSemantics.resolveAlias(symbol);
+  if (TstsSyntax.IsConstructorDeclaration(declaration)) {
+    const parent = declaration.Parent;
+    if (!parent || !TstsSyntax.IsClassDeclaration(parent)) return undefined;
 
-  const decls = ctx.sourceSemantics.getSymbolDeclarations(resolvedSymbol);
-  if (!decls || decls.length === 0) return undefined;
+    const parentSymbol = ctx.sourceSemantics.getSymbol(parent);
+    const declId = parentSymbol
+      ? getOrCreateDeclId(ctx, resolveTransparentAliases(ctx, parentSymbol))
+      : undefined;
+    const parentName = getTstsNodeNameText(parent);
+    const declaringTypeTsName =
+      (declId ? ctx.declMap.get(declId.id)?.fqName : undefined) ??
+      (parentName ? normalizeCapturedDeclaringTypeName(parentName) : undefined);
+    if (!declaringTypeTsName) return undefined;
 
-  const argCount = node.arguments?.length ?? 0;
-  const candidates: SignatureId[] = [];
-
-  for (const decl of decls) {
-    if (!ts.isFunctionLike(decl)) continue;
-    // Only include construct signatures / constructors for new expressions.
-    if (
-      !ts.isConstructSignatureDeclaration(decl) &&
-      !ts.isConstructorDeclaration(decl)
-    ) {
-      continue;
-    }
-
-    const params = extractParameterNodes(decl, ctx.sourceSemantics);
-    const required = params.filter((p) => !p.isOptional && !p.isRest).length;
-    const hasRest = params.some((p) => p.isRest);
-    if (argCount < required) continue;
-    if (!hasRest && argCount > params.length) continue;
-
-    const sig = ctx.sourceSemantics.getSignatureFromDeclaration(decl);
-    if (!sig) continue;
-    candidates.push(getOrCreateSignatureId(ctx, sig));
+    const typeParameters = concreteTstsNodes(getTstsTypeParameterNodes(parent));
+    return {
+      declaringTypeTsName,
+      typeParameters: convertTypeParameterDeclarations(typeParameters),
+      declaringTypeParameterNames: typeParameters
+        .map(getTstsNodeNameText)
+        .filter((name): name is string => name !== undefined),
+    };
   }
 
-  return candidates.length > 0 ? candidates : undefined;
+  if (TstsSyntax.IsConstructSignatureDeclaration(declaration)) {
+    const parent = declaration.Parent;
+    if (parent && TstsSyntax.IsTypeLiteralNode(parent)) {
+      const owner = parent.Parent;
+      const ownerName =
+        TstsSyntax.IsVariableDeclaration(owner) ||
+        owner?.Kind === TstsSyntax.KindPropertySignature ||
+        TstsSyntax.IsPropertyDeclaration(owner) ||
+        TstsSyntax.IsTypeAliasDeclaration(owner)
+          ? getTstsNodeNameText(owner)
+          : undefined;
+      if (!ownerName) return undefined;
+      const typeParameters =
+        TstsSyntax.IsTypeAliasDeclaration(owner)
+          ? concreteTstsNodes(getTstsTypeParameterNodes(owner))
+          : concreteTstsNodes(getTstsTypeParameterNodes(declaration));
+      return {
+        declaringTypeTsName: normalizeCapturedDeclaringTypeName(ownerName),
+        typeParameters: convertTypeParameterDeclarations(typeParameters),
+        declaringTypeParameterNames: typeParameters
+          .map(getTstsNodeNameText)
+          .filter((name): name is string => name !== undefined),
+      };
+    }
+
+    if (!TstsSyntax.IsInterfaceDeclaration(parent)) return undefined;
+    const parentName = getTstsNodeNameText(parent);
+    if (!parentName) return undefined;
+    const typeParameters = concreteTstsNodes(
+      getTstsTypeParameterNodes(declaration)
+    );
+    return {
+      declaringTypeTsName: normalizeCapturedDeclaringTypeName(parentName),
+      typeParameters: convertTypeParameterDeclarations(typeParameters),
+      declaringTypeParameterNames: typeParameters
+        .map(getTstsNodeNameText)
+        .filter((name): name is string => name !== undefined),
+    };
+  }
+
+  return undefined;
+};
+
+const getClassDeclaringTypeName = (
+  ctx: BindingContext,
+  declaration: TstsNode | undefined
+): string | undefined => {
+  if (!declaration || !TstsSyntax.IsClassDeclaration(declaration)) {
+    return undefined;
+  }
+  const symbol = ctx.sourceSemantics.getSymbol(declaration);
+  if (symbol) {
+    const declId = getOrCreateDeclId(ctx, resolveTransparentAliases(ctx, symbol));
+    return ctx.declMap.get(declId.id)?.fqName;
+  }
+  return getTstsNodeNameText(declaration);
 };

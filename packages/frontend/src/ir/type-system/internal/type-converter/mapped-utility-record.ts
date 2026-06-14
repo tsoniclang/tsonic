@@ -5,7 +5,7 @@
  * flattenUnionIrType, and isProvablyAssignable.
  */
 
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import {
   IrType,
   IrObjectType,
@@ -23,8 +23,8 @@ import {
  * Expand Record<K, T> to IrObjectType when K is a finite set of literal keys.
  *
  * DETERMINISTIC IR TYPING (INV-0 compliant):
- * Uses AST-based analysis only. Extracts literal keys from TypeNode,
- * not from ts.Type.
+ * Uses syntax-based analysis only. Extracts literal keys from the TSTS type node,
+ * not from source-engine computed types.
  *
  * Gating conditions:
  * - Returns null if K contains type parameters (generic context)
@@ -32,12 +32,12 @@ import {
  * - Returns null if K contains non-literal types
  */
 export const expandRecordType = (
-  node: ts.TypeReferenceNode,
+  node: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrObjectType | null => {
-  const typeArgs = node.typeArguments;
-  if (!typeArgs || typeArgs.length !== 2) {
+  const typeArgs = TstsSyntax.Node_TypeArguments(node) ?? [];
+  if (typeArgs.length !== 2) {
     return null;
   }
 
@@ -86,7 +86,7 @@ export const expandRecordType = (
  * Returns null if the type contains non-literal constituents or is a type parameter.
  */
 const extractLiteralKeysFromTypeNode = (
-  node: ts.TypeNode,
+  node: TstsNode,
   binding: Binding
 ): Set<string> | null => {
   // Check for type parameter
@@ -95,41 +95,46 @@ const extractLiteralKeysFromTypeNode = (
   }
 
   // Handle string literal: "foo"
-  if (ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)) {
-    return new Set([node.literal.text]);
-  }
-
-  // Handle number literal: 1
-  if (ts.isLiteralTypeNode(node) && ts.isNumericLiteral(node.literal)) {
-    return new Set([node.literal.text]);
+  if (TstsSyntax.IsLiteralTypeNode(node)) {
+    const literal = TstsSyntax.AsLiteralTypeNode(node)?.Literal;
+    if (literal?.Kind === TstsSyntax.KindStringLiteral) {
+      const text = TstsSyntax.Node_Text(literal);
+      return text !== undefined ? new Set([text]) : null;
+    }
+    if (literal?.Kind === TstsSyntax.KindNumericLiteral) {
+      const text = TstsSyntax.Node_Text(literal);
+      return text !== undefined ? new Set([text]) : null;
+    }
   }
 
   // Handle union: "a" | "b" | "c"
-  if (ts.isUnionTypeNode(node)) {
+  if (TstsSyntax.IsUnionTypeNode(node)) {
     const keys = new Set<string>();
-    for (const member of node.types) {
-      if (ts.isLiteralTypeNode(member)) {
-        if (ts.isStringLiteral(member.literal)) {
-          keys.add(member.literal.text);
-        } else if (ts.isNumericLiteral(member.literal)) {
-          keys.add(member.literal.text);
-        } else {
-          return null; // Non-string/number literal
-        }
-      } else {
-        return null; // Non-literal in union
+    for (const member of TstsSyntax.AsUnionTypeNode(node)?.Types?.Nodes ?? []) {
+      if (!member || !TstsSyntax.IsLiteralTypeNode(member)) {
+        return null;
       }
+      const literal = TstsSyntax.AsLiteralTypeNode(member)?.Literal;
+      if (
+        literal?.Kind !== TstsSyntax.KindStringLiteral &&
+        literal?.Kind !== TstsSyntax.KindNumericLiteral
+      ) {
+        return null;
+      }
+      const text = TstsSyntax.Node_Text(literal);
+      if (text === undefined) return null;
+      keys.add(text);
     }
     return keys;
   }
 
   // String keyword - infinite set, can't expand
-  if (node.kind === ts.SyntaxKind.StringKeyword) {
+  if (node.Kind === TstsSyntax.KindStringKeyword) {
     return null;
   }
 
   // Number keyword - infinite set, can't expand
-  if (node.kind === ts.SyntaxKind.NumberKeyword) {
+  if (node.Kind === TstsSyntax.KindNumberKeyword) {
     return null;
   }
 

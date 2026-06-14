@@ -2,7 +2,11 @@
  * Operator expression converters (binary, unary, update, assignment)
  */
 
-import * as ts from "typescript";
+import {
+  getTstsIdentifierText,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import {
   IrExpression,
   IrUnaryExpression,
@@ -19,11 +23,7 @@ import {
   isAssignmentOperator,
 } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
-import {
-  collectTypeNarrowingsInTruthyExpr,
-  withAppliedNarrowings,
-} from "../flow-narrowing.js";
-import { resolveInstanceofTargetType } from "../narrowing-resolvers-equality.js";
+import { resolveInstanceofTargetType } from "../instanceof-target-type.js";
 import { getAccessPathKey, getAccessPathTarget } from "../access-paths.js";
 import { getReadableMemberTypeForNarrowing } from "../narrowing-property-helpers.js";
 import {
@@ -60,7 +60,7 @@ const normalizeIdentifierTargetType = (
 };
 
 const deriveIdentifierAssignmentTargetType = (
-  node: ts.Identifier,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrType | undefined => {
   const declId = ctx.binding.resolveIdentifier(node);
@@ -138,6 +138,57 @@ const getStaticInOperatorKey = (expr: IrExpression): string | undefined =>
   expr.kind === "literal" && typeof expr.value === "string"
     ? expr.value
     : undefined;
+
+const assignmentOperators: ReadonlySet<string> = new Set([
+  "=",
+  "+=",
+  "-=",
+  "*=",
+  "/=",
+  "%=",
+  "**=",
+  "<<=",
+  ">>=",
+  ">>>=",
+  "&=",
+  "|=",
+  "^=",
+  "&&=",
+  "||=",
+  "??=",
+]);
+
+const binaryOperators: ReadonlySet<string> = new Set([
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "**",
+  "==",
+  "!=",
+  "===",
+  "!==",
+  "<",
+  ">",
+  "<=",
+  ">=",
+  "<<",
+  ">>",
+  ">>>",
+  "&",
+  "|",
+  "^",
+  "in",
+  "instanceof",
+]);
+
+const isIrAssignmentOperator = (
+  operator: string
+): operator is IrAssignmentOperator => assignmentOperators.has(operator);
+
+const isIrBinaryOperator = (operator: string): operator is IrBinaryOperator =>
+  binaryOperators.has(operator);
 
 const hasStringKeyCarrier = (
   type: IrType | undefined,
@@ -222,7 +273,7 @@ const deriveInOperatorPlan = (
 };
 
 const withoutExactAssignmentTargetReadNarrowing = (
-  expr: ts.Expression,
+  expr: TstsNode,
   ctx: ProgramContext
 ): ProgramContext => {
   if (!ctx.accessEnv || ctx.accessEnv.size === 0) {
@@ -387,38 +438,47 @@ const deriveUnaryResultType = (
  *
  * Threads expectedType through:
  * - Assignment RHS: gets LHS type
- * - Nullish coalescing (??): RHS gets expectedType (fallback value)
- * - Logical OR (||): RHS gets expectedType (fallback value)
+ * - Nullish coalescing (??): RHS gets expectedType (alternate value)
+ * - Logical OR (||): RHS gets expectedType (alternate value)
  */
 export const convertBinaryExpression = (
-  node: ts.BinaryExpression,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedType?: IrType
 ): IrExpression => {
-  const operator = convertBinaryOperator(node.operatorToken);
+  const binary = TstsSyntax.AsBinaryExpression(node);
+  if (!binary?.Left || !binary.OperatorToken || !binary.Right) {
+    throw new Error("Invalid TSTS binary expression.");
+  }
+
+  const operator = convertBinaryOperator(binary.OperatorToken);
   const sourceSpan = getSourceSpan(node);
 
   // Handle assignment separately
   // Thread LHS type to RHS for deterministic typing (e.g., x = 10 where x: int)
-  if (isAssignmentOperator(node.operatorToken)) {
-    const leftCtx = withoutExactAssignmentTargetReadNarrowing(node.left, ctx);
+  if (isAssignmentOperator(binary.OperatorToken)) {
+    if (!isIrAssignmentOperator(operator)) {
+      throw new Error(`Unsupported TSTS assignment operator '${operator}'.`);
+    }
+
+    const leftCtx = withoutExactAssignmentTargetReadNarrowing(binary.Left, ctx);
 
     // DETERMINISTIC: derive the storage type for identifier assignment targets.
-    const leftExpr = ts.isIdentifier(node.left)
+    const leftExpr: IrExpression = binary.Left.Kind === TstsSyntax.KindIdentifier
       ? {
-          kind: "identifier" as const,
-          name: node.left.text,
-          inferredType: deriveIdentifierAssignmentTargetType(node.left, ctx),
-          sourceSpan: getSourceSpan(node.left),
+          kind: "identifier",
+          name: getTstsIdentifierText(binary.Left) ?? "",
+          inferredType: deriveIdentifierAssignmentTargetType(binary.Left, ctx),
+          sourceSpan: getSourceSpan(binary.Left),
         }
-      : convertExpression(node.left, leftCtx, undefined);
+      : convertExpression(binary.Left, leftCtx, undefined);
 
     const lhsType = leftExpr.inferredType;
-    const rightExpr = convertExpression(node.right, ctx, lhsType);
+    const rightExpr = convertExpression(binary.Right, ctx, lhsType);
 
     return {
       kind: "assignment",
-      operator: operator as IrAssignmentOperator,
+      operator,
       left: leftExpr,
       right: rightExpr,
       inferredType: lhsType, // Assignment result is LHS type
@@ -427,10 +487,10 @@ export const convertBinaryExpression = (
   }
 
   // Handle logical operators
-  // For ?? and ||, the RHS is the fallback value, so it gets expectedType
+  // For ?? and ||, the RHS is the alternate value, so it gets expectedType
   // For &&, the RHS is only reached if LHS is truthy, no type coercion needed
   if (operator === "&&" || operator === "||" || operator === "??") {
-    const leftExpr = convertExpression(node.left, ctx, undefined);
+    const leftExpr = convertExpression(binary.Left, ctx, undefined);
     const lhsFallbackExpectedType =
       operator === "??" || operator === "||"
         ? leftExpr.inferredType
@@ -441,14 +501,7 @@ export const convertBinaryExpression = (
       operator === "??" || operator === "||"
         ? (expectedType ?? lhsFallbackExpectedType)
         : undefined;
-    const rhsCtx =
-      operator === "&&"
-        ? withAppliedNarrowings(
-            ctx,
-            collectTypeNarrowingsInTruthyExpr(node.left, ctx)
-          )
-        : ctx;
-    const rightExpr = convertExpression(node.right, rhsCtx, rhsExpectedType);
+    const rightExpr = convertExpression(binary.Right, ctx, rhsExpectedType);
 
     return {
       kind: "logical",
@@ -465,23 +518,27 @@ export const convertBinaryExpression = (
   }
 
   // Regular binary expression
-  const leftExpr = convertExpression(node.left, ctx, undefined);
-  const convertedRightExpr = convertExpression(node.right, ctx, undefined);
+  if (!isIrBinaryOperator(operator)) {
+    throw new Error(`Unsupported TSTS binary operator '${operator}'.`);
+  }
+
+  const leftExpr = convertExpression(binary.Left, ctx, undefined);
+  const convertedRightExpr = convertExpression(binary.Right, ctx, undefined);
   const instanceofTargetType =
     operator === "instanceof"
-      ? resolveInstanceofTargetType(node.right, ctx)
+      ? resolveInstanceofTargetType(binary.Right, ctx)
       : undefined;
   const rightExpr: IrExpression =
     instanceofTargetType !== undefined
-      ? ({
+      ? {
           ...convertedRightExpr,
           inferredType: instanceofTargetType,
-        } as IrExpression)
+        }
       : convertedRightExpr;
 
   return {
     kind: "binary",
-    operator: operator as IrBinaryOperator,
+    operator,
     left: leftExpr,
     right: rightExpr,
     ...(operator === "in"
@@ -500,32 +557,37 @@ export const convertBinaryExpression = (
  * Convert prefix unary expression
  */
 export const convertUnaryExpression = (
-  node: ts.PrefixUnaryExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrUnaryExpression | IrUpdateExpression => {
+  const prefix = TstsSyntax.AsPrefixUnaryExpression(node);
+  if (!prefix?.Operand) {
+    throw new Error("Invalid TSTS prefix unary expression.");
+  }
+
   const sourceSpan = getSourceSpan(node);
-  const operandExpr = convertExpression(node.operand, ctx, undefined);
+  const operandExpr = convertExpression(prefix.Operand, ctx, undefined);
   const isNegativeZeroLiteral =
-    node.operator === ts.SyntaxKind.MinusToken &&
+    prefix.Operator === TstsSyntax.KindMinusToken &&
     operandExpr.kind === "literal" &&
     typeof operandExpr.value === "number" &&
     Object.is(operandExpr.value, 0);
-  const effectiveOperandExpr = isNegativeZeroLiteral
-    ? ({
+  const effectiveOperandExpr: IrExpression = isNegativeZeroLiteral
+    ? {
         ...operandExpr,
         raw: "0.0",
         numericIntent: "float64",
         inferredType: { kind: "primitiveType", name: "number" },
-      } as const)
+      }
     : operandExpr;
 
   // Check if it's an increment/decrement (++ or --)
   if (
-    node.operator === ts.SyntaxKind.PlusPlusToken ||
-    node.operator === ts.SyntaxKind.MinusMinusToken
+    prefix.Operator === TstsSyntax.KindPlusPlusToken ||
+    prefix.Operator === TstsSyntax.KindMinusMinusToken
   ) {
     const updateOperator =
-      node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--";
+      prefix.Operator === TstsSyntax.KindPlusPlusToken ? "++" : "--";
     return {
       kind: "update",
       operator: updateOperator,
@@ -542,17 +604,17 @@ export const convertUnaryExpression = (
   // Handle regular unary operators
   let operator: IrUnaryExpression["operator"] = "+";
 
-  switch (node.operator) {
-    case ts.SyntaxKind.PlusToken:
+  switch (prefix.Operator) {
+    case TstsSyntax.KindPlusToken:
       operator = "+";
       break;
-    case ts.SyntaxKind.MinusToken:
+    case TstsSyntax.KindMinusToken:
       operator = "-";
       break;
-    case ts.SyntaxKind.ExclamationToken:
+    case TstsSyntax.KindExclamationToken:
       operator = "!";
       break;
-    case ts.SyntaxKind.TildeToken:
+    case TstsSyntax.KindTildeToken:
       operator = "~";
       break;
   }
@@ -576,20 +638,25 @@ export const convertUnaryExpression = (
  * ++/-- return same type as operand (int → int, number → number)
  */
 export const convertUpdateExpression = (
-  node: ts.PostfixUnaryExpression | ts.PrefixUnaryExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrUpdateExpression => {
   const sourceSpan = getSourceSpan(node);
 
-  if (ts.isPrefixUnaryExpression(node)) {
+  if (node.Kind === TstsSyntax.KindPrefixUnaryExpression) {
+    const prefix = TstsSyntax.AsPrefixUnaryExpression(node);
+    if (!prefix?.Operand) {
+      throw new Error("Invalid TSTS prefix update expression.");
+    }
+
     // Check if it's an increment or decrement
     if (
-      node.operator === ts.SyntaxKind.PlusPlusToken ||
-      node.operator === ts.SyntaxKind.MinusMinusToken
+      prefix.Operator === TstsSyntax.KindPlusPlusToken ||
+      prefix.Operator === TstsSyntax.KindMinusMinusToken
     ) {
-      const operandExpr = convertExpression(node.operand, ctx, undefined);
+      const operandExpr = convertExpression(prefix.Operand, ctx, undefined);
       const updateOperator =
-        node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--";
+        prefix.Operator === TstsSyntax.KindPlusPlusToken ? "++" : "--";
       return {
         kind: "update",
         operator: updateOperator,
@@ -605,10 +672,14 @@ export const convertUpdateExpression = (
   }
 
   // Handle postfix unary expression
-  const postfix = node as ts.PostfixUnaryExpression;
-  const operandExpr = convertExpression(postfix.operand, ctx, undefined);
+  const postfix = TstsSyntax.AsPostfixUnaryExpression(node);
+  if (!postfix?.Operand) {
+    throw new Error("Invalid TSTS postfix update expression.");
+  }
+
+  const operandExpr = convertExpression(postfix.Operand, ctx, undefined);
   const updateOperator =
-    postfix.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--";
+    postfix.Operator === TstsSyntax.KindPlusPlusToken ? "++" : "--";
   return {
     kind: "update",
     operator: updateOperator,

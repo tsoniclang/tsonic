@@ -1414,3 +1414,76 @@ test("loadTsgoAcceptedOverlay returns sections for committed overlays and undefi
   assert.ok(sections.some((section) => section.name === "v1.d.ts"));
   assert.ok(sections.some((section) => section.name === "Diagnostics reported"));
 });
+
+test("trimResult flattens retained lines, caps them, and passes through already-trimmed records", async () => {
+  const { trimResult } = await import("./run.mjs");
+  const big = `first line\n${"x".repeat(5000)}\n${Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n")}`;
+  const trimmed = trimResult({
+    corpus: "typescript",
+    suite: "compiler",
+    relativePath: "compiler/a.ts",
+    configurationName: "",
+    status: "pass",
+    expectedErrors: false,
+    actualErrors: false,
+    exitCode: 0,
+    signal: null,
+    caseDir: "/tmp/case",
+    skipReason: "",
+    exactBaseline: { status: "pass", checked: 1, comparable: 1, unsupported: [], tsgoAccepted: [], mismatches: [] },
+    stdout: big,
+    stderr: "",
+  });
+  assert.equal(trimmed.firstOutputLines.length, 20);
+  assert.equal(trimmed.firstOutputLines[0], "first line");
+  // Long lines are capped so no record can retain unbounded output.
+  assert.equal(trimmed.firstOutputLines[1].length, 1000);
+  assert.equal(trimmed.stdout, undefined);
+  assert.equal(trimmed.stderr, undefined);
+  // Already-trimmed records pass through unchanged.
+  assert.equal(trimResult(trimmed), trimmed);
+});
+
+test("readResults restores discovery order and strips the caseIndex envelope", async () => {
+  const { readResults } = await import("./run.mjs");
+  const { mkdtemp, writeFile: writeFileAsync, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join: joinPath } = await import("node:path");
+  const dir = await mkdtemp(joinPath(tmpdir(), "tsgo-suite-ndjson-"));
+  try {
+    const path = joinPath(dir, "results.ndjson");
+    // Completion order differs from discovery order, as with parallel workers.
+    const lines = [
+      { caseIndex: 2, relativePath: "compiler/c.ts", status: "pass" },
+      { caseIndex: 0, relativePath: "compiler/a.ts", status: "skip" },
+      { caseIndex: 1, relativePath: "compiler/b.ts", status: "fail" },
+    ];
+    await writeFileAsync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+    const records = await readResults(path);
+    assert.deepEqual(records.map((record) => record.relativePath), ["compiler/a.ts", "compiler/b.ts", "compiler/c.ts"]);
+    assert.ok(records.every((record) => record.caseIndex === undefined));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("summarize counts statuses and exact-baseline rollups from streamed records", async () => {
+  const { summarize } = await import("./run.mjs");
+  const summary = summarize([
+    { status: "pass", expectedErrors: true, exactBaseline: { status: "pass", comparable: 3, unsupported: [], tsgoAccepted: [], mismatches: [] } },
+    { status: "skip", expectedErrors: false, exactBaseline: undefined },
+    { status: "fail", expectedErrors: true, exactBaseline: { status: "fail", comparable: 2, unsupported: ["x"], tsgoAccepted: ["y"], mismatches: ["m1", "m2"] } },
+  ]);
+  assert.equal(summary.total, 3);
+  assert.equal(summary.passed, 1);
+  assert.equal(summary.skipped, 1);
+  assert.equal(summary.failed, 1);
+  assert.equal(summary.expectedErrorCases, 2);
+  assert.equal(summary.expectedCleanCases, 1);
+  assert.equal(summary.exactBaselineCases, 2);
+  assert.equal(summary.exactBaselineFailedCases, 1);
+  assert.equal(summary.exactBaselineComparableArtifacts, 5);
+  assert.equal(summary.exactBaselineUnsupportedArtifacts, 1);
+  assert.equal(summary.exactBaselineTsgoAcceptedSections, 1);
+  assert.equal(summary.exactBaselineMismatches, 2);
+});

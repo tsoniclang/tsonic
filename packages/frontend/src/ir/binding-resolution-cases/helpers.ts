@@ -3,7 +3,9 @@
  * Shared test helpers for binding resolution tests.
  */
 
-import * as ts from "typescript";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { createProgramContext } from "../program-context.js";
 import { ExternalMetadataRegistry } from "../../external-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
@@ -11,16 +13,10 @@ import { createExternalBindingsResolver } from "../../resolver/external-bindings
 import { createBinding } from "../binding/index.js";
 import type { DeclId } from "../type-system/types.js";
 import {
-  createSourceSemanticFactStore,
-  projectTstsFactsToTypeScriptSource,
+  createTstsSemanticView,
+  createTstsSourceProgram,
 } from "../../source-frontend/index.js";
-import type { TstsSourceProgram } from "../../source-frontend/index.js";
-import { createTypeScriptSemanticView } from "../../source-frontend/typescript-semantic-view.js";
-import { createExtensionHost, parseTstsSourceFile } from "@tsonic/tsts";
-import {
-  createTsonicNumericPrimitiveExtension,
-  createTsonicSourceSemanticsExtension,
-} from "../../tsonic-extension/index.js";
+import { withCanonicalCorePackageFiles } from "../../testing/tsts-test-program.js";
 
 export { buildIrModule } from "../builder.js";
 export { createProgramContext } from "../program-context.js";
@@ -39,68 +35,37 @@ export const createTestProgram = (
   bindings?: BindingRegistry,
   fileName = "/test/sample.ts"
 ) => {
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.ES2022,
-    true,
-    ts.ScriptKind.TS
+  const tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "tsonic-binding-memory-")
   );
-
-  const program = ts.createProgram(
-    [fileName],
-    {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ES2022,
-    },
-    {
-      getSourceFile: (name) => (name === fileName ? sourceFile : undefined),
-      writeFile: () => {},
-      getCurrentDirectory: () => "/test",
-      getDirectories: () => [],
-      fileExists: () => true,
-      readFile: () => source,
-      getCanonicalFileName: (f) => f,
-      useCaseSensitiveFileNames: () => true,
-      getNewLine: () => "\n",
-      getDefaultLibFileName: (_options) => "lib.d.ts",
-    }
-  );
-
-  const checker = program.getTypeChecker();
-  const sourceFacts = createSourceSemanticFactStore<ts.Node>();
-  const sourceSemantics = createTypeScriptSemanticView(checker, sourceFacts);
-  const extensionHost = createExtensionHost([
-    createTsonicNumericPrimitiveExtension(),
-    createTsonicSourceSemanticsExtension(),
-  ]);
-  const tstsSourceFile = parseTstsSourceFile(source, { fileName });
-  if (!tstsSourceFile) {
-    throw new Error(`TSTS parser did not create ${fileName}`);
+  const relativeFileName = path.basename(fileName).replace(/^\/*/, "");
+  const absoluteFileName = path.join(tempRoot, relativeFileName);
+  for (const [relativePath, contents] of Object.entries(
+    withCanonicalCorePackageFiles({ [relativeFileName]: source })
+  )) {
+    const absolutePath = path.join(tempRoot, relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, contents);
   }
-  extensionHost.configure();
-  extensionHost.afterParseSourceFile(tstsSourceFile);
-  const sourceProgram: TstsSourceProgram = {
-    engine: "tsts",
-    sourceFiles: [tstsSourceFile],
-    extensionHost,
-    diagnostics: extensionHost.diagnostics.all(),
-    compilerDiagnostics: [],
-    withSourceSemantics: () => {
-      throw new Error(
-        "In-memory binding-resolution test program has no TSTS checker."
-      );
-    },
-  };
-  projectTstsFactsToTypeScriptSource(sourceProgram, [sourceFile], sourceFacts);
-
+  const sourceProgram = createTstsSourceProgram([absoluteFileName], {
+    projectRoot: tempRoot,
+    runSemanticChecks: true,
+  });
+  const sourceFile = sourceProgram.sourceFiles.find(
+    (candidate) => path.resolve(candidate.FileName()) === absoluteFileName
+  );
+  if (!sourceFile) {
+    throw new Error(`TSTS parser did not create ${absoluteFileName}`);
+  }
+  const sourceSemantics = sourceProgram.withSourceSemantics(
+    sourceFile,
+    (checker) =>
+      createTstsSemanticView(checker, sourceProgram.extensionHost.facts)
+  );
   const testProgram = {
-    program,
-    checker,
-    tsCompilerOptions: program.getCompilerOptions(),
     options: {
-      projectRoot: "/test",
-      sourceRoot: "/test",
+      projectRoot: tempRoot,
+      sourceRoot: tempRoot,
       rootNamespace: "TestApp",
       strict: true,
     },
@@ -115,7 +80,7 @@ export const createTestProgram = (
   };
 
   // Create ProgramContext for the test
-  const options = { sourceRoot: "/test", rootNamespace: "TestApp" };
+  const options = { sourceRoot: tempRoot, rootNamespace: "TestApp" };
   const ctx = createProgramContext(testProgram, options);
 
   return { testProgram, ctx, options };

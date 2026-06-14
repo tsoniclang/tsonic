@@ -84,7 +84,7 @@ function parseArgs(argv) {
       process.env.TSONIC_UNIT_TEST_SHARD_THRESHOLD ?? 50
     ),
     fileShardMs: Number(process.env.TSONIC_UNIT_FILE_SHARD_MS ?? 30000),
-    heavyTimeoutMs: Number(process.env.TSONIC_UNIT_HEAVY_TIMEOUT_MS ?? 300000),
+    heavyTimeoutMs: Number(process.env.TSONIC_UNIT_HEAVY_TIMEOUT_MS ?? 900000),
     heavyTimeoutShardMs: Number(
       process.env.TSONIC_UNIT_HEAVY_TIMEOUT_SHARD_MS ?? 10000
     ),
@@ -554,6 +554,13 @@ function heavyTimeoutForShard(packageConfig, relativeFile, estimatedMs) {
   return 0;
 }
 
+function parallelWeightForShard(packageConfig, estimatedMs, timeoutMs) {
+  if (options.concurrency <= 1) return 1;
+  if (isCompilerHeavyPackage(packageConfig)) return 1;
+  if (timeoutMs <= 0 || estimatedMs < options.fileShardMs) return 1;
+  return options.concurrency;
+}
+
 function shardValidationKeys(shards) {
   const keys = [];
   for (const shard of shards) {
@@ -596,16 +603,22 @@ function buildShards(packageConfig, expandedFiles, expandedTests, timingInfo) {
         fileEstimatedMs >= options.fileShardMs);
 
     if (!shouldSplit) {
+      const timeoutMs = heavyTimeoutForShard(
+        packageConfig,
+        relativeFile,
+        fileEstimatedMs
+      );
       shards.push({
         packageConfig,
         shardKind: "file",
         relativeFile,
         testCount: fileTests.length,
         estimatedMs: fileEstimatedMs || fileTests.length,
-        timeoutMs: heavyTimeoutForShard(
+        timeoutMs,
+        parallelWeight: parallelWeightForShard(
           packageConfig,
-          relativeFile,
-          fileEstimatedMs
+          fileEstimatedMs,
+          timeoutMs
         ),
         testTitles: fileTests.map((test) => testFullTitle(test)),
       });
@@ -624,6 +637,11 @@ function buildShards(packageConfig, expandedFiles, expandedTests, timingInfo) {
           ),
         0
       );
+      const timeoutMs = heavyTimeoutForShard(
+        packageConfig,
+        relativeFile,
+        estimatedMs
+      );
       shards.push({
         packageConfig,
         shardKind: "test",
@@ -632,10 +650,11 @@ function buildShards(packageConfig, expandedFiles, expandedTests, timingInfo) {
         grepPattern: `^${escapeRegExp(title)}$`,
         testCount: titleTests.length,
         estimatedMs: estimatedMs || titleTests.length,
-        timeoutMs: heavyTimeoutForShard(
+        timeoutMs,
+        parallelWeight: parallelWeightForShard(
           packageConfig,
-          relativeFile,
-          estimatedMs
+          estimatedMs,
+          timeoutMs
         ),
         testTitles: titleTests.map((test) => testFullTitle(test)),
       });
@@ -697,6 +716,7 @@ function packageManifest(packageConfig) {
           testCount: shard.testCount,
           estimatedMs: shard.estimatedMs,
           timeoutMs: shard.timeoutMs,
+          parallelWeight: shard.parallelWeight,
         })),
         serialTests: serialCount,
         expandedTests: expandedCount,
@@ -810,6 +830,7 @@ function spawnShard(job, packageStates) {
     testCount: String(job.testCount),
     estimatedMs: String(job.estimatedMs ?? 0),
     timeoutMs: String(job.timeoutMs ?? 0),
+    parallelWeight: String(job.parallelWeight ?? 1),
     hardTimeoutMs: String(hardTimeoutMs),
   });
 
@@ -910,23 +931,30 @@ function spawnShard(job, packageStates) {
 
 async function runJobs(jobs, packageStates) {
   let nextJobIndex = 0;
-  let activeCount = 0;
+  let activeWeight = 0;
   let failed = false;
 
   await new Promise((resolveAll) => {
     const launchMore = () => {
-      while (activeCount < options.concurrency && nextJobIndex < jobs.length) {
+      while (nextJobIndex < jobs.length) {
         const job = jobs[nextJobIndex];
+        const jobWeight = Math.max(
+          1,
+          Math.min(options.concurrency, job.parallelWeight ?? 1)
+        );
+        if (activeWeight > 0 && activeWeight + jobWeight > options.concurrency) {
+          break;
+        }
         nextJobIndex += 1;
-        activeCount += 1;
+        activeWeight += jobWeight;
         spawnShard(job, packageStates).then((passed) => {
           if (!passed) failed = true;
-          activeCount -= 1;
+          activeWeight -= jobWeight;
           launchMore();
         });
       }
 
-      if (activeCount === 0 && nextJobIndex >= jobs.length) {
+      if (activeWeight === 0 && nextJobIndex >= jobs.length) {
         resolveAll();
       }
     };

@@ -6,7 +6,8 @@
  *   - value-inference.ts: deterministic value type inference from declarations/expressions
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { TstsSyntax } from "@tsonic/tsts";
 import type {
   IrType,
   IrFunctionType,
@@ -36,6 +37,12 @@ import {
   withTypeParameterConstraint,
   inferTypeFromValueDeclaration,
 } from "./value-inference.js";
+import {
+  assertConverterNode,
+  entityNameToText,
+  nodeTypeArguments,
+  typeOperatorKind,
+} from "./tsts-syntax.js";
 
 /**
  * Convert TypeScript type node to IR type
@@ -43,50 +50,29 @@ import {
 const POLYMORPHIC_THIS_MARKER = "__tsonic_polymorphic_this";
 
 export const convertType = (
-  typeNode: ts.TypeNode,
+  typeNode: TstsNode,
   binding: Binding
 ): IrType => {
-  // Heritage clause type syntax (`extends Foo<T>`, `implements Bar<U>`) is represented
-  // as ExpressionWithTypeArguments in the TS AST. This must be treated like a normal
-  // type reference so NominalEnv can compute substitution through inheritance chains.
-  if (ts.isExpressionWithTypeArguments(typeNode)) {
-    const toEntityName = (expr: ts.Expression): ts.EntityName | undefined => {
-      if (ts.isIdentifier(expr)) return expr;
-      if (ts.isPropertyAccessExpression(expr)) {
-        if (!ts.isIdentifier(expr.name)) return undefined;
-        const left = toEntityName(expr.expression);
-        return left
-          ? ts.factory.createQualifiedName(left, expr.name)
-          : undefined;
-      }
-      return undefined;
-    };
-
-    const entityName = toEntityName(typeNode.expression);
-    if (entityName) {
-      const ref = ts.factory.createTypeReferenceNode(
-        entityName,
-        typeNode.typeArguments
-      );
-      return convertTypeReference(ref, binding, convertType);
+  if (TstsSyntax.IsExpressionWithTypeArguments(typeNode)) {
+    const name = entityNameToText(TstsSyntax.Node_Expression(typeNode));
+    if (!name) {
+      return { kind: "unknownType" };
     }
-
-    // Fallback: preserve text form (should be rare; computed expressions).
     return {
       kind: "referenceType",
-      name: typeNode.expression.getText(),
-      typeArguments: typeNode.typeArguments?.map((t) =>
+      name,
+      typeArguments: nodeTypeArguments(typeNode).map((t) =>
         convertType(t, binding)
       ),
     };
   }
 
   // Type references (including primitive type names)
-  if (ts.isTypeReferenceNode(typeNode)) {
+  if (TstsSyntax.IsTypeReferenceNode(typeNode)) {
     return convertTypeReference(typeNode, binding, convertType);
   }
 
-  if (ts.isThisTypeNode(typeNode)) {
+  if (typeNode.Kind === TstsSyntax.KindThisType) {
     return {
       kind: "typeParameterType",
       name: POLYMORPHIC_THIS_MARKER,
@@ -94,56 +80,88 @@ export const convertType = (
   }
 
   // Primitive keywords
-  const primitiveType = convertPrimitiveKeyword(typeNode.kind);
+  const primitiveType = convertPrimitiveKeyword(typeNode.Kind);
   if (primitiveType) {
     return primitiveType;
   }
 
   // Array types
-  if (ts.isArrayTypeNode(typeNode)) {
+  if (TstsSyntax.IsArrayTypeNode(typeNode)) {
     return convertArrayType(typeNode, binding, convertType);
   }
 
   // Tuple types
-  if (ts.isTupleTypeNode(typeNode)) {
+  if (TstsSyntax.IsTupleTypeNode(typeNode)) {
+    const tupleElements =
+      TstsSyntax.AsTupleTypeNode(typeNode)?.Elements?.Nodes?.filter(
+        (element): element is TstsNode => element !== undefined
+      ) ?? [];
     // Check for rest elements.
-    const hasRest = typeNode.elements.some(
+    const hasRest = tupleElements.some(
       (el) =>
-        ts.isRestTypeNode(el) ||
-        (ts.isNamedTupleMember(el) &&
-          (el.dotDotDotToken !== undefined || ts.isRestTypeNode(el.type)))
+        TstsSyntax.IsRestTypeNode(el) ||
+        (TstsSyntax.IsNamedTupleMember(el) &&
+          (TstsSyntax.AsNamedTupleMember(el)?.DotDotDotToken !== undefined ||
+            TstsSyntax.IsRestTypeNode(
+              TstsSyntax.AsNamedTupleMember(el)?.Type
+            )))
     );
 
     if (hasRest) {
-      const restIndex = typeNode.elements.findIndex(
+      const restIndex = tupleElements.findIndex(
         (el) =>
-          ts.isRestTypeNode(el) ||
-          (ts.isNamedTupleMember(el) &&
-            (el.dotDotDotToken !== undefined || ts.isRestTypeNode(el.type)))
+          TstsSyntax.IsRestTypeNode(el) ||
+          (TstsSyntax.IsNamedTupleMember(el) &&
+            (TstsSyntax.AsNamedTupleMember(el)?.DotDotDotToken !== undefined ||
+              TstsSyntax.IsRestTypeNode(
+                TstsSyntax.AsNamedTupleMember(el)?.Type
+              )))
       );
       const elementTypes: IrType[] = [];
 
-      for (const element of typeNode.elements) {
-        if (ts.isNamedTupleMember(element)) {
+      for (const element of tupleElements) {
+        if (TstsSyntax.IsNamedTupleMember(element)) {
+          const namedElement = TstsSyntax.AsNamedTupleMember(element);
+          const namedElementType = namedElement?.Type;
           if (
-            element.dotDotDotToken !== undefined ||
-            ts.isRestTypeNode(element.type)
+            namedElement?.DotDotDotToken !== undefined ||
+            TstsSyntax.IsRestTypeNode(namedElementType)
           ) {
-            const restType = ts.isRestTypeNode(element.type)
-              ? element.type.type
-              : element.type;
-            if (ts.isArrayTypeNode(restType)) {
-              elementTypes.push(convertType(restType.elementType, binding));
+            const restType = TstsSyntax.IsRestTypeNode(namedElementType)
+              ? TstsSyntax.AsRestTypeNode(namedElementType)?.Type
+              : namedElementType;
+            if (restType && TstsSyntax.IsArrayTypeNode(restType)) {
+              const elementType = TstsSyntax.AsArrayTypeNode(restType)?.ElementType;
+              elementTypes.push(
+                elementType ? convertType(elementType, binding) : { kind: "unknownType" }
+              );
               continue;
             }
-            if (ts.isTupleTypeNode(restType)) {
-              for (const nestedElement of restType.elements) {
-                if (ts.isNamedTupleMember(nestedElement)) {
-                  elementTypes.push(convertType(nestedElement.type, binding));
-                } else if (ts.isRestTypeNode(nestedElement)) {
-                  if (ts.isArrayTypeNode(nestedElement.type)) {
+            if (restType && TstsSyntax.IsTupleTypeNode(restType)) {
+              for (const nestedElement of
+                TstsSyntax.AsTupleTypeNode(restType)?.Elements?.Nodes ?? []) {
+                if (!nestedElement) continue;
+                if (TstsSyntax.IsNamedTupleMember(nestedElement)) {
+                  const nestedType =
+                    TstsSyntax.AsNamedTupleMember(nestedElement)?.Type;
+                  elementTypes.push(
+                    nestedType
+                      ? convertType(nestedType, binding)
+                      : { kind: "unknownType" }
+                  );
+                } else if (TstsSyntax.IsRestTypeNode(nestedElement)) {
+                  const nestedRestType =
+                    TstsSyntax.AsRestTypeNode(nestedElement)?.Type;
+                  if (
+                    nestedRestType &&
+                    TstsSyntax.IsArrayTypeNode(nestedRestType)
+                  ) {
+                    const nestedElementType =
+                      TstsSyntax.AsArrayTypeNode(nestedRestType)?.ElementType;
                     elementTypes.push(
-                      convertType(nestedElement.type.elementType, binding)
+                      nestedElementType
+                        ? convertType(nestedElementType, binding)
+                        : { kind: "unknownType" }
                     );
                   } else {
                     elementTypes.push({ kind: "unknownType" });
@@ -158,24 +176,48 @@ export const convertType = (
             continue;
           }
 
-          elementTypes.push(convertType(element.type, binding));
+          elementTypes.push(
+            namedElementType
+              ? convertType(namedElementType, binding)
+              : { kind: "unknownType" }
+          );
           continue;
         }
 
-        if (ts.isRestTypeNode(element)) {
-          const restType = element.type;
-          if (ts.isArrayTypeNode(restType)) {
-            elementTypes.push(convertType(restType.elementType, binding));
+        if (TstsSyntax.IsRestTypeNode(element)) {
+          const restType = TstsSyntax.AsRestTypeNode(element)?.Type;
+          if (restType && TstsSyntax.IsArrayTypeNode(restType)) {
+            const elementType = TstsSyntax.AsArrayTypeNode(restType)?.ElementType;
+            elementTypes.push(
+              elementType ? convertType(elementType, binding) : { kind: "unknownType" }
+            );
             continue;
           }
-          if (ts.isTupleTypeNode(restType)) {
-            for (const nestedElement of restType.elements) {
-              if (ts.isNamedTupleMember(nestedElement)) {
-                elementTypes.push(convertType(nestedElement.type, binding));
-              } else if (ts.isRestTypeNode(nestedElement)) {
-                if (ts.isArrayTypeNode(nestedElement.type)) {
+          if (restType && TstsSyntax.IsTupleTypeNode(restType)) {
+            for (const nestedElement of
+              TstsSyntax.AsTupleTypeNode(restType)?.Elements?.Nodes ?? []) {
+              if (!nestedElement) continue;
+              if (TstsSyntax.IsNamedTupleMember(nestedElement)) {
+                const nestedType =
+                  TstsSyntax.AsNamedTupleMember(nestedElement)?.Type;
+                elementTypes.push(
+                  nestedType
+                    ? convertType(nestedType, binding)
+                    : { kind: "unknownType" }
+                );
+              } else if (TstsSyntax.IsRestTypeNode(nestedElement)) {
+                const nestedRestType =
+                  TstsSyntax.AsRestTypeNode(nestedElement)?.Type;
+                if (
+                  nestedRestType &&
+                  TstsSyntax.IsArrayTypeNode(nestedRestType)
+                ) {
+                  const nestedElementType =
+                    TstsSyntax.AsArrayTypeNode(nestedRestType)?.ElementType;
                   elementTypes.push(
-                    convertType(nestedElement.type.elementType, binding)
+                    nestedElementType
+                      ? convertType(nestedElementType, binding)
+                      : { kind: "unknownType" }
                   );
                 } else {
                   elementTypes.push({ kind: "unknownType" });
@@ -195,21 +237,29 @@ export const convertType = (
 
       const hasRepresentableSpreadMetadata =
         restIndex >= 0 &&
-        typeNode.elements
+        tupleElements
           .slice(restIndex + 1)
           .every(
             (element) =>
-              ts.isRestTypeNode(element) ||
-              (ts.isNamedTupleMember(element) &&
-                (element.dotDotDotToken !== undefined ||
-                  ts.isRestTypeNode(element.type)))
+              TstsSyntax.IsRestTypeNode(element) ||
+              (TstsSyntax.IsNamedTupleMember(element) &&
+                (TstsSyntax.AsNamedTupleMember(element)?.DotDotDotToken !==
+                  undefined ||
+                  TstsSyntax.IsRestTypeNode(
+                    TstsSyntax.AsNamedTupleMember(element)?.Type
+                  )))
           );
       const tuplePrefixElementTypes = hasRepresentableSpreadMetadata
-        ? typeNode.elements.slice(0, restIndex).flatMap((element): IrType[] => {
-            if (ts.isNamedTupleMember(element)) {
-              return [convertType(element.type, binding)];
+        ? tupleElements.slice(0, restIndex).flatMap((element): IrType[] => {
+            if (TstsSyntax.IsNamedTupleMember(element)) {
+              const elementType = TstsSyntax.AsNamedTupleMember(element)?.Type;
+              return [
+                elementType
+                  ? convertType(elementType, binding)
+                  : { kind: "unknownType" },
+              ];
             }
-            if (ts.isRestTypeNode(element)) {
+            if (TstsSyntax.IsRestTypeNode(element)) {
               return [];
             }
             return [convertType(element, binding)];
@@ -217,38 +267,69 @@ export const convertType = (
         : undefined;
       const tupleRestElementType = hasRepresentableSpreadMetadata
         ? (() => {
-            const restElement = typeNode.elements[restIndex];
+            const restElement = tupleElements[restIndex];
             if (!restElement) return undefined;
 
-            if (ts.isNamedTupleMember(restElement)) {
-              const restType = ts.isRestTypeNode(restElement.type)
-                ? restElement.type.type
-                : restElement.type;
-              if (ts.isArrayTypeNode(restType)) {
-                return convertType(restType.elementType, binding);
+            if (TstsSyntax.IsNamedTupleMember(restElement)) {
+              const namedRest = TstsSyntax.AsNamedTupleMember(restElement);
+              const restType = TstsSyntax.IsRestTypeNode(namedRest?.Type)
+                ? TstsSyntax.AsRestTypeNode(namedRest?.Type)?.Type
+                : namedRest?.Type;
+              if (restType && TstsSyntax.IsArrayTypeNode(restType)) {
+                const elementType = TstsSyntax.AsArrayTypeNode(restType)?.ElementType;
+                return elementType
+                  ? convertType(elementType, binding)
+                  : undefined;
               }
-              if (ts.isTupleTypeNode(restType)) {
-                const nestedRest = restType.elements.find((nestedElement) =>
-                  ts.isRestTypeNode(nestedElement)
+              if (restType && TstsSyntax.IsTupleTypeNode(restType)) {
+                const nestedRest = (
+                  TstsSyntax.AsTupleTypeNode(restType)?.Elements?.Nodes ?? []
+                ).find((nestedElement) =>
+                  TstsSyntax.IsRestTypeNode(nestedElement)
                 );
-                if (nestedRest && ts.isArrayTypeNode(nestedRest.type)) {
-                  return convertType(nestedRest.type.elementType, binding);
+                const nestedRestType = nestedRest
+                  ? TstsSyntax.AsRestTypeNode(nestedRest)?.Type
+                  : undefined;
+                if (
+                  nestedRestType &&
+                  TstsSyntax.IsArrayTypeNode(nestedRestType)
+                ) {
+                  const elementType =
+                    TstsSyntax.AsArrayTypeNode(nestedRestType)?.ElementType;
+                  return elementType
+                    ? convertType(elementType, binding)
+                    : undefined;
                 }
               }
               return undefined;
             }
 
-            if (ts.isRestTypeNode(restElement)) {
-              const restType = restElement.type;
-              if (ts.isArrayTypeNode(restType)) {
-                return convertType(restType.elementType, binding);
+            if (TstsSyntax.IsRestTypeNode(restElement)) {
+              const restType = TstsSyntax.AsRestTypeNode(restElement)?.Type;
+              if (restType && TstsSyntax.IsArrayTypeNode(restType)) {
+                const elementType = TstsSyntax.AsArrayTypeNode(restType)?.ElementType;
+                return elementType
+                  ? convertType(elementType, binding)
+                  : undefined;
               }
-              if (ts.isTupleTypeNode(restType)) {
-                const nestedRest = restType.elements.find((nestedElement) =>
-                  ts.isRestTypeNode(nestedElement)
+              if (restType && TstsSyntax.IsTupleTypeNode(restType)) {
+                const nestedRest = (
+                  TstsSyntax.AsTupleTypeNode(restType)?.Elements?.Nodes ?? []
+                ).find((nestedElement) =>
+                  TstsSyntax.IsRestTypeNode(nestedElement)
                 );
-                if (nestedRest && ts.isArrayTypeNode(nestedRest.type)) {
-                  return convertType(nestedRest.type.elementType, binding);
+                const nestedRestType = nestedRest
+                  ? TstsSyntax.AsRestTypeNode(nestedRest)?.Type
+                  : undefined;
+                if (
+                  nestedRestType &&
+                  TstsSyntax.IsArrayTypeNode(nestedRestType)
+                ) {
+                  const elementType =
+                    TstsSyntax.AsArrayTypeNode(nestedRestType)?.ElementType;
+                  return elementType
+                    ? convertType(elementType, binding)
+                    : undefined;
                 }
               }
             }
@@ -268,10 +349,13 @@ export const convertType = (
       };
     }
 
-    const elementTypes = typeNode.elements.map((element) => {
+    const elementTypes = tupleElements.map((element) => {
       // Handle named tuple elements (e.g., [name: string, age: number])
-      if (ts.isNamedTupleMember(element)) {
-        return convertType(element.type, binding);
+      if (TstsSyntax.IsNamedTupleMember(element)) {
+        const elementType = TstsSyntax.AsNamedTupleMember(element)?.Type;
+        return elementType
+          ? convertType(elementType, binding)
+          : { kind: "unknownType" };
       }
       return convertType(element, binding);
     });
@@ -279,28 +363,31 @@ export const convertType = (
   }
 
   // Function types
-  if (ts.isFunctionTypeNode(typeNode)) {
+  if (TstsSyntax.IsFunctionTypeNode(typeNode)) {
     return convertFunctionType(typeNode, binding, convertType);
   }
 
   // Constructor types project to their constructed value type.
   // Static-side members are preserved separately by enclosing intersections.
-  if (ts.isConstructorTypeNode(typeNode)) {
-    return convertType(typeNode.type, binding);
+  if (TstsSyntax.IsConstructorTypeNode(typeNode)) {
+    const constructorType = TstsSyntax.Node_Type(typeNode);
+    return constructorType
+      ? convertType(constructorType, binding)
+      : { kind: "unknownType" };
   }
 
   // Object/interface types
-  if (ts.isTypeLiteralNode(typeNode)) {
+  if (TstsSyntax.IsTypeLiteralNode(typeNode)) {
     return convertObjectType(typeNode, binding, convertType);
   }
 
   // Union types
-  if (ts.isUnionTypeNode(typeNode)) {
+  if (TstsSyntax.IsUnionTypeNode(typeNode)) {
     return convertUnionType(typeNode, binding, convertType);
   }
 
   // Intersection types
-  if (ts.isIntersectionTypeNode(typeNode)) {
+  if (TstsSyntax.IsIntersectionTypeNode(typeNode)) {
     return convertIntersectionType(typeNode, binding, convertType);
   }
 
@@ -309,7 +396,7 @@ export const convertType = (
   // Direct mapped syntax is TS-only and has no first-class native target type equivalent.
   // For deterministic AOT lowering we treat it as `unknown` at IR level
   // (which emits to `object?`) instead of falling back to anyType/ICE.
-  if (ts.isMappedTypeNode(typeNode)) {
+  if (TstsSyntax.IsMappedTypeNode(typeNode)) {
     return { kind: "unknownType" };
   }
 
@@ -318,24 +405,25 @@ export const convertType = (
   // Utility-conditionals (Extract/Exclude/NonNullable/...) are expanded via
   // type references in convertTypeReference(). Direct conditional syntax is
   // lowered conservatively to `unknown` for stable emission.
-  if (ts.isConditionalTypeNode(typeNode)) {
+  if (TstsSyntax.IsConditionalTypeNode(typeNode)) {
     return { kind: "unknownType" };
   }
 
   // infer type nodes are only valid within conditional types. If one survives
   // to direct conversion, lower conservatively to unknown.
-  if (ts.isInferTypeNode(typeNode)) {
+  if (TstsSyntax.IsInferTypeNode(typeNode)) {
     return { kind: "unknownType" };
   }
 
   // Literal types
-  if (ts.isLiteralTypeNode(typeNode)) {
+  if (TstsSyntax.IsLiteralTypeNode(typeNode)) {
     return convertLiteralType(typeNode);
   }
 
   // Parenthesized types
-  if (ts.isParenthesizedTypeNode(typeNode)) {
-    return convertType(typeNode.type, binding);
+  if (TstsSyntax.IsParenthesizedTypeNode(typeNode)) {
+    const inner = TstsSyntax.AsParenthesizedTypeNode(typeNode)?.Type;
+    return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
 
   // Type operators
@@ -343,37 +431,46 @@ export const convertType = (
   //   readonly-ness in emitted target types).
   // - `keyof T` is lowered deterministically when key information can be
   //   recovered from structural IR type data.
-  if (ts.isTypeOperatorNode(typeNode)) {
-    if (typeNode.operator === ts.SyntaxKind.ReadonlyKeyword) {
-      return convertType(typeNode.type, binding);
+  if (TstsSyntax.IsTypeOperatorNode(typeNode)) {
+    const operator = typeOperatorKind(typeNode);
+    const targetType = TstsSyntax.AsTypeOperatorNode(typeNode)?.Type;
+    if (!targetType) {
+      return { kind: "unknownType" };
     }
-    if (typeNode.operator === ts.SyntaxKind.KeyOfKeyword) {
-      const constraint = getTypeParameterConstraintNode(typeNode.type, binding);
-      const target = constraint ?? typeNode.type;
+    if (operator === TstsSyntax.KindReadonlyKeyword) {
+      return convertType(targetType, binding);
+    }
+    if (operator === TstsSyntax.KindKeyOfKeyword) {
+      const constraint = getTypeParameterConstraintNode(targetType, binding);
+      const target = constraint ?? targetType;
       return resolveKeyofFromType(convertType(target, binding));
     }
   }
 
   // Indexed access types: T[K]
-  if (ts.isIndexedAccessTypeNode(typeNode)) {
+  if (TstsSyntax.IsIndexedAccessTypeNode(typeNode)) {
+    const indexedAccess = TstsSyntax.AsIndexedAccessTypeNode(typeNode);
+    if (!indexedAccess?.ObjectType || !indexedAccess.IndexType) {
+      return { kind: "unknownType" };
+    }
     const objectType = convertType(
-      withTypeParameterConstraint(typeNode.objectType, binding),
+      withTypeParameterConstraint(indexedAccess.ObjectType, binding),
       binding
     );
     const indexType = convertType(
-      withTypeParameterConstraint(typeNode.indexType, binding),
+      withTypeParameterConstraint(indexedAccess.IndexType, binding),
       binding
     );
     return resolveIndexedAccessFromTypes(objectType, indexType);
   }
 
   // Template literal types.
-  if (ts.isTemplateLiteralTypeNode(typeNode)) {
+  if (TstsSyntax.IsTemplateLiteralTypeNode(typeNode)) {
     return convertTemplateLiteralType(typeNode, binding, convertType);
   }
 
-  if (ts.isTypePredicateNode(typeNode)) {
-    if (typeNode.assertsModifier !== undefined) {
+  if (TstsSyntax.IsTypePredicateNode(typeNode)) {
+    if (TstsSyntax.AsTypePredicateNode(typeNode)?.AssertsModifier !== undefined) {
       return { kind: "voidType" };
     }
     return { kind: "primitiveType", name: "boolean" };
@@ -381,18 +478,20 @@ export const convertType = (
 
   // TypeQuery: typeof X - resolve to the type of the referenced value
   // DETERMINISTIC: Get type from declaration's TypeNode, not TS inference
-  if (ts.isTypeQueryNode(typeNode)) {
-    const exprName = typeNode.exprName;
-    if (ts.isIdentifier(exprName)) {
+  if (TstsSyntax.IsTypeQueryNode(typeNode)) {
+    const exprName = TstsSyntax.AsTypeQueryNode(typeNode)?.ExprName;
+    if (exprName && TstsSyntax.IsIdentifier(exprName)) {
       const declId = binding.resolveIdentifier(exprName);
       if (declId) {
         const declInfo = (binding as BindingInternal)
           ._getHandleRegistry()
           .getDecl(declId);
         const inferred = inferTypeFromValueDeclaration(
-          (declInfo?.declNode ??
-            declInfo?.valueDeclNode ??
-            declInfo?.typeDeclNode) as ts.Declaration | undefined,
+          asConverterNodeOrUndefined(
+            declInfo?.declNode ??
+              declInfo?.valueDeclNode ??
+              declInfo?.typeDeclNode
+          ),
           binding,
           new Set([declId.id]),
           convertType
@@ -411,6 +510,9 @@ export const convertType = (
   // The IR soundness gate will catch this and emit TSN7414
   return { kind: "anyType" };
 };
+
+const asConverterNodeOrUndefined = (node: unknown): TstsNode | undefined =>
+  node === undefined ? undefined : assertConverterNode(node);
 
 // Export types
 export type { IrFunctionType, IrObjectType, IrDictionaryType, IrTupleType };

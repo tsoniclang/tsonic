@@ -1,18 +1,8 @@
 /**
- * Literal expression converters
- *
- * DETERMINISTIC TYPING: Literal types are derived from lexeme form, NOT TypeScript.
- *
- * Numeric literals:
- * - Integer literals (42, 0xFF) → int32 → inferredType: int
- * - Floating literals (42.0, 3.14, 1e3) → float64 → inferredType: double
- *
- * BigInt literals → inferredType: bigint
- * String literals → inferredType: string
- * Boolean literals → inferredType: boolean (handled elsewhere)
+ * Literal expression converters.
  */
 
-import * as ts from "typescript";
+import { getTstsNodeText, TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import { IrLiteralExpression, IrNewExpression, IrType } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { inferNumericKindFromRaw } from "../../types/numeric-helpers.js";
@@ -21,9 +11,6 @@ import type { ProgramContext } from "../../program-context.js";
 import { resolveAmbientGlobalSourceOwnerByName } from "./ambient-global-source-owner.js";
 import { buildSourceBackedConstructorParameterTypes } from "./calls/source-backed-constructor-metadata.js";
 
-/**
- * Derive inferredType from numericIntent (deterministic, no TypeScript).
- */
 const deriveTypeFromNumericIntent = (numericIntent: NumericKind): IrType => {
   if (numericIntent === "int32") {
     return { kind: "primitiveType", name: "int" };
@@ -46,36 +33,24 @@ const deriveTypeFromNumericIntent = (numericIntent: NumericKind): IrType => {
   } else if (numericIntent === "int8") {
     return { kind: "referenceType", name: "sbyte" };
   }
-  // Default to double for unknown
   return { kind: "primitiveType", name: "number" };
 };
 
-/**
- * Convert string or numeric literal
- *
- * DETERMINISTIC TYPING: inferredType is derived from the literal value itself,
- * NOT from TypeScript's type checker. This ensures consistent typing regardless
- * of contextual type.
- */
 export const convertLiteral = (
-  node: ts.StringLiteral | ts.NumericLiteral | ts.BigIntLiteral,
+  node: TstsNode,
   _ctx: ProgramContext
 ): IrLiteralExpression => {
-  const raw = node.getText();
-  const value = ts.isStringLiteral(node)
-    ? node.text
-    : ts.isBigIntLiteral(node)
-      ? BigInt(raw.slice(0, -1).replace(/_/g, ""))
-      : Number(node.text);
+  const raw = getTstsNodeText(node) ?? "";
+  const value =
+    node.Kind === TstsSyntax.KindStringLiteral
+      ? raw
+      : node.Kind === TstsSyntax.KindBigIntLiteral
+        ? BigInt(raw.slice(0, -1).replace(/_/g, ""))
+        : Number(raw);
 
-  // For numeric literals, derive type from lexeme form
   const numericIntent =
     typeof value === "number" ? inferNumericKindFromRaw(raw) : undefined;
 
-  // Derive inferredType deterministically (no TypeScript)
-  // - String literals → string
-  // - Numeric literals with numericIntent → derived from intent
-  // - Unknown → undefined (let caller handle)
   const inferredType: IrType | undefined =
     typeof value === "string"
       ? { kind: "primitiveType", name: "string" }
@@ -125,21 +100,17 @@ const splitRegularExpressionLiteral = (
 };
 
 export const convertRegularExpressionLiteral = (
-  node: ts.RegularExpressionLiteral,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrNewExpression => {
-  const raw = node.getText();
+  const raw = getTstsNodeText(node) ?? "";
   const { pattern, flags } = splitRegularExpressionLiteral(raw);
   const regExpBinding = ctx.bindings.getBinding("RegExp");
   const providerQualifiedName =
     regExpBinding && regExpBinding.kind === "global"
       ? regExpBinding.type
-      : (resolveAmbientGlobalSourceOwnerByName(
-          "RegExp",
-          node,
-          ctx,
-          ts.SymbolFlags.Value
-        ) ?? undefined);
+      : (resolveAmbientGlobalSourceOwnerByName("RegExp", node, ctx) ??
+        undefined);
   const providerOwnerIdentity =
     regExpBinding && regExpBinding.kind === "global"
       ? regExpBinding.ownerIdentity
@@ -192,11 +163,7 @@ export const convertRegularExpressionLiteral = (
     callee: {
       kind: "identifier",
       name: "RegExp",
-      inferredType: {
-        kind: "referenceType",
-        name: "RegExp",
-        providerQualifiedName,
-      },
+      inferredType,
       providerQualifiedName,
       providerOwnerIdentity,
       sourceSpan: getSourceSpan(node),

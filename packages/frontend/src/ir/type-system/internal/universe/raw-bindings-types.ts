@@ -171,8 +171,7 @@ export const makeTypeId = (
 });
 
 /**
- * Transitional provider lookup accessor for code that still has to populate
- * `IrReferenceType.providerQualifiedName` while symbol-table migration finishes.
+ * Provider lookup accessor for external type surfaces.
  *
  * Keep direct reads of TypeId provider-local names inside this universe module.
  */

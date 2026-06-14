@@ -1,8 +1,8 @@
 /**
- * Binding Layer — TS Symbol Resolution with Opaque Handles
+ * Binding Layer — Source Symbol Resolution with Opaque Handles
  *
- * This module wraps TypeScript's symbol resolution APIs and returns opaque
- * handles (DeclId, SignatureId, MemberId) instead of ts.Symbol/ts.Signature.
+ * This module wraps TSTS symbol resolution APIs and returns opaque
+ * handles (DeclId, SignatureId, MemberId) instead of raw source-engine objects.
  *
  * ALLOWED APIs (symbol resolution only):
  * - sourceSemantics.getSymbol(node) — Find symbol at source node

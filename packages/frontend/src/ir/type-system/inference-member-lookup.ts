@@ -16,8 +16,21 @@ import type {
   IrParameter,
   IrFunctionType,
 } from "../types/index.js";
-import * as ts from "typescript";
-import { substituteIrType as irSubstitute } from "../types/ir-substitution.js";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsHeritageClauseDetails,
+  getTstsMemberNodes,
+  getTstsNodeNameText,
+  getTstsParameters,
+  getTstsStatementNodes,
+  getTstsTypeParameterNodes,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
+import {
+  buildIrSubstitutionMap,
+  substituteIrType as irSubstitute,
+} from "../types/ir-substitution.js";
 import { unknownType } from "./types.js";
 import type { TypeSystemState, Site, MemberRef } from "./type-system-state.js";
 import {
@@ -25,19 +38,31 @@ import {
   normalizeToNominal,
   isNullishPrimitive,
   makeMemberCacheKey,
+  resolveTypeIdByName,
 } from "./type-system-state.js";
-import { typesEqual } from "./type-system-relations.js";
+import {
+  getSourcePrimitiveAliasName,
+  typesEqual,
+} from "./type-system-relations.js";
 import {
   buildFunctionTypeFromSignatureShape,
   buildCallableOverloadFamilyType,
   buildStructuralMethodFamilyType,
 } from "./inference-utilities.js";
 import {
+  createLocalTypeIdentityState,
+  localTypeIdentityKey,
+  stableIrTypeKeyIfDeterministic,
+  type LocalTypeIdentityState,
+} from "../types/type-ops.js";
+import {
   convertTypeNode,
   attachTypeIds,
 } from "./type-system-call-resolution.js";
 import { surfaceIncludesJs } from "../../surface/profiles.js";
+import { getSourcePrimitiveFact } from "../../source-frontend/source-primitive-taxonomy.js";
 import { expandReferenceAlias } from "./type-alias-expansion.js";
+import { tryResolveDeterministicPropertyName } from "../syntax/property-names.js";
 
 const buildGenericCollectionType = (elementType: IrType): IrType => ({
   kind: "referenceType",
@@ -46,6 +71,77 @@ const buildGenericCollectionType = (elementType: IrType): IrType => ({
 });
 
 const FUNCTION_LENGTH_TYPE: IrType = { kind: "primitiveType", name: "int" };
+
+const typeFromCatalogMemberEntry = (
+  state: TypeSystemState,
+  memberEntry: {
+    readonly type?: IrType;
+    readonly signatures?: readonly {
+      readonly parameters: readonly {
+        readonly name: string;
+        readonly type: IrType;
+        readonly isOptional: boolean;
+        readonly isRest: boolean;
+        readonly mode?: IrParameter["passing"];
+      }[];
+      readonly returnType: IrType;
+      readonly typeParameters: readonly {
+        readonly name: string;
+        readonly constraint?: IrType;
+        readonly defaultType?: IrType;
+      }[];
+    }[];
+  },
+  substitution?: ReadonlyMap<string, IrType>
+): IrType | undefined => {
+  if (memberEntry.type) {
+    return attachTypeIds(
+      state,
+      substitution
+        ? irSubstitute(memberEntry.type, substitution)
+        : memberEntry.type
+    );
+  }
+
+  const signatures = memberEntry.signatures ?? [];
+  if (signatures.length === 0) {
+    return undefined;
+  }
+
+  const overloadFamily = buildCallableOverloadFamilyType(
+    signatures.map((signature) =>
+      buildFunctionTypeFromSignatureShape(
+        signature.parameters.map((parameter) => ({
+          name: parameter.name,
+          type: parameter.type,
+          isOptional: parameter.isOptional,
+          isRest: parameter.isRest,
+          mode: parameter.mode,
+        })),
+        signature.returnType,
+        signature.typeParameters.map((typeParameter) => ({
+          kind: "typeParameter" as const,
+          name: typeParameter.name,
+          constraint: typeParameter.constraint
+            ? substitution
+              ? irSubstitute(typeParameter.constraint, substitution)
+              : typeParameter.constraint
+            : undefined,
+          default: typeParameter.defaultType
+            ? substitution
+              ? irSubstitute(typeParameter.defaultType, substitution)
+              : typeParameter.defaultType
+            : undefined,
+        }))
+      )
+    )
+  );
+
+  return attachTypeIds(
+    state,
+    substitution ? irSubstitute(overloadFamily, substitution) : overloadFamily
+  );
+};
 
 const resolveFunctionDeclaredMemberType = (
   state: TypeSystemState,
@@ -124,15 +220,30 @@ const resolveDictionaryDeclaredMemberType = (
   }
 };
 
+type AmbientInterfaceLookupTarget = {
+  readonly interfaceNames: readonly string[];
+  readonly typeArguments: readonly IrType[];
+};
+
+const buildAmbientMemberCacheKey = (
+  target: AmbientInterfaceLookupTarget,
+  memberName: string
+): string | undefined => {
+  const typeArgumentKeys: string[] = [];
+  for (const typeArgument of target.typeArguments) {
+    const key = stableIrTypeKeyIfDeterministic(typeArgument);
+    if (!key) {
+      return undefined;
+    }
+    typeArgumentKeys.push(key);
+  }
+  return `${target.interfaceNames.join("|")}<${typeArgumentKeys.join(",")}>::${memberName}`;
+};
+
 const getAmbientInterfaceLookupTarget = (
   state: TypeSystemState,
   receiver: IrType
-):
-  | {
-      readonly interfaceNames: readonly string[];
-      readonly typeArguments: readonly IrType[];
-    }
-  | undefined => {
+): AmbientInterfaceLookupTarget | undefined => {
   if (!surfaceIncludesJs(state.surfaceCapabilities)) {
     return undefined;
   }
@@ -144,9 +255,41 @@ const getAmbientInterfaceLookupTarget = (
     };
   }
 
-  if (receiver.kind === "primitiveType" && receiver.name === "string") {
+  const sourcePrimitiveName = getSourcePrimitiveAliasName(state, receiver);
+  if (sourcePrimitiveName === "string" || sourcePrimitiveName === "char") {
     return {
       interfaceNames: ["String"],
+      typeArguments: [],
+    };
+  }
+  if (sourcePrimitiveName === "boolean" || sourcePrimitiveName === "bool") {
+    return {
+      interfaceNames: ["Boolean"],
+      typeArguments: [],
+    };
+  }
+  if (sourcePrimitiveName === "bigint") {
+    return {
+      interfaceNames: ["BigInt"],
+      typeArguments: [],
+    };
+  }
+
+  const sourcePrimitiveFact = sourcePrimitiveName
+    ? getSourcePrimitiveFact(sourcePrimitiveName)
+    : undefined;
+  if (
+    sourcePrimitiveName === "number" ||
+    sourcePrimitiveFact?.runtimeBase === "number"
+  ) {
+    return {
+      interfaceNames: ["Number"],
+      typeArguments: [],
+    };
+  }
+  if (sourcePrimitiveFact?.runtimeBase === "bigint") {
+    return {
+      interfaceNames: ["BigInt"],
       typeArguments: [],
     };
   }
@@ -169,24 +312,25 @@ const getAmbientInterfaceLookupTarget = (
     };
   }
 
+  if (
+    receiver.name === "StringConstructor" ||
+    receiver.name === "NumberConstructor" ||
+    receiver.name === "BooleanConstructor" ||
+    receiver.name === "BigIntConstructor"
+  ) {
+    return {
+      interfaceNames: [receiver.name],
+      typeArguments: [],
+    };
+  }
+
   return undefined;
 };
 
-const getTypeElementName = (
-  name: ts.PropertyName | undefined
-): string | undefined => {
-  if (!name) {
-    return undefined;
-  }
-  if (
-    ts.isIdentifier(name) ||
-    ts.isStringLiteral(name) ||
-    ts.isNumericLiteral(name)
-  ) {
-    return name.text;
-  }
-  return undefined;
-};
+const definedTstsNodes = (
+  nodes: readonly (TstsNode | undefined)[] | undefined
+): readonly TstsNode[] =>
+  (nodes ?? []).filter((node): node is TstsNode => node !== undefined);
 
 const resolveStructuralMemberType = (
   members: readonly IrInterfaceMember[],
@@ -230,37 +374,69 @@ const resolveStructuralMemberType = (
   return buildStructuralMethodFamilyType(methodMembers);
 };
 
+const resolveReferenceStructuralMemberType = (
+  state: TypeSystemState,
+  receiver: Extract<IrType, { kind: "referenceType" }>,
+  memberName: string
+): IrType | undefined => {
+  if (!receiver.structuralMembers || receiver.structuralMembers.length === 0) {
+    return undefined;
+  }
+
+  const memberType = resolveStructuralMemberType(
+    receiver.structuralMembers,
+    memberName
+  );
+  if (!memberType) {
+    return undefined;
+  }
+
+  const normalized = normalizeToNominal(state, receiver);
+  if (!normalized) {
+    return memberType;
+  }
+
+  const formalTypeParameters = state.unifiedCatalog
+    .getTypeParameters(normalized.typeId)
+    .map((typeParameter) => typeParameter.name);
+  const substitution = buildIrSubstitutionMap(
+    { ...receiver, typeArguments: normalized.typeArgs },
+    formalTypeParameters
+  );
+  return substitution ? irSubstitute(memberType, substitution) : memberType;
+};
+
 const collectAmbientInterfaceDeclarations = (
-  statements: readonly ts.Statement[],
+  statements: readonly TstsNode[],
   interfaceName: string,
-  sink: ts.InterfaceDeclaration[]
+  sink: TstsNode[]
 ): void => {
   for (const statement of statements) {
     if (
-      ts.isInterfaceDeclaration(statement) &&
-      statement.name.text === interfaceName
+      TstsSyntax.IsInterfaceDeclaration(statement) &&
+      getTstsNodeNameText(statement) === interfaceName
     ) {
       sink.push(statement);
       continue;
     }
 
-    if (!ts.isModuleDeclaration(statement)) {
+    if (!TstsSyntax.IsModuleDeclaration(statement)) {
       continue;
     }
 
-    let currentBody: ts.ModuleBody | undefined = statement.body;
+    let currentBody = TstsSyntax.Node_Body(statement);
     while (currentBody) {
-      if (ts.isModuleBlock(currentBody)) {
+      if (TstsSyntax.IsModuleBlock(currentBody)) {
         collectAmbientInterfaceDeclarations(
-          currentBody.statements,
+          definedTstsNodes(TstsSyntax.Node_Statements(currentBody)),
           interfaceName,
           sink
         );
         break;
       }
 
-      if (ts.isModuleDeclaration(currentBody)) {
-        currentBody = currentBody.body;
+      if (TstsSyntax.IsModuleDeclaration(currentBody)) {
+        currentBody = TstsSyntax.Node_Body(currentBody);
         continue;
       }
 
@@ -269,8 +445,29 @@ const collectAmbientInterfaceDeclarations = (
   }
 };
 
+const getAmbientInterfaceDeclarations = (
+  state: TypeSystemState,
+  interfaceName: string
+): readonly TstsNode[] => {
+  const cached = state.ambientInterfaceDeclarationCache.get(interfaceName);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const declarations: TstsNode[] = [];
+  for (const sourceFile of state.sourceFilesByPath.values()) {
+    collectAmbientInterfaceDeclarations(
+      definedTstsNodes(getTstsStatementNodes(sourceFile)),
+      interfaceName,
+      declarations
+    );
+  }
+  state.ambientInterfaceDeclarationCache.set(interfaceName, declarations);
+  return declarations;
+};
+
 const buildAmbientTypeParameterSubstitution = (
-  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
+  typeParameters: readonly TstsNode[] | undefined,
   typeArguments: readonly IrType[]
 ): ReadonlyMap<string, IrType> | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
@@ -280,10 +477,14 @@ const buildAmbientTypeParameterSubstitution = (
   const entries: [string, IrType][] = [];
   for (const [index, typeParameter] of typeParameters.entries()) {
     const typeArgument = typeArguments[index];
+    const typeParameterName = getTstsNodeNameText(typeParameter);
     if (!typeArgument) {
       return undefined;
     }
-    entries.push([typeParameter.name.text, typeArgument]);
+    if (!typeParameterName) {
+      return undefined;
+    }
+    entries.push([typeParameterName, typeArgument]);
   }
 
   return new Map(entries);
@@ -299,7 +500,7 @@ const applyAmbientSubstitution = (
 
 const convertAmbientMethodTypeParameters = (
   state: TypeSystemState,
-  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
+  typeParameters: readonly TstsNode[] | undefined,
   substitution: ReadonlyMap<string, IrType> | undefined
 ): readonly IrTypeParameter[] | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
@@ -308,49 +509,58 @@ const convertAmbientMethodTypeParameters = (
 
   return typeParameters.map((typeParameter) => ({
     kind: "typeParameter",
-    name: typeParameter.name.text,
-    constraint: typeParameter.constraint
+    name: getTstsNodeNameText(typeParameter) ?? "_",
+    constraint: TstsSyntax.AsTypeParameterDeclaration(typeParameter)?.Constraint
       ? applyAmbientSubstitution(
-          convertTypeNode(state, typeParameter.constraint),
+          convertTypeNode(
+            state,
+            TstsSyntax.AsTypeParameterDeclaration(typeParameter)!.Constraint!
+          ),
           substitution
         )
       : undefined,
-    default: typeParameter.default
+    default: TstsSyntax.AsTypeParameterDeclaration(typeParameter)?.DefaultType
       ? applyAmbientSubstitution(
-          convertTypeNode(state, typeParameter.default),
+          convertTypeNode(
+            state,
+            TstsSyntax.AsTypeParameterDeclaration(typeParameter)!.DefaultType!
+          ),
           substitution
         )
       : undefined,
     variance: undefined,
     isStructuralConstraint:
-      !!typeParameter.constraint &&
-      ts.isTypeLiteralNode(typeParameter.constraint),
+      !!TstsSyntax.AsTypeParameterDeclaration(typeParameter)?.Constraint &&
+      TstsSyntax.IsTypeLiteralNode(
+        TstsSyntax.AsTypeParameterDeclaration(typeParameter)!.Constraint!
+      ),
     structuralMembers: undefined,
   }));
 };
 
 const convertAmbientParameter = (
   state: TypeSystemState,
-  parameter: ts.ParameterDeclaration,
+  parameter: TstsNode,
   substitution: ReadonlyMap<string, IrType> | undefined,
   index: number
 ): IrParameter => ({
   kind: "parameter",
   pattern: {
     kind: "identifierPattern",
-    name: ts.isIdentifier(parameter.name)
-      ? parameter.name.text
-      : `param${index}`,
+    name: getTstsNodeNameText(parameter) ?? `param${index}`,
   },
-  type: parameter.type
+  type: getTstsDeclaredTypeNode(parameter)
     ? applyAmbientSubstitution(
-        convertTypeNode(state, parameter.type),
+        convertTypeNode(state, getTstsDeclaredTypeNode(parameter)!),
         substitution
       )
     : undefined,
   initializer: undefined,
-  isOptional: !!parameter.questionToken || !!parameter.initializer,
-  isRest: !!parameter.dotDotDotToken,
+  isOptional:
+    TstsSyntax.Node_QuestionToken(parameter) !== undefined ||
+    TstsSyntax.Node_Initializer(parameter) !== undefined,
+  isRest:
+    TstsSyntax.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined,
   passing: "value",
 });
 
@@ -371,16 +581,77 @@ const flattenCallableAmbientType = (
   return [];
 };
 
-const lookupAmbientInterfaceMember = (
-  state: TypeSystemState,
-  receiver: IrType,
-  memberName: string
+const isUnknownMemberType = (type: IrType): boolean =>
+  type.kind === "unknownType";
+
+const hasStructuralMemberSurface = (type: IrType): boolean =>
+  type.kind === "objectType" ||
+  (type.kind === "referenceType" &&
+    type.structuralMembers !== undefined &&
+    type.structuralMembers.length > 0);
+
+const selectIntersectionMemberType = (
+  resolvedParts: readonly IrType[]
 ): IrType | undefined => {
-  const target = getAmbientInterfaceLookupTarget(state, receiver);
-  if (!target) {
-    return undefined;
+  const knownParts = resolvedParts.filter(
+    (part) => !isUnknownMemberType(part)
+  );
+  const memberParts = knownParts.length > 0 ? knownParts : resolvedParts;
+
+  if (memberParts.length === 1) {
+    return memberParts[0];
   }
 
+  const callableParts = memberParts.flatMap(flattenCallableAmbientType);
+  if (callableParts.length > 0 && callableParts.length === memberParts.length) {
+    return buildCallableOverloadFamilyType(callableParts);
+  }
+
+  const [first] = memberParts;
+  if (
+    first &&
+    memberParts.length > 1 &&
+    memberParts.every((part) => typesEqual(part, first))
+  ) {
+    return first;
+  }
+
+  return undefined;
+};
+
+const combineUnionMemberTypes = (
+  state: TypeSystemState,
+  memberTypes: readonly IrType[]
+): IrType | undefined => {
+  const distinctTypes: IrType[] = [];
+  for (const memberType of memberTypes) {
+    if (
+      !distinctTypes.some((existingType) =>
+        typesEqual(existingType, memberType)
+      )
+    ) {
+      distinctTypes.push(memberType);
+    }
+  }
+
+  const [onlyType] = distinctTypes;
+  if (distinctTypes.length === 1 && onlyType) {
+    return attachTypeIds(state, onlyType);
+  }
+
+  return distinctTypes.length > 0
+    ? attachTypeIds(state, {
+        kind: "unionType",
+        types: distinctTypes,
+      })
+    : undefined;
+};
+
+const lookupAmbientInterfaceMember = (
+  state: TypeSystemState,
+  target: AmbientInterfaceLookupTarget,
+  memberName: string
+): IrType | undefined => {
   const propertyResults: IrType[] = [];
   const methodResults: Extract<
     IrInterfaceMember,
@@ -388,38 +659,30 @@ const lookupAmbientInterfaceMember = (
   >[] = [];
   const inheritedResults: IrType[] = [];
 
-  for (const sourceFile of state.sourceFilesByPath.values()) {
-    const declarations: ts.InterfaceDeclaration[] = [];
-    for (const interfaceName of target.interfaceNames) {
-      collectAmbientInterfaceDeclarations(
-        sourceFile.statements,
-        interfaceName,
-        declarations
-      );
-    }
-
-    for (const statement of declarations) {
+  for (const interfaceName of target.interfaceNames) {
+    for (const statement of getAmbientInterfaceDeclarations(state, interfaceName)) {
       const substitution = buildAmbientTypeParameterSubstitution(
-        statement.typeParameters,
+        definedTstsNodes(getTstsTypeParameterNodes(statement)),
         target.typeArguments
       );
       let matchedDirectMember = false;
 
-      for (const member of statement.members) {
-        if (getTypeElementName(member.name) !== memberName) {
+      for (const member of definedTstsNodes(getTstsMemberNodes(statement))) {
+        if (tryResolveDeterministicPropertyName(TstsSyntax.Node_Name(member)) !== memberName) {
           continue;
         }
         matchedDirectMember = true;
 
-        if (ts.isPropertySignature(member)) {
-          const propertyType = member.type
+        if (TstsSyntax.IsPropertySignatureDeclaration(member)) {
+          const memberType = getTstsDeclaredTypeNode(member);
+          const propertyType = memberType
             ? applyAmbientSubstitution(
-                convertTypeNode(state, member.type),
+                convertTypeNode(state, memberType),
                 substitution
               )
             : unknownType;
           propertyResults.push(
-            member.questionToken
+            TstsSyntax.Node_QuestionToken(member) !== undefined
               ? {
                   kind: "unionType",
                   types: [
@@ -432,15 +695,16 @@ const lookupAmbientInterfaceMember = (
           continue;
         }
 
-        if (!ts.isMethodSignature(member)) {
+        if (!TstsSyntax.IsMethodSignatureDeclaration(member)) {
           continue;
         }
 
-        const returnType = member.type
-          ? ts.isTypePredicateNode(member.type)
+        const returnTypeNode = getTstsDeclaredTypeNode(member);
+        const returnType = returnTypeNode
+          ? TstsSyntax.IsTypePredicateNode(returnTypeNode)
             ? ({ kind: "primitiveType", name: "boolean" } as const)
             : applyAmbientSubstitution(
-                convertTypeNode(state, member.type),
+                convertTypeNode(state, returnTypeNode),
                 substitution
               )
           : undefined;
@@ -450,10 +714,10 @@ const lookupAmbientInterfaceMember = (
           name: memberName,
           typeParameters: convertAmbientMethodTypeParameters(
             state,
-            member.typeParameters,
+            definedTstsNodes(getTstsTypeParameterNodes(member)),
             substitution
           ),
-          parameters: member.parameters.map((parameter, index) =>
+          parameters: definedTstsNodes(getTstsParameters(member)).map((parameter, index) =>
             convertAmbientParameter(state, parameter, substitution, index)
           ),
           returnType,
@@ -464,21 +728,21 @@ const lookupAmbientInterfaceMember = (
         continue;
       }
 
-      const extendsClause = statement.heritageClauses?.find(
-        (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword
-      );
-      for (const heritageType of extendsClause?.types ?? []) {
-        const inheritedType = applyAmbientSubstitution(
-          convertTypeNode(state, heritageType),
-          substitution
-        );
-        const inheritedMember = resolveMemberTypeNoDiag(
-          state,
-          inheritedType,
-          memberName
-        );
-        if (inheritedMember) {
-          inheritedResults.push(inheritedMember);
+      for (const clause of getTstsHeritageClauseDetails(statement)) {
+        if (clause.kind !== "extends") continue;
+        for (const heritageType of definedTstsNodes(clause.types)) {
+          const inheritedType = applyAmbientSubstitution(
+            convertTypeNode(state, heritageType),
+            substitution
+          );
+          const inheritedMember = resolveMemberTypeNoDiag(
+            state,
+            inheritedType,
+            memberName
+          );
+          if (inheritedMember) {
+            inheritedResults.push(inheritedMember);
+          }
         }
       }
     }
@@ -538,7 +802,9 @@ const lookupAmbientInterfaceMember = (
 export const resolveMemberTypeNoDiag = (
   state: TypeSystemState,
   receiver: IrType,
-  memberName: string
+  memberName: string,
+  seenAliasExpansions: ReadonlySet<string> = new Set(),
+  aliasIdentityState: LocalTypeIdentityState = createLocalTypeIdentityState()
 ): IrType | undefined => {
   const functionDeclaredMemberType = resolveFunctionDeclaredMemberType(
     state,
@@ -557,13 +823,83 @@ export const resolveMemberTypeNoDiag = (
     return dictionaryDeclaredMemberType;
   }
 
+  if (receiver.kind === "referenceType") {
+    const expandedAlias = expandReferenceAlias(state, receiver);
+    if (expandedAlias) {
+      const aliasKey = `${localTypeIdentityKey(
+        receiver,
+        aliasIdentityState
+      )}::${memberName}`;
+      if (!seenAliasExpansions.has(aliasKey)) {
+        const aliasMemberType = resolveMemberTypeNoDiag(
+          state,
+          expandedAlias,
+          memberName,
+          new Set([...seenAliasExpansions, aliasKey]),
+          aliasIdentityState
+        );
+        if (aliasMemberType) {
+          return aliasMemberType;
+        }
+      }
+    }
+  }
+
+  if (receiver.kind === "unionType") {
+    const nonNullish = receiver.types.filter(
+      (member) => !isNullishPrimitive(member)
+    );
+    const memberTypes: IrType[] = [];
+    for (const part of nonNullish) {
+      const memberType = resolveMemberTypeNoDiag(
+        state,
+        part,
+        memberName,
+        seenAliasExpansions,
+        aliasIdentityState
+      );
+      if (!memberType) {
+        return undefined;
+      }
+      memberTypes.push(memberType);
+    }
+    return combineUnionMemberTypes(state, memberTypes);
+  }
+
+  if (receiver.kind === "intersectionType") {
+    const resolveFromParts = (parts: readonly IrType[]): IrType | undefined =>
+      selectIntersectionMemberType(
+        parts
+          .map((part) =>
+            resolveMemberTypeNoDiag(
+              state,
+              part,
+              memberName,
+              seenAliasExpansions,
+              aliasIdentityState
+            )
+          )
+          .filter((part): part is IrType => part !== undefined)
+      );
+
+    const structuralMember = resolveFromParts(
+      receiver.types.filter(hasStructuralMemberSurface)
+    );
+    if (structuralMember) {
+      return structuralMember;
+    }
+
+    return resolveFromParts(receiver.types);
+  }
+
   if (
     receiver.kind === "referenceType" &&
     receiver.structuralMembers &&
     receiver.structuralMembers.length > 0
   ) {
-    const structuralMember = resolveStructuralMemberType(
-      receiver.structuralMembers,
+    const structuralMember = resolveReferenceStructuralMemberType(
+      state,
+      receiver,
       memberName
     );
     if (structuralMember) {
@@ -571,13 +907,38 @@ export const resolveMemberTypeNoDiag = (
     }
   }
 
-  const ambientMember = lookupAmbientInterfaceMember(
-    state,
-    receiver,
-    memberName
-  );
-  if (ambientMember) {
-    return ambientMember;
+  const ambientTarget = getAmbientInterfaceLookupTarget(state, receiver);
+  if (ambientTarget) {
+    const ambientCacheKey = buildAmbientMemberCacheKey(
+      ambientTarget,
+      memberName
+    );
+    const cachedAmbientMember = ambientCacheKey
+      ? state.ambientMemberLookupCache.get(ambientCacheKey)
+      : undefined;
+    let ambientMember =
+      cachedAmbientMember === undefined
+        ? undefined
+        : cachedAmbientMember ?? undefined;
+    if (cachedAmbientMember === undefined) {
+      if (ambientCacheKey) {
+        state.ambientMemberLookupCache.set(ambientCacheKey, null);
+      }
+      ambientMember = lookupAmbientInterfaceMember(
+        state,
+        ambientTarget,
+        memberName
+      );
+      if (ambientCacheKey) {
+        state.ambientMemberLookupCache.set(
+          ambientCacheKey,
+          ambientMember ?? null
+        );
+      }
+    }
+    if (ambientMember) {
+      return ambientMember;
+    }
   }
 
   // 1. Normalize receiver to nominal form
@@ -593,10 +954,7 @@ export const resolveMemberTypeNoDiag = (
       receiver.structuralMembers &&
       receiver.structuralMembers.length > 0
     ) {
-      return resolveStructuralMemberType(
-        receiver.structuralMembers,
-        memberName
-      );
+      return resolveReferenceStructuralMemberType(state, receiver, memberName);
     }
     return undefined;
   }
@@ -624,62 +982,63 @@ export const resolveMemberTypeNoDiag = (
       memberName
     );
 
-    // Property/field member: return its declared type.
-    const memberType = memberEntry?.type;
-    if (memberType) {
-      const result = attachTypeIds(
-        state,
-        irSubstitute(memberType, lookupResult.substitution)
-      );
-      state.memberDeclaredTypeCache.set(cacheKey, result);
-      return result;
-    }
-
-    // Method member: materialize a callable function type from the first signature.
-    // Call resolution (resolveCall) uses SignatureId for overload selection; this
-    // type is used only to keep member access expressions deterministic.
-    const signatures = memberEntry?.signatures ?? [];
-    if (signatures.length > 0) {
-      const overloadFamily = buildCallableOverloadFamilyType(
-        signatures.map((signature) =>
-          buildFunctionTypeFromSignatureShape(
-            signature.parameters.map((parameter) => ({
-              name: parameter.name,
-              type: parameter.type,
-              isOptional: parameter.isOptional,
-              isRest: parameter.isRest,
-              mode: parameter.mode,
-            })),
-            signature.returnType,
-            signature.typeParameters.map((typeParameter) => ({
-              kind: "typeParameter" as const,
-              name: typeParameter.name,
-              constraint: typeParameter.constraint
-                ? irSubstitute(
-                    typeParameter.constraint,
-                    lookupResult.substitution
-                  )
-                : undefined,
-              default: typeParameter.defaultType
-                ? irSubstitute(
-                    typeParameter.defaultType,
-                    lookupResult.substitution
-                  )
-                : undefined,
-            }))
-          )
+    const result = memberEntry
+      ? typeFromCatalogMemberEntry(
+          state,
+          memberEntry,
+          lookupResult.substitution
         )
-      );
-
-      const result = attachTypeIds(
-        state,
-        irSubstitute(overloadFamily, lookupResult.substitution)
-      );
+      : undefined;
+    if (result) {
       state.memberDeclaredTypeCache.set(cacheKey, result);
       return result;
     }
   }
   return undefined;
+};
+
+export const typeOfExternalBoundMember = (
+  state: TypeSystemState,
+  member: {
+    readonly ownerIdentity: string;
+    readonly type: string;
+    readonly member: string;
+  }
+): IrType | undefined => {
+  const stableEntry = state.unifiedCatalog.getByStableId(
+    `${member.ownerIdentity}:${member.type}`
+  );
+  const typeId =
+    stableEntry?.typeId ??
+    resolveTypeIdByName(state, member.type) ??
+    state.unifiedCatalog.resolveProviderName(member.type);
+  if (!typeId) {
+    return undefined;
+  }
+
+  const lookupResult = state.nominalEnv.findMemberDeclaringType(
+    typeId,
+    [],
+    member.member
+  );
+  if (lookupResult) {
+    const catalogMember = state.unifiedCatalog.getMember(
+      lookupResult.declaringTypeId,
+      member.member
+    );
+    return catalogMember
+      ? typeFromCatalogMemberEntry(
+          state,
+          catalogMember,
+          lookupResult.substitution
+        )
+      : undefined;
+  }
+
+  const catalogMember = state.unifiedCatalog.getMember(typeId, member.member);
+  return catalogMember
+    ? typeFromCatalogMemberEntry(state, catalogMember)
+    : undefined;
 };
 
 export const typeOfMember = (
@@ -711,7 +1070,7 @@ export const typeOfMember = (
     );
 
     if (nonNullish.length > 1) {
-      let resolved: IrType | undefined;
+      const partTypes: IrType[] = [];
       for (const part of nonNullish) {
         const partType = resolveMemberTypeNoDiag(state, part, memberName);
         if (!partType) {
@@ -723,24 +1082,11 @@ export const typeOfMember = (
           );
           return unknownType;
         }
-
-        if (!resolved) {
-          resolved = partType;
-          continue;
-        }
-
-        if (!typesEqual(resolved, partType)) {
-          emitDiagnostic(
-            state,
-            "TSN5203",
-            `Member '${memberName}' has incompatible types across union constituents`,
-            site
-          );
-          return unknownType;
-        }
+        partTypes.push(partType);
       }
 
-      if (resolved) return resolved;
+      const unionMemberType = combineUnionMemberTypes(state, partTypes);
+      if (unionMemberType) return unionMemberType;
     }
   }
 

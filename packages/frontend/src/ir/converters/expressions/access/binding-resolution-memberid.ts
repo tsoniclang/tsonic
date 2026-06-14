@@ -7,7 +7,11 @@
  * Split from binding-resolution.ts for file-size compliance (< 500 LOC).
  */
 
-import * as ts from "typescript";
+import {
+  getTstsIdentifierText,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { IrExpression, IrMemberExpression } from "../../../types.js";
@@ -26,6 +30,9 @@ const bindingsJsonPayloadCache = new Map<
   string,
   Record<string, unknown> | undefined
 >();
+
+const definedTstsNodes = (nodes: readonly (TstsNode | undefined)[]) =>
+  nodes.filter((node): node is TstsNode => node !== undefined);
 
 const stripTsonicExtensionWrapperType = (
   type: IrExpression["inferredType"]
@@ -207,7 +214,7 @@ const disambiguateOverloadsByDeclaringType = (
  * member symbol and needs the corresponding external binding target.
  */
 export const resolveHierarchicalBindingFromMemberId = (
-  node: ts.PropertyAccessExpression,
+  node: TstsNode,
   propertyName: string,
   object: IrExpression,
   ctx: ProgramContext
@@ -248,9 +255,12 @@ export const resolveHierarchicalBindingFromMemberId = (
       : undefined;
   })();
   const staticOverloads = (() => {
-    if (!ts.isIdentifier(node.expression)) return undefined;
+    const receiver = TstsSyntax.Node_Expression(node);
+    if (receiver?.Kind !== TstsSyntax.KindIdentifier) return undefined;
+    const receiverName = getTstsIdentifierText(receiver);
+    if (!receiverName) return undefined;
     const simpleBinding = ctx.bindings.getExactBindingByKind(
-      node.expression.text,
+      receiverName,
       "global"
     );
     if (!simpleBinding?.staticType) return undefined;
@@ -275,9 +285,12 @@ export const resolveHierarchicalBindingFromMemberId = (
     return undefined;
   })();
   const globalOwnerOverloads = (() => {
-    if (!ts.isIdentifier(node.expression)) return undefined;
+    const receiver = TstsSyntax.Node_Expression(node);
+    if (receiver?.Kind !== TstsSyntax.KindIdentifier) return undefined;
+    const receiverName = getTstsIdentifierText(receiver);
+    if (!receiverName) return undefined;
     const simpleBinding = ctx.bindings.getExactBindingByKind(
-      node.expression.text,
+      receiverName,
       "global"
     );
     if (!simpleBinding?.type) return undefined;
@@ -302,9 +315,12 @@ export const resolveHierarchicalBindingFromMemberId = (
     return undefined;
   })();
   const sourceOwnedGlobalOwner = (() => {
-    if (!ts.isIdentifier(node.expression)) return false;
+    const receiver = TstsSyntax.Node_Expression(node);
+    if (receiver?.Kind !== TstsSyntax.KindIdentifier) return false;
+    const receiverName = getTstsIdentifierText(receiver);
+    if (!receiverName) return false;
     const simpleBinding = ctx.bindings.getExactBindingByKind(
-      node.expression.text,
+      receiverName,
       "global"
     );
     if (!simpleBinding) return false;
@@ -341,9 +357,14 @@ export const resolveHierarchicalBindingFromMemberId = (
       preferredSourceOwnedTargetOwner
     );
   if (!overloadsAll || overloadsAll.length === 0) {
-    if (ts.isIdentifier(node.expression)) {
+    const receiver = TstsSyntax.Node_Expression(node);
+    const receiverName =
+      receiver?.Kind === TstsSyntax.KindIdentifier
+        ? getTstsIdentifierText(receiver)
+        : undefined;
+    if (receiverName) {
       const simpleBinding = ctx.bindings.getExactBindingByKind(
-        node.expression.text,
+        receiverName,
         "global"
       );
       if (simpleBinding?.staticType) {
@@ -395,7 +416,7 @@ export const resolveHierarchicalBindingFromMemberId = (
 
   if (!overloadsAll || overloadsAll.length === 0) {
     // Airplane-grade rule: If this member resolves to a tsbindgen declaration,
-    // we MUST have an external binding; we must never guess member names via naming policy.
+    // we MUST have an external binding; naming policy must not invent member targets.
     //
     // We treat it as external-bound if:
     // - The declaring type is a tsbindgen extension interface (`__Ext_*`), OR
@@ -520,7 +541,7 @@ export const resolveHierarchicalBindingFromMemberId = (
  * explicit static invocation.
  */
 export const resolveExtensionMethodsBinding = (
-  node: ts.PropertyAccessExpression,
+  node: TstsNode,
   propertyName: string,
   object: IrExpression,
   ctx: ProgramContext
@@ -532,9 +553,12 @@ export const resolveExtensionMethodsBinding = (
   if (!declaringTypeName) return undefined;
 
   const callArgumentCount = (() => {
-    const parent = node.parent;
-    if (ts.isCallExpression(parent) && parent.expression === node) {
-      return parent.arguments.length;
+    const parent = node.Parent;
+    if (
+      parent?.Kind === TstsSyntax.KindCallExpression &&
+      TstsSyntax.Node_Expression(parent) === node
+    ) {
+      return TstsSyntax.Node_Arguments(parent)?.length ?? 0;
     }
     return undefined;
   })();
@@ -546,9 +570,13 @@ export const resolveExtensionMethodsBinding = (
   let receiverTypeNameForError: string | undefined;
 
   const resolved = (() => {
-    const parent = node.parent;
-    if (!ts.isCallExpression(parent) || parent.expression !== node)
+    const parent = node.Parent;
+    if (
+      parent?.Kind !== TstsSyntax.KindCallExpression ||
+      TstsSyntax.Node_Expression(parent) !== node
+    ) {
       return undefined;
+    }
 
     const sigId = ctx.binding.resolveCallSignature(parent);
     if (!sigId) return undefined;
@@ -584,29 +612,34 @@ export const resolveExtensionMethodsBinding = (
       const thisTypeNode = ctx.binding.getThisTypeNodeOfSignature(sigId);
       if (!thisTypeNode) return undefined;
 
-      const isNullishTypeNode = (typeNode: ts.TypeNode): boolean => {
-        if (typeNode.kind === ts.SyntaxKind.UndefinedKeyword) {
+      const isNullishTypeNode = (typeNode: TstsNode): boolean => {
+        if (typeNode.Kind === TstsSyntax.KindUndefinedKeyword) {
           return true;
         }
 
-        if (typeNode.kind === ts.SyntaxKind.NullKeyword) {
+        if (typeNode.Kind === TstsSyntax.KindNullKeyword) {
           return true;
         }
 
-        return (
-          ts.isLiteralTypeNode(typeNode) &&
-          typeNode.literal.kind === ts.SyntaxKind.NullKeyword
-        );
+        const literalType = TstsSyntax.AsLiteralTypeNode(typeNode);
+        return literalType?.Literal?.Kind === TstsSyntax.KindNullKeyword;
       };
 
       const extractReceiverTypeName = (
-        typeNode: ts.TypeNode
+        typeNode: TstsNode
       ): string | undefined => {
         let current = typeNode;
-        while (ts.isParenthesizedTypeNode(current)) current = current.type;
+        while (current.Kind === TstsSyntax.KindParenthesizedType) {
+          const inner = TstsSyntax.AsParenthesizedTypeNode(current)?.Type;
+          if (!inner) return undefined;
+          current = inner;
+        }
 
-        if (ts.isUnionTypeNode(current)) {
-          const nonNullishMembers = current.types.filter(
+        if (current.Kind === TstsSyntax.KindUnionType) {
+          const members = definedTstsNodes(
+            TstsSyntax.AsUnionTypeNode(current)?.Types?.Nodes ?? []
+          );
+          const nonNullishMembers = members.filter(
             (member) => !isNullishTypeNode(member)
           );
           if (nonNullishMembers.length === 0) {
@@ -624,8 +657,11 @@ export const resolveExtensionMethodsBinding = (
           return uniqueNames.length === 1 ? uniqueNames[0] : undefined;
         }
 
-        if (ts.isIntersectionTypeNode(current)) {
-          const extractedNames = current.types
+        if (current.Kind === TstsSyntax.KindIntersectionType) {
+          const members = definedTstsNodes(
+            TstsSyntax.AsIntersectionTypeNode(current)?.Types?.Nodes ?? []
+          );
+          const extractedNames = members
             .map((member) => extractReceiverTypeName(member))
             .filter((name): name is string => typeof name === "string");
           if (extractedNames.length === 0) {
@@ -636,19 +672,28 @@ export const resolveExtensionMethodsBinding = (
           return uniqueNames.length === 1 ? uniqueNames[0] : undefined;
         }
 
-        if (ts.isTypeReferenceNode(current)) {
-          const tn = current.typeName;
-          if (ts.isIdentifier(tn)) return tn.text;
-          if (ts.isQualifiedName(tn)) return tn.right.text;
+        if (current.Kind === TstsSyntax.KindTypeReference) {
+          const typeName = TstsSyntax.AsTypeReferenceNode(current)?.TypeName;
+          if (typeName?.Kind === TstsSyntax.KindIdentifier) {
+            return getTstsIdentifierText(typeName);
+          }
+          if (typeName?.Kind === TstsSyntax.KindQualifiedName) {
+            return getTstsIdentifierText(
+              TstsSyntax.AsQualifiedName(typeName)?.Right
+            );
+          }
         }
 
-        if (ts.isArrayTypeNode(current) || ts.isTupleTypeNode(current)) {
+        if (
+          current.Kind === TstsSyntax.KindArrayType ||
+          current.Kind === TstsSyntax.KindTupleType
+        ) {
           return "Array";
         }
 
-        if (current.kind === ts.SyntaxKind.StringKeyword) return "String";
-        if (current.kind === ts.SyntaxKind.NumberKeyword) return "number";
-        if (current.kind === ts.SyntaxKind.BooleanKeyword) return "Boolean";
+        if (current.Kind === TstsSyntax.KindStringKeyword) return "String";
+        if (current.Kind === TstsSyntax.KindNumberKeyword) return "number";
+        if (current.Kind === TstsSyntax.KindBooleanKeyword) return "Boolean";
 
         return undefined;
       };

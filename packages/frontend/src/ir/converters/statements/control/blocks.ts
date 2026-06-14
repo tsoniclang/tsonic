@@ -4,7 +4,14 @@
  * Uses ProgramContext for block conversion.
  */
 
-import * as ts from "typescript";
+import {
+  forEachTstsChild,
+  getTstsDeclaredTypeNode,
+  getTstsIdentifierText,
+  isTstsOptionalParameter,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import {
   IrStatement,
   IrBlockStatement,
@@ -15,14 +22,10 @@ import {
   convertStatement,
   flattenStatementResult,
 } from "../../../statement-converter.js";
+import { getSourceSemanticIrType } from "../../../expression-converter-helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { withVariableTypeEnv } from "../../type-env.js";
-import {
-  collectTypeNarrowingsInFalsyExpr,
-  collectTypeNarrowingsInTruthyExpr,
-  withAppliedNarrowings,
-  withAssignedAccessPathType,
-} from "../../flow-narrowing.js";
+import { withAssignedAccessPathType } from "../../assignment-flow-env.js";
 import {
   getAccessPathTarget,
   getAccessPathKey,
@@ -32,6 +35,8 @@ import {
 } from "../../access-paths.js";
 import { getReadableMemberTypeForNarrowing } from "../../narrowing-property-helpers.js";
 import { isAssignmentOperator } from "../../expressions/helpers.js";
+import { definedTstsNodes } from "../helpers.js";
+import { withBranchLoweringPlan } from "../../branch-flow-env.js";
 
 const stripRuntimeNullish = (type: IrType | undefined): IrType | undefined => {
   if (!type || type.kind !== "unionType") {
@@ -58,26 +63,32 @@ const intType: IrType = { kind: "primitiveType", name: "int" };
 const numberType: IrType = { kind: "primitiveType", name: "number" };
 
 const getSignedNumericLiteralText = (
-  expression: ts.Expression
+  expression: TstsNode
 ): string | undefined => {
-  if (ts.isNumericLiteral(expression)) {
-    return expression.text;
+  if (expression.Kind === TstsSyntax.KindNumericLiteral) {
+    return TstsSyntax.Node_Text(expression);
   }
 
   if (
-    ts.isPrefixUnaryExpression(expression) &&
-    ts.isNumericLiteral(expression.operand) &&
-    (expression.operator === ts.SyntaxKind.MinusToken ||
-      expression.operator === ts.SyntaxKind.PlusToken)
+    TstsSyntax.IsPrefixUnaryExpression(expression) &&
+    TstsSyntax.AsPrefixUnaryExpression(expression)?.Operand?.Kind ===
+      TstsSyntax.KindNumericLiteral &&
+    (TstsSyntax.AsPrefixUnaryExpression(expression)?.Operator ===
+      TstsSyntax.KindMinusToken ||
+      TstsSyntax.AsPrefixUnaryExpression(expression)?.Operator ===
+        TstsSyntax.KindPlusToken)
   ) {
-    return `${expression.operator === ts.SyntaxKind.MinusToken ? "-" : ""}${expression.operand.text}`;
+    const prefix = TstsSyntax.AsPrefixUnaryExpression(expression);
+    return `${prefix?.Operator === TstsSyntax.KindMinusToken ? "-" : ""}${
+      prefix?.Operand ? TstsSyntax.Node_Text(prefix.Operand) : ""
+    }`;
   }
 
   return undefined;
 };
 
 const getNumericLiteralExpressionType = (
-  expression: ts.Expression
+  expression: TstsNode
 ): IrType | undefined => {
   const text = getSignedNumericLiteralText(expression);
   if (text === undefined) {
@@ -87,7 +98,7 @@ const getNumericLiteralExpressionType = (
 };
 
 const isIntegerNumericLiteralExpression = (
-  expression: ts.Expression
+  expression: TstsNode
 ): boolean => {
   const type = getNumericLiteralExpressionType(expression);
   return type?.kind === "primitiveType" && type.name === "int";
@@ -114,11 +125,12 @@ const getIterableElementType = (
   ctx.typeSystem.getIterableShape(type)?.elementType;
 
 const resolveIdentifierReadType = (
-  identifier: ts.Identifier,
+  identifier: TstsNode,
   ctx: ProgramContext,
   localTypes?: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
-  const localType = localTypes?.get(identifier.text);
+  const identifierText = getTstsIdentifierText(identifier);
+  const localType = identifierText ? localTypes?.get(identifierText) : undefined;
   if (localType) {
     return localType;
   }
@@ -132,7 +144,7 @@ const resolveIdentifierReadType = (
 };
 
 const resolveSimpleNumericAssignmentType = (
-  expression: ts.Expression,
+  expression: TstsNode,
   ctx: ProgramContext,
   localTypes?: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
@@ -141,30 +153,24 @@ const resolveSimpleNumericAssignmentType = (
     return literalType;
   }
 
-  if (ts.isIdentifier(expression)) {
+  if (TstsSyntax.IsIdentifier(expression)) {
     return resolveIdentifierReadType(expression, ctx, localTypes);
   }
 
-  if (ts.isCallExpression(expression)) {
-    const argumentTypes = expression.arguments.map((argument) =>
-      ts.isSpreadElement(argument)
+  if (TstsSyntax.IsCallExpression(expression)) {
+    const args = definedTstsNodes(TstsSyntax.Node_Arguments(expression));
+    const argumentTypes = args.map((argument) =>
+      TstsSyntax.IsSpreadElement(argument)
         ? undefined
         : resolveSimpleNumericAssignmentType(argument, ctx, localTypes)
     );
-    const calleeType = resolveSimpleNumericAssignmentType(
-      expression.expression,
+    const sourceReturnType = getSourceSemanticIrType(
+      ctx.sourceSemantics.getExpressionType(expression),
+      expression,
       ctx,
-      localTypes
     );
-    const callable = ctx.typeSystem.resolveCallableType(calleeType, {
-      argumentCount: expression.arguments.length,
-      argTypes: argumentTypes,
-    });
-    if (
-      callable.resolved &&
-      callable.resolved.returnType.kind !== "unknownType"
-    ) {
-      return callable.resolved.returnType;
+    if (sourceReturnType && sourceReturnType.kind !== "unknownType") {
+      return sourceReturnType;
     }
 
     const sigId = ctx.binding.resolveCallSignature(expression);
@@ -173,7 +179,7 @@ const resolveSimpleNumericAssignmentType = (
     }
     const resolved = ctx.typeSystem.resolveCall({
       sigId,
-      argumentCount: expression.arguments.length,
+      argumentCount: args.length,
       argTypes: argumentTypes,
     });
     return resolved.returnType.kind === "unknownType"
@@ -182,11 +188,10 @@ const resolveSimpleNumericAssignmentType = (
   }
 
   if (
-    ts.isPropertyAccessExpression(expression) ||
-    ts.isPropertyAccessChain(expression)
+    TstsSyntax.IsPropertyAccessExpression(expression)
   ) {
     const receiverType = resolveSimpleNumericAssignmentType(
-      expression.expression,
+      TstsSyntax.Node_Expression(expression) ?? expression,
       ctx,
       localTypes
     );
@@ -195,35 +200,41 @@ const resolveSimpleNumericAssignmentType = (
     }
     return getReadableMemberTypeForNarrowing(
       receiverType,
-      expression.name.text,
+      getTstsIdentifierText(TstsSyntax.Node_Name(expression)) ?? "",
       ctx
     );
   }
 
-  if (ts.isParenthesizedExpression(expression)) {
+  if (TstsSyntax.IsParenthesizedExpression(expression)) {
     return resolveSimpleNumericAssignmentType(
-      expression.expression,
+      TstsSyntax.Node_Expression(expression) ?? expression,
       ctx,
       localTypes
     );
   }
 
-  if (ts.isNonNullExpression(expression)) {
+  if (TstsSyntax.IsNonNullExpression(expression)) {
     return stripRuntimeNullish(
-      resolveSimpleNumericAssignmentType(expression.expression, ctx, localTypes)
+      resolveSimpleNumericAssignmentType(
+        TstsSyntax.Node_Expression(expression) ?? expression,
+        ctx,
+        localTypes
+      )
     );
   }
 
   if (
-    ts.isElementAccessExpression(expression) &&
-    expression.argumentExpression
+    TstsSyntax.IsElementAccessExpression(expression) &&
+    TstsSyntax.AsElementAccessExpression(expression)?.ArgumentExpression
   ) {
+    const argumentExpression =
+      TstsSyntax.AsElementAccessExpression(expression)?.ArgumentExpression;
     if (
-      ts.isStringLiteral(expression.argumentExpression) ||
-      ts.isNoSubstitutionTemplateLiteral(expression.argumentExpression)
+      argumentExpression?.Kind === TstsSyntax.KindStringLiteral ||
+      argumentExpression?.Kind === TstsSyntax.KindNoSubstitutionTemplateLiteral
     ) {
       const receiverType = resolveSimpleNumericAssignmentType(
-        expression.expression,
+        TstsSyntax.Node_Expression(expression) ?? expression,
         ctx,
         localTypes
       );
@@ -232,35 +243,40 @@ const resolveSimpleNumericAssignmentType = (
       }
       return getReadableMemberTypeForNarrowing(
         receiverType,
-        expression.argumentExpression.text,
+        argumentExpression ? (TstsSyntax.Node_Text(argumentExpression) ?? "") : "",
         ctx
       );
     }
 
     return getArrayElementType(
-      resolveSimpleNumericAssignmentType(expression.expression, ctx, localTypes)
+      resolveSimpleNumericAssignmentType(
+        TstsSyntax.Node_Expression(expression) ?? expression,
+        ctx,
+        localTypes
+      )
     );
   }
 
-  if (ts.isBinaryExpression(expression)) {
-    const operator = expression.operatorToken.kind;
+  if (TstsSyntax.IsBinaryExpression(expression)) {
+    const binary = TstsSyntax.AsBinaryExpression(expression);
+    const operator = binary?.OperatorToken?.Kind;
     if (
-      operator !== ts.SyntaxKind.PlusToken &&
-      operator !== ts.SyntaxKind.MinusToken &&
-      operator !== ts.SyntaxKind.AsteriskToken &&
-      operator !== ts.SyntaxKind.SlashToken &&
-      operator !== ts.SyntaxKind.PercentToken
+      operator !== TstsSyntax.KindPlusToken &&
+      operator !== TstsSyntax.KindMinusToken &&
+      operator !== TstsSyntax.KindAsteriskToken &&
+      operator !== TstsSyntax.KindSlashToken &&
+      operator !== TstsSyntax.KindPercentToken
     ) {
       return undefined;
     }
 
     const leftType = resolveSimpleNumericAssignmentType(
-      expression.left,
+      binary?.Left ?? expression,
       ctx,
       localTypes
     );
     const rightType = resolveSimpleNumericAssignmentType(
-      expression.right,
+      binary?.Right ?? expression,
       ctx,
       localTypes
     );
@@ -276,18 +292,25 @@ const resolveSimpleNumericAssignmentType = (
 };
 
 const isMutableIntegerLiteralDeclaration = (
-  decl: ts.VariableDeclaration,
-  declarationList: ts.VariableDeclarationList
-): decl is ts.VariableDeclaration & { name: ts.Identifier } =>
-  (!(declarationList.flags & ts.NodeFlags.Const) ||
-    !!(declarationList.flags & ts.NodeFlags.Let)) &&
-  ts.isIdentifier(decl.name) &&
-  decl.type === undefined &&
-  !!decl.initializer &&
-  isIntegerNumericLiteralExpression(decl.initializer);
+  decl: TstsNode,
+  declarationList: TstsNode
+): boolean => {
+  const flags = TstsSyntax.AsVariableDeclarationList(declarationList)?.Flags ?? 0;
+  const name = TstsSyntax.Node_Name(decl);
+  const initializer = TstsSyntax.Node_Initializer(decl);
+  return (
+    ((flags & TstsSyntax.NodeFlagsConst) === 0 ||
+      (flags & TstsSyntax.NodeFlagsLet) !== 0) &&
+    !!name &&
+    TstsSyntax.IsIdentifier(name) &&
+    getTstsDeclaredTypeNode(decl) === undefined &&
+    !!initializer &&
+    isIntegerNumericLiteralExpression(initializer)
+  );
+};
 
 const collectMutableNumericLiteralWideningDeclIds = (
-  block: ts.Block,
+  block: TstsNode,
   ctx: ProgramContext
 ): ReadonlySet<number> | undefined => {
   const candidates = new Map<string, number>();
@@ -315,99 +338,131 @@ const collectMutableNumericLiteralWideningDeclIds = (
     }
   };
 
-  const rememberDeclaration = (decl: ts.VariableDeclaration): void => {
-    if (ts.isIdentifier(decl.name)) {
-      const declaredType = decl.type
+  const rememberDeclaration = (decl: TstsNode): void => {
+    const name = TstsSyntax.Node_Name(decl);
+    if (name && TstsSyntax.IsIdentifier(name)) {
+      const typeNode = getTstsDeclaredTypeNode(decl);
+      const initializer = TstsSyntax.Node_Initializer(decl);
+      const declaredType = typeNode
         ? ctx.typeSystem.typeFromSyntax(
-            ctx.binding.captureTypeSyntax(decl.type)
+            ctx.binding.captureTypeSyntax(typeNode)
           )
-        : decl.initializer
+        : initializer
           ? resolveSimpleNumericAssignmentType(
-              decl.initializer,
+              initializer,
               ctx,
               localTypes
             )
           : undefined;
       if (declaredType && declaredType.kind !== "unknownType") {
-        localTypes.set(decl.name.text, declaredType);
+        const nameText = getTstsIdentifierText(name);
+        if (nameText) localTypes.set(nameText, declaredType);
       }
     }
 
-    const parent = decl.parent;
+    const parent = decl.Parent;
     if (
       !parent ||
-      !ts.isVariableDeclarationList(parent) ||
+      !TstsSyntax.IsVariableDeclarationList(parent) ||
       !isMutableIntegerLiteralDeclaration(decl, parent)
     ) {
       return;
     }
 
-    const declId = ctx.binding.resolveIdentifier(decl.name);
-    if (declId) {
-      candidates.set(decl.name.text, declId.id);
+    if (name) {
+      const declId = ctx.binding.resolveIdentifier(name);
+      const nameText = getTstsIdentifierText(name);
+      if (declId && nameText) {
+        candidates.set(nameText, declId.id);
+      }
     }
   };
 
-  const visit = (node: ts.Node): void => {
+  const visit = (node: TstsNode): void => {
     if (
-      ts.isFunctionLike(node) ||
-      ts.isClassLike(node) ||
-      ts.isInterfaceDeclaration(node) ||
-      ts.isTypeAliasDeclaration(node)
+      TstsSyntax.IsFunctionDeclaration(node) ||
+      TstsSyntax.IsFunctionExpression(node) ||
+      TstsSyntax.IsArrowFunction(node) ||
+      TstsSyntax.IsMethodDeclaration(node) ||
+      TstsSyntax.IsConstructorDeclaration(node) ||
+      TstsSyntax.IsClassDeclaration(node) ||
+      TstsSyntax.IsClassExpression(node) ||
+      TstsSyntax.IsInterfaceDeclaration(node) ||
+      TstsSyntax.IsTypeAliasDeclaration(node)
     ) {
       return;
     }
 
-    if (ts.isVariableDeclaration(node)) {
+    if (TstsSyntax.IsVariableDeclaration(node)) {
       rememberDeclaration(node);
       return;
     }
 
-    if (ts.isForOfStatement(node)) {
+    if (TstsSyntax.IsForOfStatement(node)) {
+      const forOf = TstsSyntax.AsForInOrOfStatement(node);
       const iterableType = resolveSimpleNumericAssignmentType(
-        node.expression,
+        forOf?.Expression ?? node,
         ctx,
         localTypes
       );
       const elementType = getIterableElementType(iterableType, ctx);
-      if (ts.isVariableDeclarationList(node.initializer)) {
-        const declaration = node.initializer.declarations[0];
-        if (declaration && ts.isIdentifier(declaration.name)) {
+      if (
+        forOf?.Initializer &&
+        TstsSyntax.IsVariableDeclarationList(forOf.Initializer)
+      ) {
+        const declaration = definedTstsNodes(
+          TstsSyntax.AsVariableDeclarationList(forOf.Initializer)?.Declarations
+            ?.Nodes
+        )[0];
+        const name = declaration ? TstsSyntax.Node_Name(declaration) : undefined;
+        if (declaration && name && TstsSyntax.IsIdentifier(name)) {
           rememberDeclaration(declaration);
-          setTemporaryLocalType(declaration.name.text, elementType, () => {
-            visit(node.statement);
+          setTemporaryLocalType(getTstsIdentifierText(name) ?? "", elementType, () => {
+            if (forOf.Statement) visit(forOf.Statement);
           });
           return;
         }
       }
-      if (ts.isIdentifier(node.initializer)) {
-        setTemporaryLocalType(node.initializer.text, elementType, () => {
-          visit(node.statement);
-        });
+      if (forOf?.Initializer && TstsSyntax.IsIdentifier(forOf.Initializer)) {
+        setTemporaryLocalType(
+          getTstsIdentifierText(forOf.Initializer) ?? "",
+          elementType,
+          () => {
+            if (forOf.Statement) visit(forOf.Statement);
+          }
+        );
         return;
       }
     }
 
     if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      ts.isIdentifier(node.left)
+      TstsSyntax.IsBinaryExpression(node) &&
+      TstsSyntax.AsBinaryExpression(node)?.OperatorToken?.Kind ===
+        TstsSyntax.KindEqualsToken &&
+      TstsSyntax.AsBinaryExpression(node)?.Left &&
+      TstsSyntax.IsIdentifier(TstsSyntax.AsBinaryExpression(node)?.Left)
     ) {
-      const candidateDeclId = candidates.get(node.left.text);
+      const binary = TstsSyntax.AsBinaryExpression(node);
+      const left = binary?.Left;
+      const candidateDeclId = left
+        ? candidates.get(getTstsIdentifierText(left) ?? "")
+        : undefined;
       if (
         candidateDeclId !== undefined &&
         isJsNumberType(
-          resolveSimpleNumericAssignmentType(node.right, ctx, localTypes)
+          resolveSimpleNumericAssignmentType(binary?.Right ?? node, ctx, localTypes)
         )
       ) {
         wideningDeclIds.add(candidateDeclId);
       }
     }
 
-    ts.forEachChild(node, visit);
+    forEachTstsChild(node, (child) => {
+      if (child) visit(child);
+    });
   };
 
-  for (const statement of block.statements) {
+  for (const statement of definedTstsNodes(TstsSyntax.Node_Statements(block))) {
     visit(statement);
   }
 
@@ -415,33 +470,12 @@ const collectMutableNumericLiteralWideningDeclIds = (
 };
 
 const tryResolveReadableAssignedAccessType = (
-  expr: ts.Expression,
+  expr: TstsNode,
   ctx: ProgramContext
 ): IrType | undefined => {
-  if (ts.isPropertyAccessExpression(expr) || ts.isPropertyAccessChain(expr)) {
+  if (TstsSyntax.IsPropertyAccessExpression(expr)) {
     const receiverType = getCurrentTypeForAccessExpression(
-      expr.expression,
-      ctx
-    );
-    if (!receiverType) {
-      return undefined;
-    }
-
-    return getReadableMemberTypeForNarrowing(receiverType, expr.name.text, ctx);
-  }
-
-  if (ts.isElementAccessExpression(expr) || ts.isElementAccessChain(expr)) {
-    const propertyExpr = expr.argumentExpression;
-    if (
-      !propertyExpr ||
-      (!ts.isStringLiteral(propertyExpr) &&
-        !ts.isNoSubstitutionTemplateLiteral(propertyExpr))
-    ) {
-      return undefined;
-    }
-
-    const receiverType = getCurrentTypeForAccessExpression(
-      expr.expression,
+      TstsSyntax.Node_Expression(expr) ?? expr,
       ctx
     );
     if (!receiverType) {
@@ -450,7 +484,33 @@ const tryResolveReadableAssignedAccessType = (
 
     return getReadableMemberTypeForNarrowing(
       receiverType,
-      propertyExpr.text,
+      getTstsIdentifierText(TstsSyntax.Node_Name(expr)) ?? "",
+      ctx
+    );
+  }
+
+  if (TstsSyntax.IsElementAccessExpression(expr)) {
+    const propertyExpr = TstsSyntax.AsElementAccessExpression(expr)
+      ?.ArgumentExpression;
+    if (
+      !propertyExpr ||
+      (propertyExpr.Kind !== TstsSyntax.KindStringLiteral &&
+        propertyExpr.Kind !== TstsSyntax.KindNoSubstitutionTemplateLiteral)
+    ) {
+      return undefined;
+    }
+
+    const receiverType = getCurrentTypeForAccessExpression(
+      TstsSyntax.Node_Expression(expr) ?? expr,
+      ctx
+    );
+    if (!receiverType) {
+      return undefined;
+    }
+
+    return getReadableMemberTypeForNarrowing(
+      receiverType,
+      TstsSyntax.Node_Text(propertyExpr) ?? "",
       ctx
     );
   }
@@ -459,7 +519,7 @@ const tryResolveReadableAssignedAccessType = (
 };
 
 const resolveAssignedAccessPathFlowType = (
-  expr: ts.Expression,
+  expr: TstsNode,
   assignedType: IrType | undefined,
   ctx: ProgramContext
 ): IrType | undefined => {
@@ -508,7 +568,7 @@ const statementAlwaysTerminates = (stmt: IrStatement): boolean => {
 };
 
 const addAssignedAccessTarget = (
-  expr: ts.Expression,
+  expr: TstsNode,
   ctx: ProgramContext,
   targets: Map<string, AccessPathTarget>
 ): void => {
@@ -556,20 +616,26 @@ const resolveDeclaredRootAccessType = (
     return normalizeFlowResetType(ctx.typeEnv?.get(target.declId.id));
   }
 
-  if (ts.isVariableDeclaration(declaration) && declaration.type) {
+  if (
+    TstsSyntax.IsVariableDeclaration(declaration) &&
+    getTstsDeclaredTypeNode(declaration)
+  ) {
     return normalizeFlowResetType(
       ctx.typeSystem.typeFromSyntax(
-        ctx.binding.captureTypeSyntax(declaration.type)
+        ctx.binding.captureTypeSyntax(getTstsDeclaredTypeNode(declaration)!)
       )
     );
   }
 
-  if (ts.isParameter(declaration) && declaration.type) {
+  if (
+    TstsSyntax.IsParameterDeclaration(declaration) &&
+    getTstsDeclaredTypeNode(declaration)
+  ) {
     const parameterType = ctx.typeSystem.typeFromSyntax(
-      ctx.binding.captureTypeSyntax(declaration.type)
+      ctx.binding.captureTypeSyntax(getTstsDeclaredTypeNode(declaration)!)
     );
     return normalizeFlowResetType(
-      declaration.questionToken
+      isTstsOptionalParameter(declaration)
         ? optionalReadType(parameterType)
         : parameterType
     );
@@ -579,37 +645,54 @@ const resolveDeclaredRootAccessType = (
 };
 
 const collectAssignedAccessTargets = (
-  node: ts.Node,
+  node: TstsNode,
   ctx: ProgramContext
 ): readonly AccessPathTarget[] => {
   const targets = new Map<string, AccessPathTarget>();
 
-  const visit = (current: ts.Node): void => {
+  const visit = (current: TstsNode): void => {
     if (
       current !== node &&
-      (ts.isFunctionLike(current) ||
-        ts.isClassLike(current) ||
-        ts.isInterfaceDeclaration(current) ||
-        ts.isTypeAliasDeclaration(current))
+      (TstsSyntax.IsFunctionDeclaration(current) ||
+        TstsSyntax.IsFunctionExpression(current) ||
+        TstsSyntax.IsArrowFunction(current) ||
+        TstsSyntax.IsMethodDeclaration(current) ||
+        TstsSyntax.IsConstructorDeclaration(current) ||
+        TstsSyntax.IsClassDeclaration(current) ||
+        TstsSyntax.IsClassExpression(current) ||
+        TstsSyntax.IsInterfaceDeclaration(current) ||
+        TstsSyntax.IsTypeAliasDeclaration(current))
     ) {
       return;
     }
 
     if (
-      ts.isBinaryExpression(current) &&
-      isAssignmentOperator(current.operatorToken)
+      TstsSyntax.IsBinaryExpression(current) &&
+      isAssignmentOperator(TstsSyntax.AsBinaryExpression(current)?.OperatorToken)
     ) {
-      addAssignedAccessTarget(current.left, ctx, targets);
+      const left = TstsSyntax.AsBinaryExpression(current)?.Left;
+      if (left) addAssignedAccessTarget(left, ctx, targets);
     } else if (
-      (ts.isPrefixUnaryExpression(current) ||
-        ts.isPostfixUnaryExpression(current)) &&
-      (current.operator === ts.SyntaxKind.PlusPlusToken ||
-        current.operator === ts.SyntaxKind.MinusMinusToken)
+      (TstsSyntax.IsPrefixUnaryExpression(current) ||
+        TstsSyntax.IsPostfixUnaryExpression(current)) &&
+      (TstsSyntax.AsPrefixUnaryExpression(current)?.Operator ===
+        TstsSyntax.KindPlusPlusToken ||
+        TstsSyntax.AsPrefixUnaryExpression(current)?.Operator ===
+          TstsSyntax.KindMinusMinusToken ||
+        TstsSyntax.AsPostfixUnaryExpression(current)?.Operator ===
+          TstsSyntax.KindPlusPlusToken ||
+        TstsSyntax.AsPostfixUnaryExpression(current)?.Operator ===
+          TstsSyntax.KindMinusMinusToken)
     ) {
-      addAssignedAccessTarget(current.operand, ctx, targets);
+      const operand =
+        TstsSyntax.AsPrefixUnaryExpression(current)?.Operand ??
+        TstsSyntax.AsPostfixUnaryExpression(current)?.Operand;
+      if (operand) addAssignedAccessTarget(operand, ctx, targets);
     }
 
-    ts.forEachChild(current, visit);
+    forEachTstsChild(current, (child) => {
+      if (child) visit(child);
+    });
   };
 
   visit(node);
@@ -618,7 +701,7 @@ const collectAssignedAccessTargets = (
 
 const invalidateAssignedAccessTargets = (
   ctx: ProgramContext,
-  node: ts.Node
+  node: TstsNode
 ): ProgramContext => {
   let currentCtx = ctx;
   for (const target of collectAssignedAccessTargets(node, ctx)) {
@@ -642,7 +725,7 @@ const invalidateAssignedAccessTargets = (
  *                             Pass `undefined` explicitly when not inside a function.
  */
 export const convertBlockStatement = (
-  node: ts.Block,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType: IrType | undefined
 ): IrBlockStatement => {
@@ -659,11 +742,10 @@ export const convertBlockStatement = (
     : ctx;
   const statements: IrStatement[] = [];
 
-  for (let index = 0; index < node.statements.length; index++) {
-    const s = node.statements[index];
-    if (!s) {
-      continue;
-    }
+  const blockStatements = definedTstsNodes(TstsSyntax.Node_Statements(node));
+  for (let index = 0; index < blockStatements.length; index++) {
+    const s = blockStatements[index];
+    if (!s) continue;
     const converted = convertStatement(s, currentCtx, expectedReturnType);
     statements.push(...flattenStatementResult(converted));
     let statementFlowHandled = false;
@@ -671,22 +753,26 @@ export const convertBlockStatement = (
     // Variable declarations introduce new bindings. Thread their inferred types forward
     // so later statements in the same block can use deterministic types (no "unknown").
     if (
-      ts.isVariableStatement(s) &&
+      TstsSyntax.IsVariableStatement(s) &&
       converted !== null &&
       !Array.isArray(converted)
     ) {
       const single = converted as IrStatement;
       if (single.kind !== "variableDeclaration") continue;
       const varDecl = single as IrVariableDeclaration;
+      const declarationList = TstsSyntax.AsVariableStatement(s)?.DeclarationList;
       currentCtx = withVariableTypeEnv(
         currentCtx,
-        s.declarationList.declarations,
+        definedTstsNodes(
+          TstsSyntax.AsVariableDeclarationList(declarationList)?.Declarations
+            ?.Nodes
+        ),
         varDecl
       );
     }
 
     if (
-      ts.isExpressionStatement(s) &&
+      TstsSyntax.IsExpressionStatement(s) &&
       converted !== null &&
       !Array.isArray(converted)
     ) {
@@ -695,20 +781,26 @@ export const convertBlockStatement = (
         continue;
       }
 
-      const expr = s.expression;
+      const expr = TstsSyntax.Node_Expression(s);
+      if (!expr) {
+        continue;
+      }
       if (
-        ts.isBinaryExpression(expr) &&
-        isAssignmentOperator(expr.operatorToken) &&
+        TstsSyntax.IsBinaryExpression(expr) &&
+        isAssignmentOperator(TstsSyntax.AsBinaryExpression(expr)?.OperatorToken) &&
         single.expression.kind === "assignment"
       ) {
-        const target = getAccessPathTarget(expr.left, currentCtx);
+        const binary = TstsSyntax.AsBinaryExpression(expr);
+        const target = binary?.Left
+          ? getAccessPathTarget(binary.Left, currentCtx)
+          : undefined;
         if (target) {
           currentCtx = withAssignedAccessPathType(
             currentCtx,
             target,
             resolveAssignedAccessPathFlowType(
-              expr.left,
-              expr.operatorToken.kind === ts.SyntaxKind.EqualsToken
+              binary?.Left ?? expr,
+              binary?.OperatorToken?.Kind === TstsSyntax.KindEqualsToken
                 ? single.expression.right.inferredType
                 : single.expression.inferredType,
               currentCtx
@@ -719,12 +811,23 @@ export const convertBlockStatement = (
       }
 
       if (
-        (ts.isPrefixUnaryExpression(expr) ||
-          ts.isPostfixUnaryExpression(expr)) &&
-        (expr.operator === ts.SyntaxKind.PlusPlusToken ||
-          expr.operator === ts.SyntaxKind.MinusMinusToken)
+        (TstsSyntax.IsPrefixUnaryExpression(expr) ||
+          TstsSyntax.IsPostfixUnaryExpression(expr)) &&
+        (TstsSyntax.AsPrefixUnaryExpression(expr)?.Operator ===
+          TstsSyntax.KindPlusPlusToken ||
+          TstsSyntax.AsPrefixUnaryExpression(expr)?.Operator ===
+            TstsSyntax.KindMinusMinusToken ||
+          TstsSyntax.AsPostfixUnaryExpression(expr)?.Operator ===
+            TstsSyntax.KindPlusPlusToken ||
+          TstsSyntax.AsPostfixUnaryExpression(expr)?.Operator ===
+            TstsSyntax.KindMinusMinusToken)
       ) {
-        const target = getAccessPathTarget(expr.operand, currentCtx);
+        const operand =
+          TstsSyntax.AsPrefixUnaryExpression(expr)?.Operand ??
+          TstsSyntax.AsPostfixUnaryExpression(expr)?.Operand;
+        const target = operand
+          ? getAccessPathTarget(operand, currentCtx)
+          : undefined;
         if (target) {
           currentCtx = withAssignedAccessPathType(
             currentCtx,
@@ -737,7 +840,7 @@ export const convertBlockStatement = (
     }
 
     if (
-      ts.isIfStatement(s) &&
+      TstsSyntax.IsIfStatement(s) &&
       converted !== null &&
       !Array.isArray(converted)
     ) {
@@ -754,28 +857,31 @@ export const convertBlockStatement = (
         ? statementAlwaysTerminates(ifStatement.elseStatement)
         : false;
 
+      const ifNode = TstsSyntax.AsIfStatement(s);
       if (thenTerminates && !elseTerminates) {
-        currentCtx = withAppliedNarrowings(
-          currentCtx,
-          collectTypeNarrowingsInFalsyExpr(s.expression, currentCtx)
-        );
-        if (s.elseStatement) {
+        if (ifNode?.ElseStatement) {
           currentCtx = invalidateAssignedAccessTargets(
             currentCtx,
-            s.elseStatement
+            ifNode.ElseStatement
           );
         }
+        currentCtx = withBranchLoweringPlan(
+          currentCtx,
+          ifStatement.elsePlan
+        );
         statementFlowHandled = true;
       }
 
       if (elseTerminates && !thenTerminates) {
-        currentCtx = withAppliedNarrowings(
+        if (ifNode?.ThenStatement) {
+          currentCtx = invalidateAssignedAccessTargets(
+            currentCtx,
+            ifNode.ThenStatement
+          );
+        }
+        currentCtx = withBranchLoweringPlan(
           currentCtx,
-          collectTypeNarrowingsInTruthyExpr(s.expression, currentCtx)
-        );
-        currentCtx = invalidateAssignedAccessTargets(
-          currentCtx,
-          s.thenStatement
+          ifStatement.thenPlan
         );
         statementFlowHandled = true;
       }

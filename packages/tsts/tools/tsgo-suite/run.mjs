@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { cpus } from "node:os";
 import { dirname, join, posix as posixPath, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cp, mkdir, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
+import { appendFile, cp, mkdir, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import ts from "typescript";
 
@@ -2803,8 +2803,19 @@ function renderTranspileInvocationOutput(invocation, result, missingOutputs) {
   };
 }
 
-async function runQueue(testCases, runRoot, jobs, failFast, options) {
-  const results = [];
+// Run all cases, streaming each trimmed result record to results.ndjson in the
+// report root as it completes. The runner holds NO per-case records in memory:
+// memory stays O(in-flight cases) regardless of corpus size, and a killed run
+// leaves a complete machine-readable record of everything it finished. Each
+// NDJSON line is the results.json record plus a `caseIndex` field recording the
+// case's position in discovery order (workers finish out of order).
+async function runQueue(testCases, runRoot, reportRoot, jobs, failFast, options) {
+  const resultsPath = join(reportRoot, "results.ndjson");
+  await writeFile(resultsPath, "");
+  // Appends are serialized through a promise chain; each worker awaits its own
+  // append so a finished case is durable on disk before the worker continues.
+  let appendChain = Promise.resolve();
+  let completed = 0;
   let cursor = 0;
   let stopped = false;
   const workers = Array.from({ length: jobs }, async () => {
@@ -2816,17 +2827,34 @@ async function runQueue(testCases, runRoot, jobs, failFast, options) {
       }
       const testCase = testCases[currentIndex];
       const result = await runCase(testCase, runRoot, options);
-      // Store the trimmed record immediately: retaining every case's full
-      // stdout/stderr exhausts the heap on the 7k-case submodule corpus.
-      results[currentIndex] = trimResult(result);
+      // Trim immediately (bounded, flattened strings only), then persist.
+      const record = { caseIndex: currentIndex, ...trimResult(result) };
+      const append = appendChain.then(() => appendFile(resultsPath, `${JSON.stringify(record)}\n`));
+      appendChain = append;
+      await append;
+      completed += 1;
       if (result.status === "fail" && failFast) {
         stopped = true;
       }
-      printProgress(results.filter(Boolean).length, testCases.length, result);
+      printProgress(completed, testCases.length, result);
     }
   });
   await Promise.all(workers);
-  return results.filter(Boolean);
+  return { resultsPath, completed };
+}
+
+// Read the streamed records back, restore discovery order, and strip the
+// caseIndex envelope so the returned records match the results.json shape.
+// Every record was trimmed (capped, flattened) at write time, so the
+// materialized array is bounded regardless of per-case output sizes.
+export async function readResults(resultsPath) {
+  const text = await readFile(resultsPath, "utf8");
+  const records = text
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line));
+  records.sort((a, b) => a.caseIndex - b.caseIndex);
+  return records.map(({ caseIndex: _caseIndex, ...record }) => record);
 }
 
 function printProgress(done, total, result) {
@@ -2836,15 +2864,22 @@ function printProgress(done, total, result) {
   const tsgoAccepted = (result.exactBaseline?.tsgoAccepted?.length ?? 0) === 0 ? "" : ` tsgoAccepted=${result.exactBaseline.tsgoAccepted.length}`;
   const baseline = result.exactBaseline === undefined ? "" : ` exactBaselines=${result.exactBaseline.status} mismatches=${result.exactBaseline.mismatches.length}${tsgoAccepted}`;
   console.log(`${prefix} ${done}/${total} ${result.relativePath}${configuration} expectedErrors=${result.expectedErrors} actualErrors=${result.actualErrors}${baseline}${skip}`);
+  if (done % 100 === 0 || total <= 20 || process.env.TSGO_MEM_EVERY === "1") {
+    const m = process.memoryUsage();
+    const mb = (n) => Math.round(n / 1024 / 1024);
+    console.log(`MEM ${done}/${total} rss=${mb(m.rss)}MB heapUsed=${mb(m.heapUsed)}MB heapTotal=${mb(m.heapTotal)}MB external=${mb(m.external)}MB arrayBuffers=${mb(m.arrayBuffers)}MB`);
+  }
 }
 
-async function writeReports(reportRoot, results, inventory, caseRoot) {
+async function writeReports(reportRoot, resultsPath, inventory, caseRoot) {
+  const results = await readResults(resultsPath);
   const summary = summarize(results);
-  await writeFile(join(reportRoot, "results.json"), `${JSON.stringify({ summary, inventory, caseRoot, results: results.map(trimResult) }, null, 2)}\n`);
+  await writeFile(join(reportRoot, "results.json"), `${JSON.stringify({ summary, inventory, caseRoot, results }, null, 2)}\n`);
   await writeFile(join(reportRoot, "summary.md"), renderMarkdown(summary, results, inventory, caseRoot));
+  return summary;
 }
 
-function summarize(results) {
+export function summarize(results) {
   const passed = results.filter((result) => result.status === "pass").length;
   const skipped = results.filter((result) => result.status === "skip").length;
   const failed = results.length - passed - skipped;
@@ -2865,7 +2900,14 @@ function summarize(results) {
   };
 }
 
-function trimResult(result) {
+// V8 represents substrings from split()/slice() as SlicedStrings that retain
+// the parent string. Without flattening, every trimmed record keeps its case's
+// FULL stdout+stderr alive and a 7k-case sweep exhausts the default heap.
+function flattenString(value) {
+  return Buffer.from(value, "utf8").toString("utf8");
+}
+
+export function trimResult(result) {
   if (result.firstOutputLines !== undefined) {
     // Already trimmed at accumulation time.
     return result;
@@ -2883,8 +2925,8 @@ function trimResult(result) {
     signal: result.signal,
     caseDir: result.caseDir,
     skipReason: result.skipReason,
-    exactBaseline: result.exactBaseline,
-    firstOutputLines: output.split(/\r?\n/).filter(Boolean).slice(0, 20),
+    exactBaseline: result.exactBaseline === undefined ? undefined : JSON.parse(JSON.stringify(result.exactBaseline)),
+    firstOutputLines: output.split(/\r?\n/).filter(Boolean).slice(0, 20).map((line) => flattenString(line.slice(0, 1000))),
   };
 }
 
@@ -2920,7 +2962,7 @@ function renderMarkdown(summary, results, inventory, caseRoot) {
     lines.push("| Case | Expected Errors | Actual Errors | Exact Baselines | Exit | First Output |");
     lines.push("|---|---:|---:|---|---:|---|");
     for (const result of failed.slice(0, 200)) {
-      const output = `${result.stdout}${result.stderr}`.split(/\r?\n/).find(Boolean) ?? "";
+      const output = result.firstOutputLines?.[0] ?? "";
       const exact = result.exactBaseline === undefined
         ? ""
         : `${result.exactBaseline.status}: ${result.exactBaseline.mismatches.slice(0, 3).join("; ")}`;
@@ -3006,10 +3048,15 @@ async function main() {
   console.log(`caseRoot=${caseRootForRun}`);
   console.log(`reportRoot=${reportRoot}`);
 
-  const results = await runQueue(testCases, caseRootForRun, options.jobs, options.failFast, options);
-  await writeReports(reportRoot, results, inventory, caseRootForRun);
-  const summary = summarize(results);
+  const run = await runQueue(testCases, caseRootForRun, reportRoot, options.jobs, options.failFast, options);
+  const summary = await writeReports(reportRoot, run.resultsPath, inventory, caseRootForRun);
   console.log(`SUMMARY total=${summary.total} passed=${summary.passed} failed=${summary.failed}`);
+  if (process.env.TSGO_HOLD_SECONDS !== undefined) {
+    // Diagnostics hook: keep the process alive (e.g. for --heapsnapshot-signal)
+    // so retained memory can be inspected after the run completes.
+    console.log(`HOLDING for ${process.env.TSGO_HOLD_SECONDS}s (TSGO_HOLD_SECONDS)`);
+    await new Promise((resolve) => setTimeout(resolve, Number(process.env.TSGO_HOLD_SECONDS) * 1000));
+  }
   console.log(`REPORT ${join(reportRoot, "summary.md")}`);
   if (summary.failed > 0) {
     process.exitCode = 1;

@@ -10,7 +10,7 @@
  * to `expandConditionalUtilityTypeInternal` with depth=0.
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
 import type { IrType } from "../../../types.js";
 import type { Binding } from "../../../binding/index.js";
 import { expandConditionalUtilityTypeInternal } from "./conditional-utility-types-core.js";
@@ -27,10 +27,10 @@ export {
  * Uses AST-based syntactic algorithms only. No getTypeAtLocation or typeToTypeNode.
  */
 export const expandConditionalUtilityType = (
-  node: ts.TypeReferenceNode,
+  node: TstsNode,
   typeName: string,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | null => {
   return expandConditionalUtilityTypeInternal(
     node,

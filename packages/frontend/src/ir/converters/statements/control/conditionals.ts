@@ -4,10 +4,8 @@
  * Uses ProgramContext for conditional conversion.
  */
 
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import {
-  IrBranchNarrowing,
-  IrExpression,
   IrStatement,
   IrIfStatement,
   IrSwitchStatement,
@@ -22,57 +20,10 @@ import {
   convertStatement,
 } from "../../../statement-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
-import {
-  collectTypeNarrowingsInTruthyExpr,
-  collectTypeNarrowingsInFalsyExpr,
-  withAppliedNarrowings,
-} from "../../flow-narrowing.js";
-import type { TypeNarrowing } from "../../flow-narrowing.js";
 import { withVariableTypeEnv } from "../../type-env.js";
 import { createIfBranchPlans } from "./if-branch-plan.js";
-
-const convertBranchNarrowings = (
-  narrowings: readonly TypeNarrowing[],
-  ctx: ProgramContext
-): readonly IrBranchNarrowing[] => {
-  const converted: IrBranchNarrowing[] = [];
-  for (const narrowing of narrowings) {
-    if (!narrowing.bindingKey || !narrowing.targetNode) {
-      continue;
-    }
-
-    const targetExpr = unwrapBranchNarrowingTarget(
-      convertExpression(narrowing.targetNode, ctx, undefined)
-    );
-    if (!targetExpr) {
-      continue;
-    }
-
-    converted.push({
-      bindingKey: narrowing.bindingKey,
-      targetExpr,
-      targetType: narrowing.targetType,
-    });
-  }
-
-  return converted;
-};
-
-const unwrapBranchNarrowingTarget = (
-  expression: IrExpression
-): IrBranchNarrowing["targetExpr"] | undefined => {
-  let current = expression;
-  while (
-    current.kind === "typeAssertion" ||
-    current.kind === "numericNarrowing"
-  ) {
-    current = current.expression;
-  }
-
-  return current.kind === "identifier" || current.kind === "memberAccess"
-    ? current
-    : undefined;
-};
+import { definedTstsNodes } from "../helpers.js";
+import { withBranchLoweringPlan } from "../../branch-flow-env.js";
 
 /**
  * Convert if statement
@@ -81,41 +32,35 @@ const unwrapBranchNarrowingTarget = (
  *                             Passed through to nested statements for return expressions.
  */
 export const convertIfStatement = (
-  node: ts.IfStatement,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrIfStatement => {
-  const truthyNarrowings = collectTypeNarrowingsInTruthyExpr(
-    node.expression,
-    ctx
-  );
-  const thenCtx = withAppliedNarrowings(ctx, truthyNarrowings);
-
-  const falsyNarrowings = collectTypeNarrowingsInFalsyExpr(
-    node.expression,
-    ctx
-  );
-  const elseCtx = (() => {
-    if (!node.elseStatement) return ctx;
-    return withAppliedNarrowings(ctx, falsyNarrowings);
-  })();
-
+  const ifStatement = TstsSyntax.AsIfStatement(node);
+  if (!ifStatement?.Expression || !ifStatement.ThenStatement) {
+    const condition = convertExpression(node, ctx, undefined);
+    const branchPlans = createIfBranchPlans(condition, ctx, [], []);
+    return {
+      kind: "ifStatement",
+      condition,
+      thenStatement: { kind: "emptyStatement" },
+      ...branchPlans,
+    };
+  }
+  const condition = convertExpression(ifStatement.Expression, ctx, undefined);
+  const branchPlans = createIfBranchPlans(condition, ctx);
   const thenStmt = convertStatementSingle(
-    node.thenStatement,
-    thenCtx,
+    ifStatement.ThenStatement,
+    withBranchLoweringPlan(ctx, branchPlans.thenPlan),
     expectedReturnType
   );
-  const elseStmt = node.elseStatement
-    ? convertStatementSingle(node.elseStatement, elseCtx, expectedReturnType)
+  const elseStmt = ifStatement.ElseStatement
+    ? convertStatementSingle(
+        ifStatement.ElseStatement,
+        withBranchLoweringPlan(ctx, branchPlans.elsePlan),
+        expectedReturnType
+      )
     : undefined;
-  const condition = convertExpression(node.expression, ctx, undefined);
-  const thenBindings = convertBranchNarrowings(truthyNarrowings, ctx);
-  const elseBindings = convertBranchNarrowings(falsyNarrowings, ctx);
-  const branchPlans = createIfBranchPlans(
-    condition,
-    thenBindings,
-    elseBindings
-  );
 
   return {
     kind: "ifStatement",
@@ -132,14 +77,20 @@ export const convertIfStatement = (
  * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertSwitchStatement = (
-  node: ts.SwitchStatement,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrSwitchStatement => {
+  const switchStatement = TstsSyntax.AsSwitchStatement(node);
+  const caseBlock = switchStatement?.CaseBlock
+    ? TstsSyntax.AsCaseBlock(switchStatement.CaseBlock)
+    : undefined;
   return {
     kind: "switchStatement",
-    expression: convertExpression(node.expression, ctx, undefined),
-    cases: node.caseBlock.clauses.map((clause) =>
+    expression: switchStatement?.Expression
+      ? convertExpression(switchStatement.Expression, ctx, undefined)
+      : convertExpression(node, ctx, undefined),
+    cases: definedTstsNodes(caseBlock?.Clauses?.Nodes).map((clause) =>
       convertSwitchCase(clause, ctx, expectedReturnType)
     ),
   };
@@ -151,27 +102,32 @@ export const convertSwitchStatement = (
  * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertSwitchCase = (
-  node: ts.CaseOrDefaultClause,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrSwitchCase => {
   let currentCtx = ctx;
   const statements: IrStatement[] = [];
+  const clause = TstsSyntax.AsCaseOrDefaultClause(node);
 
-  for (const s of node.statements) {
+  for (const s of definedTstsNodes(clause?.Statements?.Nodes)) {
     const converted = convertStatement(s, currentCtx, expectedReturnType);
     statements.push(...flattenStatementResult(converted));
 
     if (
-      ts.isVariableStatement(s) &&
+      TstsSyntax.IsVariableStatement(s) &&
       converted !== null &&
       !Array.isArray(converted)
     ) {
       const single = converted as IrStatement;
       if (single.kind !== "variableDeclaration") continue;
+      const declarationList = TstsSyntax.AsVariableStatement(s)?.DeclarationList;
       currentCtx = withVariableTypeEnv(
         currentCtx,
-        s.declarationList.declarations,
+        definedTstsNodes(
+          TstsSyntax.AsVariableDeclarationList(declarationList)?.Declarations
+            ?.Nodes
+        ),
         single as IrVariableDeclaration
       );
     }
@@ -179,8 +135,8 @@ export const convertSwitchCase = (
 
   return {
     kind: "switchCase",
-    test: ts.isCaseClause(node)
-      ? convertExpression(node.expression, ctx, undefined)
+    test: node.Kind === TstsSyntax.KindCaseClause && clause?.Expression
+      ? convertExpression(clause.Expression, ctx, undefined)
       : undefined,
     statements,
   };

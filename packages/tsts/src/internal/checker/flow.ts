@@ -140,7 +140,7 @@ function getFlowLoopKey(flow: GoPtr<FlowNode>, refKey: CacheHashKey): FlowLoopKe
     nextFlowLoopNodeKey = (nextFlowLoopNodeKey + 1) as int;
     flowLoopNodeKeys.set(flow!, flowKey);
   }
-  return `${flowKey}:${refKey.String()}` as unknown as FlowLoopKey;
+  return `${flowKey}:${refKey}` as unknown as FlowLoopKey;
 }
 
 /**
@@ -3593,7 +3593,7 @@ export function Checker_isMatchingReference(receiver: GoPtr<Checker>, source: Go
  * Go source:
  * var nonDottedNameCacheKey = CacheHashKey(xxh3.HashString128("?"))
  */
-export const nonDottedNameCacheKey: CacheHashKey = HashString128("?") as CacheHashKey;
+export const nonDottedNameCacheKey: CacheHashKey = HashString128("?").String();
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.getFlowReferenceKey","kind":"method","status":"implemented","sigHash":"7f9c86a333fc3319345e1d2e40cd94e84184cc42804dbda3e0deebe4b4fa8c87","bodyHash":"8bcfb16a0b81f307700c2d8c04c39c9d3419508117866e6fecd4abfdf9d6257b"}

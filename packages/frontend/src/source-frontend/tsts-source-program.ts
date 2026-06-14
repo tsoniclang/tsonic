@@ -1,5 +1,4 @@
 import type {
-  CompilerSourceProgram,
   CompilerExtension,
   ExtensionDiagnostic,
   ExtensionHost,
@@ -20,7 +19,6 @@ import {
 
 export type TstsSourceProgram = {
   readonly engine: "tsts";
-  readonly compilerProgram?: CompilerSourceProgram;
   readonly sourceFiles: readonly TstsSourceFile[];
   readonly moduleGraph: ExtensionModuleGraph;
   readonly extensionHost: ExtensionHost;
@@ -36,6 +34,7 @@ export type CreateTstsSourceProgramOptions = {
   readonly extensions?: readonly CompilerExtension[];
   readonly projectRoot?: string;
   readonly runSemanticChecks?: boolean;
+  readonly runExtensionChecks?: boolean;
 };
 
 const defaultExtensions = (): readonly CompilerExtension[] => [
@@ -48,21 +47,21 @@ export const createTstsSourceProgram = (
   options: CreateTstsSourceProgramOptions = {}
 ): TstsSourceProgram => {
   const extensions = options.extensions ?? defaultExtensions();
-  const compilerProgram = createCompilerSourceProgram(filePaths, {
+  const compiledSource = createCompilerSourceProgram(filePaths, {
     projectRoot: options.projectRoot,
     extensions,
     runSemanticChecks: options.runSemanticChecks === true,
+    runExtensionChecks: options.runExtensionChecks === true,
   });
 
   return {
     engine: "tsts",
-    compilerProgram,
-    sourceFiles: compilerProgram.sourceFiles,
-    moduleGraph: compilerProgram.moduleGraph,
-    extensionHost: compilerProgram.extensionHost,
-    diagnostics: compilerProgram.extensionDiagnostics,
-    compilerDiagnostics: compilerProgram.diagnostics,
-    withSourceSemantics: compilerProgram.withSemanticView,
+    sourceFiles: compiledSource.sourceFiles,
+    moduleGraph: compiledSource.moduleGraph,
+    extensionHost: compiledSource.extensionHost,
+    diagnostics: compiledSource.extensionDiagnostics,
+    compilerDiagnostics: compiledSource.diagnostics,
+    withSourceSemantics: compiledSource.withSemanticView,
   };
 };
 

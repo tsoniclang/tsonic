@@ -1,123 +1,48 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as ts from "typescript";
+import {
+  getTstsIdentifierText,
+  TstsSyntax,
+  visitTstsSubtree,
+  type TstsNode,
+  type TstsSymbol,
+} from "@tsonic/tsts";
 import {
   collectSupportedGenericFunctionValueSymbols,
   collectWrittenSymbols,
+  getSupportedGenericFunctionDeclarationSymbol,
   getSupportedGenericFunctionValueSymbol,
+  isGenericFunctionDeclarationNode,
   isGenericFunctionValueNode,
   type GenericFunctionValueNode,
-  getSupportedGenericFunctionDeclarationSymbol,
-  isGenericFunctionDeclarationNode,
 } from "./generic-function-values.js";
-import { createTypeScriptSemanticView } from "./source-frontend/typescript-semantic-view.js";
-
-const createTestProgram = (source: string, fileName = "/test/test.ts") => {
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.ES2022,
-    true,
-    ts.ScriptKind.TS
-  );
-
-  const program = ts.createProgram(
-    [fileName],
-    {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ES2022,
-      strict: true,
-    },
-    {
-      getSourceFile: (name) => (name === fileName ? sourceFile : undefined),
-      writeFile: () => {},
-      getCurrentDirectory: () => "/test",
-      getDirectories: () => [],
-      fileExists: () => true,
-      readFile: () => source,
-      getCanonicalFileName: (f) => f,
-      useCaseSensitiveFileNames: () => true,
-      getNewLine: () => "\n",
-      getDefaultLibFileName: (_options) => "lib.d.ts",
-    }
-  );
-
-  return {
-    sourceFile,
-    checker: program.getTypeChecker(),
-  };
-};
-
-const createMultiFileTestProgram = (
-  files: Readonly<Record<string, string>>,
-  entryFile = "/test/index.ts"
-) => {
-  const getOrCreateSourceFile = (name: string): ts.SourceFile | undefined => {
-    const text = files[name];
-    if (text === undefined) return undefined;
-    return ts.createSourceFile(
-      name,
-      text,
-      ts.ScriptTarget.ES2022,
-      true,
-      ts.ScriptKind.TS
-    );
-  };
-
-  const program = ts.createProgram(
-    [entryFile],
-    {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ES2022,
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-      strict: true,
-    },
-    {
-      getSourceFile: (name) => getOrCreateSourceFile(name),
-      writeFile: () => {},
-      getCurrentDirectory: () => "/test",
-      getDirectories: () => [],
-      fileExists: (name) => files[name] !== undefined,
-      readFile: (name) => files[name],
-      getCanonicalFileName: (f) => f,
-      useCaseSensitiveFileNames: () => true,
-      getNewLine: () => "\n",
-      getDefaultLibFileName: (_options) => "lib.d.ts",
-    }
-  );
-
-  const sourceFile = program.getSourceFile(entryFile);
-  if (!sourceFile) {
-    throw new Error(`Expected source file '${entryFile}' to exist.`);
-  }
-
-  return {
-    sourceFile,
-    checker: program.getTypeChecker(),
-  };
-};
+import type { TstsFrontendSourceSemanticView } from "./source-frontend/index.js";
+import {
+  createInlineTstsTestProgram,
+  createTstsTestProgramFromFiles,
+} from "./testing/tsts-test-program.js";
 
 const findGenericInitializer = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsNode,
   variableName: string
 ): GenericFunctionValueNode => {
   let match: GenericFunctionValueNode | undefined;
 
-  const visit = (node: ts.Node): void => {
+  visitTstsSubtree(sourceFile, (node) => {
+    if (match) return;
+    const variableDeclaration = TstsSyntax.AsVariableDeclaration(node);
+    const name = TstsSyntax.Node_Name(node);
+    const initializer = TstsSyntax.Node_Initializer(node);
     if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === variableName &&
-      node.initializer &&
-      isGenericFunctionValueNode(node.initializer)
+      variableDeclaration &&
+      getTstsIdentifierText(name) === variableName &&
+      initializer &&
+      isGenericFunctionValueNode(initializer)
     ) {
-      match = node.initializer;
-      return;
+      match = initializer;
     }
-    ts.forEachChild(node, visit);
-  };
+  });
 
-  visit(sourceFile);
   if (!match) {
     throw new Error(
       `Expected generic function initializer for variable '${variableName}'.`
@@ -127,24 +52,23 @@ const findGenericInitializer = (
 };
 
 const findGenericFunctionDeclaration = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsNode,
   functionName: string
-): ts.FunctionDeclaration => {
-  let match: ts.FunctionDeclaration | undefined;
+): TstsNode => {
+  let match: TstsNode | undefined;
 
-  const visit = (node: ts.Node): void => {
+  visitTstsSubtree(sourceFile, (node) => {
+    if (!node) return;
     if (
-      ts.isFunctionDeclaration(node) &&
+      !match &&
+      TstsSyntax.IsFunctionDeclaration(node) &&
       isGenericFunctionDeclarationNode(node) &&
-      node.name?.text === functionName
+      getTstsIdentifierText(TstsSyntax.Node_Name(node)) === functionName
     ) {
       match = node;
-      return;
     }
-    ts.forEachChild(node, visit);
-  };
+  });
 
-  visit(sourceFile);
   if (!match) {
     throw new Error(
       `Expected generic function declaration for '${functionName}'.`
@@ -153,17 +77,37 @@ const findGenericFunctionDeclaration = (
   return match;
 };
 
+const findVariableSymbol = (
+  sourceFile: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  variableName: string
+): TstsSymbol | undefined => {
+  let symbol: TstsSymbol | undefined;
+
+  visitTstsSubtree(sourceFile, (node) => {
+    if (symbol) return;
+    if (!TstsSyntax.IsVariableDeclaration(node)) return;
+    const name = TstsSyntax.Node_Name(node);
+    if (getTstsIdentifierText(name) !== variableName || !name) return;
+    symbol = sourceSemantics.getSymbol(name);
+  });
+
+  return symbol;
+};
+
 const getSupportSymbolForVariable = (
   source: string,
   variableName: string
-): ts.Symbol | undefined => {
-  const { sourceFile, checker } = createTestProgram(source);
-  const sourceSemantics = createTypeScriptSemanticView(checker);
-  const initializer = findGenericInitializer(sourceFile, variableName);
-  const writtenSymbols = collectWrittenSymbols(sourceFile, sourceSemantics);
+): TstsSymbol | undefined => {
+  const program = createInlineTstsTestProgram(source);
+  const initializer = findGenericInitializer(program.sourceFile, variableName);
+  const writtenSymbols = collectWrittenSymbols(
+    program.sourceFile,
+    program.sourceSemantics
+  );
   return getSupportedGenericFunctionValueSymbol(
     initializer,
-    sourceSemantics,
+    program.sourceSemantics,
     writtenSymbols
   );
 };
@@ -171,53 +115,40 @@ const getSupportSymbolForVariable = (
 const getCollectedSupportedSymbolForVariable = (
   source: string,
   variableName: string
-): ts.Symbol | undefined => {
-  const { sourceFile, checker } = createTestProgram(source);
+): TstsSymbol | undefined => {
+  const program = createInlineTstsTestProgram(source);
   return getCollectedSupportedSymbolForVariableInSourceFile(
-    sourceFile,
-    checker,
+    program.sourceFile,
+    program.sourceSemantics,
     variableName
   );
 };
 
 const getCollectedSupportedSymbolForVariableInSourceFile = (
-  sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker,
+  sourceFile: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView,
   variableName: string
-): ts.Symbol | undefined => {
-  const sourceSemantics = createTypeScriptSemanticView(checker);
+): TstsSymbol | undefined => {
   const writtenSymbols = collectWrittenSymbols(sourceFile, sourceSemantics);
   const supportedSymbols = collectSupportedGenericFunctionValueSymbols(
     sourceFile,
     sourceSemantics,
     writtenSymbols
   );
-
-  let symbol: ts.Symbol | undefined;
-  const visit = (node: ts.Node): void => {
-    if (symbol) return;
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-      if (node.name.text !== variableName) return;
-      symbol = checker.getSymbolAtLocation(node.name) ?? undefined;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  if (!symbol) return undefined;
-  return supportedSymbols.has(symbol) ? symbol : undefined;
+  const symbol = findVariableSymbol(sourceFile, sourceSemantics, variableName);
+  return symbol && supportedSymbols.has(symbol) ? symbol : undefined;
 };
 
 describe("generic-function-values helper", () => {
   it("supports generic function declaration symbols", () => {
-    const { sourceFile, checker } = createTestProgram(`
+    const program = createInlineTstsTestProgram(`
       function id<T>(x: T): T { return x; }
       void id<string>("ok");
     `);
-    const declaration = findGenericFunctionDeclaration(sourceFile, "id");
+    const declaration = findGenericFunctionDeclaration(program.sourceFile, "id");
     const symbol = getSupportedGenericFunctionDeclarationSymbol(
       declaration,
-      createTypeScriptSemanticView(checker)
+      program.sourceSemantics
     );
     expect(symbol).not.to.equal(undefined);
   });
@@ -338,20 +269,23 @@ describe("generic-function-values helper", () => {
   });
 
   it("supports aliases to imported generic function declarations", () => {
-    const { sourceFile, checker } = createMultiFileTestProgram({
-      "/test/lib.ts": `
-        export function id<T>(x: T): T { return x; }
-      `,
-      "/test/index.ts": `
-        import { id } from "./lib.js";
-        const copy = id;
-        void copy<string>("ok");
-      `,
-    });
+    const program = createTstsTestProgramFromFiles(
+      {
+        "lib.ts": `
+          export function id<T>(x: T): T { return x; }
+        `,
+        "index.ts": `
+          import { id } from "./lib.js";
+          const copy = id;
+          void copy<string>("ok");
+        `,
+      },
+      "index.ts"
+    );
 
     const symbol = getCollectedSupportedSymbolForVariableInSourceFile(
-      sourceFile,
-      checker,
+      program.sourceFile,
+      program.sourceSemantics,
       "copy"
     );
     expect(symbol).not.to.equal(undefined);

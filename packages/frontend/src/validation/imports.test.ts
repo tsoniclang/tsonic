@@ -1,9 +1,9 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as ts from "typescript";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { TstsSourceFile } from "@tsonic/tsts";
 import { validateImports } from "./imports.js";
 import { createDiagnosticsCollector } from "../types/diagnostic.js";
 import type { TsonicProgram } from "../program.js";
@@ -13,8 +13,10 @@ import { createExternalBindingsResolver } from "../resolver/external-bindings-re
 import { createBinding } from "../ir/binding/index.js";
 import type { SurfaceMode } from "../program/types.js";
 import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
-import { createEmptyTstsSourceProgramForTests } from "../source-frontend/index.js";
-import { createTypeScriptSemanticView } from "../source-frontend/typescript-semantic-view.js";
+import {
+  createTstsSemanticView,
+  createTstsSourceProgram,
+} from "../source-frontend/index.js";
 
 type ValidationResult = ReturnType<typeof createDiagnosticsCollector>;
 
@@ -27,63 +29,54 @@ const createTestProgram = (
   fileName = "/test/test.ts",
   sourceRoot = "/test",
   options?: TestProgramOptions
-): TsonicProgram & { readonly sourceFile: ts.SourceFile } => {
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
+): TsonicProgram & { readonly sourceFile: TstsSourceFile } => {
+  const actualSourceRoot =
+    sourceRoot === "/test"
+      ? fs.mkdtempSync(path.join(os.tmpdir(), "tsonic-imports-inline-"))
+      : sourceRoot;
+  const resolvedFileName =
+    sourceRoot === "/test" && fileName.startsWith("/test/")
+      ? path.join(actualSourceRoot, path.relative("/test", fileName))
+      : path.resolve(fileName);
+  fs.mkdirSync(path.dirname(resolvedFileName), { recursive: true });
+  fs.writeFileSync(resolvedFileName, source);
+
+  const sourceProgram = createTstsSourceProgram([resolvedFileName], {
+    projectRoot: actualSourceRoot,
+    runSemanticChecks: true,
+  });
+  const sourceFile = sourceProgram.sourceFiles.find(
+    (candidate) => path.resolve(candidate.FileName()) === resolvedFileName
+  );
+  if (!sourceFile) {
+    throw new Error(`Missing TSTS source file: ${resolvedFileName}`);
+  }
+  const sourceSemantics = sourceProgram.withSourceSemantics(
+    sourceFile,
+    (checker) =>
+      createTstsSemanticView(checker, sourceProgram.extensionHost.facts)
   );
 
-  const compilerOptions: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.NodeNext,
-    strict: true,
-    noEmit: true,
-    skipLibCheck: true,
-  };
-
-  const host = ts.createCompilerHost(compilerOptions);
-  const originalGetSourceFile = host.getSourceFile;
-  host.getSourceFile = (
-    name: string,
-    languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
-    onError?: (message: string) => void,
-    shouldCreateNewSourceFile?: boolean
-  ) => {
-    if (name === fileName) {
-      return sourceFile;
-    }
-    return originalGetSourceFile.call(
-      host,
-      name,
-      languageVersionOrOptions,
-      onError,
-      shouldCreateNewSourceFile
-    );
-  };
-
-  const program = ts.createProgram([fileName], compilerOptions, host);
-  const checker = program.getTypeChecker();
-
   return {
-    tsCompilerOptions: program.getCompilerOptions(),
     options: {
-      projectRoot: sourceRoot,
-      sourceRoot,
+      projectRoot: actualSourceRoot,
+      sourceRoot: actualSourceRoot,
       rootNamespace: "TestApp",
       strict: true,
       surface: options?.surface ?? "core",
     },
-    sourceFiles: [sourceFile],
-    declarationSourceFiles: [],
-    sourceProgram: createEmptyTstsSourceProgramForTests(),
-    sourceSemantics: createTypeScriptSemanticView(checker),
+    sourceFiles: sourceProgram.sourceFiles.filter(
+      (candidate) => candidate.IsDeclarationFile !== true
+    ),
+    declarationSourceFiles: sourceProgram.sourceFiles.filter(
+      (candidate) => candidate.IsDeclarationFile === true
+    ),
+    sourceProgram,
+    sourceSemantics,
     metadata: new ExternalMetadataRegistry(),
     bindings: new BindingRegistry(),
-    externalResolver: createExternalBindingsResolver(sourceRoot),
-    binding: createBinding(createTypeScriptSemanticView(checker)),
+    externalResolver: createExternalBindingsResolver(actualSourceRoot),
+    binding: createBinding(sourceSemantics),
     sourceFile,
   };
 };

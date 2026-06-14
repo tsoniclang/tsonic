@@ -4,7 +4,7 @@
  * Uses ProgramContext for exception conversion.
  */
 
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import { IrTryStatement, IrCatchClause, IrType } from "../../../types.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { convertBlockStatement } from "./blocks.js";
@@ -16,18 +16,21 @@ import type { ProgramContext } from "../../../program-context.js";
  * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertTryStatement = (
-  node: ts.TryStatement,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrTryStatement => {
+  const tryStatement = TstsSyntax.AsTryStatement(node);
   return {
     kind: "tryStatement",
-    tryBlock: convertBlockStatement(node.tryBlock, ctx, expectedReturnType),
-    catchClause: node.catchClause
-      ? convertCatchClause(node.catchClause, ctx, expectedReturnType)
+    tryBlock: tryStatement?.TryBlock
+      ? convertBlockStatement(tryStatement.TryBlock, ctx, expectedReturnType)
+      : { kind: "blockStatement", statements: [] },
+    catchClause: tryStatement?.CatchClause
+      ? convertCatchClause(tryStatement.CatchClause, ctx, expectedReturnType)
       : undefined,
-    finallyBlock: node.finallyBlock
-      ? convertBlockStatement(node.finallyBlock, ctx, expectedReturnType)
+    finallyBlock: tryStatement?.FinallyBlock
+      ? convertBlockStatement(tryStatement.FinallyBlock, ctx, expectedReturnType)
       : undefined,
   };
 };
@@ -38,15 +41,22 @@ export const convertTryStatement = (
  * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertCatchClause = (
-  node: ts.CatchClause,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrCatchClause => {
+  const catchClause = TstsSyntax.AsCatchClause(node);
   return {
     kind: "catchClause",
-    parameter: node.variableDeclaration
-      ? convertBindingName(node.variableDeclaration.name, ctx)
+    parameter: catchClause?.VariableDeclaration
+      ? convertBindingName(
+          TstsSyntax.Node_Name(catchClause.VariableDeclaration) ??
+            catchClause.VariableDeclaration,
+          ctx
+        )
       : undefined,
-    body: convertBlockStatement(node.block, ctx, expectedReturnType),
+    body: catchClause?.Block
+      ? convertBlockStatement(catchClause.Block, ctx, expectedReturnType)
+      : { kind: "blockStatement", statements: [] },
   };
 };

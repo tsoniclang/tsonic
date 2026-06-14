@@ -2,11 +2,11 @@
  * Call expression converter - facade
  *
  * Re-exports from:
- * - call-resolution.ts: callable-candidate helpers + getDeclaredReturnType
+ * - call-resolution.ts: call argument expansion + getDeclaredReturnType
  * - call-expression.ts: convertCallExpression
  *
- * All call resolution goes through TypeSystem.resolveCall().
- * NO FALLBACKS ALLOWED. If TypeSystem can't resolve, return unknownType.
+ * Selected signatures come from the source semantic boundary and are finalized
+ * through TypeSystem.resolveCall().
  */
 
 export { getDeclaredReturnType } from "./call-resolution.js";

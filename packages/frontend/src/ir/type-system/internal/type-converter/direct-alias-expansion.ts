@@ -1,41 +1,40 @@
-import * as ts from "typescript";
-import type {
-  IrInterfaceMember,
-  IrObjectType,
-  IrType,
-} from "../../../types.js";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
+import type { IrInterfaceMember, IrObjectType, IrType } from "../../../types.js";
 import type { Binding } from "../../../binding/index.js";
+import { resolveIndexedAccessFromTypes } from "./type-operators.js";
 import {
   resolveTypeAlias,
   unwrapParens,
 } from "./conditional-utility-types-core.js";
+import {
+  entityNameToText,
+  identifierText,
+  nodeTypeArguments,
+} from "./tsts-syntax.js";
 
-const entityNameToText = (entityName: ts.EntityName): string =>
-  ts.isIdentifier(entityName)
-    ? entityName.text
-    : `${entityNameToText(entityName.left)}.${entityName.right.text}`;
-
-const createStringLiteralTypeNode = (value: string): ts.TypeNode =>
-  ts.factory.createLiteralTypeNode(ts.factory.createStringLiteral(value));
+const syntheticStringLiteralIrType = (value: string): IrType => ({
+  kind: "literalType",
+  value,
+});
 
 const resolveAliasTypeArguments = (
-  declNode: ts.TypeAliasDeclaration,
-  refNode: ts.TypeReferenceNode
-): Map<string, ts.TypeNode> | undefined => {
-  const typeParameters = declNode.typeParameters ?? [];
+  declNode: TstsNode,
+  refNode: TstsNode
+): Map<string, TstsNode> | undefined => {
+  const typeParameters = TstsSyntax.Node_TypeParameters(declNode) ?? [];
   if (typeParameters.length === 0) {
     return new Map();
   }
 
-  const explicitArgs = refNode.typeArguments ?? [];
-  const substitution = new Map<string, ts.TypeNode>();
+  const explicitArgs = nodeTypeArguments(refNode);
+  const substitution = new Map<string, TstsNode>();
 
   for (let index = 0; index < typeParameters.length; index++) {
     const parameter = typeParameters[index];
-    const parameterName = parameter?.name.text;
-    const explicitArg = explicitArgs[index];
-    const fallbackArg = parameter?.default;
-    const resolvedArg = explicitArg ?? fallbackArg;
+    const parameterName = identifierText(TstsSyntax.Node_Name(parameter));
+    const defaultType = TstsSyntax.AsTypeParameterDeclaration(parameter)
+      ?.DefaultType;
+    const resolvedArg = explicitArgs[index] ?? defaultType;
     if (!parameterName || !resolvedArg) {
       return undefined;
     }
@@ -46,98 +45,23 @@ const resolveAliasTypeArguments = (
 };
 
 const substituteTypeNode = (
-  node: ts.TypeNode,
-  substitution: ReadonlyMap<string, ts.TypeNode>
-): ts.TypeNode => {
+  node: TstsNode,
+  substitution: ReadonlyMap<string, TstsNode>
+): TstsNode => {
   const current = unwrapParens(node);
-
-  if (ts.isTypeReferenceNode(current)) {
-    if (
-      ts.isIdentifier(current.typeName) &&
-      !current.typeArguments?.length &&
-      substitution.has(current.typeName.text)
-    ) {
-      return substitution.get(current.typeName.text) ?? current;
+  if (TstsSyntax.IsTypeReferenceNode(current)) {
+    const name = entityNameToText(TstsSyntax.AsTypeReferenceNode(current)?.TypeName);
+    if (name && nodeTypeArguments(current).length === 0) {
+      return substitution.get(name) ?? current;
     }
-
-    const typeArguments = current.typeArguments?.map((typeArgument) =>
-      substituteTypeNode(typeArgument, substitution)
-    );
-    return ts.factory.updateTypeReferenceNode(
-      current,
-      current.typeName,
-      typeArguments ? ts.factory.createNodeArray(typeArguments) : undefined
-    );
   }
-
-  if (ts.isUnionTypeNode(current)) {
-    return ts.factory.updateUnionTypeNode(
-      current,
-      ts.factory.createNodeArray(
-        current.types.map((typePart) =>
-          substituteTypeNode(typePart, substitution)
-        )
-      )
-    );
-  }
-
-  if (ts.isIntersectionTypeNode(current)) {
-    return ts.factory.updateIntersectionTypeNode(
-      current,
-      ts.factory.createNodeArray(
-        current.types.map((typePart) =>
-          substituteTypeNode(typePart, substitution)
-        )
-      )
-    );
-  }
-
-  if (ts.isArrayTypeNode(current)) {
-    return ts.factory.updateArrayTypeNode(
-      current,
-      substituteTypeNode(current.elementType, substitution)
-    );
-  }
-
-  if (ts.isParenthesizedTypeNode(current)) {
-    return ts.factory.updateParenthesizedType(
-      current,
-      substituteTypeNode(current.type, substitution)
-    );
-  }
-
-  if (ts.isIndexedAccessTypeNode(current)) {
-    return ts.factory.updateIndexedAccessTypeNode(
-      current,
-      substituteTypeNode(current.objectType, substitution),
-      substituteTypeNode(current.indexType, substitution)
-    );
-  }
-
-  if (ts.isTypeOperatorNode(current)) {
-    return ts.factory.updateTypeOperatorNode(
-      current,
-      substituteTypeNode(current.type, substitution)
-    );
-  }
-
-  if (ts.isConditionalTypeNode(current)) {
-    return ts.factory.updateConditionalTypeNode(
-      current,
-      substituteTypeNode(current.checkType, substitution),
-      substituteTypeNode(current.extendsType, substitution),
-      substituteTypeNode(current.trueType, substitution),
-      substituteTypeNode(current.falseType, substitution)
-    );
-  }
-
   return current;
 };
 
 const resolveConcreteSourceMembers = (
-  sourceTypeNode: ts.TypeNode,
+  sourceTypeNode: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): readonly IrInterfaceMember[] | undefined => {
   const resolvedSource = resolveTypeAlias(sourceTypeNode, binding);
   const irType = convertType(resolvedSource, binding);
@@ -159,12 +83,13 @@ const resolveConcreteSourceMembers = (
 
 const applyMappedOptionality = (
   member: IrInterfaceMember,
-  mappedNode: ts.MappedTypeNode
+  mappedNode: TstsNode
 ): boolean => {
-  if (mappedNode.questionToken?.kind === ts.SyntaxKind.MinusToken) {
+  const mapped = TstsSyntax.AsMappedTypeNode(mappedNode);
+  if (mapped?.QuestionToken?.Kind === TstsSyntax.KindMinusToken) {
     return false;
   }
-  if (mappedNode.questionToken) {
+  if (mapped?.QuestionToken) {
     return true;
   }
   return member.kind === "propertySignature" ? member.isOptional : false;
@@ -172,60 +97,108 @@ const applyMappedOptionality = (
 
 const applyMappedReadonly = (
   member: IrInterfaceMember,
-  mappedNode: ts.MappedTypeNode
+  mappedNode: TstsNode
 ): boolean => {
-  if (mappedNode.readonlyToken?.kind === ts.SyntaxKind.MinusToken) {
+  const mapped = TstsSyntax.AsMappedTypeNode(mappedNode);
+  if (mapped?.ReadonlyToken?.Kind === TstsSyntax.KindMinusToken) {
     return false;
   }
-  if (mappedNode.readonlyToken) {
+  if (mapped?.ReadonlyToken) {
     return true;
   }
   return member.kind === "propertySignature" ? member.isReadonly : false;
 };
 
-const expandMappedAliasType = (
-  mappedNode: ts.MappedTypeNode,
-  aliasSubstitution: ReadonlyMap<string, ts.TypeNode>,
+const convertWithSubstitution = (
+  node: TstsNode,
+  substitution: ReadonlyMap<string, TstsNode>,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
+): IrType => {
+  const current = unwrapParens(node);
+  if (TstsSyntax.IsTypeReferenceNode(current)) {
+    const name = entityNameToText(TstsSyntax.AsTypeReferenceNode(current)?.TypeName);
+    if (name && substitution.has(name) && nodeTypeArguments(current).length === 0) {
+      return convertType(substitution.get(name)!, binding);
+    }
+  }
+
+  if (TstsSyntax.IsIndexedAccessTypeNode(current)) {
+    const indexed = TstsSyntax.AsIndexedAccessTypeNode(current);
+    if (indexed?.ObjectType && indexed.IndexType) {
+      return resolveIndexedAccessFromTypes(
+        convertWithSubstitution(indexed.ObjectType, substitution, binding, convertType),
+        convertWithSubstitution(indexed.IndexType, substitution, binding, convertType)
+      );
+    }
+  }
+
+  return convertType(current, binding);
+};
+
+const expandMappedAliasType = (
+  mappedNode: TstsNode,
+  aliasSubstitution: ReadonlyMap<string, TstsNode>,
+  binding: Binding,
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrObjectType | undefined => {
-  const mappedParameterName = mappedNode.typeParameter.name.text;
-  const mappedConstraint = mappedNode.typeParameter.constraint
-    ? substituteTypeNode(mappedNode.typeParameter.constraint, aliasSubstitution)
+  const mapped = TstsSyntax.AsMappedTypeNode(mappedNode);
+  const mappedParameter = mapped?.TypeParameter;
+  const mappedParameterName = identifierText(TstsSyntax.Node_Name(mappedParameter));
+  const mappedConstraint = mappedParameter
+    ? TstsSyntax.AsTypeParameterDeclaration(mappedParameter)?.Constraint
+    : undefined;
+  const substitutedConstraint = mappedConstraint
+    ? substituteTypeNode(mappedConstraint, aliasSubstitution)
     : undefined;
 
   if (
-    !mappedConstraint ||
-    !ts.isTypeOperatorNode(mappedConstraint) ||
-    mappedConstraint.operator !== ts.SyntaxKind.KeyOfKeyword
+    !mappedParameterName ||
+    !substitutedConstraint ||
+    !TstsSyntax.IsTypeOperatorNode(substitutedConstraint) ||
+    TstsSyntax.AsTypeOperatorNode(substitutedConstraint)?.Operator !==
+      TstsSyntax.KindKeyOfKeyword
   ) {
     return undefined;
   }
 
-  const sourceTypeNode = mappedConstraint.type;
-  const sourceMembers = resolveConcreteSourceMembers(
-    sourceTypeNode,
-    binding,
-    convertType
-  );
+  const sourceTypeNode = TstsSyntax.AsTypeOperatorNode(substitutedConstraint)
+    ?.Type;
+  const sourceMembers = sourceTypeNode
+    ? resolveConcreteSourceMembers(sourceTypeNode, binding, convertType)
+    : undefined;
   if (!sourceMembers) {
     return undefined;
   }
 
-  const mappedValueNode = mappedNode.type;
+  const mappedValueNode = mapped?.Type;
   if (!mappedValueNode) {
     return undefined;
   }
 
   const members = sourceMembers.map((member): IrInterfaceMember => {
-    const keyTypeNode = createStringLiteralTypeNode(member.name);
     const memberSubstitution = new Map(aliasSubstitution);
-    memberSubstitution.set(mappedParameterName, keyTypeNode);
-
-    const resolvedMemberType = convertType(
-      substituteTypeNode(mappedValueNode, memberSubstitution),
-      binding
+    memberSubstitution.set(
+      mappedParameterName,
+      memberSubstitution.get(mappedParameterName) ?? mappedValueNode
     );
+    const resolvedMemberType =
+      TstsSyntax.IsIndexedAccessTypeNode(mappedValueNode)
+        ? resolveIndexedAccessFromTypes(
+            convertWithSubstitution(
+              TstsSyntax.AsIndexedAccessTypeNode(mappedValueNode)!.ObjectType!,
+              aliasSubstitution,
+              binding,
+              convertType
+            ),
+            syntheticStringLiteralIrType(member.name)
+          )
+        : convertWithSubstitution(
+            mappedValueNode,
+            memberSubstitution,
+            binding,
+            convertType
+          );
 
     return {
       kind: "propertySignature",
@@ -243,54 +216,65 @@ const expandMappedAliasType = (
 };
 
 const matchConditionalExtends = (
-  actualNode: ts.TypeNode,
-  extendsNode: ts.TypeNode,
+  actualNode: TstsNode,
+  extendsNode: TstsNode,
   binding: Binding
-): Map<string, ts.TypeNode> | false | undefined => {
+): Map<string, TstsNode> | false | undefined => {
   const actual = unwrapParens(resolveTypeAlias(actualNode, binding));
   const expected = unwrapParens(resolveTypeAlias(extendsNode, binding));
 
-  if (ts.isInferTypeNode(expected)) {
-    return new Map([[expected.typeParameter.name.text, actual]]);
+  if (TstsSyntax.IsInferTypeNode(expected)) {
+    const parameter = TstsSyntax.AsInferTypeNode(expected)?.TypeParameter;
+    const name = identifierText(TstsSyntax.Node_Name(parameter));
+    return name ? new Map([[name, actual]]) : undefined;
   }
 
-  if (expected.kind === ts.SyntaxKind.NumberKeyword) {
-    return actual.kind === ts.SyntaxKind.NumberKeyword ||
-      (ts.isLiteralTypeNode(actual) && ts.isNumericLiteral(actual.literal))
+  if (expected.Kind === TstsSyntax.KindNumberKeyword) {
+    return actual.Kind === TstsSyntax.KindNumberKeyword ||
+      (TstsSyntax.IsLiteralTypeNode(actual) &&
+        TstsSyntax.AsLiteralTypeNode(actual)?.Literal?.Kind ===
+          TstsSyntax.KindNumericLiteral)
       ? new Map()
       : false;
   }
 
-  if (expected.kind === ts.SyntaxKind.StringKeyword) {
-    return actual.kind === ts.SyntaxKind.StringKeyword ||
-      (ts.isLiteralTypeNode(actual) && ts.isStringLiteral(actual.literal))
+  if (expected.Kind === TstsSyntax.KindStringKeyword) {
+    return actual.Kind === TstsSyntax.KindStringKeyword ||
+      (TstsSyntax.IsLiteralTypeNode(actual) &&
+        TstsSyntax.AsLiteralTypeNode(actual)?.Literal?.Kind ===
+          TstsSyntax.KindStringLiteral)
       ? new Map()
       : false;
   }
 
-  if (expected.kind === ts.SyntaxKind.BooleanKeyword) {
-    return actual.kind === ts.SyntaxKind.BooleanKeyword ||
-      (ts.isLiteralTypeNode(actual) &&
-        (actual.literal.kind === ts.SyntaxKind.TrueKeyword ||
-          actual.literal.kind === ts.SyntaxKind.FalseKeyword))
+  if (expected.Kind === TstsSyntax.KindBooleanKeyword) {
+    const literal = TstsSyntax.IsLiteralTypeNode(actual)
+      ? TstsSyntax.AsLiteralTypeNode(actual)?.Literal
+      : undefined;
+    return actual.Kind === TstsSyntax.KindBooleanKeyword ||
+      literal?.Kind === TstsSyntax.KindTrueKeyword ||
+      literal?.Kind === TstsSyntax.KindFalseKeyword
       ? new Map()
       : false;
   }
 
-  if (ts.isTypeReferenceNode(actual) && ts.isTypeReferenceNode(expected)) {
-    const actualName = entityNameToText(actual.typeName);
-    const expectedName = entityNameToText(expected.typeName);
+  if (
+    TstsSyntax.IsTypeReferenceNode(actual) &&
+    TstsSyntax.IsTypeReferenceNode(expected)
+  ) {
+    const actualName = entityNameToText(TstsSyntax.AsTypeReferenceNode(actual)?.TypeName);
+    const expectedName = entityNameToText(TstsSyntax.AsTypeReferenceNode(expected)?.TypeName);
     if (actualName !== expectedName) {
       return false;
     }
 
-    const actualArgs = actual.typeArguments ?? [];
-    const expectedArgs = expected.typeArguments ?? [];
+    const actualArgs = nodeTypeArguments(actual);
+    const expectedArgs = nodeTypeArguments(expected);
     if (actualArgs.length !== expectedArgs.length) {
       return false;
     }
 
-    const inference = new Map<string, ts.TypeNode>();
+    const inference = new Map<string, TstsNode>();
     for (let index = 0; index < actualArgs.length; index++) {
       const actualArg = actualArgs[index];
       const expectedArg = expectedArgs[index];
@@ -298,8 +282,11 @@ const matchConditionalExtends = (
         return undefined;
       }
 
-      if (ts.isInferTypeNode(expectedArg)) {
-        inference.set(expectedArg.typeParameter.name.text, actualArg);
+      if (TstsSyntax.IsInferTypeNode(expectedArg)) {
+        const parameter = TstsSyntax.AsInferTypeNode(expectedArg)?.TypeParameter;
+        const name = identifierText(TstsSyntax.Node_Name(parameter));
+        if (!name) return undefined;
+        inference.set(name, actualArg);
         continue;
       }
 
@@ -318,36 +305,35 @@ const matchConditionalExtends = (
     return inference;
   }
 
-  if (ts.isLiteralTypeNode(actual) && ts.isLiteralTypeNode(expected)) {
-    if (
-      ts.isStringLiteral(actual.literal) &&
-      ts.isStringLiteral(expected.literal)
-    ) {
-      return actual.literal.text === expected.literal.text ? new Map() : false;
-    }
-    if (
-      ts.isNumericLiteral(actual.literal) &&
-      ts.isNumericLiteral(expected.literal)
-    ) {
-      return actual.literal.text === expected.literal.text ? new Map() : false;
-    }
+  if (
+    TstsSyntax.IsLiteralTypeNode(actual) &&
+    TstsSyntax.IsLiteralTypeNode(expected)
+  ) {
+    return TstsSyntax.Node_Text(TstsSyntax.AsLiteralTypeNode(actual)?.Literal) ===
+      TstsSyntax.Node_Text(TstsSyntax.AsLiteralTypeNode(expected)?.Literal)
+      ? new Map()
+      : false;
   }
 
   return undefined;
 };
 
 const expandConditionalAliasType = (
-  conditionalNode: ts.ConditionalTypeNode,
-  aliasSubstitution: ReadonlyMap<string, ts.TypeNode>,
+  conditionalNode: TstsNode,
+  aliasSubstitution: ReadonlyMap<string, TstsNode>,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | undefined => {
+  const conditional = TstsSyntax.AsConditionalTypeNode(conditionalNode);
+  if (!conditional?.CheckType || !conditional.ExtendsType) {
+    return undefined;
+  }
   const instantiatedCheck = substituteTypeNode(
-    conditionalNode.checkType,
+    conditional.CheckType,
     aliasSubstitution
   );
   const instantiatedExtends = substituteTypeNode(
-    conditionalNode.extendsType,
+    conditional.ExtendsType,
     aliasSubstitution
   );
 
@@ -360,8 +346,10 @@ const expandConditionalAliasType = (
     return undefined;
   }
 
-  const branch =
-    inferred === false ? conditionalNode.falseType : conditionalNode.trueType;
+  const branch = inferred === false ? conditional.FalseType : conditional.TrueType;
+  if (!branch) {
+    return undefined;
+  }
   const branchSubstitution = new Map(aliasSubstitution);
   if (inferred !== false) {
     for (const [name, inferredNode] of inferred) {
@@ -369,34 +357,38 @@ const expandConditionalAliasType = (
     }
   }
 
-  return convertType(substituteTypeNode(branch, branchSubstitution), binding);
+  return convertWithSubstitution(branch, branchSubstitution, binding, convertType);
 };
 
 export const expandDirectAliasSyntax = (
-  declNode: ts.TypeAliasDeclaration,
-  refNode: ts.TypeReferenceNode,
+  declNode: TstsNode,
+  refNode: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType | undefined => {
   const aliasSubstitution = resolveAliasTypeArguments(declNode, refNode);
   if (!aliasSubstitution) {
     return undefined;
   }
 
-  const aliasBody = unwrapParens(declNode.type);
+  const aliasBody = TstsSyntax.AsTypeAliasDeclaration(declNode)?.Type;
+  if (!aliasBody) {
+    return undefined;
+  }
+  const unwrappedAliasBody = unwrapParens(aliasBody);
 
-  if (ts.isConditionalTypeNode(aliasBody)) {
+  if (TstsSyntax.IsConditionalTypeNode(unwrappedAliasBody)) {
     return expandConditionalAliasType(
-      aliasBody,
+      unwrappedAliasBody,
       aliasSubstitution,
       binding,
       convertType
     );
   }
 
-  if (ts.isMappedTypeNode(aliasBody)) {
+  if (TstsSyntax.IsMappedTypeNode(unwrappedAliasBody)) {
     return expandMappedAliasType(
-      aliasBody,
+      unwrappedAliasBody,
       aliasSubstitution,
       binding,
       convertType

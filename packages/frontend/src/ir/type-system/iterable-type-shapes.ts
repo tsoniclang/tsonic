@@ -10,6 +10,7 @@ import {
 import type { TypeSystemState } from "./type-system-state.js";
 import { normalizeToNominal } from "./type-system-state.js";
 import { resolveMemberTypeNoDiag } from "./inference-member-lookup.js";
+import { expandReferenceAlias } from "./type-alias-expansion.js";
 
 export type IterableShape = {
   readonly mode: "sync" | "async";
@@ -410,6 +411,14 @@ export const getIterableShape = (
   );
   if (inheritedShape) {
     return inheritedShape;
+  }
+
+  const expandedAlias = expandReferenceAlias(state, normalized);
+  if (expandedAlias) {
+    const aliasShape = getIterableShape(state, expandedAlias, nextVisited);
+    if (aliasShape) {
+      return aliasShape;
+    }
   }
 
   for (const returnType of resolveCallableMemberReturnTypes(

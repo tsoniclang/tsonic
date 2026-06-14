@@ -1,4 +1,14 @@
-import * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
+import {
+  forEachTstsChild,
+  getTstsContainingSourceFileName,
+  hasTstsAbstractModifier,
+  hasTstsAmbientModifier,
+  hasTstsParameterPropertyModifier,
+  hasTstsPublicModifier,
+  isTstsDeclarationFileNode,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import { TsonicProgram } from "../program.js";
 import {
   DiagnosticsCollector,
@@ -17,14 +27,21 @@ import {
   surfaceIncludesJs,
 } from "../surface/profiles.js";
 import { getJsDiagnosticSurfaceMetadata } from "../surface/diagnostic-metadata.js";
-import { isSupportedObjectLiteralMethodArgumentsReference } from "../object-literal-method-runtime.js";
-import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
+import { isSupportedObjectLiteralMethodArgumentsReference } from "./object-literal-method-runtime.js";
+import type { TstsFrontendSourceSemanticView } from "../source-frontend/index.js";
 import { getProgramSourceFiles } from "../program/queries.js";
+import {
+  identifierText,
+  isIdentifier,
+  isIdentifierNamed,
+  isStringLiteralLike,
+  type SourceType,
+} from "./tsts-helpers.js";
 
 const createBackendCapabilityDiagnostic = (
   program: TsonicProgram,
   capabilityName: FeatureKey,
-  fallback: Diagnostic
+  baseDiagnostic: Diagnostic
 ): Diagnostic | undefined => {
   if (
     !isCapabilityUnavailable(
@@ -39,10 +56,10 @@ const createBackendCapabilityDiagnostic = (
     capabilityName
   );
   return {
-    ...fallback,
-    code: backendCapability?.diagnosticCode ?? fallback.code,
-    message: backendCapability?.diagnosticMessage ?? fallback.message,
-    hint: backendCapability?.remediation ?? fallback.hint,
+    ...baseDiagnostic,
+    code: backendCapability?.diagnosticCode ?? baseDiagnostic.code,
+    message: backendCapability?.diagnosticMessage ?? baseDiagnostic.message,
+    hint: backendCapability?.remediation ?? baseDiagnostic.hint,
   };
 };
 
@@ -57,17 +74,15 @@ const JS_TYPED_ARRAY_SYMBOL_NAME_SET = new Set(
   JS_DIAGNOSTIC_SURFACE.typedArraySymbolNames
 );
 
-const isDynamicImportCall = (node: ts.CallExpression): boolean =>
-  node.expression.kind === ts.SyntaxKind.ImportKeyword;
-
-const isGlobalThisIdentifier = (node: ts.Node): node is ts.Identifier =>
-  ts.isIdentifier(node) && node.text === "globalThis";
+const isDynamicImportCall = (node: TstsNode): boolean =>
+  TstsSyntax.AsCallExpression(node)?.Expression?.Kind ===
+  TstsSyntax.KindImportKeyword;
 
 const isUnsupportedGlobalThisIdentifier = (
-  node: ts.Node,
+  node: TstsNode,
   program: TsonicProgram
 ): boolean => {
-  if (!isGlobalThisIdentifier(node)) {
+  if (!isIdentifierNamed(node, "globalThis")) {
     return false;
   }
 
@@ -81,18 +96,13 @@ const isUnsupportedGlobalThisIdentifier = (
     .some((declaration) => isProgramSourceDeclaration(declaration, program));
 };
 
-const getStaticInOperatorKey = (node: ts.Expression): string | undefined => {
-  if (ts.isStringLiteralLike(node)) {
-    return node.text;
-  }
-
-  return undefined;
-};
+const getStaticInOperatorKey = (node: TstsNode | undefined): string | undefined =>
+  isStringLiteralLike(node) ? TstsSyntax.Node_Text(node) : undefined;
 
 const typeHasStringIndex = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView,
-  seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  seen: ReadonlySet<SourceType> = new Set<SourceType>()
 ): boolean => {
   if (seen.has(type)) {
     return false;
@@ -116,9 +126,9 @@ const typeHasStringIndex = (
 };
 
 const typeHasDeclaredProperty = (
-  type: ts.Type,
+  type: SourceType,
   key: string,
-  sourceSemantics: FrontendSourceSemanticView
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean =>
   sourceSemantics.getPropertyOfType(type, key) !== undefined ||
   sourceSemantics.getPropertyOfType(
@@ -127,16 +137,12 @@ const typeHasDeclaredProperty = (
   ) !== undefined;
 
 const isClosedStructuralPropertyUnion = (
-  type: ts.Type,
+  type: SourceType,
   key: string,
-  sourceSemantics: FrontendSourceSemanticView
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const members = sourceSemantics.getNonNullishUnionMembers(type);
-  if (!members) {
-    return false;
-  }
-
-  if (members.length < 2) {
+  if (!members || members.length < 2) {
     return false;
   }
 
@@ -147,15 +153,16 @@ const isClosedStructuralPropertyUnion = (
 };
 
 const isClosedInOperatorExpression = (
-  node: ts.BinaryExpression,
+  node: TstsNode,
   program: TsonicProgram
 ): boolean => {
-  const key = getStaticInOperatorKey(node.left);
-  if (!key) {
+  const binary = TstsSyntax.AsBinaryExpression(node);
+  const key = getStaticInOperatorKey(binary?.Left);
+  if (!key || !binary?.Right) {
     return false;
   }
 
-  const rightType = program.sourceSemantics.getExpressionType(node.right);
+  const rightType = program.sourceSemantics.getExpressionType(binary.Right);
   return (
     typeHasStringIndex(rightType, program.sourceSemantics) ||
     isClosedStructuralPropertyUnion(rightType, key, program.sourceSemantics)
@@ -163,45 +170,48 @@ const isClosedInOperatorExpression = (
 };
 
 const isClosedForInStatement = (
-  node: ts.ForInStatement,
+  node: TstsNode,
   program: TsonicProgram
-): boolean =>
-  typeHasStringIndex(
-    program.sourceSemantics.getExpressionType(node.expression),
-    program.sourceSemantics
-  );
+): boolean => {
+  const expression = TstsSyntax.AsForInOrOfStatement(node)?.Expression;
+  return expression
+    ? typeHasStringIndex(
+        program.sourceSemantics.getExpressionType(expression),
+        program.sourceSemantics
+      )
+    : false;
+};
 
 const normalizeFileName = (fileName: string): string =>
   fileName.replace(/\\/g, "/");
 
-const isLengthElementAccess = (
-  node: ts.ElementAccessExpression | ts.ElementAccessChain
-): boolean =>
-  ts.isStringLiteralLike(node.argumentExpression) &&
-  node.argumentExpression.text === "length";
+const isLengthElementAccess = (node: TstsNode): boolean => {
+  const argument = TstsSyntax.AsElementAccessExpression(node)?.ArgumentExpression;
+  return isStringLiteralLike(argument) && TstsSyntax.Node_Text(argument) === "length";
+};
 
-const getLengthAccessReceiver = (node: ts.Node): ts.Expression | undefined => {
-  if (
-    (ts.isPropertyAccessExpression(node) || ts.isPropertyAccessChain(node)) &&
-    node.name.text === "length"
-  ) {
-    return node.expression;
+const getLengthAccessReceiver = (node: TstsNode): TstsNode | undefined => {
+  if (node.Kind === TstsSyntax.KindPropertyAccessExpression) {
+    const access = TstsSyntax.AsPropertyAccessExpression(node);
+    if (identifierText(access?.name) === "length") {
+      return access?.Expression;
+    }
   }
 
   if (
-    (ts.isElementAccessExpression(node) || ts.isElementAccessChain(node)) &&
+    node.Kind === TstsSyntax.KindElementAccessExpression &&
     isLengthElementAccess(node)
   ) {
-    return node.expression;
+    return TstsSyntax.AsElementAccessExpression(node)?.Expression;
   }
 
   return undefined;
 };
 
 const isFunctionLikeType = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView,
-  seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  seen: ReadonlySet<SourceType> = new Set<SourceType>()
 ): boolean => {
   if (seen.has(type)) {
     return false;
@@ -224,21 +234,20 @@ const isFunctionLikeType = (
 };
 
 const isProgramSourceDeclaration = (
-  declaration: ts.Declaration,
+  declaration: TstsNode,
   program: TsonicProgram
 ): boolean => {
   const sourceNames = new Set(
     getProgramSourceFiles(program).map((currentSourceFile) =>
-      normalizeFileName(currentSourceFile.fileName)
+      normalizeFileName(currentSourceFile.FileName())
     )
   );
-  return sourceNames.has(
-    normalizeFileName(declaration.getSourceFile().fileName)
-  );
+  const fileName = getTstsContainingSourceFileName(declaration);
+  return fileName ? sourceNames.has(normalizeFileName(fileName)) : false;
 };
 
 const isSourceOwnedMemberAccess = (
-  nameNode: ts.Node,
+  nameNode: TstsNode,
   program: TsonicProgram
 ): boolean => {
   const symbol = program.sourceSemantics.getSymbol(nameNode);
@@ -250,7 +259,7 @@ const isSourceOwnedMemberAccess = (
 };
 
 const isAmbientIdentifier = (
-  identifier: ts.Identifier,
+  identifier: TstsNode,
   program: TsonicProgram
 ): boolean => {
   const symbol = program.sourceSemantics.getSymbol(identifier);
@@ -267,9 +276,9 @@ const isAmbientIdentifier = (
 };
 
 const isJsBuiltinReceiverType = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView,
-  seen: ReadonlySet<ts.Type> = new Set<ts.Type>()
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  seen: ReadonlySet<SourceType> = new Set<SourceType>()
 ): boolean => {
   if (seen.has(type)) return false;
   const nextSeen = new Set(seen);
@@ -299,25 +308,26 @@ const isJsBuiltinReceiverType = (
 };
 
 const getNonJsMemberAccess = (
-  node: ts.Node,
+  node: TstsNode,
   program: TsonicProgram
-): { readonly name: string; readonly receiverText: string } | undefined => {
-  let receiver: ts.Expression | undefined;
-  let nameNode: ts.Node | undefined;
+): { readonly name: string } | undefined => {
+  let receiver: TstsNode | undefined;
+  let nameNode: TstsNode | undefined;
   let memberName: string | undefined;
 
-  if (ts.isPropertyAccessExpression(node) || ts.isPropertyAccessChain(node)) {
-    receiver = node.expression;
-    nameNode = node.name;
-    memberName = node.name.text;
-  } else if (
-    ts.isElementAccessExpression(node) ||
-    ts.isElementAccessChain(node)
-  ) {
-    if (!ts.isStringLiteralLike(node.argumentExpression)) return undefined;
-    receiver = node.expression;
-    nameNode = node.argumentExpression;
-    memberName = node.argumentExpression.text;
+  if (node.Kind === TstsSyntax.KindPropertyAccessExpression) {
+    const access = TstsSyntax.AsPropertyAccessExpression(node);
+    receiver = access?.Expression;
+    nameNode = access?.name;
+    memberName = identifierText(access?.name);
+  } else if (node.Kind === TstsSyntax.KindElementAccessExpression) {
+    const access = TstsSyntax.AsElementAccessExpression(node);
+    if (!isStringLiteralLike(access?.ArgumentExpression)) return undefined;
+    receiver = access?.Expression;
+    nameNode = access?.ArgumentExpression;
+    memberName = access?.ArgumentExpression
+      ? TstsSyntax.Node_Text(access.ArgumentExpression)
+      : undefined;
   }
 
   if (!receiver || !nameNode || !memberName) return undefined;
@@ -332,73 +342,81 @@ const getNonJsMemberAccess = (
     return undefined;
   }
 
-  return { name: memberName, receiverText: receiver.getText() };
+  return { name: memberName };
 };
 
 const getNonJsElementAccess = (
-  node: ts.Node,
+  node: TstsNode,
   program: TsonicProgram
-): { readonly name: string; readonly receiverText: string } | undefined => {
-  if (!(ts.isElementAccessExpression(node) || ts.isElementAccessChain(node))) {
+): { readonly name: string } | undefined => {
+  if (node.Kind !== TstsSyntax.KindElementAccessExpression) {
     return undefined;
   }
 
-  const argument = node.argumentExpression;
+  const access = TstsSyntax.AsElementAccessExpression(node);
+  const argument = access?.ArgumentExpression;
   if (
+    !access?.Expression ||
     !argument ||
-    (!ts.isNumericLiteral(argument) && !ts.isPrefixUnaryExpression(argument))
+    (argument.Kind !== TstsSyntax.KindNumericLiteral &&
+      argument.Kind !== TstsSyntax.KindPrefixUnaryExpression)
   ) {
     return undefined;
   }
 
   if (
     !program.sourceSemantics.isStringLikeType(
-      program.sourceSemantics.getExpressionType(node.expression)
+      program.sourceSemantics.getExpressionType(access.Expression)
     )
   ) {
     return undefined;
   }
 
-  return { name: "string index", receiverText: node.expression.getText() };
+  return { name: "string index" };
 };
 
-const isIdentifierReference = (node: ts.Identifier): boolean => {
-  const parent = node.parent;
+const isIdentifierReference = (node: TstsNode): boolean => {
+  const parent = node.Parent;
   if (!parent) return true;
 
   if (
-    (ts.isPropertyAccessExpression(parent) ||
-      ts.isPropertyAccessChain(parent)) &&
-    parent.name === node
+    parent.Kind === TstsSyntax.KindPropertyAccessExpression &&
+    TstsSyntax.AsPropertyAccessExpression(parent)?.name === node
   ) {
     return false;
   }
 
   if (
-    (ts.isPropertyAssignment(parent) ||
-      ts.isShorthandPropertyAssignment(parent) ||
-      ts.isMethodDeclaration(parent) ||
-      ts.isGetAccessorDeclaration(parent) ||
-      ts.isSetAccessorDeclaration(parent)) &&
-    parent.name === node
+    (parent.Kind === TstsSyntax.KindPropertyAssignment ||
+      parent.Kind === TstsSyntax.KindShorthandPropertyAssignment ||
+      parent.Kind === TstsSyntax.KindMethodDeclaration ||
+      parent.Kind === TstsSyntax.KindGetAccessor ||
+      parent.Kind === TstsSyntax.KindSetAccessor) &&
+    TstsSyntax.Node_Name(parent) === node
   ) {
     return false;
   }
 
   if (
-    (ts.isPropertySignature(parent) ||
-      ts.isPropertyDeclaration(parent) ||
-      ts.isMethodSignature(parent)) &&
-    parent.name === node
+    (parent.Kind === TstsSyntax.KindPropertySignature ||
+      parent.Kind === TstsSyntax.KindPropertyDeclaration ||
+      parent.Kind === TstsSyntax.KindMethodSignature) &&
+    TstsSyntax.Node_Name(parent) === node
   ) {
     return false;
   }
 
-  if (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)) {
+  if (
+    parent.Kind === TstsSyntax.KindImportSpecifier ||
+    parent.Kind === TstsSyntax.KindExportSpecifier
+  ) {
     return false;
   }
 
-  if (ts.isBindingElement(parent) && parent.propertyName === node) {
+  if (
+    parent.Kind === TstsSyntax.KindBindingElement &&
+    TstsSyntax.AsBindingElement(parent)?.PropertyName === node
+  ) {
     return false;
   }
 
@@ -406,56 +424,64 @@ const isIdentifierReference = (node: ts.Identifier): boolean => {
 };
 
 const getNonJsGlobalApiCall = (
-  node: ts.CallExpression,
+  node: TstsNode,
   program: TsonicProgram
 ): string | undefined => {
-  if (ts.isIdentifier(node.expression)) {
+  const expression = TstsSyntax.AsCallExpression(node)?.Expression;
+  const calleeName = identifierText(expression);
+  if (calleeName) {
     if (
-      JS_AMBIENT_GLOBAL_FUNCTION_SET.has(node.expression.text) &&
-      isAmbientIdentifier(node.expression, program)
+      JS_AMBIENT_GLOBAL_FUNCTION_SET.has(calleeName) &&
+      expression &&
+      isAmbientIdentifier(expression, program)
     ) {
-      return `${node.expression.text}(...)`;
+      return `${calleeName}(...)`;
     }
     return undefined;
   }
 
-  if (!ts.isPropertyAccessExpression(node.expression)) {
+  if (expression?.Kind !== TstsSyntax.KindPropertyAccessExpression) {
     return undefined;
   }
 
-  const object = node.expression.expression;
-  const member = node.expression.name.text;
-  if (!ts.isIdentifier(object)) {
+  const access = TstsSyntax.AsPropertyAccessExpression(expression);
+  const object = access?.Expression;
+  const objectName = identifierText(object);
+  const member = identifierText(access?.name);
+  if (!object || !objectName || !member) {
     return undefined;
   }
 
-  const allowedMembers = JS_DIAGNOSTIC_SURFACE.ambientGlobalCalls[object.text];
+  const allowedMembers = JS_DIAGNOSTIC_SURFACE.ambientGlobalCalls[objectName];
   if (!allowedMembers?.includes(member)) {
     return undefined;
   }
 
   return isAmbientIdentifier(object, program)
-    ? `${object.text}.${member}(...)`
+    ? `${objectName}.${member}(...)`
     : undefined;
 };
 
 const getNonJsGlobalConstructorCall = (
-  node: ts.NewExpression,
+  node: TstsNode,
   program: TsonicProgram
 ): string | undefined => {
+  const expression = TstsSyntax.AsNewExpression(node)?.Expression;
+  const name = identifierText(expression);
   if (
-    ts.isIdentifier(node.expression) &&
-    JS_AMBIENT_GLOBAL_FUNCTION_SET.has(node.expression.text) &&
-    isAmbientIdentifier(node.expression, program)
+    expression &&
+    name &&
+    JS_AMBIENT_GLOBAL_FUNCTION_SET.has(name) &&
+    isAmbientIdentifier(expression, program)
   ) {
-    return `new ${node.expression.text}(...)`;
+    return `new ${name}(...)`;
   }
 
   return undefined;
 };
 
 const isUnsupportedFunctionLengthAccess = (
-  node: ts.Node,
+  node: TstsNode,
   program: TsonicProgram
 ): boolean => {
   const receiver = getLengthAccessReceiver(node);
@@ -472,67 +498,38 @@ const isUnsupportedFunctionLengthAccess = (
     return false;
   }
 
-  if (ts.isPropertyAccessChain(node)) {
+  if (
+    node.Kind === TstsSyntax.KindPropertyAccessExpression &&
+    TstsSyntax.AsPropertyAccessExpression(node)?.QuestionDotToken !== undefined
+  ) {
     return true;
   }
 
   return (
-    !ts.isIdentifier(receiver) && receiver.kind !== ts.SyntaxKind.ThisKeyword
+    !isIdentifier(receiver) && receiver.Kind !== TstsSyntax.KindThisKeyword
   );
 };
 
-const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean => {
-  if (!ts.canHaveModifiers(node)) return false;
-  return (
-    ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false
-  );
-};
+const isAmbientOrDeclarationNode = (node: TstsNode): boolean => {
+  if (isTstsDeclarationFileNode(node)) return true;
 
-const hasAnyModifier = (
-  node: ts.Node,
-  kinds: ReadonlySet<ts.SyntaxKind>
-): boolean => {
-  if (!ts.canHaveModifiers(node)) return false;
-  return (
-    ts.getModifiers(node)?.some((modifier) => kinds.has(modifier.kind)) ?? false
-  );
-};
-
-const RUNTIME_CLASS_ACCESSIBILITY_MODIFIERS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.PublicKeyword,
-]);
-
-const RUNTIME_CLASS_ONLY_MODIFIERS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.AbstractKeyword,
-]);
-
-const PARAMETER_PROPERTY_MODIFIERS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.PublicKeyword,
-  ts.SyntaxKind.PrivateKeyword,
-  ts.SyntaxKind.ProtectedKeyword,
-  ts.SyntaxKind.ReadonlyKeyword,
-]);
-
-const isAmbientOrDeclarationNode = (node: ts.Node): boolean => {
-  if (node.getSourceFile().isDeclarationFile) return true;
-
-  let current: ts.Node | undefined = node;
+  let current: TstsNode | undefined = node;
   while (current) {
-    if (hasModifier(current, ts.SyntaxKind.DeclareKeyword)) return true;
-    current = current.parent;
+    if (hasTstsAmbientModifier(current)) return true;
+    current = current.Parent;
   }
 
   return false;
 };
 
 const getUnsupportedRuntimeClassModifier = (
-  node: ts.ClassDeclaration | ts.ClassElement
+  node: TstsNode
 ): string | undefined => {
   if (isAmbientOrDeclarationNode(node)) return undefined;
 
   if (
-    !ts.isClassDeclaration(node) &&
-    hasModifier(node, ts.SyntaxKind.AbstractKeyword)
+    node.Kind !== TstsSyntax.KindClassDeclaration &&
+    hasTstsAbstractModifier(node)
   ) {
     return "abstract";
   }
@@ -540,14 +537,28 @@ const getUnsupportedRuntimeClassModifier = (
   return undefined;
 };
 
-const hasUnsupportedParameterPropertyModifier = (
-  node: ts.ParameterDeclaration
-): boolean =>
-  !isAmbientOrDeclarationNode(node) &&
-  hasAnyModifier(node, PARAMETER_PROPERTY_MODIFIERS);
+const hasUnsupportedParameterPropertyModifier = (node: TstsNode): boolean =>
+  !isAmbientOrDeclarationNode(node) && hasTstsParameterPropertyModifier(node);
+
+const hasUnsupportedClassModifier = (node: TstsNode): boolean =>
+  hasTstsPublicModifier(node) || hasTstsAbstractModifier(node);
+
+const isClassOrClassElement = (node: TstsNode): boolean => {
+  switch (node.Kind) {
+    case TstsSyntax.KindClassDeclaration:
+    case TstsSyntax.KindPropertyDeclaration:
+    case TstsSyntax.KindMethodDeclaration:
+    case TstsSyntax.KindConstructor:
+    case TstsSyntax.KindGetAccessor:
+    case TstsSyntax.KindSetAccessor:
+      return true;
+    default:
+      return false;
+  }
+};
 
 export const validateUnsupportedFeatures = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
@@ -561,7 +572,7 @@ export const validateUnsupportedFeatures = (
   const hasJsSurface = surfaceIncludesJs(surfaceCapabilities);
 
   const addUnsupported = (
-    node: ts.Node,
+    node: TstsNode,
     message: string,
     suggestion: string
   ): void => {
@@ -577,8 +588,10 @@ export const validateUnsupportedFeatures = (
     );
   };
 
-  const visitor = (node: ts.Node): void => {
-    if (ts.isWithStatement(node)) {
+  const visitor = (node: TstsNode | undefined): void => {
+    if (!node) return;
+
+    if (node.Kind === TstsSyntax.KindWithStatement) {
       addUnsupported(
         node,
         "'with' statement is not supported in deterministic native-safe mode.",
@@ -586,7 +599,10 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (ts.isForInStatement(node) && !isClosedForInStatement(node, program)) {
+    if (
+      node.Kind === TstsSyntax.KindForInStatement &&
+      !isClosedForInStatement(node, program)
+    ) {
       addUnsupported(
         node,
         "'for...in' is only supported for statically proven string-key carriers.",
@@ -594,20 +610,20 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.InKeyword
-    ) {
-      if (!isClosedInOperatorExpression(node, program)) {
-        addUnsupported(
-          node,
-          "The JavaScript 'in' operator is only supported for statically proven string-key carriers.",
-          "Use a string-literal key with a string-indexed dictionary carrier, or a closed structural union where that key statically selects one or more arms."
-        );
+    if (node.Kind === TstsSyntax.KindBinaryExpression) {
+      const binary = TstsSyntax.AsBinaryExpression(node);
+      if (binary?.OperatorToken?.Kind === TstsSyntax.KindInKeyword) {
+        if (!isClosedInOperatorExpression(node, program)) {
+          addUnsupported(
+            node,
+            "The JavaScript 'in' operator is only supported for statically proven string-key carriers.",
+            "Use a string-literal key with a string-indexed dictionary carrier, or a closed structural union where that key statically selects one or more arms."
+          );
+        }
       }
     }
 
-    if (ts.isMetaProperty(node)) {
+    if (node.Kind === TstsSyntax.KindMetaProperty) {
       addUnsupported(
         node,
         "import.meta is not supported in emitted Tsonic code.",
@@ -615,7 +631,7 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (ts.isCallExpression(node) && isDynamicImportCall(node)) {
+    if (node.Kind === TstsSyntax.KindCallExpression && isDynamicImportCall(node)) {
       addUnsupported(
         node,
         "Dynamic import() is not supported in emitted Tsonic code.",
@@ -631,7 +647,7 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (ts.isDeleteExpression(node)) {
+    if (node.Kind === TstsSyntax.KindDeleteExpression) {
       addUnsupported(
         node,
         "The JavaScript delete operator is not supported in emitted Tsonic code.",
@@ -639,16 +655,7 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (
-      (ts.isClassDeclaration(node) ||
-        ts.isPropertyDeclaration(node) ||
-        ts.isMethodDeclaration(node) ||
-        ts.isConstructorDeclaration(node) ||
-        ts.isGetAccessorDeclaration(node) ||
-        ts.isSetAccessorDeclaration(node)) &&
-      (hasAnyModifier(node, RUNTIME_CLASS_ACCESSIBILITY_MODIFIERS) ||
-        hasAnyModifier(node, RUNTIME_CLASS_ONLY_MODIFIERS))
-    ) {
+    if (isClassOrClassElement(node) && hasUnsupportedClassModifier(node)) {
       const modifierName = getUnsupportedRuntimeClassModifier(node);
       if (modifierName) {
         addUnsupported(
@@ -659,7 +666,10 @@ export const validateUnsupportedFeatures = (
       }
     }
 
-    if (ts.isParameter(node) && hasUnsupportedParameterPropertyModifier(node)) {
+    if (
+      node.Kind === TstsSyntax.KindParameter &&
+      hasUnsupportedParameterPropertyModifier(node)
+    ) {
       addUnsupported(
         node,
         "TypeScript constructor parameter properties are not supported in emitted Tsonic code.",
@@ -673,7 +683,7 @@ export const validateUnsupportedFeatures = (
         addUnsupported(
           node,
           `JavaScript surface member '${memberAccess.name}' is not available in the active surface.`,
-          `Use a member declared by the receiver type, or compile with a surface that provides JavaScript APIs.`
+          "Use a member declared by the receiver type, or compile with a surface that provides JavaScript APIs."
         );
       }
 
@@ -686,7 +696,7 @@ export const validateUnsupportedFeatures = (
         );
       }
 
-      if (ts.isCallExpression(node)) {
+      if (node.Kind === TstsSyntax.KindCallExpression) {
         const globalApi = getNonJsGlobalApiCall(node, program);
         if (globalApi) {
           addUnsupported(
@@ -697,7 +707,7 @@ export const validateUnsupportedFeatures = (
         }
       }
 
-      if (ts.isNewExpression(node)) {
+      if (node.Kind === TstsSyntax.KindNewExpression) {
         const globalApi = getNonJsGlobalConstructorCall(node, program);
         if (globalApi) {
           addUnsupported(
@@ -710,8 +720,7 @@ export const validateUnsupportedFeatures = (
     }
 
     if (
-      ts.isIdentifier(node) &&
-      node.text === "arguments" &&
+      isIdentifierNamed(node, "arguments") &&
       !isAmbientOrDeclarationNode(node) &&
       isIdentifierReference(node) &&
       !isSupportedObjectLiteralMethodArgumentsReference(node)
@@ -740,7 +749,7 @@ export const validateUnsupportedFeatures = (
       }
     }
 
-    ts.forEachChild(node, visitor);
+    forEachTstsChild(node, visitor);
   };
 
   visitor(sourceFile);

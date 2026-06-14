@@ -5,7 +5,8 @@
  * Type conversion should NOT depend on statement conversion.
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { TstsSyntax } from "@tsonic/tsts";
 import {
   IrType,
   IrFunctionType,
@@ -14,33 +15,43 @@ import {
 } from "../../../types.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import type { Binding } from "../../../binding/index.js";
-import { unwrapSourceParameterType } from "../../../source-wrapper-semantics.js";
+import {
+  nodeParameters,
+  nodeType,
+  nodeTypeParameters,
+  identifierText,
+  isOptionalParameter,
+  isRestParameter,
+  unwrapSourceParameterType,
+} from "./tsts-syntax.js";
 
 /**
  * Convert TypeScript function type to IR function type
  */
 export const convertFunctionType = (
-  node: ts.FunctionTypeNode,
+  node: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrFunctionType => {
   const typeParameters = convertFunctionTypeParameters(
-    node.typeParameters,
+    nodeTypeParameters(node),
     binding,
     convertType
   );
   return {
     kind: "functionType",
     ...(typeParameters ? { typeParameters } : {}),
-    parameters: convertTypeParameters(node.parameters, binding, convertType),
-    returnType: convertType(node.type, binding),
+    parameters: convertTypeParameters(nodeParameters(node), binding, convertType),
+    returnType: nodeType(node)
+      ? convertType(nodeType(node)!, binding)
+      : { kind: "voidType" },
   };
 };
 
 const convertFunctionTypeParameters = (
-  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
+  typeParameters: readonly TstsNode[] | undefined,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): readonly IrTypeParameter[] | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
     return undefined;
@@ -48,17 +59,25 @@ const convertFunctionTypeParameters = (
 
   return typeParameters.map((typeParameter) => ({
     kind: "typeParameter",
-    name: typeParameter.name.text,
-    constraint: typeParameter.constraint
-      ? convertType(typeParameter.constraint, binding)
+    name: identifierText(TstsSyntax.Node_Name(typeParameter)) ?? "_",
+    constraint: TstsSyntax.AsTypeParameterDeclaration(typeParameter)?.Constraint
+      ? convertType(
+          TstsSyntax.AsTypeParameterDeclaration(typeParameter)!.Constraint!,
+          binding
+        )
       : undefined,
-    default: typeParameter.default
-      ? convertType(typeParameter.default, binding)
+    default: TstsSyntax.AsTypeParameterDeclaration(typeParameter)?.DefaultType
+      ? convertType(
+          TstsSyntax.AsTypeParameterDeclaration(typeParameter)!.DefaultType!,
+          binding
+        )
       : undefined,
     variance: undefined,
     isStructuralConstraint:
-      !!typeParameter.constraint &&
-      ts.isTypeLiteralNode(typeParameter.constraint),
+      !!TstsSyntax.AsTypeParameterDeclaration(typeParameter)?.Constraint &&
+      TstsSyntax.IsTypeLiteralNode(
+        TstsSyntax.AsTypeParameterDeclaration(typeParameter)!.Constraint
+      ),
     structuralMembers: undefined,
   }));
 };
@@ -73,13 +92,13 @@ const convertFunctionTypeParameters = (
  * - Takes a convertType function for type node conversion
  */
 const convertTypeParameters = (
-  parameters: ts.NodeArray<ts.ParameterDeclaration>,
+  parameters: readonly TstsNode[],
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): readonly IrParameter[] => {
   return parameters.map((param) => {
     const unwrapped = unwrapSourceParameterType(
-      param.type,
+      nodeType(param),
       binding.getSourceFact
     );
 
@@ -90,12 +109,14 @@ const convertTypeParameters = (
 
     return {
       kind: "parameter" as const,
-      pattern: convertBindingName(param.name),
+      pattern: TstsSyntax.Node_Name(param)
+        ? convertBindingName(TstsSyntax.Node_Name(param)!)
+        : { kind: "identifierPattern", name: "_unknown" },
       type: paramType,
       // Type signatures don't have initializers
       initializer: undefined,
-      isOptional: !!param.questionToken,
-      isRest: !!param.dotDotDotToken,
+      isOptional: isOptionalParameter(param),
+      isRest: isRestParameter(param),
       passing: unwrapped.passing,
     };
   });

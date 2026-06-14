@@ -2,11 +2,11 @@ import {
   describe,
   it,
   expect,
-  ts,
   expandConditionalUtilityType,
   assertDefined,
   createTestProgram,
   findTypeAliasReference,
+  findFirstTypeReferenceNamed,
   stubConvertType,
 } from "./helpers.js";
 
@@ -120,18 +120,7 @@ describe("Conditional Utility Type Expansion", () => {
 
       const { binding, sourceFile } = createTestProgram(source);
 
-      let typeRef: ts.TypeReferenceNode | null = null;
-      const visitor = (node: ts.Node): void => {
-        if (
-          ts.isTypeReferenceNode(node) &&
-          ts.isIdentifier(node.typeName) &&
-          node.typeName.text === "NonNullable"
-        ) {
-          typeRef = node;
-        }
-        ts.forEachChild(node, visitor);
-      };
-      ts.forEachChild(sourceFile, visitor);
+      const typeRef = findFirstTypeReferenceNamed(sourceFile, "NonNullable");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
@@ -214,18 +203,7 @@ describe("Conditional Utility Type Expansion", () => {
 
       const { binding, sourceFile } = createTestProgram(source);
 
-      let typeRef: ts.TypeReferenceNode | null = null;
-      const visitor = (node: ts.Node): void => {
-        if (
-          ts.isTypeReferenceNode(node) &&
-          ts.isIdentifier(node.typeName) &&
-          node.typeName.text === "Exclude"
-        ) {
-          typeRef = node;
-        }
-        ts.forEachChild(node, visitor);
-      };
-      ts.forEachChild(sourceFile, visitor);
+      const typeRef = findFirstTypeReferenceNamed(sourceFile, "Exclude");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),

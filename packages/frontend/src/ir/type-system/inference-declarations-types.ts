@@ -7,6 +7,21 @@
  *               type-system-state
  */
 
+import type { TstsNode, TstsSymbol } from "@tsonic/tsts";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsIdentifierText,
+  getTstsMemberNodes,
+  getTstsNodeNameText,
+  getTstsNodeText,
+  getTstsParameters,
+  getTstsStatementNodes,
+  getTstsTypeParameterNodes,
+  hasTstsStaticModifier,
+  isTstsOptionalParameter,
+  isTstsRestParameter,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import type {
   IrType,
   IrReferenceType,
@@ -14,7 +29,6 @@ import type {
   IrTypeParameter,
   IrInterfaceMember,
 } from "../types/index.js";
-import * as ts from "typescript";
 import type { DeclId } from "./types.js";
 import { unknownType } from "./types.js";
 import type { TypeSystemState, DeclKind } from "./type-system-state.js";
@@ -23,7 +37,6 @@ import { resolveTypeIdByName } from "./type-system-state.js";
 import { convertTypeNode } from "./type-system-call-resolution.js";
 import {
   buildCallableOverloadFamilyType,
-  hasStaticModifier,
   makeOptionalReadType,
 } from "./inference-utilities.js";
 import { tryInferTypeFromInitializer } from "./inference-initializers.js";
@@ -45,77 +58,94 @@ const CATCH_VARIABLE_EXCEPTION_TYPE: IrReferenceType = {
   providerQualifiedName: "core:Error",
 };
 
+const isTstsNode = (node: unknown): node is TstsNode =>
+  typeof node === "object" && node !== null && "Kind" in node;
+
+const asTstsNode = (node: unknown): TstsNode | undefined =>
+  isTstsNode(node) ? node : undefined;
+
+const concreteTstsNodes = (
+  nodes: readonly (TstsNode | undefined)[]
+): readonly TstsNode[] =>
+  nodes.filter((node): node is TstsNode => node !== undefined);
+
 const isCatchVariableDeclaration = (
-  declaration: ts.Declaration | undefined
-): declaration is ts.VariableDeclaration =>
+  declaration: TstsNode | undefined
+): boolean =>
   !!declaration &&
-  ts.isVariableDeclaration(declaration) &&
-  ts.isCatchClause(declaration.parent);
+  TstsSyntax.IsVariableDeclaration(declaration) &&
+  declaration.Parent?.Kind === TstsSyntax.KindCatchClause;
 
 const convertSignatureTypeParameters = (
   state: TypeSystemState,
-  declaration: ts.SignatureDeclarationBase
+  declaration: TstsNode
 ): readonly IrTypeParameter[] | undefined => {
-  if (!declaration.typeParameters || declaration.typeParameters.length === 0) {
+  const typeParameters = concreteTstsNodes(getTstsTypeParameterNodes(declaration));
+  if (typeParameters.length === 0) {
     return undefined;
   }
 
-  return declaration.typeParameters.map((typeParameter) => ({
-    kind: "typeParameter",
-    name: typeParameter.name.text,
-    constraint: typeParameter.constraint
-      ? convertTypeNode(state, typeParameter.constraint)
-      : undefined,
-    default: typeParameter.default
-      ? convertTypeNode(state, typeParameter.default)
-      : undefined,
-    variance: undefined,
-    isStructuralConstraint:
-      !!typeParameter.constraint &&
-      ts.isTypeLiteralNode(typeParameter.constraint),
-    structuralMembers: undefined,
-  }));
+  return typeParameters.map((typeParameter) => {
+    const data = TstsSyntax.AsTypeParameterDeclaration(typeParameter);
+    const constraint = data?.Constraint;
+    const defaultType = data?.DefaultType;
+    return {
+      kind: "typeParameter",
+      name: getTstsNodeNameText(typeParameter) ?? "T",
+      constraint: constraint ? convertTypeNode(state, constraint) : undefined,
+      default: defaultType ? convertTypeNode(state, defaultType) : undefined,
+      variance: undefined,
+      isStructuralConstraint: constraint?.Kind === TstsSyntax.KindTypeLiteral,
+      structuralMembers: undefined,
+    };
+  });
 };
 
 const buildFunctionTypeFromSignatureDeclaration = (
   state: TypeSystemState,
-  declaration: ts.SignatureDeclarationBase
+  declaration: TstsNode
 ): IrFunctionType => ({
   kind: "functionType",
   typeParameters: convertSignatureTypeParameters(state, declaration),
-  parameters: declaration.parameters.map((parameter) => ({
-    kind: "parameter",
-    pattern: ts.isIdentifier(parameter.name)
-      ? { kind: "identifierPattern", name: parameter.name.text }
-      : { kind: "identifierPattern", name: `p${parameter.pos}` },
-    type: parameter.type ? convertTypeNode(state, parameter.type) : unknownType,
-    initializer: undefined,
-    isOptional: !!parameter.questionToken || !!parameter.initializer,
-    isRest: !!parameter.dotDotDotToken,
-    passing: "value",
-  })),
-  returnType: declaration.type
-    ? convertTypeNode(state, declaration.type)
+  parameters: concreteTstsNodes(getTstsParameters(declaration)).map(
+    (parameter, index) => ({
+      kind: "parameter",
+      pattern: {
+        kind: "identifierPattern",
+        name: getTstsNodeNameText(parameter) ?? `p${index}`,
+      },
+      type: getTstsDeclaredTypeNode(parameter)
+        ? convertTypeNode(state, getTstsDeclaredTypeNode(parameter))
+        : unknownType,
+      initializer: undefined,
+      isOptional: isTstsOptionalParameter(parameter),
+      isRest: isTstsRestParameter(parameter),
+      passing: "value",
+    })
+  ),
+  returnType: getTstsDeclaredTypeNode(declaration)
+    ? convertTypeNode(state, getTstsDeclaredTypeNode(declaration))
     : unknownType,
 });
 
 const getOverloadSurfaceFamily = (
-  declaration: ts.FunctionDeclaration | ts.MethodDeclaration
-): readonly ts.SignatureDeclarationBase[] | undefined => {
-  if (!declaration.name) {
+  declaration: TstsNode
+): readonly TstsNode[] | undefined => {
+  const declarationName = getTstsNodeNameText(declaration);
+  if (!declarationName) {
     return undefined;
   }
 
-  if (ts.isFunctionDeclaration(declaration)) {
-    const parent = declaration.parent;
-    if (!ts.isSourceFile(parent)) {
+  if (TstsSyntax.IsFunctionDeclaration(declaration)) {
+    const parent = declaration.Parent;
+    if (!parent || parent.Kind !== TstsSyntax.KindSourceFile) {
       return undefined;
     }
 
-    const family = parent.statements.filter(
-      (statement): statement is ts.FunctionDeclaration =>
-        ts.isFunctionDeclaration(statement) &&
-        statement.name?.text === declaration.name?.text
+    const family = concreteTstsNodes(getTstsStatementNodes(parent)).filter(
+      (statement) =>
+        TstsSyntax.IsFunctionDeclaration(statement) &&
+        getTstsNodeNameText(statement) === declarationName
     );
     if (family.length === 0) {
       return undefined;
@@ -125,20 +155,24 @@ const getOverloadSurfaceFamily = (
     return overloadSurface.length > 0 ? overloadSurface : undefined;
   }
 
-  const parent = declaration.parent;
-  if (!ts.isClassDeclaration(parent)) {
+  const parent = declaration.Parent;
+  if (!parent || !TstsSyntax.IsClassDeclaration(parent)) {
     return undefined;
   }
 
-  const methodName = tryResolveDeterministicPropertyName(declaration.name);
+  const methodName = tryResolveDeterministicPropertyName(
+    TstsSyntax.Node_PropertyNameOrName(declaration)
+  );
   if (!methodName) {
     return undefined;
   }
-  const family = parent.members.filter(
-    (member): member is ts.MethodDeclaration =>
-      ts.isMethodDeclaration(member) &&
-      tryResolveDeterministicPropertyName(member.name) === methodName &&
-      hasStaticModifier(member) === hasStaticModifier(declaration)
+  const family = concreteTstsNodes(getTstsMemberNodes(parent)).filter(
+    (member) =>
+      TstsSyntax.IsMethodDeclaration(member) &&
+      tryResolveDeterministicPropertyName(
+        TstsSyntax.Node_PropertyNameOrName(member)
+      ) === methodName &&
+      hasTstsStaticModifier(member) === hasTstsStaticModifier(declaration)
   );
   if (family.length === 0) {
     return undefined;
@@ -150,23 +184,24 @@ const getOverloadSurfaceFamily = (
 
 const getNamedRuntimeDeclarationDeclId = (
   state: TypeSystemState,
-  declaration: ts.Declaration
+  declaration: TstsNode
 ): DeclId | undefined => {
   if (
-    ts.isFunctionDeclaration(declaration) ||
-    ts.isClassDeclaration(declaration) ||
-    ts.isEnumDeclaration(declaration)
+    TstsSyntax.IsFunctionDeclaration(declaration) ||
+    TstsSyntax.IsClassDeclaration(declaration) ||
+    TstsSyntax.IsEnumDeclaration(declaration)
   ) {
-    return declaration.name && ts.isIdentifier(declaration.name)
-      ? state.resolveIdentifier(declaration.name)
+    const name = TstsSyntax.Node_Name(declaration);
+    return name?.Kind === TstsSyntax.KindIdentifier
+      ? state.resolveIdentifier(name)
       : undefined;
   }
 
-  if (
-    ts.isVariableDeclaration(declaration) &&
-    ts.isIdentifier(declaration.name)
-  ) {
-    return state.resolveIdentifier(declaration.name);
+  if (TstsSyntax.IsVariableDeclaration(declaration)) {
+    const name = TstsSyntax.Node_Name(declaration);
+    return name?.Kind === TstsSyntax.KindIdentifier
+      ? state.resolveIdentifier(name)
+      : undefined;
   }
 
   return undefined;
@@ -174,10 +209,14 @@ const getNamedRuntimeDeclarationDeclId = (
 
 const buildModuleNamespaceTypeFromSymbol = (
   state: TypeSystemState,
-  input: ts.Symbol,
-  seen: Set<ts.Symbol>
+  input: TstsSymbol,
+  seen: Set<TstsSymbol>
 ): IrType => {
-  const moduleSymbol = state.sourceSemantics.resolveAlias(input);
+  const resolved = state.sourceSemantics.resolveAlias(input);
+  if (!resolved) {
+    return unknownType;
+  }
+  const moduleSymbol = resolved;
 
   if (seen.has(moduleSymbol)) {
     emitDiagnostic(
@@ -190,23 +229,26 @@ const buildModuleNamespaceTypeFromSymbol = (
 
   seen.add(moduleSymbol);
 
-  const exportSymbols = [
-    ...state.sourceSemantics.getExportsOfModule(moduleSymbol),
-  ].sort((left, right) => left.getName().localeCompare(right.getName()));
+  const exportSymbols = state.sourceSemantics
+    .getExportsOfModule(moduleSymbol)
+    .filter((symbol): symbol is TstsSymbol => symbol !== undefined)
+    .sort((left, right) => left.Name.localeCompare(right.Name));
 
   const members: IrInterfaceMember[] = [];
 
   for (const exportSymbol of exportSymbols) {
     const actualSymbol = state.sourceSemantics.resolveAlias(exportSymbol);
+    if (!actualSymbol) continue;
 
-    if ((actualSymbol.flags & ts.SymbolFlags.Value) === 0) {
+    if ((actualSymbol.Flags & TstsSyntax.SymbolFlagsValue) === 0) {
       continue;
     }
 
     const memberType = (() => {
       if (
-        actualSymbol.flags &
-        (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule)
+        actualSymbol.Flags &
+        (TstsSyntax.SymbolFlagsValueModule |
+          TstsSyntax.SymbolFlagsNamespaceModule)
       ) {
         return buildModuleNamespaceTypeFromSymbol(state, actualSymbol, seen);
       }
@@ -229,14 +271,14 @@ const buildModuleNamespaceTypeFromSymbol = (
       emitDiagnostic(
         state,
         "TSN5203",
-        `Namespace import export '${exportSymbol.getName()}' could not be represented deterministically`
+        `Namespace import export '${exportSymbol.Name}' could not be represented deterministically`
       );
       return unknownType;
     }
 
     members.push({
       kind: "propertySignature",
-      name: exportSymbol.getName(),
+      name: exportSymbol.Name,
       type: memberType,
       isOptional: false,
       isReadonly: true,
@@ -252,15 +294,19 @@ const buildModuleNamespaceTypeFromSymbol = (
 
 const buildNamespaceImportType = (
   state: TypeSystemState,
-  declaration: ts.NamespaceImport
+  declaration: TstsNode
 ): IrType => {
-  const importClause = declaration.parent;
-  const importDeclaration = importClause.parent;
+  const importClause = declaration.Parent;
+  const importDeclaration = importClause?.Parent;
+  const moduleSpecifier = importDeclaration
+    ? TstsSyntax.Node_ModuleSpecifier(importDeclaration)
+    : undefined;
 
   if (
-    !ts.isImportClause(importClause) ||
-    !ts.isImportDeclaration(importDeclaration) ||
-    !ts.isStringLiteral(importDeclaration.moduleSpecifier)
+    !importClause ||
+    importClause.Kind !== TstsSyntax.KindImportClause ||
+    !importDeclaration ||
+    moduleSpecifier?.Kind !== TstsSyntax.KindStringLiteral
   ) {
     emitDiagnostic(
       state,
@@ -270,14 +316,12 @@ const buildNamespaceImportType = (
     return unknownType;
   }
 
-  const moduleSymbol = state.sourceSemantics.getSymbol(
-    importDeclaration.moduleSpecifier
-  );
+  const moduleSymbol = state.sourceSemantics.getSymbol(moduleSpecifier);
   if (!moduleSymbol) {
     emitDiagnostic(
       state,
       "TSN5203",
-      `Cannot resolve namespace import '${importDeclaration.moduleSpecifier.text}'`
+      `Cannot resolve namespace import '${getTstsNodeText(moduleSpecifier) ?? ""}'`
     );
     return unknownType;
   }
@@ -285,17 +329,29 @@ const buildNamespaceImportType = (
   return buildModuleNamespaceTypeFromSymbol(state, moduleSymbol, new Set());
 };
 
-const getTypeQuerySegments = (exprName: ts.EntityName): readonly string[] => {
-  if (ts.isIdentifier(exprName)) {
-    return [exprName.text];
+const getTypeQuerySegments = (exprName: TstsNode): readonly string[] => {
+  if (TstsSyntax.IsIdentifier(exprName)) {
+    return [getTstsIdentifierText(exprName) ?? ""].filter(
+      (segment) => segment.length > 0
+    );
   }
 
-  return [...getTypeQuerySegments(exprName.left), exprName.right.text];
+  if (TstsSyntax.IsQualifiedName(exprName)) {
+    const qualified = TstsSyntax.AsQualifiedName(exprName);
+    const right = qualified?.Right
+      ? getTstsIdentifierText(qualified.Right)
+      : undefined;
+    return qualified?.Left && right
+      ? [...getTypeQuerySegments(qualified.Left), right]
+      : [];
+  }
+
+  return [];
 };
 
 const buildTypeQueryValueType = (
   state: TypeSystemState,
-  exprName: ts.EntityName
+  exprName: TstsNode
 ): IrType => {
   const [rootName, ...memberNames] = getTypeQuerySegments(exprName);
   if (!rootName) {
@@ -332,19 +388,17 @@ const buildTypeQueryValueType = (
 
 const buildSourceFileModuleNamespaceType = (
   state: TypeSystemState,
-  sourceFile: ts.SourceFile
+  sourceFile: TstsNode
 ): IrType => {
-  const directSymbol = state.sourceSemantics.getSymbol(sourceFile);
-  const sourceFileWithSymbol = sourceFile as ts.SourceFile & {
-    readonly symbol?: ts.Symbol;
-  };
-  const moduleSymbol = directSymbol ?? sourceFileWithSymbol.symbol;
+  const moduleSymbol =
+    state.sourceSemantics.getSymbol(sourceFile) ??
+    TstsSyntax.Node_Symbol(sourceFile);
 
   if (!moduleSymbol) {
     emitDiagnostic(
       state,
       "TSN5203",
-      `Cannot resolve external module namespace for '${sourceFile.fileName}'`
+      `Cannot resolve external module namespace`
     );
     return unknownType;
   }
@@ -353,20 +407,20 @@ const buildSourceFileModuleNamespaceType = (
 };
 
 const getDeclarationTypeParameterArity = (
-  declaration: ts.Declaration | undefined
+  declaration: TstsNode | undefined
 ): number | undefined => {
   if (!declaration) {
     return undefined;
   }
 
   if (
-    ts.isClassDeclaration(declaration) ||
-    ts.isInterfaceDeclaration(declaration) ||
-    ts.isTypeAliasDeclaration(declaration) ||
-    ts.isFunctionDeclaration(declaration) ||
-    ts.isMethodDeclaration(declaration)
+    TstsSyntax.IsClassDeclaration(declaration) ||
+    TstsSyntax.IsInterfaceDeclaration(declaration) ||
+    TstsSyntax.IsTypeAliasDeclaration(declaration) ||
+    TstsSyntax.IsFunctionDeclaration(declaration) ||
+    TstsSyntax.IsMethodDeclaration(declaration)
   ) {
-    return declaration.typeParameters?.length;
+    return getTstsTypeParameterNodes(declaration).length;
   }
 
   return undefined;
@@ -377,13 +431,9 @@ const buildNominalReferenceType = (
   declInfo: NonNullable<
     ReturnType<TypeSystemState["handleRegistry"]["getDecl"]>
   >,
-  declaration: ts.Declaration | undefined
+  declaration: TstsNode | undefined
 ): IrReferenceType => {
-  const namedDeclaration = declaration as ts.NamedDeclaration | undefined;
-  const simpleName =
-    namedDeclaration?.name && ts.isIdentifier(namedDeclaration.name)
-      ? namedDeclaration.name.text
-      : undefined;
+  const simpleName = declaration ? getTstsNodeNameText(declaration) : undefined;
   const arity = getDeclarationTypeParameterArity(declaration);
   const typeId =
     (declInfo.fqName
@@ -409,7 +459,6 @@ const buildNominalReferenceType = (
 // ─────────────────────────────────────────────────────────────────────────
 
 export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
-  // Check cache first
   const cached = state.declTypeCache.get(declId.id);
   if (cached) return cached;
 
@@ -422,61 +471,50 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
   }
 
   const effectiveValueDecl =
-    (declInfo.valueDeclNode as ts.Declaration | undefined) ??
-    (declInfo.declNode as ts.Declaration | undefined);
+    asTstsNode(declInfo.valueDeclNode) ?? asTstsNode(declInfo.declNode);
+  const initializer = effectiveValueDecl
+    ? TstsSyntax.Node_Initializer(effectiveValueDecl)
+    : undefined;
   const effectiveFunctionValueDecl =
     effectiveValueDecl &&
-    ts.isVariableDeclaration(effectiveValueDecl) &&
-    effectiveValueDecl.initializer &&
-    (ts.isFunctionExpression(effectiveValueDecl.initializer) ||
-      ts.isArrowFunction(effectiveValueDecl.initializer))
-      ? effectiveValueDecl.initializer
+    TstsSyntax.IsVariableDeclaration(effectiveValueDecl) &&
+    initializer &&
+    (TstsSyntax.IsFunctionExpression(initializer) ||
+      TstsSyntax.IsArrowFunction(initializer))
+      ? initializer
       : effectiveValueDecl;
   const effectiveTypeDecl =
-    (declInfo.typeDeclNode as ts.Declaration | undefined) ?? effectiveValueDecl;
+    asTstsNode(declInfo.typeDeclNode) ?? effectiveValueDecl;
   const effectiveDeclNode = effectiveValueDecl ?? effectiveTypeDecl;
-  const effectiveTypeNode = ((): ts.TypeNode | undefined => {
-    if (declInfo.typeNode) return declInfo.typeNode as ts.TypeNode;
-    const source = effectiveDeclNode;
-    if (!source) return undefined;
-    if (
-      ts.isVariableDeclaration(source) ||
-      ts.isParameter(source) ||
-      ts.isPropertyDeclaration(source) ||
-      ts.isPropertySignature(source) ||
-      ts.isMethodDeclaration(source) ||
-      ts.isMethodSignature(source) ||
-      ts.isFunctionDeclaration(source) ||
-      ts.isTypeAliasDeclaration(source) ||
-      ts.isGetAccessorDeclaration(source)
-    ) {
-      return source.type;
-    }
-    return undefined;
-  })();
+  const effectiveTypeNode =
+    asTstsNode(declInfo.typeNode) ??
+    (effectiveDeclNode ? getTstsDeclaredTypeNode(effectiveDeclNode) : undefined);
   const hasExplicitVariableType =
     effectiveValueDecl &&
-    ts.isVariableDeclaration(effectiveValueDecl) &&
-    effectiveValueDecl.type !== undefined;
+    TstsSyntax.IsVariableDeclaration(effectiveValueDecl) &&
+    getTstsDeclaredTypeNode(effectiveValueDecl) !== undefined;
   const effectiveKind: DeclKind = (() => {
     const source = effectiveDeclNode;
     if (!source) return declInfo.kind;
-    if (ts.isFunctionDeclaration(source)) return "function";
-    if (ts.isVariableDeclaration(source)) return "variable";
-    if (ts.isClassDeclaration(source)) return "class";
-    if (ts.isInterfaceDeclaration(source)) return "interface";
-    if (ts.isTypeAliasDeclaration(source)) return "typeAlias";
-    if (ts.isEnumDeclaration(source)) return "enum";
-    if (ts.isParameter(source)) return "parameter";
+    if (TstsSyntax.IsFunctionDeclaration(source)) return "function";
+    if (TstsSyntax.IsVariableDeclaration(source)) return "variable";
+    if (TstsSyntax.IsClassDeclaration(source)) return "class";
+    if (TstsSyntax.IsInterfaceDeclaration(source)) return "interface";
+    if (TstsSyntax.IsTypeAliasDeclaration(source)) return "typeAlias";
+    if (TstsSyntax.IsEnumDeclaration(source)) return "enum";
+    if (TstsSyntax.IsParameterDeclaration(source)) return "parameter";
     if (
-      ts.isPropertyDeclaration(source) ||
-      ts.isPropertySignature(source) ||
-      ts.isGetAccessorDeclaration(source) ||
-      ts.isSetAccessorDeclaration(source)
+      TstsSyntax.IsPropertyDeclaration(source) ||
+      TstsSyntax.IsPropertySignatureDeclaration(source) ||
+      TstsSyntax.IsGetAccessorDeclaration(source) ||
+      TstsSyntax.IsSetAccessorDeclaration(source)
     ) {
       return "property";
     }
-    if (ts.isMethodDeclaration(source) || ts.isMethodSignature(source)) {
+    if (
+      TstsSyntax.IsMethodDeclaration(source) ||
+      TstsSyntax.IsMethodSignatureDeclaration(source)
+    ) {
       return "method";
     }
     return declInfo.kind;
@@ -484,25 +522,24 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
 
   let result: IrType;
 
-  if (
-    effectiveDeclNode &&
-    ts.isSourceFile(effectiveDeclNode) &&
-    ts.isExternalModule(effectiveDeclNode)
-  ) {
+  if (effectiveDeclNode?.Kind === TstsSyntax.KindSourceFile) {
     result = buildSourceFileModuleNamespaceType(state, effectiveDeclNode);
-  } else if (effectiveDeclNode && ts.isNamespaceImport(effectiveDeclNode)) {
+  } else if (
+    effectiveDeclNode &&
+    TstsSyntax.IsNamespaceImport(effectiveDeclNode)
+  ) {
     result = buildNamespaceImportType(state, effectiveDeclNode);
   } else if (
     !hasExplicitVariableType &&
     effectiveFunctionValueDecl &&
-    (ts.isFunctionDeclaration(effectiveFunctionValueDecl) ||
-      ts.isMethodDeclaration(effectiveFunctionValueDecl) ||
-      ts.isFunctionExpression(effectiveFunctionValueDecl) ||
-      ts.isArrowFunction(effectiveFunctionValueDecl))
+    (TstsSyntax.IsFunctionDeclaration(effectiveFunctionValueDecl) ||
+      TstsSyntax.IsMethodDeclaration(effectiveFunctionValueDecl) ||
+      TstsSyntax.IsFunctionExpression(effectiveFunctionValueDecl) ||
+      TstsSyntax.IsArrowFunction(effectiveFunctionValueDecl))
   ) {
     if (
-      (ts.isFunctionDeclaration(effectiveFunctionValueDecl) ||
-        ts.isMethodDeclaration(effectiveFunctionValueDecl)) &&
+      (TstsSyntax.IsFunctionDeclaration(effectiveFunctionValueDecl) ||
+        TstsSyntax.IsMethodDeclaration(effectiveFunctionValueDecl)) &&
       (isOverloadSurfaceDeclaration(effectiveFunctionValueDecl) ||
         isOverloadStubImplementation(effectiveFunctionValueDecl))
     ) {
@@ -520,7 +557,7 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
       }
     }
 
-    if (!effectiveFunctionValueDecl.type) {
+    if (!getTstsDeclaredTypeNode(effectiveFunctionValueDecl)) {
       emitDiagnostic(
         state,
         "TSN5201",
@@ -531,21 +568,18 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
       state,
       effectiveFunctionValueDecl
     );
-  } else if (effectiveTypeNode && ts.isTypeQueryNode(effectiveTypeNode)) {
-    result = buildTypeQueryValueType(state, effectiveTypeNode.exprName);
+  } else if (effectiveTypeNode && TstsSyntax.IsTypeQueryNode(effectiveTypeNode)) {
+    const exprName = TstsSyntax.AsTypeQueryNode(effectiveTypeNode)?.ExprName;
+    result = exprName ? buildTypeQueryValueType(state, exprName) : unknownType;
   } else if (effectiveTypeNode) {
-    // Explicit type annotation - convert to IR
     result = convertTypeNode(state, effectiveTypeNode);
   } else if (
     effectiveKind === "class" ||
     effectiveKind === "interface" ||
     effectiveKind === "enum"
   ) {
-    // Class/interface/enum - return reference type
     result = buildNominalReferenceType(state, declInfo, effectiveDeclNode);
   } else if (effectiveKind === "function") {
-    // Function without type annotation - need to build function type from signature
-    // For now, return unknownType as we need the signature ID
     emitDiagnostic(
       state,
       "TSN5201",
@@ -553,14 +587,12 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
     );
     result = unknownType;
   } else if (effectiveKind === "variable" && effectiveDeclNode) {
-    // Variable without type annotation - infer from deterministic initializer
     const inferred = tryInferTypeFromInitializer(state, effectiveDeclNode);
     if (inferred) {
       result = inferred;
     } else if (isCatchVariableDeclaration(effectiveDeclNode)) {
       result = CATCH_VARIABLE_EXCEPTION_TYPE;
     } else {
-      // Not a simple literal - require explicit type annotation
       emitDiagnostic(
         state,
         "TSN5201",
@@ -574,7 +606,6 @@ export const typeOfDecl = (state: TypeSystemState, declId: DeclId): IrType => {
       state.declTypeCache.set(declId.id, result);
       return result;
     }
-    // Parameter or other declaration without type annotation
     emitDiagnostic(
       state,
       "TSN5201",
@@ -598,16 +629,15 @@ export const typeOfValueRead = (
 
   const declInfo = state.handleRegistry.getDecl(declId);
   const effectiveValueDecl =
-    (declInfo?.valueDeclNode as ts.Declaration | undefined) ??
-    (declInfo?.declNode as ts.Declaration | undefined);
+    asTstsNode(declInfo?.valueDeclNode) ?? asTstsNode(declInfo?.declNode);
 
   if (
     effectiveValueDecl &&
-    ((ts.isParameter(effectiveValueDecl) &&
-      effectiveValueDecl.questionToken !== undefined) ||
-      ((ts.isPropertyDeclaration(effectiveValueDecl) ||
-        ts.isPropertySignature(effectiveValueDecl)) &&
-        effectiveValueDecl.questionToken !== undefined))
+    ((TstsSyntax.IsParameterDeclaration(effectiveValueDecl) &&
+      TstsSyntax.Node_QuestionToken(effectiveValueDecl) !== undefined) ||
+      ((TstsSyntax.IsPropertyDeclaration(effectiveValueDecl) ||
+        TstsSyntax.IsPropertySignatureDeclaration(effectiveValueDecl)) &&
+        TstsSyntax.Node_QuestionToken(effectiveValueDecl) !== undefined))
   ) {
     return makeOptionalReadType(declType);
   }
@@ -636,12 +666,8 @@ export const hasTypeParameters = (
   declId: DeclId
 ): boolean => {
   const declInfo = state.handleRegistry.getDecl(declId);
-  if (!declInfo?.declNode) return false;
-
-  const declNode = declInfo.declNode as {
-    typeParameters?: readonly unknown[];
-  };
-  return !!(declNode.typeParameters && declNode.typeParameters.length > 0);
+  const declNode = asTstsNode(declInfo?.declNode);
+  return declNode ? getTstsTypeParameterNodes(declNode).length > 0 : false;
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -684,12 +710,9 @@ export const isTypeAliasToObjectLiteral = (
   const declInfo = state.handleRegistry.getDecl(declId);
   if (!declInfo || declInfo.kind !== "typeAlias") return false;
 
-  const declNode = declInfo.declNode as
-    | { type?: { kind?: number } }
-    | undefined;
-  if (!declNode?.type) return false;
-
-  return declNode.type.kind === ts.SyntaxKind.TypeLiteral;
+  const declNode = asTstsNode(declInfo.declNode);
+  const typeNode = declNode ? getTstsDeclaredTypeNode(declNode) : undefined;
+  return typeNode?.Kind === TstsSyntax.KindTypeLiteral;
 };
 
 // ─────────────────────────────────────────────────────────────────────────

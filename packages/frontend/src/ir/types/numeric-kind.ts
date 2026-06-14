@@ -81,12 +81,34 @@ export const NUMERIC_KIND_TO_TYPE_ALIAS: ReadonlyMap<NumericKind, string> =
     ["float64", "double"],
   ]);
 
+const PROVIDER_NUMERIC_NAME_ALIASES: ReadonlyMap<string, string> = new Map([
+  ["SByte", "sbyte"],
+  ["Byte", "byte"],
+  ["Int16", "int16"],
+  ["UInt16", "uint16"],
+  ["Int32", "int32"],
+  ["UInt32", "uint32"],
+  ["Int64", "int64"],
+  ["UInt64", "uint64"],
+  ["Single", "float32"],
+  ["Double", "double"],
+  ["Decimal", "decimal"],
+]);
+
 const normalizeExternalNumericName = (name: string): string => {
   const withoutGlobal = name.startsWith("global::")
     ? name.slice("global::".length)
     : name;
   const arityIndex = withoutGlobal.indexOf("/");
-  return arityIndex >= 0 ? withoutGlobal.slice(0, arityIndex) : withoutGlobal;
+  const withoutArity =
+    arityIndex >= 0 ? withoutGlobal.slice(0, arityIndex) : withoutGlobal;
+  const separatorIndex = Math.max(
+    withoutArity.lastIndexOf("."),
+    withoutArity.lastIndexOf("+")
+  );
+  const simpleName =
+    separatorIndex >= 0 ? withoutArity.slice(separatorIndex + 1) : withoutArity;
+  return PROVIDER_NUMERIC_NAME_ALIASES.get(simpleName) ?? simpleName;
 };
 
 const numericFact = (
@@ -145,6 +167,34 @@ export const primitiveTypeFactFromName = (
   name: string
 ): PrimitiveTypeFact | undefined =>
   numericTypeFactFromName(name) ?? booleanTypeFactFromName(name);
+
+export const numericKindFromFact = (
+  fact: NumericTypeFact | undefined
+): NumericKind | undefined => {
+  switch (fact?.numericKind) {
+    case "int8":
+    case "uint8":
+    case "int16":
+    case "uint16":
+    case "int32":
+    case "uint32":
+    case "int64":
+    case "uint64":
+    case "float32":
+    case "float64":
+      return fact.numericKind;
+    case "float16":
+      return "float32";
+    case "decimal":
+      return "float64";
+    case "native-int":
+      return "int32";
+    case "native-uint":
+      return "uint32";
+    default:
+      return undefined;
+  }
+};
 
 /**
  * Range bounds for compile-time literal validation.

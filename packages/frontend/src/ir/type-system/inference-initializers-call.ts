@@ -10,7 +10,13 @@
  */
 
 import type { IrType } from "../types/index.js";
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  getTstsInitializerNode,
+  getTstsNodeText,
+  getTstsTypeArguments,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import { inferNumericKindFromRaw } from "../types/numeric-helpers.js";
 import type { TypeSystemState } from "./type-system-state.js";
 import { convertTypeNode, resolveCall } from "./type-system-call-resolution.js";
@@ -18,6 +24,7 @@ import {
   isLambdaExpression,
   deriveTypeFromNumericKind,
   collectResolutionArgTypes,
+  getExplicitTypeArgumentNodes,
 } from "./inference-utilities.js";
 import {
   inferExpressionType,
@@ -42,40 +49,32 @@ export const tryInferTypeFromLiteralInitializer = (
   declNode: unknown
 ): IrType | undefined => {
   // TypeScript's VariableDeclaration has an `initializer` property
-  const decl = declNode as {
-    kind?: number;
-    initializer?: {
-      kind?: number;
-      text?: string;
-      getText?: () => string;
-    };
-  };
+  const decl = declNode as TstsNode | undefined;
 
   // Must have an initializer
-  if (!decl.initializer) return undefined;
+  const init = getTstsInitializerNode(decl);
+  if (!init) return undefined;
 
-  const init = decl.initializer;
-
-  if (init.kind === ts.SyntaxKind.NumericLiteral && init.getText) {
-    const raw = init.getText();
+  if (TstsSyntax.IsNumericLiteral(init)) {
+    const raw = getTstsNodeText(init) ?? "";
     const numericKind = inferNumericKindFromRaw(raw);
     return deriveTypeFromNumericKind(numericKind);
   }
 
-  if (init.kind === ts.SyntaxKind.StringLiteral) {
+  if (TstsSyntax.IsStringLiteral(init)) {
     return { kind: "primitiveType", name: "string" };
   }
 
   if (
-    init.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
-    init.kind === ts.SyntaxKind.TemplateExpression
+    TstsSyntax.IsNoSubstitutionTemplateLiteral(init) ||
+    TstsSyntax.IsTemplateExpression(init)
   ) {
     return { kind: "primitiveType", name: "string" };
   }
 
   if (
-    init.kind === ts.SyntaxKind.TrueKeyword ||
-    init.kind === ts.SyntaxKind.FalseKeyword
+    init.Kind === TstsSyntax.KindTrueKeyword ||
+    init.Kind === TstsSyntax.KindFalseKeyword
   ) {
     return { kind: "primitiveType", name: "boolean" };
   }
@@ -91,30 +90,38 @@ export const tryInferTypeFromLiteralInitializer = (
  * Handles:
  * - simple literals (delegates to tryInferTypeFromLiteralInitializer)
  * - call expressions where the callee has an explicit declared return type
- * - new expressions with explicit type arguments (or best-effort nominal type)
+ * - new expressions with selected constructor signatures
  * - identifier initializers (propagate deterministically)
  */
 export const tryInferReturnTypeFromCallExpression = (
   state: TypeSystemState,
-  call: ts.CallExpression,
+  call: TstsNode,
   env: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
+  if (!TstsSyntax.IsCallExpression(call)) return undefined;
   const sigId = state.resolveCallSignature(call);
   if (!sigId) return undefined;
 
   const explicitTypeArgs =
-    call.typeArguments && call.typeArguments.length > 0
-      ? call.typeArguments.map((ta) => convertTypeNode(state, ta))
+    getTstsTypeArguments(call).length > 0
+      ? getTstsTypeArguments(call).map((ta) => convertTypeNode(state, ta))
       : undefined;
 
   const receiverType = (() => {
-    if (!ts.isPropertyAccessExpression(call.expression)) return undefined;
-    const receiverExpr = call.expression.expression;
+    const expression = TstsSyntax.Node_Expression(call);
+    if (!expression || !TstsSyntax.IsPropertyAccessExpression(expression)) {
+      return undefined;
+    }
+    const receiverExpr = TstsSyntax.Node_Expression(expression);
+    if (!receiverExpr) return undefined;
     const receiver = inferExpressionType(state, receiverExpr, env);
     return receiver && receiver.kind !== "unknownType" ? receiver : undefined;
   })();
 
-  const argumentCount = call.arguments.length;
+  const callArguments = (TstsSyntax.Node_Arguments(call) ?? []).filter(
+    (arg): arg is TstsNode => arg !== undefined
+  );
+  const argumentCount = callArguments.length;
 
   // Two-pass: resolve once to get expected parameter types, then infer non-lambda args,
   // then infer lambda arg types (from expected types + body), then final resolve.
@@ -129,11 +136,13 @@ export const tryInferReturnTypeFromCallExpression = (
   const argTypesWorking: (IrType | undefined)[] =
     Array(argumentCount).fill(undefined);
 
-  for (let index = 0; index < call.arguments.length; index++) {
-    const arg = call.arguments[index];
+  for (let index = 0; index < callArguments.length; index++) {
+    const arg = callArguments[index];
     if (!arg) continue;
-    if (ts.isSpreadElement(arg)) {
-      const spreadType = inferExpressionType(state, arg.expression, env);
+    if (TstsSyntax.IsSpreadElement(arg)) {
+      const expression = TstsSyntax.Node_Expression(arg);
+      if (!expression) continue;
+      const spreadType = inferExpressionType(state, expression, env);
       if (spreadType && spreadType.kind !== "unknownType") {
         argTypesWorking[index] = spreadType;
       }
@@ -141,20 +150,20 @@ export const tryInferReturnTypeFromCallExpression = (
     }
     if (isLambdaExpression(arg)) continue;
 
-    if (ts.isNumericLiteral(arg)) {
-      const numericKind = inferNumericKindFromRaw(arg.getText());
+    if (TstsSyntax.IsNumericLiteral(arg)) {
+      const numericKind = inferNumericKindFromRaw(getTstsNodeText(arg) ?? "");
       argTypesWorking[index] = deriveTypeFromNumericKind(numericKind);
       continue;
     }
 
-    if (ts.isStringLiteral(arg)) {
+    if (TstsSyntax.IsStringLiteral(arg)) {
       argTypesWorking[index] = { kind: "primitiveType", name: "string" };
       continue;
     }
 
     if (
-      arg.kind === ts.SyntaxKind.TrueKeyword ||
-      arg.kind === ts.SyntaxKind.FalseKeyword
+      arg.Kind === TstsSyntax.KindTrueKeyword ||
+      arg.Kind === TstsSyntax.KindFalseKeyword
     ) {
       argTypesWorking[index] = {
         kind: "primitiveType",
@@ -163,7 +172,7 @@ export const tryInferReturnTypeFromCallExpression = (
       continue;
     }
 
-    if (ts.isIdentifier(arg)) {
+    if (TstsSyntax.IsIdentifier(arg)) {
       const argDeclId = state.resolveIdentifier(arg);
       if (!argDeclId) continue;
       const t = typeOfDecl(state, argDeclId);
@@ -173,7 +182,7 @@ export const tryInferReturnTypeFromCallExpression = (
       continue;
     }
 
-    if (ts.isCallExpression(arg)) {
+    if (TstsSyntax.IsCallExpression(arg)) {
       const t = tryInferReturnTypeFromCallExpression(state, arg, env);
       if (t) {
         argTypesWorking[index] = t;
@@ -181,23 +190,28 @@ export const tryInferReturnTypeFromCallExpression = (
       continue;
     }
 
-    if (ts.isNewExpression(arg)) {
+    if (TstsSyntax.IsNewExpression(arg)) {
       const nestedSigId = state.resolveConstructorSignature(arg);
       if (!nestedSigId) continue;
 
+      const nestedTypeArguments = getExplicitTypeArgumentNodes(arg);
       const nestedExplicitTypeArgs =
-        arg.typeArguments && arg.typeArguments.length > 0
-          ? arg.typeArguments.map((ta) => convertTypeNode(state, ta))
+        nestedTypeArguments.length > 0
+          ? nestedTypeArguments.map((ta) => convertTypeNode(state, ta))
           : undefined;
+      const nestedArguments = TstsSyntax.Node_Arguments(arg) ?? [];
 
       const nestedResolved = resolveCall(state, {
         sigId: nestedSigId,
-        argumentCount: arg.arguments?.length ?? 0,
+        argumentCount: nestedArguments.length,
         explicitTypeArgs: nestedExplicitTypeArgs,
       });
 
       if (nestedResolved.returnType.kind !== "unknownType") {
-        const constructorType = inferExpressionType(state, arg.expression, env);
+        const constructorExpression = TstsSyntax.Node_Expression(arg);
+        const constructorType = constructorExpression
+          ? inferExpressionType(state, constructorExpression, env)
+          : undefined;
         argTypesWorking[index] =
           attachConstructedReferenceMetadata(
             nestedResolved.returnType,
@@ -234,10 +248,10 @@ export const tryInferReturnTypeFromCallExpression = (
   const parameterTypesForLambdaContext =
     lambdaContextResolved.parameterTypes ?? initialParameterTypes;
 
-  for (let index = 0; index < call.arguments.length; index++) {
-    const arg = call.arguments[index];
+  for (let index = 0; index < callArguments.length; index++) {
+    const arg = callArguments[index];
     if (!arg) continue;
-    if (ts.isSpreadElement(arg)) continue;
+    if (TstsSyntax.IsSpreadElement(arg)) continue;
     if (!isLambdaExpression(arg)) continue;
 
     const expectedType = parameterTypesForLambdaContext[index];

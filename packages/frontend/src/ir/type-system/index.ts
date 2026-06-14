@@ -4,11 +4,11 @@
  * This is the only public API for type operations.
  * The public module is structurally incapable of supporting a parallel type system.
  *
- * INVARIANT: No ts.Type, ts.Symbol, or computed type APIs appear in this layer.
+ * INVARIANT: No source-engine type, symbol, or computed type APIs appear in this layer.
  * INVARIANT: No raw structures (TypeNodes, declarations, registries) are exported.
  * INVARIANT: All type information flows through semantic methods only.
  *
- * The Binding layer handles TS symbol resolution and produces opaque handles
+ * The Binding layer handles source symbol resolution and produces opaque handles
  * (DeclId, SignatureId, MemberId, TypeSyntaxId) that cross into this layer.
  */
 

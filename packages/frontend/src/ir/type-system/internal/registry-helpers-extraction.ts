@@ -1,17 +1,28 @@
 /**
- * Target name helpers, type parameter extraction, member extraction from
- * declarations/aliased object types, callable interface conversion,
- * method signature conversion, and heritage clause extraction.
- *
- * Split from registry-helpers.ts for file-size compliance (< 500 LOC).
+ * TypeRegistry extraction helpers for TSTS syntax.
  */
 
-import * as ts from "typescript";
-import type { FrontendSourceSemanticView } from "../../../source-frontend/index.js";
+import type {
+  TstsHeritageClauseDetails,
+  TstsNode,
+} from "@tsonic/tsts";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsExpressionWithTypeArgumentsName,
+  getTstsMemberNodes,
+  getTstsNodeNameText,
+  getTstsParameters,
+  getTstsPropertyNameText,
+  getTstsTypeParameterNodes,
+  getTstsTypeReferenceName,
+  hasTstsReadonlyModifier,
+  isTstsOptionalParameter,
+  isTstsRestParameter,
+  TstsSyntax,
+} from "@tsonic/tsts";
+import type { TstsFrontendSourceSemanticView } from "../../../source-frontend/index.js";
 import type { IrType } from "../../types/index.js";
 import { normalizeToTargetName } from "./universe/alias-table.js";
-import { isOverloadStubImplementation } from "../../syntax/overload-stubs.js";
-import { tryResolveDeterministicPropertyName } from "../../syntax/property-names.js";
 import type {
   ConvertTypeFn,
   MemberInfo,
@@ -23,55 +34,34 @@ import {
   convertMethodToSignature,
   convertMethodSignatureToIr,
 } from "./registry-helpers-inference.js";
+import { isOverloadStubImplementation } from "../../syntax/overload-stubs.js";
 import {
   resolveContainingSourcePackageNamespace,
   resolveSourceFileNamespace,
 } from "../../../program/source-file-identity.js";
+import { getTstsContainingSourceFileName } from "@tsonic/tsts";
+import { tryResolveDeterministicPropertyName } from "../../syntax/property-names.js";
 
-// ═══════════════════════════════════════════════════════════════════════════
-// CANONICAL TARGET NAME HELPERS
-// ═══════════════════════════════════════════════════════════════════════════
+export const isWellKnownLibrary = (fileName: string): boolean =>
+  fileName.includes("@tsonic/globals") || fileName.includes("@tsonic/core");
 
-/**
- * Check if a source file is from a well-known Tsonic library.
- * Compiler-owned libraries can canonicalize global wrapper names when the
- * active external catalog defines a target identity.
- */
-export const isWellKnownLibrary = (fileName: string): boolean => {
-  return (
-    fileName.includes("@tsonic/globals") || fileName.includes("@tsonic/core")
-  );
-};
-
-/**
- * Get the canonical target name for a type from a well-known library.
- * Returns undefined if the type should use its default FQ name.
- *
- * Handles:
- * - Global types: String → provider string, Array → provider array
- * - $instance companions: String$instance → provider string$instance
- * - Core primitives: int → provider int32, etc. (handled via type aliases)
- */
 export const getCanonicalTargetName = (
   simpleName: string,
   isFromWellKnownLib: boolean
 ): string | undefined => {
   if (!isFromWellKnownLib) return undefined;
 
-  // Check direct mapping (String, Array, Number, etc.)
   const directMapping = normalizeToTargetName(simpleName);
   if (directMapping !== simpleName) return directMapping;
 
-  // Handle $instance companions through the same catalog-backed name mapping.
   if (simpleName.endsWith("$instance")) {
-    const baseName = simpleName.slice(0, -9); // Remove "$instance"
+    const baseName = simpleName.slice(0, -"$instance".length);
     const baseTargetName = normalizeToTargetName(baseName);
     if (baseTargetName !== baseName) {
       return `${baseTargetName}$instance`;
     }
   }
 
-  // Handle __X$views companions through the same catalog-backed name mapping.
   if (simpleName.includes("$views")) {
     const baseName = simpleName.replace("__", "").replace("$views", "");
     const baseTargetName = normalizeToTargetName(baseName);
@@ -83,120 +73,107 @@ export const getCanonicalTargetName = (
   return undefined;
 };
 
-// ═══════════════════════════════════════════════════════════════════════════
-// HELPER FUNCTIONS
-// ═══════════════════════════════════════════════════════════════════════════
+const concreteTstsNodes = (
+  nodes: readonly (TstsNode | undefined)[]
+): readonly TstsNode[] =>
+  nodes.filter((node): node is TstsNode => node !== undefined);
 
-/**
- * Extract type parameters from a declaration
- */
 export const extractTypeParameters = (
-  typeParams: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
+  typeParams: readonly TstsNode[] | undefined,
   convertType: ConvertTypeFn
 ): readonly TypeParameterEntry[] => {
   if (!typeParams) return [];
-  return typeParams.map((p) => ({
-    name: p.name.text,
-    constraint: p.constraint ? convertType(p.constraint) : undefined,
-    defaultType: p.default ? convertType(p.default) : undefined,
-  }));
+  return typeParams.map((typeParameter) => {
+    const data = TstsSyntax.AsTypeParameterDeclaration(typeParameter);
+    return {
+      name: getTstsNodeNameText(typeParameter) ?? "T",
+      constraint: data?.Constraint ? convertType(data.Constraint) : undefined,
+      defaultType: data?.DefaultType ? convertType(data.DefaultType) : undefined,
+    };
+  });
 };
 
-/**
- * Get the name from a TypeNode (for heritage clauses)
- */
-export const getTypeNodeName = (typeNode: ts.TypeNode): string | undefined => {
-  if (ts.isTypeReferenceNode(typeNode)) {
-    if (ts.isIdentifier(typeNode.typeName)) {
-      return typeNode.typeName.text;
-    }
-    if (ts.isQualifiedName(typeNode.typeName)) {
-      return typeNode.typeName.getText();
-    }
+export const getTypeNodeName = (typeNode: TstsNode): string | undefined => {
+  if (typeNode.Kind === TstsSyntax.KindStringKeyword) {
+    return "string";
   }
-  if (ts.isExpressionWithTypeArguments(typeNode)) {
-    if (ts.isIdentifier(typeNode.expression)) {
-      return typeNode.expression.text;
-    }
+  if (typeNode.Kind === TstsSyntax.KindNumberKeyword) {
+    return "number";
   }
-  return undefined;
+  if (typeNode.Kind === TstsSyntax.KindBooleanKeyword) {
+    return "boolean";
+  }
+  if (typeNode.Kind === TstsSyntax.KindBigIntKeyword) {
+    return "bigint";
+  }
+  if (typeNode.Kind === TstsSyntax.KindSymbolKeyword) {
+    return "symbol";
+  }
+  if (typeNode.Kind === TstsSyntax.KindObjectKeyword) {
+    return "object";
+  }
+  if (typeNode.Kind === TstsSyntax.KindAnyKeyword) {
+    return "any";
+  }
+  if (typeNode.Kind === TstsSyntax.KindUnknownKeyword) {
+    return "unknown";
+  }
+
+  return (
+    getTstsTypeReferenceName(typeNode) ??
+    getTstsExpressionWithTypeArgumentsName(typeNode)
+  );
 };
 
-/**
- * Resolve a heritage clause type name to the same fully-qualified form used by
- * TypeRegistry entries.
- *
- * This is required so UnifiedUniverse can build correct stableIds for inheritance
- * edges (projectName:fullyQualifiedName), enabling NominalEnv substitution through
- * inheritance chains.
- *
- * DETERMINISTIC: Uses symbol resolution only (no ts.Type queries).
- */
+const isDeclaredInGlobalBlock = (decl: TstsNode | undefined): boolean => {
+  let current = decl;
+  while (current) {
+    if (
+      TstsSyntax.IsModuleDeclaration(current) &&
+      getTstsNodeNameText(current) === "global"
+    ) {
+      return true;
+    }
+    current = current.Parent;
+  }
+  return false;
+};
+
+const getMemberNameText = (member: TstsNode): string | undefined =>
+  tryResolveDeterministicPropertyName(TstsSyntax.Node_Name(member)) ??
+  getTstsPropertyNameText(member) ??
+  getTstsNodeNameText(member);
+
 export const resolveHeritageTypeName = (
-  typeNode: ts.ExpressionWithTypeArguments,
-  sourceSemantics: FrontendSourceSemanticView,
+  typeNode: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView,
   sourceRoot: string,
   rootNamespace: string
 ): string | undefined => {
-  const isDeclaredInGlobalBlock = (
-    decl: ts.Declaration | undefined
-  ): boolean => {
-    let current: ts.Node | undefined = decl;
-    while (current) {
-      if (
-        ts.isModuleDeclaration(current) &&
-        ts.isIdentifier(current.name) &&
-        current.name.text === "global"
-      ) {
-        return true;
-      }
-      current = current.parent;
-    }
-    return false;
-  };
-
-  const expr = typeNode.expression;
-
-  const symbol = (() => {
-    if (ts.isIdentifier(expr)) return sourceSemantics.getSymbol(expr);
-    if (ts.isPropertyAccessExpression(expr)) {
-      return sourceSemantics.getSymbol(expr.name);
-    }
-    return undefined;
-  })();
-
-  const resolvedSymbol = symbol
-    ? sourceSemantics.resolveAlias(symbol)
-    : undefined;
-
+  const expression = TstsSyntax.Node_Expression(typeNode);
+  const symbol = expression ? sourceSemantics.getSymbol(expression) : undefined;
+  const resolvedSymbol = symbol ? sourceSemantics.resolveAlias(symbol) : undefined;
   const decl = resolvedSymbol
     ? sourceSemantics.getSymbolDeclarations(resolvedSymbol)[0]
     : undefined;
-  const sourceFile = decl?.getSourceFile();
-
-  const simpleName = (() => {
-    if (
-      decl &&
-      (ts.isClassDeclaration(decl) ||
-        ts.isInterfaceDeclaration(decl) ||
-        ts.isTypeAliasDeclaration(decl) ||
-        ts.isEnumDeclaration(decl)) &&
-      decl.name
-    ) {
-      return decl.name.text;
-    }
-    if (resolvedSymbol) return resolvedSymbol.getName();
-    if (ts.isIdentifier(expr)) return expr.text;
-    if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
-    return undefined;
-  })();
+  const fileName = getTstsContainingSourceFileName(decl);
+  const simpleName =
+    (decl &&
+    (TstsSyntax.IsClassDeclaration(decl) ||
+      TstsSyntax.IsInterfaceDeclaration(decl) ||
+      TstsSyntax.IsTypeAliasDeclaration(decl) ||
+      TstsSyntax.IsEnumDeclaration(decl))
+      ? getTstsNodeNameText(decl)
+      : undefined) ??
+    resolvedSymbol?.Name ??
+    getTstsExpressionWithTypeArgumentsName(typeNode) ??
+    getTypeNodeName(typeNode);
 
   if (!simpleName) return undefined;
 
-  // Canonicalize well-known runtime types to target names.
   const canonical = getCanonicalTargetName(
     simpleName,
-    sourceFile ? isWellKnownLibrary(sourceFile.fileName) : false
+    fileName ? isWellKnownLibrary(fileName) : false
   );
   if (canonical) return canonical;
 
@@ -204,183 +181,134 @@ export const resolveHeritageTypeName = (
     return simpleName;
   }
 
-  // Source-authored types use namespace-based FQ names.
   const ns =
-    sourceFile && !sourceFile.isDeclarationFile
-      ? (resolveContainingSourcePackageNamespace(sourceFile.fileName) ??
-        resolveSourceFileNamespace(
-          sourceFile.fileName,
-          sourceRoot,
-          rootNamespace
-        ))
+    fileName && !fileName.endsWith(".d.ts")
+      ? (resolveContainingSourcePackageNamespace(fileName) ??
+        resolveSourceFileNamespace(fileName, sourceRoot, rootNamespace))
       : undefined;
 
   return ns ? `${ns}.${simpleName}` : simpleName;
 };
 
-/**
- * Extract member information from a class or interface - PURE IR version
- */
 export const extractMembers = (
-  members: ts.NodeArray<ts.ClassElement> | ts.NodeArray<ts.TypeElement>,
+  members: readonly TstsNode[],
   convertType: ConvertTypeFn
 ): ReadonlyMap<string, MemberInfo> => {
   const result = new Map<string, MemberInfo>();
 
   for (const member of members) {
-    // Constructor parameter properties (class)
-    // e.g., `constructor(public name: string, private password: string) {}`
-    if (ts.isConstructorDeclaration(member)) {
-      for (const param of member.parameters) {
-        const isParameterProperty =
-          param.modifiers?.some(
-            (m) =>
-              m.kind === ts.SyntaxKind.PublicKeyword ||
-              m.kind === ts.SyntaxKind.PrivateKeyword ||
-              m.kind === ts.SyntaxKind.ProtectedKeyword ||
-              m.kind === ts.SyntaxKind.ReadonlyKeyword
-          ) ?? false;
-
-        if (!isParameterProperty) continue;
-        if (!ts.isIdentifier(param.name)) continue;
-
-        const name = param.name.text;
-        // Parameter-property optionality must track `?` only.
-        // A default initializer makes the constructor argument optional at call sites,
-        // but the materialized class property is still always present.
-        const isOptional = !!param.questionToken;
-        const isReadonly =
-          param.modifiers?.some(
-            (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-          ) ?? false;
-
+    if (TstsSyntax.IsConstructorDeclaration(member)) {
+      for (const parameter of concreteTstsNodes(getTstsParameters(member))) {
+        const name = getTstsNodeNameText(parameter);
+        if (!name) continue;
         result.set(name, {
           kind: "property",
           name,
-          type: param.type ? convertType(param.type) : undefined,
-          isOptional,
-          isReadonly,
+          type: getTstsDeclaredTypeNode(parameter)
+            ? convertType(getTstsDeclaredTypeNode(parameter)!)
+            : undefined,
+          isOptional: isTstsOptionalParameter(parameter),
+          isReadonly: hasTstsReadonlyModifier(parameter),
         });
       }
-    }
-
-    // Property declarations (class)
-    if (ts.isPropertyDeclaration(member)) {
-      const name = tryResolveDeterministicPropertyName(member.name);
-      if (!name) continue;
-      // Class-property optionality must track `?` only.
-      // A field initializer does not make the property optional.
-      const isOptional = member.questionToken !== undefined;
-      const isReadonly = member.modifiers?.some(
-        (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-      );
-      result.set(name, {
-        kind: "property",
-        name,
-        type: inferMemberType(member, convertType),
-        isOptional,
-        isReadonly: isReadonly ?? false,
-      });
-    }
-
-    // Property signatures (interface)
-    if (ts.isPropertySignature(member)) {
-      const name = tryResolveDeterministicPropertyName(member.name);
-      if (!name) continue;
-      result.set(name, {
-        kind: "property",
-        name,
-        type: member.type ? convertType(member.type) : undefined,
-        isOptional: member.questionToken !== undefined,
-        isReadonly:
-          member.modifiers?.some(
-            (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-          ) ?? false,
-      });
+      continue;
     }
 
     if (
-      ts.isGetAccessorDeclaration(member) ||
-      ts.isSetAccessorDeclaration(member)
+      TstsSyntax.IsPropertyDeclaration(member) ||
+      TstsSyntax.IsPropertySignatureDeclaration(member)
     ) {
-      const name = tryResolveDeterministicPropertyName(member.name);
+      const name = getMemberNameText(member);
       if (!name) continue;
-      const existing = result.get(name);
-      const inferredType = inferMemberType(member, convertType);
-      const readableType = ts.isGetAccessorDeclaration(member)
-        ? (inferredType ?? existing?.type)
-        : (existing?.type ?? inferredType);
       result.set(name, {
         kind: "property",
         name,
-        type: readableType,
+        type:
+          TstsSyntax.IsPropertyDeclaration(member)
+            ? inferMemberType(member, convertType)
+            : getTstsDeclaredTypeNode(member)
+              ? convertType(getTstsDeclaredTypeNode(member)!)
+              : undefined,
+        isOptional: TstsSyntax.Node_QuestionToken(member) !== undefined,
+        isReadonly: hasTstsReadonlyModifier(member),
+      });
+      continue;
+    }
+
+    if (
+      TstsSyntax.IsGetAccessorDeclaration(member) ||
+      TstsSyntax.IsSetAccessorDeclaration(member)
+    ) {
+      const name = getMemberNameText(member);
+      if (!name) continue;
+      const existing = result.get(name);
+      const inferredType = inferMemberType(member, convertType);
+      result.set(name, {
+        kind: "property",
+        name,
+        type: TstsSyntax.IsGetAccessorDeclaration(member)
+          ? (inferredType ?? existing?.type)
+          : (existing?.type ?? inferredType),
         isOptional: false,
-        isReadonly: ts.isSetAccessorDeclaration(member)
+        isReadonly: TstsSyntax.IsSetAccessorDeclaration(member)
           ? false
           : (existing?.isReadonly ?? true),
       });
+      continue;
     }
 
-    // Method declarations (class)
-    if (ts.isMethodDeclaration(member)) {
+    if (TstsSyntax.IsMethodDeclaration(member)) {
       if (isOverloadStubImplementation(member)) {
         continue;
       }
-      const name = tryResolveDeterministicPropertyName(member.name);
+      const name = getMemberNameText(member);
       if (!name) continue;
       const existing = result.get(name);
       const newSig = convertMethodToSignature(member, convertType);
-      const signatures = existing?.methodSignatures
-        ? [...existing.methodSignatures, newSig]
-        : [newSig];
       result.set(name, {
         kind: "method",
         name,
-        type: undefined, // Methods have signatures, not a single type
-        isOptional: member.questionToken !== undefined,
+        type: undefined,
+        isOptional: TstsSyntax.Node_QuestionToken(member) !== undefined,
         isReadonly: false,
-        methodSignatures: signatures,
+        methodSignatures: existing?.methodSignatures
+          ? [...existing.methodSignatures, newSig]
+          : [newSig],
       });
+      continue;
     }
 
-    // Method signatures (interface)
-    if (ts.isMethodSignature(member)) {
-      const name = tryResolveDeterministicPropertyName(member.name);
+    if (TstsSyntax.IsMethodSignatureDeclaration(member)) {
+      const name = getMemberNameText(member);
       if (!name) continue;
       const existing = result.get(name);
       const newSig = convertMethodSignatureToIr(member, convertType);
-      const signatures = existing?.methodSignatures
-        ? [...existing.methodSignatures, newSig]
-        : [newSig];
       result.set(name, {
         kind: "method",
         name,
-        type: undefined, // Methods have signatures, not a single type
-        isOptional: member.questionToken !== undefined,
+        type: undefined,
+        isOptional: TstsSyntax.Node_QuestionToken(member) !== undefined,
         isReadonly: false,
-        methodSignatures: signatures,
+        methodSignatures: existing?.methodSignatures
+          ? [...existing.methodSignatures, newSig]
+          : [newSig],
       });
+      continue;
     }
 
-    // Index signatures (interface)
-    if (ts.isIndexSignatureDeclaration(member)) {
-      const param = member.parameters[0];
-      const keyType = param?.type;
-      const keyName = keyType
-        ? ts.isTypeReferenceNode(keyType)
-          ? keyType.typeName.getText()
-          : keyType.getText()
-        : "unknown";
+    if (TstsSyntax.IsIndexSignatureDeclaration(member)) {
+      const [parameter] = concreteTstsNodes(getTstsParameters(member));
+      const keyType = parameter ? getTstsDeclaredTypeNode(parameter) : undefined;
+      const keyName = keyType ? (getTypeNodeName(keyType) ?? "unknown") : "unknown";
       const name = `[${keyName}]`;
       result.set(name, {
         kind: "indexSignature",
         name,
-        type: member.type ? convertType(member.type) : undefined,
+        type: getTstsDeclaredTypeNode(member)
+          ? convertType(getTstsDeclaredTypeNode(member)!)
+          : undefined,
         isOptional: false,
-        isReadonly:
-          member.modifiers?.some(
-            (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-          ) ?? false,
+        isReadonly: hasTstsReadonlyModifier(member),
       });
     }
   }
@@ -388,18 +316,10 @@ export const extractMembers = (
   return result;
 };
 
-/**
- * Extract members from an already-converted object type.
- *
- * This is used for object-like type aliases that expand deterministically to
- * `IrObjectType` during registration (e.g., `type StatusMap = Record<...>`).
- * Registering these members enables TypeSystem member lookups on aliased types.
- */
 export const extractMembersFromAliasedObjectType = (
   aliased: IrType
 ): ReadonlyMap<string, MemberInfo> => {
   if (aliased.kind !== "objectType") return new Map();
-
   const result = new Map<string, MemberInfo>();
 
   for (const member of aliased.members) {
@@ -413,22 +333,18 @@ export const extractMembersFromAliasedObjectType = (
       });
       continue;
     }
-
     if (member.kind === "methodSignature") {
       const existing = result.get(member.name);
-      const signatures = existing?.methodSignatures
-        ? [...existing.methodSignatures, member]
-        : [member];
-
       result.set(member.name, {
         kind: "method",
         name: member.name,
         type: undefined,
         isOptional: false,
         isReadonly: false,
-        methodSignatures: signatures,
+        methodSignatures: existing?.methodSignatures
+          ? [...existing.methodSignatures, member]
+          : [member],
       });
-      continue;
     }
   }
 
@@ -436,80 +352,81 @@ export const extractMembersFromAliasedObjectType = (
 };
 
 export const convertCallableInterfaceOnlyType = (
-  node: ts.InterfaceDeclaration,
+  node: TstsNode,
   convertType: ConvertTypeFn
 ): IrType | undefined => {
-  if (node.typeParameters && node.typeParameters.length > 0) {
-    return undefined;
-  }
-  if (node.heritageClauses && node.heritageClauses.length > 0) {
-    return undefined;
-  }
-  if (node.members.length === 0) {
-    return undefined;
-  }
-  if (!node.members.every((member) => ts.isCallSignatureDeclaration(member))) {
+  if (getTstsTypeParameterNodes(node).length > 0) return undefined;
+  if ((TstsSyntax.AsInterfaceDeclaration(node)?.HeritageClauses?.Nodes.length ?? 0) > 0) {
     return undefined;
   }
 
-  const signatures: IrType[] = [];
-  for (const member of node.members) {
-    if (!ts.isCallSignatureDeclaration(member)) {
-      return undefined;
-    }
-    if (member.typeParameters && member.typeParameters.length > 0) {
-      return undefined;
-    }
-    signatures.push({
-      kind: "functionType",
-      parameters: member.parameters.map((param) => ({
+  const members = concreteTstsNodes(getTstsMemberNodes(node));
+  if (
+    members.length === 0 ||
+    !members.every(TstsSyntax.IsCallSignatureDeclaration)
+  ) {
+    return undefined;
+  }
+
+  const signatures = members.map((member): IrType => ({
+    kind: "functionType",
+    typeParameters: concreteTstsNodes(getTstsTypeParameterNodes(member)).map(
+      (typeParameter) => {
+        const data = TstsSyntax.AsTypeParameterDeclaration(typeParameter);
+        return {
+          kind: "typeParameter" as const,
+          name: getTstsNodeNameText(typeParameter) ?? "T",
+          constraint: data?.Constraint ? convertType(data.Constraint) : undefined,
+          default: data?.DefaultType ? convertType(data.DefaultType) : undefined,
+          variance: undefined,
+          isStructuralConstraint:
+            data?.Constraint?.Kind === TstsSyntax.KindTypeLiteral,
+          structuralMembers: undefined,
+        };
+      }
+    ),
+    parameters: concreteTstsNodes(getTstsParameters(member)).map(
+      (parameter, index) => ({
         kind: "parameter",
         pattern: {
           kind: "identifierPattern",
-          name: ts.isIdentifier(param.name) ? param.name.text : "[computed]",
+          name: getTstsNodeNameText(parameter) ?? `arg${index}`,
         },
-        type: param.type ? convertType(param.type) : undefined,
+        type: getTstsDeclaredTypeNode(parameter)
+          ? convertType(getTstsDeclaredTypeNode(parameter)!)
+          : undefined,
         initializer: undefined,
-        isOptional: !!param.questionToken,
-        isRest: !!param.dotDotDotToken,
+        isOptional: isTstsOptionalParameter(parameter),
+        isRest: isTstsRestParameter(parameter),
         passing: "value",
-      })),
-      returnType: member.type ? convertType(member.type) : { kind: "voidType" },
-    });
-  }
+      })
+    ),
+    returnType: getTstsDeclaredTypeNode(member)
+      ? convertType(getTstsDeclaredTypeNode(member)!)
+      : { kind: "voidType" },
+  }));
 
-  if (signatures.length === 0) {
-    return undefined;
-  }
-  if (signatures.length === 1) {
-    return signatures[0];
-  }
-  return {
-    kind: "intersectionType",
-    types: signatures,
-  };
+  return signatures.length === 1
+    ? signatures[0]
+    : {
+        kind: "intersectionType",
+        types: signatures,
+      };
 };
 
 export { convertMethodToSignature, convertMethodSignatureToIr };
 
-/**
- * Extract heritage clauses - PURE IR version
- */
 export const extractHeritage = (
-  clauses: ts.NodeArray<ts.HeritageClause> | undefined,
-  sourceSemantics: FrontendSourceSemanticView,
+  clauses: readonly TstsHeritageClauseDetails[],
+  sourceSemantics: TstsFrontendSourceSemanticView,
   sourceRoot: string,
   rootNamespace: string,
   convertType: ConvertTypeFn,
   canonicalize?: (name: string) => string
 ): readonly HeritageInfo[] => {
-  if (!clauses) return [];
-
   const result: HeritageInfo[] = [];
   for (const clause of clauses) {
-    const kind =
-      clause.token === ts.SyntaxKind.ExtendsKeyword ? "extends" : "implements";
-    for (const type of clause.types) {
+    for (const type of concreteTstsNodes(clause.types)) {
       const resolvedName = resolveHeritageTypeName(
         type,
         sourceSemantics,
@@ -517,15 +434,13 @@ export const extractHeritage = (
         rootNamespace
       );
       const rawTypeName = resolvedName ?? getTypeNodeName(type);
-      if (rawTypeName) {
-        // Canonicalize the type name if a canonicalizer is provided
-        const typeName = canonicalize ? canonicalize(rawTypeName) : rawTypeName;
-        result.push({
-          kind,
-          baseType: convertType(type),
-          typeName,
-        });
-      }
+      if (!rawTypeName) continue;
+      const typeName = canonicalize ? canonicalize(rawTypeName) : rawTypeName;
+      result.push({
+        kind: clause.kind,
+        baseType: convertType(type),
+        typeName,
+      });
     }
   }
   return result;

@@ -1,16 +1,22 @@
-import * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
+import { isTstsRestParameter, TstsSyntax } from "@tsonic/tsts";
 import type { DiagnosticsCollector } from "../types/diagnostic.js";
 import { addDiagnostic, createDiagnostic } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
 import { lambdaHasExpectedTypeContext } from "./contextual-type-analysis.js";
+import {
+  getNodeInitializer,
+  getNodeParameters,
+  getNodeType,
+} from "./tsts-helpers.js";
 
 const isSimpleArrow = (
-  node: ts.ArrowFunction
+  node: TstsNode
 ):
   | { readonly isSimple: true }
   | { readonly isSimple: false; readonly reason: string } => {
-  for (const param of node.parameters) {
-    if (!ts.isIdentifier(param.name)) {
+  for (const param of getNodeParameters(node)) {
+    if (TstsSyntax.Node_Name(param)?.Kind !== TstsSyntax.KindIdentifier) {
       return {
         isSimple: false,
         reason:
@@ -19,8 +25,8 @@ const isSimpleArrow = (
     }
   }
 
-  for (const param of node.parameters) {
-    if (param.initializer !== undefined) {
+  for (const param of getNodeParameters(node)) {
+    if (getNodeInitializer(param) !== undefined) {
       return {
         isSimple: false,
         reason:
@@ -29,8 +35,8 @@ const isSimpleArrow = (
     }
   }
 
-  for (const param of node.parameters) {
-    if (param.dotDotDotToken !== undefined) {
+  for (const param of getNodeParameters(node)) {
+    if (isTstsRestParameter(param)) {
       return {
         isSimple: false,
         reason:
@@ -42,21 +48,14 @@ const isSimpleArrow = (
   return { isSimple: true };
 };
 
-/**
- * TSN7430: Arrow function escape hatch validation.
- *
- * Arrow functions can infer types from context when a deterministic expected
- * callable type exists. Without contextual typing, only "simple arrows" are
- * allowed to rely on inference.
- */
 export const validateArrowEscapeHatch = (
-  node: ts.ArrowFunction,
-  sourceFile: ts.SourceFile,
+  node: TstsNode,
+  sourceFile: TstsSourceFile,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
-  const hasExplicitReturnType = node.type !== undefined;
-  const allParamsExplicitlyTyped = node.parameters.every(
-    (param) => param.type !== undefined
+  const hasExplicitReturnType = getNodeType(node) !== undefined;
+  const allParamsExplicitlyTyped = getNodeParameters(node).every(
+    (param) => getNodeType(param) !== undefined
   );
 
   if (hasExplicitReturnType && allParamsExplicitlyTyped) {

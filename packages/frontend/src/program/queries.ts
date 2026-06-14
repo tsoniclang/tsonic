@@ -2,8 +2,9 @@
  * Program query functions
  */
 
-import * as ts from "typescript";
 import * as path from "node:path";
+import type { TstsSourceFile } from "@tsonic/tsts";
+import { getTstsSourceFileName } from "@tsonic/tsts";
 import type { TsonicProgram } from "./types.js";
 import type {
   TargetSurfaceArtifacts,
@@ -13,17 +14,17 @@ import type {
 const normalizePath = (filePath: string): string =>
   path.resolve(filePath).replace(/\\/g, "/");
 
-export const getProgramCompilerOptions = (
-  program: TsonicProgram
-): ts.CompilerOptions => program.tsCompilerOptions;
-
 export const getProgramSourceFiles = (
   program: TsonicProgram
-): readonly ts.SourceFile[] => program.sourceFiles;
+): readonly TstsSourceFile[] => program.sourceFiles;
 
 export const getProgramDeclarationSourceFiles = (
   program: TsonicProgram
-): readonly ts.SourceFile[] => program.declarationSourceFiles;
+): readonly TstsSourceFile[] => program.declarationSourceFiles;
+
+export const getProgramSemanticSourceFiles = (
+  program: TsonicProgram
+): readonly TstsSourceFile[] => program.sourceProgram.sourceFiles;
 
 export const getProgramTargetSurfaceProvider = (
   program: TsonicProgram
@@ -32,15 +33,15 @@ export const getProgramTargetSurfaceProvider = (
 export const getProgramTargetSurfaceArtifacts = (
   program: TsonicProgram
 ): TargetSurfaceArtifacts | undefined =>
-  getProgramTargetSurfaceProvider(program)?.getArtifacts() ??
-  program.targetSurfaceArtifacts;
+  getProgramTargetSurfaceProvider(program)?.getArtifacts();
+
+export const getProgramSourceFileName = (
+  sourceFile: TstsSourceFile
+): string => getTstsSourceFileName(sourceFile) ?? "";
 
 export const getProgramAllSourceFiles = (
   program: TsonicProgram
-): readonly ts.SourceFile[] => [
-  ...getProgramSourceFiles(program),
-  ...getProgramDeclarationSourceFiles(program),
-];
+): readonly TstsSourceFile[] => getProgramSemanticSourceFiles(program);
 
 /**
  * Get a source file from the program by file path
@@ -48,10 +49,11 @@ export const getProgramAllSourceFiles = (
 export const getSourceFile = (
   program: TsonicProgram,
   filePath: string
-): ts.SourceFile | null => {
+): TstsSourceFile | null => {
   const absolutePath = normalizePath(filePath);
   const sourceFile = getProgramAllSourceFiles(program).find(
-    (candidate) => normalizePath(candidate.fileName) === absolutePath
+    (candidate) =>
+      normalizePath(getProgramSourceFileName(candidate)) === absolutePath
   );
 
   return sourceFile ?? null;

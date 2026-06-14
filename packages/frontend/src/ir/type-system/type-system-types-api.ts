@@ -10,7 +10,7 @@
 
 import type { IrType, IrFunctionType, IrParameter } from "../types/index.js";
 import type { Diagnostic } from "../../types/diagnostic.js";
-import type * as ts from "typescript";
+import type { TstsSourceFile } from "@tsonic/tsts";
 import type {
   DeclId,
   SignatureId,
@@ -22,7 +22,7 @@ import type { AliasTable } from "./internal/universe/alias-table.js";
 import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
 import type { IterableShape } from "./iterable-type-shapes.js";
 import type { SurfaceCapabilities } from "../../surface/profiles.js";
-import type { FrontendSourceSemanticView } from "../../source-frontend/index.js";
+import type { TstsFrontendSourceSemanticView } from "../../source-frontend/index.js";
 
 import type {
   HandleRegistry,
@@ -55,8 +55,8 @@ export type TypeAuthority = {
    * This is the correct way for converters to convert inline type syntax
    * (as X, satisfies Y, generic args) that was captured via Binding.captureTypeSyntax().
    *
-   * TypeSystem receives opaque handles, not ts.TypeNode.
-   * This keeps the TypeSystem public API free of TypeScript types.
+   * TypeSystem receives opaque handles, not raw source syntax nodes.
+   * This keeps the TypeSystem public API independent from source-engine node types.
    *
    * All converters use captureTypeSyntax() + typeFromSyntax().
    */
@@ -109,10 +109,22 @@ export type TypeAuthority = {
   tryTypeOfMember(receiver: IrType, member: MemberRef): IrType | undefined;
 
   /**
+   * Get the declared type of a provider-bound member from the unified catalog.
+   *
+   * Used when Binding resolved an external member target but the source-facing
+   * receiver type is not itself useful for nominal lookup (for example static
+   * provider properties imported from a declaration package).
+   */
+  typeOfExternalBoundMember(member: {
+    readonly ownerIdentity: string;
+    readonly type: string;
+    readonly member: string;
+  }): IrType | undefined;
+
+  /**
    * Get provider indexer information for a receiver type (if any).
    *
-   * Used to deterministically classify computed access (`obj[key]`) from
-   * provider metadata rather than heuristics.
+   * Used to classify computed access (`obj[key]`) from provider metadata.
    */
   getIndexerInfo(
     receiver: IrType,
@@ -141,33 +153,6 @@ export type TypeAuthority = {
    * Returns poisoned call on conflict (TSN5202).
    */
   resolveCall(query: CallQuery): ResolvedCall;
-
-  /**
-   * Resolve the best semantic overload candidate from a candidate set.
-   *
-   * Binding may provide multiple arity-compatible candidates when the TypeScript
-   * layer cannot faithfully distinguish native target/native-first-party surfaces. This
-   * method lets TypeSystem remain the authority for final semantic selection.
-   */
-  selectBestCallCandidate(
-    fallbackSigId: SignatureId | undefined,
-    candidateSigIds: readonly SignatureId[] | undefined,
-    query: Omit<CallQuery, "sigId">
-  ): {
-    readonly sigId: SignatureId | undefined;
-    readonly resolved: ResolvedCall | undefined;
-  };
-
-  resolveCallableType(
-    type: IrType | undefined,
-    query: Pick<
-      CallQuery,
-      "argumentCount" | "argTypes" | "explicitTypeArgs" | "expectedReturnType"
-    >
-  ): {
-    readonly callableType: IrFunctionType | undefined;
-    readonly resolved: ResolvedCall | undefined;
-  };
 
   /**
    * Expand a contextual expected type into inference candidates.
@@ -291,8 +276,8 @@ export type TypeAuthority = {
   /**
    * Get the type of a member by its handle.
    *
-   * Used by property access fallback when TypeSystem.typeOfMember() can't resolve
-   * the member through TypeRegistry/NominalEnv (e.g., external-bound members).
+   * Used by property access resolution for externally-bound members whose
+   * declaration owner is already known.
    *
    * Returns unknownType if member not found or has no type annotation.
    */
@@ -332,7 +317,7 @@ export type TypeAuthority = {
    *
    * This is used to detect if a call requires specialization due to
    * conditional return types like `T extends string ? A : B`.
-   * The check is done inside TypeSystem to avoid exposing ts.TypeNode.
+   * The check is done inside TypeSystem to avoid exposing source-engine nodes.
    */
   signatureHasConditionalReturn(sigId: SignatureId): boolean;
 
@@ -443,7 +428,7 @@ export type TypeSystemConfig = {
    * for types not found in TypeRegistry (e.g., provider string, provider int32).
    * This enables method chain type recovery for built-in types.
    *
-   * Optional during migration; will become required when migration completes.
+   * Required catalog for deterministic source-surface identity.
    */
   readonly unifiedCatalog: UnifiedTypeCatalog;
 
@@ -461,7 +446,8 @@ export type TypeSystemConfig = {
    * TypeSystem may depend on Binding for symbol resolution,
    * but must never use TypeScript computed type APIs directly.
    *
-   * These accept `unknown` to keep the TypeSystem public surface TS-free.
+   * These accept `unknown` so TypeSystem does not expose raw TSTS node types
+   * in its public API.
    */
   readonly resolveIdentifier: (node: unknown) => DeclId | undefined;
   readonly resolveTypeReference: (node: unknown) => DeclId | undefined;
@@ -470,7 +456,6 @@ export type TypeSystemConfig = {
   readonly resolveConstructorSignature: (
     node: unknown
   ) => SignatureId | undefined;
-  readonly sourceSemantics: FrontendSourceSemanticView;
-  readonly tsCompilerOptions: ts.CompilerOptions;
-  readonly sourceFilesByPath: ReadonlyMap<string, ts.SourceFile>;
+  readonly sourceSemantics: TstsFrontendSourceSemanticView;
+  readonly sourceFilesByPath: ReadonlyMap<string, TstsSourceFile>;
 };

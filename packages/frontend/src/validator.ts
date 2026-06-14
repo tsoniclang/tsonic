@@ -7,7 +7,7 @@ export {
   validateProgram,
   validateSourceFile,
   validateImports,
-  validateImportDeclaration,
+  validateImportModule,
   validateExports,
   validateUnsupportedFeatures,
   validateGenerics,

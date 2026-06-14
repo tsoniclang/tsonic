@@ -1,9 +1,14 @@
-import * as ts from "typescript";
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  createExtensionModuleGraph,
+  getTstsImportTypeModuleSpecifiers,
+  parseTstsSourceFile,
+} from "@tsonic/tsts";
+import type { TstsSourceFile } from "@tsonic/tsts";
 import {
   buildIr,
   createProgram,
@@ -81,12 +86,12 @@ const isScriptLikeFile = (relativePath: string): boolean =>
 const readJsonObject = (
   filePath: string
 ): Record<string, unknown> | undefined => {
-  if (!ts.sys.fileExists(filePath)) {
+  if (!fs.existsSync(filePath)) {
     return undefined;
   }
 
   try {
-    const text = ts.sys.readFile(filePath);
+    const text = fs.readFileSync(filePath, "utf8");
     if (!text) {
       return undefined;
     }
@@ -112,14 +117,14 @@ const findAuthoritativePackageRoot = (
   for (const candidate of candidates) {
     const manifestPath = path.join(candidate, "tsonic.package.json");
     const packageJsonPath = path.join(candidate, "package.json");
-    if (ts.sys.fileExists(packageJsonPath)) {
+    if (fs.existsSync(packageJsonPath)) {
       const packageJson = readJsonObject(packageJsonPath);
       if (packageJson?.name === packageName) {
         return candidate;
       }
     }
 
-    if (!ts.sys.fileExists(manifestPath)) {
+    if (!fs.existsSync(manifestPath)) {
       continue;
     }
 
@@ -139,28 +144,22 @@ const findAuthoritativePackageRoot = (
 };
 
 const addReferencedModuleSpecifiers = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   specifiers: Set<string>
 ): void => {
-  const visit = (node: ts.Node): void => {
-    if (
-      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-      node.moduleSpecifier &&
-      ts.isStringLiteral(node.moduleSpecifier)
-    ) {
-      specifiers.add(node.moduleSpecifier.text);
-    } else if (
-      ts.isImportTypeNode(node) &&
-      ts.isLiteralTypeNode(node.argument) &&
-      ts.isStringLiteral(node.argument.literal)
-    ) {
-      specifiers.add(node.argument.literal.text);
+  const moduleGraph = createExtensionModuleGraph(undefined, [sourceFile]);
+  const module = moduleGraph.getSourceFileModule(sourceFile);
+  for (const imported of module?.imports ?? []) {
+    specifiers.add(imported.specifier);
+  }
+  for (const exported of module?.exports ?? []) {
+    if (exported.sourceSpecifier) {
+      specifiers.add(exported.sourceSpecifier);
     }
-
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
+  }
+  for (const specifier of getTstsImportTypeModuleSpecifiers(sourceFile)) {
+    specifiers.add(specifier);
+  }
 };
 
 const tryGetPackageNameFromSpecifier = (
@@ -256,12 +255,10 @@ const collectReferencedAuthoritativePackages = (
       continue;
     }
 
-    const sourceFile = ts.createSourceFile(
-      relativePath,
-      contents,
-      ts.ScriptTarget.Latest,
-      true
-    );
+    const sourceFile = parseTstsSourceFile(contents, { fileName: relativePath });
+    if (!sourceFile) {
+      throw new Error(`TSTS parser did not create ${relativePath}`);
+    }
     const specifiers = new Set<string>();
     addReferencedModuleSpecifiers(sourceFile, specifiers);
 

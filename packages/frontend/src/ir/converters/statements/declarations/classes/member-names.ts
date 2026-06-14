@@ -1,14 +1,14 @@
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import { tryResolveDeterministicPropertyName } from "../../../../syntax/property-names.js";
 
 export const getClassMemberName = (
-  name: ts.PropertyName | ts.PrivateIdentifier | undefined
+  name: TstsNode | undefined
 ): string => tryResolveDeterministicPropertyName(name) ?? "[computed]";
 
 export const isPrivateClassMemberName = (
-  name: ts.PropertyName | ts.PrivateIdentifier | undefined
-): boolean => !!name && ts.isPrivateIdentifier(name);
+  name: TstsNode | undefined
+): boolean => name?.Kind === TstsSyntax.KindPrivateIdentifier;
 
 export const hasNonComputedClassMemberName = (
-  name: ts.PropertyName | ts.PrivateIdentifier | undefined
+  name: TstsNode | undefined
 ): boolean => tryResolveDeterministicPropertyName(name) !== undefined;

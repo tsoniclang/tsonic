@@ -4,7 +4,6 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as ts from "typescript";
 import * as path from "node:path";
 import { buildIrModule } from "../builder.js";
 import type { BindingFile } from "../../program/binding-types.js";
@@ -238,7 +237,7 @@ describe("IR Builder", function () {
         ] } });
 
       const bindingApi = ctx.binding as unknown as {
-        resolveImport: (node: ts.ImportSpecifier) => number | undefined;
+        resolveImport: (node: unknown) => number | undefined;
         getSourceFilePathOfDecl: (decl: number) => string | undefined;
       };
       bindingApi.resolveImport = () => 1;
@@ -678,7 +677,7 @@ describe("IR Builder", function () {
       const declPath = fixture.path("nodejs.Http/internal/index.d.ts");
 
       const bindingApi = ctx.binding as unknown as {
-        resolveImport: (node: ts.ImportSpecifier) => number | undefined;
+        resolveImport: (node: unknown) => number | undefined;
         getSourceFilePathOfDecl: (decl: number) => string | undefined;
       };
       bindingApi.resolveImport = () => 1;

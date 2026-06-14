@@ -248,8 +248,6 @@ export type IrCallExpression = {
   readonly sourceSpan?: SourceLocation;
   // Opaque handle to the resolved signature (from Binding layer)
   readonly signatureId?: SignatureId;
-  /** Alternate overload candidates for post-proof re-resolution. */
-  readonly candidateSignatureIds?: readonly SignatureId[];
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments used for emission
   readonly explicitTypeArguments?: readonly IrType[]; // Authored call-site type arguments only
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns

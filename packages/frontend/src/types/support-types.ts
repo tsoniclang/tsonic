@@ -8,8 +8,10 @@
  * @see spec/support-types.md for complete documentation
  */
 
-import * as ts from "typescript";
-import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
+import type { GoPtr, TstsType } from "@tsonic/tsts";
+import type { TstsFrontendSourceSemanticView } from "../source-frontend/index.js";
+
+type SourceType = GoPtr<TstsType>;
 
 /**
  * Support type kind enumeration.
@@ -28,8 +30,8 @@ export type SupportTypeKind =
  */
 export type SupportTypeInfo = {
   readonly kind: SupportTypeKind;
-  readonly wrappedType: ts.Type;
-  readonly typeArguments: readonly ts.Type[];
+  readonly wrappedType: SourceType;
+  readonly typeArguments: readonly SourceType[];
 };
 
 /**
@@ -40,8 +42,8 @@ export type SupportTypeInfo = {
  * @returns Support type info if recognized, undefined otherwise
  */
 export const getSupportTypeInfo = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): SupportTypeInfo | undefined => {
   const typeName =
     sourceSemantics.getTypeAliasSymbolName(type) ??
@@ -110,8 +112,8 @@ const getSupportTypeKind = (
  * @returns True if type is TSByRef<T>
  */
 export const isTSByRef = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSByRef";
@@ -125,8 +127,8 @@ export const isTSByRef = (
  * @returns True if type is TSUnsafePointer<T>
  */
 export const isTSUnsafePointer = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSUnsafePointer";
@@ -140,8 +142,8 @@ export const isTSUnsafePointer = (
  * @returns True if type is TSDelegate<TArgs, TReturn>
  */
 export const isTSDelegate = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSDelegate";
@@ -155,8 +157,8 @@ export const isTSDelegate = (
  * @returns True if type is TSNullable<T>
  */
 export const isTSNullable = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSNullable";
@@ -170,8 +172,8 @@ export const isTSNullable = (
  * @returns True if type is TSFixed<T, N>
  */
 export const isTSFixed = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSFixed";
@@ -185,8 +187,8 @@ export const isTSFixed = (
  * @returns True if type is TSStackAlloc<T>
  */
 export const isTSStackAlloc = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const info = getSupportTypeInfo(type, sourceSemantics);
   return info?.kind === "TSStackAlloc";
@@ -200,9 +202,9 @@ export const isTSStackAlloc = (
  * @returns Wrapped type T, or undefined if not TSByRef
  */
 export const getTSByRefWrappedType = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
-): ts.Type | undefined => {
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
+): SourceType | undefined => {
   const info = getSupportTypeInfo(type, sourceSemantics);
   if (info?.kind === "TSByRef") {
     return info.wrappedType;
@@ -218,9 +220,9 @@ export const getTSByRefWrappedType = (
  * @returns Wrapped type T, or undefined if not TSUnsafePointer
  */
 export const getTSUnsafePointerWrappedType = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
-): ts.Type | undefined => {
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
+): SourceType | undefined => {
   const info = getSupportTypeInfo(type, sourceSemantics);
   if (info?.kind === "TSUnsafePointer") {
     return info.wrappedType;
@@ -236,8 +238,8 @@ export const getTSUnsafePointerWrappedType = (
  * @returns Error message if unsupported, undefined if supported
  */
 export const checkUnsupportedSupportType = (
-  type: ts.Type,
-  sourceSemantics: FrontendSourceSemanticView
+  type: SourceType,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): string | undefined => {
   const info = getSupportTypeInfo(type, sourceSemantics);
   if (!info) {

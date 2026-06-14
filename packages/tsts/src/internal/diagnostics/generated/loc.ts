@@ -3,9 +3,9 @@
 
 import { gunzipSync } from "node:zlib";
 import { Buffer } from "node:buffer";
+import { toNodeBytes } from "../../../go/nodebytes.js";
 import type { int } from "@tsonic/core/types.js";
 import type { GoMap } from "../../../go/compat.js";
-import { toNodeBytes } from "../../../go/nodebytes.js";
 import type { Tag } from "../../../go/golang.org/x/text/language.js";
 import { English, Low, MustParse, NewMatcher } from "../../../go/golang.org/x/text/language.js";
 import type { Key } from "../diagnostics.js";
@@ -44,7 +44,7 @@ export const matcher = NewMatcher([
 type LocaleLoader = (() => GoMap<Key, string>) | undefined;
 
 function loadLocaleData(data: string): GoMap<Key, string> {
-  const text = new TextDecoder().decode(gunzipSync(toNodeBytes(Buffer.from(data, "base64"))));
+  const text = gunzipSync(toNodeBytes(Buffer.from(data, "base64"))).toString("utf8");
   return new globalThis.Map<Key, string>(globalThis.Object.entries(JSON.parse(text)) as Array<[Key, string]>);
 }
 

@@ -6,7 +6,11 @@
  * used by the factory and handle registry.
  */
 
-import ts from "typescript";
+import type {
+  TstsNode,
+  TstsSignature,
+  TstsSymbol,
+} from "@tsonic/tsts";
 import type {
   DeclId,
   SignatureId,
@@ -22,6 +26,22 @@ import type {
   HandleRegistry,
 } from "../type-system/internal/handle-types.js";
 import type { SourceSemanticFactKey } from "../../source-frontend/index.js";
+
+export type BindingExternalImportTypeIdentity = {
+  readonly sourceName: string;
+  readonly providerQualifiedName: string;
+};
+
+export type BindingImportedSourceValueTarget = {
+  readonly sourceFilePath: string;
+  readonly exportName: string;
+};
+
+export type BindingImportedSourceNamespaceMemberTarget = {
+  readonly declaration: TstsNode;
+  readonly sourceFilePath: string;
+  readonly exportName: string;
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BINDING INTERFACE
@@ -42,25 +62,25 @@ export type Binding = {
    * Resolve an identifier to its declaration.
    * Uses sourceSemantics symbol and declaration queries.
    */
-  resolveIdentifier(node: ts.Identifier): DeclId | undefined;
+  resolveIdentifier(node: TstsNode): DeclId | undefined;
 
   /**
    * Resolve a type reference to its declaration.
    * For qualified names (A.B.C), resolves the rightmost symbol.
    */
-  resolveTypeReference(node: ts.TypeReferenceNode): DeclId | undefined;
+  resolveTypeReference(node: TstsNode): DeclId | undefined;
 
   /**
    * Resolve a property access to its member declaration.
    */
   resolvePropertyAccess(
-    node: ts.PropertyAccessExpression
+    node: TstsNode
   ): MemberId | undefined;
 
   /**
    * Resolve an element access to its member (for known keys).
    */
-  resolveElementAccess(node: ts.ElementAccessExpression): MemberId | undefined;
+  resolveElementAccess(node: TstsNode): MemberId | undefined;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // CALL RESOLUTION
@@ -70,38 +90,18 @@ export type Binding = {
    * Pick the correct overload for a call expression.
    * Uses sourceSemantics.getResolvedSignature to pick the overload.
    */
-  resolveCallSignature(node: ts.CallExpression): SignatureId | undefined;
-
-  /**
-   * Return candidate overload signatures for a call expression, filtered by arity.
-   *
-   * This is used when TypeScript overload selection is ambiguous due to
-   * erased types in the TS layer (e.g., `char` is `string` in TypeScript).
-   *
-   * IMPORTANT: This returns *candidates*, not the final selection.
-   * The TypeSystem remains the authority for semantic selection.
-   */
-  resolveCallSignatureCandidates(
-    node: ts.CallExpression
-  ): readonly SignatureId[] | undefined;
+  resolveCallSignature(node: TstsNode): SignatureId | undefined;
 
   /**
    * Resolve new expression constructor signature.
    */
-  resolveConstructorSignature(node: ts.NewExpression): SignatureId | undefined;
-
-  /**
-   * Return candidate overload signatures for a constructor call, filtered by arity.
-   */
-  resolveConstructorSignatureCandidates(
-    node: ts.NewExpression
-  ): readonly SignatureId[] | undefined;
+  resolveConstructorSignature(node: TstsNode): SignatureId | undefined;
 
   /**
    * Read source-extension facts projected onto TypeScript AST nodes.
    * This keeps binding/type conversion behind the source semantic boundary.
    */
-  getSourceFact<T>(node: ts.Node, key: SourceSemanticFactKey<T>): T | undefined;
+  getSourceFact<T>(node: TstsNode, key: SourceSemanticFactKey<T>): T | undefined;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // IMPORT RESOLUTION
@@ -111,7 +111,49 @@ export type Binding = {
    * Resolve an import specifier to its actual declaration.
    * Uses sourceSemantics.resolveAlias to follow the import chain.
    */
-  resolveImport(node: ts.ImportSpecifier): DeclId | undefined;
+  resolveImport(node: TstsNode): DeclId | undefined;
+
+  /**
+   * Resolve a type reference that points at an imported external facade export.
+   *
+   * This preserves module identity for cases where the same exported simple name
+   * exists in multiple external namespaces, for example:
+   *
+   *   import { Queue } from "@example/provider/Collections.Generic.js";
+   *   import { Queue } from "@example/provider/Collections.Legacy.js";
+   *
+   * The first and second imports can intentionally point at different provider
+   * identities even when they share the same source-facing name. A global
+   * simple-name lookup cannot distinguish those identities.
+   */
+  resolveExternalImportType(
+    node: TstsNode
+  ): BindingExternalImportTypeIdentity | undefined;
+
+  /**
+   * Resolve a value identifier that is a named import from another source file
+   * to its target source file and exported name.
+   *
+   * This is intentionally syntax/module-graph based because source engines may
+   * expose either the import alias declaration or the final exported declaration
+   * as the symbol declaration. The module graph is the deterministic owner of
+   * import/export identity.
+   */
+  resolveImportedSourceValue(
+    node: TstsNode
+  ): BindingImportedSourceValueTarget | undefined;
+
+  /**
+   * Resolve `import * as ns from "pkg"; ns.member` to the exported source
+   * declaration for `member`.
+   *
+   * This is module-graph authority, not name inference: the receiver must be a
+   * namespace import binding and the target export must exist in the resolved
+   * source package/file.
+   */
+  resolveImportedSourceNamespaceMember(
+    node: TstsNode
+  ): BindingImportedSourceNamespaceMemberTarget | undefined;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ADDITIONAL RESOLUTION METHODS
@@ -122,7 +164,7 @@ export type Binding = {
    * For `{ foo }` syntax, resolves `foo` to its declaration.
    */
   resolveShorthandAssignment(
-    node: ts.ShorthandPropertyAssignment
+    node: TstsNode
   ): DeclId | undefined;
 
   /**
@@ -168,7 +210,7 @@ export type Binding = {
    *
    * Returns undefined for declarations without a syntactic type annotation.
    */
-  getTypeNodeOfDecl(decl: DeclId): ts.TypeNode | undefined;
+  getTypeNodeOfDecl(decl: DeclId): TstsNode | undefined;
 
   /**
    * Get the value-side declaration node captured for a resolved declaration.
@@ -176,7 +218,7 @@ export type Binding = {
    * For merged value/type symbols, this prefers the value declaration and falls
    * back to the canonical declaration node.
    */
-  getValueDeclarationNode(decl: DeclId): ts.Declaration | undefined;
+  getValueDeclarationNode(decl: DeclId): TstsNode | undefined;
 
   /**
    * Get every declaration node captured for a resolved declaration.
@@ -184,12 +226,12 @@ export type Binding = {
    * This intentionally returns declaration nodes only, never raw symbols or
    * registry entries.
    */
-  getDeclarationNodesOfDecl(decl: DeclId): readonly ts.Declaration[];
+  getDeclarationNodesOfDecl(decl: DeclId): readonly TstsNode[];
 
   /**
    * Get the explicit type annotation captured for a resolved member.
    */
-  getTypeNodeOfMember(member: MemberId): ts.TypeNode | undefined;
+  getTypeNodeOfMember(member: MemberId): TstsNode | undefined;
 
   /**
    * Get type predicate information from a signature.
@@ -203,7 +245,7 @@ export type Binding = {
    * Used for airplane-grade lowering of extension-method calls emitted as method-table
    * members with explicit `this:` receiver constraints.
    */
-  getThisTypeNodeOfSignature(sig: SignatureId): ts.TypeNode | undefined;
+  getThisTypeNodeOfSignature(sig: SignatureId): TstsNode | undefined;
 
   /**
    * Get the declaring TypeScript type name for a resolved signature (if present).
@@ -232,7 +274,7 @@ export type Binding = {
    * This is NOT an escape hatch — it's the correct boundary for inline syntax.
    */
   captureTypeSyntax(
-    node: ts.TypeNode | ts.ExpressionWithTypeArguments
+    node: TstsNode
   ): TypeSyntaxId;
 
   /**
@@ -240,7 +282,7 @@ export type Binding = {
    *
    * Convenience method for capturing generic type arguments like `Foo<A, B, C>`.
    */
-  captureTypeArgs(nodes: readonly ts.TypeNode[]): readonly TypeSyntaxId[];
+  captureTypeArgs(nodes: readonly TstsNode[]): readonly TypeSyntaxId[];
 };
 
 /**
@@ -266,7 +308,7 @@ export type BindingInternal = Binding & {
 export type TypePredicateInfo = {
   readonly kind: "typePredicate";
   readonly parameterIndex: number;
-  readonly typeNode?: ts.TypeNode;
+  readonly typeNode?: TstsNode;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -274,24 +316,24 @@ export type TypePredicateInfo = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export type DeclEntry = {
-  readonly symbol: ts.Symbol;
-  readonly decl?: ts.Declaration;
-  readonly typeDeclNode?: ts.Declaration;
-  readonly valueDeclNode?: ts.Declaration;
-  readonly typeNode?: ts.TypeNode;
+  readonly symbol?: TstsSymbol;
+  readonly decl?: TstsNode;
+  readonly typeDeclNode?: TstsNode;
+  readonly valueDeclNode?: TstsNode;
+  readonly typeNode?: TstsNode;
   readonly kind: DeclKind;
   readonly fqName?: string;
   readonly classMemberNames?: ClassMemberNames;
 };
 
 export type SignatureEntry = {
-  readonly signature: ts.Signature;
-  readonly decl?: ts.SignatureDeclaration;
+  readonly signature: TstsSignature;
+  readonly decl?: TstsNode;
   readonly parameters: readonly ParameterNode[];
   readonly resolvedParameters?: readonly ParameterNode[];
   /** Type node of a TypeScript `this:` parameter (if present). Excluded from `parameters`. */
-  readonly thisTypeNode?: ts.TypeNode;
-  readonly returnTypeNode?: ts.TypeNode;
+  readonly thisTypeNode?: TstsNode;
+  readonly returnTypeNode?: TstsNode;
   readonly typeParameters?: readonly TypeParameterNode[];
   /**
    * Declaring type simple TS name (e.g., "Box" not "Test.Box").
@@ -307,10 +349,10 @@ export type SignatureEntry = {
 
 export type MemberEntry = {
   readonly memberId: MemberId;
-  readonly symbol: ts.Symbol;
-  readonly decl?: ts.Declaration;
+  readonly symbol: TstsSymbol;
+  readonly decl?: TstsNode;
   readonly name: string;
-  readonly typeNode?: ts.TypeNode;
+  readonly typeNode?: TstsNode;
   readonly isOptional: boolean;
   readonly isReadonly: boolean;
 };
@@ -319,6 +361,6 @@ export type MemberEntry = {
  * Entry for captured type syntax.
  */
 export type TypeSyntaxEntry = {
-  readonly typeNode: ts.TypeNode;
+  readonly typeNode: TstsNode;
   readonly referenceDeclId?: DeclId;
 };

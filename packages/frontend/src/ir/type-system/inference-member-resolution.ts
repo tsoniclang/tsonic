@@ -6,7 +6,10 @@
  * - inference-member-id: parseIndexerKeyTypeName, getIndexerInfo, typeOfMemberId
  */
 
-export { typeOfMember } from "./inference-member-lookup.js";
+export {
+  typeOfMember,
+  typeOfExternalBoundMember,
+} from "./inference-member-lookup.js";
 export {
   parseIndexerKeyTypeName,
   getIndexerInfo,

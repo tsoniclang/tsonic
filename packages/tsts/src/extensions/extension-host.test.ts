@@ -59,6 +59,14 @@ test("extension facts are sidecar data keyed by node identity", () => {
   assert.equal(host.facts.get(key, secondStatement), undefined);
 });
 
+test("parseTstsSourceFile normalizes synthetic relative file names", () => {
+  const sourceFile = parseTstsSourceFile("export const value = 1;", {
+    fileName: "fixtures/source.ts",
+  });
+
+  assert.equal(sourceFile!.FileName(), "/fixtures/source.ts");
+});
+
 test("extension import index captures named and aliased type imports", () => {
   const sourceFile = parseTstsSourceFile(`
     import type { int, long as i64 } from "@tsonic/core/types.js";

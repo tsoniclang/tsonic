@@ -111,7 +111,7 @@ export const validateExpression = (
 
     case "object": {
       // For object literals, check each property against expected property type
-      // Uses contextual expectedType only - no guessing
+      // Uses contextual expectedType only.
       expr.properties.forEach((prop) => {
         if (prop.kind === "spread") {
           // For spreads, scan for nested call expressions
@@ -152,7 +152,7 @@ export const validateExpression = (
     }
 
     case "logical": {
-      // For ?? and ||, only the RHS (fallback value) needs coercion checking.
+      // For ?? and ||, only the RHS alternate value needs coercion checking.
       // The LHS is already typed and doesn't need to match expectedType.
       // Example: `const x: int = maybeNull ?? 100`
       //   - maybeNull has type `int | null` - already correct, no coercion needed
@@ -160,7 +160,7 @@ export const validateExpression = (
       if (expr.operator === "??" || expr.operator === "||") {
         // Scan LHS for nested calls (don't validate against expectedType)
         scanExpressionForCalls(expr.left, ctx);
-        // Only validate RHS against expectedType (the fallback value)
+        // Only validate RHS against expectedType (the alternate value).
         validateExpression(expr.right, expectedType, ctx, context);
       }
       break;

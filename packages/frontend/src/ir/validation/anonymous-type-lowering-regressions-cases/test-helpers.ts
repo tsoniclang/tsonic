@@ -1,65 +1,23 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import * as ts from "typescript";
 import { buildIrModule } from "../../builder.js";
 import { createProgramContext } from "../../program-context.js";
-import { ExternalMetadataRegistry } from "../../../external-metadata.js";
-import { BindingRegistry } from "../../../program/bindings.js";
-import { createExternalBindingsResolver } from "../../../resolver/external-bindings-resolver.js";
-import { createBinding } from "../../binding/index.js";
-import { createEmptyTstsSourceProgramForTests } from "../../../source-frontend/index.js";
-import { createTypeScriptSemanticView } from "../../../source-frontend/typescript-semantic-view.js";
+import { createInlineTstsTestProgram } from "../../../testing/tsts-test-program.js";
 
 export const createTestModule = (source: string) => {
-  const fileName = "/test/input.ts";
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.ES2022,
-    true,
-    ts.ScriptKind.TS
-  );
-
-  const program = ts.createProgram(
-    [fileName],
-    { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
-    {
-      getSourceFile: (name) => (name === fileName ? sourceFile : undefined),
-      writeFile: () => {},
-      getCurrentDirectory: () => "/test",
-      getDirectories: () => [],
-      fileExists: () => true,
-      readFile: () => source,
-      getCanonicalFileName: (f) => f,
-      useCaseSensitiveFileNames: () => true,
-      getNewLine: () => "\n",
-      getDefaultLibFileName: () => "lib.d.ts",
-    }
-  );
-  const checker = program.getTypeChecker();
-
-  const testProgram = {
-    program,
-    checker,
-    tsCompilerOptions: program.getCompilerOptions(),
-    options: {
-      projectRoot: "/test",
-      sourceRoot: "/test",
-      rootNamespace: "TestApp",
-      strict: true,
-    },
-    sourceFiles: [sourceFile],
-    declarationSourceFiles: [],
-    sourceProgram: createEmptyTstsSourceProgramForTests(),
-    sourceSemantics: createTypeScriptSemanticView(checker),
-    metadata: new ExternalMetadataRegistry(),
-    bindings: new BindingRegistry(),
-    externalResolver: createExternalBindingsResolver("/test"),
-    binding: createBinding(createTypeScriptSemanticView(checker)),
+  const testProgram = createInlineTstsTestProgram(source, {
+    fileName: "input.ts",
+  });
+  const options = {
+    sourceRoot: testProgram.options.sourceRoot,
+    rootNamespace: "TestApp",
   };
-
-  const options = { sourceRoot: "/test", rootNamespace: "TestApp" };
   const ctx = createProgramContext(testProgram, options);
-  const irResult = buildIrModule(sourceFile, testProgram, options, ctx);
+  const irResult = buildIrModule(
+    testProgram.sourceFile,
+    testProgram,
+    options,
+    ctx
+  );
   if (!irResult.ok) {
     throw new Error(`IR build failed: ${irResult.error.message}`);
   }

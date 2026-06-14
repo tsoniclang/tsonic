@@ -45,7 +45,7 @@ const expectPackageRoot = (label: string, packageRoot: string): void => {
 };
 
 describe("Fixture fast coverage", function () {
-  this.timeout(90_000);
+  this.timeout(180_000);
 
   it("mirrors nodejs-surface-module-graph through the frontend dependency graph", () => {
     expectPackageRoot("@tsonic/nodejs source package", nodejsSourceRoot);

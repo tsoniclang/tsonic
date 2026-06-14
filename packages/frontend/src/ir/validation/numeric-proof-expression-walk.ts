@@ -295,7 +295,7 @@ export const processExpression = (
       // ============================================================================
 
       // ARRAY INDEX VALIDATION: Use accessKind tag (set during IR build) to determine
-      // whether int32 proof is required. This is compiler-grade: no heuristic name matching.
+      // whether int32 proof is required. This is compiler-grade: no name matching.
       if (typeof processedProperty !== "string" && expr.isComputed) {
         const accessKind = expr.accessKind;
 

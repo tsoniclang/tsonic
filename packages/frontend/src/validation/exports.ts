@@ -1,90 +1,71 @@
 /**
- * Export validation
+ * Export validation.
+ *
+ * TSTS owns export discovery. Tsonic validates product policy over the TSTS
+ * module graph.
  */
 
-import * as ts from "typescript";
+import type { TstsSourceFile } from "@tsonic/tsts";
+import { TstsSyntax } from "@tsonic/tsts";
 import { TsonicProgram } from "../program.js";
 import {
   DiagnosticsCollector,
   addDiagnostic,
   createDiagnostic,
 } from "../types/diagnostic.js";
-import { hasExportModifier, getNodeLocation } from "./helpers.js";
+import { getNodeLocation } from "./helpers.js";
 
 /**
- * Validate exports (check for duplicates)
+ * Validate exports by checking duplicate exported names.
  */
 export const validateExports = (
-  sourceFile: ts.SourceFile,
-  _program: TsonicProgram,
+  sourceFile: TstsSourceFile,
+  program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
+  let currentCollector = collector;
   const exportedKinds = new Map<string, "function" | "other">();
+  const module = program.sourceProgram.moduleGraph.getSourceFileModule(sourceFile);
+  if (!module) {
+    return currentCollector;
+  }
 
-  const recordExport = (
-    name: string,
-    kind: "function" | "other",
-    node: ts.Node
-  ): void => {
-    const existingKind = exportedKinds.get(name);
+  for (const binding of module.exports) {
+    const exportedName =
+      binding.exportedName ??
+      (binding.kind === "default" || binding.kind === "export-equals"
+        ? "default"
+        : undefined);
+    if (!exportedName) {
+      continue;
+    }
+
+    const kind =
+      TstsSyntax.IsFunctionDeclaration(binding.bindingNode) ||
+      TstsSyntax.IsFunctionDeclaration(binding.exportNode)
+        ? "function"
+        : "other";
+    const existingKind = exportedKinds.get(exportedName);
     if (existingKind) {
       if (!(existingKind === "function" && kind === "function")) {
-        collector = addDiagnostic(
-          collector,
+        currentCollector = addDiagnostic(
+          currentCollector,
           createDiagnostic(
             "TSN1005",
             "error",
-            `Duplicate export: "${name}"`,
-            getNodeLocation(sourceFile, node)
+            `Duplicate export: "${exportedName}"`,
+            getNodeLocation(
+              sourceFile,
+              binding.bindingNode ?? binding.exportNode ?? sourceFile
+            )
           )
         );
       }
-      return;
-    }
-    exportedKinds.set(name, kind);
-  };
-
-  const visitor = (node: ts.Node): void => {
-    if (ts.isExportDeclaration(node) || ts.isExportAssignment(node)) {
-      // Validate export syntax
-      if (ts.isExportAssignment(node) && !node.isExportEquals) {
-        // export default is allowed
-      } else if (
-        ts.isExportDeclaration(node) &&
-        node.exportClause &&
-        ts.isNamedExports(node.exportClause)
-      ) {
-        node.exportClause.elements.forEach((spec) => {
-          recordExport(spec.name.text, "other", spec);
-        });
-      }
+      continue;
     }
 
-    if (ts.isVariableStatement(node) && hasExportModifier(node)) {
-      node.declarationList.declarations.forEach((decl) => {
-        if (ts.isIdentifier(decl.name)) {
-          recordExport(decl.name.text, "other", decl);
-        }
-      });
-    }
+    exportedKinds.set(exportedName, kind);
+  }
 
-    if (
-      (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) &&
-      hasExportModifier(node)
-    ) {
-      const name = node.name?.text;
-      if (name) {
-        recordExport(
-          name,
-          ts.isFunctionDeclaration(node) ? "function" : "other",
-          node
-        );
-      }
-    }
-
-    ts.forEachChild(node, visitor);
-  };
-
-  visitor(sourceFile);
-  return collector;
+  return currentCollector;
 };

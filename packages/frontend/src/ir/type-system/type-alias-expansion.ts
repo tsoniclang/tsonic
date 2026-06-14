@@ -52,11 +52,44 @@ export const expandReferenceAlias = (
   state: TypeSystemState,
   type: IrReferenceType
 ): IrType | undefined => {
-  const entry = collectAliasResolutionCandidates(state, type)
+  const rightmostTypeName = type.name.includes(".")
+    ? type.name.slice(type.name.lastIndexOf(".") + 1)
+    : undefined;
+  const registryAliasEntry = [
+    type.name,
+    rightmostTypeName,
+    type.typeId?.sourceName,
+    type.providerQualifiedName,
+  ]
+    .filter((name): name is string => name !== undefined)
+    .flatMap((name) => state.typeRegistry.getFQNames(name))
+    .map((fqName) => state.typeRegistry.resolveNominal(fqName))
+    .find((candidate) => candidate?.aliasedType !== undefined);
+
+  const catalogAliasEntry = collectAliasResolutionCandidates(state, type)
     .map((typeId) => state.unifiedCatalog.getByTypeId(typeId))
     .find((candidate) => candidate?.aliasedType);
+  const entry = registryAliasEntry ?? catalogAliasEntry;
   if (!entry?.aliasedType) {
-    return undefined;
+    const sourceCarrierName =
+      catalogAliasEntry?.sourceCarrierName ??
+      (catalogAliasEntry?.iterableShape && type.typeId?.sourceName
+        ? `${type.typeId.sourceName}$instance`
+        : undefined);
+    if (!sourceCarrierName) {
+      return undefined;
+    }
+
+    return {
+      kind: "referenceType",
+      name: sourceCarrierName,
+      ...(type.typeArguments ? { typeArguments: type.typeArguments } : {}),
+      ...(type.providerQualifiedName
+        ? { providerQualifiedName: type.providerQualifiedName }
+        : {}),
+      ...(type.iterableShape ? { iterableShape: type.iterableShape } : {}),
+      structuralOrigin: "namedReference",
+    };
   }
 
   if (

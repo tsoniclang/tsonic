@@ -4,6 +4,7 @@ import type { Node } from "../internal/ast/spine.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import { SymbolName } from "../internal/ast/symbol.js";
 import { SymbolFlagsAlias } from "../internal/ast/symbolflags.js";
+import { KindIdentifier } from "../internal/ast/generated/kinds.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import {
   CheckModeNormal,
@@ -13,6 +14,7 @@ import {
   Checker_isArrayType,
   Checker_GetTypeAtLocation,
 } from "../internal/checker/checker/types.js";
+import { Checker_getNarrowedTypeOfSymbol } from "../internal/checker/checker/flow-narrowing.js";
 import {
   Checker_GetAliasedSymbol,
   Checker_getFullyQualifiedName,
@@ -29,6 +31,7 @@ import {
 } from "../internal/checker/checker/signatures.js";
 import {
   Checker_GetContextualType,
+  Checker_GetElementTypeOfArrayType,
   Checker_GetExportSpecifierLocalTargetSymbol,
   Checker_GetExportsOfModule,
   Checker_GetShorthandAssignmentValueSymbol,
@@ -69,13 +72,18 @@ import {
   Type_Types,
   TypeFlagsAny,
   TypeFlagsBigIntLike,
+  TypeFlagsBigIntLiteral,
   TypeFlagsBooleanLike,
+  TypeFlagsBooleanLiteral,
   TypeFlagsIntersection,
   TypeFlagsNever,
   TypeFlagsNull,
   TypeFlagsNumberLike,
+  TypeFlagsNumberLiteral,
   TypeFlagsObject,
+  TypeFlagsString,
   TypeFlagsStringLike,
+  TypeFlagsStringLiteral,
   TypeFlagsTypeParameter,
   TypeFlagsUndefined,
   TypeFlagsUnknown,
@@ -120,11 +128,25 @@ export type ExtensionTypeChecker = {
   isAnyUnknownVoidNeverOrTypeParameter(type: GoPtr<Type>): boolean;
   isAnyUnknownOrTypeParameter(type: GoPtr<Type>): boolean;
   isAnyOrUnknownType(type: GoPtr<Type>): boolean;
+  isAnyType(type: GoPtr<Type>): boolean;
+  isUnknownType(type: GoPtr<Type>): boolean;
+  isNeverType(type: GoPtr<Type>): boolean;
+  isVoidType(type: GoPtr<Type>): boolean;
+  isUndefinedType(type: GoPtr<Type>): boolean;
+  isNullType(type: GoPtr<Type>): boolean;
   isTypeParameter(type: GoPtr<Type>): boolean;
   isSourceScalarLikeType(type: GoPtr<Type>): boolean;
   isStringLikeType(type: GoPtr<Type>): boolean;
+  isNumberLikeType(type: GoPtr<Type>): boolean;
+  isBooleanLikeType(type: GoPtr<Type>): boolean;
+  isBigIntLikeType(type: GoPtr<Type>): boolean;
+  isStringLiteralType(type: GoPtr<Type>): boolean;
+  isNumberLiteralType(type: GoPtr<Type>): boolean;
+  isBooleanLiteralType(type: GoPtr<Type>): boolean;
+  isBigIntLiteralType(type: GoPtr<Type>): boolean;
   getStringIndexType(type: GoPtr<Type>): GoPtr<Type>;
   getNumberIndexType(type: GoPtr<Type>): GoPtr<Type>;
+  getElementTypeOfArrayType(type: GoPtr<Type>): GoPtr<Type>;
   getPropertyOfType(type: GoPtr<Type>, key: string): GoPtr<Symbol>;
   getProperties(type: GoPtr<Type>): readonly GoPtr<Symbol>[];
   getCallSignatures(type: GoPtr<Type>): readonly GoPtr<Signature>[];
@@ -176,8 +198,19 @@ export const createExtensionTypeChecker = (
 ): ExtensionTypeChecker => ({
   getTypeAtLocation: (node: GoPtr<Node>): GoPtr<Type> =>
     Checker_GetTypeAtLocation(checker, node),
-  getNarrowedTypeAtLocation: (node: GoPtr<Node>): GoPtr<Type> =>
-    Checker_GetTypeAtLocation(checker, node),
+  getNarrowedTypeAtLocation: (node: GoPtr<Node>): GoPtr<Type> => {
+    const declaredType = Checker_GetTypeAtLocation(checker, node);
+    if (node === undefined || node.Kind !== KindIdentifier) {
+      return declaredType;
+    }
+
+    const symbol = Checker_GetSymbolAtLocation(checker, node);
+    if (symbol === undefined) {
+      return declaredType;
+    }
+
+    return Checker_getNarrowedTypeOfSymbol(checker, symbol, node) ?? declaredType;
+  },
   getSymbolAtLocation: (node: GoPtr<Node>): GoPtr<Symbol> =>
     Checker_GetSymbolAtLocation(checker, node),
   resolveAlias: (symbol: GoPtr<Symbol>): GoPtr<Symbol> =>
@@ -264,6 +297,18 @@ export const createExtensionTypeChecker = (
     hasTypeFlags(type, TypeFlagsAny | TypeFlagsUnknown | TypeFlagsTypeParameter),
   isAnyOrUnknownType: (type: GoPtr<Type>): boolean =>
     hasTypeFlags(type, TypeFlagsAny | TypeFlagsUnknown),
+  isAnyType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsAny),
+  isUnknownType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsUnknown),
+  isNeverType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsNever),
+  isVoidType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsVoid),
+  isUndefinedType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsUndefined),
+  isNullType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsNull),
   isTypeParameter: (type: GoPtr<Type>): boolean =>
     hasTypeFlags(type, TypeFlagsTypeParameter),
   isSourceScalarLikeType: (type: GoPtr<Type>): boolean =>
@@ -278,10 +323,27 @@ export const createExtensionTypeChecker = (
     ),
   isStringLikeType: (type: GoPtr<Type>): boolean =>
     hasTypeFlags(type, TypeFlagsStringLike),
+  isNumberLikeType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsNumberLike),
+  isBooleanLikeType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsBooleanLike),
+  isBigIntLikeType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsBigIntLike),
+  isStringLiteralType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsStringLiteral) &&
+    !hasTypeFlags(type, TypeFlagsString),
+  isNumberLiteralType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsNumberLiteral),
+  isBooleanLiteralType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsBooleanLiteral),
+  isBigIntLiteralType: (type: GoPtr<Type>): boolean =>
+    hasTypeFlags(type, TypeFlagsBigIntLiteral),
   getStringIndexType: (type: GoPtr<Type>): GoPtr<Type> =>
     Checker_getIndexTypeOfType(checker, type, checker?.stringType),
   getNumberIndexType: (type: GoPtr<Type>): GoPtr<Type> =>
     Checker_getIndexTypeOfType(checker, type, checker?.numberType),
+  getElementTypeOfArrayType: (type: GoPtr<Type>): GoPtr<Type> =>
+    Checker_GetElementTypeOfArrayType(checker, type),
   getPropertyOfType: (type: GoPtr<Type>, key: string): GoPtr<Symbol> =>
     Checker_GetPropertyOfType(checker, type, key),
   getProperties: (type: GoPtr<Type>): readonly GoPtr<Symbol>[] =>

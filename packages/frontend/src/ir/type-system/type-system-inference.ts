@@ -37,6 +37,7 @@ export {
 // ── Member Type Resolution ───────────────────────────────────────────────
 export {
   typeOfMember,
+  typeOfExternalBoundMember,
   typeOfMemberId,
   parseIndexerKeyTypeName,
   getIndexerInfo,

@@ -7,20 +7,30 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as ts from "typescript";
+import {
+  getTstsNodeText,
+  TstsSyntax,
+  type TstsNode,
+  type TstsSourceFile,
+  visitTstsSubtree,
+} from "@tsonic/tsts";
 import { createProgram } from "../creation.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
 const findSourceFile = (
-  sourceFiles: readonly ts.SourceFile[],
+  sourceFiles: readonly TstsSourceFile[],
   filePath: string
-): ts.SourceFile | undefined =>
+): TstsSourceFile | undefined =>
   sourceFiles.find(
-    (sourceFile) => path.resolve(sourceFile.fileName) === path.resolve(filePath)
+    (sourceFile) =>
+      path.resolve(sourceFile.FileName()) === path.resolve(filePath)
   );
 
-const sourceFilePaths = (sourceFiles: readonly ts.SourceFile[]): string[] =>
-  sourceFiles.map((sourceFile) => path.resolve(sourceFile.fileName));
+const sourceFilePaths = (sourceFiles: readonly TstsSourceFile[]): string[] =>
+  sourceFiles.map((sourceFile) => path.resolve(sourceFile.FileName()));
+
+const expressionText = (node: TstsNode): string | undefined =>
+  getTstsNodeText(node)?.trim();
 
 describe("Program Creation – authoritative type roots", function () {
   this.timeout(90_000);
@@ -55,12 +65,12 @@ describe("Program Creation – authoritative type roots", function () {
 
       const returnTypes = new Map<string, string>();
 
-      const visit = (node: ts.Node): void => {
-        if (
-          ts.isCallExpression(node) &&
-          ts.isPropertyAccessExpression(node.expression)
-        ) {
-          const callee = node.expression.getText(sourceFile);
+      visitTstsSubtree(sourceFile, (node) => {
+        if (!node || !TstsSyntax.IsCallExpression(node)) return;
+        const call = TstsSyntax.AsCallExpression(node);
+        const expression = call?.Expression;
+        if (expression && TstsSyntax.IsPropertyAccessExpression(expression)) {
+          const callee = expressionText(expression);
           if (callee === "path.join" || callee === "process.cwd") {
             returnTypes.set(
               callee,
@@ -70,10 +80,7 @@ describe("Program Creation – authoritative type roots", function () {
             );
           }
         }
-        ts.forEachChild(node, visit);
-      };
-
-      visit(sourceFile);
+      });
 
       expect(returnTypes.get("path.join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
@@ -123,13 +130,16 @@ describe("Program Creation – authoritative type roots", function () {
 
       const returnTypes = new Map<string, string>();
 
-      const visit = (node: ts.Node): void => {
+      visitTstsSubtree(sourceFile, (node) => {
+        if (!node || !TstsSyntax.IsCallExpression(node)) return;
+        const call = TstsSyntax.AsCallExpression(node);
+        const expression = call?.Expression;
         if (
-          ts.isCallExpression(node) &&
-          (ts.isIdentifier(node.expression) ||
-            ts.isPropertyAccessExpression(node.expression))
+          expression &&
+          (TstsSyntax.IsIdentifier(expression) ||
+            TstsSyntax.IsPropertyAccessExpression(expression))
         ) {
-          const callee = node.expression.getText(sourceFile);
+          const callee = expressionText(expression);
           if (callee === "join" || callee === "process.cwd") {
             returnTypes.set(
               callee,
@@ -139,10 +149,7 @@ describe("Program Creation – authoritative type roots", function () {
             );
           }
         }
-        ts.forEachChild(node, visit);
-      };
-
-      visit(sourceFile);
+      });
 
       expect(returnTypes.get("join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
@@ -190,7 +197,7 @@ describe("Program Creation – authoritative type roots", function () {
       if (!result.ok) return;
 
       const programFiles = result.value.sourceFiles.map((sourceFile) =>
-        path.resolve(sourceFile.fileName)
+        path.resolve(sourceFile.FileName())
       );
       expect(programFiles).to.include(pathEntry);
       expect(programFiles).to.not.include(unusedEntry);

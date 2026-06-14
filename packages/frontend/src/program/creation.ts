@@ -5,7 +5,6 @@
 export {
   scanForDeclarationFiles,
   collectProjectIncludedDeclarationFiles,
-  createCompilerOptions,
 } from "./core-declarations.js";
 
 export { createProgram } from "./program-factory.js";

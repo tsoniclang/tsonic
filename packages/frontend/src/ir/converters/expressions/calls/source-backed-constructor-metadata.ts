@@ -1,5 +1,16 @@
 import fs from "node:fs";
-import * as ts from "typescript";
+import {
+  getTstsContainingSourceFile,
+  getTstsContainingSourceFileName,
+  getTstsIdentifierText,
+  getTstsNodeText,
+  getTstsStatementNodes,
+  isTstsDeclarationFileNode,
+  parseTstsSourceFile,
+  TstsSyntax,
+  type TstsNode,
+  type TstsSourceFile,
+} from "@tsonic/tsts";
 import type { IrNewExpression, IrType } from "../../../types.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { substituteTypeParameters } from "./call-site-analysis.js";
@@ -14,6 +25,14 @@ import {
 import { addUndefinedToType } from "../../../type-system/type-system-state-helpers.js";
 import { resolveImport } from "../../../../resolver/import-resolution.js";
 import { externalSurfaceTypesMatch } from "../../../../program/external-surface-type-identity.js";
+
+const definedNodes = (
+  nodes: readonly (TstsNode | undefined)[] | undefined
+): readonly TstsNode[] =>
+  nodes?.filter((node): node is TstsNode => node !== undefined) ?? [];
+
+const statementNodesOf = (sourceFile: TstsSourceFile): readonly TstsNode[] =>
+  definedNodes(getTstsStatementNodes(sourceFile));
 
 export type SourceBackedConstructorParameterTypes = {
   readonly parameterTypes: readonly (IrType | undefined)[];
@@ -30,7 +49,7 @@ export type SourceBackedConstructorParameterTypes = {
 const getSourceFileForPath = (
   sourceFilePath: string,
   ctx: ProgramContext
-): ts.SourceFile | undefined => {
+): TstsSourceFile | undefined => {
   const normalizedSourceFilePath = sourceFilePath.replace(/\\/g, "/");
   const realSourceFilePath = (() => {
     try {
@@ -53,13 +72,9 @@ const getSourceFileForPath = (
     return undefined;
   }
 
-  return ts.createSourceFile(
-    sourceFilePath,
-    fs.readFileSync(sourceFilePath, "utf-8"),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
+  return parseTstsSourceFile(fs.readFileSync(sourceFilePath, "utf-8"), {
+    fileName: sourceFilePath,
+  });
 };
 
 const targetBindingTypesMatch = (left: string, right: string): boolean =>
@@ -80,9 +95,9 @@ const resolveImportForContext = (
   });
 
 const resolveReferencedClassDeclaration = (
-  expression: ts.Expression,
+  expression: TstsNode,
   ctx: ProgramContext
-): ts.ClassDeclaration | undefined => {
+): TstsNode | undefined => {
   const symbol = ctx.sourceSemantics.getSymbol(expression);
   if (!symbol) {
     return undefined;
@@ -91,164 +106,171 @@ const resolveReferencedClassDeclaration = (
   const declaration = ctx.sourceSemantics
     .getSymbolDeclarations(symbol)
     .find((candidate) =>
-    ts.isClassDeclaration(candidate)
+      candidate.Kind === TstsSyntax.KindClassDeclaration
     );
-  return declaration && ts.isClassDeclaration(declaration)
+  return declaration?.Kind === TstsSyntax.KindClassDeclaration
     ? declaration
     : undefined;
 };
 
-const getDeclarationTypeNode = (
-  declaration: ts.Declaration
-): ts.TypeNode | undefined => {
-  if (ts.isVariableDeclaration(declaration)) {
-    return declaration.type;
-  }
-  if (
-    ts.isPropertySignature(declaration) ||
-    ts.isPropertyDeclaration(declaration)
-  ) {
-    return declaration.type;
-  }
-  return undefined;
-};
+const getDeclarationTypeNode = (declaration: TstsNode): TstsNode | undefined =>
+  declaration.Kind === TstsSyntax.KindVariableDeclaration ||
+  declaration.Kind === TstsSyntax.KindPropertySignature ||
+  declaration.Kind === TstsSyntax.KindPropertyDeclaration
+    ? TstsSyntax.Node_Type(declaration)
+    : undefined;
 
-const readEntityNameText = (name: ts.Node): string => {
-  if (ts.isIdentifier(name)) {
-    return name.text;
+const readEntityNameText = (name: TstsNode): string => {
+  if (name.Kind === TstsSyntax.KindIdentifier) {
+    return getTstsIdentifierText(name) ?? "";
   }
-  if (ts.isQualifiedName(name)) {
-    return `${readEntityNameText(name.left)}.${name.right.text}`;
+  if (name.Kind === TstsSyntax.KindQualifiedName) {
+    const qualifiedName = TstsSyntax.AsQualifiedName(name);
+    if (!qualifiedName?.Left || !qualifiedName.Right) return "";
+    return `${readEntityNameText(qualifiedName.Left)}.${getTstsIdentifierText(qualifiedName.Right) ?? ""}`;
   }
-  if (ts.isPropertyAccessExpression(name)) {
-    return `${readEntityNameText(name.expression)}.${name.name.text}`;
+  if (name.Kind === TstsSyntax.KindPropertyAccessExpression) {
+    const propertyAccess = TstsSyntax.AsPropertyAccessExpression(name);
+    if (!propertyAccess?.Expression) return "";
+    return `${readEntityNameText(propertyAccess.Expression)}.${getTstsIdentifierText(propertyAccess.name) ?? ""}`;
   }
-  return ts.isStringLiteral(name) ? name.text : name.getText();
+  return name.Kind === TstsSyntax.KindStringLiteral
+    ? (getTstsIdentifierText(name) ?? TstsSyntax.Node_Text(name))
+    : (getTstsNodeText(name) ?? "");
 };
 
 const extractImportTypeTarget = (
-  declaration: ts.Declaration
+  declaration: TstsNode,
+  ctx: ProgramContext
 ): { readonly specifier: string; readonly exportName: string } | undefined => {
   const typeNode = getDeclarationTypeNode(declaration);
   if (!typeNode) {
     return undefined;
   }
 
-  if (ts.isImportTypeNode(typeNode) && typeNode.isTypeOf) {
+  const importType =
+    typeNode.Kind === TstsSyntax.KindImportType
+      ? TstsSyntax.AsImportTypeNode(typeNode)
+      : undefined;
+  if (importType?.IsTypeOf) {
+    const argument = importType.Argument;
+    const literalType =
+      argument?.Kind === TstsSyntax.KindLiteralType
+        ? TstsSyntax.AsLiteralTypeNode(argument)
+        : undefined;
     const literal =
-      ts.isLiteralTypeNode(typeNode.argument) &&
-      ts.isStringLiteral(typeNode.argument.literal)
-        ? typeNode.argument.literal
+      argument?.Kind === TstsSyntax.KindLiteralType &&
+      literalType?.Literal?.Kind === TstsSyntax.KindStringLiteral
+        ? literalType.Literal
         : undefined;
     if (!literal) {
       return undefined;
     }
 
-    const exportName = typeNode.qualifier
-      ? readEntityNameText(typeNode.qualifier).trim()
+    const exportName = importType.Qualifier
+      ? readEntityNameText(importType.Qualifier).trim()
       : undefined;
     if (!exportName) {
       return undefined;
     }
 
     return {
-      specifier: literal.text,
+      specifier: TstsSyntax.Node_Text(literal),
       exportName,
     };
   }
 
-  if (!ts.isTypeQueryNode(typeNode)) {
+  if (typeNode.Kind !== TstsSyntax.KindTypeQuery) {
     return undefined;
   }
 
-  const exprName = typeNode.exprName;
-  const rootIdentifier = ts.isIdentifier(exprName)
-    ? exprName
-    : ts.isQualifiedName(exprName)
-      ? exprName.left
-      : undefined;
-  if (!rootIdentifier || !ts.isIdentifier(rootIdentifier)) {
+  const exprName = TstsSyntax.AsTypeQueryNode(typeNode)?.ExprName;
+  if (!exprName) return undefined;
+  const rootIdentifier =
+    exprName.Kind === TstsSyntax.KindIdentifier
+      ? exprName
+      : exprName.Kind === TstsSyntax.KindQualifiedName
+        ? TstsSyntax.AsQualifiedName(exprName)?.Left
+        : undefined;
+  if (!rootIdentifier || rootIdentifier.Kind !== TstsSyntax.KindIdentifier) {
     return undefined;
   }
 
-  const sourceFile = declaration.getSourceFile();
-  for (const statement of sourceFile.statements) {
-    if (
-      !ts.isImportDeclaration(statement) ||
-      !statement.importClause ||
-      !statement.moduleSpecifier ||
-      !ts.isStringLiteral(statement.moduleSpecifier)
-    ) {
-      continue;
-    }
-
-    const namedBindings = statement.importClause.namedBindings;
-    if (!namedBindings || !ts.isNamedImports(namedBindings)) {
-      continue;
-    }
-
-    for (const element of namedBindings.elements) {
-      if (element.name.text !== rootIdentifier.text) {
-        continue;
-      }
-
-      return {
-        specifier: statement.moduleSpecifier.text,
-        exportName: element.propertyName?.text ?? element.name.text,
-      };
-    }
+  const sourceFile = getTstsContainingSourceFile(declaration);
+  if (!sourceFile) return undefined;
+  const rootIdentifierName = getTstsIdentifierText(rootIdentifier);
+  if (!rootIdentifierName) {
+    return undefined;
   }
 
-  return undefined;
+  const importBinding = ctx.moduleGraph.getImportBinding(
+    sourceFile,
+    rootIdentifierName
+  );
+  if (!importBinding || importBinding.kind !== "named") {
+    return undefined;
+  }
+
+  const importModule = ctx.moduleGraph
+    .getImports(sourceFile)
+    .find((candidate) =>
+      candidate.bindings.some((binding) => binding === importBinding)
+    );
+  if (!importModule) {
+    return undefined;
+  }
+
+  return {
+    specifier: importModule.specifier,
+    exportName: importBinding.importedName,
+  };
 };
 
 const collectTopLevelClassDeclarations = (
-  sourceFile: ts.SourceFile
-): ReadonlyMap<string, ts.ClassDeclaration> => {
-  const classes = new Map<string, ts.ClassDeclaration>();
-  for (const statement of sourceFile.statements) {
-    if (ts.isClassDeclaration(statement) && statement.name?.text) {
-      classes.set(statement.name.text, statement);
+  sourceFile: TstsSourceFile
+): ReadonlyMap<string, TstsNode> => {
+  const classes = new Map<string, TstsNode>();
+  for (const statement of statementNodesOf(sourceFile)) {
+    if (statement.Kind === TstsSyntax.KindClassDeclaration) {
+      const name = getTstsIdentifierText(TstsSyntax.Node_Name(statement));
+      if (name) classes.set(name, statement);
     }
   }
   return classes;
 };
 
 const resolveSourceBackedConstructedClassDeclaration = (opts: {
-  readonly sourceNode: ts.Node;
-  readonly constructorExpression?: ts.Expression;
+  readonly sourceNode: TstsNode;
+  readonly constructorExpression?: TstsNode;
   readonly callee: IrNewExpression["callee"];
   readonly ctx: ProgramContext;
-}): ts.ClassDeclaration | undefined => {
+}): TstsNode | undefined => {
   const { sourceNode, constructorExpression, callee, ctx } = opts;
   if (constructorExpression) {
     const referencedClass = resolveReferencedClassDeclaration(
       constructorExpression,
       ctx
     );
-    if (referencedClass && !referencedClass.getSourceFile().isDeclarationFile) {
+    if (referencedClass && !isTstsDeclarationFileNode(referencedClass)) {
       return referencedClass;
     }
   }
 
-  const ambientSymbol =
-    callee.kind === "identifier"
-      ? ctx.sourceSemantics
-          .getSymbolsInScope(sourceNode, ts.SymbolFlags.Value)
-          .find((symbol) => symbol.name === callee.name)
-      : undefined;
-  if (ambientSymbol) {
+  const constructorSymbol = constructorExpression
+    ? ctx.sourceSemantics.getSymbol(constructorExpression)
+    : undefined;
+  if (constructorSymbol) {
     for (const declaration of ctx.sourceSemantics.getSymbolDeclarations(
-      ambientSymbol
+      constructorSymbol
     )) {
-      const target = extractImportTypeTarget(declaration);
+      const target = extractImportTypeTarget(declaration, ctx);
       if (!target) {
         continue;
       }
 
       const resolved = resolveImportForContext(
         target.specifier,
-        declaration.getSourceFile().fileName,
+        getTstsContainingSourceFileName(declaration) ?? ctx.sourceRoot,
         ctx
       );
       if (!resolved.ok || !resolved.value.resolvedPath) {
@@ -256,7 +278,7 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
       }
 
       const sourceFile = getSourceFileForPath(resolved.value.resolvedPath, ctx);
-      if (!sourceFile || sourceFile.isDeclarationFile) {
+      if (!sourceFile || sourceFile.IsDeclarationFile) {
         continue;
       }
 
@@ -289,7 +311,7 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
 
   const resolved = resolveImportForContext(
     binding.sourceImport,
-    sourceNode.getSourceFile().fileName,
+    getTstsContainingSourceFileName(sourceNode) ?? ctx.sourceRoot,
     ctx
   );
   if (!resolved.ok || !resolved.value.resolvedPath) {
@@ -297,7 +319,7 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
   }
 
   const sourceFile = getSourceFileForPath(resolved.value.resolvedPath, ctx);
-  if (!sourceFile || sourceFile.isDeclarationFile) {
+  if (!sourceFile || sourceFile.IsDeclarationFile) {
     return undefined;
   }
 
@@ -305,8 +327,8 @@ const resolveSourceBackedConstructedClassDeclaration = (opts: {
 };
 
 export const buildSourceBackedConstructorParameterTypes = (opts: {
-  readonly sourceNode: ts.Node;
-  readonly constructorExpression?: ts.Expression;
+  readonly sourceNode: TstsNode;
+  readonly constructorExpression?: TstsNode;
   readonly callee: IrNewExpression["callee"];
   readonly constructedType: IrType | undefined;
   readonly argumentCount: number;
@@ -332,10 +354,10 @@ export const buildSourceBackedConstructorParameterTypes = (opts: {
     return undefined;
   }
 
-  const declaration = ownerClass.members.find((member) =>
-    ts.isConstructorDeclaration(member)
+  const declaration = definedNodes(TstsSyntax.Node_Members(ownerClass)).find(
+    (member) => member.Kind === TstsSyntax.KindConstructor
   );
-  if (!declaration || !ts.isConstructorDeclaration(declaration)) {
+  if (!declaration || declaration.Kind !== TstsSyntax.KindConstructor) {
     return {
       parameterTypes: [],
       surfaceParameterTypes: [],
@@ -344,7 +366,10 @@ export const buildSourceBackedConstructorParameterTypes = (opts: {
   }
 
   const ownerTypeParameterNames =
-    ownerClass.typeParameters?.map((parameter) => parameter.name.text) ?? [];
+    definedNodes(TstsSyntax.Node_TypeParameters(ownerClass)).flatMap((parameter) => {
+      const name = getTstsIdentifierText(TstsSyntax.Node_Name(parameter));
+      return name ? [name] : [];
+    });
   const ownerSubstitution =
     constructedType?.kind === "referenceType" &&
     constructedType.typeArguments?.length === ownerTypeParameterNames.length &&
@@ -357,10 +382,12 @@ export const buildSourceBackedConstructorParameterTypes = (opts: {
         )
       : undefined;
 
-  const declaredParameterTypes = declaration.parameters.map((parameter) => {
-    const declaredType = parameter.type
+  const parameters = definedNodes(TstsSyntax.Node_Parameters(declaration));
+  const declaredParameterTypes = parameters.map((parameter) => {
+    const declaredTypeNode = TstsSyntax.Node_Type(parameter);
+    const declaredType = declaredTypeNode
       ? ctx.typeSystem.typeFromSyntax(
-          ctx.binding.captureTypeSyntax(parameter.type)
+          ctx.binding.captureTypeSyntax(declaredTypeNode)
         )
       : ({ kind: "unknownType" } as const);
     const specializedType =
@@ -368,14 +395,15 @@ export const buildSourceBackedConstructorParameterTypes = (opts: {
         ? (substituteTypeParameters(declaredType, ownerSubstitution) ??
           declaredType)
         : declaredType;
-    return parameter.questionToken
+    return TstsSyntax.Node_QuestionToken(parameter)
       ? addUndefinedToType(specializedType)
       : specializedType;
   });
 
   const expandedDeclaredParameterTypes = expandParameterTypesForArguments(
-    declaration.parameters.map((parameter) => ({
-      isRest: !!parameter.dotDotDotToken,
+    parameters.map((parameter) => ({
+      isRest:
+        TstsSyntax.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined,
     })),
     declaredParameterTypes,
     argumentCount
@@ -403,8 +431,10 @@ export const buildSourceBackedConstructorParameterTypes = (opts: {
     ),
     surfaceParameterTypes,
     restParameter: buildResolvedRestParameter(
-      declaration.parameters.map((parameter) => ({
-        isRest: !!parameter.dotDotDotToken,
+      parameters.map((parameter) => ({
+        isRest:
+          TstsSyntax.AsParameterDeclaration(parameter)?.DotDotDotToken !==
+          undefined,
       })),
       surfaceParameterTypes
     ),

@@ -2,7 +2,7 @@
  * Array literal expression converters
  */
 
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import { IrArrayExpression, IrType, IrExpression } from "../../types.js";
 import {
   containsTypeParameter,
@@ -30,11 +30,11 @@ export const isNullishPrimitive = (type: IrType): boolean =>
  * 3. Any float64 present → double
  * 4. String literals → string
  * 5. Boolean literals → boolean
- * 6. Mixed or complex → fall back to TS inference
+ * 6. Mixed or complex → use the TSTS/contextual element type when available
  */
 const computeArrayElementType = (
   elements: readonly (IrExpression | undefined)[],
-  fallbackType: IrType | undefined
+  contextualElementType: IrType | undefined
 ): IrType | undefined => {
   const mergeElementTypes = (types: readonly IrType[]): IrType | undefined => {
     if (types.length === 0) return undefined;
@@ -132,8 +132,7 @@ const computeArrayElementType = (
   );
 
   if (regularElements.length === 0 && spreadElements.length === 0) {
-    // Empty array - use fallback
-    return fallbackType;
+    return contextualElementType;
   }
 
   // Check if all elements are numeric literals
@@ -184,9 +183,9 @@ const computeArrayElementType = (
     ) {
       return { kind: "primitiveType", name: "number" };
     }
-    // Any int64/uint64 → fall back to TS inference (no primitive for long)
+    // Any int64/uint64 → use the contextual element type when present.
     if (numericIntents.includes("int64") || numericIntents.includes("uint64")) {
-      return fallbackType;
+      return contextualElementType;
     }
     // All int32 or smaller → int
     return { kind: "primitiveType", name: "int" };
@@ -202,7 +201,6 @@ const computeArrayElementType = (
     return { kind: "primitiveType", name: "boolean" };
   }
 
-  // Mixed or complex - fall back to TS inference
   // If all elements have a deterministically known IR type and they match, use it.
   // This enables arrays like `[wrap(1), wrap(2)]` to infer `Container<int>[]`
   // instead of defaulting to `number[]`.
@@ -210,7 +208,7 @@ const computeArrayElementType = (
   for (const elem of regularElements) {
     const t = elem.inferredType;
     if (!t) {
-      return fallbackType;
+      return contextualElementType;
     }
     knownTypes.push(t);
   }
@@ -220,7 +218,7 @@ const computeArrayElementType = (
       spread.expression.inferredType
     );
     if (!spreadTypes) {
-      return fallbackType;
+      return contextualElementType;
     }
     knownTypes.push(...spreadTypes);
   }
@@ -230,7 +228,7 @@ const computeArrayElementType = (
     return merged;
   }
 
-  return fallbackType;
+  return contextualElementType;
 };
 
 export const normalizeExpectedArrayType = (
@@ -422,7 +420,7 @@ const normalizeExpectedTupleType = (
  *                       Pass `undefined` explicitly when no contextual type exists.
  */
 export const convertArrayLiteral = (
-  node: ts.ArrayLiteralExpression,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): IrArrayExpression => {
@@ -431,18 +429,26 @@ export const convertArrayLiteral = (
 
   // Determine element expected type from array expected type
   // Convert all elements, passing expected element type for contextual typing
-  const elements = node.elements.map((elem, index) => {
+  const elements = (TstsSyntax.Node_Elements(node) ?? []).map((elem, index) => {
+    if (!elem) {
+      return undefined;
+    }
     const expectedElementType =
       contextualTupleType?.elementTypes[index] ??
       contextualArrayType?.elementType;
 
-    if (ts.isOmittedExpression(elem)) {
+    if (elem.Kind === TstsSyntax.KindOmittedExpression) {
       return undefined; // Hole in sparse array
     }
-    if (ts.isSpreadElement(elem)) {
+    if (elem.Kind === TstsSyntax.KindSpreadElement) {
       // Spread element - convert and derive type from expression
+      const spreadData = TstsSyntax.AsSpreadElement(elem);
+      const spreadSource = spreadData?.Expression;
+      if (!spreadSource) {
+        return undefined;
+      }
       const spreadExpr = convertExpression(
-        elem.expression,
+        spreadSource,
         ctx,
         contextualTupleType ?? expectedType
       );

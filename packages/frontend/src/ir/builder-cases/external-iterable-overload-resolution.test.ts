@@ -1702,7 +1702,7 @@ describe("IR Builder", function () {
             type: "module",
           }),
           "src/index.ts": [
-            'import { char, int } from "@tsonic/core/types.js";',
+            'import type { char, int } from "@tsonic/core/types.js";',
             'import { Assert } from "xunit-types/Xunit.js";',
             "",
             "declare class EventEmitter {",
@@ -1836,7 +1836,7 @@ describe("IR Builder", function () {
             type: "module",
           }),
           "src/index.ts": [
-            'import { int } from "@tsonic/core/types.js";',
+            'import type { int } from "@tsonic/core/types.js";',
             'import { Assert } from "xunit-types/Xunit.js";',
             "",
             "declare class Holder {",

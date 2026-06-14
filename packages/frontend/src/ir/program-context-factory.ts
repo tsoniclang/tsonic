@@ -7,7 +7,8 @@
 
 import * as fs from "node:fs";
 import * as path from "path";
-import * as ts from "typescript";
+import { TstsSyntax } from "@tsonic/tsts";
+import type { TstsNode, TstsSourceFile, TstsSymbol } from "@tsonic/tsts";
 import type { BindingInternal } from "./binding/index.js";
 import type { BindingRegistry } from "../program/bindings.js";
 import { simpleBindingContributesTypeIdentity } from "../program/binding-registry.js";
@@ -37,10 +38,8 @@ import {
 import { resolveSurfaceCapabilities } from "../surface/profiles.js";
 import {
   getProgramAllSourceFiles,
-  getProgramCompilerOptions,
   getProgramDeclarationSourceFiles,
   getProgramSourceFiles,
-  getProgramTargetSurfaceArtifacts,
   getProgramTargetSurfaceProvider,
 } from "../program/queries.js";
 
@@ -69,6 +68,11 @@ const withSimpleTypeAliases = (
   };
 };
 
+const toTstsNode = (node: unknown): TstsNode | undefined =>
+  typeof node === "object" && node !== null && "Kind" in node
+    ? (node as TstsNode)
+    : undefined;
+
 /**
  * Create a ProgramContext for a compilation.
  *
@@ -94,7 +98,7 @@ export const createProgramContext = (
       authoritativePackageRoots: program.authoritativeTsonicPackageRoots,
     });
   const genericFunctionValueSymbols = (() => {
-    const symbols = new Set<ts.Symbol>();
+    const symbols = new Set<TstsSymbol>();
 
     for (const sourceFile of getProgramSourceFiles(program)) {
       const writtenSymbols = collectWrittenSymbols(
@@ -110,7 +114,7 @@ export const createProgramContext = (
       }
     }
 
-    return symbols as ReadonlySet<ts.Symbol>;
+    return symbols as ReadonlySet<TstsSymbol>;
   })();
   // Build TypeRegistry from all source files INCLUDING declaration files from typeRoots
   // Declaration files contain globals (String, Array, etc.) needed for method resolution
@@ -130,12 +134,12 @@ export const createProgramContext = (
   const packageHasMetadataCache = new Map<string, boolean>();
   const projectRootResolved = path.resolve(program.options.projectRoot);
 
-  const programSourceFiles = getProgramSourceFiles(program);
   const programDeclarationSourceFiles =
     getProgramDeclarationSourceFiles(program);
+  const semanticSourceFiles = getProgramAllSourceFiles(program);
   const declarationSourceFiles = programDeclarationSourceFiles.filter((sf) => {
     const pkgRoot = findPackageRootForFile(
-      sf.fileName,
+      sf.FileName(),
       projectRootResolved,
       packageRootCache
     );
@@ -151,11 +155,16 @@ export const createProgramContext = (
     );
   });
 
-  const catalogSourceFiles = [...programSourceFiles, ...declarationSourceFiles];
-  const lookupSourceFiles = getProgramAllSourceFiles(program);
-  const sourceFilesByPath = new Map<string, ts.SourceFile>(
+  const catalogSourceFiles = [
+    ...semanticSourceFiles.filter(
+      (sourceFile) => sourceFile.IsDeclarationFile !== true
+    ),
+    ...declarationSourceFiles,
+  ];
+  const lookupSourceFiles = semanticSourceFiles;
+  const sourceFilesByPath = new Map<string, TstsSourceFile>(
     lookupSourceFiles.map((sourceFile) => [
-      sourceFile.fileName.replace(/\\/g, "/"),
+      sourceFile.FileName().replace(/\\/g, "/"),
       sourceFile,
     ])
   );
@@ -174,14 +183,14 @@ export const createProgramContext = (
   );
   const extraPackageRoots: string[] = [];
 
-  // Any declaration package participating in the TypeScript program must also
+  // Any declaration package participating in the TSTS source program must also
   // contribute its external metadata to the catalog. This is the generic
   // rule that keeps ambient surface packages and normal declaration packages in
   // sync: if a package's .d.ts files are in the program, its bindings metadata
   // must be in the universe.
   for (const sourceFile of programDeclarationSourceFiles) {
     const pkgRoot = findPackageRootForFile(
-      sourceFile.fileName,
+      sourceFile.FileName(),
       projectRootResolved,
       packageRootCache
     );
@@ -248,30 +257,37 @@ export const createProgramContext = (
     // Unified catalog for external/source type lookups
     unifiedCatalog,
     aliasTable,
-    resolveIdentifier: (node: unknown) =>
-      ts.isIdentifier(node as ts.Node)
-        ? program.binding.resolveIdentifier(node as ts.Identifier)
-        : undefined,
-    resolveTypeReference: (node: unknown) =>
-      ts.isTypeReferenceNode(node as ts.Node)
-        ? program.binding.resolveTypeReference(node as ts.TypeReferenceNode)
-        : undefined,
-    resolveShorthandAssignment: (node: unknown) =>
-      ts.isShorthandPropertyAssignment(node as ts.Node)
-        ? program.binding.resolveShorthandAssignment(
-            node as ts.ShorthandPropertyAssignment
-          )
-        : undefined,
-    resolveCallSignature: (node: unknown) =>
-      ts.isCallExpression(node as ts.Node)
-        ? program.binding.resolveCallSignature(node as ts.CallExpression)
-        : undefined,
-    resolveConstructorSignature: (node: unknown) =>
-      ts.isNewExpression(node as ts.Node)
-        ? program.binding.resolveConstructorSignature(node as ts.NewExpression)
-        : undefined,
+    resolveIdentifier: (node: unknown) => {
+      const tstsNode = toTstsNode(node);
+      return tstsNode && TstsSyntax.IsIdentifier(tstsNode)
+        ? program.binding.resolveIdentifier(tstsNode)
+        : undefined;
+    },
+    resolveTypeReference: (node: unknown) => {
+      const tstsNode = toTstsNode(node);
+      return tstsNode && TstsSyntax.IsTypeReferenceNode(tstsNode)
+        ? program.binding.resolveTypeReference(tstsNode)
+        : undefined;
+    },
+    resolveShorthandAssignment: (node: unknown) => {
+      const tstsNode = toTstsNode(node);
+      return tstsNode && TstsSyntax.IsShorthandPropertyAssignment(tstsNode)
+        ? program.binding.resolveShorthandAssignment(tstsNode)
+        : undefined;
+    },
+    resolveCallSignature: (node: unknown) => {
+      const tstsNode = toTstsNode(node);
+      return tstsNode && TstsSyntax.IsCallExpression(tstsNode)
+        ? program.binding.resolveCallSignature(tstsNode)
+        : undefined;
+    },
+    resolveConstructorSignature: (node: unknown) => {
+      const tstsNode = toTstsNode(node);
+      return tstsNode && TstsSyntax.IsNewExpression(tstsNode)
+        ? program.binding.resolveConstructorSignature(tstsNode)
+        : undefined;
+    },
     sourceSemantics: program.sourceSemantics,
-    tsCompilerOptions: getProgramCompilerOptions(program),
     sourceFilesByPath,
   });
   return {
@@ -284,15 +300,14 @@ export const createProgramContext = (
     surface: program.options.surface ?? "core",
     surfaceCapabilities,
     sourceSemantics: program.sourceSemantics,
+    moduleGraph: program.sourceProgram.moduleGraph,
     genericFunctionValueSymbols,
-    tsCompilerOptions: getProgramCompilerOptions(program),
     sourceFilesByPath,
     binding: program.binding,
     typeSystem,
     metadata: program.metadata,
     bindings: program.bindings,
     externalResolver: program.externalResolver,
-    targetSurfaceArtifacts: getProgramTargetSurfaceArtifacts(program),
     targetSurfaceProvider: getProgramTargetSurfaceProvider(program),
     diagnostics: [],
   };

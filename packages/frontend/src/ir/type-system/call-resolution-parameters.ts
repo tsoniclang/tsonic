@@ -64,8 +64,8 @@ const getExpandedRestArgumentType = (
     if (direct) {
       return direct;
     }
-    const fallback = restType.elementTypes[restType.elementTypes.length - 1];
-    return fallback ?? restType;
+    const repeatedTail = restType.elementTypes[restType.elementTypes.length - 1];
+    return repeatedTail ?? restType;
   }
 
   if (

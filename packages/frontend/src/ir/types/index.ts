@@ -186,6 +186,7 @@ export {
   NUMERIC_KIND_TO_TYPE_ALIAS,
   NUMERIC_RANGES,
   numericTypeFactFromName,
+  numericKindFromFact,
   booleanTypeFactFromName,
   primitiveTypeFactFromName,
   isIntegerKind,

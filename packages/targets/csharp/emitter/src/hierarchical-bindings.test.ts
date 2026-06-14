@@ -5,17 +5,12 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as ts from "typescript";
 import {
   buildIrModule,
-  ExternalMetadataRegistry,
   BindingRegistry,
-  createExternalBindingsResolver,
-  createBinding,
   createProgramContext,
-  createEmptyTstsSourceProgramForTests,
 } from "@tsonic/frontend";
-import { createTypeScriptSemanticView } from "@tsonic/frontend/testing/typescript-semantic-view.js";
+import { createInlineTstsTestProgram } from "@tsonic/frontend/testing/tsts-test-program.js";
 import { emitModule } from "./emitter.js";
 
 describe("Hierarchical Bindings - Full Pipeline", () => {
@@ -62,64 +57,30 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       targetSurface: { types: [] },
     });
 
-    // Create TypeScript program
     const fileName = "/test/sample.ts";
-    const sourceFile = ts.createSourceFile(
-      fileName,
-      source,
-      ts.ScriptTarget.ES2022,
-      true,
-      ts.ScriptKind.TS
-    );
-
-    const program = ts.createProgram(
-      [fileName],
-      {
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ES2022,
-      },
-      {
-        getSourceFile: (name) => (name === fileName ? sourceFile : undefined),
-        writeFile: () => {},
-        getCurrentDirectory: () => "/test",
-        getDirectories: () => [],
-        fileExists: () => true,
-        readFile: () => source,
-        getCanonicalFileName: (f) => f,
-        useCaseSensitiveFileNames: () => true,
-        getNewLine: () => "\n",
-        getDefaultLibFileName: (_options) => "lib.d.ts",
-      }
-    );
-
-    const checker = program.getTypeChecker();
-    const sourceSemantics = createTypeScriptSemanticView(checker);
-    const testProgram = {
-      tsCompilerOptions: program.getCompilerOptions(),
-      binding: createBinding(sourceSemantics),
-      options: {
-        projectRoot: "/test",
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-        strict: true,
-      },
-      sourceFiles: [sourceFile],
-      declarationSourceFiles: [],
-      sourceProgram: createEmptyTstsSourceProgramForTests(),
-      sourceSemantics,
-      metadata: new ExternalMetadataRegistry(),
+    const testProgram = createInlineTstsTestProgram(source, {
       bindings,
-      externalResolver: createExternalBindingsResolver("/test"),
-    };
+      fileName,
+      rootNamespace: "TestApp",
+    });
 
     // Phase 5: Create ProgramContext for this compilation
-    const options = { sourceRoot: "/test", rootNamespace: "TestApp" };
+    const options = {
+      sourceRoot: testProgram.options.sourceRoot,
+      rootNamespace: testProgram.options.rootNamespace ?? "TestApp",
+    };
     const ctx = createProgramContext(testProgram, options);
 
     // Step 1: Build IR
-    const irResult = buildIrModule(sourceFile, testProgram, options, ctx);
+    const irResult = buildIrModule(
+      testProgram.sourceFile,
+      testProgram,
+      options,
+      ctx
+    );
 
     if (!irResult.ok) {
+      testProgram.cleanup();
       throw new Error(
         `IR build must succeed for full pipeline test: ${JSON.stringify(irResult.error)}`
       );
@@ -156,6 +117,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       "public static void processData(",
       "C# should have processData function"
     );
+    testProgram.cleanup();
   });
 
   it("should handle multiple hierarchical bindings in same code", () => {
@@ -218,60 +180,28 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     });
 
     const fileName = "/test/multi.ts";
-    const sourceFile = ts.createSourceFile(
-      fileName,
-      source,
-      ts.ScriptTarget.ES2022,
-      true
-    );
-
-    const program = ts.createProgram(
-      [fileName],
-      {
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ES2022,
-      },
-      {
-        getSourceFile: (name) => (name === fileName ? sourceFile : undefined),
-        writeFile: () => {},
-        getCurrentDirectory: () => "/test",
-        getDirectories: () => [],
-        fileExists: () => true,
-        readFile: () => source,
-        getCanonicalFileName: (f) => f,
-        useCaseSensitiveFileNames: () => true,
-        getNewLine: () => "\n",
-        getDefaultLibFileName: (_options) => "lib.d.ts",
-      }
-    );
-
-    const checker2 = program.getTypeChecker();
-    const sourceSemantics = createTypeScriptSemanticView(checker2);
-    const testProgram = {
-      tsCompilerOptions: program.getCompilerOptions(),
-      binding: createBinding(sourceSemantics),
-      options: {
-        projectRoot: "/test",
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-        strict: true,
-      },
-      sourceFiles: [sourceFile],
-      declarationSourceFiles: [],
-      sourceProgram: createEmptyTstsSourceProgramForTests(),
-      sourceSemantics,
-      metadata: new ExternalMetadataRegistry(),
+    const testProgram = createInlineTstsTestProgram(source, {
       bindings,
-      externalResolver: createExternalBindingsResolver("/test"),
-    };
+      fileName,
+      rootNamespace: "TestApp",
+    });
 
     // Phase 5: Create ProgramContext for this compilation
-    const options = { sourceRoot: "/test", rootNamespace: "TestApp" };
+    const options = {
+      sourceRoot: testProgram.options.sourceRoot,
+      rootNamespace: testProgram.options.rootNamespace ?? "TestApp",
+    };
     const ctx = createProgramContext(testProgram, options);
 
-    const irResult = buildIrModule(sourceFile, testProgram, options, ctx);
+    const irResult = buildIrModule(
+      testProgram.sourceFile,
+      testProgram,
+      options,
+      ctx
+    );
 
     if (!irResult.ok) {
+      testProgram.cleanup();
       throw new Error("IR build failed for multiple bindings test");
     }
 
@@ -285,5 +215,6 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     expect(csharpCode).to.not.include("myLib");
     expect(csharpCode).to.not.include("typeA");
     expect(csharpCode).to.not.include("typeB");
+    testProgram.cleanup();
   });
 });

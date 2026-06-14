@@ -329,6 +329,7 @@ export const processIfStatement = (
     }
     const branchPlans = createIfBranchPlans(
       loweredCondition.expression,
+      undefined,
       stmt.thenPlan.narrowedBindings,
       stmt.elsePlan.narrowedBindings
     );

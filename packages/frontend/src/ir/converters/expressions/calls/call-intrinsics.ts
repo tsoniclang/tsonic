@@ -5,7 +5,11 @@
  * nameof, sizeof, trycast, and stackalloc.
  */
 
-import * as ts from "typescript";
+import {
+  getTstsIdentifierText,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import {
   IrCallExpression,
   IrAsInterfaceExpression,
@@ -32,7 +36,7 @@ import {
  * Returns undefined if the call is not an intrinsic.
  */
 export const tryConvertIntrinsicCall = (
-  node: ts.CallExpression,
+  node: TstsNode,
   ctx: ProgramContext,
   _expectedType?: IrType
 ):
@@ -51,15 +55,28 @@ export const tryConvertIntrinsicCall = (
   const isCoreLangIntrinsicCall = (
     name: IntrinsicSemanticsFact["kind"]
   ): boolean => isIntrinsicKind(intrinsicKind, name);
+  const callExpression = TstsSyntax.AsCallExpression(node);
+  const callTarget = callExpression?.Expression;
+  if (!callTarget) {
+    return undefined;
+  }
+  const typeArguments = TstsSyntax.Node_TypeArguments(node) ?? [];
+  const args = TstsSyntax.Node_Arguments(node) ?? [];
   const isGlobalIntrinsicCall = (name: string): boolean =>
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === name &&
-    isIdentifierFromGlobals(ctx.sourceSemantics, node.expression);
+    callTarget.Kind === TstsSyntax.KindIdentifier &&
+    getTstsIdentifierText(callTarget) === name &&
+    isIdentifierFromGlobals(ctx.sourceSemantics, callTarget);
 
-  const extractNameofTarget = (expr: ts.Expression): string | undefined => {
-    if (ts.isIdentifier(expr)) return expr.text;
-    if (expr.kind === ts.SyntaxKind.ThisKeyword) return "this";
-    if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+  const extractNameofTarget = (expr: TstsNode): string | undefined => {
+    if (expr.Kind === TstsSyntax.KindIdentifier) {
+      return getTstsIdentifierText(expr);
+    }
+    if (expr.Kind === TstsSyntax.KindThisKeyword) return "this";
+    if (expr.Kind === TstsSyntax.KindPropertyAccessExpression) {
+      return getTstsIdentifierText(
+        TstsSyntax.AsPropertyAccessExpression(expr)?.name
+      );
+    }
     return undefined;
   };
 
@@ -83,12 +100,11 @@ export const tryConvertIntrinsicCall = (
   // asinterface<T>(x) - compile-time-only interface view (no runtime casts).
   if (
     isCoreLangIntrinsicCall("asinterface") &&
-    node.typeArguments &&
-    node.typeArguments.length === 1 &&
-    node.arguments.length === 1
+    typeArguments.length === 1 &&
+    args.length === 1
   ) {
-    const targetTypeNode = node.typeArguments[0];
-    const argNode = node.arguments[0];
+    const targetTypeNode = typeArguments[0];
+    const argNode = args[0];
     if (!targetTypeNode || !argNode) {
       throw new Error(
         "ICE: asinterface requires exactly 1 type argument and 1 argument"
@@ -114,12 +130,11 @@ export const tryConvertIntrinsicCall = (
   // Erased at compile time; converted to IR call for narrowing/specialization.
   if (
     isCoreLangIntrinsicCall("istype") &&
-    node.typeArguments &&
-    node.typeArguments.length === 1 &&
-    node.arguments.length === 1
+    typeArguments.length === 1 &&
+    args.length === 1
   ) {
-    const targetTypeNode = node.typeArguments[0];
-    const argNode = node.arguments[0];
+    const targetTypeNode = typeArguments[0];
+    const argNode = args[0];
     if (!targetTypeNode || !argNode) {
       throw new Error(
         "ICE: istype requires exactly 1 type argument and 1 argument"
@@ -131,7 +146,7 @@ export const tryConvertIntrinsicCall = (
       ctx.binding.captureTypeSyntax(targetTypeNode)
     );
     const argExpr = convertExpression(argNode, ctx, undefined);
-    const callee = convertExpression(node.expression, ctx, undefined);
+    const callee = convertExpression(callTarget, ctx, undefined);
 
     return {
       kind: "call",
@@ -148,11 +163,10 @@ export const tryConvertIntrinsicCall = (
   // defaultof<T>() compiles to target: default(T)
   if (
     isCoreLangIntrinsicCall("defaultof") &&
-    node.typeArguments &&
-    node.typeArguments.length === 1 &&
-    node.arguments.length === 0
+    typeArguments.length === 1 &&
+    args.length === 0
   ) {
-    const targetTypeNode = node.typeArguments[0];
+    const targetTypeNode = typeArguments[0];
     if (!targetTypeNode) {
       throw new Error("ICE: defaultof requires exactly 1 type argument");
     }
@@ -172,10 +186,10 @@ export const tryConvertIntrinsicCall = (
 
   if (
     isCoreLangIntrinsicCall("nameof") &&
-    (!node.typeArguments || node.typeArguments.length === 0) &&
-    node.arguments.length === 1
+    typeArguments.length === 0 &&
+    args.length === 1
   ) {
-    const argNode = node.arguments[0];
+    const argNode = args[0];
     if (!argNode) {
       throw new Error("ICE: nameof requires exactly 1 argument");
     }
@@ -208,11 +222,10 @@ export const tryConvertIntrinsicCall = (
 
   if (
     isCoreLangIntrinsicCall("sizeof") &&
-    node.typeArguments &&
-    node.typeArguments.length === 1 &&
-    node.arguments.length === 0
+    typeArguments.length === 1 &&
+    args.length === 0
   ) {
-    const targetTypeNode = node.typeArguments[0];
+    const targetTypeNode = typeArguments[0];
     if (!targetTypeNode) {
       throw new Error("ICE: sizeof requires exactly 1 type argument");
     }
@@ -243,12 +256,12 @@ export const tryConvertIntrinsicCall = (
 
   if (
     isGlobalIntrinsicCall("Symbol") &&
-    (!node.typeArguments || node.typeArguments.length === 0) &&
-    node.arguments.length <= 1
+    typeArguments.length === 0 &&
+    args.length <= 1
   ) {
-    const callee = convertExpression(node.expression, ctx, undefined);
-    const argExpr = node.arguments[0]
-      ? convertExpression(node.arguments[0], ctx, undefined)
+    const callee = convertExpression(callTarget, ctx, undefined);
+    const argExpr = args[0]
+      ? convertExpression(args[0], ctx, undefined)
       : undefined;
 
     return {
@@ -270,13 +283,12 @@ export const tryConvertIntrinsicCall = (
   // trycast<T>(x) compiles to target: x as T (safe cast, returns null on failure)
   if (
     isCoreLangIntrinsicCall("trycast") &&
-    node.typeArguments &&
-    node.typeArguments.length === 1 &&
-    node.arguments.length === 1
+    typeArguments.length === 1 &&
+    args.length === 1
   ) {
     // We've verified length === 1 above, so these are guaranteed to exist
-    const targetTypeNode = node.typeArguments[0];
-    const argNode = node.arguments[0];
+    const targetTypeNode = typeArguments[0];
+    const argNode = args[0];
     if (!targetTypeNode || !argNode) {
       throw new Error(
         "ICE: trycast requires exactly 1 type argument and 1 argument"
@@ -309,12 +321,11 @@ export const tryConvertIntrinsicCall = (
   // stackalloc<T>(size) compiles to target: stackalloc T[size]
   if (
     isCoreLangIntrinsicCall("stackalloc") &&
-    node.typeArguments &&
-    node.typeArguments.length === 1 &&
-    node.arguments.length === 1
+    typeArguments.length === 1 &&
+    args.length === 1
   ) {
-    const elementTypeNode = node.typeArguments[0];
-    const sizeNode = node.arguments[0];
+    const elementTypeNode = typeArguments[0];
+    const sizeNode = args[0];
     if (!elementTypeNode || !sizeNode) {
       throw new Error(
         "ICE: stackalloc requires exactly 1 type argument and 1 argument"

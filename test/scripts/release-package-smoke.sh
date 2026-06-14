@@ -224,9 +224,23 @@ A<Workspace>()
   .add(KeyAttribute);
 TS
 
+typescript_version="$(
+  node -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.argv[1], "package.json"), "utf8"));
+    process.stdout.write(pkg.devDependencies?.typescript ?? pkg.dependencies?.typescript ?? "");
+  ' "$ROOT_DIR"
+)"
+if [[ -z "$typescript_version" ]]; then
+  echo "FAIL: root package.json does not declare a TypeScript version for release smoke typechecking." >&2
+  exit 1
+fi
+
 (
   cd "$CONSUMER_DIR"
   npm install --no-audit --no-fund --ignore-scripts \
+    "typescript@$typescript_version" \
     "$frontend_tgz" \
     "$emitter_tgz" \
     "$backend_tgz" \

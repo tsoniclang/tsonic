@@ -1,11 +1,12 @@
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { getTstsTypeArguments } from "@tsonic/tsts";
 import type { IrType } from "../types.js";
 import type { ProgramContext } from "../program-context.js";
 // eslint-disable-next-line no-restricted-imports -- heritage resolution is a frontend conversion boundary.
 import { resolveHeritageTypeName } from "../type-system/internal/registry-helpers-extraction.js";
 
 export const resolveHeritageReferenceType = (
-  typeNode: ts.ExpressionWithTypeArguments,
+  typeNode: TstsNode,
   ctx: ProgramContext
 ): IrType => {
   const converted = ctx.typeSystem.typeFromSyntax(
@@ -29,9 +30,11 @@ export const resolveHeritageReferenceType = (
     };
   }
 
-  const typeArguments = typeNode.typeArguments?.map((typeArgument) =>
-    ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(typeArgument))
-  );
+  const typeArguments = getTstsTypeArguments(typeNode)
+    .filter((typeArgument): typeArgument is TstsNode => typeArgument !== undefined)
+    .map((typeArgument) =>
+      ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(typeArgument))
+    );
 
   return {
     kind: "referenceType",

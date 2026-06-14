@@ -4,7 +4,8 @@
  * Split from references.ts for file-size compliance (< 800 LOC).
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { TstsSyntax } from "@tsonic/tsts";
 import { IrType, IrInterfaceMember } from "../../../types.js";
 import { normalizedUnionType } from "../../../types/type-ops.js";
 import type { Binding } from "../../../binding/index.js";
@@ -88,18 +89,20 @@ export const normalizeExpandedAliasType = (type: IrType): IrType =>
       })
     : type;
 
-export const isSymbolTypeReferenceNode = (node: ts.TypeNode): boolean =>
-  ts.isTypeReferenceNode(node) &&
-  ts.isIdentifier(node.typeName) &&
-  node.typeName.text === "symbol";
+export const isSymbolTypeReferenceNode = (node: TstsNode): boolean =>
+  TstsSyntax.IsTypeReferenceNode(node) &&
+  TstsSyntax.AsTypeReferenceNode(node)?.TypeName?.Kind ===
+    TstsSyntax.KindIdentifier &&
+  TstsSyntax.AsIdentifier(TstsSyntax.AsTypeReferenceNode(node)?.TypeName)
+    ?.Text === "symbol";
 
 export const classifyDictionaryKeyTypeNode = (
-  keyTypeNode: ts.TypeNode,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType,
-  binding: Binding
+  keyTypeNode: TstsNode
 ): IrType | undefined => {
-  const keyNodes = ts.isUnionTypeNode(keyTypeNode)
-    ? keyTypeNode.types
+  const keyNodes = TstsSyntax.IsUnionTypeNode(keyTypeNode)
+    ? (TstsSyntax.AsUnionTypeNode(keyTypeNode)?.Types?.Nodes ?? []).filter(
+        (node): node is TstsNode => node !== undefined
+      )
     : [keyTypeNode];
 
   let sawString = false;
@@ -107,16 +110,16 @@ export const classifyDictionaryKeyTypeNode = (
   let sawSymbol = false;
 
   for (const node of keyNodes) {
-    if (node.kind === ts.SyntaxKind.StringKeyword) {
+    if (node.Kind === TstsSyntax.KindStringKeyword) {
       sawString = true;
       continue;
     }
-    if (node.kind === ts.SyntaxKind.NumberKeyword) {
+    if (node.Kind === TstsSyntax.KindNumberKeyword) {
       sawNumber = true;
       continue;
     }
     if (
-      node.kind === ts.SyntaxKind.SymbolKeyword ||
+      node.Kind === TstsSyntax.KindSymbolKeyword ||
       isSymbolTypeReferenceNode(node)
     ) {
       sawSymbol = true;
@@ -137,16 +140,10 @@ export const classifyDictionaryKeyTypeNode = (
   }
 
   if (sawNumber) {
-    return convertType(
-      ts.factory.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword),
-      binding
-    );
+    return { kind: "primitiveType", name: "number" };
   }
 
-  return convertType(
-    ts.factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
-    binding
-  );
+  return { kind: "primitiveType", name: "string" };
 };
 
 /**

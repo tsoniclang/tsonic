@@ -2,13 +2,22 @@
  * Class declaration conversion orchestrator
  */
 
-import * as ts from "typescript";
+import {
+  getTstsHeritageClauseDetails,
+  getTstsMemberNodes,
+  getTstsNodeNameText,
+  getTstsTypeArguments,
+  getTstsTypeParameterNodes,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import { IrClassDeclaration, IrClassMember } from "../../../../types.js";
 import {
   hasExportModifier,
   convertTypeParameters,
   hasDeclareModifier,
   hasAbstractModifier,
+  definedTstsNodes,
 } from "../../helpers.js";
 import { convertAccessorProperty, convertProperty } from "./properties.js";
 import { convertMethod } from "./methods.js";
@@ -27,15 +36,15 @@ import {
  * Convert a single class member
  */
 const convertClassMember = (
-  node: ts.ClassElement,
+  node: TstsNode,
   ctx: ProgramContext,
-  superClass: ts.ExpressionWithTypeArguments | undefined
+  superClass: TstsNode | undefined
 ): IrClassMember | null => {
-  if (ts.isPropertyDeclaration(node)) {
+  if (TstsSyntax.IsPropertyDeclaration(node)) {
     return convertProperty(node, ctx, superClass);
   }
 
-  if (ts.isConstructorDeclaration(node)) {
+  if (TstsSyntax.IsConstructorDeclaration(node)) {
     return convertConstructor(node, ctx);
   }
 
@@ -47,13 +56,15 @@ const convertClassMember = (
  * DETERMINISTIC: Uses AST structure only, all members in node.members are own members.
  */
 const filterOwnMembers = (
-  node: ts.ClassDeclaration
-): readonly ts.ClassElement[] => {
+  node: TstsNode
+): readonly TstsNode[] => {
   // All members directly on node.members ARE own members by definition
   // The AST doesn't include inherited members in the class's members array
   //
   // NOTE: `declare` members are type-only in TypeScript and must not emit.
-  return node.members.filter((m) => !hasDeclareModifier(m));
+  return definedTstsNodes(getTstsMemberNodes(node)).filter(
+    (m) => !hasDeclareModifier(m)
+  );
 };
 
 /**
@@ -81,7 +92,7 @@ const deduplicateMembers = (
 };
 
 const isStructMarker = (
-  typeRef: ts.ExpressionWithTypeArguments,
+  typeRef: TstsNode,
   ctx: ProgramContext
 ): boolean =>
   isSourceTypeKind(
@@ -99,16 +110,16 @@ const isStructMarker = (
  * For IR + target emission, we want the underlying native target interface `IFoo`.
  */
 const unwrapInterfaceHeritageType = (
-  typeRef: ts.ExpressionWithTypeArguments,
+  typeRef: TstsNode,
   ctx: ProgramContext
-): ts.ExpressionWithTypeArguments | ts.TypeNode => {
+): TstsNode => {
   if (
     isHeritageInterfaceErasure(
       ctx.sourceSemantics.getFact(typeRef, heritageWrapperSemanticsFactKey)
     ) &&
-    typeRef.typeArguments?.length === 1
+    definedTstsNodes(getTstsTypeArguments(typeRef)).length === 1
   ) {
-    const only = typeRef.typeArguments[0];
+    const only = definedTstsNodes(getTstsTypeArguments(typeRef))[0];
     if (only) return only;
   }
 
@@ -119,14 +130,16 @@ const unwrapInterfaceHeritageType = (
  * Convert class declaration to IR
  */
 export const convertClassDeclaration = (
-  node: ts.ClassDeclaration,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrClassDeclaration | null => {
-  if (!node.name) return null;
+  const name = getTstsNodeNameText(node);
+  if (!name) return null;
 
-  const superClass = node.heritageClauses?.find(
-    (h) => h.token === ts.SyntaxKind.ExtendsKeyword
-  )?.types[0];
+  const heritageClauses = getTstsHeritageClauseDetails(node);
+  const superClass = definedTstsNodes(
+    heritageClauses.find((h) => h.kind === "extends")?.types
+  )[0];
 
   // Detect source-proven struct marker in implements clause.
   let isStruct =
@@ -134,11 +147,12 @@ export const convertClassDeclaration = (
       ctx.sourceSemantics.getFact(node, sourceTypeSemanticsFactKey),
       "struct"
     );
-  const implementsClause = node.heritageClauses?.find(
-    (h) => h.token === ts.SyntaxKind.ImplementsKeyword
+  const implementsClause = heritageClauses.find(
+    (h) => h.kind === "implements"
   );
   const implementsTypes =
     implementsClause?.types
+      .filter((t): t is TstsNode => t !== undefined)
       .filter((t) => {
         if (isStructMarker(t, ctx)) {
           isStruct = true;
@@ -156,21 +170,21 @@ export const convertClassDeclaration = (
   const ownMembers = filterOwnMembers(node);
   const accessorPairs = new Map<
     string,
-    { getter?: ts.GetAccessorDeclaration; setter?: ts.SetAccessorDeclaration }
+    { getter?: TstsNode; setter?: TstsNode }
   >();
   for (const member of ownMembers) {
     if (
-      ts.isGetAccessorDeclaration(member) ||
-      ts.isSetAccessorDeclaration(member)
+      TstsSyntax.IsGetAccessorDeclaration(member) ||
+      TstsSyntax.IsSetAccessorDeclaration(member)
     ) {
-      const name = getClassMemberName(member.name);
-      const entry = accessorPairs.get(name) ?? {};
-      if (ts.isGetAccessorDeclaration(member)) {
+      const memberName = getClassMemberName(TstsSyntax.Node_Name(member));
+      const entry = accessorPairs.get(memberName) ?? {};
+      if (TstsSyntax.IsGetAccessorDeclaration(member)) {
         entry.getter = member;
       } else {
         entry.setter = member;
       }
-      accessorPairs.set(name, entry);
+      accessorPairs.set(memberName, entry);
     }
   }
 
@@ -178,16 +192,16 @@ export const convertClassDeclaration = (
   const seenAccessors = new Set<string>();
   for (const member of ownMembers) {
     if (
-      ts.isGetAccessorDeclaration(member) ||
-      ts.isSetAccessorDeclaration(member)
+      TstsSyntax.IsGetAccessorDeclaration(member) ||
+      TstsSyntax.IsSetAccessorDeclaration(member)
     ) {
-      const name = getClassMemberName(member.name);
-      if (seenAccessors.has(name)) continue;
-      seenAccessors.add(name);
-      const pair = accessorPairs.get(name);
+      const memberName = getClassMemberName(TstsSyntax.Node_Name(member));
+      if (seenAccessors.has(memberName)) continue;
+      seenAccessors.add(memberName);
+      const pair = accessorPairs.get(memberName);
       convertedMembers.push(
         convertAccessorProperty(
-          name,
+          memberName,
           pair?.getter,
           pair?.setter,
           ctx,
@@ -197,12 +211,12 @@ export const convertClassDeclaration = (
       continue;
     }
 
-    if (ts.isMethodDeclaration(member)) {
+    if (TstsSyntax.IsMethodDeclaration(member)) {
       convertedMembers.push(convertMethod(member, ctx, superClass));
       continue;
     }
 
-    if (ts.isConstructorDeclaration(member)) {
+    if (TstsSyntax.IsConstructorDeclaration(member)) {
       convertedMembers.push(convertConstructor(member, ctx));
       continue;
     }
@@ -224,8 +238,11 @@ export const convertClassDeclaration = (
 
   return {
     kind: "classDeclaration",
-    name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, ctx),
+    name,
+    typeParameters: convertTypeParameters(
+      definedTstsNodes(getTstsTypeParameterNodes(node)),
+      ctx
+    ),
     superClass: superClass
       ? resolveHeritageReferenceType(superClass, ctx)
       : undefined,

@@ -1,9 +1,4 @@
-/**
- * Value type inference – deterministic type recovery from value declarations
- * and expressions without relying on TypeScript's type checker inference.
- */
-
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import type {
   IrType,
   IrFunctionType,
@@ -18,21 +13,28 @@ import {
   memberValueType,
   typesSyntacticallyEqual,
 } from "./type-operators.js";
+import {
+  asConverterNode,
+  identifierText,
+  isOptionalParameter,
+  isRestParameter,
+  nodeMembers,
+  nodeParameters,
+  nodePropertyNameText,
+  nodeType,
+  nodeTypeArguments,
+} from "./tsts-syntax.js";
 
-const isConstAssertionType = (node: ts.TypeNode): boolean =>
-  ts.isTypeReferenceNode(node) &&
-  ts.isIdentifier(node.typeName) &&
-  node.typeName.text === "const" &&
-  (!node.typeArguments || node.typeArguments.length === 0);
+const isConstAssertionType = (node: TstsNode): boolean =>
+  TstsSyntax.IsTypeReferenceNode(node) &&
+  identifierText(TstsSyntax.AsTypeReferenceNode(node)?.TypeName) === "const" &&
+  nodeTypeArguments(node).length === 0;
 
 export const getTypeParameterConstraintNode = (
-  typeNode: ts.TypeNode,
+  typeNode: TstsNode,
   binding: Binding
-): ts.TypeNode | undefined => {
-  if (
-    !ts.isTypeReferenceNode(typeNode) ||
-    !ts.isIdentifier(typeNode.typeName)
-  ) {
+): TstsNode | undefined => {
+  if (!TstsSyntax.IsTypeReferenceNode(typeNode)) {
     return undefined;
   }
   const declId = binding.resolveTypeReference(typeNode);
@@ -40,51 +42,56 @@ export const getTypeParameterConstraintNode = (
   const declInfo = (binding as BindingInternal)
     ._getHandleRegistry()
     .getDecl(declId);
-  const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
-    | ts.Declaration
-    | undefined;
-  if (!declNode || !ts.isTypeParameterDeclaration(declNode)) {
+  const declNode = asConverterNode(declInfo?.typeDeclNode ?? declInfo?.declNode);
+  if (!declNode || !TstsSyntax.IsTypeParameterDeclaration(declNode)) {
     return undefined;
   }
-  return declNode.constraint;
+  return TstsSyntax.AsTypeParameterDeclaration(declNode)?.Constraint;
 };
 
 export const withTypeParameterConstraint = (
-  typeNode: ts.TypeNode,
+  typeNode: TstsNode,
   binding: Binding
-): ts.TypeNode => getTypeParameterConstraintNode(typeNode, binding) ?? typeNode;
+): TstsNode => getTypeParameterConstraintNode(typeNode, binding) ?? typeNode;
 
 export function buildFunctionTypeFromSignatureDeclaration(
-  declaration: ts.SignatureDeclarationBase,
+  declaration: TstsNode,
   binding: Binding,
-  convertTypeFn: (node: ts.TypeNode, binding: Binding) => IrType
+  convertTypeFn: (node: TstsNode, binding: Binding) => IrType
 ): IrFunctionType {
   const typeParameters = convertFunctionTypeParameters(
-    declaration.typeParameters,
+    (TstsSyntax.Node_TypeParameters(declaration) ?? []).filter(
+      (typeParameter): typeParameter is TstsNode => typeParameter !== undefined
+    ),
     binding,
     convertTypeFn
   );
   return {
     kind: "functionType",
     ...(typeParameters ? { typeParameters } : {}),
-    parameters: declaration.parameters.map((parameter) => ({
+    parameters: nodeParameters(declaration).map((parameter, index) => ({
       kind: "parameter",
-      pattern: ts.isIdentifier(parameter.name)
-        ? { kind: "identifierPattern", name: parameter.name.text }
-        : { kind: "identifierPattern", name: `p${parameter.pos}` },
-      type: parameter.type
+      pattern: {
+        kind: "identifierPattern",
+        name:
+          identifierText(TstsSyntax.Node_Name(parameter)) ??
+          `p${TstsSyntax.Node_Pos(parameter) ?? index}`,
+      },
+      type: nodeType(parameter)
         ? convertTypeFn(
-            withTypeParameterConstraint(parameter.type, binding),
+            withTypeParameterConstraint(nodeType(parameter)!, binding),
             binding
           )
         : { kind: "unknownType" },
-      isOptional: !!parameter.questionToken || !!parameter.initializer,
-      isRest: !!parameter.dotDotDotToken,
+      isOptional:
+        isOptionalParameter(parameter) ||
+        TstsSyntax.Node_Initializer(parameter) !== undefined,
+      isRest: isRestParameter(parameter),
       passing: "value",
     })),
-    returnType: declaration.type
+    returnType: nodeType(declaration)
       ? convertTypeFn(
-          withTypeParameterConstraint(declaration.type, binding),
+          withTypeParameterConstraint(nodeType(declaration)!, binding),
           binding
         )
       : { kind: "voidType" },
@@ -92,46 +99,49 @@ export function buildFunctionTypeFromSignatureDeclaration(
 }
 
 const convertFunctionTypeParameters = (
-  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
+  typeParameters: readonly TstsNode[] | undefined,
   binding: Binding,
-  convertTypeFn: (node: ts.TypeNode, binding: Binding) => IrType
+  convertTypeFn: (node: TstsNode, binding: Binding) => IrType
 ): readonly IrTypeParameter[] | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
     return undefined;
   }
 
-  return typeParameters.map((typeParameter) => ({
-    kind: "typeParameter",
-    name: typeParameter.name.text,
-    constraint: typeParameter.constraint
-      ? convertTypeFn(
-          withTypeParameterConstraint(typeParameter.constraint, binding),
-          binding
-        )
-      : undefined,
-    default: typeParameter.default
-      ? convertTypeFn(
-          withTypeParameterConstraint(typeParameter.default, binding),
-          binding
-        )
-      : undefined,
-    variance: undefined,
-    isStructuralConstraint:
-      !!typeParameter.constraint &&
-      ts.isTypeLiteralNode(typeParameter.constraint),
-    structuralMembers: undefined,
-  }));
+  return typeParameters.map((typeParameter) => {
+    const parameter = TstsSyntax.AsTypeParameterDeclaration(typeParameter);
+    return {
+      kind: "typeParameter",
+      name: identifierText(TstsSyntax.Node_Name(typeParameter)) ?? "_",
+      constraint: parameter?.Constraint
+        ? convertTypeFn(
+            withTypeParameterConstraint(parameter.Constraint, binding),
+            binding
+          )
+        : undefined,
+      default: parameter?.DefaultType
+        ? convertTypeFn(
+            withTypeParameterConstraint(parameter.DefaultType, binding),
+            binding
+          )
+        : undefined,
+      variance: undefined,
+      isStructuralConstraint:
+        !!parameter?.Constraint &&
+        TstsSyntax.IsTypeLiteralNode(parameter.Constraint),
+      structuralMembers: undefined,
+    };
+  });
 };
 
 export function inferTypeFromValueDeclaration(
-  declaration: ts.Declaration | undefined,
+  declaration: TstsNode | undefined,
   binding: Binding,
   seenDeclIds: Set<number>,
-  convertTypeFn: (node: ts.TypeNode, binding: Binding) => IrType
+  convertTypeFn: (node: TstsNode, binding: Binding) => IrType
 ): IrType | undefined {
   if (!declaration) return undefined;
 
-  if (ts.isImportSpecifier(declaration)) {
+  if (TstsSyntax.IsImportSpecifier(declaration)) {
     const importedDeclId = binding.resolveImport(declaration);
     if (!importedDeclId || seenDeclIds.has(importedDeclId.id)) {
       return undefined;
@@ -143,9 +153,11 @@ export function inferTypeFromValueDeclaration(
       .getDecl(importedDeclId);
 
     return inferTypeFromValueDeclaration(
-      (importedDeclInfo?.valueDeclNode ??
-        importedDeclInfo?.declNode ??
-        importedDeclInfo?.typeDeclNode) as ts.Declaration | undefined,
+      asConverterNode(
+        importedDeclInfo?.valueDeclNode ??
+          importedDeclInfo?.declNode ??
+          importedDeclInfo?.typeDeclNode
+      ),
       binding,
       seenDeclIds,
       convertTypeFn
@@ -153,8 +165,8 @@ export function inferTypeFromValueDeclaration(
   }
 
   if (
-    ts.isFunctionDeclaration(declaration) ||
-    ts.isMethodDeclaration(declaration)
+    TstsSyntax.IsFunctionDeclaration(declaration) ||
+    TstsSyntax.IsMethodDeclaration(declaration)
   ) {
     return buildFunctionTypeFromSignatureDeclaration(
       declaration,
@@ -163,16 +175,17 @@ export function inferTypeFromValueDeclaration(
     );
   }
 
-  if (ts.isVariableDeclaration(declaration)) {
-    if (declaration.type) {
+  if (TstsSyntax.IsVariableDeclaration(declaration)) {
+    if (nodeType(declaration)) {
       return convertTypeFn(
-        withTypeParameterConstraint(declaration.type, binding),
+        withTypeParameterConstraint(nodeType(declaration)!, binding),
         binding
       );
     }
-    if (declaration.initializer) {
+    const initializer = TstsSyntax.Node_Initializer(declaration);
+    if (initializer) {
       return inferTypeFromValueExpression(
-        declaration.initializer,
+        initializer,
         binding,
         seenDeclIds,
         convertTypeFn
@@ -182,10 +195,10 @@ export function inferTypeFromValueDeclaration(
   }
 
   if (
-    ts.isFunctionExpression(declaration) ||
-    ts.isArrowFunction(declaration) ||
-    ts.isGetAccessorDeclaration(declaration) ||
-    ts.isSetAccessorDeclaration(declaration)
+    TstsSyntax.IsFunctionExpression(declaration) ||
+    TstsSyntax.IsArrowFunction(declaration) ||
+    TstsSyntax.IsGetAccessorDeclaration(declaration) ||
+    TstsSyntax.IsSetAccessorDeclaration(declaration)
   ) {
     return buildFunctionTypeFromSignatureDeclaration(
       declaration,
@@ -195,35 +208,32 @@ export function inferTypeFromValueDeclaration(
   }
 
   if (
-    (ts.isClassDeclaration(declaration) ||
-      ts.isInterfaceDeclaration(declaration)) &&
-    declaration.name
+    TstsSyntax.IsClassDeclaration(declaration) ||
+    TstsSyntax.IsInterfaceDeclaration(declaration)
   ) {
-    return { kind: "referenceType", name: declaration.name.text };
+    const name = identifierText(TstsSyntax.Node_Name(declaration));
+    return name ? { kind: "referenceType", name } : undefined;
   }
 
   return undefined;
 }
 
 function inferTypeFromObjectLiteral(
-  node: ts.ObjectLiteralExpression,
+  node: TstsNode,
   binding: Binding,
   seenDeclIds: Set<number>,
-  convertTypeFn: (node: ts.TypeNode, binding: Binding) => IrType
+  convertTypeFn: (node: TstsNode, binding: Binding) => IrType
 ): IrObjectType | undefined {
   const members: IrInterfaceMember[] = [];
 
-  for (const property of node.properties) {
-    if (ts.isPropertyAssignment(property)) {
-      const name =
-        ts.isIdentifier(property.name) ||
-        ts.isStringLiteral(property.name) ||
-        ts.isNumericLiteral(property.name)
-          ? property.name.text
-          : undefined;
+  for (const property of nodeMembers(node)) {
+    if (TstsSyntax.IsPropertyAssignment(property)) {
+      const name = nodePropertyNameText(property);
       if (!name) return undefined;
+      const initializer = TstsSyntax.Node_Initializer(property);
+      if (!initializer) return undefined;
       const inferredType = inferTypeFromValueExpression(
-        property.initializer,
+        initializer,
         binding,
         seenDeclIds,
         convertTypeFn
@@ -239,8 +249,9 @@ function inferTypeFromObjectLiteral(
       continue;
     }
 
-    if (ts.isShorthandPropertyAssignment(property)) {
-      const name = property.name.text;
+    if (TstsSyntax.IsShorthandPropertyAssignment(property)) {
+      const name = identifierText(TstsSyntax.Node_Name(property));
+      if (!name) return undefined;
       const declId = binding.resolveShorthandAssignment(property);
       if (!declId) return undefined;
       if (seenDeclIds.has(declId.id)) return undefined;
@@ -249,9 +260,9 @@ function inferTypeFromObjectLiteral(
         ._getHandleRegistry()
         .getDecl(declId);
       const inferredType = inferTypeFromValueDeclaration(
-        (declInfo?.declNode ??
-          declInfo?.valueDeclNode ??
-          declInfo?.typeDeclNode) as ts.Declaration | undefined,
+        asConverterNode(
+          declInfo?.declNode ?? declInfo?.valueDeclNode ?? declInfo?.typeDeclNode
+        ),
         binding,
         seenDeclIds,
         convertTypeFn
@@ -268,14 +279,8 @@ function inferTypeFromObjectLiteral(
       continue;
     }
 
-    if (ts.isMethodDeclaration(property)) {
-      const name =
-        property.name &&
-        (ts.isIdentifier(property.name) ||
-          ts.isStringLiteral(property.name) ||
-          ts.isNumericLiteral(property.name))
-          ? property.name.text
-          : undefined;
+    if (TstsSyntax.IsMethodDeclaration(property)) {
+      const name = nodePropertyNameText(property);
       if (!name) return undefined;
       members.push({
         kind: "methodSignature",
@@ -285,16 +290,18 @@ function inferTypeFromObjectLiteral(
           binding,
           convertTypeFn
         ).parameters,
-        returnType: property.type
+        returnType: nodeType(property)
           ? convertTypeFn(
-              withTypeParameterConstraint(property.type, binding),
+              withTypeParameterConstraint(nodeType(property)!, binding),
               binding
             )
           : { kind: "voidType" },
-        typeParameters: property.typeParameters?.map((typeParameter) => ({
-          kind: "typeParameter",
-          name: typeParameter.name.text,
-        })),
+        typeParameters: (TstsSyntax.Node_TypeParameters(property) ?? []).map(
+          (typeParameter) => ({
+            kind: "typeParameter",
+            name: identifierText(TstsSyntax.Node_Name(typeParameter)) ?? "_",
+          })
+        ),
       });
       continue;
     }
@@ -306,23 +313,31 @@ function inferTypeFromObjectLiteral(
 }
 
 export function inferTypeFromValueExpression(
-  expression: ts.Expression,
+  expression: TstsNode,
   binding: Binding,
   seenDeclIds: Set<number>,
-  convertTypeFn: (node: ts.TypeNode, binding: Binding) => IrType
+  convertTypeFn: (node: TstsNode, binding: Binding) => IrType
 ): IrType | undefined {
   let current = expression;
   while (
-    ts.isParenthesizedExpression(current) ||
-    ts.isNonNullExpression(current)
+    TstsSyntax.IsParenthesizedExpression(current) ||
+    TstsSyntax.IsNonNullExpression(current)
   ) {
-    current = current.expression;
+    const inner = TstsSyntax.Node_Expression(current);
+    if (!inner) return undefined;
+    current = inner;
   }
 
-  if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current)) {
-    if (isConstAssertionType(current.type)) {
+  if (
+    TstsSyntax.IsAsExpression(current) ||
+    TstsSyntax.IsTypeAssertion(current)
+  ) {
+    const assertionType = nodeType(current);
+    const expressionNode = TstsSyntax.Node_Expression(current);
+    if (!assertionType || !expressionNode) return undefined;
+    if (isConstAssertionType(assertionType)) {
       return inferTypeFromValueExpression(
-        current.expression,
+        expressionNode,
         binding,
         seenDeclIds,
         convertTypeFn
@@ -330,44 +345,47 @@ export function inferTypeFromValueExpression(
     }
 
     return convertTypeFn(
-      withTypeParameterConstraint(current.type, binding),
+      withTypeParameterConstraint(assertionType, binding),
       binding
     );
   }
 
-  if (ts.isSatisfiesExpression(current)) {
-    return inferTypeFromValueExpression(
-      current.expression,
-      binding,
-      seenDeclIds,
-      convertTypeFn
-    );
+  if (TstsSyntax.IsSatisfiesExpression(current)) {
+    const expressionNode = TstsSyntax.Node_Expression(current);
+    return expressionNode
+      ? inferTypeFromValueExpression(
+          expressionNode,
+          binding,
+          seenDeclIds,
+          convertTypeFn
+        )
+      : undefined;
   }
 
-  if (ts.isStringLiteral(current)) {
+  if (TstsSyntax.IsStringLiteral(current)) {
     return { kind: "primitiveType", name: "string" };
   }
 
-  if (ts.isNumericLiteral(current)) {
+  if (TstsSyntax.IsNumericLiteral(current)) {
     return { kind: "primitiveType", name: "number" };
   }
 
-  if (ts.isBigIntLiteral(current)) {
+  if (TstsSyntax.IsBigIntLiteral(current)) {
     return { kind: "primitiveType", name: "bigint" };
   }
 
   if (
-    current.kind === ts.SyntaxKind.TrueKeyword ||
-    current.kind === ts.SyntaxKind.FalseKeyword
+    current.Kind === TstsSyntax.KindTrueKeyword ||
+    current.Kind === TstsSyntax.KindFalseKeyword
   ) {
     return { kind: "primitiveType", name: "boolean" };
   }
 
-  if (current.kind === ts.SyntaxKind.NullKeyword) {
+  if (current.Kind === TstsSyntax.KindNullKeyword) {
     return { kind: "primitiveType", name: "null" };
   }
 
-  if (ts.isIdentifier(current)) {
+  if (TstsSyntax.IsIdentifier(current)) {
     const declId = binding.resolveIdentifier(current);
     if (!declId || seenDeclIds.has(declId.id)) return undefined;
     seenDeclIds.add(declId.id);
@@ -375,9 +393,9 @@ export function inferTypeFromValueExpression(
       ._getHandleRegistry()
       .getDecl(declId);
     const inferredType = inferTypeFromValueDeclaration(
-      (declInfo?.declNode ??
-        declInfo?.valueDeclNode ??
-        declInfo?.typeDeclNode) as ts.Declaration | undefined,
+      asConverterNode(
+        declInfo?.declNode ?? declInfo?.valueDeclNode ?? declInfo?.typeDeclNode
+      ),
       binding,
       seenDeclIds,
       convertTypeFn
@@ -386,28 +404,28 @@ export function inferTypeFromValueExpression(
     return inferredType;
   }
 
-  if (ts.isCallExpression(current)) {
+  if (TstsSyntax.IsCallExpression(current)) {
     const signatureId = binding.resolveCallSignature(current);
     const signature = signatureId
       ? (binding as BindingInternal)
           ._getHandleRegistry()
           .getSignature(signatureId)
       : undefined;
-    if (signature?.returnTypeNode) {
+    const returnTypeNode = asConverterNode(signature?.returnTypeNode);
+    if (returnTypeNode) {
       return convertTypeFn(
-        withTypeParameterConstraint(
-          signature.returnTypeNode as ts.TypeNode,
-          binding
-        ),
+        withTypeParameterConstraint(returnTypeNode, binding),
         binding
       );
     }
     return undefined;
   }
 
-  if (ts.isAwaitExpression(current)) {
+  if (TstsSyntax.IsAwaitExpression(current)) {
+    const awaitedExpression = TstsSyntax.Node_Expression(current);
+    if (!awaitedExpression) return undefined;
     const awaitedType = inferTypeFromValueExpression(
-      current.expression,
+      awaitedExpression,
       binding,
       seenDeclIds,
       convertTypeFn
@@ -447,21 +465,24 @@ export function inferTypeFromValueExpression(
     return unwrapAwaitedType(awaitedType);
   }
 
-  if (ts.isArrayLiteralExpression(current)) {
-    if (current.elements.some(ts.isSpreadElement)) {
+  if (TstsSyntax.IsArrayLiteralExpression(current)) {
+    const elements = TstsSyntax.Node_Elements(current) ?? [];
+    if (elements.some((element) => element?.Kind === TstsSyntax.KindSpreadElement)) {
       return undefined;
     }
-    const elementTypes = current.elements
+    const elementTypes = elements
       .map((element) =>
-        inferTypeFromValueExpression(
-          element as ts.Expression,
-          binding,
-          seenDeclIds,
-          convertTypeFn
-        )
+        element
+          ? inferTypeFromValueExpression(
+              element,
+              binding,
+              seenDeclIds,
+              convertTypeFn
+            )
+          : undefined
       )
       .filter((element): element is IrType => element !== undefined);
-    if (elementTypes.length !== current.elements.length) {
+    if (elementTypes.length !== elements.length) {
       return undefined;
     }
     if (elementTypes.length === 0) {
@@ -477,7 +498,7 @@ export function inferTypeFromValueExpression(
     return { kind: "tupleType", elementTypes };
   }
 
-  if (ts.isObjectLiteralExpression(current)) {
+  if (TstsSyntax.IsObjectLiteralExpression(current)) {
     return inferTypeFromObjectLiteral(
       current,
       binding,
@@ -486,7 +507,10 @@ export function inferTypeFromValueExpression(
     );
   }
 
-  if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
+  if (
+    TstsSyntax.IsArrowFunction(current) ||
+    TstsSyntax.IsFunctionExpression(current)
+  ) {
     return buildFunctionTypeFromSignatureDeclaration(
       current,
       binding,
@@ -494,37 +518,41 @@ export function inferTypeFromValueExpression(
     );
   }
 
-  if (ts.isPropertyAccessExpression(current)) {
-    const receiverType = inferTypeFromValueExpression(
-      current.expression,
-      binding,
-      seenDeclIds,
-      convertTypeFn
-    );
+  if (TstsSyntax.IsPropertyAccessExpression(current)) {
+    const receiverExpression = TstsSyntax.Node_Expression(current);
+    const receiverType = receiverExpression
+      ? inferTypeFromValueExpression(
+          receiverExpression,
+          binding,
+          seenDeclIds,
+          convertTypeFn
+        )
+      : undefined;
     const members = receiverType ? getMembersFromType(receiverType) : undefined;
-    const member = members?.find(
-      (candidate) => candidate.name === current.name.text
-    );
+    const memberName = identifierText(TstsSyntax.Node_Name(current));
+    const member = members?.find((candidate) => candidate.name === memberName);
     return member ? memberValueType(member) : undefined;
   }
 
-  if (ts.isElementAccessExpression(current)) {
-    const receiverType = inferTypeFromValueExpression(
-      current.expression,
-      binding,
-      seenDeclIds,
-      convertTypeFn
-    );
+  if (TstsSyntax.IsElementAccessExpression(current)) {
+    const receiverExpression = TstsSyntax.Node_Expression(current);
+    const receiverType = receiverExpression
+      ? inferTypeFromValueExpression(
+          receiverExpression,
+          binding,
+          seenDeclIds,
+          convertTypeFn
+        )
+      : undefined;
     if (!receiverType) return undefined;
     if (receiverType.kind === "arrayType") {
       return receiverType.elementType;
     }
     if (receiverType.kind === "tupleType") {
-      if (
-        current.argumentExpression &&
-        ts.isNumericLiteral(current.argumentExpression)
-      ) {
-        const index = Number.parseInt(current.argumentExpression.text, 10);
+      const argument = TstsSyntax.AsElementAccessExpression(current)
+        ?.ArgumentExpression;
+      if (argument && TstsSyntax.IsNumericLiteral(argument)) {
+        const index = Number.parseInt(TstsSyntax.Node_Text(argument) ?? "", 10);
         return receiverType.elementTypes[index];
       }
       return toUnionOrSingle(receiverType.elementTypes);
@@ -534,54 +562,62 @@ export function inferTypeFromValueExpression(
     }
   }
 
-  if (ts.isPrefixUnaryExpression(current)) {
-    if (current.operator === ts.SyntaxKind.ExclamationToken) {
+  if (TstsSyntax.IsPrefixUnaryExpression(current)) {
+    const prefix = TstsSyntax.AsPrefixUnaryExpression(current);
+    if (prefix?.Operator === TstsSyntax.KindExclamationToken) {
       return { kind: "primitiveType", name: "boolean" };
     }
 
-    return inferTypeFromValueExpression(
-      current.operand,
-      binding,
-      seenDeclIds,
-      convertTypeFn
-    );
+    return prefix?.Operand
+      ? inferTypeFromValueExpression(
+          prefix.Operand,
+          binding,
+          seenDeclIds,
+          convertTypeFn
+        )
+      : undefined;
   }
 
-  if (ts.isBinaryExpression(current)) {
-    const operator = current.operatorToken.kind;
+  if (TstsSyntax.IsBinaryExpression(current)) {
+    const operator = TstsSyntax.AsBinaryExpression(current)?.OperatorToken?.Kind;
     if (
-      operator === ts.SyntaxKind.EqualsEqualsToken ||
-      operator === ts.SyntaxKind.EqualsEqualsEqualsToken ||
-      operator === ts.SyntaxKind.ExclamationEqualsToken ||
-      operator === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
-      operator === ts.SyntaxKind.LessThanToken ||
-      operator === ts.SyntaxKind.LessThanEqualsToken ||
-      operator === ts.SyntaxKind.GreaterThanToken ||
-      operator === ts.SyntaxKind.GreaterThanEqualsToken
+      operator === TstsSyntax.KindEqualsEqualsToken ||
+      operator === TstsSyntax.KindEqualsEqualsEqualsToken ||
+      operator === TstsSyntax.KindExclamationEqualsToken ||
+      operator === TstsSyntax.KindExclamationEqualsEqualsToken ||
+      operator === TstsSyntax.KindLessThanToken ||
+      operator === TstsSyntax.KindLessThanEqualsToken ||
+      operator === TstsSyntax.KindGreaterThanToken ||
+      operator === TstsSyntax.KindGreaterThanEqualsToken
     ) {
       return { kind: "primitiveType", name: "boolean" };
     }
 
     if (
-      operator === ts.SyntaxKind.AmpersandToken ||
-      operator === ts.SyntaxKind.BarToken ||
-      operator === ts.SyntaxKind.CaretToken ||
-      operator === ts.SyntaxKind.LessThanLessThanToken ||
-      operator === ts.SyntaxKind.GreaterThanGreaterThanToken ||
-      operator === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken
+      operator === TstsSyntax.KindAmpersandToken ||
+      operator === TstsSyntax.KindBarToken ||
+      operator === TstsSyntax.KindCaretToken ||
+      operator === TstsSyntax.KindLessThanLessThanToken ||
+      operator === TstsSyntax.KindGreaterThanGreaterThanToken ||
+      operator === TstsSyntax.KindGreaterThanGreaterThanGreaterThanToken
     ) {
-      const leftType = inferTypeFromValueExpression(
-        current.left,
-        binding,
-        seenDeclIds,
-        convertTypeFn
-      );
-      const rightType = inferTypeFromValueExpression(
-        current.right,
-        binding,
-        seenDeclIds,
-        convertTypeFn
-      );
+      const binary = TstsSyntax.AsBinaryExpression(current);
+      const leftType = binary?.Left
+        ? inferTypeFromValueExpression(
+            binary.Left,
+            binding,
+            seenDeclIds,
+            convertTypeFn
+          )
+        : undefined;
+      const rightType = binary?.Right
+        ? inferTypeFromValueExpression(
+            binary.Right,
+            binding,
+            seenDeclIds,
+            convertTypeFn
+          )
+        : undefined;
       if (!leftType || !rightType) return undefined;
       return { kind: "primitiveType", name: "int" };
     }

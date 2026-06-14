@@ -21,14 +21,14 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "clean": "rm -rf dist *.tsbuildinfo",
-    "test": "cd ../.. && node --test \"packages/tsts/dist/src/**/*.test.js\""
+    "test": "node --test \"dist/src/**/*.test.js\""
   },
   "files": [
     "dist",
-    "schema",
     "tsonic.package.json",
-    "tsonic.json"
+    "tsonic.json",
+    "README.md",
+    "LICENSE"
   ],
   "peerDependencies": {
     "@tsonic/core": "10.0.46",

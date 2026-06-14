@@ -1040,7 +1040,7 @@ const findUniqueRealMethodTarget = (
   return match ?? "missing";
 };
 
-const validateFunctionLegacyOverloads = (
+const validateUnsupportedFunctionOverloads = (
   module: IrModule,
   consumedFamilyNames: ReadonlySet<string>,
   diagnostics: Diagnostic[]
@@ -1062,14 +1062,14 @@ const validateFunctionLegacyOverloads = (
       createDiagnostic(
         "TSN2004",
         "error",
-        `Legacy TypeScript overload syntax is not supported for top-level function '${name}'. Declare a stub overload surface under '${name}' and bind real bodies with O(fn).family(${name}).`,
+        `TypeScript overload declarations are not supported for top-level function '${name}'. Declare a stub overload surface under '${name}' and bind real bodies with O(fn).family(${name}).`,
         { file: module.filePath, line: 1, column: 1, length: 1 }
       )
     );
   }
 };
 
-const validateClassLegacyOverloads = (
+const validateUnsupportedClassOverloads = (
   module: IrModule,
   consumedMethodFamilies: ReadonlyMap<number, ReadonlySet<string>>,
   diagnostics: Diagnostic[]
@@ -1099,7 +1099,7 @@ const validateClassLegacyOverloads = (
         createDiagnostic(
           "TSN2004",
           "error",
-          `Legacy TypeScript constructor overload syntax is not supported on '${statement.name}'. Redesign the constructor surface directly.`,
+          `TypeScript constructor overload declarations are not supported on '${statement.name}'. Redesign the constructor surface directly.`,
           { file: module.filePath, line: 1, column: 1, length: 1 }
         )
       );
@@ -1113,7 +1113,7 @@ const validateClassLegacyOverloads = (
         createDiagnostic(
           "TSN2004",
           "error",
-          `Legacy TypeScript method overload syntax is not supported on '${statement.name}.${memberName}'. Declare a stub overload surface under '${memberName}' and bind real bodies with O<${statement.name}>().method(x => x.realBody).family(x => x.${memberName}).`,
+          `TypeScript method overload declarations are not supported on '${statement.name}.${memberName}'. Declare a stub overload surface under '${memberName}' and bind real bodies with O<${statement.name}>().method(x => x.realBody).family(x => x.${memberName}).`,
           { file: module.filePath, line: 1, column: 1, length: 1 }
         )
       );
@@ -1528,12 +1528,12 @@ const collectModuleOverloads = (
     }
   }
 
-  validateFunctionLegacyOverloads(
+  validateUnsupportedFunctionOverloads(
     module,
     consumedFunctionFamilyNames,
     diagnostics
   );
-  validateClassLegacyOverloads(module, consumedMethodFamilies, diagnostics);
+  validateUnsupportedClassOverloads(module, consumedMethodFamilies, diagnostics);
 
   if (
     removedStatementIndices.size === 0 &&

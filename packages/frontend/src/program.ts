@@ -1,5 +1,5 @@
 /**
- * TypeScript program creation and management
+ * TSTS-backed program creation and management
  * Main dispatcher - re-exports from program/ subdirectory
  */
 

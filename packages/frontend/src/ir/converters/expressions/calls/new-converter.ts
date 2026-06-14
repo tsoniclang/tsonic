@@ -4,7 +4,7 @@
  * Two-pass resolution for deterministic constructor typing.
  */
 
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import { IrNewExpression } from "../../../types.js";
 import {
   getSourceSpan,
@@ -39,7 +39,7 @@ import { buildSourceBackedConstructorParameterTypes } from "./source-backed-cons
  * 6) inferredType MUST be finalResolved.returnType.
  */
 export const convertNewExpression = (
-  node: ts.NewExpression,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): IrNewExpression => {
@@ -48,21 +48,30 @@ export const convertNewExpression = (
   const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);
 
   // Convert callee (the constructor expression)
-  const callee = convertExpression(node.expression, ctx, undefined);
+  const constructorExpression = TstsSyntax.AsNewExpression(node)?.Expression;
+  if (!constructorExpression) {
+    throw new Error("ICE: new expression missing constructor expression");
+  }
+  const callee = convertExpression(constructorExpression, ctx, undefined);
 
   // Two-pass resolution (matching convertCallExpression pattern)
   const typeSystem = ctx.typeSystem;
   const sigId = ctx.binding.resolveConstructorSignature(node);
-  const argumentCount = node.arguments?.length ?? 0;
+  const args = TstsSyntax.Node_Arguments(node) ?? [];
+  const argumentCount = args.length;
   const callSiteArgModifiers: (CallSiteArgModifier | undefined)[] = new Array(
     argumentCount
   ).fill(undefined);
 
   // Extract explicit type arguments from call site
-  const explicitTypeArgs = node.typeArguments
-    ? node.typeArguments.map((ta) =>
-        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
-      )
+  const explicitTypeArgNodes = TstsSyntax.Node_TypeArguments(node) ?? [];
+  const explicitTypeArgs =
+    explicitTypeArgNodes.length > 0
+      ? explicitTypeArgNodes.flatMap((ta) =>
+          ta
+            ? [typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))]
+            : []
+        )
     : undefined;
 
   // Initial resolution (without argTypes) for parameter type threading.
@@ -96,9 +105,17 @@ export const convertNewExpression = (
       : initialResolvedWithoutReturnContext;
   const initialParameterTypes = initialResolved?.parameterTypes;
 
-  const isLambdaArg = (expr: ts.Expression): boolean => {
-    if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return true;
-    if (ts.isParenthesizedExpression(expr)) return isLambdaArg(expr.expression);
+  const isLambdaArg = (expr: TstsNode): boolean => {
+    if (
+      expr.Kind === TstsSyntax.KindArrowFunction ||
+      expr.Kind === TstsSyntax.KindFunctionExpression
+    ) {
+      return true;
+    }
+    if (expr.Kind === TstsSyntax.KindParenthesizedExpression) {
+      const inner = TstsSyntax.AsParenthesizedExpression(expr)?.Expression;
+      return inner ? isLambdaArg(inner) : false;
+    }
     return false;
   };
 
@@ -108,15 +125,18 @@ export const convertNewExpression = (
   const argTypesForInference: (IrType | undefined)[] =
     Array(argumentCount).fill(undefined);
 
-  const args = node.arguments ?? [];
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (!arg) continue;
 
     const expectedType = initialParameterTypes?.[index];
 
-    if (ts.isSpreadElement(arg)) {
-      const spreadExpr = convertExpression(arg.expression, ctx, undefined);
+    if (arg.Kind === TstsSyntax.KindSpreadElement) {
+      const spreadNode = TstsSyntax.AsSpreadElement(arg)?.Expression;
+      if (!spreadNode) {
+        throw new Error("ICE: spread argument missing expression");
+      }
+      const spreadExpr = convertExpression(spreadNode, ctx, undefined);
       argsWorking[index] = {
         kind: "spread" as const,
         expression: spreadExpr,
@@ -164,7 +184,7 @@ export const convertNewExpression = (
     if (argsWorking[index]) continue;
     const arg = args[index];
     if (!arg) continue;
-    if (ts.isSpreadElement(arg)) continue;
+    if (arg.Kind === TstsSyntax.KindSpreadElement) continue;
     const unwrapped = unwrapCallSiteArgumentModifier(arg, ctx);
     if (unwrapped.modifier) {
       callSiteArgModifiers[index] = unwrapped.modifier;
@@ -195,8 +215,12 @@ export const convertNewExpression = (
         "ICE: new expression argument conversion produced a hole"
       );
     }
-    if (ts.isSpreadElement(arg)) {
-      const spreadExpr = convertExpression(arg.expression, ctx, undefined);
+    if (arg.Kind === TstsSyntax.KindSpreadElement) {
+      const spreadNode = TstsSyntax.AsSpreadElement(arg)?.Expression;
+      if (!spreadNode) {
+        throw new Error("ICE: spread argument missing expression");
+      }
+      const spreadExpr = convertExpression(spreadNode, ctx, undefined);
       return {
         kind: "spread" as const,
         expression: spreadExpr,
@@ -240,7 +264,7 @@ export const convertNewExpression = (
   const sourceBackedConstructorParameterTypes =
     buildSourceBackedConstructorParameterTypes({
       sourceNode: node,
-      constructorExpression: node.expression,
+      constructorExpression,
       callee,
       constructedType: finalResolved?.returnType,
       argumentCount,
@@ -273,8 +297,8 @@ export const convertNewExpression = (
     resolvedParameterTypes: finalResolved?.parameterTypes,
     resolvedSurfaceParameterTypes: finalResolved?.surfaceParameterTypes,
     resolvedReturnType: finalReturnType,
-    fallbackParameterTypes: initialParameterTypes,
-    fallbackSurfaceParameterTypes: initialParameterTypes,
+    contextualParameterTypes: initialParameterTypes,
+    contextualSurfaceParameterTypes: initialParameterTypes,
     exactParameterCandidates: [],
     exactSurfaceParameterCandidates: [],
     exactReturnCandidates: [],

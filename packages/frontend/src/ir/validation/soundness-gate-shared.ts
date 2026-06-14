@@ -99,18 +99,18 @@ export const shouldReportUnsupportedCapability = (
 export const createUnsupportedCapabilityDiagnostic = (
   ctx: ValidationContext,
   capabilityName: FeatureKey,
-  fallbackCode: Diagnostic["code"],
-  fallbackMessage: string,
-  fallbackRemediation: string,
+  baseCode: Diagnostic["code"],
+  baseMessage: string,
+  baseRemediation: string,
   location: SourceLocation = moduleLocation(ctx)
 ): Diagnostic => {
   const backendCapability = capability(ctx.backendCapabilities, capabilityName);
   return createDiagnostic(
-    backendCapability?.diagnosticCode ?? fallbackCode,
+    backendCapability?.diagnosticCode ?? baseCode,
     "error",
-    backendCapability?.diagnosticMessage ?? fallbackMessage,
+    backendCapability?.diagnosticMessage ?? baseMessage,
     location,
-    backendCapability?.remediation ?? fallbackRemediation
+    backendCapability?.remediation ?? baseRemediation
   );
 };
 

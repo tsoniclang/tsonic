@@ -16,11 +16,11 @@
  * INVARIANT: All type conversion happens HERE, not in converters.
  */
 
-import * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
 import type { IrType } from "../../../types/index.js";
 import type { TypeRegistry } from "../type-registry.js";
 import type { Binding } from "../../../binding/index.js";
-import type { FrontendSourceSemanticView } from "../../../../source-frontend/index.js";
+import type { TstsFrontendSourceSemanticView } from "../../../../source-frontend/index.js";
 import { buildTypeRegistry } from "../type-registry.js";
 import { convertType } from "../type-converter.js";
 
@@ -32,8 +32,8 @@ import { convertType } from "../type-converter.js";
  * Configuration for building the source catalog.
  */
 export type SourceCatalogConfig = {
-  readonly sourceFiles: readonly ts.SourceFile[];
-  readonly sourceSemantics: FrontendSourceSemanticView;
+  readonly sourceFiles: readonly TstsSourceFile[];
+  readonly sourceSemantics: TstsFrontendSourceSemanticView;
   readonly sourceRoot: string;
   readonly rootNamespace: string;
   readonly binding: Binding;
@@ -107,7 +107,7 @@ export const buildSourceCatalog = (
   // We create a convertType function bound to the Binding, then call
   // buildTypeRegistry again with the real converter.
 
-  const boundConvertType = (typeNode: ts.TypeNode): IrType => {
+  const boundConvertType = (typeNode: TstsNode): IrType => {
     return convertType(typeNode, config.binding);
   };
 
@@ -135,9 +135,10 @@ export const buildSourceCatalog = (
  * - User source files (.ts)
  * - Declaration files (.d.ts) for globals and runtime types
  */
-export const shouldIncludeFile = (sourceFile: ts.SourceFile): boolean => {
+export const shouldIncludeFile = (sourceFile: TstsSourceFile): boolean => {
   // Include all TypeScript files
+  const fileName = sourceFile.FileName();
   return (
-    sourceFile.fileName.endsWith(".ts") || sourceFile.fileName.endsWith(".tsx")
+    fileName.endsWith(".ts") || fileName.endsWith(".tsx")
   );
 };

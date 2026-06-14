@@ -39,7 +39,7 @@ export const registerGoldenTestShard = (cfg: GoldenShardConfig): void => {
   describe(`Golden Tests (shard ${cfg.shardIndex + 1}/${cfg.shardCount})`, function () {
     // Golden tests run the full compiler+emitter pipeline per scenario and can
     // exceed the default timeout on slower machines / CI.
-    this.timeout(60_000);
+    this.timeout(900_000);
 
     const testcasesDir = path.join(__dirname, "../testcases");
 

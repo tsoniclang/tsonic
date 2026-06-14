@@ -2,15 +2,10 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as ts from "typescript";
 import { createProgramContext } from "./program-context.js";
 import { packageHasExternalMetadata } from "./program-context-types.js";
 import { BindingRegistry } from "../program/bindings.js";
-import { ExternalMetadataRegistry } from "../external-metadata.js";
-import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
-import { createBinding } from "./binding/index.js";
-import { createEmptyTstsSourceProgramForTests } from "../source-frontend/index.js";
-import { createTypeScriptSemanticView } from "../source-frontend/typescript-semantic-view.js";
+import { createTstsTestProgramFromFiles } from "../testing/tsts-test-program.js";
 
 describe("createProgramContext", () => {
   it("treats participating non-@tsonic packages with bindings.json as CLR metadata packages", () => {
@@ -106,45 +101,20 @@ describe("createProgramContext", () => {
       fs.writeFileSync(entryFile, "export const ok = 1;\n");
       fs.writeFileSync(declarationFile, "export {};\n");
 
-      const program = ts.createProgram({
-        rootNames: [entryFile, declarationFile],
-        options: {
-          target: ts.ScriptTarget.ES2022,
-          module: ts.ModuleKind.NodeNext,
-          moduleResolution: ts.ModuleResolutionKind.NodeNext,
-          strict: true,
-          noLib: true,
-          noEmit: true,
-          skipLibCheck: true,
+      const tsonicProgram = createTstsTestProgramFromFiles(
+        {
+          [path.relative(projectRoot, entryFile)]: "export const ok = 1;\n",
+          [path.relative(projectRoot, declarationFile)]: "export {};\n",
         },
-      });
-
-      const sourceFile = program.getSourceFile(entryFile);
-      const declarationSourceFile = program.getSourceFile(declarationFile);
-      if (!sourceFile || !declarationSourceFile) {
-        throw new Error("failed to construct test source files");
-      }
-
-      const checker = program.getTypeChecker();
-      const tsonicProgram = {
-        program,
-        checker,
-        tsCompilerOptions: program.getCompilerOptions(),
-        options: {
+        path.relative(projectRoot, entryFile),
+        {
           projectRoot,
           sourceRoot: srcDir,
           rootNamespace: "TestApp",
           strict: true,
-        },
-        sourceFiles: [sourceFile],
-        declarationSourceFiles: [declarationSourceFile],
-        sourceProgram: createEmptyTstsSourceProgramForTests(),
-        sourceSemantics: createTypeScriptSemanticView(checker),
-        metadata: new ExternalMetadataRegistry(),
-        bindings: new BindingRegistry(),
-        externalResolver: createExternalBindingsResolver(projectRoot),
-        binding: createBinding(createTypeScriptSemanticView(checker)),
-      };
+          bindings: new BindingRegistry(),
+        }
+      );
 
       const ctx = createProgramContext(tsonicProgram, {
         sourceRoot: srcDir,

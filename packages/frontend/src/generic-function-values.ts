@@ -1,34 +1,35 @@
-import * as ts from "typescript";
-import type { FrontendSourceSemanticView } from "./source-frontend/index.js";
+import type { TstsNode, TstsSymbol } from "@tsonic/tsts";
+import {
+  forEachTstsChild,
+  getTstsNodeNameText,
+  getTstsTypeParameterNodes,
+  TstsSyntax,
+} from "@tsonic/tsts";
+import type { TstsFrontendSourceSemanticView } from "./source-frontend/index.js";
 
-export type GenericFunctionValueNode = ts.ArrowFunction | ts.FunctionExpression;
+export type GenericFunctionValueNode = TstsNode;
 
 export const isGenericFunctionValueNode = (
-  node: ts.Node
+  node: TstsNode
 ): node is GenericFunctionValueNode =>
-  (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
-  !!node.typeParameters &&
-  node.typeParameters.length > 0;
+  (TstsSyntax.IsArrowFunction(node) || TstsSyntax.IsFunctionExpression(node)) &&
+  getTstsTypeParameterNodes(node).length > 0;
 
 export const isGenericFunctionDeclarationNode = (
-  node: ts.Node
-): node is ts.FunctionDeclaration =>
-  ts.isFunctionDeclaration(node) &&
-  !!node.name &&
-  !!node.typeParameters &&
-  node.typeParameters.length > 0;
+  node: TstsNode
+): boolean =>
+  TstsSyntax.IsFunctionDeclaration(node) &&
+  getTstsNodeNameText(node) !== undefined &&
+  getTstsTypeParameterNodes(node).length > 0;
 
 const isGenericFunctionDeclarationSymbol = (
-  symbol: ts.Symbol,
-  sourceSemantics: FrontendSourceSemanticView
+  symbol: TstsSymbol,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean => {
   const declarations = sourceSemantics.getSymbolDeclarations(symbol);
   if (declarations.length === 0) return false;
   for (const declaration of declarations) {
-    if (
-      ts.isFunctionDeclaration(declaration) &&
-      isGenericFunctionDeclarationNode(declaration)
-    ) {
+    if (isGenericFunctionDeclarationNode(declaration)) {
       return true;
     }
   }
@@ -36,70 +37,69 @@ const isGenericFunctionDeclarationSymbol = (
 };
 
 export const isDeterministicGenericFunctionAliasTargetSymbol = (
-  symbol: ts.Symbol,
-  supportedSymbols: ReadonlySet<ts.Symbol>,
-  sourceSemantics: FrontendSourceSemanticView
+  symbol: TstsSymbol,
+  supportedSymbols: ReadonlySet<TstsSymbol>,
+  sourceSemantics: TstsFrontendSourceSemanticView
 ): boolean =>
   supportedSymbols.has(symbol) ||
   isGenericFunctionDeclarationSymbol(symbol, sourceSemantics);
 
 const resolveSymbol = (
-  sourceSemantics: FrontendSourceSemanticView,
-  node: ts.Node
-): ts.Symbol | undefined => {
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  node: TstsNode
+): TstsSymbol | undefined => {
   const symbol = sourceSemantics.getSymbol(node);
   if (!symbol) return undefined;
-  return sourceSemantics.resolveAlias(symbol);
+  return sourceSemantics.resolveAlias(symbol) ?? symbol;
 };
 
 const getVariableDeclarationList = (
-  declaration: ts.VariableDeclaration
-): ts.VariableDeclarationList | undefined => {
-  const list = declaration.parent;
-  if (!list || !ts.isVariableDeclarationList(list)) {
-    return undefined;
-  }
-  return list;
+  declaration: TstsNode
+): TstsNode | undefined => {
+  const list = declaration.Parent;
+  return list && TstsSyntax.IsVariableDeclarationList(list) ? list : undefined;
 };
 
 const getConstLetKind = (
-  declaration: ts.VariableDeclaration
+  declaration: TstsNode
 ): { readonly isConst: boolean; readonly isLet: boolean } | undefined => {
   const list = getVariableDeclarationList(declaration);
   if (!list) return undefined;
+  const flags = TstsSyntax.AsVariableDeclarationList(list)?.Flags ?? 0;
 
-  const isConst = (list.flags & ts.NodeFlags.Const) !== 0;
-  const isLet = (list.flags & ts.NodeFlags.Let) !== 0;
+  const isConst = (flags & TstsSyntax.NodeFlagsConst) !== 0;
+  const isLet = (flags & TstsSyntax.NodeFlagsLet) !== 0;
   if (!isConst && !isLet) return undefined;
   return { isConst, isLet };
 };
 
 const getVariableDeclarationSymbol = (
-  sourceSemantics: FrontendSourceSemanticView,
-  declaration: ts.VariableDeclaration
-): ts.Symbol | undefined => {
-  if (!ts.isIdentifier(declaration.name)) return undefined;
-  return resolveSymbol(sourceSemantics, declaration.name);
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  declaration: TstsNode
+): TstsSymbol | undefined => {
+  const name = TstsSyntax.Node_Name(declaration);
+  if (!name || !TstsSyntax.IsIdentifier(name)) return undefined;
+  return resolveSymbol(sourceSemantics, name);
 };
 
-const isAssignmentOperator = (kind: ts.SyntaxKind): boolean => {
+const isAssignmentOperator = (kind: number): boolean => {
   switch (kind) {
-    case ts.SyntaxKind.EqualsToken:
-    case ts.SyntaxKind.PlusEqualsToken:
-    case ts.SyntaxKind.MinusEqualsToken:
-    case ts.SyntaxKind.AsteriskEqualsToken:
-    case ts.SyntaxKind.AsteriskAsteriskEqualsToken:
-    case ts.SyntaxKind.SlashEqualsToken:
-    case ts.SyntaxKind.PercentEqualsToken:
-    case ts.SyntaxKind.LessThanLessThanEqualsToken:
-    case ts.SyntaxKind.GreaterThanGreaterThanEqualsToken:
-    case ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken:
-    case ts.SyntaxKind.AmpersandEqualsToken:
-    case ts.SyntaxKind.BarEqualsToken:
-    case ts.SyntaxKind.CaretEqualsToken:
-    case ts.SyntaxKind.BarBarEqualsToken:
-    case ts.SyntaxKind.AmpersandAmpersandEqualsToken:
-    case ts.SyntaxKind.QuestionQuestionEqualsToken:
+    case TstsSyntax.KindEqualsToken:
+    case TstsSyntax.KindPlusEqualsToken:
+    case TstsSyntax.KindMinusEqualsToken:
+    case TstsSyntax.KindAsteriskEqualsToken:
+    case TstsSyntax.KindAsteriskAsteriskEqualsToken:
+    case TstsSyntax.KindSlashEqualsToken:
+    case TstsSyntax.KindPercentEqualsToken:
+    case TstsSyntax.KindLessThanLessThanEqualsToken:
+    case TstsSyntax.KindGreaterThanGreaterThanEqualsToken:
+    case TstsSyntax.KindGreaterThanGreaterThanGreaterThanEqualsToken:
+    case TstsSyntax.KindAmpersandEqualsToken:
+    case TstsSyntax.KindBarEqualsToken:
+    case TstsSyntax.KindCaretEqualsToken:
+    case TstsSyntax.KindBarBarEqualsToken:
+    case TstsSyntax.KindAmpersandAmpersandEqualsToken:
+    case TstsSyntax.KindQuestionQuestionEqualsToken:
       return true;
     default:
       return false;
@@ -107,87 +107,122 @@ const isAssignmentOperator = (kind: ts.SyntaxKind): boolean => {
 };
 
 const markAssignmentTargetSymbols = (
-  sourceSemantics: FrontendSourceSemanticView,
-  node: ts.Node,
-  writes: Set<ts.Symbol>
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  node: TstsNode,
+  writes: Set<TstsSymbol>
 ): void => {
-  if (ts.isIdentifier(node)) {
+  if (TstsSyntax.IsIdentifier(node)) {
     const symbol = resolveSymbol(sourceSemantics, node);
     if (symbol) writes.add(symbol);
     return;
   }
 
-  if (ts.isParenthesizedExpression(node)) {
-    markAssignmentTargetSymbols(sourceSemantics, node.expression, writes);
-    return;
-  }
-
-  if (ts.isArrayLiteralExpression(node)) {
-    for (const element of node.elements) {
-      if (ts.isOmittedExpression(element)) continue;
-      if (ts.isSpreadElement(element)) {
-        markAssignmentTargetSymbols(sourceSemantics, element.expression, writes);
-        continue;
-      }
-      markAssignmentTargetSymbols(sourceSemantics, element, writes);
+  if (TstsSyntax.IsParenthesizedExpression(node)) {
+    const expression = TstsSyntax.Node_Expression(node);
+    if (expression) {
+      markAssignmentTargetSymbols(sourceSemantics, expression, writes);
     }
     return;
   }
 
-  if (ts.isObjectLiteralExpression(node)) {
-    for (const property of node.properties) {
-      if (ts.isShorthandPropertyAssignment(property)) {
-        markAssignmentTargetSymbols(sourceSemantics, property.name, writes);
-        continue;
-      }
-      if (ts.isSpreadAssignment(property)) {
-        markAssignmentTargetSymbols(sourceSemantics, property.expression, writes);
-        continue;
-      }
-      if (ts.isPropertyAssignment(property)) {
-        markAssignmentTargetSymbols(sourceSemantics, property.initializer, writes);
+  if (TstsSyntax.IsArrayLiteralExpression(node)) {
+    for (const element of TstsSyntax.Node_Elements(node) ?? []) {
+      if (!element || TstsSyntax.IsOmittedExpression(element)) continue;
+      const target = TstsSyntax.IsSpreadElement(element)
+        ? TstsSyntax.Node_Expression(element)
+        : element;
+      if (target) {
+        markAssignmentTargetSymbols(sourceSemantics, target, writes);
       }
     }
     return;
   }
 
-  if (
-    ts.isBinaryExpression(node) &&
-    node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-  ) {
-    markAssignmentTargetSymbols(sourceSemantics, node.left, writes);
+  if (TstsSyntax.IsObjectLiteralExpression(node)) {
+    for (const property of TstsSyntax.Node_Properties(node) ?? []) {
+      if (!property) continue;
+      if (TstsSyntax.IsShorthandPropertyAssignment(property)) {
+        const name = TstsSyntax.Node_Name(property);
+        if (name) markAssignmentTargetSymbols(sourceSemantics, name, writes);
+        continue;
+      }
+      if (TstsSyntax.IsSpreadAssignment(property)) {
+        const expression = TstsSyntax.Node_Expression(property);
+        if (expression) {
+          markAssignmentTargetSymbols(sourceSemantics, expression, writes);
+        }
+        continue;
+      }
+      if (TstsSyntax.IsPropertyAssignment(property)) {
+        const initializer = TstsSyntax.Node_Initializer(property);
+        if (initializer) {
+          markAssignmentTargetSymbols(sourceSemantics, initializer, writes);
+        }
+      }
+    }
+    return;
+  }
+
+  if (TstsSyntax.IsBinaryExpression(node)) {
+    const expression = TstsSyntax.AsBinaryExpression(node);
+    if (
+      expression?.OperatorToken?.Kind === TstsSyntax.KindEqualsToken &&
+      expression.Left
+    ) {
+      markAssignmentTargetSymbols(sourceSemantics, expression.Left, writes);
+    }
   }
 };
 
 export const collectWrittenSymbols = (
-  sourceFile: ts.SourceFile,
-  sourceSemantics: FrontendSourceSemanticView
-): ReadonlySet<ts.Symbol> => {
-  const writes = new Set<ts.Symbol>();
+  sourceFile: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView
+): ReadonlySet<TstsSymbol> => {
+  const writes = new Set<TstsSymbol>();
 
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isBinaryExpression(node) &&
-      isAssignmentOperator(node.operatorToken.kind)
-    ) {
-      markAssignmentTargetSymbols(sourceSemantics, node.left, writes);
-    }
-
-    if (
-      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
-      (node.operator === ts.SyntaxKind.PlusPlusToken ||
-        node.operator === ts.SyntaxKind.MinusMinusToken)
-    ) {
-      markAssignmentTargetSymbols(sourceSemantics, node.operand, writes);
-    }
-
-    if (ts.isForInStatement(node) || ts.isForOfStatement(node)) {
-      if (!ts.isVariableDeclarationList(node.initializer)) {
-        markAssignmentTargetSymbols(sourceSemantics, node.initializer, writes);
+  const visit = (node: TstsNode): void => {
+    if (TstsSyntax.IsBinaryExpression(node)) {
+      const expression = TstsSyntax.AsBinaryExpression(node);
+      const operatorKind = expression?.OperatorToken?.Kind;
+      if (operatorKind !== undefined && isAssignmentOperator(operatorKind)) {
+        if (expression?.Left) {
+          markAssignmentTargetSymbols(sourceSemantics, expression.Left, writes);
+        }
       }
     }
 
-    ts.forEachChild(node, visit);
+    if (TstsSyntax.IsPrefixUnaryExpression(node)) {
+      const expression = TstsSyntax.AsPrefixUnaryExpression(node);
+      if (
+        (expression?.Operator === TstsSyntax.KindPlusPlusToken ||
+          expression?.Operator === TstsSyntax.KindMinusMinusToken) &&
+        expression.Operand
+      ) {
+        markAssignmentTargetSymbols(sourceSemantics, expression.Operand, writes);
+      }
+    }
+
+    if (TstsSyntax.IsPostfixUnaryExpression(node)) {
+      const expression = TstsSyntax.AsPostfixUnaryExpression(node);
+      if (
+        (expression?.Operator === TstsSyntax.KindPlusPlusToken ||
+          expression?.Operator === TstsSyntax.KindMinusMinusToken) &&
+        expression.Operand
+      ) {
+        markAssignmentTargetSymbols(sourceSemantics, expression.Operand, writes);
+      }
+    }
+
+    if (TstsSyntax.IsForInStatement(node) || TstsSyntax.IsForOfStatement(node)) {
+      const initializer = TstsSyntax.AsForInOrOfStatement(node)?.Initializer;
+      if (initializer && !TstsSyntax.IsVariableDeclarationList(initializer)) {
+        markAssignmentTargetSymbols(sourceSemantics, initializer, writes);
+      }
+    }
+
+    forEachTstsChild(node, (child) => {
+      if (child) visit(child);
+    });
   };
 
   visit(sourceFile);
@@ -196,21 +231,22 @@ export const collectWrittenSymbols = (
 
 export const getSupportedGenericFunctionValueSymbol = (
   node: GenericFunctionValueNode,
-  sourceSemantics: FrontendSourceSemanticView,
-  writtenSymbols: ReadonlySet<ts.Symbol>
-): ts.Symbol | undefined => {
-  const decl = node.parent;
-  if (!ts.isVariableDeclaration(decl)) return undefined;
-  if (decl.initializer !== node) return undefined;
-  if (!ts.isIdentifier(decl.name)) return undefined;
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  writtenSymbols: ReadonlySet<TstsSymbol>
+): TstsSymbol | undefined => {
+  const decl = node.Parent;
+  if (!decl || !TstsSyntax.IsVariableDeclaration(decl)) return undefined;
+  if (TstsSyntax.Node_Initializer(decl) !== node) return undefined;
+  const name = TstsSyntax.Node_Name(decl);
+  if (!name || !TstsSyntax.IsIdentifier(name)) return undefined;
 
   const kind = getConstLetKind(decl);
   if (!kind) return undefined;
 
   const list = getVariableDeclarationList(decl);
   if (!list) return undefined;
-  const stmt = list.parent;
-  if (!ts.isVariableStatement(stmt)) return undefined;
+  const stmt = list.Parent;
+  if (!stmt || !TstsSyntax.IsVariableStatement(stmt)) return undefined;
 
   const symbol = getVariableDeclarationSymbol(sourceSemantics, decl);
   if (!symbol) return undefined;
@@ -220,26 +256,30 @@ export const getSupportedGenericFunctionValueSymbol = (
 };
 
 export const getSupportedGenericFunctionDeclarationSymbol = (
-  node: ts.FunctionDeclaration,
-  sourceSemantics: FrontendSourceSemanticView
-): ts.Symbol | undefined => {
-  if (!isGenericFunctionDeclarationNode(node) || !node.name) return undefined;
-  return resolveSymbol(sourceSemantics, node.name);
+  node: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView
+): TstsSymbol | undefined => {
+  if (!isGenericFunctionDeclarationNode(node)) return undefined;
+  const name = TstsSyntax.Node_Name(node);
+  if (!name) return undefined;
+  return resolveSymbol(sourceSemantics, name);
 };
 
 const resolveAliasTargetSymbol = (
-  declaration: ts.VariableDeclaration,
-  sourceSemantics: FrontendSourceSemanticView,
-  supportedSymbols: ReadonlySet<ts.Symbol>
-): ts.Symbol | undefined => {
-  if (!ts.isIdentifier(declaration.name)) return undefined;
+  declaration: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  supportedSymbols: ReadonlySet<TstsSymbol>
+): TstsSymbol | undefined => {
+  const name = TstsSyntax.Node_Name(declaration);
+  if (!name || !TstsSyntax.IsIdentifier(name)) return undefined;
   const kind = getConstLetKind(declaration);
   if (!kind) return undefined;
-  if (!declaration.initializer || !ts.isIdentifier(declaration.initializer)) {
+  const initializer = TstsSyntax.Node_Initializer(declaration);
+  if (!initializer || !TstsSyntax.IsIdentifier(initializer)) {
     return undefined;
   }
 
-  const targetSymbol = resolveSymbol(sourceSemantics, declaration.initializer);
+  const targetSymbol = resolveSymbol(sourceSemantics, initializer);
   if (!targetSymbol) return undefined;
   if (
     !isDeterministicGenericFunctionAliasTargetSymbol(
@@ -254,11 +294,11 @@ const resolveAliasTargetSymbol = (
 };
 
 export const getSupportedGenericFunctionAliasSymbol = (
-  declaration: ts.VariableDeclaration,
-  sourceSemantics: FrontendSourceSemanticView,
-  writtenSymbols: ReadonlySet<ts.Symbol>,
-  supportedSymbols: ReadonlySet<ts.Symbol>
-): ts.Symbol | undefined => {
+  declaration: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  writtenSymbols: ReadonlySet<TstsSymbol>,
+  supportedSymbols: ReadonlySet<TstsSymbol>
+): TstsSymbol | undefined => {
   const kind = getConstLetKind(declaration);
   if (!kind) return undefined;
   const targetSymbol = resolveAliasTargetSymbol(
@@ -276,14 +316,14 @@ export const getSupportedGenericFunctionAliasSymbol = (
 };
 
 export const collectSupportedGenericFunctionValueSymbols = (
-  sourceFile: ts.SourceFile,
-  sourceSemantics: FrontendSourceSemanticView,
-  writtenSymbols: ReadonlySet<ts.Symbol>
-): ReadonlySet<ts.Symbol> => {
-  const symbols = new Set<ts.Symbol>();
-  const declarations: ts.VariableDeclaration[] = [];
+  sourceFile: TstsNode,
+  sourceSemantics: TstsFrontendSourceSemanticView,
+  writtenSymbols: ReadonlySet<TstsSymbol>
+): ReadonlySet<TstsSymbol> => {
+  const symbols = new Set<TstsSymbol>();
+  const declarations: TstsNode[] = [];
 
-  const collect = (node: ts.Node): void => {
+  const collect = (node: TstsNode): void => {
     if (isGenericFunctionValueNode(node)) {
       const symbol = getSupportedGenericFunctionValueSymbol(
         node,
@@ -301,18 +341,21 @@ export const collectSupportedGenericFunctionValueSymbols = (
       if (symbol) symbols.add(symbol);
     }
 
-    if (ts.isImportSpecifier(node)) {
-      const symbol = resolveSymbol(sourceSemantics, node.name);
+    if (TstsSyntax.IsImportSpecifier(node)) {
+      const name = TstsSyntax.Node_Name(node);
+      const symbol = name ? resolveSymbol(sourceSemantics, name) : undefined;
       if (symbol && isGenericFunctionDeclarationSymbol(symbol, sourceSemantics)) {
         symbols.add(symbol);
       }
     }
 
-    if (ts.isVariableDeclaration(node)) {
+    if (TstsSyntax.IsVariableDeclaration(node)) {
       declarations.push(node);
     }
 
-    ts.forEachChild(node, collect);
+    forEachTstsChild(node, (child) => {
+      if (child) collect(child);
+    });
   };
 
   collect(sourceFile);

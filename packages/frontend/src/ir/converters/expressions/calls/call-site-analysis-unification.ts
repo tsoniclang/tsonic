@@ -96,6 +96,139 @@ const splitDeterministicNullishUnion = (
   return nonNullishMember ? { nonNullishMember, nullishMembers } : undefined;
 };
 
+const unificationTemplateSpecificity = (
+  type: IrType | undefined,
+  seen: WeakSet<object> = new WeakSet<object>()
+): number => {
+  if (!type) {
+    return 0;
+  }
+  if (seen.has(type)) {
+    return 0;
+  }
+  seen.add(type);
+
+  switch (type.kind) {
+    case "typeParameterType":
+    case "unknownType":
+    case "anyType":
+      return 0;
+    case "primitiveType":
+    case "literalType":
+    case "voidType":
+    case "neverType":
+      return 1;
+    case "arrayType":
+      return 2 + unificationTemplateSpecificity(type.elementType, seen);
+    case "tupleType":
+      return (
+        2 +
+        type.elementTypes.reduce(
+          (total, member) =>
+            total + unificationTemplateSpecificity(member, seen),
+          0
+        )
+      );
+    case "dictionaryType":
+      return (
+        2 +
+        unificationTemplateSpecificity(type.keyType, seen) +
+        unificationTemplateSpecificity(type.valueType, seen)
+      );
+    case "referenceType":
+      return (
+        3 +
+        (type.typeArguments?.reduce(
+          (total, member) =>
+            total + unificationTemplateSpecificity(member, seen),
+          0
+        ) ?? 0)
+      );
+    case "functionType":
+      return (
+        3 +
+        type.parameters.reduce(
+          (total, parameter) =>
+            total + unificationTemplateSpecificity(parameter.type, seen),
+          0
+        ) +
+        unificationTemplateSpecificity(type.returnType, seen)
+      );
+    case "objectType":
+      return (
+        3 +
+        type.members.reduce((total, member) => {
+          if (member.kind === "propertySignature") {
+            return total + unificationTemplateSpecificity(member.type, seen);
+          }
+          return (
+            total +
+            member.parameters.reduce(
+              (innerTotal, parameter) =>
+                innerTotal +
+                unificationTemplateSpecificity(parameter.type, seen),
+              0
+            ) +
+            unificationTemplateSpecificity(member.returnType, seen)
+          );
+        }, 0)
+      );
+    case "unionType":
+    case "intersectionType":
+      return type.types.reduce(
+        (total, member) => total + unificationTemplateSpecificity(member, seen),
+        0
+      );
+  }
+};
+
+const tryUnifySingleUnionMemberTemplate = (
+  templateMembers: readonly IrType[],
+  actual: IrType,
+  substitutions: Map<string, IrType>
+): boolean => {
+  const matches: {
+    readonly substitutions: Map<string, IrType>;
+    readonly specificity: number;
+  }[] = [];
+
+  for (const member of templateMembers) {
+    const attempt = new Map(substitutions);
+    if (!unifyTypeTemplate(member, actual, attempt)) {
+      continue;
+    }
+    matches.push({
+      substitutions: attempt,
+      specificity: unificationTemplateSpecificity(member),
+    });
+  }
+
+  if (matches.length === 0) {
+    return false;
+  }
+
+  matches.sort((left, right) => right.specificity - left.specificity);
+  const [best, second] = matches;
+  if (!best || best.specificity === (second?.specificity ?? -1)) {
+    return false;
+  }
+
+  substitutions.clear();
+  for (const [name, type] of best.substitutions) {
+    substitutions.set(name, type);
+  }
+  return true;
+};
+
+const isPromiseLikeReferencePair = (
+  template: Extract<IrType, { kind: "referenceType" }>,
+  actual: Extract<IrType, { kind: "referenceType" }>
+): boolean => {
+  const templateName = template.typeId?.sourceName ?? template.name;
+  const actualName = actual.typeId?.sourceName ?? actual.name;
+  return templateName === "PromiseLike" && actualName === "Promise";
+};
+
 export const unifyTypeTemplate = (
   template: IrType,
   actual: IrType,
@@ -136,6 +269,14 @@ export const unifyTypeTemplate = (
         return unifyTypeTemplate(template, onlyNonNullishMember, substitutions);
       }
     }
+  }
+
+  if (template.kind === "unionType" && actual.kind !== "unionType") {
+    return tryUnifySingleUnionMemberTemplate(
+      template.types,
+      actual,
+      substitutions
+    );
   }
 
   if (template.kind === "typeParameterType") {
@@ -201,6 +342,16 @@ export const unifyTypeTemplate = (
       const rhs = actual as typeof template;
       const templateIdentity = referenceTypeIdentity(template);
       const rhsIdentity = referenceTypeIdentity(rhs);
+      if (isPromiseLikeReferencePair(template, rhs)) {
+        const templateArgs = template.typeArguments ?? [];
+        const actualArgs = rhs.typeArguments ?? [];
+        if (templateArgs.length !== 1 || actualArgs.length !== 1) return false;
+        const [templateArg] = templateArgs;
+        const [actualArg] = actualArgs;
+        return !!templateArg && !!actualArg
+          ? unifyTypeTemplate(templateArg, actualArg, substitutions)
+          : false;
+      }
       if (
         templateIdentity === undefined ||
         rhsIdentity === undefined ||

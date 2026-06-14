@@ -57,10 +57,14 @@ export const jsSurfaceCapabilities: EmitterContext["options"]["surfaceCapabiliti
       "js.Array": {
         length: { storageAccess: "arrayLength" },
         push: { mutatesReceiver: true },
+        reverse: { mutatesReceiver: true, returnsReceiver: true },
+        sort: { mutatesReceiver: true, returnsReceiver: true },
       },
       "js.Array`1": {
         length: { storageAccess: "arrayLength" },
         push: { mutatesReceiver: true },
+        reverse: { mutatesReceiver: true, returnsReceiver: true },
+        sort: { mutatesReceiver: true, returnsReceiver: true },
       },
       "js.ReadonlyArray": {
         length: { storageAccess: "arrayLength" },

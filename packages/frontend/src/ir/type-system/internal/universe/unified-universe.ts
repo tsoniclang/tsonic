@@ -5,7 +5,7 @@
  * types into a single unified lookup table.
  *
  * INVARIANT INV-NOMINAL: This is THE source of truth for all type queries.
- * No fallback paths allowed. If a type isn't in this catalog, it doesn't exist.
+ * If a type isn't in this catalog, it doesn't exist.
  *
  * Design:
  * - Source types get stableIds generated as "{ownerIdentity}:{fullyQualifiedName}"
@@ -966,13 +966,13 @@ export const buildUnifiedUniverse = (
         },
         resolveSourceOwnerIdentity
       );
-      const preserveProviderIdentity =
+      const preserveSimpleNameIdentity =
         entry.preservesProviderIdentity === true &&
         externalCatalog.tsNameToTypeId.has(entry.name);
 
       // Add to maps (source types won't collide with external types by stableId)
       entries.set(nominalEntry.typeId.stableId, nominalEntry);
-      if (!preserveProviderIdentity) {
+      if (!preserveSimpleNameIdentity) {
         const sourcePriority = entry.isDeclarationFile ? 0 : 1;
 
         const existingTsPriority = sourceTsNamePriority.get(
@@ -991,7 +991,15 @@ export const buildUnifiedUniverse = (
             sourcePriority
           );
         }
+      }
 
+      const providerNameCollidesWithExternal =
+        externalCatalog.providerNameToTypeId.has(nominalEntry.typeId.providerName);
+      if (
+        !providerNameCollidesWithExternal ||
+        entry.preservesProviderIdentity !== true
+      ) {
+        const sourcePriority = entry.isDeclarationFile ? 0 : 1;
         const existingTargetPriority = sourceProviderNamePriority.get(
           nominalEntry.typeId.providerName
         );

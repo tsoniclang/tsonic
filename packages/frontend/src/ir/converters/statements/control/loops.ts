@@ -4,7 +4,7 @@
  * Uses ProgramContext for loop conversion.
  */
 
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import {
   IrWhileStatement,
   IrForStatement,
@@ -16,89 +16,117 @@ import { normalizedUnionType } from "../../../types/type-ops.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { convertStatementSingle } from "../../../statement-converter.js";
-import { convertVariableDeclarationList } from "../helpers.js";
+import {
+  convertVariableDeclarationList,
+  definedTstsNodes,
+} from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import { withVariableTypeEnv } from "../../type-env.js";
 
-const isOneLiteral = (node: ts.Expression): boolean =>
-  ts.isNumericLiteral(node) && node.text === "1";
+const isOneLiteral = (node: TstsNode): boolean =>
+  node.Kind === TstsSyntax.KindNumericLiteral && TstsSyntax.Node_Text(node) === "1";
 
 const isIdentifierNamed = (
-  node: ts.Expression,
+  node: TstsNode,
   name: string
-): node is ts.Identifier => ts.isIdentifier(node) && node.text === name;
+): boolean =>
+  node.Kind === TstsSyntax.KindIdentifier && TstsSyntax.Node_Text(node) === name;
 
 const isCanonicalIntegerIncrementor = (
-  incrementor: ts.Expression | undefined,
+  incrementor: TstsNode | undefined,
   name: string
 ): boolean => {
   if (!incrementor) return false;
 
   if (
-    ts.isPostfixUnaryExpression(incrementor) ||
-    ts.isPrefixUnaryExpression(incrementor)
+    TstsSyntax.IsPostfixUnaryExpression(incrementor) ||
+    TstsSyntax.IsPrefixUnaryExpression(incrementor)
   ) {
+    const updateExpression =
+      TstsSyntax.AsPostfixUnaryExpression(incrementor) ??
+      TstsSyntax.AsPrefixUnaryExpression(incrementor);
     return (
-      incrementor.operator === ts.SyntaxKind.PlusPlusToken &&
-      isIdentifierNamed(incrementor.operand, name)
+      updateExpression?.Operator === TstsSyntax.KindPlusPlusToken &&
+      !!updateExpression.Operand &&
+      isIdentifierNamed(updateExpression.Operand, name)
     );
   }
 
-  if (!ts.isBinaryExpression(incrementor)) return false;
+  if (!TstsSyntax.IsBinaryExpression(incrementor)) return false;
+  const binary = TstsSyntax.AsBinaryExpression(incrementor);
+  if (!binary) return false;
 
   if (
-    incrementor.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken &&
-    isIdentifierNamed(incrementor.left, name)
+    binary.OperatorToken?.Kind === TstsSyntax.KindPlusEqualsToken &&
+    !!binary.Left &&
+    isIdentifierNamed(binary.Left, name)
   ) {
-    return isOneLiteral(incrementor.right);
+    return !!binary.Right && isOneLiteral(binary.Right);
   }
 
   if (
-    incrementor.operatorToken.kind !== ts.SyntaxKind.EqualsToken ||
-    !isIdentifierNamed(incrementor.left, name) ||
-    !ts.isBinaryExpression(incrementor.right) ||
-    incrementor.right.operatorToken.kind !== ts.SyntaxKind.PlusToken
+    binary.OperatorToken?.Kind !== TstsSyntax.KindEqualsToken ||
+    !binary.Left ||
+    !isIdentifierNamed(binary.Left, name) ||
+    !binary.Right ||
+    !TstsSyntax.IsBinaryExpression(binary.Right)
   ) {
+    return false;
+  }
+  const right = TstsSyntax.AsBinaryExpression(binary.Right);
+  if (!right || right.OperatorToken?.Kind !== TstsSyntax.KindPlusToken) {
     return false;
   }
 
   return (
-    (isIdentifierNamed(incrementor.right.left, name) &&
-      isOneLiteral(incrementor.right.right)) ||
-    (isOneLiteral(incrementor.right.left) &&
-      isIdentifierNamed(incrementor.right.right, name))
+    (!!right.Left &&
+      !!right.Right &&
+      isIdentifierNamed(right.Left, name) &&
+      isOneLiteral(right.Right)) ||
+    (!!right.Left &&
+      !!right.Right &&
+      isOneLiteral(right.Left) &&
+      isIdentifierNamed(right.Right, name))
   );
 };
 
 const detectCanonicalIntegerLoopVariable = (
-  initializer: ts.ForInitializer | undefined,
-  incrementor: ts.Expression | undefined
+  initializer: TstsNode | undefined,
+  incrementor: TstsNode | undefined
 ): string | undefined => {
-  if (!initializer || !ts.isVariableDeclarationList(initializer)) {
+  if (!initializer || !TstsSyntax.IsVariableDeclarationList(initializer)) {
     return undefined;
   }
 
-  if (!(initializer.flags & ts.NodeFlags.Let)) {
+  const flags = TstsSyntax.AsVariableDeclarationList(initializer)?.Flags ?? 0;
+  if ((flags & TstsSyntax.NodeFlagsLet) === 0) {
     return undefined;
   }
 
-  if (initializer.declarations.length !== 1) {
+  const declarations = definedTstsNodes(
+    TstsSyntax.AsVariableDeclarationList(initializer)?.Declarations?.Nodes
+  );
+  if (declarations.length !== 1) {
     return undefined;
   }
 
-  const decl = initializer.declarations[0];
+  const decl = declarations[0];
+  const name = decl ? TstsSyntax.Node_Name(decl) : undefined;
+  const initializerNode = decl ? TstsSyntax.Node_Initializer(decl) : undefined;
   if (
     !decl ||
-    !ts.isIdentifier(decl.name) ||
-    !decl.initializer ||
-    !ts.isNumericLiteral(decl.initializer) ||
-    !Number.isInteger(Number(decl.initializer.text))
+    !name ||
+    !TstsSyntax.IsIdentifier(name) ||
+    !initializerNode ||
+    initializerNode.Kind !== TstsSyntax.KindNumericLiteral ||
+    !Number.isInteger(Number(TstsSyntax.Node_Text(initializerNode)))
   ) {
     return undefined;
   }
 
-  return isCanonicalIntegerIncrementor(incrementor, decl.name.text)
-    ? decl.name.text
+  const nameText = TstsSyntax.Node_Text(name) ?? "";
+  return isCanonicalIntegerIncrementor(incrementor, nameText)
+    ? nameText
     : undefined;
 };
 
@@ -173,14 +201,19 @@ const deriveForOfElementType = (
  * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertWhileStatement = (
-  node: ts.WhileStatement,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrWhileStatement => {
-  const body = convertStatementSingle(node.statement, ctx, expectedReturnType);
+  const whileStatement = TstsSyntax.AsWhileStatement(node);
+  const body = whileStatement?.Statement
+    ? convertStatementSingle(whileStatement.Statement, ctx, expectedReturnType)
+    : undefined;
   return {
     kind: "whileStatement",
-    condition: convertExpression(node.expression, ctx, undefined),
+    condition: whileStatement?.Expression
+      ? convertExpression(whileStatement.Expression, ctx, undefined)
+      : convertExpression(node, ctx, undefined),
     body: body ?? { kind: "emptyStatement" },
   };
 };
@@ -191,23 +224,28 @@ export const convertWhileStatement = (
  * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertForStatement = (
-  node: ts.ForStatement,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrForStatement => {
   let initializer: IrForStatement["initializer"] | undefined;
   let bodyCtx: ProgramContext = ctx;
+  const forStatement = TstsSyntax.AsForStatement(node);
 
-  if (node.initializer) {
-    if (ts.isVariableDeclarationList(node.initializer)) {
-      const converted = convertVariableDeclarationList(node.initializer, ctx);
+  if (forStatement?.Initializer) {
+    if (TstsSyntax.IsVariableDeclarationList(forStatement.Initializer)) {
+      const converted = convertVariableDeclarationList(forStatement.Initializer, ctx);
       initializer = converted;
       const canonicalLoopVariable = detectCanonicalIntegerLoopVariable(
-        node.initializer,
-        node.incrementor
+        forStatement.Initializer,
+        forStatement.Incrementor
+      );
+      const declarations = definedTstsNodes(
+        TstsSyntax.AsVariableDeclarationList(forStatement.Initializer)
+          ?.Declarations?.Nodes
       );
       bodyCtx = canonicalLoopVariable
-        ? withVariableTypeEnv(ctx, node.initializer.declarations, {
+        ? withVariableTypeEnv(ctx, declarations, {
             kind: "variableDeclaration",
             declarationKind: "let",
             declarations: converted.declarations.map((decl) =>
@@ -221,25 +259,25 @@ export const convertForStatement = (
             ),
             isExported: false,
           })
-        : withVariableTypeEnv(ctx, node.initializer.declarations, converted);
+        : withVariableTypeEnv(ctx, declarations, converted);
     } else {
-      initializer = convertExpression(node.initializer, ctx, undefined);
+      initializer = convertExpression(forStatement.Initializer, ctx, undefined);
     }
   }
 
   const body = convertStatementSingle(
-    node.statement,
+    forStatement?.Statement ?? node,
     bodyCtx,
     expectedReturnType
   );
   return {
     kind: "forStatement",
     initializer,
-    condition: node.condition
-      ? convertExpression(node.condition, bodyCtx, undefined)
+    condition: forStatement?.Condition
+      ? convertExpression(forStatement.Condition, bodyCtx, undefined)
       : undefined,
-    update: node.incrementor
-      ? convertExpression(node.incrementor, bodyCtx, undefined)
+    update: forStatement?.Incrementor
+      ? convertExpression(forStatement.Incrementor, bodyCtx, undefined)
       : undefined,
     body: body ?? { kind: "emptyStatement" },
   };
@@ -251,27 +289,41 @@ export const convertForStatement = (
  * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertForOfStatement = (
-  node: ts.ForOfStatement,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrForOfStatement => {
-  const firstDecl = ts.isVariableDeclarationList(node.initializer)
-    ? node.initializer.declarations[0]
+  const forOf = TstsSyntax.AsForInOrOfStatement(node);
+  const firstDecl =
+    forOf?.Initializer && TstsSyntax.IsVariableDeclarationList(forOf.Initializer)
+      ? definedTstsNodes(
+          TstsSyntax.AsVariableDeclarationList(forOf.Initializer)?.Declarations
+            ?.Nodes
+        )[0]
     : undefined;
 
-  const variable = ts.isVariableDeclarationList(node.initializer)
-    ? convertBindingName(
-        firstDecl?.name ?? ts.factory.createIdentifier("_"),
-        ctx
-      )
-    : convertBindingName(node.initializer as ts.BindingName, ctx);
+  const variable =
+    forOf?.Initializer && TstsSyntax.IsVariableDeclarationList(forOf.Initializer)
+      ? firstDecl
+        ? convertBindingName(TstsSyntax.Node_Name(firstDecl) ?? firstDecl, ctx)
+        : ({ kind: "identifierPattern" as const, name: "_" })
+      : forOf?.Initializer
+        ? convertBindingName(forOf.Initializer, ctx)
+        : ({ kind: "identifierPattern" as const, name: "_" });
 
-  const expression = convertExpression(node.expression, ctx, undefined);
+  const expression = forOf?.Expression
+    ? convertExpression(forOf.Expression, ctx, undefined)
+    : convertExpression(node, ctx, undefined);
 
-  // Thread inferred loop variable type into the body (deterministic, TS-free).
-  // This is required for correct boolean-context lowering (e.g., `if (s)` for strings).
+  // Thread Tsonic-owned for-of element lowering facts into the body when the
+  // loop variable is synthetic from this conversion step. Ordinary source
+  // use-site types still come from TSTS through sourceSemantics.
   let bodyCtx = ctx;
-  if (ts.isVariableDeclarationList(node.initializer) && firstDecl) {
+  if (
+    forOf?.Initializer &&
+    TstsSyntax.IsVariableDeclarationList(forOf.Initializer) &&
+    firstDecl
+  ) {
     const elementType = deriveForOfElementType(expression.inferredType, ctx);
     if (elementType) {
       bodyCtx = withVariableTypeEnv(ctx, [firstDecl], {
@@ -286,7 +338,7 @@ export const convertForOfStatement = (
   }
 
   const body = convertStatementSingle(
-    node.statement,
+    forOf?.Statement ?? node,
     bodyCtx,
     expectedReturnType
   );
@@ -297,7 +349,7 @@ export const convertForOfStatement = (
     body: body ?? { kind: "emptyStatement" },
     // Only syntactic `for await (... of ...)` should lower as async iteration.
     // `AwaitContext` is also set for plain `for...of` inside async functions.
-    isAwait: node.awaitModifier !== undefined,
+    isAwait: forOf?.AwaitModifier !== undefined,
   };
 };
 
@@ -309,25 +361,38 @@ export const convertForOfStatement = (
  * lowers the source to the dictionary `Keys` collection.
  */
 export const convertForInStatement = (
-  node: ts.ForInStatement,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrForInStatement => {
-  const firstDecl = ts.isVariableDeclarationList(node.initializer)
-    ? node.initializer.declarations[0]
+  const forIn = TstsSyntax.AsForInOrOfStatement(node);
+  const firstDecl =
+    forIn?.Initializer && TstsSyntax.IsVariableDeclarationList(forIn.Initializer)
+      ? definedTstsNodes(
+          TstsSyntax.AsVariableDeclarationList(forIn.Initializer)?.Declarations
+            ?.Nodes
+        )[0]
     : undefined;
 
-  const variable = ts.isVariableDeclarationList(node.initializer)
-    ? convertBindingName(
-        firstDecl?.name ?? ts.factory.createIdentifier("_"),
-        ctx
-      )
-    : convertBindingName(node.initializer as ts.BindingName, ctx);
+  const variable =
+    forIn?.Initializer && TstsSyntax.IsVariableDeclarationList(forIn.Initializer)
+      ? firstDecl
+        ? convertBindingName(TstsSyntax.Node_Name(firstDecl) ?? firstDecl, ctx)
+        : ({ kind: "identifierPattern" as const, name: "_" })
+      : forIn?.Initializer
+        ? convertBindingName(forIn.Initializer, ctx)
+        : ({ kind: "identifierPattern" as const, name: "_" });
 
-  const expression = convertExpression(node.expression, ctx, undefined);
+  const expression = forIn?.Expression
+    ? convertExpression(forIn.Expression, ctx, undefined)
+    : convertExpression(node, ctx, undefined);
 
   let bodyCtx = ctx;
-  if (ts.isVariableDeclarationList(node.initializer) && firstDecl) {
+  if (
+    forIn?.Initializer &&
+    TstsSyntax.IsVariableDeclarationList(forIn.Initializer) &&
+    firstDecl
+  ) {
     const stringType: IrType = { kind: "primitiveType", name: "string" };
     bodyCtx = withVariableTypeEnv(ctx, [firstDecl], {
       kind: "variableDeclaration",
@@ -340,7 +405,7 @@ export const convertForInStatement = (
   }
 
   const body = convertStatementSingle(
-    node.statement,
+    forIn?.Statement ?? node,
     bodyCtx,
     expectedReturnType
   );

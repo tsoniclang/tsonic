@@ -99,6 +99,37 @@ describe("Module Resolver", () => {
       }
     });
 
+    it("should resolve declaration-local .js imports to .d.ts siblings inside the declaration package", () => {
+      const packageRoot = path.join(tempDir, "declarations", "@acme", "runtime");
+      const containingFile = path.join(packageRoot, "System.IO.d.ts");
+      const targetFile = path.join(
+        packageRoot,
+        "System.IO",
+        "internal",
+        "index.d.ts"
+      );
+      fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify({ name: "@acme/runtime", type: "module" })
+      );
+      fs.writeFileSync(containingFile, "export {};\n");
+      fs.writeFileSync(targetFile, "export interface FileHandle {}\n");
+
+      const result = resolveImport(
+        "./System.IO/internal/index.js",
+        containingFile,
+        path.join(tempDir, "src")
+      );
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.isLocal).to.equal(true);
+        expect(result.value.resolutionKind).to.equal("local");
+        expect(result.value.resolvedPath).to.equal(targetFile);
+      }
+    });
+
     it("should reject local imports that only match the source root by string prefix", () => {
       fs.mkdirSync(path.join(tempDir, "src-private"), { recursive: true });
       fs.writeFileSync(

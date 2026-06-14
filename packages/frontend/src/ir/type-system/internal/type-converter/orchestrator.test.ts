@@ -1,86 +1,44 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
+import { getTstsIdentifierText, TstsSyntax, visitTstsSubtree } from "@tsonic/tsts";
 import { createBinding } from "../../../binding/index.js";
 import { convertType } from "./orchestrator.js";
 import type { IrType } from "../../../types.js";
-import { createTypeScriptSemanticView } from "../../../../source-frontend/typescript-semantic-view.js";
+import { createInlineTstsTestProgram } from "../../../../testing/tsts-test-program.js";
 
 const createTestProgram = (
   source: string,
   fileName = "test.ts"
-): { sourceFile: ts.SourceFile; binding: ReturnType<typeof createBinding> } => {
-  const compilerOptions: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.NodeNext,
-    strict: true,
-    noEmit: true,
-  };
-
-  const host = ts.createCompilerHost(compilerOptions);
-  const originalGetSourceFile = host.getSourceFile;
-  const originalFileExists = host.fileExists;
-  const originalReadFile = host.readFile;
-
-  host.getSourceFile = (
-    name: string,
-    languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
-    onError?: (message: string) => void,
-    shouldCreateNewSourceFile?: boolean
-  ) => {
-    if (name === fileName) {
-      return ts.createSourceFile(
-        fileName,
-        source,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-    }
-    return originalGetSourceFile.call(
-      host,
-      name,
-      languageVersionOrOptions,
-      onError,
-      shouldCreateNewSourceFile
-    );
-  };
-  host.fileExists = (name: string) =>
-    name === fileName || originalFileExists.call(host, name);
-  host.readFile = (name: string) =>
-    name === fileName ? source : originalReadFile.call(host, name);
-
-  const program = ts.createProgram([fileName], compilerOptions, host);
-  const sourceFile = program.getSourceFile(fileName);
-  if (!sourceFile) {
-    throw new Error("missing source file");
-  }
-
-  const checker = program.getTypeChecker();
-  return {
-    sourceFile,
-    binding: createBinding(createTypeScriptSemanticView(checker)),
-  };
+): { sourceFile: TstsSourceFile; binding: ReturnType<typeof createBinding> } => {
+  const program = createInlineTstsTestProgram(source, { fileName });
+  return { sourceFile: program.sourceFile, binding: createBinding(program.sourceSemantics) };
 };
 
 const convertAlias = (source: string, aliasName: string): IrType => {
   const { sourceFile, binding } = createTestProgram(source);
 
-  let alias: ts.TypeAliasDeclaration | undefined;
-  for (const statement of sourceFile.statements) {
+  let alias: TstsNode | undefined;
+  visitTstsSubtree(sourceFile, (node) => {
     if (
-      ts.isTypeAliasDeclaration(statement) &&
-      statement.name.text === aliasName
+      alias ||
+      !node ||
+      !TstsSyntax.IsTypeAliasDeclaration(node) ||
+      getTstsIdentifierText(TstsSyntax.Node_Name(node)) !== aliasName
     ) {
-      alias = statement;
-      break;
+      return;
     }
-  }
+    alias = node;
+  });
   if (!alias) {
     throw new Error(`type alias ${aliasName} not found`);
   }
 
-  return convertType(alias.type, binding);
+  const typeNode = TstsSyntax.Node_Type(alias);
+  if (!typeNode) {
+    throw new Error(`type alias ${aliasName} has no type node`);
+  }
+  return convertType(typeNode, binding);
 };
 
 const convertFunctionReturnType = (
@@ -89,21 +47,24 @@ const convertFunctionReturnType = (
 ): IrType => {
   const { sourceFile, binding } = createTestProgram(source);
 
-  let functionDecl: ts.FunctionDeclaration | undefined;
-  for (const statement of sourceFile.statements) {
+  let functionDecl: TstsNode | undefined;
+  visitTstsSubtree(sourceFile, (node) => {
     if (
-      ts.isFunctionDeclaration(statement) &&
-      statement.name?.text === functionName
+      functionDecl ||
+      !node ||
+      !TstsSyntax.IsFunctionDeclaration(node) ||
+      getTstsIdentifierText(TstsSyntax.Node_Name(node)) !== functionName
     ) {
-      functionDecl = statement;
-      break;
+      return;
     }
-  }
-  if (!functionDecl?.type) {
+    functionDecl = node;
+  });
+  const typeNode = functionDecl ? TstsSyntax.Node_Type(functionDecl) : undefined;
+  if (!typeNode) {
     throw new Error(`function ${functionName} return type not found`);
   }
 
-  return convertType(functionDecl.type, binding);
+  return convertType(typeNode, binding);
 };
 
 const makeUnion = (...types: IrType[]): IrType => ({
@@ -154,18 +115,27 @@ describe("Type Converter - Tuple Rest Lowering", () => {
       ].join("\n")
     );
 
-    let alias: ts.TypeAliasDeclaration | undefined;
-    for (const statement of sourceFile.statements) {
-      if (ts.isTypeAliasDeclaration(statement) && statement.name.text === "T") {
-        alias = statement;
-        break;
+    let alias: TstsNode | undefined;
+    visitTstsSubtree(sourceFile, (node) => {
+      if (
+        alias ||
+        !node ||
+        !TstsSyntax.IsTypeAliasDeclaration(node) ||
+        getTstsIdentifierText(TstsSyntax.Node_Name(node)) !== "T"
+      ) {
+        return;
       }
-    }
+      alias = node;
+    });
     if (!alias) {
       throw new Error("type alias T not found");
     }
 
-    const converted = convertType(alias.type, binding);
+    const typeNode = TstsSyntax.Node_Type(alias);
+    if (!typeNode) {
+      throw new Error("type alias T has no type node");
+    }
+    const converted = convertType(typeNode, binding);
     expect(converted.kind).to.equal("referenceType");
     if (converted.kind !== "referenceType") {
       return;

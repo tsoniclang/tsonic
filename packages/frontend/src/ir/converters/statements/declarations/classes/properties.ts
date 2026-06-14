@@ -5,7 +5,17 @@
  * no explicit annotation is present, not from TypeScript inference.
  */
 
-import * as ts from "typescript";
+import {
+  getTstsBodyNode,
+  getTstsContainingSourceFile,
+  getTstsDeclaredTypeNode,
+  getTstsInitializerNode,
+  getTstsNodeLocation,
+  getTstsParameters,
+  getTstsTypeArguments,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import {
   IrBlockStatement,
   IrClassMember,
@@ -15,6 +25,7 @@ import {
 import { convertExpression } from "../../../../expression-converter.js";
 import { convertBlockStatement } from "../../control.js";
 import {
+  definedTstsNodes,
   hasStaticModifier,
   getAccessibility,
   hasReadonlyModifier,
@@ -27,7 +38,6 @@ import {
 } from "./member-names.js";
 import type { ProgramContext } from "../../../../program-context.js";
 import { createDiagnostic } from "../../../../../types/diagnostic.js";
-import { getSourceLocation } from "../../../../../program/diagnostics.js";
 import {
   fieldSemanticsFactKey,
   isFieldStorageFact,
@@ -66,7 +76,7 @@ const deriveTypeFromExpression = (expr: IrExpression): IrType | undefined => {
     return expr.inferredType;
   }
 
-  // Cannot determine type - return undefined (no TypeScript fallback)
+  // Cannot determine type - return undefined.
   return undefined;
 };
 
@@ -88,12 +98,12 @@ const deriveTypeFromGetterBody = (
  * the type is derived from the converted initializer expression.
  */
 export const convertProperty = (
-  node: ts.PropertyDeclaration,
+  node: TstsNode,
   ctx: ProgramContext,
-  superClass: ts.ExpressionWithTypeArguments | undefined
+  superClass: TstsNode | undefined
 ): IrClassMember => {
-  const memberName = getClassMemberName(node.name);
-  const isEcmaPrivate = isPrivateClassMemberName(node.name);
+  const memberName = getClassMemberName(TstsSyntax.Node_Name(node));
+  const isEcmaPrivate = isPrivateClassMemberName(TstsSyntax.Node_Name(node));
 
   const overrideInfo = detectOverride(memberName, "property", superClass, ctx);
 
@@ -112,21 +122,17 @@ export const convertProperty = (
   //
   // Wrappers may be nested; unwrap repeatedly.
   let emitAsField = false;
-  let actualTypeNode: ts.TypeNode | undefined = node.type;
+  let actualTypeNode: TstsNode | undefined = getTstsDeclaredTypeNode(node);
   while (actualTypeNode) {
-    if (ts.isParenthesizedTypeNode(actualTypeNode)) {
-      actualTypeNode = actualTypeNode.type;
+    if (actualTypeNode.Kind === TstsSyntax.KindParenthesizedType) {
+      actualTypeNode = TstsSyntax.Node_Type(actualTypeNode);
       continue;
     }
 
-    if (!ts.isTypeReferenceNode(actualTypeNode)) break;
-    if (!ts.isIdentifier(actualTypeNode.typeName)) break;
-    if (
-      !actualTypeNode.typeArguments ||
-      actualTypeNode.typeArguments.length !== 1
-    )
-      break;
-    const inner: ts.TypeNode | undefined = actualTypeNode.typeArguments[0];
+    if (!TstsSyntax.IsTypeReferenceNode(actualTypeNode)) break;
+    const typeArguments = definedTstsNodes(getTstsTypeArguments(actualTypeNode));
+    if (typeArguments.length !== 1) break;
+    const inner: TstsNode | undefined = typeArguments[0];
     if (!inner) break;
 
     if (
@@ -147,13 +153,13 @@ export const convertProperty = (
   }
 
   if (emitAsField && overrideInfo.isOverride) {
-    const sf = node.getSourceFile();
+    const sourceFile = getTstsContainingSourceFile(node);
     ctx.diagnostics.push(
       createDiagnostic(
         "TSN6204",
         "error",
         "`field<T>` cannot be used on an overriding property. target fields cannot override base members.",
-        getSourceLocation(sf, node.getStart(sf), node.getWidth(sf)),
+        getTstsNodeLocation(sourceFile, node),
         "Remove the `field<T>` marker or override as a property instead."
       )
     );
@@ -168,13 +174,14 @@ export const convertProperty = (
     : undefined;
 
   // Convert initializer FIRST (with explicit type as expectedType if present)
-  const convertedInitializer = node.initializer
-    ? convertExpression(node.initializer, ctx, explicitType)
+  const initializerNode = getTstsInitializerNode(node);
+  const convertedInitializer = initializerNode
+    ? convertExpression(initializerNode, ctx, explicitType)
     : undefined;
 
   // Derive property type:
   // 1. Use explicit annotation if present
-  // 2. Otherwise derive from converted initializer (NO TypeScript fallback)
+  // 2. Otherwise derive from converted initializer metadata
   // 3. If no initializer and no annotation, undefined (error at emit time)
   const rawPropertyType = explicitType
     ? explicitType
@@ -183,7 +190,7 @@ export const convertProperty = (
       : undefined;
 
   const propertyType =
-    rawPropertyType && node.questionToken
+    rawPropertyType && TstsSyntax.Node_QuestionToken(node)
       ? makeOptionalType(rawPropertyType)
       : rawPropertyType;
 
@@ -203,33 +210,41 @@ export const convertProperty = (
 
 export const convertAccessorProperty = (
   memberName: string,
-  getter: ts.GetAccessorDeclaration | undefined,
-  setter: ts.SetAccessorDeclaration | undefined,
+  getter: TstsNode | undefined,
+  setter: TstsNode | undefined,
   ctx: ProgramContext,
-  superClass: ts.ExpressionWithTypeArguments | undefined
+  superClass: TstsNode | undefined
 ): IrClassMember => {
   const overrideInfo = detectOverride(memberName, "property", superClass, ctx);
 
-  const getterType = getter?.type
-    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(getter.type))
+  const getterTypeNode = getter ? getTstsDeclaredTypeNode(getter) : undefined;
+  const getterType = getterTypeNode
+    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(getterTypeNode))
     : undefined;
 
-  const setterValueParam = setter?.parameters[0];
+  const setterValueParam = setter
+    ? definedTstsNodes(getTstsParameters(setter))[0]
+    : undefined;
+  const setterValueParamType = setterValueParam
+    ? getTstsDeclaredTypeNode(setterValueParam)
+    : undefined;
   const setterType =
-    setterValueParam?.type !== undefined
+    setterValueParamType !== undefined
       ? ctx.typeSystem.typeFromSyntax(
-          ctx.binding.captureTypeSyntax(setterValueParam.type)
+          ctx.binding.captureTypeSyntax(setterValueParamType)
         )
       : undefined;
 
   const explicitType = getterType ?? setterType;
 
-  const getterBody = getter?.body
-    ? convertBlockStatement(getter.body, ctx, explicitType)
+  const getterBodyNode = getter ? getTstsBodyNode(getter) : undefined;
+  const getterBody = getterBodyNode
+    ? convertBlockStatement(getterBodyNode, ctx, explicitType)
     : undefined;
 
-  const setterBody = setter?.body
-    ? convertBlockStatement(setter.body, ctx, undefined)
+  const setterBodyNode = setter ? getTstsBodyNode(setter) : undefined;
+  const setterBody = setterBodyNode
+    ? convertBlockStatement(setterBodyNode, ctx, undefined)
     : undefined;
 
   const inferredFromGetter = getterBody
@@ -251,8 +266,8 @@ export const convertAccessorProperty = (
       : "public";
 
   const isEcmaPrivate =
-    isPrivateClassMemberName(getter?.name) ||
-    isPrivateClassMemberName(setter?.name);
+    isPrivateClassMemberName(getter ? TstsSyntax.Node_Name(getter) : undefined) ||
+    isPrivateClassMemberName(setter ? TstsSyntax.Node_Name(setter) : undefined);
 
   const finalAccessibility = (() => {
     if (!overrideInfo.isOverride || !overrideInfo.requiredAccessibility) {
@@ -264,9 +279,12 @@ export const convertAccessorProperty = (
 
   const setterParamName = (() => {
     if (!setterBody) return undefined;
-    const param = setter?.parameters[0];
+    const param = setter ? definedTstsNodes(getTstsParameters(setter))[0] : undefined;
     if (!param) return undefined;
-    return ts.isIdentifier(param.name) ? param.name.text : undefined;
+    const name = TstsSyntax.Node_Name(param);
+    return name && TstsSyntax.IsIdentifier(name)
+      ? TstsSyntax.Node_Text(name)
+      : undefined;
   })();
 
   return {

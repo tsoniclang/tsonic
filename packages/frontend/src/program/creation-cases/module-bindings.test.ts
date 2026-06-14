@@ -2,25 +2,47 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import ts from "typescript";
+import {
+  getTstsContainingSourceFileName,
+  getTstsIdentifierText,
+  TstsSyntax,
+  type TstsNode,
+  type TstsSourceFile,
+  visitTstsSubtree,
+} from "@tsonic/tsts";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 import { createProgram } from "../creation.js";
 
 const hasSourceFile = (
-  sourceFiles: readonly { readonly fileName: string }[],
+  sourceFiles: readonly TstsSourceFile[],
   filePath: string
 ): boolean =>
   sourceFiles.some(
-    (sourceFile) => path.resolve(sourceFile.fileName) === path.resolve(filePath)
+    (sourceFile) =>
+      path.resolve(sourceFile.FileName()) === path.resolve(filePath)
   );
 
 const findSourceFile = (
-  sourceFiles: readonly ts.SourceFile[],
+  sourceFiles: readonly TstsSourceFile[],
   filePath: string
-): ts.SourceFile | undefined =>
+): TstsSourceFile | undefined =>
   sourceFiles.find(
-    (sourceFile) => path.resolve(sourceFile.fileName) === path.resolve(filePath)
+    (sourceFile) =>
+      path.resolve(sourceFile.FileName()) === path.resolve(filePath)
   );
+
+const findIdentifier = (
+  sourceFile: TstsSourceFile,
+  name: string
+): TstsNode | undefined => {
+  let result: TstsNode | undefined;
+  visitTstsSubtree(sourceFile, (node) => {
+    if (!result && getTstsIdentifierText(node) === name) {
+      result = node;
+    }
+  });
+  return result;
+};
 
 describe("Program Creation – module bindings", function () {
   this.timeout(90_000);
@@ -50,35 +72,29 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(hasSourceFile(result.value.sourceFiles, packageEntry)).to.equal(
-        true
-      );
+      expect(
+        hasSourceFile(result.value.sourceProgram.sourceFiles, packageEntry)
+      ).to.equal(true);
       const sourceFile = findSourceFile(result.value.sourceFiles, entryPath);
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
-      const importDecl = sourceFile.statements.find(
-        (stmt): stmt is ts.ImportDeclaration =>
-          ts.isImportDeclaration(stmt) &&
-          ts.isStringLiteral(stmt.moduleSpecifier) &&
-          stmt.moduleSpecifier.text === "node:fs"
-      );
+      let importDecl: TstsNode | undefined;
+      visitTstsSubtree(sourceFile, (node) => {
+        if (importDecl || !node || !TstsSyntax.IsImportDeclaration(node)) return;
+        const moduleSpecifier = TstsSyntax.Node_ModuleSpecifier(node);
+        if (TstsSyntax.Node_Text(moduleSpecifier) === "node:fs") {
+          importDecl = node;
+        }
+      });
       expect(importDecl).to.not.equal(undefined);
-      if (!importDecl?.importClause?.namedBindings) return;
-      expect(ts.isNamedImports(importDecl.importClause.namedBindings)).to.equal(
-        true
-      );
-      if (!ts.isNamedImports(importDecl.importClause.namedBindings)) return;
 
-      const importSpecifier =
-        importDecl.importClause.namedBindings.elements.find(
-          (element) => element.name.text === "readFileSync"
-        );
-      expect(importSpecifier).to.not.equal(undefined);
-      if (!importSpecifier) return;
+      const importSpecifierName = findIdentifier(sourceFile, "readFileSync");
+      expect(importSpecifierName).to.not.equal(undefined);
+      if (!importSpecifierName) return;
 
       const importSymbol = result.value.sourceSemantics.getSymbol(
-        importSpecifier.name
+        importSpecifierName
       );
       expect(importSymbol).to.not.equal(undefined);
       if (!importSymbol) return;
@@ -86,9 +102,13 @@ describe("Program Creation – module bindings", function () {
       const aliasedSymbol = result.value.sourceSemantics.resolveAlias(
         importSymbol
       );
-      const declarationFiles = (aliasedSymbol.getDeclarations() ?? []).map(
-        (declaration) => path.resolve(declaration.getSourceFile().fileName)
-      );
+      expect(aliasedSymbol).to.not.equal(undefined);
+      if (!aliasedSymbol) return;
+      const declarationFiles = result.value.sourceSemantics
+        .getSymbolDeclarations(aliasedSymbol)
+        .map((declaration) => getTstsContainingSourceFileName(declaration))
+        .filter((fileName): fileName is string => fileName !== undefined)
+        .map((fileName) => path.resolve(fileName));
       expect(declarationFiles).to.include(path.resolve(packageEntry));
     } finally {
       fixture.cleanup();
@@ -120,12 +140,12 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(hasSourceFile(result.value.sourceFiles, packageEntry)).to.equal(
-        true
-      );
       expect(
-        result.value.sourceFiles.some(
-          (sourceFile) => path.resolve(sourceFile.fileName) === packageEntry
+        hasSourceFile(result.value.sourceProgram.sourceFiles, packageEntry)
+      ).to.equal(true);
+      expect(
+        result.value.sourceProgram.sourceFiles.some(
+          (sourceFile) => path.resolve(sourceFile.FileName()) === packageEntry
         )
       ).to.equal(true);
     } finally {
@@ -157,12 +177,12 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(hasSourceFile(result.value.sourceFiles, packageEntry)).to.equal(
-        true
-      );
       expect(
-        result.value.sourceFiles.some(
-          (sourceFile) => path.resolve(sourceFile.fileName) === packageEntry
+        hasSourceFile(result.value.sourceProgram.sourceFiles, packageEntry)
+      ).to.equal(true);
+      expect(
+        result.value.sourceProgram.sourceFiles.some(
+          (sourceFile) => path.resolve(sourceFile.FileName()) === packageEntry
         )
       ).to.equal(true);
     } finally {
@@ -228,7 +248,7 @@ describe("Program Creation – module bindings", function () {
       const expectedDts = path.resolve(path.join(surfaceRoot, "index.d.ts"));
       expect(
         result.value.declarationSourceFiles.some(
-          (sourceFile) => path.resolve(sourceFile.fileName) === expectedDts
+          (sourceFile) => path.resolve(sourceFile.FileName()) === expectedDts
         )
       ).to.equal(true);
     } finally {
@@ -260,9 +280,9 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(hasSourceFile(result.value.sourceFiles, packageEntry)).to.equal(
-        true
-      );
+      expect(
+        hasSourceFile(result.value.sourceProgram.sourceFiles, packageEntry)
+      ).to.equal(true);
     } finally {
       fixture.cleanup();
     }
@@ -291,11 +311,11 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const consoleSourceFiles = result.value.sourceFiles.filter(
+      const consoleSourceFiles = result.value.sourceProgram.sourceFiles.filter(
         (sourceFile) => {
           try {
             return (
-              fs.realpathSync(sourceFile.fileName) ===
+              fs.realpathSync(sourceFile.FileName()) ===
               fs.realpathSync(consolePath)
             );
           } catch {
@@ -329,12 +349,12 @@ describe("Program Creation – module bindings", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      expect(hasSourceFile(result.value.sourceFiles, importedPath)).to.equal(
-        true
-      );
       expect(
-        result.value.sourceFiles.some(
-          (sourceFile) => path.resolve(sourceFile.fileName) === importedPath
+        hasSourceFile(result.value.sourceProgram.sourceFiles, importedPath)
+      ).to.equal(true);
+      expect(
+        result.value.sourceProgram.sourceFiles.some(
+          (sourceFile) => path.resolve(sourceFile.FileName()) === importedPath
         )
       ).to.equal(true);
     } finally {

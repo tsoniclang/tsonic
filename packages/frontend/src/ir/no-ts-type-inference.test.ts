@@ -1,17 +1,10 @@
 /**
- * INV-0 Enforcement Test: No TypeScript Computed Types in IR Pipeline
+ * INV-0 Enforcement Test: No TypeScript Compiler API in IR Pipeline
  *
- * This test enforces Alice's specification that the IR typing pipeline
- * must NEVER use TypeScript's computed type APIs. All IR types must come from:
- * - Declared TypeNodes (annotations, signatures, property types)
- * - Globals TypeNodes (@tsonic/globals, BCL bindings)
- * - Bounded deterministic inference (lexeme intent + expectedType threading)
- *
- * TS checker is allowed ONLY for:
- * - Symbol lookup (getSymbolAtLocation)
- * - Overload selection (getResolvedSignature)
- * - Module resolution
- * - symbol.getDeclarations()
+ * TSTS is now the compiler substrate. The IR/lowering pipeline may ask the
+ * source semantic facade for use-site types, symbols, signatures, contextual
+ * types, narrowing, and module identity. Product frontend code must not import
+ * or call the TypeScript compiler API directly.
  */
 
 import { describe, it } from "mocha";
@@ -24,53 +17,74 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * Banned patterns that use TypeScript's computed type inference.
- * These patterns extract types computed by the TS type checker,
- * which violates deterministic IR typing.
+ * Banned patterns that use the TypeScript compiler API directly.
+ * Equivalent semantic questions must go through sourceSemantics, backed by
+ * TSTS.
  */
 const BANNED_PATTERNS = [
-  // Core type inference APIs - extract computed types
+  // Core TypeScript checker APIs
   /checker\.getTypeAtLocation\s*\(/g,
   /checker\.getTypeOfSymbolAtLocation\s*\(/g,
   /checker\.typeToTypeNode\s*\(/g,
 
-  // Type structure inspection - uses computed types
+  // Type structure inspection through TypeScript checker
   /checker\.getApparentType\s*\(/g,
   /checker\.getBaseTypes\s*\(/g,
   /checker\.getPropertiesOfType\s*\(/g,
 
-  // Type relationship APIs - uses computed types
+  // Type relationship APIs through TypeScript checker
   /checker\.isTypeAssignableTo\s*\(/g,
   /checker\.getWidenedType\s*\(/g,
   /checker\.getContextualType\s*\(/g,
 
-  // Signature type extraction - should use declaration TypeNodes instead
+  // Signature type extraction through TypeScript checker
   /checker\.getSignaturesOfType\s*\(/g,
   /checker\.getReturnTypeOfSignature\s*\(/g,
 
-  // Type parameter inference - should use bounded unification
+  // Type parameter inference through TypeScript checker
   /checker\.getTypeArguments\s*\(/g,
   /checker\.inferTypeArguments\s*\(/g,
+
+  // Local semantic ownership that must stay in TSTS.
+  /selectBestCallCandidate/g,
+  /resolveCallSignatureCandidates/g,
+  /resolveConstructorSignatureCandidates/g,
+  /candidateSignatureIds/g,
+  /withAppliedNarrowings/g,
+  /collectTypeNarrowingsIn(?:Truthy|Falsy)Expr/g,
+  /call-resolution-candidate-selection/g,
+  /flow-narrowing/g,
+  /narrowing-collection/g,
+  /narrowing-resolvers/g,
+  /symbol-table/g,
+  /targetSurfaceArtifacts/g,
+  /\bfallback\b/g,
+  /fallback[A-Z]/g,
+  /\blegacy\b/g,
+  /\bheuristic/g,
+  /\bguess/g,
 ];
 
 /**
- * Allowed patterns - resolver-only usage of TS checker.
- * These find declarations/symbols, but don't extract computed types.
+ * Allowed semantic owner. These are representative sourceSemantics calls backed
+ * by TSTS.
  */
 const ALLOWED_PATTERNS_INFO = [
-  "checker.getSymbolAtLocation - finds symbol, not type",
-  "checker.getResolvedSignature - picks overload, return type from declaration",
-  "checker.getPropertyOfType - finds member symbol, type from declaration",
-  "symbol.getDeclarations() - gets AST node, type from TypeNode",
-  "checker.getAliasedSymbol - resolves import aliases",
-  "checker.getExportSymbolOfSymbol - resolves exports",
+  "sourceSemantics.getExpressionType - TSTS use-site type",
+  "sourceSemantics.getContextualType - TSTS contextual type",
+  "sourceSemantics.getResolvedSignature - TSTS overload selection",
+  "sourceSemantics.getSymbol - TSTS symbol lookup",
+  "sourceSemantics.resolveAlias - TSTS alias resolution",
+  "sourceSemantics.getExportedDeclaration - TSTS module/export graph",
 ];
 
 /**
  * Directories to scan for banned patterns.
  */
 const IR_DIRECTORIES = [
+  "packages/frontend/src/ir/binding",
   "packages/frontend/src/ir/converters",
+  "packages/frontend/src/ir/type-system",
   "packages/frontend/src/ir/type-converter",
   "packages/frontend/src/ir/validation",
 ];
@@ -150,8 +164,8 @@ const checkFileForBannedPatterns = (
   return { file: filePath, violations };
 };
 
-describe("INV-0: No TS Computed Types in IR Pipeline", () => {
-  it("should not use banned TypeScript type inference APIs in IR converters", () => {
+describe("INV-0: No TypeScript Compiler API in IR Pipeline", () => {
+  it("should not use banned TypeScript compiler APIs in IR converters", () => {
     const allViolations: {
       file: string;
       violations: { pattern: string; line: number; text: string }[];
@@ -197,10 +211,9 @@ describe("INV-0: No TS Computed Types in IR Pipeline", () => {
         .join("\n");
 
       expect.fail(
-        `Found ${allViolations.reduce((sum, v) => sum + v.violations.length, 0)} violations of INV-0 (no TS computed types):\n${message}\n\n` +
-          `These APIs must be replaced with TypeRegistry + NominalEnv lookups.\n` +
-          `See: packages/frontend/src/ir/type-registry.ts\n` +
-          `Allowed resolver-only patterns:\n${ALLOWED_PATTERNS_INFO.map((p) => `  - ${p}`).join("\n")}`
+        `Found ${allViolations.reduce((sum, v) => sum + v.violations.length, 0)} violations of INV-0 (no TypeScript compiler API):\n${message}\n\n` +
+          `These APIs must be replaced with sourceSemantics calls backed by TSTS.\n` +
+          `Allowed semantic owner patterns:\n${ALLOWED_PATTERNS_INFO.map((p) => `  - ${p}`).join("\n")}`
       );
     }
   });

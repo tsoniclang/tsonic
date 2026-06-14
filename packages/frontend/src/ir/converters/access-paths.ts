@@ -1,4 +1,5 @@
-import * as ts from "typescript";
+import { TstsSyntax, type TstsNode } from "@tsonic/tsts";
+import { getTstsNodeNameText } from "@tsonic/tsts";
 import type { ProgramContext } from "../program-context.js";
 import type { IrType } from "../types.js";
 import type { DeclId } from "../type-system/index.js";
@@ -8,48 +9,56 @@ export type AccessPathTarget =
       readonly kind: "decl";
       readonly declId: DeclId;
       readonly segments: readonly string[];
-      readonly anchor: ts.Expression;
+      readonly anchor: TstsNode;
     }
   | {
       readonly kind: "this";
       readonly segments: readonly string[];
-      readonly anchor: ts.Expression;
+      readonly anchor: TstsNode;
     };
 
-const unwrapExpr = (expr: ts.Expression): ts.Expression => {
+const unwrapExpr = (expr: TstsNode): TstsNode => {
   let current = expr;
   while (
-    ts.isParenthesizedExpression(current) ||
-    ts.isNonNullExpression(current)
+    TstsSyntax.IsParenthesizedExpression(current) ||
+    TstsSyntax.IsNonNullExpression(current)
   ) {
-    current = current.expression;
+    const next = TstsSyntax.Node_Expression(current);
+    if (!next) break;
+    current = next;
   }
   return current;
 };
 
-const getStringLiteralText = (expr: ts.Expression): string | undefined => {
+const getStringLiteralText = (expr: TstsNode): string | undefined => {
   const unwrapped = unwrapExpr(expr);
   if (
-    ts.isStringLiteral(unwrapped) ||
-    ts.isNoSubstitutionTemplateLiteral(unwrapped)
+    TstsSyntax.IsStringLiteral(unwrapped) ||
+    TstsSyntax.IsNoSubstitutionTemplateLiteral(unwrapped)
   ) {
-    return unwrapped.text;
+    return TstsSyntax.Node_Text(unwrapped);
   }
   return undefined;
 };
 
-const inferThisType = (node: ts.Node): IrType | undefined => {
-  let current: ts.Node | undefined = node;
+const inferThisType = (node: TstsNode): IrType | undefined => {
+  let current: TstsNode | undefined = node;
 
   while (current) {
-    if (ts.isClassDeclaration(current) || ts.isClassExpression(current)) {
-      const className = current.name?.text;
+    if (
+      TstsSyntax.IsClassDeclaration(current) ||
+      TstsSyntax.IsClassExpression(current)
+    ) {
+      const className = getTstsNodeNameText(current);
       if (!className) return undefined;
 
-      const typeArguments =
-        current.typeParameters?.map(
-          (tp): IrType => ({ kind: "typeParameterType", name: tp.name.text })
-        ) ?? [];
+      const typeArguments = (
+        TstsSyntax.Node_TypeParameters(current) ?? []
+      ).flatMap((typeParameter): readonly IrType[] => {
+        if (!typeParameter) return [];
+        const name = getTstsNodeNameText(typeParameter);
+        return name ? [{ kind: "typeParameterType", name }] : [];
+      });
 
       return {
         kind: "referenceType",
@@ -58,19 +67,19 @@ const inferThisType = (node: ts.Node): IrType | undefined => {
       };
     }
 
-    current = current.parent;
+    current = current.Parent;
   }
 
   return undefined;
 };
 
 export const getAccessPathTarget = (
-  expr: ts.Expression,
+  expr: TstsNode,
   ctx: ProgramContext
 ): AccessPathTarget | undefined => {
   const candidate = unwrapExpr(expr);
 
-  if (ts.isIdentifier(candidate)) {
+  if (TstsSyntax.IsIdentifier(candidate)) {
     const declId = ctx.binding.resolveIdentifier(candidate);
     if (!declId) return undefined;
     return {
@@ -81,7 +90,7 @@ export const getAccessPathTarget = (
     };
   }
 
-  if (candidate.kind === ts.SyntaxKind.ThisKeyword) {
+  if (candidate.Kind === TstsSyntax.KindThisKeyword) {
     return {
       kind: "this",
       segments: [],
@@ -90,25 +99,31 @@ export const getAccessPathTarget = (
   }
 
   if (
-    ts.isPropertyAccessExpression(candidate) ||
-    ts.isPropertyAccessChain(candidate)
+    TstsSyntax.IsPropertyAccessExpression(candidate)
   ) {
-    const base = getAccessPathTarget(candidate.expression, ctx);
+    const expression = TstsSyntax.Node_Expression(candidate);
+    if (!expression) return undefined;
+    const base = getAccessPathTarget(expression, ctx);
+    const segment = getTstsNodeNameText(candidate);
+    if (!segment) return undefined;
     if (!base) return undefined;
     return {
       ...base,
-      segments: [...base.segments, candidate.name.text],
+      segments: [...base.segments, segment],
       anchor: candidate,
     };
   }
 
   if (
-    ts.isElementAccessExpression(candidate) ||
-    ts.isElementAccessChain(candidate)
+    TstsSyntax.IsElementAccessExpression(candidate)
   ) {
-    const base = getAccessPathTarget(candidate.expression, ctx);
-    if (!base || !candidate.argumentExpression) return undefined;
-    const propertyName = getStringLiteralText(candidate.argumentExpression);
+    const expression = TstsSyntax.Node_Expression(candidate);
+    if (!expression) return undefined;
+    const base = getAccessPathTarget(expression, ctx);
+    const argument = TstsSyntax.AsElementAccessExpression(candidate)
+      ?.ArgumentExpression;
+    if (!base || !argument) return undefined;
+    const propertyName = getStringLiteralText(argument);
     if (!propertyName) return undefined;
     return {
       ...base,
@@ -194,7 +209,7 @@ export const getCurrentTypeForAccessPath = (
 };
 
 export const getCurrentTypeForAccessExpression = (
-  expr: ts.Expression,
+  expr: TstsNode,
   ctx: ProgramContext
 ): IrType | undefined => {
   const target = getAccessPathTarget(expr, ctx);
@@ -203,7 +218,7 @@ export const getCurrentTypeForAccessExpression = (
 };
 
 export const hasAccessPathNarrowing = (
-  expr: ts.Expression,
+  expr: TstsNode,
   ctx: ProgramContext
 ): boolean => {
   if (!ctx.accessEnv || ctx.accessEnv.size === 0) return false;

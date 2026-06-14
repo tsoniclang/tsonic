@@ -8,7 +8,17 @@
  */
 
 import type { IrType, IrFunctionType } from "../types/index.js";
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  getTstsDeclaredTypeNode,
+  forEachTstsChild,
+  getTstsIdentifierText,
+  getTstsParameters,
+  isTstsFunctionLikeDeclaration,
+  isTstsOptionalParameter,
+  isTstsRestParameter,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import type { TypeSystemState } from "./type-system-state.js";
 import {
   typesEqual,
@@ -24,11 +34,14 @@ import { inferExpressionType } from "./inference-expressions-infer.js";
 
 export const inferLambdaType = (
   state: TypeSystemState,
-  expr: ts.Expression,
+  expr: TstsNode,
   expectedType: IrType | undefined
 ): IrFunctionType | undefined => {
   const unwrapped = unwrapParens(expr);
-  if (!ts.isArrowFunction(unwrapped) && !ts.isFunctionExpression(unwrapped)) {
+  if (
+    !TstsSyntax.IsArrowFunction(unwrapped) &&
+    !TstsSyntax.IsFunctionExpression(unwrapped)
+  ) {
     return undefined;
   }
 
@@ -39,10 +52,11 @@ export const inferLambdaType = (
         ? delegateToFunctionType(state, expectedType)
         : undefined;
 
-  const parameters = unwrapped.parameters.map((p, index) => {
-    const name = ts.isIdentifier(p.name) ? p.name.text : `arg${index}`;
-    const paramType = p.type
-      ? convertTypeNode(state, p.type)
+  const parameters = getTstsParameters(unwrapped).map((p, index) => {
+    const name =
+      getTstsIdentifierText(TstsSyntax.Node_Name(p)) ?? `arg${index}`;
+    const paramType = getTstsDeclaredTypeNode(p)
+      ? convertTypeNode(state, getTstsDeclaredTypeNode(p))
       : expectedFnType?.parameters[index]?.type;
 
     return {
@@ -53,8 +67,8 @@ export const inferLambdaType = (
       },
       type: paramType,
       initializer: undefined,
-      isOptional: !!p.questionToken,
-      isRest: !!p.dotDotDotToken,
+      isOptional: isTstsOptionalParameter(p),
+      isRest: isTstsRestParameter(p),
       passing: "value" as const,
     };
   });
@@ -67,8 +81,8 @@ export const inferLambdaType = (
   }
 
   const explicitReturnType =
-    "type" in unwrapped && unwrapped.type
-      ? convertTypeNode(state, unwrapped.type)
+    getTstsDeclaredTypeNode(unwrapped)
+      ? convertTypeNode(state, getTstsDeclaredTypeNode(unwrapped))
       : undefined;
   const expectedReturnType = expectedFnType?.returnType;
 
@@ -76,16 +90,22 @@ export const inferLambdaType = (
     explicitReturnType !== undefined
       ? undefined
       : (() => {
-          if (ts.isBlock(unwrapped.body)) {
-            const returns: ts.Expression[] = [];
-            const visit = (n: ts.Node): void => {
-              if (ts.isFunctionLike(n) && n !== unwrapped) return;
-              if (ts.isReturnStatement(n) && n.expression) {
-                returns.push(n.expression);
+          const body = TstsSyntax.Node_Body(unwrapped);
+          if (body && TstsSyntax.IsBlock(body)) {
+            const returns: TstsNode[] = [];
+            const visitReturns = (n: TstsNode): void => {
+              if (!n) return;
+              if (n !== body && isTstsFunctionLikeDeclaration(n)) return;
+              if (TstsSyntax.IsReturnStatement(n)) {
+                const expression = TstsSyntax.Node_Expression(n);
+                if (expression) returns.push(expression);
+                return;
               }
-              n.forEachChild(visit);
+              forEachTstsChild(n, (child) => {
+                if (child) visitReturns(child);
+              });
             };
-            unwrapped.body.forEachChild(visit);
+            visitReturns(body);
 
             if (returns.length === 0) return { kind: "voidType" as const };
 
@@ -100,7 +120,7 @@ export const inferLambdaType = (
             return first;
           }
 
-          return inferExpressionType(state, unwrapped.body, env);
+          return body ? inferExpressionType(state, body, env) : undefined;
         })();
 
   const inferredReturnType =

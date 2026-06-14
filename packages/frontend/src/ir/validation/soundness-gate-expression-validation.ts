@@ -74,6 +74,23 @@ const parameterPassingCapabilities = {
   in: "in-parameters",
 } as const;
 
+const expressionDisplayName = (expr: IrExpression): string | undefined => {
+  switch (expr.kind) {
+    case "identifier":
+      return expr.name;
+    case "memberAccess": {
+      const owner = expressionDisplayName(expr.object);
+      const property =
+        typeof expr.property === "string"
+          ? expr.property
+          : expressionDisplayName(expr.property);
+      return property ? (owner ? `${owner}.${property}` : property) : owner;
+    }
+    default:
+      return undefined;
+  }
+};
+
 const validateExpressionParameterCapabilities = (
   parameter: IrParameter,
   ctx: ValidationContext
@@ -342,13 +359,16 @@ export const validateExpression = (
         expr.inferredType?.kind === "unknownType" &&
         expr.inferredType.explicit !== true
       ) {
+        const calleeName = expressionDisplayName(expr.callee);
         ctx.diagnostics.push(
           createDiagnostic(
             "TSN5202",
             "error",
-            "Type arguments for this constructor call cannot be inferred deterministically. Add explicit type arguments: new Foo<T>(...).",
+            calleeName
+              ? `Constructor '${calleeName}' cannot be resolved deterministically.`
+              : "Constructor call cannot be resolved deterministically.",
             expr.sourceSpan ?? moduleLocation(ctx),
-            "Provide explicit type arguments when instantiating generic types."
+            "Import or declare a supported constructor from the active source surface, or provide an explicit supported type."
           )
         );
       }

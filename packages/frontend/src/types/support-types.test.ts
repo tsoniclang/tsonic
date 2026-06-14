@@ -5,8 +5,7 @@
 import { describe, it, before, after } from "mocha";
 import { strict as assert } from "assert";
 import { checkUnsupportedSupportType } from "./support-types.js";
-import type { FrontendSourceSemanticView } from "../source-frontend/index.js";
-import { createTypeScriptSemanticView } from "../source-frontend/typescript-semantic-view.js";
+import type { TstsFrontendSourceSemanticView } from "../source-frontend/index.js";
 import {
   createTestHarness,
   getSupportTypes,
@@ -15,13 +14,12 @@ import {
 
 describe("Support Types", () => {
   let harness: TestHarness;
-  let sourceSemantics: FrontendSourceSemanticView;
+  let sourceSemantics: TstsFrontendSourceSemanticView;
   let types: ReturnType<typeof getSupportTypes>;
 
   before(() => {
-    // Create test harness with real TypeScript program
     harness = createTestHarness();
-    sourceSemantics = createTypeScriptSemanticView(harness.checker);
+    sourceSemantics = harness.sourceSemantics;
     types = getSupportTypes(harness);
   });
 

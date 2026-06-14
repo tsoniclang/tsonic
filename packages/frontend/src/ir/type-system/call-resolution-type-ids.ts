@@ -15,7 +15,17 @@
  * DAG position: depends on type-system-state and type-system-relations
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  getTstsContainingSourceFileName,
+  getTstsDeclaredTypeNode,
+  getTstsNodeNameText,
+  getTstsTypeArguments,
+  getTstsTypeParameterNodes,
+  getTstsTypeReferenceName,
+  isTstsDeclarationFileNode,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import type {
   IrType,
   IrFunctionType,
@@ -448,48 +458,66 @@ export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType =>
 // convertTypeNode — Deterministic type syntax conversion
 // ─────────────────────────────────────────────────────────────────────────
 
-const unwrapParenthesizedTypeNode = (node: ts.TypeNode): ts.TypeNode => {
+const unwrapParenthesizedTypeNode = (node: TstsNode): TstsNode => {
   let current = node;
-  while (ts.isParenthesizedTypeNode(current)) {
-    current = current.type;
+  while (TstsSyntax.IsParenthesizedTypeNode(current)) {
+    const inner = TstsSyntax.AsParenthesizedTypeNode(current)?.Type;
+    if (!inner) return current;
+    current = inner;
   }
   return current;
 };
 
 const isDirectUnionTypeAliasDeclaration = (
-  node: ts.TypeAliasDeclaration
-): boolean => ts.isUnionTypeNode(unwrapParenthesizedTypeNode(node.type));
+  node: TstsNode
+): boolean => {
+  if (!TstsSyntax.IsTypeAliasDeclaration(node)) return false;
+  const typeNode = getTstsDeclaredTypeNode(node);
+  return (
+    !!typeNode &&
+    TstsSyntax.IsUnionTypeNode(unwrapParenthesizedTypeNode(typeNode))
+  );
+};
 
 const stampSourceUnionAliasReferenceCarrier = (
   state: TypeSystemState,
   node: unknown,
   type: IrType
 ): IrType => {
-  if (!ts.isTypeReferenceNode(node as ts.Node) || type.kind !== "unionType") {
+  const typeReferenceNode = node as TstsNode | undefined;
+  if (
+    !typeReferenceNode ||
+    !TstsSyntax.IsTypeReferenceNode(typeReferenceNode) ||
+    type.kind !== "unionType"
+  ) {
     return type;
   }
 
-  const typeReferenceNode = node as ts.TypeReferenceNode;
   const declId = state.resolveTypeReference(typeReferenceNode);
   const declInfo = declId ? state.handleRegistry.getDecl(declId) : undefined;
   const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
-    | ts.Declaration
+    | TstsNode
     | undefined;
+  const aliasName = getTstsNodeNameText(declNode);
   if (
     !declNode ||
-    !ts.isTypeAliasDeclaration(declNode) ||
-    declNode.getSourceFile().isDeclarationFile ||
+    !aliasName ||
+    !TstsSyntax.IsTypeAliasDeclaration(declNode) ||
+    isTstsDeclarationFileNode(declNode) ||
     !isDirectUnionTypeAliasDeclaration(declNode)
   ) {
     return type;
   }
 
   return stampRuntimeUnionAliasCarrier(type, {
-    aliasName: declNode.name.text,
-    fullyQualifiedName: declInfo?.fqName ?? declNode.name.text,
-    typeParameters: (declNode.typeParameters ?? []).map((tp) => tp.name.text),
-    typeArguments: (typeReferenceNode.typeArguments ?? []).map((typeArgument) =>
-      convertTypeNode(state, typeArgument)
+    aliasName,
+    fullyQualifiedName: declInfo?.fqName ?? aliasName,
+    typeParameters: getTstsTypeParameterNodes(declNode).flatMap(
+      (typeParameter) => getTstsNodeNameText(typeParameter) ?? []
+    ),
+    typeArguments: getTstsTypeArguments(typeReferenceNode).flatMap(
+      (typeArgument) =>
+        typeArgument ? [convertTypeNode(state, typeArgument)] : []
     ),
   });
 };
@@ -500,19 +528,20 @@ const preferInstalledSourceSurfaceAliasTypeId = (
   type: IrType
 ): IrType => {
   if (
-    !ts.isTypeReferenceNode(node as ts.Node) ||
+    !node ||
+    !TstsSyntax.IsTypeReferenceNode(node as TstsNode) ||
     type.kind !== "referenceType"
   ) {
     return type;
   }
 
-  const typeReferenceNode = node as ts.TypeReferenceNode;
-  const typeName = typeReferenceNode.typeName;
-  if (!ts.isIdentifier(typeName)) {
+  const typeReferenceNode = node as TstsNode;
+  const typeName = getTstsTypeReferenceName(typeReferenceNode);
+  if (!typeName) {
     return type;
   }
 
-  const aliasTypeId = state.aliasTable.get(typeName.text);
+  const aliasTypeId = state.aliasTable.get(typeName);
   if (!aliasTypeId) {
     return type;
   }
@@ -520,13 +549,18 @@ const preferInstalledSourceSurfaceAliasTypeId = (
   const declId = state.resolveTypeReference(typeReferenceNode);
   const declInfo = declId ? state.handleRegistry.getDecl(declId) : undefined;
   const declNode = (declInfo?.typeDeclNode ?? declInfo?.declNode) as
-    | ts.Declaration
+    | TstsNode
     | undefined;
-  const sourceFilePath = declNode?.getSourceFile().fileName;
+  const sourceFilePath = getTstsContainingSourceFileName(declNode);
   if (
     !sourceFilePath ||
     !resolveInstalledSourcePackageNamespace(sourceFilePath)
   ) {
+    return type;
+  }
+
+  const aliasEntry = state.unifiedCatalog.getByTypeId(aliasTypeId);
+  if (aliasEntry?.origin !== "source") {
     return type;
   }
 

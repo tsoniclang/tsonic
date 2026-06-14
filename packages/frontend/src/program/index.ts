@@ -3,7 +3,6 @@
  */
 
 export type { CompilerOptions, TsonicProgram } from "./types.js";
-export { defaultTsConfig } from "./config.js";
 export { loadExternalMetadata } from "./metadata.js";
 export {
   BindingRegistry,
@@ -11,12 +10,7 @@ export {
   type TypeBinding,
   type SimpleBindingDescriptor,
 } from "./bindings.js";
-export {
-  collectTsDiagnostics,
-  convertTsDiagnostic,
-  getSourceLocation,
-} from "./diagnostics.js";
-export { createProgram, createCompilerOptions } from "./creation.js";
+export { createProgram } from "./creation.js";
 export { getSourceFile } from "./queries.js";
 export {
   buildModuleDependencyGraph,

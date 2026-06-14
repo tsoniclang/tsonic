@@ -8,7 +8,6 @@
  */
 
 import type { IrType, IrFunctionType } from "../types/index.js";
-import * as ts from "typescript";
 import {
   substituteIrType as irSubstitute,
   type TypeSubstitutionMap as IrSubstitutionMap,
@@ -28,6 +27,48 @@ import {
 } from "./type-system-state.js";
 import { convertTypeNode } from "./call-resolution-utilities.js";
 import { typeIdProviderLookupName } from "./internal/universe/types.js";
+
+const resolveUniqueTypeIdByNameAnyArity = (
+  state: TypeSystemState,
+  name: string
+) => {
+  const candidates = new Map<string, ReturnType<typeof resolveTypeIdByName>>();
+  const push = (candidate: ReturnType<typeof resolveTypeIdByName>): void => {
+    if (!candidate) return;
+    candidates.set(candidate.stableId, candidate);
+  };
+
+  push(resolveTypeIdByName(state, name));
+
+  const catalogArities = new Set<number>();
+  for (const typeId of state.unifiedCatalog.getAllTypeIds()) {
+    const arity = state.unifiedCatalog.getTypeParameters(typeId).length;
+    if (arity > 0) {
+      catalogArities.add(arity);
+    }
+  }
+
+  for (const arity of [...catalogArities].sort((a, b) => a - b)) {
+    push(resolveTypeIdByName(state, name, arity));
+  }
+
+  return candidates.size === 1 ? [...candidates.values()][0] : undefined;
+};
+
+const resolveCatalogTypeParameters = (
+  state: TypeSystemState,
+  declaringTypeTsName: string | undefined
+): TypeParameterInfo[] => {
+  if (!declaringTypeTsName) return [];
+  const typeId = resolveUniqueTypeIdByNameAnyArity(state, declaringTypeTsName);
+  if (!typeId) return [];
+
+  return state.unifiedCatalog.getTypeParameters(typeId).map((typeParameter) => ({
+    name: typeParameter.name,
+    constraint: typeParameter.constraint,
+    defaultType: typeParameter.defaultType,
+  }));
+};
 
 // ─────────────────────────────────────────────────────────────────────────
 // getRawSignature — Extract raw signature from HandleRegistry
@@ -61,9 +102,9 @@ export const getRawSignature = (
     }
   );
 
-  // Convert a TypeScript `this:` parameter type (if present) to an IrType.
+  // Convert a source `this:` parameter type (if present) to an IrType.
   const rawThisParameterType: IrType | undefined = (() => {
-    const n = sigInfo.thisTypeNode as ts.TypeNode | undefined;
+    const n = sigInfo.thisTypeNode;
     return n ? convertTypeNode(state, n) : undefined;
   })();
 
@@ -85,12 +126,15 @@ export const getRawSignature = (
   const rawTypeParameters: TypeParameterInfo[] = isConstructor
     ? (sigInfo.typeParameters && sigInfo.typeParameters.length > 0
         ? sigInfo.typeParameters
-        : (sigInfo.declaringTypeParameterNames ?? []).map((name) => ({
-            name,
-            constraintNode: undefined,
-            defaultNode: undefined,
-          }))
-      ).map((tp) => ({
+        : sigInfo.declaringTypeParameterNames &&
+            sigInfo.declaringTypeParameterNames.length > 0
+          ? sigInfo.declaringTypeParameterNames.map((name) => ({
+              name,
+              constraintNode: undefined,
+              defaultNode: undefined,
+            }))
+          : undefined
+      )?.map((tp) => ({
         name: tp.name,
         constraint: tp.constraintNode
           ? convertTypeNode(state, tp.constraintNode)
@@ -98,7 +142,7 @@ export const getRawSignature = (
         defaultType: tp.defaultNode
           ? convertTypeNode(state, tp.defaultNode)
           : undefined,
-      }))
+      })) ?? resolveCatalogTypeParameters(state, sigInfo.declaringTypeTsName)
     : (sigInfo.typeParameters ?? []).map((tp) => ({
         name: tp.name,
         constraint: tp.constraintNode

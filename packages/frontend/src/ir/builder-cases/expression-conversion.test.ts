@@ -477,6 +477,49 @@ describe("IR Builder", function () {
             stmt.name === "IntervalAsyncIterator"
         );
         expect(iteratorClass?.kind).to.equal("classDeclaration");
+
+        const calls: Array<{
+          readonly callee?: unknown;
+          readonly inferredType?: unknown;
+        }> = [];
+        const visit = (value: unknown): void => {
+          if (!value || typeof value !== "object") return;
+          if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+          }
+
+          const record = value as Record<string, unknown>;
+          if (record.kind === "call") {
+            calls.push(record);
+          }
+          Object.values(record).forEach(visit);
+        };
+        visit(result.value);
+
+        const unwrapCallee = (value: unknown): Record<string, unknown> | undefined => {
+          let current =
+            value && typeof value === "object"
+              ? (value as Record<string, unknown>)
+              : undefined;
+          while (
+            current &&
+            (current.kind === "typeAssertion" ||
+              current.kind === "numericNarrowing")
+          ) {
+            const expression = current.expression;
+            current =
+              expression && typeof expression === "object"
+                ? (expression as Record<string, unknown>)
+                : undefined;
+          }
+          return current;
+        };
+        const waiterCall = calls.find((call) => {
+          const callee = unwrapCallee(call.callee);
+          return callee?.kind === "identifier" && callee.name === "waiter";
+        });
+        expect(waiterCall?.inferredType).to.deep.equal({ kind: "voidType" });
       } finally {
         fixture.cleanup();
       }

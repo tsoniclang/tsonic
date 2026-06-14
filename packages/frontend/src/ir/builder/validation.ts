@@ -4,7 +4,12 @@
  * Uses ProgramContext instead of global singletons.
  */
 
-import * as ts from "typescript";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
+import {
+  getTstsHeritageClauseDetails,
+  visitTstsSubtree,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import { Diagnostic } from "../../types/diagnostic.js";
 import type { ProgramContext } from "../program-context.js";
 import type { DeclId } from "../type-system/types.js";
@@ -20,7 +25,7 @@ import {
  * Uses source-extension facts projected from TSTS.
  */
 const isStructMarker = (
-  typeRef: ts.ExpressionWithTypeArguments,
+  typeRef: TstsNode,
   ctx: ProgramContext
 ): boolean =>
   isSourceTypeKind(
@@ -58,37 +63,42 @@ const isNominalizedTypeAlias = (
  * Validate a class declaration for implements clause issues
  */
 const validateClassDeclaration = (
-  node: ts.ClassDeclaration,
+  node: TstsNode,
   ctx: ProgramContext
 ): readonly Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
-  const implementsClause = node.heritageClauses?.find(
-    (h) => h.token === ts.SyntaxKind.ImplementsKeyword
+  const implementsClauses = getTstsHeritageClauseDetails(node).filter(
+    (clause) => clause.kind === "implements"
   );
 
-  if (!implementsClause) return [];
+  for (const implementsClause of implementsClauses) {
+    for (const typeRef of implementsClause.types) {
+      // Skip the proven source-level struct marker; it is not an emitted interface.
+      if (!typeRef || isStructMarker(typeRef, ctx)) {
+        continue;
+      }
 
-  for (const typeRef of implementsClause.types) {
-    // Skip the proven source-level struct marker; it is not an emitted interface.
-    if (isStructMarker(typeRef, ctx)) {
-      continue;
-    }
+      // Get the declaration ID for the identifier.
+      // This preserves type alias identity.
+      const expression = TstsSyntax.Node_Expression(typeRef);
+      const identifierDeclId =
+        expression && TstsSyntax.IsIdentifier(expression)
+          ? ctx.binding.resolveIdentifier(expression)
+          : undefined;
 
-    // Get the declaration ID for the identifier
-    // This preserves type alias identity
-    const identifierDeclId = ts.isIdentifier(typeRef.expression)
-      ? ctx.binding.resolveIdentifier(typeRef.expression)
-      : undefined;
+      const implementedTypeDeclId =
+        identifierDeclId ?? (expression ? ctx.binding.resolveTypeReference(typeRef) : undefined);
 
-    // Check if it's a nominalized interface or type alias
-    if (
-      isNominalizedInterface(identifierDeclId, ctx.typeSystem) ||
-      isNominalizedTypeAlias(identifierDeclId, ctx.typeSystem)
-    ) {
-      // Tsonic supports `implements` in the TypeScript surface language. The
-      // emitter is responsible for selecting a valid native representation.
-      continue;
+      // Check if it's a nominalized interface or type alias.
+      if (
+        isNominalizedInterface(implementedTypeDeclId, ctx.typeSystem) ||
+        isNominalizedTypeAlias(implementedTypeDeclId, ctx.typeSystem)
+      ) {
+        // Tsonic supports `implements` in the TypeScript surface language. The
+        // emitter is responsible for selecting a valid native representation.
+        continue;
+      }
     }
   }
 
@@ -99,18 +109,15 @@ const validateClassDeclaration = (
  * Validate all class declarations in a source file
  */
 export const validateClassImplements = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   ctx: ProgramContext
 ): readonly Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
-  const visit = (node: ts.Node): void => {
-    if (ts.isClassDeclaration(node)) {
+  visitTstsSubtree(sourceFile, (node) => {
+    if (node && TstsSyntax.IsClassDeclaration(node)) {
       diagnostics.push(...validateClassDeclaration(node, ctx));
     }
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
+  });
   return diagnostics;
 };

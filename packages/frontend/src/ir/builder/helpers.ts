@@ -2,26 +2,17 @@
  * IR Builder helper functions
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { hasTstsDefaultModifier, hasTstsExportModifier } from "@tsonic/tsts";
 
 /**
  * Check if a node has export modifier
  */
-export const hasExportModifier = (node: ts.Node): boolean => {
-  if (!ts.canHaveModifiers(node)) return false;
-  const modifiers = ts.getModifiers(node);
-  return (
-    modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false
-  );
-};
+export const hasExportModifier = (node: TstsNode): boolean =>
+  hasTstsExportModifier(node);
 
 /**
  * Check if a node has default modifier
  */
-export const hasDefaultModifier = (node: ts.Node): boolean => {
-  if (!ts.canHaveModifiers(node)) return false;
-  const modifiers = ts.getModifiers(node);
-  return (
-    modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false
-  );
-};
+export const hasDefaultModifier = (node: TstsNode): boolean =>
+  hasTstsDefaultModifier(node);

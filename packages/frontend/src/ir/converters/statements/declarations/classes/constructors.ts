@@ -1,7 +1,15 @@
-import * as ts from "typescript";
+import {
+  getTstsBodyNode,
+  getTstsParameters,
+  type TstsNode,
+} from "@tsonic/tsts";
 import { IrClassMember, IrStatement } from "../../../../types.js";
 import { convertBlockStatement } from "../../control.js";
-import { getAccessibility, convertParameters } from "../../helpers.js";
+import {
+  definedTstsNodes,
+  getAccessibility,
+  convertParameters,
+} from "../../helpers.js";
 import { withParameterTypeEnv } from "../../../type-env.js";
 import type { ProgramContext } from "../../../../program-context.js";
 
@@ -22,15 +30,17 @@ const isLeadingSuperCallStatement = (statement: IrStatement): boolean => {
  * Convert constructor declaration to IR
  */
 export const convertConstructor = (
-  node: ts.ConstructorDeclaration,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrClassMember => {
-  const parameters = convertParameters(node.parameters, ctx);
-  const bodyCtx = withParameterTypeEnv(ctx, node.parameters, parameters);
+  const parameterNodes = definedTstsNodes(getTstsParameters(node));
+  const parameters = convertParameters(parameterNodes, ctx);
+  const bodyCtx = withParameterTypeEnv(ctx, parameterNodes, parameters);
 
   const statements: IrStatement[] = [];
-  if (node.body) {
-    const existingBody = convertBlockStatement(node.body, bodyCtx, undefined);
+  const bodyNode = getTstsBodyNode(node);
+  if (bodyNode) {
+    const existingBody = convertBlockStatement(bodyNode, bodyCtx, undefined);
     const [first, ...rest] = existingBody.statements;
     if (first && isLeadingSuperCallStatement(first)) {
       statements.push(first, ...rest);

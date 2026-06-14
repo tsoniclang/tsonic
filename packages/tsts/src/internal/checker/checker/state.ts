@@ -398,11 +398,11 @@ export interface CachedSignatureKey {
  * 	SignatureKeyOuter     = CacheHashKey(xxh3.HashString128(">"))
  * )
  */
-export let SignatureKeyErased: CacheHashKey = xxh3.HashString128("-") as unknown as CacheHashKey;
-export let SignatureKeyCanonical: CacheHashKey = xxh3.HashString128("*") as unknown as CacheHashKey;
-export let SignatureKeyBase: CacheHashKey = xxh3.HashString128("#") as unknown as CacheHashKey;
-export let SignatureKeyInner: CacheHashKey = xxh3.HashString128("<") as unknown as CacheHashKey;
-export let SignatureKeyOuter: CacheHashKey = xxh3.HashString128(">") as unknown as CacheHashKey;
+export let SignatureKeyErased: CacheHashKey = xxh3.HashString128("-").String();
+export let SignatureKeyCanonical: CacheHashKey = xxh3.HashString128("*").String();
+export let SignatureKeyBase: CacheHashKey = xxh3.HashString128("#").String();
+export let SignatureKeyInner: CacheHashKey = xxh3.HashString128("<").String();
+export let SignatureKeyOuter: CacheHashKey = xxh3.HashString128(">").String();
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::type::StringMappingKey","kind":"type","status":"implemented","sigHash":"36d0b3230681a2ba96631d0fce4219fc2162e5500fc39060aad3e0497e2db767","bodyHash":"10cfb3db96c6b66442f6a60f0d29262d0fa27f53d2dffa9870799bfe93a5e443"}
@@ -3536,8 +3536,14 @@ export function hashWrite64<T>(h: GoPtr<Hasher>, value: T): void {
  *
  * Go source:
  * CacheHashKey xxh3.Uint128
+ *
+ * Ported as the canonical hex string of the 128-bit hash rather than a Uint128
+ * object: Go map keys have value equality, and the checker caches here are
+ * plain Maps. A primitive string gives value semantics natively; an object key
+ * would need a global intern table, which grows without bound across
+ * compilations (it exhausted the runner heap on full-lib checks).
  */
-export type CacheHashKey = Uint128;
+export type CacheHashKey = string;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::type::keyBuilder","kind":"type","status":"implemented","sigHash":"61a39d68253539619efdc805aa5cde328442284428e189b1b3653a95f63dc755","bodyHash":"5f8f2fd3c63315426ec051fcedddce54e8f6ef8616a62580ceb6ea75e1736712"}

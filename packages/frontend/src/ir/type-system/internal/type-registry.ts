@@ -1,7 +1,7 @@
 /**
  * TypeRegistry - Pure IR source of truth for type declarations
  *
- * This registry stores IrType, not ts.TypeNode.
+ * This registry stores IrType, not source syntax nodes.
  * Types are converted at registration time, making queries deterministic.
  *
  * CANONICAL native target IDENTITY: Well-known runtime types from compiler core globals,
@@ -13,7 +13,7 @@
  * Type declarations are kept here so that all consumers can import from one path.
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
 import type { IrType, IrMethodSignature } from "../../types/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -53,7 +53,7 @@ export type TypeParameterEntry = {
 /**
  * Entry for a nominal type (class, interface, enum, type alias) - PURE IR
  *
- * NOTE: No ts.Declaration, ts.SourceFile, or ts.TypeNode fields.
+ * NOTE: No source-engine declaration, source-file, or type-node fields.
  */
 export type TypeRegistryEntry = {
   readonly kind: "class" | "interface" | "enum" | "typeAlias";
@@ -127,9 +127,9 @@ export type TypeRegistry = {
 };
 
 /**
- * Type conversion function - converts TypeNode to IrType
+ * Type conversion function - converts TSTS syntax nodes to IrType.
  */
-export type ConvertTypeFn = (typeNode: ts.TypeNode) => IrType;
+export type ConvertTypeFn = (typeNode: TstsNode) => IrType;
 
 export type BuildTypeRegistryOptions = {
   readonly convertType?: ConvertTypeFn;

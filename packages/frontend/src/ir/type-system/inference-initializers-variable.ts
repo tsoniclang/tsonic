@@ -10,7 +10,13 @@
  */
 
 import type { IrType } from "../types/index.js";
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  getTstsInitializerNode,
+  getTstsNodeText,
+  getTstsTypeArguments,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import { inferNumericKindFromRaw } from "../types/numeric-helpers.js";
 import type { TypeSystemState } from "./type-system-state.js";
 import { stripNullishForInference } from "./type-system-state.js";
@@ -19,6 +25,7 @@ import { convertTypeNode, resolveCall } from "./type-system-call-resolution.js";
 import {
   isLambdaExpression,
   deriveTypeFromNumericKind,
+  getExplicitTypeArgumentNodes,
   unwrapAwaitedForInference,
 } from "./inference-utilities.js";
 import {
@@ -33,11 +40,12 @@ import {
 } from "./inference-initializers-call.js";
 import { attachConstructedReferenceMetadata } from "./constructor-return-metadata.js";
 
-const isConstAssertionType = (node: ts.TypeNode): boolean =>
-  ts.isTypeReferenceNode(node) &&
-  ts.isIdentifier(node.typeName) &&
-  node.typeName.text === "const" &&
-  (!node.typeArguments || node.typeArguments.length === 0);
+const isConstAssertionType = (node: TstsNode): boolean =>
+  TstsSyntax.IsTypeReferenceNode(node) &&
+  TstsSyntax.AsTypeReferenceNode(node)?.TypeName?.Kind ===
+    TstsSyntax.KindIdentifier &&
+  getTstsNodeText(TstsSyntax.AsTypeReferenceNode(node)?.TypeName) === "const" &&
+  getTstsTypeArguments(node).length === 0;
 
 export const tryInferTypeFromInitializer = (
   state: TypeSystemState,
@@ -48,37 +56,46 @@ export const tryInferTypeFromInitializer = (
 
   if (!declNode || typeof declNode !== "object") return undefined;
 
-  const node = declNode as ts.Node;
-  if (!ts.isVariableDeclaration(node)) return undefined;
-  let init = node.initializer;
+  const node = declNode as TstsNode;
+  if (!TstsSyntax.IsVariableDeclaration(node)) return undefined;
+  let init = getTstsInitializerNode(node);
   if (!init) return undefined;
 
-  while (ts.isParenthesizedExpression(init)) {
-    init = init.expression;
+  while (TstsSyntax.IsParenthesizedExpression(init)) {
+    const expression = TstsSyntax.Node_Expression(init);
+    if (!expression) break;
+    init = expression;
   }
 
   // Explicit type assertions are deterministic sources for variable typing.
-  if (ts.isAsExpression(init) || ts.isTypeAssertionExpression(init)) {
-    if (isConstAssertionType(init.type)) {
-      return inferExpressionType(state, init.expression, new Map());
+  if (TstsSyntax.IsAsExpression(init) || TstsSyntax.IsTypeAssertion(init)) {
+    const assertedType = TstsSyntax.Node_Type(init);
+    const expression = TstsSyntax.Node_Expression(init);
+    if (!assertedType || !expression) return undefined;
+    if (isConstAssertionType(assertedType)) {
+      return inferExpressionType(state, expression, new Map());
     }
 
-    return convertTypeNode(state, init.type);
+    return convertTypeNode(state, assertedType);
   }
 
-  if (ts.isNonNullExpression(init)) {
-    const inner = inferExpressionType(state, init.expression, new Map());
+  if (TstsSyntax.IsNonNullExpression(init)) {
+    const expression = TstsSyntax.Node_Expression(init);
+    if (!expression) return undefined;
+    const inner = inferExpressionType(state, expression, new Map());
     if (!inner || inner.kind === "unknownType") return undefined;
     return stripNullishForInference(inner);
   }
 
-  if (ts.isAwaitExpression(init)) {
-    const inner = inferExpressionType(state, init.expression, new Map());
+  if (TstsSyntax.IsAwaitExpression(init)) {
+    const expression = TstsSyntax.Node_Expression(init);
+    if (!expression) return undefined;
+    const inner = inferExpressionType(state, expression, new Map());
     if (!inner || inner.kind === "unknownType") return undefined;
     return unwrapAwaitedForInference(inner);
   }
 
-  if (ts.isCallExpression(init)) {
+  if (TstsSyntax.IsCallExpression(init)) {
     return tryInferReturnTypeFromCallExpression(state, init, new Map());
   }
 
@@ -86,16 +103,16 @@ export const tryInferTypeFromInitializer = (
     return inferLambdaType(state, init, undefined);
   }
 
-  if (ts.isArrayLiteralExpression(init)) {
+  if (TstsSyntax.IsArrayLiteralExpression(init)) {
     // Deterministic array literal typing for variable declarations:
     // infer `T[]` only when all element types are deterministically known and equal.
     const elementTypes: IrType[] = [];
     const emptyEnv = new Map<string, IrType>();
-    for (const el of init.elements) {
-      if (ts.isOmittedExpression(el)) {
+    for (const el of TstsSyntax.Node_Elements(init) ?? []) {
+      if (!el || TstsSyntax.IsOmittedExpression(el)) {
         return undefined;
       }
-      if (ts.isSpreadElement(el)) {
+      if (TstsSyntax.IsSpreadElement(el)) {
         return undefined;
       }
 
@@ -115,43 +132,41 @@ export const tryInferTypeFromInitializer = (
     return undefined;
   }
 
-  const fallback = inferExpressionType(state, init, new Map());
-  if (fallback && fallback.kind !== "unknownType") {
-    return fallback;
-  }
-
   // NewExpression branch: use constructor signature with argTypes.
-  if (ts.isNewExpression(init)) {
+  if (TstsSyntax.IsNewExpression(init)) {
     const sigId = state.resolveConstructorSignature(init);
     if (!sigId) return undefined;
 
+    const initTypeArguments = getExplicitTypeArgumentNodes(init);
     const explicitTypeArgs =
-      init.typeArguments && init.typeArguments.length > 0
-        ? init.typeArguments.map((ta) => convertTypeNode(state, ta))
+      initTypeArguments.length > 0
+        ? initTypeArguments.map((ta) => convertTypeNode(state, ta))
         : undefined;
 
     // Derive argTypes conservatively from syntax (same pattern as CallExpression)
-    const args = init.arguments ?? [];
+    const args = (TstsSyntax.Node_Arguments(init) ?? []).filter(
+      (arg): arg is TstsNode => arg !== undefined
+    );
     const argTypes: (IrType | undefined)[] = args.map((arg) => {
-      if (ts.isSpreadElement(arg)) return undefined;
+      if (TstsSyntax.IsSpreadElement(arg)) return undefined;
 
-      if (ts.isNumericLiteral(arg)) {
-        const numericKind = inferNumericKindFromRaw(arg.getText());
+      if (TstsSyntax.IsNumericLiteral(arg)) {
+        const numericKind = inferNumericKindFromRaw(getTstsNodeText(arg) ?? "");
         return deriveTypeFromNumericKind(numericKind);
       }
 
-      if (ts.isStringLiteral(arg)) {
+      if (TstsSyntax.IsStringLiteral(arg)) {
         return { kind: "primitiveType" as const, name: "string" };
       }
 
       if (
-        arg.kind === ts.SyntaxKind.TrueKeyword ||
-        arg.kind === ts.SyntaxKind.FalseKeyword
+        arg.Kind === TstsSyntax.KindTrueKeyword ||
+        arg.Kind === TstsSyntax.KindFalseKeyword
       ) {
         return { kind: "primitiveType" as const, name: "boolean" };
       }
 
-      if (ts.isIdentifier(arg)) {
+      if (TstsSyntax.IsIdentifier(arg)) {
         const argDeclId = state.resolveIdentifier(arg);
         if (!argDeclId) return undefined;
         const t = typeOfDecl(state, argDeclId);
@@ -159,29 +174,30 @@ export const tryInferTypeFromInitializer = (
       }
 
       // Recursive handling for nested new expressions
-      if (ts.isNewExpression(arg)) {
+      if (TstsSyntax.IsNewExpression(arg)) {
         const nestedSigId = state.resolveConstructorSignature(arg);
         if (!nestedSigId) return undefined;
 
+        const nestedTypeArguments = getExplicitTypeArgumentNodes(arg);
         const nestedExplicitTypeArgs =
-          arg.typeArguments && arg.typeArguments.length > 0
-            ? arg.typeArguments.map((ta) => convertTypeNode(state, ta))
+          nestedTypeArguments.length > 0
+            ? nestedTypeArguments.map((ta) => convertTypeNode(state, ta))
             : undefined;
+        const nestedArguments = TstsSyntax.Node_Arguments(arg) ?? [];
 
         const nestedResolved = resolveCall(state, {
           sigId: nestedSigId,
-          argumentCount: arg.arguments?.length ?? 0,
+          argumentCount: nestedArguments.length,
           explicitTypeArgs: nestedExplicitTypeArgs,
         });
 
         if (nestedResolved.returnType.kind === "unknownType") {
           return undefined;
         }
-        const nestedConstructorType = inferExpressionType(
-          state,
-          arg.expression,
-          new Map()
-        );
+        const nestedConstructorExpression = TstsSyntax.Node_Expression(arg);
+        const nestedConstructorType = nestedConstructorExpression
+          ? inferExpressionType(state, nestedConstructorExpression, new Map())
+          : undefined;
         return (
           attachConstructedReferenceMetadata(
             nestedResolved.returnType,
@@ -204,11 +220,10 @@ export const tryInferTypeFromInitializer = (
     if (resolved.returnType.kind === "unknownType") {
       return undefined;
     }
-    const constructorType = inferExpressionType(
-      state,
-      init.expression,
-      new Map()
-    );
+    const constructorExpression = TstsSyntax.Node_Expression(init);
+    const constructorType = constructorExpression
+      ? inferExpressionType(state, constructorExpression, new Map())
+      : undefined;
     return (
       attachConstructedReferenceMetadata(
         resolved.returnType,
@@ -217,7 +232,7 @@ export const tryInferTypeFromInitializer = (
     );
   }
 
-  if (ts.isIdentifier(init)) {
+  if (TstsSyntax.IsIdentifier(init)) {
     const sourceDeclId = state.resolveIdentifier(init);
     if (!sourceDeclId) return undefined;
     const sourceType = typeOfDecl(state, sourceDeclId);
@@ -225,27 +240,24 @@ export const tryInferTypeFromInitializer = (
   }
 
   // Property access: const output = response.outputStream
-  if (ts.isPropertyAccessExpression(init)) {
-    const receiverType = inferExpressionType(state, init.expression, new Map());
+  if (TstsSyntax.IsPropertyAccessExpression(init)) {
+    const receiver = TstsSyntax.Node_Expression(init);
+    if (!receiver) return undefined;
+    const receiverType = inferExpressionType(state, receiver, new Map());
     if (!receiverType || receiverType.kind === "unknownType") return undefined;
 
     const memberType = typeOfMember(state, receiverType, {
       kind: "byName",
-      name: init.name.text,
+      name: getTstsNodeText(TstsSyntax.Node_Name(init)) ?? "",
     });
 
     return memberType.kind === "unknownType" ? undefined : memberType;
   }
 
   // Element access: const first = items[0]
-  if (ts.isElementAccessExpression(init)) {
+  if (TstsSyntax.IsElementAccessExpression(init)) {
     const inferred = inferExpressionType(state, init, new Map());
     return inferred && inferred.kind !== "unknownType" ? inferred : undefined;
-  }
-
-  const inferred = inferExpressionType(state, init, new Map());
-  if (inferred && inferred.kind !== "unknownType") {
-    return inferred;
   }
 
   return undefined;

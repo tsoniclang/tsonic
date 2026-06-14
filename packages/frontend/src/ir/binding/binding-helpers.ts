@@ -1,12 +1,26 @@
 /**
- * Binding Layer — Pure Helper Functions
+ * Binding Layer — TSTS syntax helper functions.
  *
- * Module-level helper functions used by the binding factory.
- * These exist outside the createBinding() closure and are pure functions
- * that operate on TypeScript AST nodes.
+ * These helpers operate on TSTS nodes and source-extension facts only. They do
+ * not call TypeScript checker APIs and do not inspect TypeScript AST nodes.
  */
 
-import ts from "typescript";
+import type { TstsNode, TstsSymbol } from "@tsonic/tsts";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsDeclarationKind,
+  getTstsIdentifierText,
+  getTstsMemberNodes,
+  getTstsNodeNameText,
+  getTstsParameters,
+  getTstsPropertyNameText,
+  getTstsTypeArguments,
+  getTstsTypeParameterNodes,
+  hasTstsReadonlyModifier,
+  isTstsOptionalParameter,
+  isTstsRestParameter,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import type {
   DeclKind,
   ParameterNode,
@@ -16,279 +30,175 @@ import type {
   CapturedClassMethodSignature,
 } from "../type-system/internal/handle-types.js";
 import type { ParameterMode } from "../type-system/types.js";
-import type { FrontendSourceSemanticView } from "../../source-frontend/index.js";
-import { unwrapSourceParameterType } from "../source-wrapper-semantics.js";
+import type { TstsFrontendSourceSemanticView } from "../../source-frontend/index.js";
+import {
+  parameterPassingFactKey,
+  parameterPassingModeFromFact,
+} from "../../source-frontend/index.js";
 
-// ═══════════════════════════════════════════════════════════════════════════
-// HELPER FUNCTIONS
-// ═══════════════════════════════════════════════════════════════════════════
+const concreteTstsNodes = (
+  nodes: readonly (TstsNode | undefined)[]
+): readonly TstsNode[] =>
+  nodes.filter((node): node is TstsNode => node !== undefined);
 
 export const getTypeNodeFromDeclaration = (
-  decl: ts.Declaration
-): ts.TypeNode | undefined => {
-  if (ts.isVariableDeclaration(decl) && decl.type) {
-    return decl.type;
-  }
-  if (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl)) {
-    return decl.type;
-  }
-  if (ts.isParameter(decl) && decl.type) {
-    return decl.type;
-  }
-  if (ts.isPropertyDeclaration(decl) && decl.type) {
-    return decl.type;
-  }
-  if (ts.isPropertySignature(decl) && decl.type) {
-    return decl.type;
-  }
-  if (ts.isTypeAliasDeclaration(decl)) {
-    return decl.type;
-  }
-  return undefined;
-};
+  decl: TstsNode
+): TstsNode | undefined => getTstsDeclaredTypeNode(decl);
 
 export const getMemberTypeAnnotation = (
-  decl: ts.Declaration
-): ts.TypeNode | undefined => {
-  if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)) {
-    return decl.type;
-  }
-  if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) {
-    // For methods, we could return a function type node if needed
-    return decl.type;
-  }
-  if (ts.isGetAccessorDeclaration(decl)) {
-    return decl.type;
-  }
-  if (ts.isSetAccessorDeclaration(decl)) {
-    // Setter declarations have no return type; use the value parameter type.
-    const valueParam = decl.parameters[0];
-    return valueParam?.type;
-  }
-  return undefined;
-};
+  decl: TstsNode
+): TstsNode | undefined => getTstsDeclaredTypeNode(decl);
 
-export const getDeclKind = (decl: ts.Declaration): DeclKind => {
-  if (ts.isVariableDeclaration(decl)) return "variable";
-  if (ts.isFunctionDeclaration(decl)) return "function";
-  if (ts.isClassDeclaration(decl)) return "class";
-  if (ts.isInterfaceDeclaration(decl)) return "interface";
-  if (ts.isTypeAliasDeclaration(decl)) return "typeAlias";
-  if (ts.isEnumDeclaration(decl)) return "enum";
-  if (ts.isParameter(decl)) return "parameter";
-  if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl))
-    return "property";
-  if (ts.isGetAccessorDeclaration(decl) || ts.isSetAccessorDeclaration(decl))
-    return "property";
-  if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl))
-    return "method";
-  return "variable";
-};
+export const getDeclKind = (decl: TstsNode): DeclKind =>
+  getTstsDeclarationKind(decl);
 
 export const getReturnTypeNode = (
-  decl: ts.SignatureDeclaration | undefined
-): ts.TypeNode | undefined => {
-  if (!decl) return undefined;
-  return decl.type;
-};
+  decl: TstsNode | undefined
+): TstsNode | undefined =>
+  decl === undefined ? undefined : getTstsDeclaredTypeNode(decl);
 
-export const isThisParameter = (p: ts.ParameterDeclaration): boolean => {
-  return ts.isIdentifier(p.name) && p.name.text === "this";
-};
+export const isThisParameter = (p: TstsNode): boolean =>
+  getTstsNodeNameText(p) === "this";
 
 export const extractThisParameterTypeNode = (
-  decl: ts.SignatureDeclaration | undefined,
-  sourceSemantics?: FrontendSourceSemanticView
-): ts.TypeNode | undefined => {
+  decl: TstsNode | undefined,
+  sourceSemantics?: TstsFrontendSourceSemanticView
+): TstsNode | undefined => {
   if (!decl) return undefined;
-
-  const thisParam = decl.parameters.find(isThisParameter);
-  if (!thisParam) return undefined;
-
-  const normalized = normalizeParameterTypeNode(
-    thisParam.type,
-    sourceSemantics
+  const thisParam = concreteTstsNodes(getTstsParameters(decl)).find(
+    isThisParameter
   );
-  return normalized.typeNode;
+  if (!thisParam) return undefined;
+  return normalizeParameterTypeNode(
+    getTstsDeclaredTypeNode(thisParam),
+    sourceSemantics
+  ).typeNode;
 };
 
-/**
- * Extract and normalize parameter nodes from a signature declaration.
- *
- * Parameter mode detection happens during signature registration.
- * If the parameter type is `ref<T>`, `out<T>`, or `in<T>`:
- * - Set `mode` to that keyword
- * - Set `typeNode` to the INNER T node (unwrapped)
- *
- * This is PURE SYNTAX inspection, no TS type inference.
- */
+export const normalizeParameterTypeNode = (
+  typeNode: TstsNode | undefined,
+  sourceSemantics?: TstsFrontendSourceSemanticView
+): { mode: ParameterMode; typeNode: TstsNode | undefined } => {
+  let current = typeNode;
+  let mode: ParameterMode = "value";
+
+  while (current !== undefined) {
+    const passing = parameterPassingModeFromFact(
+      sourceSemantics?.getFact(current, parameterPassingFactKey)
+    );
+    if (passing === undefined || passing === "value") {
+      break;
+    }
+
+    const [inner] = getTstsTypeArguments(current);
+    if (!inner) {
+      break;
+    }
+
+    mode = passing;
+    current = inner;
+  }
+
+  return { mode, typeNode: current };
+};
+
 export const extractParameterNodes = (
-  decl: ts.SignatureDeclaration | undefined,
-  sourceSemantics?: FrontendSourceSemanticView
+  decl: TstsNode | undefined,
+  sourceSemantics?: TstsFrontendSourceSemanticView
 ): readonly ParameterNode[] => {
   if (!decl) return [];
-  // TypeScript `this:` parameters are not call arguments. Exclude them from arity,
-  // but keep the typeNode available via extractThisParameterTypeNode().
-  const params = decl.parameters.filter((p) => !isThisParameter(p));
+  return concreteTstsNodes(getTstsParameters(decl))
+    .filter((parameter) => !isThisParameter(parameter))
+    .map((parameter) => {
+      const normalized = normalizeParameterTypeNode(
+        getTstsDeclaredTypeNode(parameter),
+        sourceSemantics
+      );
+      return {
+        name: getTstsNodeNameText(parameter) ?? "param",
+        typeNode: normalized.typeNode,
+        isOptional: isTstsOptionalParameter(parameter),
+        isRest: isTstsRestParameter(parameter),
+        mode: normalized.mode,
+      };
+    });
+};
 
-  return params.map((p) => {
-    const normalized = normalizeParameterTypeNode(p.type, sourceSemantics);
+export const convertTypeParameterDeclarations = (
+  typeParameters: readonly TstsNode[] | undefined
+): readonly TypeParameterNode[] | undefined => {
+  if (!typeParameters || typeParameters.length === 0) return undefined;
+  return typeParameters.map((typeParameter) => {
+    const data = TstsSyntax.AsTypeParameterDeclaration(typeParameter);
     return {
-      name: ts.isIdentifier(p.name) ? p.name.text : "param",
-      typeNode: normalized.typeNode,
-      isOptional: !!p.questionToken || !!p.initializer,
-      isRest: !!p.dotDotDotToken,
-      mode: normalized.mode,
+      name: getTstsNodeNameText(typeParameter) ?? "T",
+      constraintNode: data?.Constraint,
+      defaultNode: data?.DefaultType,
     };
   });
 };
 
-/**
- * Normalize parameter marker wrappers discovered by source-extension facts.
- * The TypeScript AST is used only to unwrap the single type argument after
- * TSTS has proven that the wrapper is a real source parameter-passing marker.
- *
- * @param typeNode The parameter's type node
- * @returns { mode, typeNode } where typeNode is unwrapped if wrapper detected
- */
-export const normalizeParameterTypeNode = (
-  typeNode: ts.TypeNode | undefined,
-  sourceSemantics?: FrontendSourceSemanticView
-): { mode: ParameterMode; typeNode: ts.TypeNode | undefined } => {
-  if (!typeNode) {
-    return { mode: "value", typeNode: undefined };
+export const extractTypeParameterNodes = (
+  decl: TstsNode | undefined
+): readonly TypeParameterNode[] | undefined => {
+  if (!decl) return undefined;
+  if (TstsSyntax.IsConstructorDeclaration(decl)) {
+    return convertTypeParameterDeclarations(
+      concreteTstsNodes(getTstsTypeParameterNodes(decl.Parent))
+    );
+  }
+  return convertTypeParameterDeclarations(
+    concreteTstsNodes(getTstsTypeParameterNodes(decl))
+  );
+};
+
+export const extractTypePredicate = (
+  returnTypeNode: TstsNode | undefined,
+  decl: TstsNode | undefined
+): SignatureTypePredicate | undefined => {
+  if (!returnTypeNode || !TstsSyntax.IsTypePredicateNode(returnTypeNode)) {
+    return undefined;
+  }
+  const predicate = TstsSyntax.AsTypePredicateNode(returnTypeNode);
+  const targetTypeNode = predicate?.Type;
+  const parameterName = predicate?.ParameterName;
+  if (!targetTypeNode || !parameterName) {
+    return undefined;
   }
 
-  const unwrapped = unwrapSourceParameterType(typeNode, (node, key) =>
-    sourceSemantics?.getFact(node, key)
-  );
+  if (TstsSyntax.IsThisTypeNode(parameterName)) {
+    return { kind: "this", targetTypeNode };
+  }
 
-  // No wrapper detected - regular parameter
+  const name =
+    getTstsIdentifierText(parameterName) ?? getTstsNodeNameText(parameterName);
+  if (!name) {
+    return undefined;
+  }
+
+  const parameterIndex = concreteTstsNodes(getTstsParameters(decl)).findIndex(
+    (parameter) => getTstsNodeNameText(parameter) === name
+  );
+  if (parameterIndex < 0) {
+    return undefined;
+  }
+
   return {
-    mode: unwrapped.passing,
-    typeNode: unwrapped.typeNode ?? typeNode,
+    kind: "param",
+    parameterName: name,
+    parameterIndex,
+    targetTypeNode,
   };
 };
 
-export const convertTypeParameterDeclarations = (
-  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined
-): readonly TypeParameterNode[] | undefined => {
-  if (!typeParameters || typeParameters.length === 0) return undefined;
-  return typeParameters.map((tp) => ({
-    name: tp.name.text,
-    constraintNode: tp.constraint,
-    defaultNode: tp.default,
-  }));
+export const isOptionalMember = (symbol: TstsSymbol): boolean => {
+  const valueDeclaration = symbol.ValueDeclaration;
+  return valueDeclaration !== undefined && isTstsOptionalParameter(valueDeclaration);
 };
 
-export const extractTypeParameterNodes = (
-  decl: ts.SignatureDeclaration | undefined
-): readonly TypeParameterNode[] | undefined => {
-  if (!decl) return undefined;
+export const isReadonlyMember = (decl: TstsNode | undefined): boolean =>
+  decl !== undefined && hasTstsReadonlyModifier(decl);
 
-  // Constructor declarations don't have their own type parameters in TS syntax,
-  // but the enclosing class may be generic (class Box<T> { constructor(x: T) {} }).
-  // For constructor signature typing/inference, the relevant type parameters are the
-  // class type parameters.
-  if (ts.isConstructorDeclaration(decl)) {
-    const parent = decl.parent;
-    if (ts.isClassDeclaration(parent)) {
-      return convertTypeParameterDeclarations(parent.typeParameters);
-    }
-    return undefined;
-  }
-
-  return convertTypeParameterDeclarations(decl.typeParameters);
-};
-
-/**
- * Extract type predicate from a signature's return type.
- *
- * This is pure syntax inspection at registration time.
- * We check if the return TypeNode is a TypePredicateNode (x is T or this is T).
- * No TS type inference is used.
- *
- * @param returnTypeNode The signature's return type node
- * @param decl The signature declaration (to find parameter index)
- * @returns SignatureTypePredicate or undefined if not a predicate
- */
-export const extractTypePredicate = (
-  returnTypeNode: ts.TypeNode | undefined,
-  decl: ts.SignatureDeclaration | undefined
-): SignatureTypePredicate | undefined => {
-  // Return type must be a TypePredicateNode
-  if (!returnTypeNode || !ts.isTypePredicateNode(returnTypeNode)) {
-    return undefined;
-  }
-
-  const predNode = returnTypeNode;
-
-  // Must have a target type
-  if (!predNode.type) {
-    return undefined;
-  }
-
-  // Check if it's "this is T" predicate
-  if (predNode.parameterName.kind === ts.SyntaxKind.ThisType) {
-    return {
-      kind: "this",
-      targetTypeNode: predNode.type,
-    };
-  }
-
-  // Check if it's "param is T" predicate
-  if (ts.isIdentifier(predNode.parameterName)) {
-    const paramName = predNode.parameterName.text;
-
-    // Find parameter index
-    const paramIndex =
-      decl?.parameters.findIndex(
-        (p) => ts.isIdentifier(p.name) && p.name.text === paramName
-      ) ?? -1;
-
-    if (paramIndex >= 0) {
-      return {
-        kind: "param",
-        parameterName: paramName,
-        parameterIndex: paramIndex,
-        targetTypeNode: predNode.type,
-      };
-    }
-  }
-
-  return undefined;
-};
-
-export const isOptionalMember = (symbol: ts.Symbol): boolean => {
-  return (symbol.flags & ts.SymbolFlags.Optional) !== 0;
-};
-
-export const isReadonlyMember = (decl: ts.Declaration | undefined): boolean => {
-  if (!decl) return false;
-  if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)) {
-    return (
-      decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ??
-      false
-    );
-  }
-  return false;
-};
-
-/**
- * Extract declaring identity from a signature declaration.
- *
- * Without declaring identity, resolveCall() cannot compute inheritance
- * substitution and would have to infer the method name from the signature.
- * That is not deterministic for overloads, aliases, or inherited members.
- *
- * Store the declaring type as a **simple TS name**
- * (identifier text like "Box"), NOT a TS "fully qualified name". TypeSystem
- * uses UnifiedTypeCatalog.resolveTsName() to resolve this to the proper
- * target name for inheritance substitution.
- *
- * @param decl The signature declaration (method, function, etc.)
- * @returns { typeTsName, memberName } or undefined if not a member
- */
 export const normalizeCapturedDeclaringTypeName = (name: string): string => {
   if (name.endsWith("$instance")) {
     return name.slice(0, -"$instance".length);
@@ -300,159 +210,74 @@ export const normalizeCapturedDeclaringTypeName = (name: string): string => {
 };
 
 export const extractDeclaringIdentity = (
-  decl: ts.SignatureDeclaration | undefined
+  decl: TstsNode | undefined
 ): { typeTsName: string; memberName: string } | undefined => {
   if (!decl) return undefined;
+  const parent = decl.Parent;
+  const memberName =
+    TstsSyntax.IsConstructorDeclaration(decl)
+      ? "constructor"
+      : (getTstsPropertyNameText(decl) ?? getTstsNodeNameText(decl));
+  if (!memberName) return undefined;
 
-  // Check if this is a method (class or interface member)
-  if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) {
-    const parent = decl.parent;
-
-    // Get the method name
-    const memberName = ts.isIdentifier(decl.name)
-      ? decl.name.text
-      : (decl.name?.getText() ?? "unknown");
-
-    // Get the containing type's simple name (identifier text)
-    if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
-      if (parent.name) {
-        // Use the simple identifier text, not checker.getFullyQualifiedName
-        const typeTsName = normalizeCapturedDeclaringTypeName(parent.name.text);
-        return { typeTsName, memberName };
-      }
-    }
-
-    // tsbindgen static containers are commonly emitted as:
-    //   export const Foo: { bar(...): ... }
-    //
-    // In this case, method signatures live under a TypeLiteralNode whose parent is
-    // the variable declaration for `Foo`. We still need declaring identity so
-    // TypeSystem can apply airplane-grade overload correction using external metadata.
-    if (ts.isTypeLiteralNode(parent)) {
-      const container = parent.parent;
-      if (
-        ts.isVariableDeclaration(container) &&
-        ts.isIdentifier(container.name)
-      ) {
-        const typeTsName = normalizeCapturedDeclaringTypeName(
-          container.name.text
-        );
-        return { typeTsName, memberName };
-      }
-    }
-
-    // Object literal method - use parent context
-    if (ts.isObjectLiteralExpression(parent)) {
-      // For object literals, we don't have a named type
-      return undefined;
-    }
+  if (
+    TstsSyntax.IsClassDeclaration(parent) ||
+    TstsSyntax.IsInterfaceDeclaration(parent)
+  ) {
+    const typeName = getTstsNodeNameText(parent);
+    return typeName
+      ? {
+          typeTsName: normalizeCapturedDeclaringTypeName(typeName),
+          memberName,
+        }
+      : undefined;
   }
 
-  // Constructor declarations
-  if (ts.isConstructorDeclaration(decl)) {
-    const parent = decl.parent;
-    if (ts.isClassDeclaration(parent) && parent.name) {
-      // Use the simple identifier text
-      const typeTsName = normalizeCapturedDeclaringTypeName(parent.name.text);
-      return { typeTsName, memberName: "constructor" };
-    }
-  }
-
-  if (ts.isConstructSignatureDeclaration(decl)) {
-    const parent = decl.parent;
-    if (ts.isInterfaceDeclaration(parent) && parent.name) {
-      const typeTsName = normalizeCapturedDeclaringTypeName(parent.name.text);
-      return { typeTsName, memberName: "constructor" };
-    }
-  }
-
-  // Getter/setter declarations
-  if (ts.isGetAccessorDeclaration(decl) || ts.isSetAccessorDeclaration(decl)) {
-    const parent = decl.parent;
-    const memberName = ts.isIdentifier(decl.name)
-      ? decl.name.text
-      : (decl.name?.getText() ?? "unknown");
-
-    if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
-      if (parent.name) {
-        // Use the simple identifier text
-        const typeTsName = normalizeCapturedDeclaringTypeName(parent.name.text);
-        return { typeTsName, memberName };
-      }
-    }
-  }
-
-  // Standalone functions don't have a declaring type
   return undefined;
 };
 
-/**
- * Extract class member names from a ClassDeclaration.
- *
- * This is pure syntax inspection at registration time.
- * We iterate class members and collect method/property names.
- * This data is used by TypeSystem.checkTsClassMemberOverride without
- * needing to inspect TS AST nodes or use hardcoded SyntaxKind numbers.
- *
- * @param classDecl The class declaration node
- * @returns ClassMemberNames with method and property name sets
- */
+const captureMethodSignature = (
+  member: TstsNode
+): CapturedClassMethodSignature => ({
+  parameters: concreteTstsNodes(getTstsParameters(member)).map(
+    (parameter) => ({
+      typeNode: getTstsDeclaredTypeNode(parameter),
+      isRest: isTstsRestParameter(parameter),
+    })
+  ),
+});
+
 export const extractClassMemberNames = (
-  classDecl: ts.ClassDeclaration
+  classDecl: TstsNode
 ): ClassMemberNames => {
-  const typeParameters = (classDecl.typeParameters ?? []).map(
-    (parameter) => parameter.name.text
-  );
+  const typeParameters = concreteTstsNodes(getTstsTypeParameterNodes(classDecl))
+    .map(getTstsNodeNameText)
+    .filter((name): name is string => name !== undefined);
   const methods = new Set<string>();
   const properties = new Set<string>();
   const methodSignatures = new Map<string, CapturedClassMethodSignature[]>();
-  const propertyTypeNodes = new Map<string, ts.TypeNode | undefined>();
+  const propertyTypeNodes = new Map<string, TstsNode | undefined>();
 
-  for (const member of classDecl.members) {
-    // Get member name if it has an identifier
-    const name = ts.isMethodDeclaration(member)
-      ? ts.isIdentifier(member.name)
-        ? member.name.text
-        : undefined
-      : ts.isPropertyDeclaration(member)
-        ? ts.isIdentifier(member.name)
-          ? member.name.text
-          : undefined
-        : ts.isGetAccessorDeclaration(member) ||
-            ts.isSetAccessorDeclaration(member)
-          ? ts.isIdentifier(member.name)
-            ? member.name.text
-            : undefined
-          : undefined;
-
+  for (const member of concreteTstsNodes(getTstsMemberNodes(classDecl))) {
+    const name = getTstsPropertyNameText(member) ?? getTstsNodeNameText(member);
     if (!name) continue;
 
-    if (ts.isMethodDeclaration(member)) {
+    if (TstsSyntax.IsMethodDeclaration(member)) {
       methods.add(name);
       const signatures = methodSignatures.get(name) ?? [];
-      signatures.push({
-        parameters: member.parameters.map((parameter) => ({
-          typeNode: parameter.type,
-          isRest: !!parameter.dotDotDotToken,
-        })),
-      });
+      signatures.push(captureMethodSignature(member));
       methodSignatures.set(name, signatures);
-    } else if (ts.isPropertyDeclaration(member)) {
-      properties.add(name);
-      propertyTypeNodes.set(name, member.type);
-    } else if (
-      ts.isGetAccessorDeclaration(member) ||
-      ts.isSetAccessorDeclaration(member)
+      continue;
+    }
+
+    if (
+      TstsSyntax.IsPropertyDeclaration(member) ||
+      TstsSyntax.IsGetAccessorDeclaration(member) ||
+      TstsSyntax.IsSetAccessorDeclaration(member)
     ) {
-      // Accessors are treated as properties for override detection
       properties.add(name);
       if (!propertyTypeNodes.has(name)) {
-        propertyTypeNodes.set(
-          name,
-          ts.isGetAccessorDeclaration(member)
-            ? member.type
-            : member.parameters[0]?.type
-        );
+        propertyTypeNodes.set(name, getTstsDeclaredTypeNode(member));
       }
     }
   }

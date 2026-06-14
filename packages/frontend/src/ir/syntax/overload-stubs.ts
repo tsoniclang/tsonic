@@ -1,49 +1,66 @@
-import * as ts from "typescript";
+import {
+  getTstsBodyNode,
+  getTstsNodeNameText,
+  getTstsStatementNodes,
+  isTstsFunctionLikeDeclaration,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import { tryResolveDeterministicPropertyName } from "./property-names.js";
 
 export const isOverloadSurfaceDeclaration = (
-  decl: ts.Declaration
-): decl is ts.SignatureDeclaration =>
-  ts.isFunctionLike(decl) &&
-  !ts.isConstructSignatureDeclaration(decl) &&
-  !ts.isConstructorDeclaration(decl) &&
-  (!("body" in decl) || decl.body === undefined);
+  decl: TstsNode
+): boolean =>
+  isTstsFunctionLikeDeclaration(decl) &&
+  decl.Kind !== TstsSyntax.KindConstructSignature &&
+  decl.Kind !== TstsSyntax.KindConstructor &&
+  getTstsBodyNode(decl) === undefined;
 
 export const isOverloadStubImplementation = (
-  node: ts.FunctionDeclaration | ts.MethodDeclaration
+  node: TstsNode
 ): boolean => {
-  if (!node.body) {
+  if (getTstsBodyNode(node) === undefined) {
     return false;
   }
 
-  if (ts.isFunctionDeclaration(node)) {
-    if (!node.name || !node.parent || !ts.isSourceFile(node.parent)) {
+  if (node.Kind === TstsSyntax.KindFunctionDeclaration) {
+    const functionName = getTstsNodeNameText(node);
+    if (!functionName || node.Parent?.Kind !== TstsSyntax.KindSourceFile) {
       return false;
     }
 
-    return node.parent.statements.some(
+    return getTstsStatementNodes(node.Parent).some(
       (statement) =>
-        ts.isFunctionDeclaration(statement) &&
+        statement?.Kind === TstsSyntax.KindFunctionDeclaration &&
         statement !== node &&
-        statement.name?.text === node.name?.text &&
+        getTstsNodeNameText(statement) === functionName &&
         isOverloadSurfaceDeclaration(statement)
     );
   }
 
-  if (!node.parent || !ts.isClassLike(node.parent)) {
+  const parent = node.Parent;
+  if (
+    !parent ||
+    (parent.Kind !== TstsSyntax.KindClassDeclaration &&
+      parent.Kind !== TstsSyntax.KindClassExpression)
+  ) {
     return false;
   }
 
-  const memberName = tryResolveDeterministicPropertyName(node.name);
+  const memberName = tryResolveDeterministicPropertyName(
+    TstsSyntax.Node_PropertyNameOrName(node)
+  );
   if (!memberName) {
     return false;
   }
 
-  return node.parent.members.some(
+  return (TstsSyntax.Node_Members(parent) ?? []).some(
     (member) =>
-      ts.isMethodDeclaration(member) &&
+      member?.Kind === TstsSyntax.KindMethodDeclaration &&
       member !== node &&
-      tryResolveDeterministicPropertyName(member.name) === memberName &&
+      tryResolveDeterministicPropertyName(
+        TstsSyntax.Node_PropertyNameOrName(member)
+      ) === memberName &&
       isOverloadSurfaceDeclaration(member)
   );
 };

@@ -1,5 +1,13 @@
 import * as fs from "node:fs";
-import * as ts from "typescript";
+import type { GoPtr, TstsNode } from "@tsonic/tsts";
+import {
+  getTstsExportModuleSpecifiersFromStatements,
+  getTstsIdentifierText,
+  getTstsNodeText,
+  parseTstsSourceFile,
+  TstsSyntax,
+  visitTstsSubtree,
+} from "@tsonic/tsts";
 
 export type DeclarationModuleAlias = {
   readonly targetSpecifier: string;
@@ -13,71 +21,51 @@ export type DeclarationGlobalImport = {
   readonly declarationFile: string;
 };
 
-const readEntityNameText = (name: ts.Node): string => {
-  if (ts.isIdentifier(name)) {
-    return name.text;
+const readEntityNameText = (name: GoPtr<TstsNode>): string => {
+  if (!name) return "";
+  const identifier = getTstsIdentifierText(name);
+  if (identifier) return identifier;
+  if (TstsSyntax.IsQualifiedName(name)) {
+    const qualifiedName = TstsSyntax.AsQualifiedName(name);
+    const left = readEntityNameText(qualifiedName?.Left);
+    const right = readEntityNameText(qualifiedName?.Right);
+    return left && right ? `${left}.${right}` : left || right;
   }
-  if (ts.isQualifiedName(name)) {
-    return `${readEntityNameText(name.left)}.${name.right.text}`;
+  if (TstsSyntax.IsPropertyAccessExpression(name)) {
+    const access = TstsSyntax.AsPropertyAccessExpression(name);
+    const left = readEntityNameText(access?.Expression);
+    const right = readEntityNameText(TstsSyntax.Node_Name(name));
+    return left && right ? `${left}.${right}` : left || right;
   }
-  if (ts.isPropertyAccessExpression(name)) {
-    return `${readEntityNameText(name.expression)}.${name.name.text}`;
-  }
-  return ts.isStringLiteral(name) ? name.text : name.getText();
-};
-
-const getScriptKindFromPath = (filePath: string): ts.ScriptKind => {
-  if (filePath.endsWith(".ts") || filePath.endsWith(".d.ts")) {
-    return ts.ScriptKind.TS;
-  }
-  if (
-    filePath.endsWith(".mts") ||
-    filePath.endsWith(".d.mts") ||
-    filePath.endsWith(".cts") ||
-    filePath.endsWith(".d.cts")
-  ) {
-    return ts.ScriptKind.TS;
-  }
-  return ts.ScriptKind.Unknown;
-};
-
-const collectAliasTargets = (
-  statements: readonly ts.Statement[]
-): readonly string[] => {
-  const targets: string[] = [];
-
-  for (const statement of statements) {
-    if (
-      ts.isExportDeclaration(statement) &&
-      statement.moduleSpecifier &&
-      ts.isStringLiteral(statement.moduleSpecifier)
-    ) {
-      targets.push(statement.moduleSpecifier.text);
-    }
-  }
-
-  return targets;
+  return getTstsNodeText(name) ?? "";
 };
 
 const collectFromModuleDeclaration = (
-  node: ts.ModuleDeclaration,
+  node: TstsNode,
   aliases: Map<string, DeclarationModuleAlias>,
   declarationFile: string
 ): void => {
-  if (!ts.isStringLiteral(node.name) || !node.body) {
+  const moduleName = TstsSyntax.Node_Name(node);
+  if (moduleName?.Kind !== TstsSyntax.KindStringLiteral) {
     return;
   }
 
-  let body: ts.ModuleBody | undefined = node.body;
-  while (body && ts.isModuleDeclaration(body)) {
-    body = body.body;
+  let body = TstsSyntax.Node_Body(node);
+  while (body && TstsSyntax.IsModuleDeclaration(body)) {
+    body = TstsSyntax.Node_Body(body);
   }
 
-  if (!body || !ts.isModuleBlock(body)) {
+  if (!body || !TstsSyntax.IsModuleBlock(body)) {
     return;
   }
 
-  const targets = Array.from(new Set(collectAliasTargets(body.statements)));
+  const targets = Array.from(
+    new Set(
+      getTstsExportModuleSpecifiersFromStatements(
+        TstsSyntax.Node_Statements(body) ?? []
+      )
+    )
+  );
   if (targets.length !== 1) {
     return;
   }
@@ -87,7 +75,7 @@ const collectFromModuleDeclaration = (
     return;
   }
 
-  aliases.set(node.name.text, {
+  aliases.set(getTstsNodeText(moduleName) ?? "", {
     targetSpecifier,
     declarationFile,
   });
@@ -106,69 +94,66 @@ export const discoverDeclarationModuleAliases = (
       continue;
     }
 
-    const sourceFile = ts.createSourceFile(
-      declarationFile,
-      sourceText,
-      ts.ScriptTarget.Latest,
-      false,
-      getScriptKindFromPath(declarationFile)
-    );
-
-    const visit = (node: ts.Node): void => {
-      if (ts.isModuleDeclaration(node)) {
+    const sourceFile = parseTstsSourceFile(sourceText, {
+      fileName: declarationFile,
+    });
+    visitTstsSubtree(sourceFile, (node) => {
+      if (node && TstsSyntax.IsModuleDeclaration(node)) {
         collectFromModuleDeclaration(node, aliases, declarationFile);
       }
-      ts.forEachChild(node, visit);
-    };
-
-    visit(sourceFile);
+    });
   }
 
   return aliases;
 };
 
 const collectAmbientGlobalImportsFromNode = (
-  node: ts.Node,
+  node: TstsNode,
   declarationFile: string,
   imports: DeclarationGlobalImport[]
 ): void => {
-  if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name)) {
+  if (!TstsSyntax.IsVariableDeclaration(node)) {
     return;
   }
 
-  const typeNode = node.type;
-  if (!typeNode || !ts.isImportTypeNode(typeNode) || !typeNode.isTypeOf) {
+  const nameNode = TstsSyntax.Node_Name(node);
+  const globalName = getTstsIdentifierText(nameNode);
+  if (!globalName) {
     return;
   }
 
-  const argument =
-    ts.isLiteralTypeNode(typeNode.argument) &&
-    ts.isStringLiteral(typeNode.argument.literal)
-      ? typeNode.argument.literal
+  const typeNode = TstsSyntax.Node_Type(node);
+  const importType = typeNode ? TstsSyntax.AsImportTypeNode(typeNode) : undefined;
+  if (!importType?.IsTypeOf) {
+    return;
+  }
+
+  const argumentLiteral =
+    importType.Argument && TstsSyntax.IsLiteralTypeNode(importType.Argument)
+      ? TstsSyntax.AsLiteralTypeNode(importType.Argument)?.Literal
       : undefined;
-  if (!argument) {
+  if (argumentLiteral?.Kind !== TstsSyntax.KindStringLiteral) {
     return;
   }
 
-  const exportName = typeNode.qualifier
-    ? readEntityNameText(typeNode.qualifier).trim()
+  const exportName = importType.Qualifier
+    ? readEntityNameText(importType.Qualifier).trim()
     : undefined;
   if (!exportName) {
     return;
   }
 
-  let current: ts.Node | undefined = node.parent;
+  let current = node.Parent;
   let isAmbientGlobal = false;
   while (current) {
     if (
-      ts.isModuleDeclaration(current) &&
-      ts.isIdentifier(current.name) &&
-      current.name.text === "global"
+      TstsSyntax.IsModuleDeclaration(current) &&
+      getTstsIdentifierText(TstsSyntax.Node_Name(current)) === "global"
     ) {
       isAmbientGlobal = true;
       break;
     }
-    current = current.parent;
+    current = current.Parent;
   }
 
   if (!isAmbientGlobal) {
@@ -176,8 +161,8 @@ const collectAmbientGlobalImportsFromNode = (
   }
 
   imports.push({
-    globalName: node.name.text,
-    targetSpecifier: argument.text,
+    globalName,
+    targetSpecifier: getTstsNodeText(argumentLiteral) ?? "",
     exportName,
     declarationFile,
   });
@@ -196,20 +181,12 @@ export const discoverDeclarationGlobalImports = (
       continue;
     }
 
-    const sourceFile = ts.createSourceFile(
-      declarationFile,
-      sourceText,
-      ts.ScriptTarget.Latest,
-      false,
-      getScriptKindFromPath(declarationFile)
-    );
-
-    const visit = (node: ts.Node): void => {
-      collectAmbientGlobalImportsFromNode(node, declarationFile, imports);
-      ts.forEachChild(node, visit);
-    };
-
-    visit(sourceFile);
+    const sourceFile = parseTstsSourceFile(sourceText, {
+      fileName: declarationFile,
+    });
+    visitTstsSubtree(sourceFile, (node) => {
+      if (node) collectAmbientGlobalImportsFromNode(node, declarationFile, imports);
+    });
   }
 
   return imports;

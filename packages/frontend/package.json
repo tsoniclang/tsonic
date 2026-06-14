@@ -13,9 +13,9 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./testing/typescript-semantic-view.js": {
-      "types": "./dist/testing/typescript-semantic-view.d.ts",
-      "default": "./dist/testing/typescript-semantic-view.js"
+    "./testing/tsts-test-program.js": {
+      "types": "./dist/testing/tsts-test-program.d.ts",
+      "default": "./dist/testing/tsts-test-program.js"
     },
     "./types/explicit-views.js": {
       "types": "./dist/types/explicit-views.d.ts",
@@ -28,9 +28,6 @@
     "pretest": "npm run clean && npm run build",
     "test": "mocha --require ../../test/mocha/checkpoint.cjs --parallel --timeout 10000 --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js'",
     "test:watch": "mocha --require ../../test/mocha/checkpoint.cjs --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js' --watch"
-  },
-  "dependencies": {
-    "typescript": "5.9.2"
   },
   "devDependencies": {
     "@tsonic/tsts": "0.0.0",

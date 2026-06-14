@@ -20,6 +20,8 @@ import {
   isValidIntegerLexeme,
   parseBigIntFromRaw,
   bigIntFitsInKind,
+  numericTypeFactFromName,
+  numericKindFromFact,
 } from "../types.js";
 
 import type { ProofContext } from "./numeric-proof-guard-facts.js";
@@ -61,9 +63,22 @@ export const getNumericKindFromType = (
   }
 
   // Check for referenceType with known numeric type name (e.g., long, float, byte)
-  // Use the TSONIC_TO_NUMERIC_KIND map from ir/types
+  // Use source aliases and provider primitive identity consistently.
   if (type.kind === "referenceType") {
-    return TSONIC_TO_NUMERIC_KIND.get(type.name);
+    const exactKind =
+      TSONIC_TO_NUMERIC_KIND.get(type.name) ??
+      TSONIC_TO_NUMERIC_KIND.get(type.name.toLowerCase());
+    if (exactKind) return exactKind;
+
+    const fact = numericTypeFactFromName(
+      type.typeId?.sourceName ??
+        type.typeId?.providerName ??
+        type.providerQualifiedName ??
+        type.name
+    );
+    if (fact?.kind === "numeric") {
+      return numericKindFromFact(fact);
+    }
   }
 
   return undefined;

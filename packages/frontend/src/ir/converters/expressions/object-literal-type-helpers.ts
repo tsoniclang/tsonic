@@ -3,7 +3,13 @@
  * contextual type selection, key resolution, and function type normalization.
  */
 
-import * as ts from "typescript";
+import {
+  getTstsNodeText,
+  TstsSyntax,
+  type GoPtr,
+  type TstsNode,
+  type TstsSymbol,
+} from "@tsonic/tsts";
 import {
   IrFunctionType,
   IrInterfaceMember,
@@ -17,6 +23,9 @@ import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { isNullishPrimitive } from "./array-literals.js";
+import { getTstsParameters } from "./helpers.js";
+
+type TstsSemanticSymbol = GoPtr<TstsSymbol>;
 
 type ObjectLiteralPrimitiveValue =
   | string
@@ -27,45 +36,52 @@ type ObjectLiteralPrimitiveValue =
   | undefined;
 
 const getLiteralPrimitiveValue = (
-  expression: ts.Expression
+  expression: TstsNode
 ):
   | { readonly ok: true; readonly value: ObjectLiteralPrimitiveValue }
   | { readonly ok: false } => {
   const current = unwrapDeterministicKeyExpression(expression);
 
   if (
-    ts.isStringLiteral(current) ||
-    ts.isNoSubstitutionTemplateLiteral(current)
+    current.Kind === TstsSyntax.KindStringLiteral ||
+    current.Kind === TstsSyntax.KindNoSubstitutionTemplateLiteral
   ) {
-    return { ok: true, value: current.text };
+    return { ok: true, value: getTstsNodeText(current) ?? "" };
   }
 
-  if (ts.isNumericLiteral(current)) {
-    return { ok: true, value: Number(current.text) };
+  if (current.Kind === TstsSyntax.KindNumericLiteral) {
+    return { ok: true, value: Number(getTstsNodeText(current)) };
   }
 
-  if (current.kind === ts.SyntaxKind.TrueKeyword) {
+  if (current.Kind === TstsSyntax.KindTrueKeyword) {
     return { ok: true, value: true };
   }
 
-  if (current.kind === ts.SyntaxKind.FalseKeyword) {
+  if (current.Kind === TstsSyntax.KindFalseKeyword) {
     return { ok: true, value: false };
   }
 
-  if (current.kind === ts.SyntaxKind.NullKeyword) {
+  if (current.Kind === TstsSyntax.KindNullKeyword) {
     return { ok: true, value: null };
   }
 
   if (
-    ts.isPrefixUnaryExpression(current) &&
-    current.operator === ts.SyntaxKind.MinusToken &&
-    ts.isNumericLiteral(current.operand)
+    current.Kind === TstsSyntax.KindPrefixUnaryExpression &&
+    TstsSyntax.AsPrefixUnaryExpression(current)?.Operator ===
+      TstsSyntax.KindMinusToken &&
+    TstsSyntax.AsPrefixUnaryExpression(current)?.Operand?.Kind ===
+      TstsSyntax.KindNumericLiteral
   ) {
-    return { ok: true, value: -Number(current.operand.text) };
+    return {
+      ok: true,
+      value: -Number(
+        getTstsNodeText(TstsSyntax.AsPrefixUnaryExpression(current)?.Operand)
+      ),
+    };
   }
 
-  if (ts.isBigIntLiteral(current)) {
-    return { ok: true, value: BigInt(current.text.slice(0, -1)) };
+  if (current.Kind === TstsSyntax.KindBigIntLiteral) {
+    return { ok: true, value: BigInt((getTstsNodeText(current) ?? "0n").slice(0, -1)) };
   }
 
   return { ok: false };
@@ -312,21 +328,26 @@ export const selectObjectLiteralContextualType = (
 };
 
 export const collectObjectLiteralPrimitiveValues = (
-  node: ts.ObjectLiteralExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): ReadonlyMap<string, ObjectLiteralPrimitiveValue> => {
   const values = new Map<string, ObjectLiteralPrimitiveValue>();
-  for (const prop of node.properties) {
-    if (!ts.isPropertyAssignment(prop)) {
+  for (const prop of TstsSyntax.Node_Properties(node) ?? []) {
+    if (!prop || prop.Kind !== TstsSyntax.KindPropertyAssignment) {
       continue;
     }
 
-    const keyName = resolveObjectLiteralMemberKey(prop.name, ctx).keyName;
+    const keyName = resolveObjectLiteralMemberKey(
+      TstsSyntax.Node_Name(prop) ?? prop,
+      ctx
+    ).keyName;
     if (!keyName) {
       continue;
     }
 
-    const literal = getLiteralPrimitiveValue(prop.initializer);
+    const initializer = TstsSyntax.Node_Initializer(prop);
+    if (!initializer) continue;
+    const literal = getLiteralPrimitiveValue(initializer);
     if (literal.ok) {
       values.set(keyName, literal.value);
     }
@@ -336,20 +357,24 @@ export const collectObjectLiteralPrimitiveValues = (
 };
 
 export const unwrapDeterministicKeyExpression = (
-  expr: ts.Expression
-): ts.Expression => {
+  expr: TstsNode
+): TstsNode => {
   let current = expr;
   for (;;) {
-    if (ts.isParenthesizedExpression(current)) {
-      current = current.expression;
+    if (current.Kind === TstsSyntax.KindParenthesizedExpression) {
+      const inner = TstsSyntax.Node_Expression(current);
+      if (!inner) return current;
+      current = inner;
       continue;
     }
     if (
-      ts.isAsExpression(current) ||
-      ts.isTypeAssertionExpression(current) ||
-      ts.isSatisfiesExpression(current)
+      current.Kind === TstsSyntax.KindAsExpression ||
+      current.Kind === TstsSyntax.KindTypeAssertionExpression ||
+      current.Kind === TstsSyntax.KindSatisfiesExpression
     ) {
-      current = current.expression;
+      const inner = TstsSyntax.Node_Expression(current);
+      if (!inner) return current;
+      current = inner;
       continue;
     }
     return current;
@@ -357,20 +382,20 @@ export const unwrapDeterministicKeyExpression = (
 };
 
 export const tryResolveDeterministicObjectKeyNameFromSyntax = (
-  expr: ts.Expression,
+  expr: TstsNode,
   ctx: ProgramContext,
-  seenSymbols = new Set<ts.Symbol>()
+  seenSymbols = new Set<TstsSemanticSymbol>()
 ): string | undefined => {
   const current = unwrapDeterministicKeyExpression(expr);
   if (
-    ts.isStringLiteral(current) ||
-    ts.isNoSubstitutionTemplateLiteral(current) ||
-    ts.isNumericLiteral(current)
+    current.Kind === TstsSyntax.KindStringLiteral ||
+    current.Kind === TstsSyntax.KindNoSubstitutionTemplateLiteral ||
+    current.Kind === TstsSyntax.KindNumericLiteral
   ) {
-    return String(current.text);
+    return String(getTstsNodeText(current) ?? "");
   }
 
-  if (!ts.isIdentifier(current)) {
+  if (current.Kind !== TstsSyntax.KindIdentifier) {
     return undefined;
   }
 
@@ -380,16 +405,16 @@ export const tryResolveDeterministicObjectKeyNameFromSyntax = (
   }
 
   seenSymbols.add(symbol);
-  const visitDeclarations = (target: ts.Symbol): string | undefined => {
+  const visitDeclarations = (target: TstsSemanticSymbol): string | undefined => {
     for (const decl of ctx.sourceSemantics.getSymbolDeclarations(target)) {
       if (
-        ts.isVariableDeclaration(decl) &&
-        decl.initializer &&
-        ts.isVariableDeclarationList(decl.parent) &&
-        (decl.parent.flags & ts.NodeFlags.Const) !== 0
+        decl.Kind === TstsSyntax.KindVariableDeclaration &&
+        TstsSyntax.Node_Initializer(decl) &&
+        decl.Parent?.Kind === TstsSyntax.KindVariableDeclarationList &&
+        (TstsSyntax.AsVariableDeclarationList(decl.Parent)?.Flags ?? 0) !== 0
       ) {
         const resolved = tryResolveDeterministicObjectKeyNameFromSyntax(
-          decl.initializer,
+          TstsSyntax.Node_Initializer(decl)!,
           ctx,
           seenSymbols
         );
@@ -412,32 +437,36 @@ export const tryResolveDeterministicObjectKeyNameFromSyntax = (
 };
 
 export const resolveObjectLiteralMemberKey = (
-  name: ts.PropertyName,
+  name: TstsNode,
   ctx: ProgramContext
 ): {
   readonly key: string | IrExpression;
   readonly keyName: string | undefined;
 } => {
   if (
-    ts.isIdentifier(name) ||
-    ts.isStringLiteral(name) ||
-    ts.isNoSubstitutionTemplateLiteral(name) ||
-    ts.isNumericLiteral(name)
+    name.Kind === TstsSyntax.KindIdentifier ||
+    name.Kind === TstsSyntax.KindStringLiteral ||
+    name.Kind === TstsSyntax.KindNoSubstitutionTemplateLiteral ||
+    name.Kind === TstsSyntax.KindNumericLiteral
   ) {
-    const keyName = String(name.text);
+    const keyName = String(getTstsNodeText(name) ?? "");
     return { key: keyName, keyName };
   }
 
-  if (!ts.isComputedPropertyName(name)) {
+  if (name.Kind !== TstsSyntax.KindComputedPropertyName) {
     return { key: "", keyName: undefined };
   }
 
+  const computedExpression = TstsSyntax.AsComputedPropertyName(name)?.Expression;
+  if (!computedExpression) {
+    return { key: "", keyName: undefined };
+  }
   const keyName = tryResolveDeterministicObjectKeyNameFromSyntax(
-    name.expression,
+    computedExpression,
     ctx
   );
   const computedKey = convertExpression(
-    unwrapDeterministicKeyExpression(name.expression),
+    unwrapDeterministicKeyExpression(computedExpression),
     ctx,
     undefined
   );
@@ -445,31 +474,35 @@ export const resolveObjectLiteralMemberKey = (
 };
 
 export const methodUsesObjectLiteralThis = (
-  method: ts.MethodDeclaration
+  method: TstsNode
 ): boolean => {
   let found = false;
-  const visit = (current: ts.Node): void => {
+  const visit = (current: TstsNode): void => {
     if (found) return;
-    if (current.kind === ts.SyntaxKind.ThisKeyword) {
+    if (current.Kind === TstsSyntax.KindThisKeyword) {
       found = true;
       return;
     }
     if (
-      ts.isFunctionExpression(current) ||
-      ts.isFunctionDeclaration(current) ||
-      ts.isMethodDeclaration(current) ||
-      ts.isGetAccessorDeclaration(current) ||
-      ts.isSetAccessorDeclaration(current)
+      current.Kind === TstsSyntax.KindFunctionExpression ||
+      current.Kind === TstsSyntax.KindFunctionDeclaration ||
+      current.Kind === TstsSyntax.KindMethodDeclaration ||
+      current.Kind === TstsSyntax.KindGetAccessor ||
+      current.Kind === TstsSyntax.KindSetAccessor
     ) {
       if (current !== method) {
         return;
       }
     }
-    ts.forEachChild(current, visit);
+    TstsSyntax.Node_ForEachChild(current, (child): boolean => {
+      if (child) visit(child);
+      return false;
+    });
   };
 
-  if (method.body) {
-    visit(method.body);
+  const body = TstsSyntax.Node_Body(method);
+  if (body) {
+    visit(body);
   }
   return found;
 };
@@ -510,7 +543,7 @@ export const getExpectedFunctionParameterTypes = (
 };
 
 export const convertObjectLiteralMethodParameters = (
-  parameters: ts.NodeArray<ts.ParameterDeclaration>,
+  parameters: readonly TstsNode[],
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): readonly IrParameter[] => {
@@ -520,38 +553,45 @@ export const convertObjectLiteralMethodParameters = (
   );
 
   return parameters.map((param, index) => {
-    const explicitType = param.type
-      ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(param.type))
+    const typeNode = TstsSyntax.Node_Type(param);
+    const explicitType = typeNode
+      ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(typeNode))
       : undefined;
     const paramType = explicitType ?? expectedParamTypes?.[index];
+    const name = TstsSyntax.Node_Name(param) ?? param;
+    const initializer = TstsSyntax.Node_Initializer(param);
 
     return {
       kind: "parameter",
-      pattern: convertBindingName(param.name, ctx),
+      pattern: convertBindingName(name, ctx),
       type: paramType,
-      initializer: param.initializer
-        ? convertExpression(param.initializer, ctx, paramType)
+      initializer: initializer
+        ? convertExpression(initializer, ctx, paramType)
         : undefined,
-      isOptional: !!param.questionToken,
-      isRest: !!param.dotDotDotToken,
+      isOptional: TstsSyntax.Node_QuestionToken(param) !== undefined,
+      isRest:
+        TstsSyntax.AsParameterDeclaration(param)?.DotDotDotToken !== undefined,
       passing: "value",
     };
   });
 };
 
 export const buildObjectLiteralMethodFunctionType = (
-  method: ts.MethodDeclaration,
+  method: TstsNode,
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): IrFunctionType => {
   const expectedFnType = normalizeExpectedFunctionType(expectedType, ctx);
   const parameters = convertObjectLiteralMethodParameters(
-    method.parameters,
+    getTstsParameters(method),
     ctx,
     expectedFnType ?? expectedType
   );
-  const declaredReturnType = method.type
-    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(method.type))
+  const returnTypeNode = TstsSyntax.Node_Type(method);
+  const declaredReturnType = returnTypeNode
+    ? ctx.typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(returnTypeNode)
+      )
     : undefined;
 
   return {

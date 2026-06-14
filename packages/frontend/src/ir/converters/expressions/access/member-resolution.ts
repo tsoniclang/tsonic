@@ -4,7 +4,13 @@
  * All member type queries go through TypeSystem.typeOfMember().
  */
 
-import * as ts from "typescript";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsIdentifierText,
+  getTstsNodeText,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
 import {
   IrType,
   ComputedAccessKind,
@@ -13,9 +19,11 @@ import {
 import type { ProgramContext } from "../../../program-context.js";
 import { getNumericKindFromIrType } from "../../../type-system/inference-utilities.js";
 import { surfaceIncludesJs } from "../../../../surface/profiles.js";
+import { getSourceSemanticIrType } from "../../../expression-converter-helpers.js";
+import { addUndefinedToType } from "../../../type-system/type-system-state-helpers.js";
 
 const memberHasExplicitUnknownAnnotation = (
-  node: ts.PropertyAccessExpression,
+  node: TstsNode,
   ctx: ProgramContext
 ): boolean => {
   const memberId = ctx.binding.resolvePropertyAccess(node);
@@ -27,8 +35,8 @@ const memberHasExplicitUnknownAnnotation = (
   return (
     !!typeNode &&
     typeof typeNode === "object" &&
-    "kind" in typeNode &&
-    typeNode.kind === ts.SyntaxKind.UnknownKeyword
+    "Kind" in typeNode &&
+    typeNode.Kind === TstsSyntax.KindUnknownKeyword
   );
 };
 
@@ -150,7 +158,13 @@ const getDirectStructuralMemberType = (
       { kind: "propertySignature" }
     > => member.kind === "propertySignature"
   );
-  return propertyMember?.type;
+  if (!propertyMember) {
+    return undefined;
+  }
+
+  return propertyMember.isOptional
+    ? addUndefinedToType(propertyMember.type)
+    : propertyMember.type;
 };
 
 const hasStrongerNumericIntent = (
@@ -212,6 +226,43 @@ const shouldPreferConcreteStructuralMemberType = (
   );
 };
 
+const isUsableNamespaceSourceMemberType = (
+  type: IrType | undefined
+): type is IrType => {
+  if (!type) return false;
+  return type.kind !== "anyType" && type.kind !== "unknownType";
+};
+
+const getImportedSourceNamespaceMemberType = (
+  node: TstsNode,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const target = ctx.binding.resolveImportedSourceNamespaceMember(node);
+  if (!target) {
+    return undefined;
+  }
+
+  const declarationTypeNode = getTstsDeclaredTypeNode(target.declaration);
+  if (declarationTypeNode) {
+    const declaredType = ctx.typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(declarationTypeNode)
+    );
+    if (isUsableNamespaceSourceMemberType(declaredType)) {
+      return declaredType;
+    }
+  }
+
+  const semanticNode = TstsSyntax.Node_Name(target.declaration) ?? target.declaration;
+  const semanticType = getSourceSemanticIrType(
+    ctx.sourceSemantics.getExpressionType(semanticNode),
+    semanticNode,
+    ctx
+  );
+  return isUsableNamespaceSourceMemberType(semanticType)
+    ? semanticType
+    : undefined;
+};
+
 export const hasDeclaredMemberByName = (
   receiverIrType: IrType | undefined,
   propertyName: string,
@@ -251,21 +302,11 @@ export const hasDeclaredMemberByName = (
  * @returns The deterministically computed property type
  */
 export const getDeclaredPropertyType = (
-  node: ts.PropertyAccessExpression,
+  node: TstsNode,
   receiverIrType: IrType | undefined,
   ctx: ProgramContext
 ): IrType | undefined => {
-  const DEBUG = process.env.DEBUG_PROPERTY_TYPE === "1";
-  const propertyName = node.name.text;
-
-  if (DEBUG) {
-    console.log(
-      "[getDeclaredPropertyType]",
-      propertyName,
-      "on receiver:",
-      receiverIrType
-    );
-  }
+  const propertyName = getTstsIdentifierText(TstsSyntax.Node_Name(node)) ?? "";
 
   const typeSystem = ctx.typeSystem;
   const directStructuralMemberType = getDirectStructuralMemberType(
@@ -282,14 +323,6 @@ export const getDeclaredPropertyType = (
   const memberId = ctx.binding.resolvePropertyAccess(node);
   if (memberId) {
     const exactMemberType = typeSystem.typeOfMemberId(memberId, receiverIrType);
-    if (DEBUG) {
-      console.log(
-        "[getDeclaredPropertyType]",
-        propertyName,
-        "TypeSystem memberId returned:",
-        exactMemberType
-      );
-    }
     if (
       exactMemberType.kind !== "unknownType" &&
       directStructuralMemberType &&
@@ -321,16 +354,18 @@ export const getDeclaredPropertyType = (
     }
   }
 
+  const importedSourceNamespaceMemberType =
+    getImportedSourceNamespaceMemberType(node, ctx);
+  if (importedSourceNamespaceMemberType) {
+    return importedSourceNamespaceMemberType;
+  }
+
+  if (directStructuralMemberType) {
+    return directStructuralMemberType;
+  }
+
   if (receiverIrType && receiverIrType.kind !== "unknownType") {
     const memberType = receiverMemberType;
-    if (DEBUG) {
-      console.log(
-        "[getDeclaredPropertyType]",
-        propertyName,
-        "TypeSystem returned:",
-        memberType
-      );
-    }
     // If TypeSystem returned a valid type (not unknownType), use it
     if (memberType && memberType.kind !== "unknownType") {
       if (
@@ -359,7 +394,7 @@ export const getDeclaredPropertyType = (
  * - tsbindgen-style intersection views (`T$instance & __T$views`, and primitives like
  *   `string & String$instance & __String$views`)
  *
- * The goal is to preserve deterministic proof behavior without heuristics.
+ * The goal is to preserve deterministic proof behavior.
  */
 export const normalizeForComputedAccess = (
   type: IrType | undefined
@@ -403,6 +438,63 @@ const getNonNullishUnionTypes = (type: IrType): readonly IrType[] =>
   type.kind === "unionType"
     ? type.types.filter((member) => !isNullishType(member))
     : [type];
+
+const computedAccessRecursionKey = (type: IrType, depth = 0): string => {
+  if (depth > 4) {
+    return `${type.kind}:*`;
+  }
+
+  switch (type.kind) {
+    case "primitiveType":
+      return `primitive:${type.name}`;
+    case "literalType":
+      return `literal:${JSON.stringify(type.value)}`;
+    case "typeParameterType":
+      return `typeParameter:${type.name}`;
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return type.kind;
+    case "arrayType":
+      return `array:${computedAccessRecursionKey(type.elementType, depth + 1)}`;
+    case "tupleType":
+      return `tuple:${type.elementTypes.length}`;
+    case "dictionaryType":
+      return `dictionary:${computedAccessRecursionKey(type.keyType, depth + 1)}:${computedAccessRecursionKey(type.valueType, depth + 1)}`;
+    case "referenceType": {
+      const typeId = type.typeId?.stableId ?? type.typeId?.symbolId;
+      const symbolId = type.symbolId;
+      const qualifiedName = type.providerQualifiedName ?? type.name;
+      return `reference:${typeId ?? symbolId ?? qualifiedName}:${type.typeArguments?.length ?? 0}`;
+    }
+    case "unionType":
+    case "intersectionType":
+      return `${type.kind}:${type.types
+        .map((member) => computedAccessRecursionKey(member, depth + 1))
+        .sort()
+        .join("|")}`;
+    case "functionType":
+      return `function:${type.parameters.length}`;
+    case "objectType":
+      return `object:${type.members
+        .map((member) => member.name)
+        .sort()
+        .join("|")}`;
+  }
+};
+
+const collectComputedAccessCarrierCandidates = (
+  type: IrType,
+  ctx: ProgramContext
+): readonly IrType[] => {
+  if (type.kind !== "referenceType") {
+    return [type];
+  }
+
+  const expanded = ctx.typeSystem.collectNarrowingCandidates(type);
+  return expanded.length > 0 ? expanded : [type];
+};
 
 const isNumericIndexerKeyType = (keyType: IrType): boolean =>
   getNumericKindFromIrType(keyType) !== undefined;
@@ -555,14 +647,27 @@ export const resolveComputedAccessProtocol = (
 export const classifyComputedAccess = (
   objectType: IrType | undefined,
   ctx: ProgramContext
+): ComputedAccessKind =>
+  classifyComputedAccessWorker(objectType, ctx, new Set<string>());
+
+const classifyComputedAccessWorker = (
+  objectType: IrType | undefined,
+  ctx: ProgramContext,
+  seen: ReadonlySet<string>
 ): ComputedAccessKind => {
   const normalized = normalizeForComputedAccess(objectType);
   if (!normalized) return "unknown";
   objectType = normalized;
+  const visitKey = computedAccessRecursionKey(objectType);
+  if (seen.has(visitKey)) {
+    return "unknown";
+  }
+  const nextSeen = new Set(seen);
+  nextSeen.add(visitKey);
 
   if (objectType.kind === "unionType") {
     const memberKinds = getNonNullishUnionTypes(objectType).map((member) =>
-      classifyComputedAccess(member, ctx)
+      classifyComputedAccessWorker(member, ctx, nextSeen)
     );
     if (memberKinds.length === 0 || memberKinds.includes("unknown")) {
       return "unknown";
@@ -598,6 +703,26 @@ export const classifyComputedAccess = (
   }
 
   if (objectType.kind === "referenceType") {
+    const expandedCarriers = collectComputedAccessCarrierCandidates(
+      objectType,
+      ctx
+    );
+    if (
+      expandedCarriers.length !== 1 ||
+      !ctx.typeSystem.typesEqual(expandedCarriers[0]!, objectType)
+    ) {
+      const carrierKinds = expandedCarriers.map((candidate) =>
+        classifyComputedAccessWorker(candidate, ctx, nextSeen)
+      );
+      const firstKind = carrierKinds[0];
+      if (
+        firstKind &&
+        carrierKinds.every((candidateKind) => candidateKind === firstKind)
+      ) {
+        return firstKind;
+      }
+    }
+
     const indexer = ctx.typeSystem.getIndexerInfo(objectType);
     if (!indexer) return "numericIndexer";
     return isNumericIndexerKeyType(indexer.keyType)
@@ -720,15 +845,39 @@ export const extractTypeName = (
 export const deriveElementType = (
   objectType: IrType | undefined,
   ctx: ProgramContext,
-  accessExpression?: ts.Expression
+  accessExpression?: TstsNode
+): IrType | undefined =>
+  deriveElementTypeWorker(
+    objectType,
+    ctx,
+    accessExpression,
+    new Set<string>()
+  );
+
+const deriveElementTypeWorker = (
+  objectType: IrType | undefined,
+  ctx: ProgramContext,
+  accessExpression: TstsNode | undefined,
+  seen: ReadonlySet<string>
 ): IrType | undefined => {
   objectType = normalizeForComputedAccess(objectType);
   if (!objectType) return undefined;
+  const visitKey = computedAccessRecursionKey(objectType);
+  if (seen.has(visitKey)) {
+    return undefined;
+  }
+  const nextSeen = new Set(seen);
+  nextSeen.add(visitKey);
 
   if (objectType.kind === "unionType") {
     const elementTypes: IrType[] = [];
     for (const member of getNonNullishUnionTypes(objectType)) {
-      const elementType = deriveElementType(member, ctx, accessExpression);
+      const elementType = deriveElementTypeWorker(
+        member,
+        ctx,
+        accessExpression,
+        nextSeen
+      );
       if (!elementType) {
         return undefined;
       }
@@ -766,11 +915,11 @@ export const deriveElementType = (
   if (objectType.kind === "tupleType") {
     if (
       accessExpression &&
-      ts.isNumericLiteral(accessExpression) &&
-      Number.isInteger(Number(accessExpression.text))
+      accessExpression.Kind === TstsSyntax.KindNumericLiteral &&
+      Number.isInteger(Number(getTstsNodeText(accessExpression)))
     ) {
       const elementType =
-        objectType.elementTypes[Number(accessExpression.text)];
+        objectType.elementTypes[Number(getTstsNodeText(accessExpression))];
       if (elementType) {
         return elementType;
       }
@@ -807,6 +956,46 @@ export const deriveElementType = (
   }
 
   if (objectType.kind === "referenceType") {
+    const expandedCarriers = collectComputedAccessCarrierCandidates(
+      objectType,
+      ctx
+    );
+    if (
+      expandedCarriers.length !== 1 ||
+      !ctx.typeSystem.typesEqual(expandedCarriers[0]!, objectType)
+    ) {
+      const elementTypes: IrType[] = [];
+      for (const candidate of expandedCarriers) {
+        const elementType = deriveElementTypeWorker(
+          candidate,
+          ctx,
+          accessExpression,
+          nextSeen
+        );
+        if (!elementType) {
+          return undefined;
+        }
+        if (
+          !elementTypes.some(
+            (existing) =>
+              ctx.typeSystem.typesEqual(existing, elementType) ||
+              (ctx.typeSystem.isAssignableTo(existing, elementType) &&
+                ctx.typeSystem.isAssignableTo(elementType, existing))
+          )
+        ) {
+          elementTypes.push(elementType);
+        }
+      }
+
+      if (elementTypes.length === 1) {
+        return elementTypes[0];
+      }
+
+      if (elementTypes.length > 1) {
+        return { kind: "unionType", types: elementTypes };
+      }
+    }
+
     return ctx.typeSystem.getIndexerInfo(objectType)?.valueType;
   }
 

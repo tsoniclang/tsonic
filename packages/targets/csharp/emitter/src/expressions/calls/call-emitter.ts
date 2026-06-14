@@ -371,9 +371,6 @@ const shouldLetCSharpInferImplicitCallTypeArguments = (
   if (expr.requiresSpecialization) {
     return false;
   }
-  const hasOverloadCandidates =
-    expr.candidateSignatureIds && expr.candidateSignatureIds.length > 0;
-
   const parameterTypes =
     expr.sourceBackedSurfaceParameterTypes ??
     expr.sourceBackedParameterTypes ??
@@ -385,10 +382,6 @@ const shouldLetCSharpInferImplicitCallTypeArguments = (
 
   if (!allImplicitMethodTypeArgumentsAreCSharpInferable(expr, context)) {
     return false;
-  }
-
-  if (hasOverloadCandidates) {
-    return expr.arguments.length > 0;
   }
 
   return expr.arguments.some((argument, index) => {

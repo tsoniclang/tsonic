@@ -299,6 +299,8 @@ export type IrIfGuardShape =
   | {
       readonly kind: "nullableGuard";
       readonly target: IrExpression;
+      readonly value: null | undefined;
+      readonly loose: boolean;
       readonly polarity: IrGuardPolarity;
     }
   | {

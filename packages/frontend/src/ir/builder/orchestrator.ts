@@ -4,7 +4,7 @@
  * Uses ProgramContext for IR orchestration.
  */
 
-import * as ts from "typescript";
+import type { TstsSourceFile } from "@tsonic/tsts";
 import { IrModule } from "../types.js";
 import { TsonicProgram } from "../../program.js";
 import { Result, ok, error } from "../../types/result.js";
@@ -13,7 +13,10 @@ import {
   createDiagnostic,
   isFatal,
 } from "../../types/diagnostic.js";
-import { getProgramSourceFiles } from "../../program/queries.js";
+import {
+  getProgramSourceFileName,
+  getProgramSourceFiles,
+} from "../../program/queries.js";
 import {
   createProgramContext,
   type ProgramContext,
@@ -35,17 +38,18 @@ import { resolveSourceFileIdentity } from "../../program/source-file-identity.js
  * @param program - The Tsonic program with source semantic view and bindings
  * @param options - Build options (sourceRoot, rootNamespace)
  * @param ctx - ProgramContext for TypeSystem and other shared resources.
- *              Required - no global state fallback.
+ *              Required - no global state.
  */
 export const buildIrModule = (
-  sourceFile: ts.SourceFile,
+  sourceFile: TstsSourceFile,
   _program: TsonicProgram,
   options: IrBuildOptions,
   ctx: ProgramContext
 ): Result<IrModule, Diagnostic> => {
   try {
+    const sourceFileName = getProgramSourceFileName(sourceFile);
     const sourceIdentity = resolveSourceFileIdentity(
-      sourceFile.fileName,
+      sourceFileName,
       options.sourceRoot,
       options.rootNamespace
     );
@@ -93,13 +97,14 @@ export const buildIrModule = (
 
     return ok(module);
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
     return error(
       createDiagnostic(
         "TSN6001",
         "error",
-        `Failed to build IR: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to build IR: ${errorMessage}`,
         {
-          file: sourceFile.fileName,
+          file: getProgramSourceFileName(sourceFile),
           line: 1,
           column: 1,
           length: 1,
@@ -137,7 +142,7 @@ export const buildIr = (
   }
 
   // Merge any diagnostics emitted during IR conversion (from converters).
-  // These are deterministic failures where emitting code would require guessing.
+  // These are deterministic failures where emitting code would be unsupported.
   if (ctx.diagnostics.length > 0) {
     diagnostics.push(...ctx.diagnostics);
   }

@@ -133,6 +133,128 @@ const selectIdentifierSemanticType = (
   return inferredType;
 };
 
+const collectReferencedTypeParameterNames = (
+  type: IrType | undefined,
+  names: Set<string> = new Set<string>(),
+  seen: WeakSet<object> = new WeakSet<object>()
+): Set<string> => {
+  if (!type) return names;
+  if (typeof type === "object") {
+    if (seen.has(type)) return names;
+    seen.add(type);
+  }
+
+  switch (type.kind) {
+    case "typeParameterType":
+      names.add(type.name);
+      break;
+    case "referenceType":
+      type.typeArguments?.forEach((arg) =>
+        collectReferencedTypeParameterNames(arg, names, seen)
+      );
+      type.structuralMembers?.forEach((member) => {
+        if (member.kind === "propertySignature") {
+          collectReferencedTypeParameterNames(member.type, names, seen);
+          return;
+        }
+        member.parameters.forEach((parameter) =>
+          collectReferencedTypeParameterNames(parameter.type, names, seen)
+        );
+        collectReferencedTypeParameterNames(member.returnType, names, seen);
+      });
+      break;
+    case "arrayType":
+      collectReferencedTypeParameterNames(type.elementType, names, seen);
+      break;
+    case "dictionaryType":
+      collectReferencedTypeParameterNames(type.keyType, names, seen);
+      collectReferencedTypeParameterNames(type.valueType, names, seen);
+      break;
+    case "tupleType":
+      type.elementTypes.forEach((element) =>
+        collectReferencedTypeParameterNames(element, names, seen)
+      );
+      break;
+    case "unionType":
+    case "intersectionType":
+      type.types.forEach((member) =>
+        collectReferencedTypeParameterNames(member, names, seen)
+      );
+      break;
+    case "functionType":
+      type.typeParameters?.forEach((typeParameter) => {
+        collectReferencedTypeParameterNames(typeParameter.constraint, names, seen);
+        collectReferencedTypeParameterNames(typeParameter.default, names, seen);
+      });
+      type.parameters.forEach((parameter) =>
+        collectReferencedTypeParameterNames(parameter.type, names, seen)
+      );
+      collectReferencedTypeParameterNames(type.returnType, names, seen);
+      break;
+    case "objectType":
+      type.members.forEach((member) => {
+        if (member.kind === "propertySignature") {
+          collectReferencedTypeParameterNames(member.type, names, seen);
+          return;
+        }
+        member.parameters.forEach((parameter) =>
+          collectReferencedTypeParameterNames(parameter.type, names, seen)
+        );
+        collectReferencedTypeParameterNames(member.returnType, names, seen);
+      });
+      break;
+  }
+
+  return names;
+};
+
+const hasUnscopedTypeParameterReference = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const scopedTypeParameters = context.typeParameters ?? new Set<string>();
+  for (const name of collectReferencedTypeParameterNames(type)) {
+    if (!scopedTypeParameters.has(name)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const selectMemberAccessSemanticType = (
+  inferredType: IrType | undefined,
+  recomputedType: IrType | undefined,
+  context: EmitterContext
+): IrType | undefined => {
+  if (!recomputedType) return inferredType;
+  if (!inferredType) return recomputedType;
+
+  const inferredTypeParameterNames =
+    collectReferencedTypeParameterNames(inferredType);
+  const recomputedTypeParameterNames =
+    collectReferencedTypeParameterNames(recomputedType);
+  const recomputedIntroducesUnscopedTypeParameter = [
+    ...recomputedTypeParameterNames,
+  ].some(
+    (name) =>
+      !inferredTypeParameterNames.has(name) &&
+      context.typeParameters?.has(name) !== true
+  );
+  if (recomputedIntroducesUnscopedTypeParameter) {
+    return inferredType;
+  }
+
+  if (
+    hasUnscopedTypeParameterReference(recomputedType, context) &&
+    !hasUnscopedTypeParameterReference(inferredType, context)
+  ) {
+    return inferredType;
+  }
+
+  return recomputedType;
+};
+
 const runtimeCarrierFamilyForType = (
   type: IrType,
   context: EmitterContext
@@ -618,8 +740,13 @@ export const resolveEffectiveExpressionType = (
         expr.property,
         context
       );
-      if (narrowedPropertyType) {
-        return maybeWrapOptionalMemberAccessType(expr, narrowedPropertyType);
+      const selectedType = selectMemberAccessSemanticType(
+        baseType,
+        narrowedPropertyType,
+        context
+      );
+      if (selectedType) {
+        return maybeWrapOptionalMemberAccessType(expr, selectedType);
       }
     }
     return maybeWrapOptionalMemberAccessType(expr, identifierSemanticType);
@@ -647,8 +774,13 @@ export const resolveEffectiveExpressionType = (
         expr.property,
         context
       );
-      if (narrowedPropertyType) {
-        return maybeWrapOptionalMemberAccessType(expr, narrowedPropertyType);
+      const selectedType = selectMemberAccessSemanticType(
+        baseType,
+        narrowedPropertyType,
+        context
+      );
+      if (selectedType) {
+        return maybeWrapOptionalMemberAccessType(expr, selectedType);
       }
     }
     return maybeWrapOptionalMemberAccessType(expr, identifierSemanticType);

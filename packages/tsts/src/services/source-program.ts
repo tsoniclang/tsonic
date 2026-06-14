@@ -43,6 +43,7 @@ export type CreateCompilerSourceProgramOptions = {
   readonly compilerOptions?: TranspileCompilerOptions;
   readonly extensions?: readonly CompilerExtension[];
   readonly runSemanticChecks?: boolean;
+  readonly runExtensionChecks?: boolean;
 };
 
 export type CompilerSourceProgram = {
@@ -202,7 +203,10 @@ export const createCompilerSourceProgram = (
     extensionHost.afterBindSourceFile(sourceFile, program);
   }
 
-  if (options.runSemanticChecks === true) {
+  if (
+    options.runSemanticChecks === true ||
+    options.runExtensionChecks === true
+  ) {
     for (const sourceFile of sourceFiles) {
       const [checker, release] = Program_GetTypeCheckerForFile(
         program,

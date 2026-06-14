@@ -7,7 +7,7 @@
  * These are distinct types, not decorated versions of each other.
  */
 
-import * as ts from "typescript";
+import { TstsSyntax } from "@tsonic/tsts";
 import { IrType, IrPrimitiveType } from "../../../types.js";
 import { explicitUnknownType } from "../../types.js";
 import type { SourcePrimitiveName } from "../universe/catalog-types.js";
@@ -22,36 +22,38 @@ import type { SourcePrimitiveName } from "../universe/catalog-types.js";
 export const CORE_PRIMITIVE_TYPE_SET = new Set(["int", "char"]);
 
 /**
- * Convert TypeScript primitive keyword to IR type
+ * Convert TSTS primitive keyword to IR type
  */
-export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
+export const convertPrimitiveKeyword = (
+  kind: TstsSyntax.Kind
+): IrType | null => {
   switch (kind) {
-    case ts.SyntaxKind.StringKeyword:
+    case TstsSyntax.KindStringKeyword:
       return { kind: "primitiveType", name: "string" };
-    case ts.SyntaxKind.NumberKeyword:
+    case TstsSyntax.KindNumberKeyword:
       return { kind: "primitiveType", name: "number" };
-    case ts.SyntaxKind.BooleanKeyword:
+    case TstsSyntax.KindBooleanKeyword:
       return { kind: "primitiveType", name: "boolean" };
-    case ts.SyntaxKind.BigIntKeyword:
+    case TstsSyntax.KindBigIntKeyword:
       return { kind: "primitiveType", name: "bigint" };
-    case ts.SyntaxKind.SymbolKeyword:
+    case TstsSyntax.KindSymbolKeyword:
       // TypeScript `symbol` is lowered as an opaque object identity handle.
       // This keeps AOT semantics deterministic without introducing JS runtime symbol
       // mechanics into the IR type lattice.
       return { kind: "referenceType", name: "object", typeArguments: [] };
-    case ts.SyntaxKind.NullKeyword:
+    case TstsSyntax.KindNullKeyword:
       return { kind: "primitiveType", name: "null" };
-    case ts.SyntaxKind.UndefinedKeyword:
+    case TstsSyntax.KindUndefinedKeyword:
       return { kind: "primitiveType", name: "undefined" };
-    case ts.SyntaxKind.VoidKeyword:
+    case TstsSyntax.KindVoidKeyword:
       return { kind: "voidType" };
-    case ts.SyntaxKind.AnyKeyword:
+    case TstsSyntax.KindAnyKeyword:
       return { kind: "anyType" };
-    case ts.SyntaxKind.UnknownKeyword:
+    case TstsSyntax.KindUnknownKeyword:
       return explicitUnknownType;
-    case ts.SyntaxKind.NeverKeyword:
+    case TstsSyntax.KindNeverKeyword:
       return { kind: "neverType" };
-    case ts.SyntaxKind.ObjectKeyword:
+    case TstsSyntax.KindObjectKeyword:
       // TypeScript `object` keyword as a constraint: T extends object
       // This maps to target `class` constraint (reference type)
       // We emit it as a referenceType so the emitter can handle it

@@ -1,22 +1,28 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsNodeNameText,
+  getTstsStatementNodes,
+  parseTstsSourceFile,
+  TstsSyntax,
+} from "@tsonic/tsts";
 import {
   dtsTypeNodeToIrType,
   parseExternalTypeString,
 } from "./external-type-parser.js";
 
-const parseAliasTypeNode = (source: string, aliasName: string): ts.TypeNode => {
-  const sf = ts.createSourceFile(
-    "test.d.ts",
-    source,
-    ts.ScriptTarget.ES2022,
-    true,
-    ts.ScriptKind.TS
-  );
-  for (const stmt of sf.statements) {
-    if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === aliasName) {
-      return stmt.type;
+const parseAliasTypeNode = (source: string, aliasName: string): TstsNode => {
+  const sourceFile = parseTstsSourceFile(source, { fileName: "test.d.ts" });
+  for (const statement of getTstsStatementNodes(sourceFile)) {
+    if (
+      statement &&
+      TstsSyntax.IsTypeAliasDeclaration(statement) &&
+      getTstsNodeNameText(statement) === aliasName
+    ) {
+      const typeNode = getTstsDeclaredTypeNode(statement);
+      if (typeNode) return typeNode;
     }
   }
   throw new Error(`Type alias '${aliasName}' not found`);

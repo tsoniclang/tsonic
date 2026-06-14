@@ -5,11 +5,34 @@
  * and namespace remapping logic.
  */
 
-import * as ts from "typescript";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
 import { extractRawExternalBindingsPayload } from "./external-binding-payload.js";
+
+export type ResolvedPackageModuleExtension =
+  | ".d.ts"
+  | ".ts"
+  | ".js"
+  | ".mts"
+  | ".cts";
+
+export type ResolvedPackageModule = {
+  readonly resolvedFileName: string;
+  readonly extension: ResolvedPackageModuleExtension;
+  readonly isExternalLibraryImport: boolean;
+};
+
+const resolvePackageModuleExtension = (
+  filePath: string
+): ResolvedPackageModuleExtension | undefined => {
+  if (filePath.endsWith(".d.ts")) return ".d.ts";
+  if (filePath.endsWith(".mts")) return ".mts";
+  if (filePath.endsWith(".cts")) return ".cts";
+  if (filePath.endsWith(".ts")) return ".ts";
+  if (filePath.endsWith(".js")) return ".js";
+  return undefined;
+};
 
 /**
  * Read the `name` field from a package.json file.
@@ -106,16 +129,16 @@ export const parseTsonicModuleRequest = (
  * Resolve a module from a package root by trying candidate file paths.
  */
 export const createResolveModuleFromPackageRoot = (
-  packageRootModuleResolutionCache: Map<string, ts.ResolvedModuleFull | null>,
+  packageRootModuleResolutionCache: Map<string, ResolvedPackageModule | null>,
   readPackageRootNamespace: (packageRoot: string) => string | undefined
 ): ((
   packageRoot: string,
   subpath: string | undefined
-) => ts.ResolvedModuleFull | undefined) => {
+) => ResolvedPackageModule | undefined) => {
   const tryResolveExportTarget = (
     packageRoot: string,
     target: unknown
-  ): ts.ResolvedModuleFull | undefined => {
+  ): ResolvedPackageModule | undefined => {
     if (typeof target !== "string" || target.length === 0) {
       return undefined;
     }
@@ -125,18 +148,7 @@ export const createResolveModuleFromPackageRoot = (
       return undefined;
     }
 
-    const extension = candidate.endsWith(".d.ts")
-      ? ts.Extension.Dts
-      : candidate.endsWith(".ts")
-        ? ts.Extension.Ts
-        : candidate.endsWith(".js")
-          ? ts.Extension.Js
-          : candidate.endsWith(".mts")
-            ? ts.Extension.Mts
-            : candidate.endsWith(".cts")
-              ? ts.Extension.Cts
-              : undefined;
-
+    const extension = resolvePackageModuleExtension(candidate);
     if (!extension) {
       return undefined;
     }
@@ -151,7 +163,7 @@ export const createResolveModuleFromPackageRoot = (
   const tryResolveFromPackageJsonExports = (
     packageRoot: string,
     subpath: string | undefined
-  ): ts.ResolvedModuleFull | undefined => {
+  ): ResolvedPackageModule | undefined => {
     const packageJsonPath = path.join(packageRoot, "package.json");
     if (!fs.existsSync(packageJsonPath)) {
       return undefined;
@@ -212,7 +224,7 @@ export const createResolveModuleFromPackageRoot = (
   const tryResolveFromSourceManifest = (
     packageRoot: string,
     subpath: string | undefined
-  ): ts.ResolvedModuleFull | undefined => {
+  ): ResolvedPackageModule | undefined => {
     const manifestPath = path.join(packageRoot, "tsonic.package.json");
     if (!fs.existsSync(manifestPath)) {
       return undefined;
@@ -247,7 +259,7 @@ export const createResolveModuleFromPackageRoot = (
   const resolveModuleFromPackageRoot = (
     packageRoot: string,
     subpath: string | undefined
-  ): ts.ResolvedModuleFull | undefined => {
+  ): ResolvedPackageModule | undefined => {
     const cacheKey = `${path.resolve(packageRoot)}::${subpath ?? "."}`;
     const cached = packageRootModuleResolutionCache.get(cacheKey);
     if (cached !== undefined) {
@@ -327,13 +339,7 @@ export const createResolveModuleFromPackageRoot = (
       seenCandidates.add(candidate);
       if (!fs.existsSync(candidate)) continue;
 
-      const extension = candidate.endsWith(".d.ts")
-        ? ts.Extension.Dts
-        : candidate.endsWith(".js")
-          ? ts.Extension.Js
-          : candidate.endsWith(".ts")
-            ? ts.Extension.Ts
-            : undefined;
+      const extension = resolvePackageModuleExtension(candidate);
       if (!extension) continue;
 
       const resolvedModule = {

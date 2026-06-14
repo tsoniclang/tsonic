@@ -1,135 +1,42 @@
 /**
- * Regression tests for CLR member binding disambiguation -- failure/error cases.
+ * Regression tests for external member binding disambiguation -- failure cases.
  *
- * Tsonic must fail compilation when CLR binding collisions cannot be disambiguated
- * or when a CLR-declared member has no binding at all.
+ * Tsonic must fail compilation when target binding collisions cannot be
+ * disambiguated or when an externally declared member has no binding at all.
  */
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import * as ts from "typescript";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { buildIr } from "../builder.js";
-import { ExternalMetadataRegistry } from "../../external-metadata.js";
 import { BindingRegistry } from "../../program/bindings.js";
-import { createExternalBindingsResolver } from "../../resolver/external-bindings-resolver.js";
-import { createBinding } from "../binding/index.js";
-import { createEmptyTstsSourceProgramForTests } from "../../source-frontend/index.js";
-import { createTypeScriptSemanticView } from "../../source-frontend/typescript-semantic-view.js";
+import { createTstsTestProgramFromFiles } from "../../testing/tsts-test-program.js";
 
-describe("CLR member binding disambiguation (failure)", () => {
-  it("should fail compilation when collisions cannot be disambiguated (airplane-grade)", () => {
-    const tmpRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-bindings-disambiguation-")
-    );
+const serverDeclarationFiles = (bindingsJson: unknown) => ({
+  "sample.ts": `
+    export function test(server: Server): void {
+      server.listen(3000, () => {});
+    }
+  `,
+  "nodejs.Http/bindings.json": JSON.stringify(bindingsJson),
+  "nodejs.Http/internal/index.d.ts": `
+    declare interface Server$instance {
+      listen(port: number, callback: () => void): void;
+    }
+    declare type Server = Server$instance;
+  `,
+  "lib.d.ts": `
+    interface Function {}
+    interface Object {}
+    interface String {}
+    interface Boolean {}
+    interface Number {}
+    interface IArguments {}
+    type PropertyKey = string | number | symbol;
+  `,
+});
 
-    const dtsDir = path.join(tmpRoot, "nodejs.Http", "internal");
-    fs.mkdirSync(dtsDir, { recursive: true });
-
-    // Intentionally incorrect bindings.json: the declaring type ("Server") is missing.
-    // This makes overload disambiguation impossible.
-    const bindingsJsonPath = path.join(tmpRoot, "nodejs.Http", "bindings.json");
-    fs.writeFileSync(
-      bindingsJsonPath,
-      JSON.stringify(
-        {
-          schema: "tsonic.bindings",
-          provider: { namespace: "nodejs.Http" },
-          targetSurface: {
-            types: [
-              {
-                targetName: "nodejs.Http.NotServer",
-                methods: [],
-                properties: [],
-                fields: [],
-              },
-            ],
-          },
-        },
-        null,
-        2
-      ),
-      "utf8"
-    );
-
-    const dtsFileName = path.join(dtsDir, "index.d.ts");
-    const dtsSource = `
-      declare interface Server$instance {
-        listen(port: number, callback: () => void): void;
-      }
-      declare type Server = Server$instance;
-    `;
-
-    const fileName = path.join(tmpRoot, "sample.ts");
-    const source = `
-      export function test(server: Server): void {
-        server.listen(3000, () => {});
-      }
-    `;
-
-    const libFileName = path.join(tmpRoot, "lib.d.ts");
-    const libSource = `
-      interface Function {}
-      interface Object {}
-      interface String {}
-      interface Boolean {}
-      interface Number {}
-      interface IArguments {}
-      type PropertyKey = string | number | symbol;
-    `;
-
-    const sourceFile = ts.createSourceFile(
-      fileName,
-      source,
-      ts.ScriptTarget.ES2022,
-      true,
-      ts.ScriptKind.TS
-    );
-    const dtsFile = ts.createSourceFile(
-      dtsFileName,
-      dtsSource,
-      ts.ScriptTarget.ES2022,
-      true,
-      ts.ScriptKind.TS
-    );
-    const libFile = ts.createSourceFile(
-      libFileName,
-      libSource,
-      ts.ScriptTarget.ES2022,
-      true,
-      ts.ScriptKind.TS
-    );
-
-    const fileMap = new Map<string, ts.SourceFile>([
-      [fileName, sourceFile],
-      [dtsFileName, dtsFile],
-      [libFileName, libFile],
-    ]);
-
-    const program = ts.createProgram(
-      [fileName, dtsFileName],
-      {
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ES2022,
-      },
-      {
-        getSourceFile: (name) => fileMap.get(name),
-        writeFile: () => {},
-        getCurrentDirectory: () => tmpRoot,
-        getDirectories: () => [],
-        fileExists: (name) => fileMap.has(name),
-        readFile: (name) => fileMap.get(name)?.text,
-        getCanonicalFileName: (f) => f,
-        useCaseSensitiveFileNames: () => true,
-        getNewLine: () => "\n",
-        getDefaultLibFileName: () => libFileName,
-      }
-    );
-
-    const checker = program.getTypeChecker();
-
+describe("external member binding disambiguation (failure)", () => {
+  it("fails compilation when collisions cannot be disambiguated", () => {
     const bindings = new BindingRegistry();
     bindings.addBindings("/test/nodejs-http.json", {
       schema: "tsonic.bindings",
@@ -155,7 +62,6 @@ describe("CLR member binding disambiguation (failure)", () => {
         ],
       },
     });
-
     bindings.addBindings("/test/nodejs.json", {
       schema: "tsonic.bindings",
       provider: { namespace: "nodejs" },
@@ -181,28 +87,27 @@ describe("CLR member binding disambiguation (failure)", () => {
       },
     });
 
-    const testProgram = {
-      program,
-      checker,
-      tsCompilerOptions: program.getCompilerOptions(),
-      options: {
-        projectRoot: tmpRoot,
-        sourceRoot: tmpRoot,
-        rootNamespace: "TestApp",
-        strict: true,
-      },
-      sourceFiles: [sourceFile],
-      declarationSourceFiles: [dtsFile],
-      sourceProgram: createEmptyTstsSourceProgramForTests(),
-      sourceSemantics: createTypeScriptSemanticView(checker),
-      metadata: new ExternalMetadataRegistry(),
-      bindings,
-      externalResolver: createExternalBindingsResolver(tmpRoot),
-      binding: createBinding(createTypeScriptSemanticView(checker)),
-    };
+    const testProgram = createTstsTestProgramFromFiles(
+      serverDeclarationFiles({
+        schema: "tsonic.bindings",
+        provider: { namespace: "nodejs.Http" },
+        targetSurface: {
+          types: [
+            {
+              targetName: "nodejs.Http.NotServer",
+              methods: [],
+              properties: [],
+              fields: [],
+            },
+          ],
+        },
+      }),
+      "sample.ts",
+      { bindings }
+    );
 
     const irResult = buildIr(testProgram, {
-      sourceRoot: tmpRoot,
+      sourceRoot: testProgram.options.sourceRoot,
       rootNamespace: "TestApp",
     });
 
@@ -217,116 +122,8 @@ describe("CLR member binding disambiguation (failure)", () => {
     expect(codes).to.include("TSN4003");
   });
 
-  it("should fail compilation when a CLR-declared member has no binding (airplane-grade)", () => {
-    const tmpRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tsonic-bindings-disambiguation-")
-    );
-
-    const dtsDir = path.join(tmpRoot, "nodejs.Http", "internal");
-    fs.mkdirSync(dtsDir, { recursive: true });
-
-    const bindingsJsonPath = path.join(tmpRoot, "nodejs.Http", "bindings.json");
-    fs.writeFileSync(
-      bindingsJsonPath,
-      JSON.stringify(
-        {
-          schema: "tsonic.bindings",
-          provider: { namespace: "nodejs.Http" },
-          targetSurface: {
-            types: [
-              {
-                targetName: "nodejs.Http.Server",
-                methods: [],
-                properties: [],
-                fields: [],
-              },
-            ],
-          },
-        },
-        null,
-        2
-      ),
-      "utf8"
-    );
-
-    const dtsFileName = path.join(dtsDir, "index.d.ts");
-    const dtsSource = `
-      declare interface Server$instance {
-        listen(port: number, callback: () => void): void;
-      }
-      declare type Server = Server$instance;
-    `;
-
-    const fileName = path.join(tmpRoot, "sample.ts");
-    const source = `
-      export function test(server: Server): void {
-        server.listen(3000, () => {});
-      }
-    `;
-
-    const libFileName = path.join(tmpRoot, "lib.d.ts");
-    const libSource = `
-      interface Function {}
-      interface Object {}
-      interface String {}
-      interface Boolean {}
-      interface Number {}
-      interface IArguments {}
-      type PropertyKey = string | number | symbol;
-    `;
-
-    const sourceFile = ts.createSourceFile(
-      fileName,
-      source,
-      ts.ScriptTarget.ES2022,
-      true,
-      ts.ScriptKind.TS
-    );
-    const dtsFile = ts.createSourceFile(
-      dtsFileName,
-      dtsSource,
-      ts.ScriptTarget.ES2022,
-      true,
-      ts.ScriptKind.TS
-    );
-    const libFile = ts.createSourceFile(
-      libFileName,
-      libSource,
-      ts.ScriptTarget.ES2022,
-      true,
-      ts.ScriptKind.TS
-    );
-
-    const fileMap = new Map<string, ts.SourceFile>([
-      [fileName, sourceFile],
-      [dtsFileName, dtsFile],
-      [libFileName, libFile],
-    ]);
-
-    const program = ts.createProgram(
-      [fileName, dtsFileName],
-      {
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ES2022,
-      },
-      {
-        getSourceFile: (name) => fileMap.get(name),
-        writeFile: () => {},
-        getCurrentDirectory: () => tmpRoot,
-        getDirectories: () => [],
-        fileExists: (name) => fileMap.has(name),
-        readFile: (name) => fileMap.get(name)?.text,
-        getCanonicalFileName: (f) => f,
-        useCaseSensitiveFileNames: () => true,
-        getNewLine: () => "\n",
-        getDefaultLibFileName: () => libFileName,
-      }
-    );
-
-    const checker = program.getTypeChecker();
-
+  it("fails compilation when an externally declared member has no binding", () => {
     const bindings = new BindingRegistry();
-    // NOTE: Intentionally omit the `listen` member from bindings to simulate missing bindings.
     bindings.addBindings("/test/nodejs-http.json", {
       schema: "tsonic.bindings",
       provider: { namespace: "nodejs.Http" },
@@ -343,28 +140,27 @@ describe("CLR member binding disambiguation (failure)", () => {
       },
     });
 
-    const testProgram = {
-      program,
-      checker,
-      tsCompilerOptions: program.getCompilerOptions(),
-      options: {
-        projectRoot: tmpRoot,
-        sourceRoot: tmpRoot,
-        rootNamespace: "TestApp",
-        strict: true,
-      },
-      sourceFiles: [sourceFile],
-      declarationSourceFiles: [dtsFile],
-      sourceProgram: createEmptyTstsSourceProgramForTests(),
-      sourceSemantics: createTypeScriptSemanticView(checker),
-      metadata: new ExternalMetadataRegistry(),
-      bindings,
-      externalResolver: createExternalBindingsResolver(tmpRoot),
-      binding: createBinding(createTypeScriptSemanticView(checker)),
-    };
+    const testProgram = createTstsTestProgramFromFiles(
+      serverDeclarationFiles({
+        schema: "tsonic.bindings",
+        provider: { namespace: "nodejs.Http" },
+        targetSurface: {
+          types: [
+            {
+              targetName: "nodejs.Http.Server",
+              methods: [],
+              properties: [],
+              fields: [],
+            },
+          ],
+        },
+      }),
+      "sample.ts",
+      { bindings }
+    );
 
     const irResult = buildIr(testProgram, {
-      sourceRoot: tmpRoot,
+      sourceRoot: testProgram.options.sourceRoot,
       rootNamespace: "TestApp",
     });
 

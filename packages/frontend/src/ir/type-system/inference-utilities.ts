@@ -25,8 +25,12 @@ import type {
   IrTypeParameter,
   IrSpreadTupleShape,
 } from "../types/index.js";
-import * as ts from "typescript";
-import { TSONIC_TO_NUMERIC_KIND } from "../types/numeric-kind.js";
+import type { TstsNode } from "@tsonic/tsts";
+import { hasTstsStaticModifier, TstsSyntax } from "@tsonic/tsts";
+import {
+  numericTypeFactFromName,
+  TSONIC_TO_NUMERIC_KIND,
+} from "../types/numeric-kind.js";
 import { getAwaitedIrType, getSpreadTupleShape } from "../types/index.js";
 import type { NumericKind } from "../types/numeric-kind.js";
 import { unknownType, voidType } from "./types.js";
@@ -52,6 +56,13 @@ export const collectResolutionArgTypes = (
   }
   return { argumentCount: argTypes.length, argTypes };
 };
+
+export const getExplicitTypeArgumentNodes = (
+  node: TstsNode
+): readonly TstsNode[] =>
+  (TstsSyntax.Node_TypeArguments(node) ?? []).filter(
+    (typeArgument): typeArgument is TstsNode => typeArgument !== undefined
+  );
 
 /**
  * Derive IrType from NumericKind (deterministic, no TypeScript).
@@ -94,28 +105,25 @@ export const makeOptionalReadType = (type: IrType): IrType => {
   };
 };
 
-export const unwrapParens = (expr: ts.Expression): ts.Expression => {
-  let current: ts.Expression = expr;
-  while (ts.isParenthesizedExpression(current)) {
-    current = current.expression;
+export const unwrapParens = (expr: TstsNode): TstsNode => {
+  let current: TstsNode = expr;
+  while (TstsSyntax.IsParenthesizedExpression(current)) {
+    const inner = TstsSyntax.Node_Expression(current);
+    if (!inner) break;
+    current = inner;
   }
   return current;
 };
 
-export const hasStaticModifier = (node: ts.Node): boolean => {
-  const modifiers = (
-    node as ts.Node & {
-      readonly modifiers?: readonly ts.ModifierLike[];
-    }
-  ).modifiers;
-  return !!modifiers?.some(
-    (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
-  );
-};
+export const hasStaticModifier = (node: TstsNode): boolean =>
+  hasTstsStaticModifier(node);
 
-export const isLambdaExpression = (expr: ts.Expression): boolean => {
+export const isLambdaExpression = (expr: TstsNode): boolean => {
   const unwrapped = unwrapParens(expr);
-  return ts.isArrowFunction(unwrapped) || ts.isFunctionExpression(unwrapped);
+  return (
+    TstsSyntax.IsArrowFunction(unwrapped) ||
+    TstsSyntax.IsFunctionExpression(unwrapped)
+  );
 };
 
 export const getNumericKindFromIrType = (
@@ -123,12 +131,47 @@ export const getNumericKindFromIrType = (
 ): NumericKind | undefined => {
   if (type.kind === "primitiveType" && type.name === "number") return "float64";
   if (type.kind === "primitiveType") {
-    return TSONIC_TO_NUMERIC_KIND.get(type.name);
+    return getNumericKindFromTypeName(type.name);
   }
   if (type.kind === "referenceType") {
-    return TSONIC_TO_NUMERIC_KIND.get(type.name);
+    return (
+      getNumericKindFromTypeName(type.name) ??
+      (type.providerQualifiedName
+        ? getNumericKindFromTypeName(type.providerQualifiedName)
+        : undefined) ??
+      (type.typeId?.sourceName
+        ? getNumericKindFromTypeName(type.typeId.sourceName)
+        : undefined) ??
+      (type.typeId?.providerName
+        ? getNumericKindFromTypeName(type.typeId.providerName)
+        : undefined)
+    );
   }
   return undefined;
+};
+
+const getNumericKindFromTypeName = (name: string): NumericKind | undefined => {
+  const direct = TSONIC_TO_NUMERIC_KIND.get(name);
+  if (direct) {
+    return direct;
+  }
+
+  const fact = numericTypeFactFromName(name);
+  switch (fact?.numericKind) {
+    case "int8":
+    case "uint8":
+    case "int16":
+    case "uint16":
+    case "int32":
+    case "uint32":
+    case "int64":
+    case "uint64":
+    case "float32":
+    case "float64":
+      return fact.numericKind;
+    default:
+      return undefined;
+  }
 };
 
 export const unwrapAwaitedForInference = (type: IrType): IrType => {

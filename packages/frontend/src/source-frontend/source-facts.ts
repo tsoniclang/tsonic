@@ -1,4 +1,5 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
+import type { TstsSignature } from "@tsonic/tsts";
 import type { SourceSemanticFactKey } from "./semantic-view.js";
 
 export type NumericPrimitiveKind =
@@ -74,6 +75,10 @@ export type IntrinsicSemanticsFact = {
     | "trycast";
 };
 
+export type SelectedSignatureFact = {
+  readonly signature: TstsSignature;
+};
+
 const defineSourceFactKey = <T>(
   id: string,
   description: string
@@ -127,6 +132,12 @@ export const intrinsicSemanticsFactKey =
     "Source-level intrinsic semantics."
   );
 
+export const selectedSignatureFactKey =
+  defineSourceFactKey<SelectedSignatureFact>(
+    "tsonic:source:selected-signature",
+    "Source-extension selected call signature after applying source primitive identity."
+  );
+
 export const visitSourceSemanticFactKeys = (
   visit: <T>(factKey: SourceSemanticFactKey<T>) => void
 ): void => {
@@ -138,4 +149,5 @@ export const visitSourceSemanticFactKeys = (
   visit(heritageWrapperSemanticsFactKey);
   visit(markerApiSemanticsFactKey);
   visit(intrinsicSemanticsFactKey);
+  visit(selectedSignatureFactKey);
 };

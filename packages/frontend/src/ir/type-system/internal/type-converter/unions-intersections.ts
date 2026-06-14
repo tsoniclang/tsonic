@@ -2,7 +2,8 @@
  * Union and intersection type conversion
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { TstsSyntax } from "@tsonic/tsts";
 import { IrObjectType, IrType } from "../../../types.js";
 import { normalizedUnionType } from "../../../types/type-ops.js";
 import type { Binding } from "../../../binding/index.js";
@@ -11,22 +12,32 @@ import type { Binding } from "../../../binding/index.js";
  * Convert TypeScript union type to IR union type
  */
 export const convertUnionType = (
-  node: ts.UnionTypeNode,
+  node: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType => {
-  return normalizedUnionType(node.types.map((t) => convertType(t, binding)));
+  const types =
+    TstsSyntax.AsUnionTypeNode(node)?.Types?.Nodes?.filter(
+      (typeNode): typeNode is TstsNode => typeNode !== undefined
+    ) ?? [];
+  return normalizedUnionType(
+    types.map((typeNode) => convertType(typeNode, binding))
+  );
 };
 
 /**
  * Convert TypeScript intersection type to IR intersection type
  */
 export const convertIntersectionType = (
-  node: ts.IntersectionTypeNode,
+  node: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType => {
-  const parts = node.types.flatMap((typeNode): readonly IrType[] => {
+  const types =
+    TstsSyntax.AsIntersectionTypeNode(node)?.Types?.Nodes?.filter(
+      (typeNode): typeNode is TstsNode => typeNode !== undefined
+    ) ?? [];
+  const parts = types.flatMap((typeNode): readonly IrType[] => {
     const converted = convertType(typeNode, binding);
     return converted.kind === "intersectionType"
       ? converted.types

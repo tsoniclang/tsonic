@@ -17,6 +17,7 @@ export const enrichExternalEntriesFromTsBindgenDts = (
   dtsPaths: readonly string[]
 ): void => {
   const mergedTypeParameters = new Map<string, readonly string[]>();
+  const mergedSourceCarrierNames = new Map<string, string>();
   const mergedMemberTypes = new Map<string, Map<string, IrType>>();
   const mergedMethodSignatureSurfaces = new Map<
     string,
@@ -71,6 +72,12 @@ export const enrichExternalEntriesFromTsBindgenDts = (
     for (const [tsName, typeParameters] of info.typeParametersByTsName) {
       if (!mergedTypeParameters.has(tsName)) {
         mergedTypeParameters.set(tsName, typeParameters);
+      }
+    }
+
+    for (const [tsName, sourceCarrierName] of info.sourceCarrierNamesByTsName) {
+      if (!mergedSourceCarrierNames.has(tsName)) {
+        mergedSourceCarrierNames.set(tsName, sourceCarrierName);
       }
     }
 
@@ -132,6 +139,7 @@ export const enrichExternalEntriesFromTsBindgenDts = (
     if (!entry) continue;
 
     const typeParameters = mergedTypeParameters.get(tsName);
+    const sourceCarrierName = mergedSourceCarrierNames.get(tsName);
     const memberTypes = mergedMemberTypes.get(tsName);
     const signatureSurfaces = mergedMethodSignatureSurfaces.get(tsName);
     const signatureOptionals = mergedMethodSignatureOptionals.get(tsName);
@@ -150,6 +158,13 @@ export const enrichExternalEntriesFromTsBindgenDts = (
           ...parameter,
           name: typeParameters[index] ?? parameter.name,
         })),
+      };
+    }
+
+    if (sourceCarrierName && sourceCarrierName !== entry.sourceCarrierName) {
+      updatedEntry = {
+        ...(updatedEntry ?? entry),
+        sourceCarrierName,
       };
     }
 

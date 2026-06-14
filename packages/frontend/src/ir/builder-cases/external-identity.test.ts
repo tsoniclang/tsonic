@@ -252,5 +252,91 @@ describe("IR Builder", function () {
         fixture.cleanup();
       }
     });
+
+    it("keeps declaration-package constructor signatures isolated per constructor target", function () {
+      this.timeout(30_000);
+      const fixture = materializeFrontendFixture(
+        "ir/external-identity/constructor-signature-cache"
+      );
+
+      try {
+        const tempDir = fixture.path("app");
+        const srcDir = fixture.path("app/src");
+        const entryPath = fixture.path("app/src/index.ts");
+
+        const programResult = createProgram([entryPath], {
+          projectRoot: tempDir,
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        expect(
+          programResult.ok,
+          programResult.ok
+            ? undefined
+            : programResult.error.diagnostics
+                .map(
+                  (diagnostic) =>
+                    `${diagnostic.code}: ${diagnostic.message}`
+                )
+                .join("\n")
+        ).to.equal(true);
+        if (!programResult.ok) return;
+
+        const program = programResult.value;
+        const sourceFile = program.sourceFiles.find(
+          (file) => path.resolve(file.fileName) === path.resolve(entryPath)
+        );
+        expect(sourceFile).to.not.equal(undefined);
+        if (!sourceFile) return;
+
+        const ctx = createProgramContext(program, {
+          sourceRoot: srcDir,
+          rootNamespace: "TestApp",
+        });
+
+        const moduleResult = buildIrModule(
+          sourceFile,
+          program,
+          {
+            sourceRoot: srcDir,
+            rootNamespace: "TestApp",
+          },
+          ctx
+        );
+
+        expect(
+          moduleResult.ok,
+          moduleResult.ok
+            ? undefined
+            : `${moduleResult.error.code}: ${moduleResult.error.message}`
+        ).to.equal(true);
+        if (!moduleResult.ok) return;
+
+        const declarationType = (name: string) =>
+          moduleResult.value.body.find(
+            (stmt): stmt is IrVariableDeclaration =>
+              stmt.kind === "variableDeclaration" &&
+              stmt.declarations[0]?.name.kind === "identifierPattern" &&
+              stmt.declarations[0]?.name.name === name
+          )?.declarations[0]?.type;
+
+        expect(declarationType("listCount")).to.deep.equal({
+          kind: "primitiveType",
+          name: "number",
+        });
+        expect(declarationType("builderText")).to.deep.equal({
+          kind: "primitiveType",
+          name: "string",
+        });
+
+        const nextStampType = declarationType("nextStamp");
+        expect(nextStampType?.kind).to.equal("referenceType");
+        if (!nextStampType || nextStampType.kind !== "referenceType") return;
+        expect(nextStampType.name).to.equal("DateTimeOffset");
+      } finally {
+        fixture.cleanup();
+      }
+    });
   });
 });

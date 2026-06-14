@@ -6,7 +6,8 @@
  * modifiers, and delegates to alias/declaration body handling.
  */
 
-import * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { TstsSyntax } from "@tsonic/tsts";
 import { IrType, IrDictionaryType } from "../../../types.js";
 import { substituteIrType } from "../../../types/ir-substitution.js";
 import {
@@ -28,6 +29,7 @@ import {
   normalizeNamespaceAliasQualifiedName,
   classifyDictionaryKeyTypeNode,
 } from "./references-normalize.js";
+import { makeTypeId } from "../universe/types.js";
 import {
   extractStructuralMembersFromDeclarations,
   resolveSourceTargetIdentity,
@@ -38,46 +40,61 @@ import {
   entityNameToText,
 } from "./references-alias.js";
 import { numericPrimitiveFactKey } from "../../../../source-frontend/index.js";
-import { classifySourceWrapperTypeReference } from "../../../source-wrapper-semantics.js";
+import {
+  classifySourceWrapperTypeReference,
+  identifierText,
+  nodeMembers,
+  nodeTypeArguments,
+} from "./tsts-syntax.js";
+import { getSourceBindingAliasFromDeclaration } from "../source-binding-markers.js";
 
-const tryReadNumericLiteral = (node: ts.Expression): number | undefined => {
-  if (ts.isNumericLiteral(node)) {
-    return Number(node.text);
+const tryReadNumericLiteral = (node: TstsNode): number | undefined => {
+  if (TstsSyntax.IsNumericLiteral(node)) {
+    return Number(TstsSyntax.Node_Text(node));
   }
   if (
-    ts.isPrefixUnaryExpression(node) &&
-    ts.isNumericLiteral(node.operand) &&
-    (node.operator === ts.SyntaxKind.MinusToken ||
-      node.operator === ts.SyntaxKind.PlusToken)
+    TstsSyntax.IsPrefixUnaryExpression(node) &&
+    TstsSyntax.AsPrefixUnaryExpression(node)?.Operand &&
+    TstsSyntax.IsNumericLiteral(
+      TstsSyntax.AsPrefixUnaryExpression(node)!.Operand!
+    ) &&
+    (TstsSyntax.AsPrefixUnaryExpression(node)?.Operator ===
+      TstsSyntax.KindMinusToken ||
+      TstsSyntax.AsPrefixUnaryExpression(node)?.Operator ===
+        TstsSyntax.KindPlusToken)
   ) {
-    const value = Number(node.operand.text);
-    return node.operator === ts.SyntaxKind.MinusToken ? -value : value;
+    const expression = TstsSyntax.AsPrefixUnaryExpression(node)!;
+    const value = Number(TstsSyntax.Node_Text(expression.Operand));
+    return expression.Operator === TstsSyntax.KindMinusToken ? -value : value;
   }
   return undefined;
 };
 
 const tryReadEnumMemberLiteralValue = (
-  member: ts.EnumMember
+  member: TstsNode
 ): string | number | undefined => {
-  if (member.initializer) {
-    if (ts.isStringLiteral(member.initializer)) {
-      return member.initializer.text;
+  const enumMember = TstsSyntax.AsEnumMember(member);
+  const initializer = enumMember?.Initializer;
+  if (initializer) {
+    if (TstsSyntax.IsStringLiteral(initializer)) {
+      return TstsSyntax.Node_Text(initializer);
     }
-    return tryReadNumericLiteral(member.initializer);
+    return tryReadNumericLiteral(initializer);
   }
 
   let nextNumericValue = 0;
-  for (const candidate of member.parent.members) {
+  for (const candidate of nodeMembers(member.Parent)) {
     if (candidate === member) {
       return nextNumericValue;
     }
 
-    if (!candidate.initializer) {
+    const candidateInitializer = TstsSyntax.AsEnumMember(candidate)?.Initializer;
+    if (!candidateInitializer) {
       nextNumericValue += 1;
       continue;
     }
 
-    const numericValue = tryReadNumericLiteral(candidate.initializer);
+    const numericValue = tryReadNumericLiteral(candidateInitializer);
     if (numericValue === undefined) {
       return undefined;
     }
@@ -87,16 +104,39 @@ const tryReadEnumMemberLiteralValue = (
   return undefined;
 };
 
+const SOURCE_INTRINSIC_REFERENCE_NAMES = new Set([
+  "Iterable",
+  "IterableIterator",
+  "Iterator",
+  "IteratorResult",
+  "Generator",
+  "AsyncIterable",
+  "AsyncIterableIterator",
+  "AsyncIterator",
+  "AsyncGenerator",
+  "Set",
+  "ReadonlySet",
+  "Map",
+  "ReadonlyMap",
+]);
+
+const sourceIntrinsicTypeId = (name: string) =>
+  SOURCE_INTRINSIC_REFERENCE_NAMES.has(name)
+    ? makeTypeId(`tsonic.core:${name}`, name, "tsonic.core", name, "source")
+    : undefined;
+
 /**
  * Convert TypeScript type reference to IR type
  * Handles both primitive type names and user-defined types
  */
 export const convertTypeReference = (
-  node: ts.TypeReferenceNode,
+  node: TstsNode,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: TstsNode, binding: Binding) => IrType
 ): IrType => {
-  const rawTypeName = entityNameToText(node.typeName);
+  const typeReference = TstsSyntax.AsTypeReferenceNode(node);
+  const typeArguments = nodeTypeArguments(node);
+  const rawTypeName = entityNameToText(typeReference?.TypeName);
   const typeName = normalizeNamespaceAliasQualifiedName(
     normalizeProviderInternalQualifiedName(rawTypeName)
   );
@@ -133,7 +173,7 @@ export const convertTypeReference = (
   // Check for expandable conditional utility types (NonNullable, Exclude, Extract)
   if (
     isExpandableConditionalUtilityType(typeName) &&
-    node.typeArguments?.length
+    typeArguments.length
   ) {
     const expanded = expandConditionalUtilityType(
       node,
@@ -145,18 +185,13 @@ export const convertTypeReference = (
   }
 
   // Check for Record<K, V> utility type
-  const typeArgsForRecord = node.typeArguments;
-  const keyTypeNode = typeArgsForRecord?.[0];
-  const valueTypeNode = typeArgsForRecord?.[1];
+  const keyTypeNode = typeArguments[0];
+  const valueTypeNode = typeArguments[1];
   if (typeName === "Record" && keyTypeNode && valueTypeNode) {
     const expandedRecord = expandRecordType(node, binding, convertType);
     if (expandedRecord) return expandedRecord;
 
-    const keyType = classifyDictionaryKeyTypeNode(
-      keyTypeNode,
-      convertType,
-      binding
-    );
+    const keyType = classifyDictionaryKeyTypeNode(keyTypeNode);
     if (keyType) {
       const valueType = convertType(valueTypeNode, binding);
 
@@ -169,14 +204,14 @@ export const convertTypeReference = (
   }
 
   // Check for expandable utility types (Partial, Required, Readonly, Pick, Omit)
-  if (isExpandableUtilityType(typeName) && node.typeArguments?.length) {
+  if (isExpandableUtilityType(typeName) && typeArguments.length) {
     const expanded = expandUtilityType(node, typeName, binding, convertType);
     if (expanded) return expanded;
   }
 
   // tsbindgen's `native targetOf<T>` is a conditional type used to coerce ergonomic primitives
-  if (typeName === "native targetOf" && node.typeArguments?.length === 1) {
-    const inner = node.typeArguments[0];
+  if (typeName === "native targetOf" && typeArguments.length === 1) {
+    const inner = typeArguments[0];
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
 
@@ -193,8 +228,8 @@ export const convertTypeReference = (
   }
 
   // `Rewrap<TReceiver, TNewShape>` erases to the new shape
-  if (typeName === "Rewrap" && node.typeArguments?.length === 2) {
-    const newShape = node.typeArguments[1];
+  if (typeName === "Rewrap" && typeArguments.length === 2) {
+    const newShape = typeArguments[1];
     return newShape ? convertType(newShape, binding) : { kind: "unknownType" };
   }
 
@@ -209,21 +244,20 @@ export const convertTypeReference = (
 
   // DETERMINISTIC: Check if this is a type parameter or type alias using Binding
   const declId = binding.resolveTypeReference(node);
-  let resolvedDeclNode: ts.Declaration | undefined;
+  let resolvedDeclNode: TstsNode | undefined;
   if (declId) {
     const declInfo = (binding as BindingInternal)
       ._getHandleRegistry()
       .getDecl(declId);
     if (declInfo) {
-      const declNode = (declInfo.typeDeclNode ?? declInfo.declNode) as
-        | ts.Declaration
-        | undefined;
+      const declNode = (declInfo.typeDeclNode ??
+        declInfo.declNode) as TstsNode | undefined;
       resolvedDeclNode = declNode;
-      if (declNode && ts.isTypeParameterDeclaration(declNode)) {
+      if (declNode && TstsSyntax.IsTypeParameterDeclaration(declNode)) {
         return { kind: "typeParameterType", name: typeName };
       }
 
-      if (declNode && ts.isEnumMember(declNode)) {
+      if (declNode && TstsSyntax.IsEnumMember(declNode)) {
         const literalValue = tryReadEnumMemberLiteralValue(declNode);
         return literalValue === undefined
           ? { kind: "unknownType" }
@@ -233,18 +267,21 @@ export const convertTypeReference = (
       // ExtensionMethods import specifier erasure
       if (
         declNode &&
-        ts.isImportSpecifier(declNode) &&
-        (declNode.propertyName ?? declNode.name).text === "ExtensionMethods" &&
-        node.typeArguments?.length === 1
+        TstsSyntax.IsImportSpecifier(declNode) &&
+        (identifierText(TstsSyntax.AsImportSpecifier(declNode)?.PropertyName) ??
+          identifierText(TstsSyntax.AsImportSpecifier(declNode)?.name)) ===
+          "ExtensionMethods" &&
+        typeArguments.length === 1
       ) {
-        const shape = node.typeArguments[0];
+        const shape = typeArguments[0];
         return shape ? convertType(shape, binding) : { kind: "unknownType" };
       }
 
-      const firstTypeArg = node.typeArguments?.[0];
+      const firstTypeArg = typeArguments[0];
       const isConcreteClassReference =
         declNode &&
-        (ts.isClassDeclaration(declNode) || ts.isClassExpression(declNode));
+        (TstsSyntax.IsClassDeclaration(declNode) ||
+          TstsSyntax.IsClassExpression(declNode));
       if (
         !isConcreteClassReference &&
         (typeName === "Array" || typeName === "ReadonlyArray") &&
@@ -270,7 +307,7 @@ export const convertTypeReference = (
       }
 
       // Type alias declarations require special handling
-      if (declNode && ts.isTypeAliasDeclaration(declNode)) {
+      if (declNode && TstsSyntax.IsTypeAliasDeclaration(declNode)) {
         const aliasResult = handleTypeAliasDeclaration(
           node,
           typeName,
@@ -291,9 +328,19 @@ export const convertTypeReference = (
     binding,
     convertType
   );
-  const convertedTypeArguments = node.typeArguments?.map((t) =>
+  const convertedTypeArguments = typeArguments.map((t) =>
     convertType(t, binding)
   );
+  const externalImportIdentity = binding.resolveExternalImportType(node);
+  if (externalImportIdentity) {
+    return {
+      kind: "referenceType",
+      name: externalImportIdentity.sourceName,
+      typeArguments: convertedTypeArguments,
+      providerQualifiedName: externalImportIdentity.providerQualifiedName,
+      structuralOrigin: "namedReference",
+    };
+  }
 
   // Use resolved symbol name to keep IR nominal identity stable
   const resolvedName = (() => {
@@ -304,14 +351,18 @@ export const convertTypeReference = (
     return declInfo?.fqName ?? typeName;
   })();
   const providerQualifiedName = resolveSourceTargetIdentity(declId, binding);
+  const markerQualifiedName = resolvedDeclNode
+    ? getSourceBindingAliasFromDeclaration(resolvedDeclNode)
+    : undefined;
+  const referenceName = markerQualifiedName ?? resolvedName;
 
   // ExtensionMethods wrapper erasure for resolved names
   if (
     (resolvedName.startsWith("ExtensionMethods_") ||
       resolvedName === "ExtensionMethods") &&
-    node.typeArguments?.length === 1
+    typeArguments.length === 1
   ) {
-    const shape = node.typeArguments[0];
+    const shape = typeArguments[0];
     return shape ? convertType(shape, binding) : { kind: "unknownType" };
   }
 
@@ -322,14 +373,19 @@ export const convertTypeReference = (
 
     const declaringType =
       resolvedDeclNode &&
-      (ts.isClassDeclaration(resolvedDeclNode) ||
-        ts.isInterfaceDeclaration(resolvedDeclNode) ||
-        ts.isTypeAliasDeclaration(resolvedDeclNode))
+      (TstsSyntax.IsClassDeclaration(resolvedDeclNode) ||
+        TstsSyntax.IsInterfaceDeclaration(resolvedDeclNode) ||
+        TstsSyntax.IsTypeAliasDeclaration(resolvedDeclNode))
         ? resolvedDeclNode
         : undefined;
     const formalTypeParameters =
-      declaringType?.typeParameters?.map((parameter) => parameter.name.text) ??
-      [];
+      declaringType
+        ? (TstsSyntax.Node_TypeParameters(declaringType) ?? [])
+            .map((parameter) =>
+              identifierText(TstsSyntax.Node_Name(parameter))
+            )
+            .filter((name): name is string => name !== undefined)
+        : [];
     const substitution = (() => {
       if (formalTypeParameters.length === 0) {
         return undefined;
@@ -361,7 +417,7 @@ export const convertTypeReference = (
     const substitutedType = substituteIrType(
       {
         kind: "referenceType",
-        name: resolvedName,
+        name: referenceName,
         typeArguments: convertedTypeArguments,
         structuralMembers,
         structuralOrigin: "namedReference",
@@ -373,11 +429,11 @@ export const convertTypeReference = (
       : structuralMembers;
   })();
 
-  const firstTypeArg = node.typeArguments?.[0];
+  const firstTypeArg = typeArguments[0];
   const isConcreteClassReference =
     !!resolvedDeclNode &&
-    (ts.isClassDeclaration(resolvedDeclNode) ||
-      ts.isClassExpression(resolvedDeclNode));
+    (TstsSyntax.IsClassDeclaration(resolvedDeclNode) ||
+      TstsSyntax.IsClassExpression(resolvedDeclNode));
 
   if (
     !isConcreteClassReference &&
@@ -394,9 +450,12 @@ export const convertTypeReference = (
   // Reference type (user-defined or library)
   return {
     kind: "referenceType",
-    name: resolvedName,
+    name: referenceName,
     typeArguments: convertedTypeArguments,
     providerQualifiedName,
+    typeId: providerQualifiedName
+      ? undefined
+      : sourceIntrinsicTypeId(referenceName),
     structuralOrigin: "namedReference",
     ...(substitutedStructuralMembers
       ? { structuralMembers: substitutedStructuralMembers }

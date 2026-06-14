@@ -5,8 +5,16 @@
  * Uses ProgramContext for statement conversion.
  */
 
-import * as ts from "typescript";
-import { IrStatement, IrType } from "./types.js";
+import {
+  getTstsBodyNode,
+  getTstsNodeText,
+  getTstsParameters,
+  hasTstsAmbientModifier,
+  hasTstsExportModifier,
+  TstsSyntax,
+  type TstsNode,
+} from "@tsonic/tsts";
+import type { IrStatement, IrType } from "./types.js";
 import { convertExpression } from "./expression-converter.js";
 import type { ProgramContext } from "./program-context.js";
 
@@ -44,58 +52,62 @@ export type ConvertStatementResult =
  * Check if a node is an ambient (declare) declaration.
  * Ambient declarations are type-only and should not be emitted.
  */
-const isAmbientDeclaration = (node: ts.Node): boolean => {
-  const modifierFlags = ts.getCombinedModifierFlags(node as ts.Declaration);
-  return !!(modifierFlags & ts.ModifierFlags.Ambient);
-};
+const isAmbientDeclaration = (node: TstsNode): boolean =>
+  hasTstsAmbientModifier(node);
 
 const isCompileTimeNoopAssertionCall = (
-  node: ts.ExpressionStatement,
+  node: TstsNode,
   ctx: ProgramContext
 ): boolean => {
-  const expression = node.expression;
+  const expression = TstsSyntax.Node_Expression(node);
   if (
-    !ts.isCallExpression(expression) ||
-    expression.arguments.length !== 0 ||
-    (expression.typeArguments?.length ?? 0) === 0 ||
-    !ts.isIdentifier(expression.expression)
+    !expression ||
+    expression.Kind !== TstsSyntax.KindCallExpression ||
+    (TstsSyntax.Node_Arguments(expression) ?? []).length !== 0 ||
+    (TstsSyntax.Node_TypeArguments(expression) ?? []).length === 0 ||
+    TstsSyntax.Node_Expression(expression)?.Kind !== TstsSyntax.KindIdentifier
   ) {
     return false;
   }
 
-  const declId = ctx.binding.resolveIdentifier(expression.expression);
+  const callee = TstsSyntax.Node_Expression(expression);
+  if (!callee) {
+    return false;
+  }
+  const declId = ctx.binding.resolveIdentifier(callee);
   if (!declId) {
     return false;
   }
 
   const decl = ctx.binding.getValueDeclarationNode(declId);
-  if (!decl || !ts.isFunctionDeclaration(decl)) {
+  if (!decl || decl.Kind !== TstsSyntax.KindFunctionDeclaration) {
     return false;
   }
 
+  const body = getTstsBodyNode(decl);
   return (
-    decl.parameters.length === 0 &&
-    (decl.typeParameters?.length ?? 0) > 0 &&
-    decl.type?.kind === ts.SyntaxKind.VoidKeyword &&
-    (decl.body?.statements.length ?? 0) === 0
+    getTstsParameters(decl).length === 0 &&
+    (TstsSyntax.Node_TypeParameters(decl) ?? []).length > 0 &&
+    TstsSyntax.Node_Type(decl)?.Kind === TstsSyntax.KindVoidKeyword &&
+    (body ? (TstsSyntax.Node_Statements(body) ?? []).length : 0) === 0
   );
 };
 
 const isCompileTimeNoopFunctionDeclaration = (
-  node: ts.FunctionDeclaration
+  node: TstsNode
 ): boolean => {
+  const body = getTstsBodyNode(node);
   if (
-    node.name === undefined ||
-    (node.typeParameters?.length ?? 0) === 0 ||
-    node.parameters.length !== 0 ||
-    node.type?.kind !== ts.SyntaxKind.VoidKeyword ||
-    (node.body?.statements.length ?? 0) !== 0
+    TstsSyntax.Node_Name(node) === undefined ||
+    (TstsSyntax.Node_TypeParameters(node) ?? []).length === 0 ||
+    getTstsParameters(node).length !== 0 ||
+    TstsSyntax.Node_Type(node)?.Kind !== TstsSyntax.KindVoidKeyword ||
+    (body ? (TstsSyntax.Node_Statements(body) ?? []).length : 0) !== 0
   ) {
     return false;
   }
 
-  const modifierFlags = ts.getCombinedModifierFlags(node);
-  return (modifierFlags & ts.ModifierFlags.Export) === 0;
+  return !hasTstsExportModifier(node);
 };
 
 /**
@@ -106,7 +118,7 @@ const isCompileTimeNoopFunctionDeclaration = (
  *                             Pass `undefined` explicitly when not inside a function.
  */
 export const convertStatement = (
-  node: ts.Node,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType: IrType | undefined
 ): ConvertStatementResult => {
@@ -115,94 +127,100 @@ export const convertStatement = (
     return null;
   }
 
-  if (ts.isVariableStatement(node)) {
+  if (node.Kind === TstsSyntax.KindVariableStatement) {
     return convertVariableStatement(node, ctx);
   }
-  if (ts.isFunctionDeclaration(node)) {
+  if (node.Kind === TstsSyntax.KindFunctionDeclaration) {
     if (isCompileTimeNoopFunctionDeclaration(node)) {
       return null;
     }
 
     return convertFunctionDeclaration(node, ctx);
   }
-  if (ts.isClassDeclaration(node)) {
+  if (node.Kind === TstsSyntax.KindClassDeclaration) {
     return convertClassDeclaration(node, ctx);
   }
-  if (ts.isInterfaceDeclaration(node)) {
+  if (node.Kind === TstsSyntax.KindInterfaceDeclaration) {
     return convertInterfaceDeclaration(node, ctx);
   }
-  if (ts.isEnumDeclaration(node)) {
+  if (node.Kind === TstsSyntax.KindEnumDeclaration) {
     return convertEnumDeclaration(node, ctx);
   }
   // Type alias declarations may return multiple statements (synthetic interfaces + alias)
-  if (ts.isTypeAliasDeclaration(node)) {
+  if (node.Kind === TstsSyntax.KindTypeAliasDeclaration) {
     return convertTypeAliasDeclaration(node, ctx);
   }
-  if (ts.isExpressionStatement(node)) {
+  if (node.Kind === TstsSyntax.KindExpressionStatement) {
     if (isCompileTimeNoopAssertionCall(node, ctx)) {
       return null;
     }
 
+    const expression = TstsSyntax.Node_Expression(node);
+    if (!expression) {
+      return null;
+    }
     return {
       kind: "expressionStatement",
-      expression: convertExpression(node.expression, ctx, undefined),
+      expression: convertExpression(expression, ctx, undefined),
     };
   }
-  if (ts.isReturnStatement(node)) {
+  if (node.Kind === TstsSyntax.KindReturnStatement) {
+    const expression = TstsSyntax.Node_Expression(node);
     return {
       kind: "returnStatement",
       // Pass function return type for contextual typing of return expression
-      expression: node.expression
-        ? convertExpression(node.expression, ctx, expectedReturnType)
+      expression: expression
+        ? convertExpression(expression, ctx, expectedReturnType)
         : undefined,
     };
   }
-  if (ts.isIfStatement(node)) {
+  if (node.Kind === TstsSyntax.KindIfStatement) {
     return convertIfStatement(node, ctx, expectedReturnType);
   }
-  if (ts.isWhileStatement(node)) {
+  if (node.Kind === TstsSyntax.KindWhileStatement) {
     return convertWhileStatement(node, ctx, expectedReturnType);
   }
-  if (ts.isForStatement(node)) {
+  if (node.Kind === TstsSyntax.KindForStatement) {
     return convertForStatement(node, ctx, expectedReturnType);
   }
-  if (ts.isForOfStatement(node)) {
+  if (node.Kind === TstsSyntax.KindForOfStatement) {
     return convertForOfStatement(node, ctx, expectedReturnType);
   }
-  if (ts.isForInStatement(node)) {
+  if (node.Kind === TstsSyntax.KindForInStatement) {
     return convertForInStatement(node, ctx, expectedReturnType);
   }
-  if (ts.isSwitchStatement(node)) {
+  if (node.Kind === TstsSyntax.KindSwitchStatement) {
     return convertSwitchStatement(node, ctx, expectedReturnType);
   }
-  if (ts.isThrowStatement(node)) {
-    if (!node.expression) {
+  if (node.Kind === TstsSyntax.KindThrowStatement) {
+    const expression = TstsSyntax.Node_Expression(node);
+    if (!expression) {
       return null;
     }
     return {
       kind: "throwStatement",
-      expression: convertExpression(node.expression, ctx, undefined),
+      expression: convertExpression(expression, ctx, undefined),
     };
   }
-  if (ts.isTryStatement(node)) {
+  if (node.Kind === TstsSyntax.KindTryStatement) {
     return convertTryStatement(node, ctx, expectedReturnType);
   }
-  if (ts.isBlock(node)) {
+  if (node.Kind === TstsSyntax.KindBlock) {
     return convertBlockStatement(node, ctx, expectedReturnType);
   }
-  if (ts.isBreakStatement(node)) {
+  if (node.Kind === TstsSyntax.KindBreakStatement) {
     return {
       kind: "breakStatement",
-      label: node.label?.text,
+      label: getTstsNodeText(TstsSyntax.Node_Label(node)),
     };
   }
-  if (ts.isContinueStatement(node)) {
+  if (node.Kind === TstsSyntax.KindContinueStatement) {
     return {
       kind: "continueStatement",
-      label: node.label?.text,
+      label: getTstsNodeText(TstsSyntax.Node_Label(node)),
     };
   }
-  if (ts.isEmptyStatement(node)) {
+  if (node.Kind === TstsSyntax.KindEmptyStatement) {
     return { kind: "emptyStatement" };
   }
 
@@ -235,7 +253,7 @@ export const flattenStatementResult = (
  *                             Must be passed through for return statements in nested blocks.
  */
 export const convertStatementSingle = (
-  node: ts.Node,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrStatement | null => {

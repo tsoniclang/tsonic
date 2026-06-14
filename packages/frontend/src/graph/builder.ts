@@ -13,7 +13,6 @@ import {
   addDiagnostic,
   createDiagnosticsCollector,
 } from "../types/diagnostic.js";
-import { createSymbolTable } from "../symbol-table.js";
 import { DependencyAnalysis } from "./types.js";
 import { checkCircularDependencies } from "./circular.js";
 import { getNamespaceFromPath, getClassNameFromPath } from "../resolver.js";
@@ -106,15 +105,21 @@ export const buildDependencyGraph = (
   program: TsonicProgram,
   entryPoints: readonly string[]
 ): DependencyAnalysis => {
-  const modules = new Map();
-  const dependencies = new Map();
-  const dependents = new Map();
-  const symbolTable = createSymbolTable();
+  const modules = new Map<string, ModuleInfo>();
+  const dependencies = new Map<string, string[]>();
+  const dependents = new Map<string, string[]>();
   let diagnostics = createDiagnosticsCollector();
 
   for (const sourceModule of program.sourceProgram.moduleGraph.modules) {
     modules.set(sourceModule.fileName, toModuleInfo(sourceModule, program));
   }
+  const runtimeModulePaths = new Set(
+    program.sourceProgram.moduleGraph.modules
+      .filter(
+        (sourceModule) => sourceModule.sourceFile?.IsDeclarationFile !== true
+      )
+      .map((sourceModule) => sourceModule.fileName)
+  );
 
   // Build dependency relationships
   modules.forEach((module, modulePath) => {
@@ -134,7 +139,18 @@ export const buildDependencyGraph = (
   });
 
   // Check for circular dependencies
-  const circularCheck = checkCircularDependencies(dependencies);
+  const runtimeDependencies = new Map<string, readonly string[]>();
+  for (const [modulePath, deps] of dependencies) {
+    if (!runtimeModulePaths.has(modulePath)) {
+      continue;
+    }
+    runtimeDependencies.set(
+      modulePath,
+      deps.filter((dep) => runtimeModulePaths.has(dep))
+    );
+  }
+
+  const circularCheck = checkCircularDependencies(runtimeDependencies);
   if (!circularCheck.ok) {
     diagnostics = addDiagnostic(diagnostics, circularCheck.error);
   }
@@ -148,7 +164,6 @@ export const buildDependencyGraph = (
 
   return {
     graph,
-    symbolTable,
     diagnostics,
   };
 };

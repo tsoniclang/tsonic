@@ -2,11 +2,11 @@ import {
   describe,
   it,
   expect,
-  ts,
   expandUtilityType,
   assertDefined,
   createTestProgram,
   findTypeAliasReference,
+  findFirstTypeReferenceNamed,
   stubConvertType,
 } from "./helpers.js";
 
@@ -449,18 +449,7 @@ describe("Utility Type Expansion Safety", () => {
       const { binding, sourceFile } = createTestProgram(source);
 
       // Find the Partial<T> type reference in the function parameter
-      let typeRef: ts.TypeReferenceNode | null = null;
-      const visitor = (node: ts.Node): void => {
-        if (
-          ts.isTypeReferenceNode(node) &&
-          ts.isIdentifier(node.typeName) &&
-          node.typeName.text === "Partial"
-        ) {
-          typeRef = node;
-        }
-        ts.forEachChild(node, visitor);
-      };
-      ts.forEachChild(sourceFile, visitor);
+      const typeRef = findFirstTypeReferenceNamed(sourceFile, "Partial");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),

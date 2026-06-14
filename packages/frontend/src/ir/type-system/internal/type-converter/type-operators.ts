@@ -3,7 +3,8 @@
  * and shared structural helpers used across the type converter.
  */
 
-import type * as ts from "typescript";
+import type { TstsNode } from "@tsonic/tsts";
+import { TstsSyntax } from "@tsonic/tsts";
 import type {
   IrType,
   IrFunctionType,
@@ -15,6 +16,7 @@ import {
   stableIrTypeKeyIfDeterministic,
 } from "../../../types/type-ops.js";
 import type { Binding } from "../../../binding/index.js";
+import { nodeText } from "./tsts-syntax.js";
 
 export const dedupeUnionMembers = (
   types: readonly IrType[]
@@ -245,23 +247,25 @@ const finiteTemplateTypeStrings = (
 };
 
 export const convertTemplateLiteralType = (
-  node: ts.TemplateLiteralTypeNode,
+  node: TstsNode,
   binding: Binding,
-  convertTypeFn: (node: ts.TypeNode, binding: Binding) => IrType
+  convertTypeFn: (node: TstsNode, binding: Binding) => IrType
 ): IrType => {
   const MAX_COMBINATIONS = 64;
-  let current = [node.head.text];
-  for (const span of node.templateSpans) {
-    const options = finiteTemplateTypeStrings(
-      convertTypeFn(span.type, binding)
-    );
+  const template = TstsSyntax.AsTemplateLiteralTypeNode(node);
+  let current = [template?.Head ? nodeText(template.Head) : ""];
+  for (const spanNode of template?.TemplateSpans?.Nodes ?? []) {
+    if (!spanNode) continue;
+    const span = TstsSyntax.AsTemplateLiteralTypeSpan(spanNode);
+    if (!span?.Type) return { kind: "primitiveType", name: "string" };
+    const options = finiteTemplateTypeStrings(convertTypeFn(span.Type, binding));
     if (!options || options.length === 0) {
       return { kind: "primitiveType", name: "string" };
     }
     const next: string[] = [];
     for (const prefix of current) {
       for (const option of options) {
-        next.push(`${prefix}${option}${span.literal.text}`);
+        next.push(`${prefix}${option}${span.Literal ? nodeText(span.Literal) : ""}`);
         if (next.length > MAX_COMBINATIONS) {
           return { kind: "primitiveType", name: "string" };
         }

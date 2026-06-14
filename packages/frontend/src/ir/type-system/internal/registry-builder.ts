@@ -1,17 +1,22 @@
 /**
- * TypeRegistry builder — constructs a TypeRegistry from source files.
- *
- * Split from type-registry.ts for file-size hygiene.
- * The buildTypeRegistry function is copied EXACTLY from the original.
+ * TypeRegistry builder — constructs a TypeRegistry from TSTS source files.
  */
 
-import * as ts from "typescript";
 import * as path from "node:path";
-import type { FrontendSourceSemanticView } from "../../../source-frontend/index.js";
+import type { TstsNode, TstsSourceFile } from "@tsonic/tsts";
+import {
+  getTstsDeclaredTypeNode,
+  getTstsHeritageClauseDetails,
+  getTstsMemberNodes,
+  getTstsNodeNameText,
+  getTstsTypeParameterNodes,
+  hasTstsExportModifier,
+  TstsSyntax,
+} from "@tsonic/tsts";
+import type { TstsFrontendSourceSemanticView } from "../../../source-frontend/index.js";
 import type {
   TypeRegistry,
   TypeRegistryEntry,
-  HeritageInfo,
   MemberInfo,
   ConvertTypeFn,
   BuildTypeRegistryOptions,
@@ -28,45 +33,52 @@ import {
 import {
   type IrType,
   type IrTypeAliasDeclaration,
-  type IrTypeParameter,
   stampRuntimeUnionAliasCarrier,
 } from "../../types/index.js";
 import { processTypeAliasForSynthetics } from "../../converters/synthetic-types.js";
 import {
+  resolveContainingSourcePackageNamespace,
   resolveSourceFileNamespace,
   resolveSourceFileOwnerIdentity,
 } from "../../../program/source-file-identity.js";
+import { getSourceBindingAliasFromDeclaration } from "./source-binding-markers.js";
 
-// ═══════════════════════════════════════════════════════════════════════════
-// BUILD FUNCTION
-// ═══════════════════════════════════════════════════════════════════════════
+const unknownType = (): IrType => ({ kind: "unknownType" });
 
-/**
- * Build a TypeRegistry from source files.
- *
- * @param sourceFiles Source files to scan for declarations
- * @param sourceSemantics Source semantic facade for symbol resolution
- * @param sourceRoot Absolute path to source root directory
- * @param rootNamespace Root namespace for the project
- * @param convertType Optional type converter for pure IR storage
- */
+const concreteTstsNodes = (
+  nodes: readonly (TstsNode | undefined)[]
+): readonly TstsNode[] =>
+  nodes.filter((node): node is TstsNode => node !== undefined);
+
+const getSourceFileName = (sourceFile: TstsSourceFile): string =>
+  sourceFile.FileName();
+
+const isDeclarationSourceFile = (sourceFile: TstsSourceFile): boolean =>
+  sourceFile.IsDeclarationFile === true;
+
+const getTopLevelStatements = (sourceFile: TstsSourceFile): readonly TstsNode[] => {
+  const statements: TstsNode[] = [];
+  TstsSyntax.SourceFile_ForEachChild(sourceFile, (node) => {
+    if (node) {
+      statements.push(node);
+    }
+    return false;
+  });
+  return statements;
+};
+
 export const buildTypeRegistry = (
-  sourceFiles: readonly ts.SourceFile[],
-  sourceSemantics: FrontendSourceSemanticView,
+  sourceFiles: readonly TstsSourceFile[],
+  sourceSemantics: TstsFrontendSourceSemanticView,
   sourceRoot: string,
   rootNamespace: string,
   options: BuildTypeRegistryOptions = {}
 ): TypeRegistry => {
-  // Map from FQ name to pure IR entry
   const entries = new Map<string, TypeRegistryEntry>();
-  // Map from simple name to FQ name (for reverse lookup)
   const simpleNameToFQ = new Map<string, string>();
   const simpleNameToFQs = new Map<string, Set<string>>();
   const ambiguousSimpleNames = new Set<string>();
-
-  // Default converter returns unknownType (used during bootstrap)
-  const convert: ConvertTypeFn =
-    options.convertType ?? (() => ({ kind: "unknownType" }));
+  const convert: ConvertTypeFn = options.convertType ?? (() => unknownType());
 
   const namespaceFromFQName = (
     fqName: string,
@@ -78,94 +90,67 @@ export const buildTypeRegistry = (
       : undefined;
   };
 
-  const convertIrTypeParameters = (
-    typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined
-  ): readonly IrTypeParameter[] =>
-    (typeParameters ?? []).map((typeParameter) => ({
-      kind: "typeParameter",
-      name: typeParameter.name.text,
-      ...(typeParameter.constraint
-        ? { constraint: convert(typeParameter.constraint) }
-        : {}),
-      ...(typeParameter.default
-        ? { default: convert(typeParameter.default) }
-        : {}),
-    }));
+  const recordSimpleName = (simpleName: string, fqName: string): void => {
+    const fqSet = simpleNameToFQs.get(simpleName) ?? new Set<string>();
+    fqSet.add(fqName);
+    simpleNameToFQs.set(simpleName, fqSet);
 
-  // Helper function to process a declaration node
+    if (ambiguousSimpleNames.has(simpleName)) {
+      return;
+    }
+
+    const existing = simpleNameToFQ.get(simpleName);
+    if (!existing) {
+      simpleNameToFQ.set(simpleName, fqName);
+      return;
+    }
+
+    if (existing === fqName) {
+      return;
+    }
+
+    simpleNameToFQ.delete(simpleName);
+    ambiguousSimpleNames.add(simpleName);
+  };
+
   const processDeclaration = (
-    node: ts.Node,
-    sf: ts.SourceFile,
-    ns: string | undefined,
+    node: TstsNode,
+    sourceFile: TstsSourceFile,
+    namespace: string | undefined,
     ownerIdentity: string
   ): void => {
-    // Check if this file is from a well-known Tsonic library
-    const isFromWellKnownLib = isWellKnownLibrary(sf.fileName);
+    const fileName = getSourceFileName(sourceFile);
+    const isFromWellKnownLib = isWellKnownLibrary(fileName);
+    const isDeclarationFile = isDeclarationSourceFile(sourceFile);
 
-    // Canonicalize a type name to target name if it's a well-known type
-    // This is used for both the type itself and its heritage references
-    const canonicalize = (simpleName: string): string => {
-      // Check for canonical native target name (works for both the current file and heritage refs)
-      // Heritage refs like String$instance should be canonicalized even if
-      // the current file isn't from a well-known lib (though it usually is)
-      const canonicalName = getCanonicalTargetName(simpleName, true);
-      if (canonicalName) return canonicalName;
-      return simpleName;
-    };
+    const canonicalize = (simpleName: string): string =>
+      getCanonicalTargetName(simpleName, true) ?? simpleName;
 
-    // Make FQ name - use canonical target name for well-known types
-    const makeFQName = (simpleName: string): string => {
-      // First check if this is a well-known type that needs canonical native target name
-      const canonicalName = getCanonicalTargetName(
-        simpleName,
-        isFromWellKnownLib
-      );
-      if (canonicalName) return canonicalName;
+    const makeFQName = (simpleName: string, declaration?: TstsNode): string =>
+      (declaration
+        ? getSourceBindingAliasFromDeclaration(declaration)
+        : undefined) ??
+      getCanonicalTargetName(simpleName, isFromWellKnownLib) ??
+      (namespace ? `${namespace}.${simpleName}` : simpleName);
 
-      // Otherwise use namespace-based FQ name
-      return ns ? `${ns}.${simpleName}` : simpleName;
-    };
-
-    const recordSimpleName = (simpleName: string, fqName: string): void => {
-      const fqSet = simpleNameToFQs.get(simpleName) ?? new Set<string>();
-      fqSet.add(fqName);
-      simpleNameToFQs.set(simpleName, fqSet);
-
-      if (ambiguousSimpleNames.has(simpleName)) {
-        return;
-      }
-
-      const existing = simpleNameToFQ.get(simpleName);
-      if (!existing) {
-        simpleNameToFQ.set(simpleName, fqName);
-        return;
-      }
-
-      if (existing === fqName) {
-        return;
-      }
-
-      simpleNameToFQ.delete(simpleName);
-      ambiguousSimpleNames.add(simpleName);
-    };
-
-    // Class declarations
-    if (ts.isClassDeclaration(node) && node.name) {
-      const simpleName = node.name.text;
-      const fqName = makeFQName(simpleName);
-
-      // Pure IR entry
+    if (TstsSyntax.IsClassDeclaration(node)) {
+      const simpleName = getTstsNodeNameText(node);
+      if (!simpleName) return;
+      const fqName = makeFQName(simpleName, node);
       entries.set(fqName, {
         kind: "class",
         name: simpleName,
         fullyQualifiedName: fqName,
         ownerIdentity,
-        isDeclarationFile: sf.isDeclarationFile,
-        preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
-        typeParameters: extractTypeParameters(node.typeParameters, convert),
-        members: extractMembers(node.members, convert),
+        isDeclarationFile,
+        preservesProviderIdentity: preservesProviderIdentity(fileName),
+        typeParameters: extractTypeParameters(
+          concreteTstsNodes(getTstsTypeParameterNodes(node)),
+          convert
+        ),
+        members: extractMembers(concreteTstsNodes(getTstsMemberNodes(node)), convert),
         heritage: extractHeritage(
-          node.heritageClauses,
+          getTstsHeritageClauseDetails(node),
           sourceSemantics,
           sourceRoot,
           rootNamespace,
@@ -173,109 +158,95 @@ export const buildTypeRegistry = (
           canonicalize
         ),
       });
-
       recordSimpleName(simpleName, fqName);
+      return;
     }
 
-    // Interface declarations
-    if (ts.isInterfaceDeclaration(node)) {
-      const simpleName = node.name.text;
-      const fqName = makeFQName(simpleName);
+    if (TstsSyntax.IsInterfaceDeclaration(node)) {
+      const simpleName = getTstsNodeNameText(node);
+      if (!simpleName) return;
+      const fqName = makeFQName(simpleName, node);
       const callableAlias = convertCallableInterfaceOnlyType(node, convert);
 
       if (callableAlias) {
-        const aliasedMembers =
-          extractMembersFromAliasedObjectType(callableAlias);
         entries.set(fqName, {
           kind: "typeAlias",
           name: simpleName,
           fullyQualifiedName: fqName,
           ownerIdentity,
-          isDeclarationFile: sf.isDeclarationFile,
-          preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
+          isDeclarationFile,
+          preservesProviderIdentity: preservesProviderIdentity(fileName),
           typeParameters: [],
-          members: aliasedMembers,
+          members: extractMembersFromAliasedObjectType(callableAlias),
           heritage: [],
           aliasedType: callableAlias,
         });
         recordSimpleName(simpleName, fqName);
-      } else {
-        // Merge with existing interface (for module augmentation)
-        const existing = entries.get(fqName);
-
-        if (existing && existing.kind === "interface") {
-          // Merge members
-          const mergedMembers = new Map(existing.members);
-          for (const [memberName, memberInfo] of extractMembers(
-            node.members,
-            convert
-          )) {
-            const existingMember = mergedMembers.get(memberName);
-            const preserveExistingAuthoritativeMember =
-              existingMember !== undefined &&
-              existing.isDeclarationFile === false &&
-              sf.isDeclarationFile === true;
-
-            if (!preserveExistingAuthoritativeMember) {
-              mergedMembers.set(memberName, memberInfo);
-            }
-          }
-          entries.set(fqName, {
-            ...existing,
-            isDeclarationFile: existing.isDeclarationFile,
-            preservesProviderIdentity: existing.preservesProviderIdentity,
-            members: mergedMembers,
-            heritage: [
-              ...existing.heritage,
-              ...extractHeritage(
-                node.heritageClauses,
-                sourceSemantics,
-                sourceRoot,
-                rootNamespace,
-                convert,
-                canonicalize
-              ),
-            ],
-          });
-        } else {
-          entries.set(fqName, {
-            kind: "interface",
-            name: simpleName,
-            fullyQualifiedName: fqName,
-            ownerIdentity,
-            isDeclarationFile: sf.isDeclarationFile,
-            preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
-            typeParameters: extractTypeParameters(node.typeParameters, convert),
-            members: extractMembers(node.members, convert),
-            heritage: extractHeritage(
-              node.heritageClauses,
-              sourceSemantics,
-              sourceRoot,
-              rootNamespace,
-              convert,
-              canonicalize
-            ),
-          });
-          recordSimpleName(simpleName, fqName);
-        }
+        return;
       }
+
+      const members = extractMembers(concreteTstsNodes(getTstsMemberNodes(node)), convert);
+      const heritage = extractHeritage(
+        getTstsHeritageClauseDetails(node),
+        sourceSemantics,
+        sourceRoot,
+        rootNamespace,
+        convert,
+        canonicalize
+      );
+      const existing = entries.get(fqName);
+
+      if (existing?.kind === "interface") {
+        const mergedMembers = new Map(existing.members);
+        for (const [memberName, memberInfo] of members) {
+          const existingMember = mergedMembers.get(memberName);
+          const preserveExistingAuthoritativeMember =
+            existingMember !== undefined &&
+            existing.isDeclarationFile === false &&
+            isDeclarationFile;
+          if (!preserveExistingAuthoritativeMember) {
+            mergedMembers.set(memberName, memberInfo);
+          }
+        }
+        entries.set(fqName, {
+          ...existing,
+          members: mergedMembers,
+          heritage: [...existing.heritage, ...heritage],
+        });
+        return;
+      }
+
+      entries.set(fqName, {
+        kind: "interface",
+        name: simpleName,
+        fullyQualifiedName: fqName,
+        ownerIdentity,
+        isDeclarationFile,
+        preservesProviderIdentity: preservesProviderIdentity(fileName),
+        typeParameters: extractTypeParameters(
+          concreteTstsNodes(getTstsTypeParameterNodes(node)),
+          convert
+        ),
+        members,
+        heritage,
+      });
+      recordSimpleName(simpleName, fqName);
+      return;
     }
 
-    if (ts.isEnumDeclaration(node)) {
-      const simpleName = node.name.text;
-      const fqName = makeFQName(simpleName);
-      const enumType: IrType = {
-        kind: "referenceType",
-        name: fqName,
-      };
+    if (TstsSyntax.IsEnumDeclaration(node)) {
+      const simpleName = getTstsNodeNameText(node);
+      if (!simpleName) return;
+      const fqName = makeFQName(simpleName, node);
+      const enumType: IrType = { kind: "referenceType", name: fqName };
       const members = new Map<string, MemberInfo>();
-      for (const member of node.members) {
-        if (!ts.isIdentifier(member.name)) {
-          continue;
-        }
-        members.set(member.name.text, {
+      for (const member of TstsSyntax.Node_Members(node) ?? []) {
+        if (!member) continue;
+        const name = getTstsNodeNameText(member);
+        if (!name) continue;
+        members.set(name, {
           kind: "property",
-          name: member.name.text,
+          name,
           type: enumType,
           isOptional: false,
           isReadonly: true,
@@ -287,45 +258,47 @@ export const buildTypeRegistry = (
         name: simpleName,
         fullyQualifiedName: fqName,
         ownerIdentity,
-        isDeclarationFile: sf.isDeclarationFile,
-        preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
+        isDeclarationFile,
+        preservesProviderIdentity: preservesProviderIdentity(fileName),
         typeParameters: [],
         members,
         heritage: [],
       });
-
       recordSimpleName(simpleName, fqName);
+      return;
     }
 
-    // Type alias declarations
-    if (ts.isTypeAliasDeclaration(node)) {
-      const simpleName = node.name.text;
-      const fqName = makeFQName(simpleName);
+    if (TstsSyntax.IsTypeAliasDeclaration(node)) {
+      const simpleName = getTstsNodeNameText(node);
+      const typeNode = getTstsDeclaredTypeNode(node);
+      if (!simpleName || !typeNode) return;
+      const fqName = makeFQName(simpleName, node);
 
-      // Pure IR entry
-      const convertedAliasedType = convert(node.type);
-      const stampedAliasedType = sf.isDeclarationFile
+      const convertedAliasedType = convert(typeNode);
+      const typeParameterNodes = concreteTstsNodes(getTstsTypeParameterNodes(node));
+      const stampedAliasedType = isDeclarationFile
         ? convertedAliasedType
         : stampRuntimeUnionAliasCarrier(convertedAliasedType, {
             aliasName: simpleName,
             fullyQualifiedName: fqName,
             namespaceName: namespaceFromFQName(fqName, simpleName),
-            typeParameters: (node.typeParameters ?? []).map(
-              (tp) => tp.name.text
-            ),
+            typeParameters: typeParameterNodes
+              .map(getTstsNodeNameText)
+              .filter((name): name is string => name !== undefined),
           });
       const baseAlias: IrTypeAliasDeclaration = {
         kind: "typeAliasDeclaration",
         name: simpleName,
-        typeParameters: convertIrTypeParameters(node.typeParameters),
+        typeParameters: typeParameterNodes.map((typeParameter) => ({
+          kind: "typeParameter",
+          name: getTstsNodeNameText(typeParameter) ?? "T",
+        })),
         type: stampedAliasedType,
-        isExported:
-          (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0,
+        isExported: hasTstsExportModifier(node),
         isStruct: false,
       };
       const processedAlias = processTypeAliasForSynthetics(baseAlias);
       const aliasedType = processedAlias.typeAlias.type;
-      const aliasedMembers = extractMembersFromAliasedObjectType(aliasedType);
 
       for (const synthetic of processedAlias.syntheticInterfaces) {
         const syntheticFqName = makeFQName(synthetic.name);
@@ -334,8 +307,8 @@ export const buildTypeRegistry = (
           name: synthetic.name,
           fullyQualifiedName: syntheticFqName,
           ownerIdentity,
-          isDeclarationFile: sf.isDeclarationFile,
-          preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
+          isDeclarationFile,
+          preservesProviderIdentity: preservesProviderIdentity(fileName),
           typeParameters:
             synthetic.typeParameters?.map((typeParameter) => ({
               name: typeParameter.name,
@@ -356,55 +329,49 @@ export const buildTypeRegistry = (
         name: simpleName,
         fullyQualifiedName: fqName,
         ownerIdentity,
-        isDeclarationFile: sf.isDeclarationFile,
-        preservesProviderIdentity: preservesProviderIdentity(sf.fileName),
-        typeParameters: extractTypeParameters(node.typeParameters, convert),
-        members: aliasedMembers,
+        isDeclarationFile,
+        preservesProviderIdentity: preservesProviderIdentity(fileName),
+        typeParameters: extractTypeParameters(typeParameterNodes, convert),
+        members: extractMembersFromAliasedObjectType(aliasedType),
         heritage: [],
         aliasedType,
       });
-
       recordSimpleName(simpleName, fqName);
+      return;
     }
 
-    // Handle 'declare global { ... }' blocks
     if (
-      ts.isModuleDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === "global" &&
-      node.body &&
-      ts.isModuleBlock(node.body)
+      TstsSyntax.IsModuleDeclaration(node) &&
+      getTstsNodeNameText(node) === "global"
     ) {
-      for (const stmt of node.body.statements) {
-        processDeclaration(stmt, sf, undefined, ownerIdentity);
+      const body = TstsSyntax.Node_Body(node);
+      for (const statement of TstsSyntax.Node_Statements(body) ?? []) {
+        if (statement) {
+          processDeclaration(statement, sourceFile, undefined, ownerIdentity);
+        }
       }
     }
   };
 
   for (const sourceFile of sourceFiles) {
+    const fileName = getSourceFileName(sourceFile);
     const ownerIdentity = resolveSourceFileOwnerIdentity(
-      sourceFile.fileName,
+      fileName,
       sourceRoot,
       rootNamespace
     );
-    const namespace = sourceFile.isDeclarationFile
+    const namespace = isDeclarationSourceFile(sourceFile)
       ? undefined
-      : resolveSourceFileNamespace(
-          sourceFile.fileName,
-          sourceRoot,
-          rootNamespace
-        );
+      : resolveSourceFileNamespace(fileName, sourceRoot, rootNamespace);
 
-    ts.forEachChild(sourceFile, (node) => {
-      processDeclaration(node, sourceFile, namespace, ownerIdentity);
-    });
+    for (const statement of getTopLevelStatements(sourceFile)) {
+      processDeclaration(statement, sourceFile, namespace, ownerIdentity);
+    }
   }
 
   return {
-    // Pure IR API
-    resolveNominal: (fqName: string): TypeRegistryEntry | undefined => {
-      return entries.get(fqName);
-    },
+    resolveNominal: (fqName: string): TypeRegistryEntry | undefined =>
+      entries.get(fqName),
 
     resolveBySimpleName: (
       simpleName: string
@@ -413,39 +380,44 @@ export const buildTypeRegistry = (
       return fqName ? entries.get(fqName) : undefined;
     },
 
-    getFQName: (simpleName: string): string | undefined => {
-      return simpleNameToFQ.get(simpleName);
-    },
+    getFQName: (simpleName: string): string | undefined =>
+      simpleNameToFQ.get(simpleName),
 
-    getFQNames: (simpleName: string): readonly string[] => {
-      return [...(simpleNameToFQs.get(simpleName) ?? [])];
-    },
+    getFQNames: (simpleName: string): readonly string[] => [
+      ...(simpleNameToFQs.get(simpleName) ?? []),
+    ],
 
     getMemberType: (
       fqNominal: string,
       memberName: string
-    ): IrType | undefined => {
-      const entry = entries.get(fqNominal);
-      if (!entry) return undefined;
-      const member = entry.members.get(memberName);
-      return member?.type;
-    },
+    ): IrType | undefined => entries.get(fqNominal)?.members.get(memberName)?.type,
 
-    getHeritageTypes: (fqNominal: string): readonly HeritageInfo[] => {
-      const entry = entries.get(fqNominal);
-      return entry?.heritage ?? [];
-    },
+    getHeritageTypes: (fqNominal: string) =>
+      entries.get(fqNominal)?.heritage ?? [],
 
-    getAllTypeNames: (): readonly string[] => {
-      return [...entries.keys()];
-    },
+    getAllTypeNames: () => [...entries.keys()],
 
-    hasType: (fqName: string): boolean => {
-      return entries.has(fqName);
-    },
+    hasType: (fqName: string): boolean => entries.has(fqName),
   };
 };
-const preservesProviderIdentity = (fileName: string): boolean => {
-  const normalized = path.sep === "/" ? fileName : fileName.replace(/\\/g, "/");
-  return normalized.includes("/tsonic/bindings/");
+
+export const preservesProviderIdentity = (fileName: string): boolean => {
+  const normalized = fileName.replace(/\\/g, "/");
+  const containingNamespace = resolveContainingSourcePackageNamespace(normalized);
+  if (containingNamespace !== undefined) {
+    return true;
+  }
+
+  let current = path.dirname(normalized);
+  while (current && current !== path.dirname(current)) {
+    if (
+      current.endsWith("/node_modules/@tsonic/globals") ||
+      current.endsWith("/node_modules/@tsonic/core")
+    ) {
+      return true;
+    }
+    current = path.dirname(current);
+  }
+
+  return false;
 };

@@ -2,7 +2,7 @@
  * Miscellaneous expression converters (conditional, template literals)
  */
 
-import * as ts from "typescript";
+import { getTstsNodeText, TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import {
   IrConditionalExpression,
   IrTemplateLiteralExpression,
@@ -14,14 +14,10 @@ import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
 import { normalizeExpectedArrayType } from "./array-literals.js";
-import {
-  collectTypeNarrowingsInFalsyExpr,
-  collectTypeNarrowingsInTruthyExpr,
-  withAppliedNarrowings,
-} from "../flow-narrowing.js";
 
-const isEmptyArrayLiteral = (node: ts.Expression): boolean =>
-  ts.isArrayLiteralExpression(node) && node.elements.length === 0;
+const isEmptyArrayLiteral = (node: TstsNode): boolean =>
+  node.Kind === TstsSyntax.KindArrayLiteralExpression &&
+  (TstsSyntax.Node_Elements(node) ?? []).length === 0;
 
 /**
  * Convert conditional (ternary) expression
@@ -34,40 +30,39 @@ const isEmptyArrayLiteral = (node: ts.Expression): boolean =>
  *   still sees the numeric slot deterministically
  */
 export const convertConditionalExpression = (
-  node: ts.ConditionalExpression,
+  node: TstsNode,
   ctx: ProgramContext,
   expectedType: IrType | undefined
 ): IrConditionalExpression => {
-  const condition = convertExpression(node.condition, ctx, undefined);
-  const truthyCtx = withAppliedNarrowings(
-    ctx,
-    collectTypeNarrowingsInTruthyExpr(node.condition, ctx)
-  );
-  const falsyCtx = withAppliedNarrowings(
-    ctx,
-    collectTypeNarrowingsInFalsyExpr(node.condition, ctx)
-  );
+  const conditional = TstsSyntax.AsConditionalExpression(node);
+  const conditionNode = conditional?.Condition;
+  const whenTrueNode = conditional?.WhenTrue;
+  const whenFalseNode = conditional?.WhenFalse;
+  if (!conditionNode || !whenTrueNode || !whenFalseNode) {
+    throw new Error("ICE: malformed conditional expression reached IR conversion");
+  }
+  const condition = convertExpression(conditionNode, ctx, undefined);
 
-  let whenTrue = convertExpression(node.whenTrue, truthyCtx, expectedType);
-  let whenFalse = convertExpression(node.whenFalse, falsyCtx, expectedType);
+  let whenTrue = convertExpression(whenTrueNode, ctx, expectedType);
+  let whenFalse = convertExpression(whenFalseNode, ctx, expectedType);
 
-  if (isEmptyArrayLiteral(node.whenTrue) && whenFalse.inferredType) {
+  if (isEmptyArrayLiteral(whenTrueNode) && whenFalse.inferredType) {
     const siblingArrayType = normalizeExpectedArrayType(
       whenFalse.inferredType,
       ctx
     );
     if (siblingArrayType) {
-      whenTrue = convertExpression(node.whenTrue, truthyCtx, siblingArrayType);
+      whenTrue = convertExpression(whenTrueNode, ctx, siblingArrayType);
     }
   }
 
-  if (isEmptyArrayLiteral(node.whenFalse) && whenTrue.inferredType) {
+  if (isEmptyArrayLiteral(whenFalseNode) && whenTrue.inferredType) {
     const siblingArrayType = normalizeExpectedArrayType(
       whenTrue.inferredType,
       ctx
     );
     if (siblingArrayType) {
-      whenFalse = convertExpression(node.whenFalse, falsyCtx, siblingArrayType);
+      whenFalse = convertExpression(whenFalseNode, ctx, siblingArrayType);
     }
   }
 
@@ -130,7 +125,7 @@ export const convertConditionalExpression = (
  * DETERMINISTIC TYPING: Template literals always produce string type.
  */
 export const convertTemplateLiteral = (
-  node: ts.TemplateExpression | ts.NoSubstitutionTemplateLiteral,
+  node: TstsNode,
   ctx: ProgramContext
 ): IrTemplateLiteralExpression => {
   // DETERMINISTIC: Template literals always produce string
@@ -139,23 +134,26 @@ export const convertTemplateLiteral = (
     name: "string" as const,
   };
 
-  if (ts.isNoSubstitutionTemplateLiteral(node)) {
+  if (node.Kind === TstsSyntax.KindNoSubstitutionTemplateLiteral) {
     return {
       kind: "templateLiteral",
-      quasis: [node.text],
+      quasis: [getTstsNodeText(node) ?? ""],
       expressions: [],
       inferredType: stringType,
       sourceSpan: getSourceSpan(node),
     };
   }
 
-  const quasis: string[] = [node.head.text];
+  const template = TstsSyntax.AsTemplateExpression(node);
+  const quasis: string[] = [getTstsNodeText(template?.Head) ?? ""];
   const expressions: IrExpression[] = [];
 
-  node.templateSpans.forEach((span) => {
-    expressions.push(convertExpression(span.expression, ctx, undefined));
-    quasis.push(span.literal.text);
-  });
+  for (const spanNode of template?.TemplateSpans?.Nodes ?? []) {
+    const span = spanNode ? TstsSyntax.AsTemplateSpan(spanNode) : undefined;
+    if (!span?.Expression) continue;
+    expressions.push(convertExpression(span.Expression, ctx, undefined));
+    quasis.push(getTstsNodeText(span.Literal) ?? "");
+  }
 
   return {
     kind: "templateLiteral",

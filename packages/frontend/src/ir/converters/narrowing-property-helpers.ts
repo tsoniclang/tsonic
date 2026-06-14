@@ -1,10 +1,10 @@
 import type { ProgramContext } from "../program-context.js";
 import type { IrType } from "../types.js";
+import type { DeclId } from "../type-system/types.js";
 import { normalizedUnionType } from "../types/type-ops.js";
-import type { BoundDecl } from "./narrowing-resolvers.js";
 
 export const getCurrentTypeForDecl = (
-  declId: BoundDecl,
+  declId: DeclId,
   ctx: ProgramContext
 ): IrType =>
   ctx.typeEnv?.get(declId.id) ?? ctx.typeSystem.typeOfValueRead(declId);
@@ -36,11 +36,13 @@ export const getReadableMemberTypeForNarrowing = (
     return member?.kind === "propertySignature" ? member.type : undefined;
   }
 
-  const memberType = ctx.typeSystem.typeOfMember(type, {
+  const memberType = ctx.typeSystem.tryTypeOfMember(type, {
     kind: "byName",
     name: propertyName,
   });
-  return memberType.kind === "unknownType" ? undefined : memberType;
+  return !memberType || memberType.kind === "unknownType"
+    ? undefined
+    : memberType;
 };
 
 const collectPropertyNarrowingCandidates = (
@@ -71,6 +73,53 @@ export const narrowTypeByPropertyTruthiness = (
       return wantTruthy
         ? memberType.value === true
         : memberType.value === false;
+    }
+  );
+
+  if (kept.length === 0) return undefined;
+  if (kept.length === 1) return kept[0];
+  return normalizedUnionType(kept);
+};
+
+const memberTypeMatchesLiteral = (
+  memberType: IrType | undefined,
+  value: string | number | bigint | boolean | null | undefined
+): boolean => {
+  if (!memberType) return false;
+  if (memberType.kind === "literalType") {
+    return memberType.value === value;
+  }
+  if (memberType.kind === "primitiveType") {
+    return (
+      (value === null && memberType.name === "null") ||
+      (value === undefined && memberType.name === "undefined")
+    );
+  }
+  if (memberType.kind === "unionType") {
+    return memberType.types.some((type) =>
+      memberTypeMatchesLiteral(type, value)
+    );
+  }
+  return false;
+};
+
+export const narrowTypeByPropertyLiteral = (
+  currentType: IrType,
+  propertyName: string,
+  value: string | number | bigint | boolean | null | undefined,
+  wantEqual: boolean,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const kept = collectPropertyNarrowingCandidates(currentType, ctx).filter(
+    (member): member is IrType => {
+      if (!member) return false;
+      const memberType = getReadableMemberTypeForNarrowing(
+        member,
+        propertyName,
+        ctx
+      );
+      const matches = memberTypeMatchesLiteral(memberType, value);
+      return wantEqual ? matches : !matches;
     }
   );
 

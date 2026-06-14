@@ -4,7 +4,7 @@
  * and synthesized object member collection.
  */
 
-import * as ts from "typescript";
+import { getTstsParameters, TstsSyntax, type TstsNode } from "@tsonic/tsts";
 import {
   IrBlockStatement,
   IrClassMember,
@@ -36,22 +36,27 @@ export const getSynthesizedPropertyType = (
 
 export const getProvisionalAccessorPropertyType = (
   memberName: string,
-  getter: ts.GetAccessorDeclaration | undefined,
-  setter: ts.SetAccessorDeclaration | undefined,
+  getter: TstsNode | undefined,
+  setter: TstsNode | undefined,
   expectedType: IrType | undefined,
   ctx: ProgramContext,
   objectLiteralThisType: IrType | undefined
 ): IrType | undefined => {
-  const getterType = getter?.type
-    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(getter.type))
+  const getterReturnType = getter ? TstsSyntax.Node_Type(getter) : undefined;
+  const getterType = getterReturnType
+    ? ctx.typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(getterReturnType)
+      )
     : undefined;
-  const setterValueParam = setter?.parameters[0];
-  const setterType =
-    setterValueParam?.type !== undefined
-      ? ctx.typeSystem.typeFromSyntax(
-          ctx.binding.captureTypeSyntax(setterValueParam.type)
-        )
-      : undefined;
+  const setterValueParam = setter ? getTstsParameters(setter)[0] : undefined;
+  const setterValueParamType = setterValueParam
+    ? TstsSyntax.Node_Type(setterValueParam)
+    : undefined;
+  const setterType = setterValueParamType
+    ? ctx.typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(setterValueParamType)
+      )
+    : undefined;
   if (getterType) return getterType;
   if (setterType) return setterType;
   if (expectedType) return expectedType;

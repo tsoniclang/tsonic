@@ -1567,21 +1567,28 @@ function emitKindAliasGuards(schema, lines) {
 
 function emitCasts(schema) {
   const lines = [];
+  const nodes = schema.nodeNames().filter((node) => !schema.definitions[node].handWritten);
+  const kindImports = new Set();
+  for (const node of nodes) {
+    for (const kindName of schema.kindTypesOf(node).kindNames) {
+      kindImports.add(`Kind${kindName}`);
+    }
+  }
+
   lines.push(`import type { GoPtr } from "../../../go/compat.js";`);
   lines.push(`import { goReceiverKey } from "../spine.js";`);
   lines.push(`import type { Node } from "../spine.js";`);
+  lines.push(`import {`);
+  for (const kindName of Array.from(kindImports).sort()) lines.push(`  ${kindName},`);
+  lines.push(`} from "./kinds.js";`);
   lines.push(`import type {`);
-  const dataImports = [];
-  for (const node of schema.nodeNames()) {
-    if (schema.definitions[node].handWritten) continue;
-    dataImports.push(node);
-  }
-  for (const d of dataImports.sort()) lines.push(`  ${d},`);
+  for (const d of [...nodes].sort()) lines.push(`  ${d},`);
   lines.push(`} from "./data.js";`);
   lines.push("");
   lines.push(`// Recovers the concrete receiver behind a Node's nodeData interface value`);
-  lines.push(`// (Go: n.data.(*Concrete)). Panics (throws) on kind mismatch, matching Go's`);
-  lines.push(`// single-return type assertion.`);
+  lines.push(`// (Go: n.data.(*Concrete)). The public TS API is nilable because frontend`);
+  lines.push(`// consumers frequently use AsXxx as a probe; return undefined on kind mismatch`);
+  lines.push(`// instead of reinterpreting a different concrete receiver as the requested node.`);
   lines.push("");
   for (const node of schema.nodeNames()) {
     if (schema.definitions[node].handWritten) {
@@ -1589,8 +1596,20 @@ function emitCasts(schema) {
       lines.push("");
       continue;
     }
+    const kindNames = schema.kindTypesOf(node).kindNames;
     lines.push(`export function As${node}(n: GoPtr<Node>): GoPtr<${node}> {`);
-    lines.push(`  return n!.data[goReceiverKey] as GoPtr<${node}>;`);
+    if (kindNames.length === 1) {
+      lines.push(`  return n?.Kind === Kind${kindNames[0]} ? n.data[goReceiverKey] as GoPtr<${node}> : undefined;`);
+    } else {
+      lines.push(`  switch (n?.Kind) {`);
+      for (const kindName of kindNames) {
+        lines.push(`    case Kind${kindName}:`);
+      }
+      lines.push(`      return n!.data[goReceiverKey] as GoPtr<${node}>;`);
+      lines.push(`    default:`);
+      lines.push(`      return undefined;`);
+      lines.push(`  }`);
+    }
     lines.push(`}`);
     lines.push("");
   }
