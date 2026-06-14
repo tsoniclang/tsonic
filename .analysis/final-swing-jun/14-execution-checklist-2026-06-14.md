@@ -16,9 +16,10 @@ Report this checklist every 15 minutes while long-running work is active.
 
 ```text
 branch: feature/tsts-final-completion
-latest pushed commit before this checkpoint: 09a30eca Preserve TSTS source facts through lowering
-current local state: typed extension diagnostic metadata, alias-target recursion guard, top-level structural helper collection, and public structural class members implemented; pending commit
+latest pushed commit before this checkpoint: 1f938a44 Harden TSTS lowering and diagnostic metadata
+current local state: typed extension diagnostic metadata, alias-target recursion guard, top-level structural helper collection, and public structural class members committed and pushed
 focused validation: @tsonic/frontend lowering plan builders 5 passing / 0 failing; @tsonic/frontend validator/maximus suites 260 passing / 0 failing; @tsonic/csharp-emitter module/expression renderer 3 passing / 0 failing
+package validation: @tsonic/frontend full package test 418 passing / 0 failing; @tsonic/csharp-emitter full package test 3 passing / 0 failing
 build validation: @tsonic/tsts, @tsonic/frontend, and @tsonic/csharp-emitter build after current local changes
 audit validation: product TSC import search clean outside vendored TSTS; frontend CLR/C#/System target leakage search clean; old IR/source-text emission decision search clean except diagnostics/token labels; message-substring capability gating removed
 full run-all: not restarted after current lowering sweep; final gates wait for code-completeness signoff
@@ -87,7 +88,7 @@ not done: final run-all, downstreams, branch hygiene, final PR report
 | 7.7 | Delete legacy manifests | One metadata schema only | Expanded | `AliasMetadataV1` removed; no V1/V2 bridge names remain in frontend/emitter product code |
 | 7.8 | Delete backend leakage | No frontend CLR/C#/System facts | Clean in product search | Reconfirm in final audit before run-all |
 | 8.1 | Frontend focused tests | Focused repaired suites green | Green for current lowering hardening | `5 passing / 0 failing` for lowering plan builders |
-| 8.2 | Frontend full tests | Frontend package tests green | Pending after metadata change | Re-run full frontend suite before run-all |
+| 8.2 | Frontend full tests | Frontend package tests green | Green after metadata change | `418 passing / 0 failing` |
 | 8.3 | TSTS package build | Vendored TSTS compiles | Green after metadata change | `npm run build --workspace @tsonic/tsts` |
 | 8.4 | C# emitter tests | Plan renderer tests green | Green after structural-helper hardening | `3 passing / 0 failing` |
 | 8.5 | Full run-all | Complete Tsonic gate green | Pending | `./test/scripts/run-all.sh` |
