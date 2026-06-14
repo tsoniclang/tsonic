@@ -52,21 +52,13 @@ const requireDeclarationName = (
   feature: string
 ): string | undefined => {
   if (plan.nameIsComputed || !plan.name) {
-    const compactNameSource = (plan.nameSourceText ?? plan.sourceText).replace(
-      /\s+/g,
-      ""
-    );
-    if (
-      plan.nameIsComputed &&
-      compactNameSource.includes("[Symbol.asyncIterator]")
-    ) {
-      return "GetAsyncEnumerator";
-    }
-    if (
-      plan.nameIsComputed &&
-      compactNameSource.includes("[Symbol.iterator]")
-    ) {
-      return "GetEnumerator";
+    switch (plan.computedName) {
+      case "symbol-async-iterator":
+        return "GetAsyncEnumerator";
+      case "symbol-iterator":
+        return "GetEnumerator";
+      case undefined:
+        break;
     }
     context.reportUnsupported(
       `${feature} name`,

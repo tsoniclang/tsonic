@@ -59,6 +59,7 @@ export type LoweringPlanBase<TKind extends string> = {
   readonly nameSourceKindName?: string;
   readonly nameSourceText?: string;
   readonly nameIsComputed: boolean;
+  readonly computedName?: "symbol-iterator" | "symbol-async-iterator";
 };
 
 export type LoweringTypePlan = LoweringPlanBase<"type"> & {

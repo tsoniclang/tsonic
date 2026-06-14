@@ -71,6 +71,29 @@ type NodeNameInfo = {
   readonly sourceKindName?: string;
   readonly sourceText?: string;
   readonly computed: boolean;
+  readonly computedName?: "symbol-iterator" | "symbol-async-iterator";
+};
+
+const computedWellKnownName = (
+  node: TstsNode | undefined
+): NodeNameInfo["computedName"] => {
+  if (!node || node.Kind !== TstsSyntax.KindComputedPropertyName) return undefined;
+  const expression = TstsSyntax.Node_Expression(node);
+  if (expression?.Kind !== TstsSyntax.KindPropertyAccessExpression) return undefined;
+  const receiver = TstsSyntax.Node_Expression(expression);
+  const member = TstsSyntax.Node_Name(expression);
+  if (receiver?.Kind !== TstsSyntax.KindIdentifier || member?.Kind !== TstsSyntax.KindIdentifier) {
+    return undefined;
+  }
+  if (TstsSyntax.Node_Text(receiver) !== "Symbol") return undefined;
+  switch (TstsSyntax.Node_Text(member)) {
+    case "iterator":
+      return "symbol-iterator";
+    case "asyncIterator":
+      return "symbol-async-iterator";
+    default:
+      return undefined;
+  }
 };
 
 const nodeNameInfo = (
@@ -83,7 +106,12 @@ const nodeNameInfo = (
   const sourceKindName = TstsSyntax.Node_KindString(nameNode);
   const sourceText = nodeSourceText(sourceFile, nameNode);
   if (nameNode.Kind === TstsSyntax.KindComputedPropertyName) {
-    return { sourceKindName, sourceText, computed: true };
+    return {
+      sourceKindName,
+      sourceText,
+      computed: true,
+      computedName: computedWellKnownName(nameNode),
+    };
   }
   return {
     name: nodeTokenText(sourceFile, nameNode),
@@ -108,7 +136,12 @@ const propertyNameInfo = (
   const sourceKindName = TstsSyntax.Node_KindString(nameNode);
   const sourceText = nodeSourceText(sourceFile, nameNode);
   if (nameNode.Kind === TstsSyntax.KindComputedPropertyName) {
-    return { sourceKindName, sourceText, computed: true };
+    return {
+      sourceKindName,
+      sourceText,
+      computed: true,
+      computedName: computedWellKnownName(nameNode),
+    };
   }
   return {
     name: nodeTokenText(sourceFile, nameNode),
@@ -608,6 +641,7 @@ const planBase = <TKind extends string>(
     nameSourceKindName: name.sourceKindName,
     nameSourceText: name.sourceText,
     nameIsComputed: name.computed,
+    computedName: name.computedName,
   };
 };
 
@@ -1546,6 +1580,7 @@ export const buildLoweringPlansForSourceFile = (
           nameSourceKindName: name.sourceKindName,
           nameSourceText: name.sourceText,
           nameIsComputed: name.computed,
+          computedName: name.computedName,
           stableId: `source-primitive:${numericPrimitive.kind}:${numericPrimitive.sourceName}`,
           sourceFeature: "type",
         });
