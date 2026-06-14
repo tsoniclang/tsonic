@@ -7,7 +7,7 @@ import type {
 import type { RenderContext } from "../types.js";
 import { sanitizeIdentifier } from "./names.js";
 import { renderStatement } from "./statements.js";
-import { renderCSharpType } from "./types.js";
+import { renderCSharpType, renderNullableCSharpType } from "./types.js";
 
 type LoweringBinaryOperator = NonNullable<
   LoweringExpressionPlan["binaryOperator"]
@@ -279,7 +279,7 @@ const renderLambdaParameter = (
   includeType: boolean
 ): string =>
   includeType
-    ? `${parameter.rest ? "params " : ""}${renderCSharpType(parameter.type, context)} ${sanitizeIdentifier(parameter.name)}`
+    ? `${parameter.rest ? "params " : ""}${parameter.optional ? renderNullableCSharpType(parameter.type, context) : renderCSharpType(parameter.type, context)} ${sanitizeIdentifier(parameter.name)}`
     : sanitizeIdentifier(parameter.name);
 
 const lambdaContextReturnType = (
@@ -326,7 +326,9 @@ export const renderFunctionExpressionType = (
     return undefined;
   }
   const parameterTypes = plan.parameters.map((parameter) =>
-    renderCSharpType(parameter.type, context)
+    parameter.optional
+      ? renderNullableCSharpType(parameter.type, context)
+      : renderCSharpType(parameter.type, context)
   );
   const returnType = renderCSharpType(
     plan.returnType ?? { kind: "intrinsic", name: "void" },
@@ -414,11 +416,14 @@ const renderSourceRuntimeName = (
       return "global::System.Console";
     case "Array":
     case "Error":
+    case "Global":
     case "JSON":
     case "Object":
     case "RegExp":
     case "String":
-      return `global::js.${operation.owner}`;
+      return operation.owner === "Global"
+        ? "global::js.Globals"
+        : `global::js.${operation.owner}`;
     case "Function":
       return "global::System.Delegate";
   }
@@ -623,6 +628,14 @@ const renderArrayReceiverCall = (
       return `${listReceiver()}.IndexOf(${renderArrayElementArgument(plan.arguments[0], receiverPlan, context)})`;
     case "forEach":
       return `${listReceiver()}.ForEach(${args[0] ?? "_ => { }"})`;
+    case "find":
+      return `global::System.Linq.Enumerable.FirstOrDefault(${enumerableReceiver()}, ${args[0] ?? "_ => false"})`;
+    case "findIndex":
+      return `${listReceiver()}.FindIndex(${args[0] ?? "_ => false"})`;
+    case "every":
+      return `global::System.Linq.Enumerable.All(${enumerableReceiver()}, ${args[0] ?? "_ => true"})`;
+    case "some":
+      return `global::System.Linq.Enumerable.Any(${enumerableReceiver()}, ${args[0] ?? "_ => false"})`;
     default:
       return `${receiver}.${operation.member}(${args.join(", ")})`;
   }
@@ -769,6 +782,9 @@ export const renderExpression = (
     case "identifier": {
       const rawName = plan.literalText ?? plan.name ?? "value";
       if (plan.qualifiedRuntimeName) return plan.qualifiedRuntimeName;
+      if (plan.sourceOperation?.dispatch === "static-call") {
+        return `${renderSourceRuntimeName(plan.sourceOperation)}.${plan.sourceOperation.member}`;
+      }
       return sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
     }
     case "this":
@@ -829,6 +845,13 @@ export const renderExpression = (
     case "binary": {
       const operator = renderOperator(plan.binaryOperator);
       if (!operator) return unsupportedExpression(context, plan);
+      if (plan.binaryOperator === "nullish-coalesce") {
+        const left = renderExpression(plan.left, context);
+        const right = renderExpression(plan.right, context);
+        return needsNullishConditionCheck(plan.left?.type)
+          ? `${left} ?? ${right}`
+          : left;
+      }
       return `${renderExpression(plan.left, context)} ${operator} ${renderExpression(plan.right, context)}`;
     }
     case "prefix-unary":
@@ -850,6 +873,11 @@ export const renderExpression = (
             return `${renderExpression(plan.expression, context)}.Count`;
           case "Function":
             return renderFunctionLength(plan.expression);
+          case "Error":
+            if (operation.member === "message") {
+              return `${renderExpression(plan.expression, context)}.Message`;
+            }
+            break;
           default:
             break;
         }
@@ -863,6 +891,13 @@ export const renderExpression = (
         plan.sourceOperation.owner === "String"
       ) {
         return `global::js.String.charAt(${renderExpression(plan.expression, context)}, ${renderExpression(plan.arguments[0], context)})`;
+      }
+      if (
+        plan.sourceOperation?.dispatch === "property" &&
+        plan.sourceOperation.owner === "Object" &&
+        plan.sourceOperation.member === "toStringTag"
+      ) {
+        return `${renderExpression(plan.expression, context)}.ToStringTag`;
       }
       return `${renderExpression(plan.expression, context)}[${renderExpression(plan.arguments[0], context)}]`;
     case "call":

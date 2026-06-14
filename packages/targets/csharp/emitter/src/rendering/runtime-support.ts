@@ -36,6 +36,7 @@ const jsRegExpSupport = `public sealed class RegExp
 
 const jsStringSupport = `public static class String
 {
+    public static string coerce(object? value) => Convert.ToString(value) ?? "";
     public static string trim(string value) => value.Trim();
     public static string trimStart(string value) => value.TrimStart();
     public static string trimEnd(string value) => value.TrimEnd();
@@ -47,6 +48,7 @@ const jsStringSupport = `public static class String
     public static bool endsWith(string value, string search) => value.EndsWith(search, StringComparison.Ordinal);
     public static bool includes(string value, string search) => value.Contains(search, StringComparison.Ordinal);
     public static int indexOf(string value, string search) => value.IndexOf(search, StringComparison.Ordinal);
+    public static int lastIndexOf(string value, string search) => value.LastIndexOf(search, StringComparison.Ordinal);
     public static string substring(string value, int start) => value.Substring(start);
     public static string substring(string value, int start, int end) => value.Substring(start, end - start);
     public static string slice(string value, int start) => start >= 0 ? value.Substring(start) : value.Substring(Math.Max(value.Length + start, 0));
@@ -57,6 +59,7 @@ const jsStringSupport = `public static class String
         return value.Substring(normalizedStart, Math.Max(normalizedEnd - normalizedStart, 0));
     }
     public static string replace(string value, string search, string replacement) => value.Replace(search, replacement, StringComparison.Ordinal);
+    public static string replaceAll(string value, string search, string replacement) => value.Replace(search, replacement, StringComparison.Ordinal);
     public static string fromCharCode(params int[] codes) => new string(codes.Select(code => (char)code).ToArray());
     public static string fromCodePoint(params int[] codes) => string.Concat(codes.Select(char.ConvertFromUtf32));
 }
@@ -69,6 +72,38 @@ const jsObjectSupport = `public static class Object
     public static IEnumerable<T> values<T>(Dictionary<string, T> value) => value.Values;
     public static IEnumerable<KeyValuePair<string, T>> entries<T>(Dictionary<string, T> value) => value;
     public static Dictionary<string, T> fromEntries<T>(IEnumerable<KeyValuePair<string, T>> entries) => entries.ToDictionary(entry => entry.Key, entry => entry.Value);
+}
+`;
+
+const jsGlobalsSupport = `public static class Globals
+{
+    private static int nextTimerId;
+    public static int setTimeout(Action handler, int timeout = 0)
+    {
+        handler();
+        return System.Threading.Interlocked.Increment(ref nextTimerId);
+    }
+
+    public static int setTimeout(Action<object?[]> handler, int timeout = 0, params object?[] args)
+    {
+        handler(args);
+        return System.Threading.Interlocked.Increment(ref nextTimerId);
+    }
+
+    public static int setInterval(Action handler, int timeout = 0)
+    {
+        handler();
+        return System.Threading.Interlocked.Increment(ref nextTimerId);
+    }
+
+    public static int setInterval(Action<object?[]> handler, int timeout = 0, params object?[] args)
+    {
+        handler(args);
+        return System.Threading.Interlocked.Increment(ref nextTimerId);
+    }
+
+    public static void clearTimeout(int id) { }
+    public static void clearInterval(int id) { }
 }
 `;
 
@@ -200,6 +235,9 @@ export const csharpRuntimeSupportFiles = (
       : []),
     ...(supportNeeded(emittedFiles, "global::js.Object")
       ? [jsObjectSupport]
+      : []),
+    ...(supportNeeded(emittedFiles, "global::js.Globals")
+      ? [jsGlobalsSupport]
       : []),
     ...(usesJson ? [jsJsonSupport] : []),
     ...(supportNeeded(emittedFiles, "global::js.Array") ||

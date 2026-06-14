@@ -46,7 +46,10 @@ export type LoweringPlanBase<TKind extends string> = {
   readonly nameSourceKindName?: string;
   readonly nameSourceText?: string;
   readonly nameIsComputed: boolean;
-  readonly computedName?: "symbol-iterator" | "symbol-async-iterator";
+  readonly computedName?:
+    | "symbol-iterator"
+    | "symbol-async-iterator"
+    | "symbol-to-string-tag";
 };
 
 export type LoweringTypePlan = LoweringPlanBase<"type"> & {
@@ -106,6 +109,7 @@ export type LoweringTypeRefPlan =
       readonly name: string;
       readonly typeArguments: readonly LoweringTypeRefPlan[];
       readonly aliasTarget?: LoweringTypeRefPlan;
+      readonly qualifiedRuntimeName?: string;
       readonly sourceText?: string;
     }
   | {
@@ -381,6 +385,7 @@ export type LoweringStatementPlan = LoweringPlanBase<"statement"> & {
     | "declaration"
     | "unsupported";
   readonly expression?: LoweringExpressionPlan;
+  readonly compileTimeOnly?: boolean;
   readonly condition?: LoweringExpressionPlan;
   readonly incrementor?: LoweringExpressionPlan;
   readonly iterable?: LoweringExpressionPlan;
@@ -437,6 +442,7 @@ export type LoweringPipelineResult<
 
 export type LoweringBuildContext = {
   readonly input: LoweringInput;
+  readonly options: LoweringPipelineOptions;
   readonly checkerForSourceFile: (
     sourceFile: TstsSourceFile
   ) => ExtensionTypeChecker;

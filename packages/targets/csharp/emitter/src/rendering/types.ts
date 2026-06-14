@@ -41,10 +41,16 @@ const knownNamedTypes: ReadonlyMap<string, string> = new Map([
   ["RegExp", "global::js.RegExp"],
   ["Map", "global::js.Map"],
   ["ReadonlyMap", "global::js.Map"],
+  ["JsValue", "object?"],
 ]);
 
-const renderNamedType = (name: string): string =>
-  knownNamedTypes.get(name) ?? sanitizeTypeName(name.replace(/\$/g, "_").replace(/\./g, "_"));
+const renderNamedType = (
+  name: string,
+  qualifiedRuntimeName?: string
+): string =>
+  qualifiedRuntimeName ??
+  knownNamedTypes.get(name) ??
+  sanitizeTypeName(name.replace(/\$/g, "_").replace(/\./g, "_"));
 
 const nonStructuralNamedTypes = new Set([
   "Array",
@@ -103,7 +109,7 @@ const typePlanKeyWithSeen = (
     case "source-primitive":
       return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
-      return `named:${type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
+      return `named:${type.qualifiedRuntimeName ?? type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
     case "array":
       return `array:${type.readonly ? "readonly" : "mutable"}:${typePlanKeyWithSeen(type.elementType, nextSeen)}`;
     case "tuple":
@@ -182,7 +188,9 @@ const renderFunctionType = (
 ): string => {
   if (type.kind !== "function") return renderCSharpType(type, context);
   const parameters = type.parameters.map((parameter) =>
-    renderCSharpType(parameter.type, context)
+    parameter.optional
+      ? renderNullableCSharpType(parameter.type, context)
+      : renderCSharpType(parameter.type, context)
   );
   const returnType = renderCSharpType(type.returnType, context);
   return returnType === "void"
@@ -247,7 +255,15 @@ export const renderCSharpType = (
     case "named": {
       const special = renderSpecialNamedType(type, context);
       if (special) return special;
-      const name = renderNamedType(type.name);
+      if (
+        type.aliasTarget &&
+        type.aliasTarget.kind !== "object" &&
+        type.aliasTarget.kind !== "function" &&
+        !type.qualifiedRuntimeName
+      ) {
+        return renderCSharpType(type.aliasTarget, context);
+      }
+      const name = renderNamedType(type.name, type.qualifiedRuntimeName);
       return type.typeArguments.length === 0
         ? name
         : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
@@ -317,7 +333,7 @@ export const renderTypeMember = (
     case "property":
       return `${renderCSharpType(member.type, context)} ${sanitizeIdentifier(member.name)} { get; set; }`;
     case "method":
-      return `${renderCSharpType(member.returnType, context)} ${sanitizeIdentifier(member.name)}(${member.parameters
+      return `${renderCSharpType(member.returnType, context)} ${sanitizeIdentifier(member.name)}${member.typeParameters.length > 0 ? `<${member.typeParameters.map((name) => sanitizeTypeName(name)).join(", ")}>` : ""}(${member.parameters
         .map(
           (parameter) =>
             `${renderCSharpType(parameter.type, context)} ${sanitizeIdentifier(parameter.name)}`

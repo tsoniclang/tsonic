@@ -61,6 +61,8 @@ const requireDeclarationName = (
         return "GetAsyncEnumerator";
       case "symbol-iterator":
         return "GetEnumerator";
+      case "symbol-to-string-tag":
+        return "ToStringTag";
       case undefined:
         break;
     }
@@ -99,7 +101,7 @@ const renderFunction = (
       : renderFunctionReturnType(plan.returnType, plan.async, context);
   return [
     `public ${staticModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
-    renderFunctionBody(plan.body, context),
+    renderFunctionBody(plan.body, context, plan.returnType),
   ].join("\n");
 };
 
@@ -274,7 +276,7 @@ const renderTypeMemberAlias = (
     case "property":
       return `${includePublic ? "public " : ""}${renderCSharpType(member.type, context)} ${sanitizeIdentifier(member.name)} { get; set; }`;
     case "method":
-      return `${renderCSharpType(member.returnType, context)} ${sanitizeIdentifier(member.name)}(${member.parameters
+      return `${renderCSharpType(member.returnType, context)} ${sanitizeIdentifier(member.name)}${renderTypeParameters(member.typeParameters)}(${member.parameters
         .map((parameter) => renderParameter(parameter, context))
         .join(", ")});`;
     case "index-signature": {

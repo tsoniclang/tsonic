@@ -321,9 +321,15 @@ const isWellKnownSymbolName = (
   context: CheckedContext,
   node: TstsNode | undefined,
   sourceDiagnosticFileNames?: ReadonlySet<string>
-): "symbol-iterator" | "symbol-async-iterator" | undefined => {
-  if (node?.Kind !== TstsSyntax.KindComputedPropertyName) return undefined;
-  const expression = TstsSyntax.Node_Expression(node);
+):
+  | "symbol-iterator"
+  | "symbol-async-iterator"
+  | "symbol-to-string-tag"
+  | undefined => {
+  const expression =
+    node?.Kind === TstsSyntax.KindComputedPropertyName
+      ? TstsSyntax.Node_Expression(node)
+      : node;
   if (expression?.Kind !== TstsSyntax.KindPropertyAccessExpression) {
     return undefined;
   }
@@ -343,6 +349,8 @@ const isWellKnownSymbolName = (
       return "symbol-iterator";
     case "asyncIterator":
       return "symbol-async-iterator";
+    case "toStringTag":
+      return "symbol-to-string-tag";
     default:
       return undefined;
   }
@@ -436,6 +444,12 @@ const objectStaticRuntimeMembers = new Set([
 ]);
 
 const jsonStaticRuntimeMembers = new Set(["parse", "stringify"]);
+const globalRuntimeMembers = new Set([
+  "clearInterval",
+  "clearTimeout",
+  "setInterval",
+  "setTimeout",
+]);
 
 const sourceRuntimeOperation = (
   context: CheckedContext,
@@ -444,6 +458,15 @@ const sourceRuntimeOperation = (
 ): SourceRuntimeOperationFact | undefined => {
   if (node.Kind === TstsSyntax.KindElementAccessExpression) {
     const receiver = TstsSyntax.Node_Expression(node);
+    const argument = TstsSyntax.AsElementAccessExpression(node)?.ArgumentExpression;
+    const computedName = isWellKnownSymbolName(
+      context,
+      argument,
+      sourceDiagnosticFileNames
+    );
+    if (computedName === "symbol-to-string-tag") {
+      return { owner: "Object", member: "toStringTag", dispatch: "property" };
+    }
     const receiverType = context.checker.getNarrowedTypeAtLocation(receiver);
     return receiverType && context.checker.isStringLikeType(receiverType)
       ? { owner: "String", member: "charAt", dispatch: "index" }
@@ -476,6 +499,31 @@ const sourceRuntimeOperation = (
         dispatch: "constructor",
       };
     }
+  }
+
+  if (node.Kind === TstsSyntax.KindIdentifier) {
+    const memberName = getTstsIdentifierText(node);
+    if (!memberName) return undefined;
+    if (
+      memberName === "String" &&
+      isAmbientGlobalIdentifier(
+        context,
+        node,
+        "String",
+        sourceDiagnosticFileNames
+      )
+    ) {
+      return { owner: "String", member: "coerce", dispatch: "static-call" };
+    }
+    return globalRuntimeMembers.has(memberName) &&
+      isAmbientGlobalIdentifier(
+        context,
+        node,
+        memberName,
+        sourceDiagnosticFileNames
+      )
+      ? { owner: "Global", member: memberName, dispatch: "static-call" }
+      : undefined;
   }
 
   if (node.Kind !== TstsSyntax.KindPropertyAccessExpression) {
@@ -561,6 +609,14 @@ const sourceRuntimeOperation = (
     if (context.checker.getCallSignatures(receiverType).length > 0) {
       return { owner: "Function", member: "length", dispatch: "property" };
     }
+  }
+  if (
+    memberName === "message" &&
+    receiverType &&
+    (context.checker.getTypeSymbolName(receiverType) === "Error" ||
+      context.checker.getTypeAliasSymbolName(receiverType) === "Error")
+  ) {
+    return { owner: "Error", member: "message", dispatch: "property" };
   }
 
   if (
@@ -680,6 +736,46 @@ const isGenericFunctionNode = (node: TstsNode | undefined): boolean =>
       ].includes(node.Kind) &&
       getTstsTypeParameterNodes(node).length > 0
   );
+
+const overloadableFunctionLikeKinds = new Set([
+  TstsSyntax.KindFunctionDeclaration,
+  TstsSyntax.KindMethodDeclaration,
+  TstsSyntax.KindConstructor,
+]);
+
+const overloadCountForFunctionLike = (
+  node: TstsNode | undefined,
+  topLevelFunctionDeclarationCounts: ReadonlyMap<string, number>
+): number => {
+  if (!node || !overloadableFunctionLikeKinds.has(node.Kind)) return 0;
+  const name = getTstsNodeNameText(node);
+  if (!name) return 0;
+  if (node.Kind === TstsSyntax.KindFunctionDeclaration) {
+    return topLevelFunctionDeclarationCounts.get(name) ?? 0;
+  }
+  const parent = node.Parent;
+  if (!parent) return 0;
+  return (TstsSyntax.Node_Members(parent) ?? []).filter(
+    (member) =>
+      member?.Kind === node.Kind && getTstsNodeNameText(member) === name
+  ).length;
+};
+
+const parameterHasCheckerProvenType = (
+  context: CheckedContext,
+  parameter: TstsNode
+): boolean => {
+  const name = TstsSyntax.Node_Name(parameter);
+  const symbol = symbolForName(context, name);
+  if (!symbol) return false;
+  const type = context.checker.getTypeOfSymbolAtLocation(symbol, parameter);
+  return (
+    type !== undefined &&
+    !context.checker.isAnyOrUnknownType(type) &&
+    !context.checker.isVoidType(type) &&
+    !context.checker.isNeverType(type)
+  );
+};
 
 const symbolForName = (
   context: CheckedContext,
@@ -833,6 +929,32 @@ const structHeritageTypes = (
   );
 
 type CheckedContext = ExtensionCheckedSourceFileContext;
+
+const isCompileTimeMarkerApiExpression = (
+  node: TstsNode | undefined,
+  context: Pick<CheckedContext, "facts">
+): boolean => {
+  if (!node) return false;
+  if (context.facts.get(markerApiSemanticsFactKey, node)) {
+    return true;
+  }
+  switch (node.Kind) {
+    case TstsSyntax.KindCallExpression:
+    case TstsSyntax.KindNewExpression:
+    case TstsSyntax.KindPropertyAccessExpression:
+      return isCompileTimeMarkerApiExpression(
+        TstsSyntax.Node_Expression(node),
+        context
+      );
+    case TstsSyntax.KindParenthesizedExpression:
+      return isCompileTimeMarkerApiExpression(
+        TstsSyntax.Node_Expression(node),
+        context
+      );
+    default:
+      return false;
+  }
+};
 
 export type TsonicSourceSemanticsExtensionOptions = {
   readonly sourceDiagnosticFileNames?: readonly string[];
@@ -1248,13 +1370,10 @@ export const createTsonicSourceSemanticsExtension = (
 
       if (node.Kind === TstsSyntax.KindAnyKeyword) {
         const functionParent = nearestFunctionLikeParent(parents);
-        const functionParentName = getTstsNodeNameText(functionParent);
         if (
           !functionParent ||
-          !(
-            functionParentName &&
-            (functionDeclarationCounts.get(functionParentName) ?? 0) > 1
-          )
+          overloadCountForFunctionLike(functionParent, functionDeclarationCounts) <=
+            1
         ) {
           addSourceDiagnostic(
             context,
@@ -1271,9 +1390,14 @@ export const createTsonicSourceSemanticsExtension = (
         const contextualType = functionParent
           ? context.checker.getContextualType(functionParent)
           : undefined;
+        const inCompileTimeMarkerExpression = parents.some((parent) =>
+          isCompileTimeMarkerApiExpression(parent, context)
+        );
         if (
           !parameterType &&
-          !isMonomorphicCallableType(context, contextualType)
+          !inCompileTimeMarkerExpression &&
+          !isMonomorphicCallableType(context, contextualType) &&
+          !parameterHasCheckerProvenType(context, node)
         ) {
           addSourceDiagnostic(
             context,

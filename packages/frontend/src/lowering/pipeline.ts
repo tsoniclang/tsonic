@@ -24,6 +24,7 @@ export const runLoweringPipeline = <
   const modules = [];
   const context = {
     input,
+    options,
     checkerForSourceFile: (sourceFile: TstsSourceFile) =>
       program.sourceProgram.withSourceSemantics(sourceFile, (checker) => checker),
     diagnostics,

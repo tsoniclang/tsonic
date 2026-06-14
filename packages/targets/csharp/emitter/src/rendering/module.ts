@@ -106,8 +106,9 @@ const collectStructuralTypesFromExpression = (
   expression: LoweringExpressionPlan | undefined
 ): void => {
   if (!expression) return;
-  collectStructuralType(types, expression.type);
-  collectStructuralType(types, expression.contextualTypePlan);
+  if (expression.expressionKind === "object-literal") {
+    collectStructuralType(types, expression.contextualTypePlan);
+  }
   collectStructuralType(types, expression.returnType);
   for (const typeArgument of expression.typeArguments) {
     collectStructuralType(types, typeArgument);

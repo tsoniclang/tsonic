@@ -17,8 +17,8 @@ Report this checklist every 15 minutes while long-running work is active.
 ```text
 branch: feature/tsts-final-completion
 latest pushed commit before this checkpoint: 1f938a44 Harden TSTS lowering and diagnostic metadata
-current local state: typed extension diagnostic metadata, alias-target recursion guard, top-level structural helper collection, and public structural class members committed and pushed
-focused validation: @tsonic/frontend lowering plan builders 5 passing / 0 failing; @tsonic/frontend validator/maximus suites 260 passing / 0 failing; @tsonic/csharp-emitter module/expression renderer 3 passing / 0 failing
+current local state: source runtime operation expansion, source-package runtime qualification, compile-time marker top-level filtering, and AST/fact-backed C# renderer hardening ready to commit
+focused validation: @tsonic/frontend lowering plan builders 5 passing / 0 failing; @tsonic/frontend validator/maximus suites 260 passing / 0 failing; @tsonic/csharp-emitter module/expression renderer 3 passing / 0 failing; targeted native-library/source-package CLI subset 8 passing / 0 failing
 package validation: @tsonic/frontend full package test 418 passing / 0 failing; @tsonic/csharp-emitter full package test 3 passing / 0 failing
 build validation: @tsonic/tsts, @tsonic/frontend, and @tsonic/csharp-emitter build after current local changes
 audit validation: product TSC import search clean outside vendored TSTS; frontend CLR/C#/System target leakage search clean; old IR/source-text emission decision search clean except diagnostics/token labels; message-substring capability gating removed

@@ -1,6 +1,7 @@
 import type {
   LoweringBindingAccessPlan,
   LoweringStatementPlan,
+  LoweringTypeRefPlan,
   LoweringVariablePlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
@@ -231,6 +232,34 @@ const isCSharpStatementExpression = (
   }
 };
 
+const isBroadExpressionType = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  type === undefined ||
+  (type.kind === "intrinsic" &&
+    (type.name === "any" || type.name === "unknown" || type.name === "object")) ||
+  type.kind === "union" ||
+  type.kind === "unsupported";
+
+const renderReturnExpression = (
+  expression: LoweringStatementPlan["expression"],
+  context: RenderContext
+): string => {
+  const rendered = renderExpression(expression, context);
+  const expectedType = context.currentReturnType;
+  if (
+    expectedType &&
+    !(
+      expectedType.kind === "intrinsic" &&
+      (expectedType.name === "void" || expectedType.name === "unknown" || expectedType.name === "object")
+    ) &&
+    isBroadExpressionType(expression?.type)
+  ) {
+    return `((${renderCSharpType(expectedType, context)})(${rendered}))`;
+  }
+  return rendered;
+};
+
 export const renderStatement = (
   plan: LoweringStatementPlan | undefined,
   context: RenderContext
@@ -242,7 +271,7 @@ export const renderStatement = (
       return renderBlockLike(plan.statements, context);
     case "return":
       return plan.expression
-        ? `return ${renderExpression(plan.expression, context)};`
+        ? `return ${renderReturnExpression(plan.expression, context)};`
         : "return;";
     case "expression":
       if (isCompileTimeOnlyExpression(plan.expression)) {
@@ -333,11 +362,18 @@ export const renderStatement = (
 
 export const renderFunctionBody = (
   body: LoweringStatementPlan | undefined,
-  context: RenderContext
+  context: RenderContext,
+  returnType?: LoweringTypeRefPlan
 ): string => {
+  const previousReturnType = context.currentReturnType;
+  context.currentReturnType = returnType;
+  try {
   if (!body) return "{\n}";
   if (body.statementKind === "block") return renderStatement(body, context);
   return renderBlockLike([body], context);
+  } finally {
+    context.currentReturnType = previousReturnType;
+  }
 };
 
 export const renderTopLevelBody = (

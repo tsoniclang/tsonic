@@ -282,20 +282,15 @@ describe("build command (native library port regressions)", function () {
       expect(result.ok).to.equal(true);
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.match(
-        /global::Tsonic\.Internal\.ArrayInterop\.WrapArray\(todos\)\.find\(/
-      );
-      expect(tree).to.match(
-        /global::Tsonic\.Internal\.ArrayInterop\.WrapArray\(todos\)\.findIndex\(/
-      );
+      expect(tree).to.include("global::System.Linq.Enumerable.FirstOrDefault");
+      expect(tree).to.include(".FindIndex(");
       expect(tree).to.include(
-        "global::js.timers.setInterval((object?[] __unused_args) =>"
+        "global::js.Globals.setInterval(() =>"
       );
+      expect(tree).to.not.include("global::Tsonic.Internal.ArrayInterop");
       expect(tree).to.not.include("__unused_index");
       expect(tree).to.not.include("__unused_array");
       expect(tree).to.not.include("global::js.Timers.setInterval");
-      expect(tree).to.not.include("todos.Find(");
-      expect(tree).to.not.include("todos.FindIndex(");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -72,6 +72,7 @@ export type SourceRuntimeOperationOwner =
   | "Console"
   | "Error"
   | "Function"
+  | "Global"
   | "JSON"
   | "Object"
   | "RegExp"
@@ -91,7 +92,10 @@ export type SourceRuntimeOperationFact = {
 };
 
 export type WellKnownComputedNameFact = {
-  readonly kind: "symbol-iterator" | "symbol-async-iterator";
+  readonly kind:
+    | "symbol-iterator"
+    | "symbol-async-iterator"
+    | "symbol-to-string-tag";
 };
 
 export type GenericFunctionAliasFact = {

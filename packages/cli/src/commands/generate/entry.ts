@@ -32,6 +32,8 @@ export const hasTopLevelExecutableStatements = (
       case "variable":
       case "empty":
         return false;
+      case "expression":
+        return statement.compileTimeOnly !== true;
       default:
         return true;
     }

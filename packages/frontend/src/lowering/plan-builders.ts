@@ -5,6 +5,7 @@ import {
   getTstsTypeReferenceDetails,
   TstsSyntax,
 } from "@tsonic/tsts";
+import { resolveSourceFileIdentity } from "../program/source-file-identity.js";
 import type {
   TstsNode,
   TstsSignature,
@@ -74,7 +75,10 @@ type NodeNameInfo = {
   readonly sourceKindName?: string;
   readonly sourceText?: string;
   readonly computed: boolean;
-  readonly computedName?: "symbol-iterator" | "symbol-async-iterator";
+  readonly computedName?:
+    | "symbol-iterator"
+    | "symbol-async-iterator"
+    | "symbol-to-string-tag";
 };
 
 const nodeNameInfo = (
@@ -392,6 +396,12 @@ const checkerTypePlan = (
         .filter(
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ),
+      qualifiedRuntimeName: qualifiedRuntimeNameForType(
+        context,
+        sourceFile,
+        type,
+        name
+      ),
     };
   }
 
@@ -444,6 +454,85 @@ const sourceFileForNode = (
   node
     ? (getTstsContainingSourceFile(node) ?? defaultSourceFile)
     : defaultSourceFile;
+
+const namespaceTypeDeclarationKinds = new Set([
+  TstsSyntax.KindClassDeclaration,
+  TstsSyntax.KindEnumDeclaration,
+  TstsSyntax.KindInterfaceDeclaration,
+  TstsSyntax.KindTypeAliasDeclaration,
+]);
+
+const staticContainerValueDeclarationKinds = new Set([
+  TstsSyntax.KindFunctionDeclaration,
+  TstsSyntax.KindVariableDeclaration,
+]);
+
+const qualifiedRuntimeNameForDeclaration = (
+  context: LoweringBuildContext,
+  declaration: TstsNode | undefined,
+  exportedName: string,
+  target: "type" | "value"
+): string | undefined => {
+  if (!declaration) return undefined;
+  if (declaration.Kind === TstsSyntax.KindTypeParameter) return undefined;
+  const declarationSourceFile = getTstsContainingSourceFile(declaration);
+  if (!declarationSourceFile) return undefined;
+  if (declarationSourceFile.IsDeclarationFile === true) return undefined;
+  if (!context.input.moduleGraph.getSourceFileModule(declarationSourceFile)) {
+    return undefined;
+  }
+  const identity = resolveSourceFileIdentity(
+    declarationSourceFile.FileName(),
+    context.options.sourceRoot,
+    context.options.rootNamespace
+  );
+  const renderedName = exportedName.replace(/\$/g, "_");
+  if (target === "type" || namespaceTypeDeclarationKinds.has(declaration.Kind)) {
+    return `global::${identity.namespace}.${renderedName}`;
+  }
+  if (staticContainerValueDeclarationKinds.has(declaration.Kind)) {
+    return `global::${identity.namespace}.${identity.className}.${renderedName}`;
+  }
+  return undefined;
+};
+
+const qualifiedRuntimeNameForType = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  type: TstsType | undefined,
+  name: string
+): string | undefined => {
+  if (!type) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const symbol = checker.getTypeAliasOrSymbol(type);
+  const declaration = symbol
+    ? checker.getSymbolDeclarations(symbol).find(
+        (candidate): candidate is TstsNode => candidate !== undefined
+      )
+    : undefined;
+  return qualifiedRuntimeNameForDeclaration(context, declaration, name, "type");
+};
+
+const qualifiedRuntimeNameForSymbol = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  symbol: TstsSymbol | undefined,
+  exportedName: string
+): string | undefined => {
+  if (!symbol) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const declaration =
+    checker.getSymbolValueDeclaration(symbol) ??
+    checker
+      .getSymbolDeclarations(symbol)
+      .find((candidate): candidate is TstsNode => candidate !== undefined);
+  return qualifiedRuntimeNameForDeclaration(
+    context,
+    declaration,
+    exportedName,
+    "value"
+  );
+};
 
 type SourceTypePlanState = {
   readonly aliasTargets: Set<TstsNode>;
@@ -513,6 +602,8 @@ const sourceTypePlan = (
 
   const typeReference = getTstsTypeReferenceDetails(node);
   if (typeReference) {
+    const checker = context.checkerForSourceFile(sourceFile);
+    const sourceType = checker.getTypeFromTypeNode(node);
     return {
       kind: "named",
       name: typeReference.name,
@@ -522,6 +613,12 @@ const sourceTypePlan = (
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ),
       aliasTarget: sourceTypeAliasTargetPlan(context, sourceFile, node, state),
+      qualifiedRuntimeName: qualifiedRuntimeNameForType(
+        context,
+        sourceFile,
+        sourceType,
+        typeReference.name
+      ),
       sourceText,
     };
   }
@@ -1096,7 +1193,7 @@ const expressionSemantic = (
 
 const dotnetModulePrefix = "@tsonic/dotnet/";
 
-const dotnetQualifiedRuntimeName = (
+const importQualifiedRuntimeName = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
   context: LoweringBuildContext
@@ -1117,16 +1214,26 @@ const dotnetQualifiedRuntimeName = (
       )
     );
   const specifier = importModule?.specifier;
-  if (!specifier?.startsWith(dotnetModulePrefix) || !specifier.endsWith(".js")) {
-    return undefined;
+  if (specifier?.startsWith(dotnetModulePrefix) && specifier.endsWith(".js")) {
+    const namespace = specifier
+      .slice(dotnetModulePrefix.length, -".js".length)
+      .replace(/\//g, ".");
+    const typeName = binding.importedName.endsWith("$instance")
+      ? binding.importedName.slice(0, -"$instance".length)
+      : binding.importedName;
+    return `global::${namespace}.${typeName.replace(/\$/g, "_")}`;
   }
-  const namespace = specifier
-    .slice(dotnetModulePrefix.length, -".js".length)
-    .replace(/\//g, ".");
-  const typeName = binding.importedName.endsWith("$instance")
-    ? binding.importedName.slice(0, -"$instance".length)
-    : binding.importedName;
-  return `global::${namespace}.${typeName.replace(/\$/g, "_")}`;
+
+  if (binding.kind === "namespace") return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const rawSymbol = checker.getSymbolAtLocation(node);
+  const symbol = rawSymbol ? checker.resolveAlias(rawSymbol) : undefined;
+  return qualifiedRuntimeNameForSymbol(
+    context,
+    sourceFile,
+    symbol,
+    binding.importedName
+  );
 };
 
 const expressionPlan = (
@@ -1157,7 +1264,7 @@ const expressionPlan = (
       genericFunctionAliasFactKey,
       node
     )?.resolvedName,
-    qualifiedRuntimeName: dotnetQualifiedRuntimeName(sourceFile, node, context),
+    qualifiedRuntimeName: importQualifiedRuntimeName(sourceFile, node, context),
     intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
       ?.kind,
     passingMode: context.input.facts.get(parameterPassingFactKey, node)?.mode,
@@ -1711,15 +1818,19 @@ const statementPlan = (
       };
     }
     case TstsSyntax.KindExpressionStatement:
-      return {
-        ...empty,
-        statementKind: "expression",
-        expression: expressionPlan(
+      {
+        const expression = expressionPlan(
           sourceFile,
           TstsSyntax.Node_Expression(node),
           context
-        ),
-      };
+        );
+        return {
+        ...empty,
+        statementKind: "expression",
+          expression,
+          compileTimeOnly: expression?.semantic === "compile-time-marker-call",
+        };
+      }
     case TstsSyntax.KindVariableStatement: {
       const statement = TstsSyntax.AsVariableStatement(node);
       return {
