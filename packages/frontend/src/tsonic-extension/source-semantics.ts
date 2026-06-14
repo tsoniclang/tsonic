@@ -448,6 +448,7 @@ const objectStaticRuntimeMembers = new Set([
 ]);
 
 const jsonStaticRuntimeMembers = new Set(["parse", "stringify"]);
+const mapReceiverRuntimeMembers = new Set(["delete", "get", "has", "set"]);
 const globalRuntimeMembers = new Set([
   "clearInterval",
   "clearTimeout",
@@ -472,9 +473,17 @@ const sourceRuntimeOperation = (
       return { owner: "Object", member: "toStringTag", dispatch: "property" };
     }
     const receiverType = context.checker.getNarrowedTypeAtLocation(receiver);
-    return receiverType && context.checker.isStringLikeType(receiverType)
-      ? { owner: "String", member: "charAt", dispatch: "index" }
-      : undefined;
+    if (receiverType && context.checker.isStringLikeType(receiverType)) {
+      return { owner: "String", member: "charAt", dispatch: "index" };
+    }
+    if (
+      receiverType &&
+      (context.checker.isArrayType(receiverType) ||
+        context.checker.isTupleType(receiverType))
+    ) {
+      return { owner: "Array", member: "element", dispatch: "index" };
+    }
+    return undefined;
   }
 
   if (node.Kind === TstsSyntax.KindNewExpression) {
@@ -502,6 +511,16 @@ const sourceRuntimeOperation = (
         member: "constructor",
         dispatch: "constructor",
       };
+    }
+    if (
+      isAmbientGlobalIdentifier(
+        context,
+        expression,
+        "Map",
+        sourceDiagnosticFileNames
+      )
+    ) {
+      return { owner: "Map", member: "constructor", dispatch: "constructor" };
     }
   }
 
@@ -638,6 +657,17 @@ const sourceRuntimeOperation = (
     arrayReceiverRuntimeMembers.has(memberName)
   ) {
     return { owner: "Array", member: memberName, dispatch: "receiver-call" };
+  }
+
+  if (
+    receiverType &&
+    (context.checker.getTypeSymbolName(receiverType) === "Map" ||
+      context.checker.getTypeAliasSymbolName(receiverType) === "Map" ||
+      context.checker.getTypeSymbolName(receiverType) === "ReadonlyMap" ||
+      context.checker.getTypeAliasSymbolName(receiverType) === "ReadonlyMap") &&
+    mapReceiverRuntimeMembers.has(memberName)
+  ) {
+    return { owner: "Map", member: memberName, dispatch: "receiver-call" };
   }
 
   if (memberName === "toString" && receiverType) {

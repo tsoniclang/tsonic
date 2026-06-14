@@ -36,62 +36,100 @@ const isStaticTopLevelVariableStatement = (
     (declaration) => declaration.bindingElements.length === 0
   );
 
+type StructuralTypeTraversalState = {
+  readonly types: ReadonlySet<LoweringTypeRefPlan>;
+  readonly namedTypes: ReadonlySet<string>;
+};
+
+const createStructuralTypeTraversalState = (): StructuralTypeTraversalState => ({
+  types: new Set<LoweringTypeRefPlan>(),
+  namedTypes: new Set<string>(),
+});
+
+const structuralNamedTypeKey = (
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>
+): string =>
+  `${type.qualifiedRuntimeName ?? type.name}<${type.typeArguments.length}>`;
+
+const withStructuralType = (
+  state: StructuralTypeTraversalState,
+  type: LoweringTypeRefPlan
+): StructuralTypeTraversalState | undefined => {
+  if (state.types.has(type)) return undefined;
+  const types = new Set(state.types);
+  types.add(type);
+  return { types, namedTypes: state.namedTypes };
+};
+
+const withStructuralNamedType = (
+  state: StructuralTypeTraversalState,
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>
+): StructuralTypeTraversalState | undefined => {
+  const key = structuralNamedTypeKey(type);
+  if (state.namedTypes.has(key)) return undefined;
+  const namedTypes = new Set(state.namedTypes);
+  namedTypes.add(key);
+  return { types: state.types, namedTypes };
+};
+
 const collectStructuralType = (
   types: Map<string, LoweringTypeRefPlan>,
   type: LoweringTypeRefPlan | undefined,
-  seen: ReadonlySet<LoweringTypeRefPlan> = new Set<LoweringTypeRefPlan>()
+  state: StructuralTypeTraversalState = createStructuralTypeTraversalState()
 ): void => {
   if (!type) return;
-  if (seen.has(type)) return;
-  const nextSeen = new Set(seen);
-  nextSeen.add(type);
+  const typeState = withStructuralType(state, type);
+  if (!typeState) return;
   switch (type.kind) {
     case "object":
       types.set(typePlanKey(type), type);
       for (const member of type.members) {
         switch (member.kind) {
           case "property":
-            collectStructuralType(types, member.type, nextSeen);
+            collectStructuralType(types, member.type, typeState);
             break;
           case "method":
             for (const parameter of member.parameters) {
-              collectStructuralType(types, parameter.type, nextSeen);
+              collectStructuralType(types, parameter.type, typeState);
             }
-            collectStructuralType(types, member.returnType, nextSeen);
+            collectStructuralType(types, member.returnType, typeState);
             break;
         }
       }
       break;
-    case "named":
+    case "named": {
+      const namedState = withStructuralNamedType(typeState, type);
+      if (!namedState) return;
       if (shouldExpandNamedAliasTarget(type)) {
-        collectStructuralType(types, type.aliasTarget, nextSeen);
+        collectStructuralType(types, type.aliasTarget, namedState);
       }
       for (const argument of type.typeArguments) {
-        collectStructuralType(types, argument, nextSeen);
+        collectStructuralType(types, argument, namedState);
       }
       break;
+    }
     case "array":
-      collectStructuralType(types, type.elementType, nextSeen);
+      collectStructuralType(types, type.elementType, typeState);
       break;
     case "tuple":
       for (const element of type.elements) {
-        collectStructuralType(types, element, nextSeen);
+        collectStructuralType(types, element, typeState);
       }
       break;
     case "union":
     case "intersection":
       for (const member of type.types) {
-        collectStructuralType(types, member, nextSeen);
+        collectStructuralType(types, member, typeState);
       }
       break;
     case "function":
       for (const parameter of type.parameters) {
-        collectStructuralType(types, parameter.type, nextSeen);
+        collectStructuralType(types, parameter.type, typeState);
       }
-      collectStructuralType(types, type.returnType, nextSeen);
+      collectStructuralType(types, type.returnType, typeState);
       break;
     case "predicate":
-      collectStructuralType(types, type.assertedType, nextSeen);
+      collectStructuralType(types, type.assertedType, typeState);
       break;
     case "intrinsic":
     case "source-primitive":
@@ -101,11 +139,68 @@ const collectStructuralType = (
   }
 };
 
+type StructuralPlanTraversalState = {
+  readonly expressions: ReadonlySet<LoweringExpressionPlan>;
+  readonly statements: ReadonlySet<LoweringStatementPlan>;
+  readonly declarations: ReadonlySet<LoweringDeclarationPlan>;
+  readonly variables: ReadonlySet<LoweringVariablePlan>;
+};
+
+const createStructuralPlanTraversalState = (): StructuralPlanTraversalState => ({
+  expressions: new Set<LoweringExpressionPlan>(),
+  statements: new Set<LoweringStatementPlan>(),
+  declarations: new Set<LoweringDeclarationPlan>(),
+  variables: new Set<LoweringVariablePlan>(),
+});
+
+const withExpressionPlan = (
+  state: StructuralPlanTraversalState,
+  expression: LoweringExpressionPlan
+): StructuralPlanTraversalState | undefined => {
+  if (state.expressions.has(expression)) return undefined;
+  const expressions = new Set(state.expressions);
+  expressions.add(expression);
+  return { ...state, expressions };
+};
+
+const withStatementPlan = (
+  state: StructuralPlanTraversalState,
+  statement: LoweringStatementPlan
+): StructuralPlanTraversalState | undefined => {
+  if (state.statements.has(statement)) return undefined;
+  const statements = new Set(state.statements);
+  statements.add(statement);
+  return { ...state, statements };
+};
+
+const withDeclarationPlan = (
+  state: StructuralPlanTraversalState,
+  declaration: LoweringDeclarationPlan
+): StructuralPlanTraversalState | undefined => {
+  if (state.declarations.has(declaration)) return undefined;
+  const declarations = new Set(state.declarations);
+  declarations.add(declaration);
+  return { ...state, declarations };
+};
+
+const withVariablePlan = (
+  state: StructuralPlanTraversalState,
+  declaration: LoweringVariablePlan
+): StructuralPlanTraversalState | undefined => {
+  if (state.variables.has(declaration)) return undefined;
+  const variables = new Set(state.variables);
+  variables.add(declaration);
+  return { ...state, variables };
+};
+
 const collectStructuralTypesFromExpression = (
   types: Map<string, LoweringTypeRefPlan>,
-  expression: LoweringExpressionPlan | undefined
+  expression: LoweringExpressionPlan | undefined,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
 ): void => {
   if (!expression) return;
+  const expressionState = withExpressionPlan(state, expression);
+  if (!expressionState) return;
   if (expression.expressionKind === "object-literal") {
     collectStructuralType(types, expression.contextualTypePlan);
   }
@@ -113,74 +208,107 @@ const collectStructuralTypesFromExpression = (
   for (const typeArgument of expression.typeArguments) {
     collectStructuralType(types, typeArgument);
   }
-  collectStructuralTypesFromExpression(types, expression.expression);
-  collectStructuralTypesFromExpression(types, expression.left);
-  collectStructuralTypesFromExpression(types, expression.right);
-  collectStructuralTypesFromExpression(types, expression.condition);
-  collectStructuralTypesFromExpression(types, expression.whenTrue);
-  collectStructuralTypesFromExpression(types, expression.whenFalse);
+  collectStructuralTypesFromExpression(types, expression.expression, expressionState);
+  collectStructuralTypesFromExpression(types, expression.left, expressionState);
+  collectStructuralTypesFromExpression(types, expression.right, expressionState);
+  collectStructuralTypesFromExpression(types, expression.condition, expressionState);
+  collectStructuralTypesFromExpression(types, expression.whenTrue, expressionState);
+  collectStructuralTypesFromExpression(types, expression.whenFalse, expressionState);
   for (const argument of expression.arguments) {
-    collectStructuralTypesFromExpression(types, argument);
+    collectStructuralTypesFromExpression(types, argument, expressionState);
   }
   for (const element of expression.elements) {
-    collectStructuralTypesFromExpression(types, element);
+    collectStructuralTypesFromExpression(types, element, expressionState);
   }
   for (const property of expression.properties) {
-    collectStructuralTypesFromExpression(types, property.expression);
+    collectStructuralTypesFromExpression(types, property.expression, expressionState);
   }
   for (const parameter of expression.parameters) {
     collectStructuralType(types, parameter.type);
-    collectStructuralTypesFromExpression(types, parameter.initializer);
+    collectStructuralTypesFromExpression(
+      types,
+      parameter.initializer,
+      expressionState
+    );
   }
 };
 
 const collectStructuralTypesFromVariable = (
   types: Map<string, LoweringTypeRefPlan>,
-  declaration: LoweringVariablePlan
+  declaration: LoweringVariablePlan,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
 ): void => {
+  const variableState = withVariablePlan(state, declaration);
+  if (!variableState) return;
   collectStructuralType(types, declaration.type);
-  collectStructuralTypesFromExpression(types, declaration.initializer);
+  collectStructuralTypesFromExpression(
+    types,
+    declaration.initializer,
+    variableState
+  );
   for (const binding of declaration.bindingElements) {
-    collectStructuralTypesFromExpression(types, binding.initializer);
+    collectStructuralTypesFromExpression(
+      types,
+      binding.initializer,
+      variableState
+    );
   }
 };
 
 const collectStructuralTypesFromStatement = (
   types: Map<string, LoweringTypeRefPlan>,
-  statement: LoweringStatementPlan | undefined
+  statement: LoweringStatementPlan | undefined,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
 ): void => {
   if (!statement) return;
-  collectStructuralTypesFromExpression(types, statement.expression);
-  collectStructuralTypesFromExpression(types, statement.condition);
-  collectStructuralTypesFromExpression(types, statement.incrementor);
-  collectStructuralTypesFromExpression(types, statement.iterable);
+  const statementState = withStatementPlan(state, statement);
+  if (!statementState) return;
+  collectStructuralTypesFromExpression(types, statement.expression, statementState);
+  collectStructuralTypesFromExpression(types, statement.condition, statementState);
+  collectStructuralTypesFromExpression(
+    types,
+    statement.incrementor,
+    statementState
+  );
+  collectStructuralTypesFromExpression(types, statement.iterable, statementState);
   if (statement.catchVariable) {
-    collectStructuralTypesFromVariable(types, statement.catchVariable);
+    collectStructuralTypesFromVariable(
+      types,
+      statement.catchVariable,
+      statementState
+    );
   }
-  collectStructuralTypesFromStatement(types, statement.thenStatement);
-  collectStructuralTypesFromStatement(types, statement.elseStatement);
-  collectStructuralTypesFromStatement(types, statement.body);
-  collectStructuralTypesFromStatement(types, statement.tryBlock);
-  collectStructuralTypesFromStatement(types, statement.catchBlock);
-  collectStructuralTypesFromStatement(types, statement.finallyBlock);
+  collectStructuralTypesFromStatement(types, statement.thenStatement, statementState);
+  collectStructuralTypesFromStatement(types, statement.elseStatement, statementState);
+  collectStructuralTypesFromStatement(types, statement.body, statementState);
+  collectStructuralTypesFromStatement(types, statement.tryBlock, statementState);
+  collectStructuralTypesFromStatement(types, statement.catchBlock, statementState);
+  collectStructuralTypesFromStatement(types, statement.finallyBlock, statementState);
   for (const declaration of statement.declarations) {
-    collectStructuralTypesFromVariable(types, declaration);
+    collectStructuralTypesFromVariable(types, declaration, statementState);
   }
   for (const child of statement.statements) {
-    collectStructuralTypesFromStatement(types, child);
+    collectStructuralTypesFromStatement(types, child, statementState);
   }
   for (const switchCase of statement.cases) {
-    collectStructuralTypesFromExpression(types, switchCase.expression);
+    collectStructuralTypesFromExpression(
+      types,
+      switchCase.expression,
+      statementState
+    );
     for (const child of switchCase.statements) {
-      collectStructuralTypesFromStatement(types, child);
+      collectStructuralTypesFromStatement(types, child, statementState);
     }
   }
 };
 
 const collectStructuralTypesFromDeclaration = (
   types: Map<string, LoweringTypeRefPlan>,
-  declaration: LoweringDeclarationPlan
+  declaration: LoweringDeclarationPlan,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
 ): void => {
+  const declarationState = withDeclarationPlan(state, declaration);
+  if (!declarationState) return;
   collectStructuralType(types, declaration.declaredTypePlan);
   collectStructuralType(types, declaration.typeAliasTarget);
   collectStructuralType(types, declaration.returnType);
@@ -189,12 +317,20 @@ const collectStructuralTypesFromDeclaration = (
   }
   for (const parameter of declaration.parameters) {
     collectStructuralType(types, parameter.type);
-    collectStructuralTypesFromExpression(types, parameter.initializer);
+    collectStructuralTypesFromExpression(
+      types,
+      parameter.initializer,
+      declarationState
+    );
   }
-  collectStructuralTypesFromExpression(types, declaration.initializer);
-  collectStructuralTypesFromStatement(types, declaration.body);
+  collectStructuralTypesFromExpression(
+    types,
+    declaration.initializer,
+    declarationState
+  );
+  collectStructuralTypesFromStatement(types, declaration.body, declarationState);
   for (const member of declaration.members) {
-    collectStructuralTypesFromDeclaration(types, member);
+    collectStructuralTypesFromDeclaration(types, member, declarationState);
   }
 };
 
@@ -202,17 +338,18 @@ const collectStructuralTypes = (
   module: CSharpLoweringModulePlan
 ): readonly LoweringTypeRefPlan[] => {
   const types = new Map<string, LoweringTypeRefPlan>();
+  const state = createStructuralPlanTraversalState();
   for (const declaration of module.declarations) {
-    collectStructuralTypesFromDeclaration(types, declaration);
+    collectStructuralTypesFromDeclaration(types, declaration, state);
   }
   for (const statement of module.statements) {
-    collectStructuralTypesFromStatement(types, statement);
+    collectStructuralTypesFromStatement(types, statement, state);
   }
   for (const statement of module.topLevelStatements) {
-    collectStructuralTypesFromStatement(types, statement);
+    collectStructuralTypesFromStatement(types, statement, state);
   }
   for (const expression of module.expressions) {
-    collectStructuralTypesFromExpression(types, expression);
+    collectStructuralTypesFromExpression(types, expression, state);
   }
   return [...types.values()];
 };

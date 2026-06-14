@@ -155,7 +155,17 @@ const renderObjectProperty = (
     );
     return undefined;
   }
-  return `${sanitizeIdentifier(property.name)} = ${renderExpression(property.expression, context)}`;
+  const renderedExpression = renderExpression(property.expression, context);
+  const targetArray = arrayTypeFromUseSite(property.expression.contextualTypePlan);
+  const sourceArray = arrayTypeFromUseSite(property.expression.type);
+  if (targetArray && sourceArray) {
+    const targetElementType = renderCSharpType(targetArray.elementType, context);
+    const sourceElementType = renderCSharpType(sourceArray.elementType, context);
+    if (targetElementType !== sourceElementType) {
+      return `${sanitizeIdentifier(property.name)} = new global::System.Collections.Generic.List<${targetElementType}>(global::System.Linq.Enumerable.Cast<${targetElementType}>(${renderedExpression}))`;
+    }
+  }
+  return `${sanitizeIdentifier(property.name)} = ${renderedExpression}`;
 };
 
 const arrayLiteralElementType = (
@@ -163,12 +173,12 @@ const arrayLiteralElementType = (
   context: RenderContext
 ): string | undefined => {
   const arrayPlan =
-    plan.contextualTypePlan?.kind === "array"
-      ? plan.contextualTypePlan
-      : plan.type?.kind === "array"
-        ? plan.type
-        : undefined;
-  if (arrayPlan) return renderCSharpType(arrayPlan.elementType, context);
+    arrayTypeFromUseSite(plan.contextualTypePlan) ??
+    arrayTypeFromUseSite(plan.type);
+  if (arrayPlan) {
+    const rendered = renderCSharpType(arrayPlan.elementType, context);
+    return rendered === "void" ? "object?" : rendered;
+  }
   const tuplePlan =
     plan.type?.kind === "tuple"
       ? plan.type
@@ -190,11 +200,8 @@ const arrayLiteralElementType = (
 const arrayLiteralTypePlan = (
   plan: LoweringExpressionPlan
 ): LoweringTypeRefPlan | undefined =>
-  plan.contextualTypePlan?.kind === "array"
-    ? plan.contextualTypePlan
-    : plan.type?.kind === "array"
-      ? plan.type
-      : undefined;
+  arrayTypeFromUseSite(plan.contextualTypePlan) ??
+  arrayTypeFromUseSite(plan.type);
 
 const isCharType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "source-primitive" && type.fact.kind === "char";
@@ -360,6 +367,74 @@ const renderTypeArguments = (
     ? `<${typeArguments.map((typeArgument) => renderCSharpType(typeArgument, context)).join(", ")}>`
     : "";
 
+const isCastableUseSiteExpression = (
+  plan: LoweringExpressionPlan | undefined
+): boolean => {
+  switch (plan?.expressionKind) {
+    case "identifier":
+    case "property-access":
+    case "element-access":
+    case "call":
+    case "parenthesized":
+    case "erased-wrapper":
+      return true;
+    default:
+      return false;
+  }
+};
+
+const useSiteCastType = (
+  type: LoweringTypeRefPlan | undefined,
+  context: RenderContext
+): string | undefined => {
+  if (!type) return undefined;
+  switch (type.kind) {
+    case "intrinsic":
+      switch (type.name) {
+        case "any":
+        case "unknown":
+        case "object":
+        case "undefined":
+        case "null":
+        case "void":
+        case "never":
+        case "this":
+          return undefined;
+        default:
+          return renderCSharpType(type, context);
+      }
+    case "unsupported":
+      return undefined;
+    case "named":
+      if (type.name === "_") return undefined;
+      if (type.name.includes("\uFFFD")) return undefined;
+      if (type.qualifiedRuntimeName?.endsWith("._")) return undefined;
+      {
+        const rendered = renderCSharpType(type, context);
+        return rendered === "object?" ? undefined : rendered;
+      }
+    case "literal":
+      return undefined;
+    default: {
+      const rendered = renderCSharpType(type, context);
+      return rendered === "object?" || rendered === "void" || rendered === "this"
+        ? undefined
+        : rendered;
+    }
+  }
+};
+
+const renderExpressionWithUseSiteCast = (
+  plan: LoweringExpressionPlan | undefined,
+  context: RenderContext,
+  useSiteTypeOverride?: LoweringTypeRefPlan
+): string => {
+  const rendered = renderExpression(plan, context);
+  if (!isCastableUseSiteExpression(plan)) return rendered;
+  const castType = useSiteCastType(useSiteTypeOverride ?? plan?.type, context);
+  return castType ? `((${castType})(${rendered}))` : rendered;
+};
+
 const firstRenderedTypeArgument = (
   plan: LoweringExpressionPlan,
   context: RenderContext,
@@ -396,16 +471,31 @@ const renderCallArgument = (
   argument: LoweringExpressionPlan,
   context: RenderContext
 ): string => {
+  const targetDelegateType = isNamedFunctionAlias(argument.contextualTypePlan)
+    ? argument.contextualTypePlan
+    : undefined;
   if (
     argument.expressionKind === "arrow-function" ||
     argument.expressionKind === "function-expression"
   ) {
-    return renderLambda(argument, context, false);
+    const renderedLambda = renderLambda(argument, context, false);
+    return targetDelegateType
+      ? `((${renderCSharpType(targetDelegateType, context)})(${renderedLambda}))`
+      : renderedLambda;
   }
   const rendered =
     argument.expressionKind === "spread"
       ? renderExpression(argument.expression, context)
       : renderExpression(argument, context);
+  if (
+    targetDelegateType &&
+    !(
+      argument.type?.kind === "named" &&
+      argument.type.qualifiedRuntimeName === targetDelegateType.qualifiedRuntimeName
+    )
+  ) {
+    return `new ${renderCSharpType(targetDelegateType, context)}(${rendered}.Invoke)`;
+  }
   switch (argument.passingMode) {
     case "byref-writeonly-must-init":
       return `out ${rendered}`;
@@ -429,6 +519,7 @@ const renderSourceRuntimeName = (
     case "Error":
     case "Global":
     case "JSON":
+    case "Map":
     case "Object":
     case "RegExp":
     case "String":
@@ -476,6 +567,18 @@ const unwrapAliasTarget = (
   type?.kind === "named" && type.aliasTarget
     ? unwrapAliasTarget(type.aliasTarget)
     : type;
+
+const isNamedFunctionAlias = (
+  type: LoweringTypeRefPlan | undefined
+): type is Extract<LoweringTypeRefPlan, { readonly kind: "named" }> =>
+  type?.kind === "named" && type.aliasTarget?.kind === "function";
+
+const isCallableStorageType = (
+  type: LoweringTypeRefPlan | undefined
+): boolean => {
+  if (isNamedFunctionAlias(type)) return true;
+  return unwrapAliasTarget(type)?.kind === "function";
+};
 
 const arrayTypeFromUseSite = (
   type: LoweringTypeRefPlan | undefined
@@ -546,6 +649,158 @@ const arrayReceiverElementType = (
   plan: LoweringExpressionPlan | undefined
 ): LoweringTypeRefPlan | undefined =>
   arrayOperationResultElementType(plan) ?? arrayReceiverType(plan)?.elementType;
+
+const isUnboundGenericPlaceholderType = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  type?.kind === "named" &&
+  (type.qualifiedRuntimeName?.includes("::js._.") === true ||
+    !type.qualifiedRuntimeName) &&
+  !type.aliasTarget &&
+  type.typeArguments.length === 0 &&
+  /^[A-Z]$/.test(type.name);
+
+const enumerableObjectCast = (receiver: string): string =>
+  `global::System.Linq.Enumerable.Cast<object?>((global::System.Collections.IEnumerable)(${receiver}))`;
+
+const containsUnboundPlaceholderCast = (receiver: string): boolean =>
+  /<\s*[A-Z]\s*[>,]/.test(receiver) || /<\s*[A-Z]\s*>/.test(receiver);
+
+const renderArrayLength = (
+  receiverPlan: LoweringExpressionPlan | undefined,
+  context: RenderContext,
+  useSiteTypeOverride?: LoweringTypeRefPlan
+): string => {
+  const elementTypePlan =
+    arrayReceiverElementType(receiverPlan) ??
+    arrayTypeFromUseSite(useSiteTypeOverride)?.elementType;
+  const typedReceiver = renderExpressionWithUseSiteCast(
+    receiverPlan,
+    context,
+    useSiteTypeOverride
+  );
+  const receiverCastType = useSiteCastType(
+    useSiteTypeOverride ?? receiverPlan?.type,
+    context
+  );
+  if (receiverPlan?.expressionKind === "property-access") {
+    return `${renderExpression(receiverPlan, context)}.Count`;
+  }
+  if (
+    !elementTypePlan ||
+    !receiverCastType ||
+    isUnboundGenericPlaceholderType(elementTypePlan) ||
+    containsUnboundPlaceholderCast(typedReceiver)
+  ) {
+    return `global::System.Linq.Enumerable.Count(${enumerableObjectCast(renderExpression(receiverPlan, context))})`;
+  }
+  return `${typedReceiver}.Count`;
+};
+
+const renderArrayElementAccess = (
+  receiverPlan: LoweringExpressionPlan | undefined,
+  indexPlan: LoweringExpressionPlan | undefined,
+  context: RenderContext,
+  useSiteTypeOverride?: LoweringTypeRefPlan
+): string | undefined => {
+  const elementTypePlan =
+    arrayReceiverElementType(receiverPlan) ??
+    arrayTypeFromUseSite(useSiteTypeOverride)?.elementType;
+  const typedReceiver = renderExpressionWithUseSiteCast(
+    receiverPlan,
+    context,
+    useSiteTypeOverride
+  );
+  const receiverCastType = useSiteCastType(
+    useSiteTypeOverride ?? receiverPlan?.type,
+    context
+  );
+  if (
+    !elementTypePlan ||
+    (receiverCastType &&
+      !isUnboundGenericPlaceholderType(elementTypePlan) &&
+      !containsUnboundPlaceholderCast(typedReceiver))
+  ) {
+    return undefined;
+  }
+  return `global::System.Linq.Enumerable.ElementAt(${enumerableObjectCast(renderExpression(receiverPlan, context))}, ${renderExpression(indexPlan, context)})`;
+};
+
+const functionParameterCountMatches = (
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "function" }>,
+  argumentCount: number
+): boolean => {
+  const minimum = type.parameters.filter(
+    (parameter) =>
+      !parameter.optional && !parameter.rest && parameter.initializer === undefined
+  ).length;
+  return (
+    argumentCount >= minimum &&
+    (type.parameters.some((parameter) => parameter.rest) ||
+      argumentCount <= type.parameters.length)
+  );
+};
+
+const callableDelegateCastType = (
+  type: LoweringTypeRefPlan | undefined,
+  argumentCount: number,
+  context: RenderContext
+): string | undefined => {
+  const unwrapped = unwrapAliasTarget(type);
+  if (type?.kind === "named" && type.aliasTarget?.kind === "function") {
+    return functionParameterCountMatches(type.aliasTarget, argumentCount)
+      ? renderCSharpType(type, context)
+      : undefined;
+  }
+  if (unwrapped?.kind === "function") {
+    return functionParameterCountMatches(unwrapped, argumentCount)
+      ? renderCSharpType(unwrapped, context)
+      : undefined;
+  }
+  if (unwrapped?.kind === "union") {
+    const matches = nonNullishUnionTypes(unwrapped)
+      .map((member) =>
+        member.kind === "named" && member.aliasTarget?.kind === "function"
+          ? {
+              member,
+              target: member.aliasTarget,
+            }
+          : undefined
+      )
+      .filter(
+        (
+          match
+        ): match is {
+          readonly member: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>;
+          readonly target: Extract<LoweringTypeRefPlan, { readonly kind: "function" }>;
+        } => match !== undefined
+      )
+      .filter((match) => functionParameterCountMatches(match.target, argumentCount));
+    const [match] = matches;
+    return matches.length === 1 && match
+      ? renderCSharpType(match.member, context)
+      : undefined;
+  }
+  return undefined;
+};
+
+const renderCallableExpression = (
+  callee: LoweringExpressionPlan | undefined,
+  argumentCount: number,
+  context: RenderContext,
+  targetType?: LoweringTypeRefPlan
+): string => {
+  const rendered = renderExpression(callee, context);
+  const effectiveTargetType = isNamedFunctionAlias(callee?.type)
+    ? callee?.type
+    : targetType ?? callee?.type;
+  const delegateType =
+    callee?.expressionKind === "property-access" ||
+    isCallableStorageType(callee?.storageTypePlan)
+    ? undefined
+    : callableDelegateCastType(effectiveTargetType, argumentCount, context);
+  return delegateType ? `((${delegateType})(${rendered}))` : rendered;
+};
 
 const castExpression = (rendered: string, targetType: string): string =>
   `((${targetType})(${rendered}))`;
@@ -677,6 +932,9 @@ const renderSourceRuntimeCall = (
     if (operation.owner === "String" && operation.member === "toString") {
       return receiver;
     }
+    if (operation.owner === "Map") {
+      return `${receiver}.${operation.member}(${args.join(", ")})`;
+    }
     if (operation.owner === "Object" && operation.member === "toString") {
       return `(global::System.Convert.ToString(${receiver}) ?? "")`;
     }
@@ -716,9 +974,31 @@ const renderSourceRuntimeNew = (
 ): string | undefined => {
   const operation = plan.sourceOperation;
   if (operation?.dispatch !== "constructor") return undefined;
-  return `new ${renderSourceRuntimeName(operation)}(${plan.arguments
+  return `new ${renderSourceRuntimeName(operation)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
     .map((argument) => renderCallArgument(argument, context))
     .join(", ")})`;
+};
+
+const renderMapGetNullishCoalesce = (
+  left: LoweringExpressionPlan | undefined,
+  right: LoweringExpressionPlan | undefined,
+  context: RenderContext
+): string | undefined => {
+  if (left?.expressionKind !== "call") return undefined;
+  const callee = left.expression;
+  if (
+    callee?.expressionKind !== "property-access" ||
+    callee.sourceOperation?.owner !== "Map" ||
+    callee.sourceOperation.dispatch !== "receiver-call" ||
+    callee.sourceOperation.member !== "get"
+  ) {
+    return undefined;
+  }
+  const key = left.arguments[0];
+  if (!key) return undefined;
+  const receiver = renderExpression(callee.expression, context);
+  const renderedKey = renderExpression(key, context);
+  return `${receiver}.has(${renderedKey}) ? ${receiver}.get(${renderedKey}) : ${renderExpression(right, context)}`;
 };
 
 const renderIntrinsicCall = (
@@ -796,6 +1076,8 @@ export const renderExpression = (
       if (plan.sourceOperation?.dispatch === "static-call") {
         return `${renderSourceRuntimeName(plan.sourceOperation)}.${plan.sourceOperation.member}`;
       }
+      const defaultedName = context.currentDefaultedParameters?.get(rawName);
+      if (defaultedName) return defaultedName;
       return sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
     }
     case "this":
@@ -857,13 +1139,28 @@ export const renderExpression = (
       const operator = renderOperator(plan.binaryOperator);
       if (!operator) return unsupportedExpression(context, plan);
       if (plan.binaryOperator === "nullish-coalesce") {
+        const mapGet = renderMapGetNullishCoalesce(
+          plan.left,
+          plan.right,
+          context
+        );
+        if (mapGet) return mapGet;
         const left = renderExpression(plan.left, context);
         const right = renderExpression(plan.right, context);
         return needsNullishConditionCheck(plan.left?.type)
           ? `${left} ?? ${right}`
           : left;
       }
-      return `${renderExpression(plan.left, context)} ${operator} ${renderExpression(plan.right, context)}`;
+      if (plan.binaryOperator === "instanceof") {
+        return `${renderExpression(plan.left, context)} ${operator} ${renderExpression(plan.right, context)}`;
+      }
+      if (plan.binaryOperator === "assign") {
+        return `${renderExpression(plan.left, context)} ${operator} ${renderExpression(plan.right, context)}`;
+      }
+      if (plan.binaryOperator?.endsWith("assign") === true) {
+        return `${renderExpression(plan.left, context)} ${operator} ${renderExpressionWithUseSiteCast(plan.right, context)}`;
+      }
+      return `${renderExpressionWithUseSiteCast(plan.left, context)} ${operator} ${renderExpressionWithUseSiteCast(plan.right, context)}`;
     }
     case "prefix-unary":
       return `${renderUnaryOperator(plan.unaryOperator, context, plan)}${renderExpression(plan.expression, context)}`;
@@ -879,14 +1176,14 @@ export const renderExpression = (
       if (operation?.dispatch === "property") {
         switch (operation.owner) {
           case "String":
-            return `${renderExpression(plan.expression, context)}.Length`;
+            return `${renderExpressionWithUseSiteCast(plan.expression, context)}.Length`;
           case "Array":
-            return `${renderExpression(plan.expression, context)}.Count`;
+            return renderArrayLength(plan.expression, context, plan.receiverTypePlan);
           case "Function":
             return renderFunctionLength(plan.expression);
           case "Error":
             if (operation.member === "message") {
-              return `${renderExpression(plan.expression, context)}.Message`;
+              return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.Message`;
             }
             break;
           default:
@@ -894,23 +1191,54 @@ export const renderExpression = (
         }
       }
       const member = sanitizeIdentifier(rawMember);
-      return `${renderExpression(plan.expression, context)}.${member}`;
+      if (
+        rawMember === "length" &&
+        (arrayTypeFromUseSite(plan.expression?.type) !== undefined ||
+          arrayTypeFromUseSite(plan.receiverTypePlan) !== undefined)
+      ) {
+        return renderArrayLength(plan.expression, context, plan.receiverTypePlan);
+      }
+      if (rawMember === "length") {
+        return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.Length`;
+      }
+      return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.${member}`;
     }
     case "element-access":
       if (
         plan.sourceOperation?.dispatch === "index" &&
         plan.sourceOperation.owner === "String"
       ) {
-        return `global::js.String.charAt(${renderExpression(plan.expression, context)}, ${renderExpression(plan.arguments[0], context)})`;
+        return `global::js.String.charAt(${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}, ${renderExpression(plan.arguments[0], context)})`;
+      }
+      if (
+        plan.sourceOperation?.dispatch === "index" &&
+        plan.sourceOperation.owner === "Array"
+      ) {
+        const rendered = renderArrayElementAccess(
+          plan.expression,
+          plan.arguments[0],
+          context,
+          plan.receiverTypePlan
+        );
+        if (rendered) return rendered;
       }
       if (
         plan.sourceOperation?.dispatch === "property" &&
         plan.sourceOperation.owner === "Object" &&
         plan.sourceOperation.member === "toStringTag"
       ) {
-        return `${renderExpression(plan.expression, context)}.ToStringTag`;
+        return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.ToStringTag`;
       }
-      return `${renderExpression(plan.expression, context)}[${renderExpression(plan.arguments[0], context)}]`;
+      {
+        const rendered = renderArrayElementAccess(
+          plan.expression,
+          plan.arguments[0],
+          context,
+          plan.receiverTypePlan
+        );
+        if (rendered) return rendered;
+      }
+      return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}[${renderExpression(plan.arguments[0], context)}]`;
     case "call":
       {
         const intrinsic = renderIntrinsicCall(plan, context);
@@ -920,7 +1248,7 @@ export const renderExpression = (
         const sourceRuntimeCall = renderSourceRuntimeCall(plan, context);
         if (sourceRuntimeCall !== undefined) return sourceRuntimeCall;
       }
-      return `${renderExpression(plan.expression, context)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
+      return `${renderCallableExpression(plan.expression, plan.arguments.length, context, plan.callTargetTypePlan)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
         .map((argument) => renderCallArgument(argument, context))
         .join(", ")})`;
     case "new":

@@ -1,18 +1,23 @@
 import type {
   LoweringBindingAccessPlan,
+  LoweringParameterPlan,
   LoweringStatementPlan,
   LoweringTypeRefPlan,
   LoweringVariablePlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
-import { sanitizeIdentifier } from "./names.js";
+import { sanitizeIdentifier, sanitizeTypeName } from "./names.js";
 import {
   isCompileTimeOnlyExpression,
   renderConditionExpression,
   renderExpression,
   renderFunctionExpressionType,
 } from "./expressions.js";
-import { renderCSharpType } from "./types.js";
+import {
+  renderCSharpType,
+  renderFunctionReturnType,
+  renderNullableCSharpType,
+} from "./types.js";
 
 const indent = (text: string, spaces: number): string => {
   const prefix = " ".repeat(spaces);
@@ -45,6 +50,51 @@ const renderBindingAccess = (
     }
   }, rootName);
 
+const variableFunctionExpressionType = (
+  declaration: LoweringVariablePlan,
+  context: RenderContext
+): string | undefined =>
+  renderFunctionExpressionType(declaration.initializer, context);
+
+const variableDeclaredType = (
+  declaration: LoweringVariablePlan,
+  context: RenderContext
+): string | undefined =>
+  declaration.type ? renderCSharpType(declaration.type, context) : undefined;
+
+const variableRenderType = (
+  declaration: LoweringVariablePlan,
+  context: RenderContext,
+  fallback: string
+): string => {
+  const functionExpressionType = variableFunctionExpressionType(
+    declaration,
+    context
+  );
+  const declaredType = variableDeclaredType(declaration, context);
+  return functionExpressionType && (!declaredType || declaredType === "object?")
+    ? functionExpressionType
+    : declaredType ?? fallback;
+};
+
+const renderDelegateParameter = (
+  parameter: LoweringParameterPlan,
+  context: RenderContext
+): string => {
+  const type =
+    parameter.rest && parameter.type?.kind === "array"
+      ? `${renderCSharpType(parameter.type.elementType, context)}[]`
+      : parameter.optional
+        ? renderNullableCSharpType(parameter.type, context)
+        : renderCSharpType(parameter.type, context);
+  const initializer = parameter.initializer
+    ? ` = ${renderExpression(parameter.initializer, context)}`
+    : parameter.optional
+      ? " = null"
+      : "";
+  return `${parameter.rest ? "params " : ""}${type} ${sanitizeIdentifier(parameter.name)}${initializer}`;
+};
+
 export const renderVariableFragment = (
   declaration: LoweringVariablePlan,
   context: RenderContext
@@ -54,17 +104,7 @@ export const renderVariableFragment = (
     context.reportUnsupported("variable fragment binding pattern", "BindingPattern", declaration.name);
     return "";
   }
-  const functionExpressionType = renderFunctionExpressionType(
-    declaration.initializer,
-    context
-  );
-  const declaredType = declaration.type
-    ? renderCSharpType(declaration.type, context)
-    : undefined;
-  const type =
-    functionExpressionType && (!declaredType || declaredType === "object?")
-      ? functionExpressionType
-      : declaredType ?? "var";
+  const type = variableRenderType(declaration, context, "var");
   const initializer = declaration.initializer
     ? ` = ${renderExpression(declaration.initializer, context)}`
     : "";
@@ -80,17 +120,29 @@ export const renderStaticField = (
     context.reportUnsupported("top-level binding pattern", "BindingPattern", declaration.name);
     return "";
   }
-  const functionExpressionType = renderFunctionExpressionType(
-    declaration.initializer,
-    context
-  );
-  const declaredType = declaration.type
-    ? renderCSharpType(declaration.type, context)
-    : undefined;
-  const type =
-    functionExpressionType && (!declaredType || declaredType === "object?")
-      ? functionExpressionType
-      : declaredType ?? "object?";
+  if (
+    declaration.initializer &&
+    (declaration.initializer.expressionKind === "arrow-function" ||
+      declaration.initializer.expressionKind === "function-expression") &&
+    declaration.initializer.parameters.some(
+      (parameter) => parameter.initializer !== undefined || parameter.optional
+    )
+  ) {
+    const delegateName = `${sanitizeTypeName(declaration.name)}__Delegate`;
+    const parameters = declaration.initializer.parameters
+      .map((parameter) => renderDelegateParameter(parameter, context))
+      .join(", ");
+    const returnType = renderFunctionReturnType(
+      declaration.initializer.returnType,
+      declaration.initializer.async ?? false,
+      context
+    );
+    return [
+      `public delegate ${returnType} ${delegateName}(${parameters});`,
+      `public static ${delegateName} ${sanitizeIdentifier(declaration.name)} = ${renderExpression(declaration.initializer, context)};`,
+    ].join("\n");
+  }
+  const type = variableRenderType(declaration, context, "object?");
   const initializer = declaration.initializer
     ? ` = ${renderExpression(declaration.initializer, context)}`
     : "";
@@ -154,6 +206,9 @@ const renderSwitch = (
   return lines.join("\n");
 };
 
+const defaultedParameterAlias = (name: string): string =>
+  `__defaulted_${sanitizeIdentifier(name).replace(/^@/, "")}`;
+
 const renderVariableStatement = (
   declarations: readonly LoweringVariablePlan[],
   context: RenderContext
@@ -164,6 +219,19 @@ const renderVariableStatement = (
         return [];
       }
       if (declaration.bindingElements.length === 0) {
+        if (
+          declaration.initializerReferencesDeclaration === true &&
+          declaration.initializer &&
+          (declaration.initializer.expressionKind === "arrow-function" ||
+            declaration.initializer.expressionKind === "function-expression")
+        ) {
+          const name = sanitizeIdentifier(declaration.name);
+          const type = variableRenderType(declaration, context, "object?");
+          return [
+            `${type} ${name} = default!;`,
+            `${name} = ${renderExpression(declaration.initializer, context)};`,
+          ];
+        }
         return [`${renderVariableFragment(declaration, context)};`];
       }
       if (!declaration.initializer) {
@@ -232,6 +300,13 @@ const isCSharpStatementExpression = (
   }
 };
 
+const isParameterlessSuperConstructorCall = (
+  expression: LoweringStatementPlan["expression"]
+): boolean =>
+  expression?.expressionKind === "call" &&
+  expression.arguments.length === 0 &&
+  expression.expression?.expressionKind === "super";
+
 const isBroadExpressionType = (
   type: LoweringTypeRefPlan | undefined
 ): boolean =>
@@ -297,6 +372,9 @@ export const renderStatement = (
         : "return;";
     case "expression":
       if (isCompileTimeOnlyExpression(plan.expression)) {
+        return "";
+      }
+      if (isParameterlessSuperConstructorCall(plan.expression)) {
         return "";
       }
       if (plan.expression?.expressionKind === "yield") {
@@ -385,16 +463,48 @@ export const renderStatement = (
 export const renderFunctionBody = (
   body: LoweringStatementPlan | undefined,
   context: RenderContext,
-  returnType?: LoweringTypeRefPlan
+  returnType?: LoweringTypeRefPlan,
+  parameters: readonly LoweringParameterPlan[] = []
 ): string => {
   const previousReturnType = context.currentReturnType;
+  const previousDefaultedParameters = context.currentDefaultedParameters;
   context.currentReturnType = returnType;
+  const defaultedParameters = parameters.filter(
+    (parameter) => parameter.initializer !== undefined
+  );
+  const defaultedParameterAliases =
+    defaultedParameters.length > 0
+      ? new Map(
+          defaultedParameters.map((parameter) => [
+            parameter.name,
+            defaultedParameterAlias(parameter.name),
+          ])
+        )
+      : undefined;
+  const defaultedParameterPrologue = defaultedParameters.map((parameter) => {
+    const alias =
+      defaultedParameterAliases?.get(parameter.name) ??
+      defaultedParameterAlias(parameter.name);
+    return `${renderCSharpType(parameter.type, context)} ${alias} = ${sanitizeIdentifier(parameter.name)} ?? ${renderExpression(parameter.initializer, context)};`;
+  });
+  context.currentDefaultedParameters = defaultedParameterAliases;
   try {
-  if (!body) return "{\n}";
-  if (body.statementKind === "block") return renderStatement(body, context);
-  return renderBlockLike([body], context);
+  const rendered =
+    !body
+      ? "{\n}"
+      : body.statementKind === "block"
+        ? renderStatement(body, context)
+        : renderBlockLike([body], context);
+  if (defaultedParameterPrologue.length === 0) return rendered;
+  const lines = rendered.split("\n");
+  return [
+    lines[0] ?? "{",
+    ...defaultedParameterPrologue.map((line) => indent(line, 4)),
+    ...lines.slice(1),
+  ].join("\n");
   } finally {
     context.currentReturnType = previousReturnType;
+    context.currentDefaultedParameters = previousDefaultedParameters;
   }
 };
 

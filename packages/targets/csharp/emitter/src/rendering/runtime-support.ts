@@ -11,7 +11,7 @@ const jsRuntimePrelude = (usesJson: boolean): string =>
     "",
   ].join("\n");
 
-const jsErrorSupport = `public sealed class Error : Exception
+const jsErrorSupport = `public class Error : Exception
 {
     public Error(string? message = null) : base(message ?? "") { }
 }
@@ -121,11 +121,15 @@ const jsCollectionsSupport = `public sealed class Array<T> : List<T>
     public int length => Count;
 }
 
-public sealed class Map<TKey, TValue> : Dictionary<TKey, TValue>
+public sealed class Map<TKey, TValue> : Dictionary<TKey, TValue?>
     where TKey : notnull
 {
     public Map() { }
-    public Map(IEnumerable<KeyValuePair<TKey, TValue>> values) : base(values) { }
+    public Map(IEnumerable<KeyValuePair<TKey, TValue?>> values) : base(values) { }
+    public TValue? get(TKey key) => TryGetValue(key, out var value) ? value : default;
+    public Map<TKey, TValue> set(TKey key, TValue value) { this[key] = value; return this; }
+    public bool has(TKey key) => ContainsKey(key);
+    public bool delete(TKey key) => Remove(key);
 }
 
 public sealed class Set<T> : HashSet<T>

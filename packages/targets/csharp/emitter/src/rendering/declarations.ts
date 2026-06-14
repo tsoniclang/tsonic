@@ -1,6 +1,7 @@
 import type {
   LoweringDeclarationPlan,
   LoweringParameterPlan,
+  LoweringStatementPlan,
   LoweringTypeMemberPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
@@ -29,15 +30,15 @@ const renderParameter = (
   context: RenderContext
 ): string => {
   const initializer = parameter.initializer
-    ? ` = ${renderExpression(parameter.initializer, context)}`
+    ? " = default"
     : parameter.optional
       ? " = null"
-    : "";
+      : "";
   const restModifier = parameter.rest ? "params " : "";
   const type =
     parameter.rest && parameter.type?.kind === "array"
       ? `${renderCSharpType(parameter.type.elementType, context)}[]`
-      : parameter.optional
+      : parameter.optional || parameter.initializer
         ? renderNullableCSharpType(parameter.type, context)
         : renderCSharpType(parameter.type, context);
   return `${restModifier}${type} ${sanitizeIdentifier(parameter.name)}${initializer}`;
@@ -106,9 +107,15 @@ const renderFunction = (
     plan.async,
     context
   );
+  const bodyReturnType =
+    plan.async &&
+    effectiveReturnType?.kind === "named" &&
+    effectiveReturnType.name === "Promise"
+      ? effectiveReturnType.typeArguments[0]
+      : effectiveReturnType;
   return [
     `public ${staticModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
-    renderFunctionBody(plan.body, context, effectiveReturnType),
+    renderFunctionBody(plan.body, context, bodyReturnType, plan.parameters),
   ].join("\n");
 };
 
@@ -122,7 +129,13 @@ const renderConstructor = (
   const parameters = plan.parameters
     .map((parameter) => renderParameter(parameter, context))
     .join(", ");
-  const renderedBody = renderFunctionBody(plan.body, context);
+  const superCall = leadingSuperConstructorCall(plan.body);
+  const body = superCall ? removeLeadingSuperConstructorCall(plan.body) : plan.body;
+  const baseInitializer =
+    superCall && superCall.arguments.length > 0
+      ? ` : base(${superCall.arguments.map((argument) => renderExpression(argument, context)).join(", ")})`
+      : "";
+  const renderedBody = renderFunctionBody(body, context, undefined, plan.parameters);
   const bodyLines = renderedBody.split("\n");
   const bodyWithPrologue =
     prologueStatements.length === 0
@@ -133,7 +146,28 @@ const renderConstructor = (
           ...bodyLines.slice(1, -1),
           "}",
         ].join("\n");
-  return [`public ${sanitizeTypeName(className)}(${parameters})`, bodyWithPrologue].join("\n");
+  return [`public ${sanitizeTypeName(className)}(${parameters})${baseInitializer}`, bodyWithPrologue].join("\n");
+};
+
+const leadingSuperConstructorCall = (
+  body: LoweringStatementPlan | undefined
+) => {
+  const first =
+    body?.statementKind === "block" ? body.statements[0] : body;
+  return first?.statementKind === "expression" &&
+    first.expression?.expressionKind === "call" &&
+    first.expression.expression?.expressionKind === "super"
+    ? first.expression
+    : undefined;
+};
+
+const removeLeadingSuperConstructorCall = (
+  body: LoweringStatementPlan
+): LoweringStatementPlan => {
+  if (body.statementKind !== "block") {
+    return { ...body, statementKind: "empty" };
+  }
+  return { ...body, statements: body.statements.slice(1) };
 };
 
 const renderProperty = (
@@ -189,12 +223,50 @@ const renderClassMember = (
   }
 };
 
+const isAccessorProperty = (member: LoweringDeclarationPlan): boolean =>
+  member.declarationKind === "property" &&
+  (member.sourceKindName === "KindGetAccessor" ||
+    member.sourceKindName === "KindSetAccessor");
+
+const coalesceAccessorMembers = (
+  members: readonly LoweringDeclarationPlan[]
+): readonly LoweringDeclarationPlan[] => {
+  const result: LoweringDeclarationPlan[] = [];
+  const accessorIndexes = new Map<string, number>();
+  for (const member of members) {
+    if (!isAccessorProperty(member) || !member.name) {
+      result.push(member);
+      continue;
+    }
+    const key = `${member.static ? "static" : "instance"}\0${member.name}`;
+    const existingIndex = accessorIndexes.get(key);
+    if (existingIndex === undefined) {
+      accessorIndexes.set(key, result.length);
+      result.push(member);
+      continue;
+    }
+    const existing = result[existingIndex];
+    if (!existing) {
+      result.push(member);
+      continue;
+    }
+    result[existingIndex] = {
+      ...existing,
+      declaredTypePlan: existing.declaredTypePlan ?? member.declaredTypePlan,
+      returnType: existing.returnType ?? member.returnType,
+      initializer: existing.initializer ?? member.initializer,
+    };
+  }
+  return result;
+};
+
 const renderClass = (
   plan: LoweringDeclarationPlan,
   context: RenderContext
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "class");
   if (!declarationName) return undefined;
+  const members = coalesceAccessorMembers(plan.members);
   const heritage = plan.heritageTypes
     .filter(
       (heritageType) =>
@@ -203,7 +275,7 @@ const renderClass = (
     .map((heritageType) => renderCSharpType(heritageType, context));
   const heritageClause =
     heritage.length > 0 ? ` : ${heritage.join(", ")}` : "";
-  const constructorPrologueStatements = plan.members
+  const constructorPrologueStatements = members
     .filter(
       (member) =>
         member.declarationKind === "property" &&
@@ -215,7 +287,7 @@ const renderClass = (
       (member) =>
         `this.${sanitizeIdentifier(member.name ?? "")} = ${renderExpression(member.initializer, context)};`
     );
-  const hasConstructor = plan.members.some(
+  const hasConstructor = members.some(
     (member) => member.declarationKind === "constructor"
   );
   const synthesizedConstructor =
@@ -230,7 +302,7 @@ const renderClass = (
   return [
     `public class ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}${heritageClause}`,
     "{",
-    ...plan.members
+    ...members
       .map((member) =>
         renderClassMember(
           member,
@@ -285,6 +357,18 @@ const renderInterface = (
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "interface");
   if (!declarationName) return undefined;
+  const callSignature =
+    plan.members.length === 1 &&
+    plan.members[0]?.declarationKind === "method" &&
+    plan.members[0].sourceKindName === "KindCallSignature"
+      ? plan.members[0]
+      : undefined;
+  if (callSignature) {
+    const parameters = callSignature.parameters
+      .map((parameter) => renderParameter(parameter, context))
+      .join(", ");
+    return `public delegate ${renderCSharpType(callSignature.returnType, context)} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
+  }
   if (plan.members.every((member) => member.declarationKind === "property")) {
     return [
       `public sealed class ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}`,
@@ -390,6 +474,29 @@ const renderVariable = (
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "variable");
   if (!declarationName) return undefined;
+  const initializer = plan.initializer;
+  if (
+    initializer &&
+    (initializer.expressionKind === "arrow-function" ||
+      initializer.expressionKind === "function-expression") &&
+    initializer.parameters.some(
+      (parameter) => parameter.initializer !== undefined || parameter.optional
+    )
+  ) {
+    const delegateName = `${sanitizeTypeName(declarationName)}__Delegate`;
+    const parameters = initializer.parameters
+      .map((parameter) => renderParameter(parameter, context))
+      .join(", ");
+    const returnType = renderFunctionReturnType(
+      initializer.returnType,
+      initializer.async ?? false,
+      context
+    );
+    return [
+      `public delegate ${returnType} ${delegateName}(${parameters});`,
+      `public static ${delegateName} ${sanitizeIdentifier(declarationName)} = ${renderExpression(initializer, context)};`,
+    ].join("\n");
+  }
   return renderStaticField(
     {
       sourceNode: plan.sourceNode,

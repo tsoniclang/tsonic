@@ -170,12 +170,23 @@ const isVoidLikeType = (type: LoweringTypeRefPlan | undefined): boolean =>
 const isTaskType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "named" && type.name === "Task";
 
+const isPromiseType = (type: LoweringTypeRefPlan | undefined): boolean =>
+  type?.kind === "named" && type.name === "Promise";
+
+const isTaskLikeType = (type: LoweringTypeRefPlan | undefined): boolean =>
+  isTaskType(type) || isPromiseType(type);
+
 const renderUnionType = (
   type: LoweringTypeRefPlan,
   context?: RenderContext
 ): string => {
   if (type.kind !== "union") return renderCSharpType(type, context);
   const nonNullish = type.types.filter((member) => !isNullishType(member));
+  const voidLike = nonNullish.filter(isVoidLikeType);
+  const taskLike = nonNullish.filter(isTaskLikeType);
+  if (voidLike.length > 0 && taskLike.length === 1) {
+    return renderCSharpType(taskLike[0], context);
+  }
   if (nonNullish.length === 1) {
     return renderNullableCSharpType(nonNullish[0], context);
   }
@@ -210,11 +221,21 @@ const renderSpecialNamedType = (
       const value = type.typeArguments[1];
       return `global::System.Collections.Generic.Dictionary<${renderCSharpType(key, context)}, ${renderCSharpType(value, context)}>`;
     }
+    case "Array":
+      return `global::System.Collections.Generic.List<${renderCSharpType(type.typeArguments[0], context)}>`;
+    case "ReadonlyArray":
+      return `global::System.Collections.Generic.IReadOnlyList<${renderCSharpType(type.typeArguments[0], context)}>`;
     case "Iterable":
     case "IterableIterator":
     case "Iterator":
     case "Generator":
       return `global::System.Collections.Generic.IEnumerable<${renderCSharpType(type.typeArguments[0], context)}>`;
+    case "Promise": {
+      const awaited = type.typeArguments[0];
+      return isVoidLikeType(awaited)
+        ? "global::System.Threading.Tasks.Task"
+        : `global::System.Threading.Tasks.Task<${renderCSharpType(awaited, context)}>`;
+    }
     default:
       return undefined;
   }
@@ -255,12 +276,27 @@ export const renderCSharpType = (
     case "named": {
       const special = renderSpecialNamedType(type, context);
       if (special) return special;
+      if (type.declarationKind === "type-alias" && !type.aliasTarget) {
+        return "object?";
+      }
+      if (
+        type.name === "_" ||
+        type.name.includes("\uFFFD") ||
+        type.qualifiedRuntimeName?.endsWith("._") ||
+        type.qualifiedRuntimeName?.includes("::js._.") ||
+        (!type.qualifiedRuntimeName && type.name.startsWith("_"))
+      ) {
+        return "object?";
+      }
       if (
         type.aliasTarget &&
         type.aliasTarget.kind !== "object" &&
         type.aliasTarget.kind !== "function"
       ) {
-        return renderCSharpType(type.aliasTarget, context);
+        return type.aliasTarget.kind === "union" ||
+          type.aliasTarget.kind === "intersection"
+          ? "object?"
+          : renderCSharpType(type.aliasTarget, context);
       }
       const name = renderNamedType(type.name, type.qualifiedRuntimeName);
       return type.typeArguments.length === 0
@@ -308,7 +344,8 @@ export const renderNullableCSharpType = (
 ): string => {
   if (isOpaqueNullableType(type) || isVoidLikeType(type)) return "object?";
   if (type?.kind === "union") return renderUnionType(type, context);
-  return `${renderCSharpType(type, context)}?`;
+  const rendered = renderCSharpType(type, context);
+  return rendered.endsWith("?") ? rendered : `${rendered}?`;
 };
 
 export const renderFunctionReturnType = (
@@ -317,7 +354,13 @@ export const renderFunctionReturnType = (
   context?: RenderContext
 ): string => {
   const rendered = renderCSharpType(returnType, context);
-  if (isTaskType(returnType)) return rendered;
+  if (
+    isTaskLikeType(returnType) ||
+    rendered === "global::System.Threading.Tasks.Task" ||
+    rendered.startsWith("global::System.Threading.Tasks.Task<")
+  ) {
+    return rendered;
+  }
   if (!isAsync) return rendered;
   return isVoidLikeType(returnType)
     ? "global::System.Threading.Tasks.Task"

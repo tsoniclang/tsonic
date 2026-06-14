@@ -110,6 +110,11 @@ export type LoweringTypeRefPlan =
       readonly typeArguments: readonly LoweringTypeRefPlan[];
       readonly aliasTarget?: LoweringTypeRefPlan;
       readonly qualifiedRuntimeName?: string;
+      readonly declarationKind?:
+        | "class"
+        | "enum"
+        | "interface"
+        | "type-alias";
       readonly sourceText?: string;
     }
   | {
@@ -184,6 +189,7 @@ export type LoweringVariablePlan = {
   readonly initializer?: LoweringExpressionPlan;
   readonly bindingElements: readonly LoweringBindingElementPlan[];
   readonly compileTimeOnly?: boolean;
+  readonly initializerReferencesDeclaration?: boolean;
 };
 
 export type LoweringBindingAccessPlan =
@@ -315,6 +321,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
     | "unsupported";
   readonly type?: LoweringTypeRefPlan;
   readonly contextualTypePlan?: LoweringTypeRefPlan;
+  readonly storageTypePlan?: LoweringTypeRefPlan;
   readonly intrinsicKind?: IntrinsicSemanticsFact["kind"];
   readonly passingMode?: ParameterPassingMode;
   readonly literalKind?:
@@ -334,6 +341,8 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly qualifiedRuntimeName?: string;
   readonly yieldDelegates?: boolean;
   readonly expression?: LoweringExpressionPlan;
+  readonly receiverTypePlan?: LoweringTypeRefPlan;
+  readonly callTargetTypePlan?: LoweringTypeRefPlan;
   readonly left?: LoweringExpressionPlan;
   readonly right?: LoweringExpressionPlan;
   readonly condition?: LoweringExpressionPlan;

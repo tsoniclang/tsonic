@@ -74,6 +74,7 @@ export type SourceRuntimeOperationOwner =
   | "Function"
   | "Global"
   | "JSON"
+  | "Map"
   | "Object"
   | "RegExp"
   | "String";

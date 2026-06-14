@@ -1,7 +1,9 @@
 import {
   getTstsExpressionWithTypeArgumentsName,
   getTstsHeritageTypeNodes,
+  getTstsIdentifierText,
   getTstsContainingSourceFile,
+  getTstsNodeText,
   getTstsTypeReferenceDetails,
   TstsSyntax,
 } from "@tsonic/tsts";
@@ -52,23 +54,22 @@ import {
 
 const nodeSourceText = (sourceFile: TstsSourceFile, node: TstsNode): string => {
   void sourceFile;
-  try {
-    const text = TstsSyntax.Node_Text(node);
-    return text === "" ? TstsSyntax.Node_KindString(node) : text;
-  } catch {
-    return TstsSyntax.Node_KindString(node);
-  }
+  return getTstsNodeText(node) ?? TstsSyntax.Node_KindString(node);
 };
 
 const nodeTokenText = (node: TstsNode | undefined): string | undefined => {
   if (!node) return undefined;
-  try {
-    const text = TstsSyntax.Node_Text(node);
-    return text === "" ? undefined : text;
-  } catch {
-    return undefined;
+  if (node.Kind === TstsSyntax.KindPrivateIdentifier) {
+    const text = TstsSyntax.AsPrivateIdentifier(node)?.Text;
+    if (!text) return undefined;
+    const privateName = text.startsWith("#") ? text.slice(1) : text;
+    return `__private_${privateName}`;
   }
+  return getTstsIdentifierText(node);
 };
+
+const nodeLiteralText = (node: TstsNode | undefined): string | undefined =>
+  node ? getTstsNodeText(node) : undefined;
 
 type NodeNameInfo = {
   readonly name?: string;
@@ -296,19 +297,31 @@ const unsupportedTypePlan = (
   sourceText: compactNodeSourceText(sourceFile, node),
 });
 
+type CheckerTypePlanState = {
+  readonly types: Set<TstsType>;
+};
+
+const createCheckerTypePlanState = (): CheckerTypePlanState => ({
+  types: new Set<TstsType>(),
+});
+
 const checkerTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
-  type: TstsType | undefined
+  type: TstsType | undefined,
+  state: CheckerTypePlanState = createCheckerTypePlanState()
 ): LoweringTypeRefPlan | undefined => {
   if (!type) return undefined;
+  if (state.types.has(type)) return intrinsicTypePlan("unknown");
+  state.types.add(type);
+  try {
   const checker = context.checkerForSourceFile(sourceFile);
   const unionMembers = checker.getUnionMembers(type);
   if (unionMembers && unionMembers.length > 0) {
     return {
       kind: "union",
       types: unionMembers
-        .map((member) => checkerTypePlan(context, sourceFile, member))
+        .map((member) => checkerTypePlan(context, sourceFile, member, state))
         .filter(
           (member): member is LoweringTypeRefPlan => member !== undefined
         ),
@@ -319,7 +332,7 @@ const checkerTypePlan = (
     return {
       kind: "intersection",
       types: intersectionMembers
-        .map((member) => checkerTypePlan(context, sourceFile, member))
+        .map((member) => checkerTypePlan(context, sourceFile, member, state))
         .filter(
           (member): member is LoweringTypeRefPlan => member !== undefined
         ),
@@ -330,7 +343,7 @@ const checkerTypePlan = (
     return {
       kind: "array",
       elementType:
-        checkerTypePlan(context, sourceFile, arrayElement) ??
+        checkerTypePlan(context, sourceFile, arrayElement, state) ??
         intrinsicTypePlan("unknown"),
       readonly: false,
     };
@@ -362,7 +375,7 @@ const checkerTypePlan = (
           name: checker.getSymbolName(parameter) || "arg",
           type:
             declarationSourceTypePlan(context, sourceFile, declaration) ??
-            checkerTypePlan(context, sourceFile, parameterType),
+            checkerTypePlan(context, sourceFile, parameterType, state),
           optional: false,
           rest: false,
         };
@@ -372,7 +385,8 @@ const checkerTypePlan = (
         checkerTypePlan(
           context,
           sourceFile,
-          checker.getReturnTypeOfSignature(signature)
+          checker.getReturnTypeOfSignature(signature),
+          state
         ),
       typeParameters: [],
     };
@@ -392,7 +406,7 @@ const checkerTypePlan = (
       kind: "named",
       name,
       typeArguments: typeArguments
-        .map((argument) => checkerTypePlan(context, sourceFile, argument))
+        .map((argument) => checkerTypePlan(context, sourceFile, argument, state))
         .filter(
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ),
@@ -402,6 +416,7 @@ const checkerTypePlan = (
         type,
         name
       ),
+      declarationKind: namedDeclarationKindForType(context, sourceFile, type),
       aliasTarget: checkerTypeAliasTargetPlan(context, sourceFile, type),
     };
   }
@@ -425,7 +440,8 @@ const checkerTypePlan = (
               sourceFile,
               declaration
                 ? checker.getTypeOfSymbolAtLocation(property, declaration)
-                : undefined
+                : undefined,
+              state
             ),
         };
       }),
@@ -433,6 +449,9 @@ const checkerTypePlan = (
   }
 
   return intrinsicTypePlan("unknown");
+  } finally {
+    state.types.delete(type);
+  }
 };
 
 const typePlan = (
@@ -488,7 +507,13 @@ const qualifiedRuntimeNameForDeclaration = (
     context.options.rootNamespace
   );
   const renderedName = exportedName.replace(/\$/g, "_");
-  if (target === "type" || namespaceTypeDeclarationKinds.has(declaration.Kind)) {
+  if (target === "type") {
+    if (!namespaceTypeDeclarationKinds.has(declaration.Kind)) {
+      return undefined;
+    }
+    return `global::${identity.namespace}.${renderedName}`;
+  }
+  if (namespaceTypeDeclarationKinds.has(declaration.Kind)) {
     return `global::${identity.namespace}.${renderedName}`;
   }
   if (staticContainerValueDeclarationKinds.has(declaration.Kind)) {
@@ -514,6 +539,45 @@ const qualifiedRuntimeNameForType = (
   return qualifiedRuntimeNameForDeclaration(context, declaration, name, "type");
 };
 
+const namedDeclarationKindForDeclaration = (
+  declaration: TstsNode | undefined
+): Extract<
+  LoweringTypeRefPlan,
+  { readonly kind: "named" }
+>["declarationKind"] => {
+  switch (declaration?.Kind) {
+    case TstsSyntax.KindClassDeclaration:
+      return "class";
+    case TstsSyntax.KindEnumDeclaration:
+      return "enum";
+    case TstsSyntax.KindInterfaceDeclaration:
+      return "interface";
+    case TstsSyntax.KindTypeAliasDeclaration:
+      return "type-alias";
+    default:
+      return undefined;
+  }
+};
+
+const namedDeclarationKindForType = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  type: TstsType | undefined
+): Extract<
+  LoweringTypeRefPlan,
+  { readonly kind: "named" }
+>["declarationKind"] => {
+  if (!type) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const symbol = checker.getTypeAliasOrSymbol(type);
+  const declaration = symbol
+    ? checker.getSymbolDeclarations(symbol).find(
+        (candidate): candidate is TstsNode => candidate !== undefined
+      )
+    : undefined;
+  return namedDeclarationKindForDeclaration(declaration);
+};
+
 const qualifiedRuntimeNameForSymbol = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -537,10 +601,57 @@ const qualifiedRuntimeNameForSymbol = (
 
 type SourceTypePlanState = {
   readonly aliasTargets: Set<TstsNode>;
+  readonly aliasKeys: Set<string>;
 };
 
 const createSourceTypePlanState = (): SourceTypePlanState => ({
   aliasTargets: new Set<TstsNode>(),
+  aliasKeys: new Set<string>(),
+});
+
+const sourceTypeAliasKey = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  declaration: TstsNode,
+  symbol: TstsSymbol | undefined
+): string => {
+  const declarationSourceFile = sourceFileForNode(declaration, sourceFile);
+  const checker = context.checkerForSourceFile(declarationSourceFile);
+  const name =
+    (symbol ? checker.getSymbolName(symbol) : undefined) ??
+    nodeName(declarationSourceFile, declaration) ??
+    TstsSyntax.Node_KindString(declaration);
+  return `${declarationSourceFile.FileName()}\0${name}`;
+};
+
+const singleInterfaceCallSignature = (
+  declaration: TstsNode
+): TstsNode | undefined => {
+  if (declaration.Kind !== TstsSyntax.KindInterfaceDeclaration) {
+    return undefined;
+  }
+  const callSignatures = (TstsSyntax.Node_Members(declaration) ?? []).filter(
+    (member): member is TstsNode =>
+      member !== undefined && member.Kind === TstsSyntax.KindCallSignature
+  );
+  return callSignatures.length === 1 ? callSignatures[0] : undefined;
+};
+
+const interfaceCallSignatureTypePlan = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  callSignature: TstsNode,
+  state: SourceTypePlanState
+): LoweringTypeRefPlan => ({
+  kind: "function",
+  parameters: parameterPlans(sourceFile, callSignature, context, [], state),
+  returnType: sourceTypePlan(
+    context,
+    sourceFile,
+    TstsSyntax.Node_Type(callSignature),
+    state
+  ),
+  typeParameters: typeParameterNames(sourceFile, callSignature),
 });
 
 const sourceTypeAliasTargetPlan = (
@@ -558,16 +669,47 @@ const sourceTypeAliasTargetPlan = (
         .find(
           (candidate): candidate is TstsNode =>
             candidate !== undefined &&
-            candidate.Kind === TstsSyntax.KindTypeAliasDeclaration
+            (candidate.Kind === TstsSyntax.KindTypeAliasDeclaration ||
+              candidate.Kind === TstsSyntax.KindInterfaceDeclaration)
         )
     : undefined;
+  const interfaceCallSignature = declaration
+    ? singleInterfaceCallSignature(declaration)
+    : undefined;
+  if (declaration && interfaceCallSignature) {
+    const aliasKey = sourceTypeAliasKey(context, sourceFile, declaration, symbol);
+    if (state.aliasKeys.has(aliasKey)) {
+      return undefined;
+    }
+    state.aliasKeys.add(aliasKey);
+    try {
+      return interfaceCallSignatureTypePlan(
+        context,
+        sourceFileForNode(interfaceCallSignature, sourceFile),
+        interfaceCallSignature,
+        state
+      );
+    } finally {
+      state.aliasKeys.delete(aliasKey);
+    }
+  }
   const targetType = declaration
     ? TstsSyntax.Node_Type(declaration)
     : undefined;
-  if (!targetType || targetType === node || state.aliasTargets.has(targetType)) {
+  if (
+    !declaration ||
+    !targetType ||
+    targetType === node ||
+    state.aliasTargets.has(targetType)
+  ) {
+    return undefined;
+  }
+  const aliasKey = sourceTypeAliasKey(context, sourceFile, declaration, symbol);
+  if (state.aliasKeys.has(aliasKey)) {
     return undefined;
   }
   state.aliasTargets.add(targetType);
+  state.aliasKeys.add(aliasKey);
   try {
     return sourceTypePlan(
       context,
@@ -577,6 +719,7 @@ const sourceTypeAliasTargetPlan = (
     );
   } finally {
     state.aliasTargets.delete(targetType);
+    state.aliasKeys.delete(aliasKey);
   }
 };
 
@@ -594,16 +737,42 @@ const checkerTypeAliasTargetPlan = (
         .find(
           (candidate): candidate is TstsNode =>
             candidate !== undefined &&
-            candidate.Kind === TstsSyntax.KindTypeAliasDeclaration
+            (candidate.Kind === TstsSyntax.KindTypeAliasDeclaration ||
+              candidate.Kind === TstsSyntax.KindInterfaceDeclaration)
         )
     : undefined;
+  const interfaceCallSignature = declaration
+    ? singleInterfaceCallSignature(declaration)
+    : undefined;
+  if (declaration && interfaceCallSignature) {
+    const aliasKey = sourceTypeAliasKey(context, sourceFile, declaration, symbol);
+    if (state.aliasKeys.has(aliasKey)) {
+      return undefined;
+    }
+    state.aliasKeys.add(aliasKey);
+    try {
+      return interfaceCallSignatureTypePlan(
+        context,
+        sourceFileForNode(interfaceCallSignature, sourceFile),
+        interfaceCallSignature,
+        state
+      );
+    } finally {
+      state.aliasKeys.delete(aliasKey);
+    }
+  }
   const targetType = declaration
     ? TstsSyntax.Node_Type(declaration)
     : undefined;
-  if (!targetType || state.aliasTargets.has(targetType)) {
+  if (!declaration || !targetType || state.aliasTargets.has(targetType)) {
+    return undefined;
+  }
+  const aliasKey = sourceTypeAliasKey(context, sourceFile, declaration, symbol);
+  if (state.aliasKeys.has(aliasKey)) {
     return undefined;
   }
   state.aliasTargets.add(targetType);
+  state.aliasKeys.add(aliasKey);
   try {
     return sourceTypePlan(
       context,
@@ -613,6 +782,7 @@ const checkerTypeAliasTargetPlan = (
     );
   } finally {
     state.aliasTargets.delete(targetType);
+    state.aliasKeys.delete(aliasKey);
   }
 };
 
@@ -655,6 +825,11 @@ const sourceTypePlan = (
         sourceFile,
         sourceType,
         typeReference.name
+      ),
+      declarationKind: namedDeclarationKindForType(
+        context,
+        sourceFile,
+        sourceType
       ),
       sourceText,
     };
@@ -792,7 +967,7 @@ const sourceTypePlan = (
       switch (literal.Kind) {
         case TstsSyntax.KindStringLiteral:
         case TstsSyntax.KindNoSubstitutionTemplateLiteral: {
-          const valueText = nodeTokenText(literal);
+          const valueText = nodeLiteralText(literal);
           if (valueText === undefined)
             return unsupportedTypePlan(sourceFile, node);
           return {
@@ -803,7 +978,7 @@ const sourceTypePlan = (
           };
         }
         case TstsSyntax.KindNumericLiteral: {
-          const valueText = nodeTokenText(literal);
+          const valueText = nodeLiteralText(literal);
           if (valueText === undefined)
             return unsupportedTypePlan(sourceFile, node);
           return {
@@ -814,7 +989,7 @@ const sourceTypePlan = (
           };
         }
         case TstsSyntax.KindBigIntLiteral: {
-          const valueText = nodeTokenText(literal);
+          const valueText = nodeLiteralText(literal);
           if (valueText === undefined)
             return unsupportedTypePlan(sourceFile, node);
           return {
@@ -1000,6 +1175,27 @@ const symbolDeclarationSourceTypePlan = (
   return declarationSourceTypePlan(context, sourceFile, declaration);
 };
 
+const symbolStorageTypePlan = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  symbol: TstsSymbol | undefined
+): LoweringTypeRefPlan | undefined => {
+  if (!symbol) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const declaration =
+    checker.getSymbolValueDeclaration(symbol) ??
+    checker.getSymbolDeclarations(symbol)[0];
+  if (!declaration) return undefined;
+  return (
+    declarationSourceTypePlan(context, sourceFile, declaration) ??
+    checkerTypePlan(
+      context,
+      sourceFileForNode(declaration, sourceFile),
+      checker.getTypeOfSymbolAtLocation(symbol, declaration)
+    )
+  );
+};
+
 const signatureReturnSourceTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -1012,6 +1208,35 @@ const signatureReturnSourceTypePlan = (
     sourceFile,
     checker.getSignatureDeclaration(signature)
   );
+};
+
+const signatureTargetSourceTypePlan = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  signature: TstsSignature | undefined
+): LoweringTypeRefPlan | undefined => {
+  if (!signature) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const declaration = checker.getSignatureDeclaration(signature);
+  for (
+    let owner = declaration?.Parent;
+    owner !== undefined;
+    owner = owner.Parent
+  ) {
+    if (
+      owner.Kind === TstsSyntax.KindInterfaceDeclaration ||
+      owner.Kind === TstsSyntax.KindTypeAliasDeclaration
+    ) {
+      const ownerSourceFile = sourceFileForNode(owner, sourceFile);
+      const ownerChecker = context.checkerForSourceFile(ownerSourceFile);
+      return checkerTypePlan(
+        context,
+        ownerSourceFile,
+        ownerChecker.getTypeAtLocation(owner)
+      );
+    }
+  }
+  return declarationSourceTypePlan(context, sourceFile, declaration);
 };
 
 const expressionSourceTypePlan = (
@@ -1315,6 +1540,36 @@ const importQualifiedRuntimeName = (
   );
 };
 
+const receiverOwnerTypePlan = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode,
+  context: LoweringBuildContext
+): LoweringTypeRefPlan | undefined => {
+  if (node.Kind !== TstsSyntax.KindPropertyAccessExpression) return undefined;
+  const name = TstsSyntax.Node_Name(node);
+  const checker = context.checkerForSourceFile(sourceFile);
+  const symbol = name ? checker.getSymbolAtLocation(name) : undefined;
+  const declaration =
+    symbol !== undefined
+      ? (checker.getSymbolValueDeclaration(symbol) ??
+        checker.getSymbolDeclarations(symbol)[0])
+      : undefined;
+  const owner = declaration?.Parent;
+  if (
+    owner?.Kind !== TstsSyntax.KindClassDeclaration &&
+    owner?.Kind !== TstsSyntax.KindInterfaceDeclaration
+  ) {
+    return undefined;
+  }
+  const ownerSourceFile = sourceFileForNode(owner, sourceFile);
+  const ownerChecker = context.checkerForSourceFile(ownerSourceFile);
+  return checkerTypePlan(
+    context,
+    ownerSourceFile,
+    ownerChecker.getTypeAtLocation(owner)
+  );
+};
+
 const expressionPlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
@@ -1371,6 +1626,11 @@ const expressionPlan = (
       return {
         ...base,
         expressionKind: "identifier",
+        storageTypePlan: symbolStorageTypePlan(
+          context,
+          sourceFile,
+          base.symbol
+        ),
         literalText: nodeTokenText(node) ?? nodeName(sourceFile, node),
       };
     case TstsSyntax.KindThisKeyword:
@@ -1383,7 +1643,7 @@ const expressionPlan = (
         ...base,
         expressionKind: "literal",
         literalKind: "string",
-        literalText: nodeTokenText(node),
+        literalText: nodeLiteralText(node),
       };
     case TstsSyntax.KindTemplateExpression: {
       const template = TstsSyntax.AsTemplateExpression(node);
@@ -1411,14 +1671,14 @@ const expressionPlan = (
         ...base,
         expressionKind: "literal",
         literalKind: "number",
-        literalText: nodeTokenText(node),
+        literalText: nodeLiteralText(node),
       };
     case TstsSyntax.KindBigIntLiteral:
       return {
         ...base,
         expressionKind: "literal",
         literalKind: "bigint",
-        literalText: nodeTokenText(node),
+        literalText: nodeLiteralText(node),
       };
     case TstsSyntax.KindTrueKeyword:
       return {
@@ -1583,7 +1843,9 @@ const expressionPlan = (
         ),
       };
     case TstsSyntax.KindPropertyAccessExpression:
-      return {
+      {
+        const name = TstsSyntax.Node_Name(node);
+        return {
         ...base,
         expressionKind: "property-access",
         expression: expressionPlan(
@@ -1591,17 +1853,28 @@ const expressionPlan = (
           TstsSyntax.Node_Expression(node),
           context
         ),
+        receiverTypePlan: receiverOwnerTypePlan(sourceFile, node, context),
+        storageTypePlan: symbolStorageTypePlan(
+          context,
+          sourceFile,
+          name ? checker.getSymbolAtLocation(name) : base.symbol
+        ),
         literalText:
-          nodeTokenText(TstsSyntax.Node_Name(node)) ??
+          nodeTokenText(name) ??
           nodeName(sourceFile, node),
       };
+      }
     case TstsSyntax.KindElementAccessExpression: {
       const element = TstsSyntax.AsElementAccessExpression(node);
       if (!element) return unsupportedExpression(sourceFile, node, context);
+      const receiverType = checker.getNarrowedTypeAtLocation(
+        element.Expression
+      );
       return {
         ...base,
         expressionKind: "element-access",
         expression: expressionPlan(sourceFile, element.Expression, context),
+        receiverTypePlan: checkerTypePlan(context, sourceFile, receiverType),
         arguments: [
           expressionPlan(sourceFile, element.ArgumentExpression, context),
         ].filter((item): item is LoweringExpressionPlan => item !== undefined),
@@ -1609,9 +1882,19 @@ const expressionPlan = (
     }
     case TstsSyntax.KindCallExpression:
     case TstsSyntax.KindNewExpression: {
+      const signature = checker.getResolvedSignature(node);
+      const calleeNode = TstsSyntax.Node_Expression(node);
+      const calleeNarrowedType = calleeNode
+        ? checker.getNarrowedTypeAtLocation(calleeNode)
+        : undefined;
+      const signatureTarget = signatureTargetSourceTypePlan(
+        context,
+        sourceFile,
+        signature
+      );
       const callee = expressionPlan(
         sourceFile,
-        TstsSyntax.Node_Expression(node),
+        calleeNode,
         context
       );
       const expectedArgumentTypes = arrayReceiverArgumentExpectedTypes(callee) ??
@@ -1625,6 +1908,13 @@ const expressionPlan = (
         expressionKind:
           node.Kind === TstsSyntax.KindNewExpression ? "new" : "call",
         expression: callee,
+        callTargetTypePlan:
+          node.Kind === TstsSyntax.KindCallExpression
+            ? signatureTarget?.kind === "named"
+              ? signatureTarget
+              : checkerTypePlan(context, sourceFile, calleeNarrowedType) ??
+                signatureTarget
+            : undefined,
         arguments: (TstsSyntax.Node_Arguments(node) ?? [])
           .map((argument, index) =>
             expressionPlan(
@@ -1819,15 +2109,54 @@ const bindingElementsFromName = (
   );
 };
 
+const sameSymbol = (
+  checker: ReturnType<LoweringBuildContext["checkerForSourceFile"]>,
+  left: TstsSymbol | undefined,
+  right: TstsSymbol | undefined
+): boolean => {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const leftDeclarations = checker.getSymbolDeclarations(left);
+  const rightDeclarations = checker.getSymbolDeclarations(right);
+  return leftDeclarations.some((leftDeclaration) =>
+    rightDeclarations.includes(leftDeclaration)
+  );
+};
+
+const nodeReferencesSymbol = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode | undefined,
+  context: LoweringBuildContext,
+  symbol: TstsSymbol | undefined
+): boolean => {
+  if (!node || !symbol) return false;
+  const checker = context.checkerForSourceFile(sourceFile);
+  let referenced = false;
+  visitTstsNodes(node, (child) => {
+    if (referenced || child.Kind !== TstsSyntax.KindIdentifier) return;
+    referenced = sameSymbol(
+      checker,
+      checker.getSymbolAtLocation(child),
+      symbol
+    );
+  });
+  return referenced;
+};
+
 const variablePlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
   context: LoweringBuildContext
 ): LoweringVariablePlan => {
+  const checker = context.checkerForSourceFile(sourceFile);
   const variable = TstsSyntax.AsVariableDeclaration(node);
   const declaredType = variable?.Type ?? TstsSyntax.Node_Type(node);
   const type = sourceTypePlan(context, sourceFile, declaredType);
   const nameNode = TstsSyntax.Node_Name(node);
+  const initializerNode = variable?.Initializer ?? TstsSyntax.Node_Initializer(node);
+  const declarationSymbol = nameNode
+    ? checker.getSymbolAtLocation(nameNode)
+    : undefined;
   const genericAlias = context.input.facts.get(
     genericFunctionAliasFactKey,
     node
@@ -1838,12 +2167,18 @@ const variablePlan = (
     type,
     initializer: expressionPlan(
       sourceFile,
-      variable?.Initializer ?? TstsSyntax.Node_Initializer(node),
+      initializerNode,
       context,
       type
     ),
     bindingElements: bindingElementsFromName(sourceFile, nameNode, context),
     compileTimeOnly: genericAlias !== undefined,
+    initializerReferencesDeclaration: nodeReferencesSymbol(
+      sourceFile,
+      initializerNode,
+      context,
+      declarationSymbol
+    ),
   };
 };
 
