@@ -218,6 +218,17 @@ const renderArrayLiteral = (
   plan: LoweringExpressionPlan,
   context: RenderContext
 ): string => {
+  const tuplePlan =
+    plan.contextualTypePlan?.kind === "tuple"
+      ? plan.contextualTypePlan
+      : plan.type?.kind === "tuple"
+        ? plan.type
+        : undefined;
+  if (tuplePlan) {
+    return `(${plan.elements
+      .map((element) => renderExpression(element, context))
+      .join(", ")})`;
+  }
   const arrayPlan = arrayLiteralTypePlan(plan);
   const elementType = arrayLiteralElementType(plan, context);
   if (!plan.elements.some((element) => element.expressionKind === "spread")) {

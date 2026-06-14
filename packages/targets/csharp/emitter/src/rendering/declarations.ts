@@ -95,26 +95,45 @@ const renderFunction = (
       ? "static "
       : ""
     : "static ";
-  const returnType =
-    className && plan.returnType?.kind === "intrinsic" && plan.returnType.name === "this"
-      ? sanitizeTypeName(className)
-      : renderFunctionReturnType(plan.returnType, plan.async, context);
+  const effectiveReturnType =
+    className &&
+    plan.returnType?.kind === "intrinsic" &&
+    plan.returnType.name === "this"
+      ? ({ kind: "named", name: className, typeArguments: [] } as const)
+      : plan.returnType;
+  const returnType = renderFunctionReturnType(
+    effectiveReturnType,
+    plan.async,
+    context
+  );
   return [
     `public ${staticModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
-    renderFunctionBody(plan.body, context, plan.returnType),
+    renderFunctionBody(plan.body, context, effectiveReturnType),
   ].join("\n");
 };
 
 const renderConstructor = (
   plan: LoweringDeclarationPlan,
   context: RenderContext,
-  className: string
+  className: string,
+  prologueStatements: readonly string[] = []
 ): string | undefined => {
   if (!plan.body) return undefined;
   const parameters = plan.parameters
     .map((parameter) => renderParameter(parameter, context))
     .join(", ");
-  return [`public ${sanitizeTypeName(className)}(${parameters})`, renderFunctionBody(plan.body, context)].join("\n");
+  const renderedBody = renderFunctionBody(plan.body, context);
+  const bodyLines = renderedBody.split("\n");
+  const bodyWithPrologue =
+    prologueStatements.length === 0
+      ? renderedBody
+      : [
+          "{",
+          ...prologueStatements.map((statement) => indent(statement, 4)),
+          ...bodyLines.slice(1, -1),
+          "}",
+        ].join("\n");
+  return [`public ${sanitizeTypeName(className)}(${parameters})`, bodyWithPrologue].join("\n");
 };
 
 const renderProperty = (
@@ -124,7 +143,7 @@ const renderProperty = (
   const declarationName = requireDeclarationName(plan, context, "property");
   if (!declarationName) return undefined;
   const type = renderCSharpType(plan.returnType ?? plan.declaredTypePlan, context);
-  const initializer = plan.initializer
+  const initializer = plan.static && plan.initializer
     ? ` = ${renderExpression(plan.initializer, context)}`
     : "";
   const staticModifier = plan.static ? "static " : "";
@@ -148,13 +167,14 @@ const renderIndexSignature = (
 const renderClassMember = (
   plan: LoweringDeclarationPlan,
   context: RenderContext,
-  className: string
+  className: string,
+  constructorPrologueStatements: readonly string[]
 ): string | undefined => {
   switch (plan.declarationKind) {
     case "method":
       return renderFunction(plan, context, true, className);
     case "constructor":
-      return renderConstructor(plan, context, className);
+      return renderConstructor(plan, context, className, constructorPrologueStatements);
     case "property":
       return renderProperty(plan, context);
     case "index-signature":
@@ -175,13 +195,53 @@ const renderClass = (
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "class");
   if (!declarationName) return undefined;
+  const heritage = plan.heritageTypes
+    .filter(
+      (heritageType) =>
+        !(heritageType.kind === "named" && heritageType.name === "struct")
+    )
+    .map((heritageType) => renderCSharpType(heritageType, context));
+  const heritageClause =
+    heritage.length > 0 ? ` : ${heritage.join(", ")}` : "";
+  const constructorPrologueStatements = plan.members
+    .filter(
+      (member) =>
+        member.declarationKind === "property" &&
+        !member.static &&
+        member.initializer !== undefined &&
+        requireDeclarationName(member, context, "property") !== undefined
+    )
+    .map(
+      (member) =>
+        `this.${sanitizeIdentifier(member.name ?? "")} = ${renderExpression(member.initializer, context)};`
+    );
+  const hasConstructor = plan.members.some(
+    (member) => member.declarationKind === "constructor"
+  );
+  const synthesizedConstructor =
+    !hasConstructor && constructorPrologueStatements.length > 0
+      ? [
+          `public ${sanitizeTypeName(declarationName)}()`,
+          "{",
+          ...constructorPrologueStatements.map((statement) => indent(statement, 4)),
+          "}",
+        ].join("\n")
+      : undefined;
   return [
-    `public sealed class ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}`,
+    `public class ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}${heritageClause}`,
     "{",
     ...plan.members
-      .map((member) => renderClassMember(member, context, declarationName))
+      .map((member) =>
+        renderClassMember(
+          member,
+          context,
+          declarationName,
+          constructorPrologueStatements
+        )
+      )
       .filter((rendered): rendered is string => rendered !== undefined)
       .map((rendered) => indent(rendered, 4)),
+    ...(synthesizedConstructor ? [indent(synthesizedConstructor, 4)] : []),
     "}",
   ].join("\n");
 };

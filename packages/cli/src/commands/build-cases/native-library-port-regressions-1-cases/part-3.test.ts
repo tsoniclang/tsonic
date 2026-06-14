@@ -269,7 +269,7 @@ describe("build command (native library port regressions)", function () {
       expect(result.ok).to.equal(true);
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.include("public Application router { get; set; }");
+      expect(tree).to.include("public global::App.Application router { get; set; }");
       expect(tree).to.include("public Application()");
       expect(tree).to.include("this.router = this;");
       expect(tree).to.not.include("router { get; set; } = this;");

@@ -265,7 +265,11 @@ const nearestObjectLiteralMethodParent = (
 ): TstsNode | undefined =>
   [...parents]
     .reverse()
-    .find((parent) => parent.Kind === TstsSyntax.KindMethodDeclaration);
+    .find(
+      (parent) =>
+        parent.Kind === TstsSyntax.KindMethodDeclaration &&
+        parent.Parent?.Kind === TstsSyntax.KindObjectLiteralExpression
+    );
 
 const isIdentifierNamed = (
   node: TstsNode | undefined,
@@ -1663,7 +1667,8 @@ export const createTsonicSourceSemanticsExtension = (
 
       if (
         node.Kind === TstsSyntax.KindElementAccessExpression &&
-        isIdentifierNamed(TstsSyntax.Node_Expression(node), "arguments")
+        isIdentifierNamed(TstsSyntax.Node_Expression(node), "arguments") &&
+        !parents.some((parent) => isCompileTimeMarkerApiExpression(parent, context))
       ) {
         const methodParent = nearestObjectLiteralMethodParent(parents);
         if (methodParent) {
@@ -1690,7 +1695,8 @@ export const createTsonicSourceSemanticsExtension = (
 
       if (
         node.Kind === TstsSyntax.KindSuperKeyword &&
-        nearestObjectLiteralMethodParent(parents)
+        nearestObjectLiteralMethodParent(parents) &&
+        !parents.some((parent) => isCompileTimeMarkerApiExpression(parent, context))
       ) {
         addSourceDiagnostic(
           context,

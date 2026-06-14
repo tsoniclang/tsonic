@@ -258,8 +258,7 @@ export const renderCSharpType = (
       if (
         type.aliasTarget &&
         type.aliasTarget.kind !== "object" &&
-        type.aliasTarget.kind !== "function" &&
-        !type.qualifiedRuntimeName
+        type.aliasTarget.kind !== "function"
       ) {
         return renderCSharpType(type.aliasTarget, context);
       }

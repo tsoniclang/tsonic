@@ -241,6 +241,28 @@ const isBroadExpressionType = (
   type.kind === "union" ||
   type.kind === "unsupported";
 
+const needsReturnCast = (
+  expectedType: LoweringTypeRefPlan,
+  expression: LoweringStatementPlan["expression"],
+  context: RenderContext
+): boolean => {
+  const actualType = expression?.type;
+  if (
+    expectedType.kind === "named" &&
+    expression?.expressionKind === "call" &&
+    expression.expression?.expressionKind === "property-access" &&
+    expression.expression.expression?.expressionKind === "super"
+  ) {
+    return true;
+  }
+  if (isBroadExpressionType(actualType)) return true;
+  return (
+    expectedType.kind === "named" &&
+    actualType?.kind === "named" &&
+    renderCSharpType(expectedType, context) !== renderCSharpType(actualType, context)
+  );
+};
+
 const renderReturnExpression = (
   expression: LoweringStatementPlan["expression"],
   context: RenderContext
@@ -253,7 +275,7 @@ const renderReturnExpression = (
       expectedType.kind === "intrinsic" &&
       (expectedType.name === "void" || expectedType.name === "unknown" || expectedType.name === "object")
     ) &&
-    isBroadExpressionType(expression?.type)
+    needsReturnCast(expectedType, expression, context)
   ) {
     return `((${renderCSharpType(expectedType, context)})(${rendered}))`;
   }

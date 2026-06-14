@@ -402,6 +402,7 @@ const checkerTypePlan = (
         type,
         name
       ),
+      aliasTarget: checkerTypeAliasTargetPlan(context, sourceFile, type),
     };
   }
 
@@ -564,6 +565,42 @@ const sourceTypeAliasTargetPlan = (
     ? TstsSyntax.Node_Type(declaration)
     : undefined;
   if (!targetType || targetType === node || state.aliasTargets.has(targetType)) {
+    return undefined;
+  }
+  state.aliasTargets.add(targetType);
+  try {
+    return sourceTypePlan(
+      context,
+      sourceFileForNode(targetType, sourceFile),
+      targetType,
+      state
+    );
+  } finally {
+    state.aliasTargets.delete(targetType);
+  }
+};
+
+const checkerTypeAliasTargetPlan = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  type: TstsType,
+  state: SourceTypePlanState = createSourceTypePlanState()
+): LoweringTypeRefPlan | undefined => {
+  const checker = context.checkerForSourceFile(sourceFile);
+  const symbol = checker.getTypeAliasOrSymbol(type);
+  const declaration = symbol
+    ? checker
+        .getSymbolDeclarations(symbol)
+        .find(
+          (candidate): candidate is TstsNode =>
+            candidate !== undefined &&
+            candidate.Kind === TstsSyntax.KindTypeAliasDeclaration
+        )
+    : undefined;
+  const targetType = declaration
+    ? TstsSyntax.Node_Type(declaration)
+    : undefined;
+  if (!targetType || state.aliasTargets.has(targetType)) {
     return undefined;
   }
   state.aliasTargets.add(targetType);
@@ -1074,6 +1111,48 @@ const expectedArraySpreadType = (
       ? type
       : undefined;
 
+const arrayElementTypeFromPlan = (
+  type: LoweringTypeRefPlan | undefined
+): LoweringTypeRefPlan | undefined => {
+  if (type?.kind === "named" && type.aliasTarget) {
+    return arrayElementTypeFromPlan(type.aliasTarget);
+  }
+  if (type?.kind === "array") return type.elementType;
+  if (type?.kind === "union") {
+    const elementTypes = type.types
+      .map((member) => arrayElementTypeFromPlan(member))
+      .filter((member): member is LoweringTypeRefPlan => member !== undefined);
+    return elementTypes.length === 1 ? elementTypes[0] : undefined;
+  }
+  return undefined;
+};
+
+const arrayReceiverArgumentExpectedTypes = (
+  callee: LoweringExpressionPlan | undefined
+): readonly (LoweringTypeRefPlan | undefined)[] | undefined => {
+  const operation = callee?.sourceOperation;
+  if (
+    callee?.expressionKind !== "property-access" ||
+    operation?.owner !== "Array" ||
+    operation.dispatch !== "receiver-call"
+  ) {
+    return undefined;
+  }
+  const elementType =
+    arrayElementTypeFromPlan(callee.expression?.type) ??
+    arrayElementTypeFromPlan(callee.expression?.contextualTypePlan);
+  if (!elementType) return undefined;
+  switch (operation.member) {
+    case "push":
+    case "includes":
+    case "indexOf":
+    case "lastIndexOf":
+      return [elementType];
+    default:
+      return undefined;
+  }
+};
+
 const isSourcePrimitiveTypePlan = (
   type: LoweringTypeRefPlan | undefined
 ): boolean => type?.kind === "source-primitive";
@@ -1530,7 +1609,13 @@ const expressionPlan = (
     }
     case TstsSyntax.KindCallExpression:
     case TstsSyntax.KindNewExpression: {
-      const expectedArgumentTypes = callExpectedArgumentTypes(
+      const callee = expressionPlan(
+        sourceFile,
+        TstsSyntax.Node_Expression(node),
+        context
+      );
+      const expectedArgumentTypes = arrayReceiverArgumentExpectedTypes(callee) ??
+        callExpectedArgumentTypes(
         sourceFile,
         node,
         context
@@ -1539,11 +1624,7 @@ const expressionPlan = (
         ...base,
         expressionKind:
           node.Kind === TstsSyntax.KindNewExpression ? "new" : "call",
-        expression: expressionPlan(
-          sourceFile,
-          TstsSyntax.Node_Expression(node),
-          context
-        ),
+        expression: callee,
         arguments: (TstsSyntax.Node_Arguments(node) ?? [])
           .map((argument, index) =>
             expressionPlan(
