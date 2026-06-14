@@ -16,9 +16,11 @@ Report this checklist every 15 minutes while long-running work is active.
 
 ```text
 branch: feature/tsts-final-completion
-latest pushed commit before this checklist: a7922f81 refactor: route C# generation through lowering plans
-current state: dirty working tree, architecture in progress
-not done: focused frontend failures, legacy audit, run-all, downstreams
+latest pushed commit: 4b81600e raise tsts build heap default
+current state: clean working tree, pushed checkpoint, architecture in progress
+focused frontend package: 426 passing / 0 failing at last checkpoint
+full run-all: started with pipefail; failed in lowering/C# rendering after typecheck passed
+not done: renderer/lowering completion, legacy audit refresh, run-all, downstreams
 ```
 
 ## Low-Level Work Items
@@ -83,7 +85,7 @@ not done: focused frontend failures, legacy audit, run-all, downstreams
 | 7.7 | Delete legacy manifests | One metadata schema only | Pending audit | Search `legacy`, `v1`, `v2`, normalizers |
 | 7.8 | Delete backend leakage | No frontend CLR/C#/System facts | Pending audit | Search gate clean or documented test-only matches |
 | 8.1 | Frontend focused tests | Focused repaired suites green | Pending | Re-run focused subset after repairs |
-| 8.2 | Frontend full tests | Frontend package tests green | Pending | `npm test --workspace @tsonic/frontend` |
+| 8.2 | Frontend full tests | Frontend package tests green | Done at checkpoint | `426 passing / 0 failing`; re-run after lowering repairs |
 | 8.3 | TSTS package build | Vendored TSTS compiles | Done for last checkpoint | Re-run after TSTS edits |
 | 8.4 | C# emitter tests | Plan renderer tests green | Pending | Emitter/unit suite |
 | 8.5 | Full run-all | Complete Tsonic gate green | Pending | `./test/scripts/run-all.sh` |
@@ -100,6 +102,20 @@ not done: focused frontend failures, legacy audit, run-all, downstreams
 | Arrow contextual typing | `type Op = (a: number, b: number) => number; const ops: Op[] = [(a, b) => a + b];` | Recognize contextual type from the array/object container through TSTS facade |
 | Type-root/source-package graph | `import type { PathLike } from "node:path";` | Use TSTS module/type-root graph; do not reconstruct a parallel resolver |
 | Runtime closure filtering | `tests.entryPoint` imports only tests while semantic support files exist | Emit only runtime closure; keep semantic support for checking only |
+
+## Active Lowering/Renderer Failure Themes
+
+These are the current blockers from the first full `run-all` attempt after frontend validation passed.
+
+| Theme | User-code example | Current bad C# shape | Required fix |
+| --- | --- | --- | --- |
+| Explicit primitive aliases erased inside generic type nodes | `function createIntBox(value: int): Box<int> { return { value }; }` | `Box<number>` and `number` appears as a C# type | Preserve explicit source type-node text/facts for `int`, `long`, etc.; render arbitrary generics recursively |
+| Interface type members dropped | `interface Box<T> { value: T }` | `public interface Box<T> { }`, then `box.value` fails | Lower `PropertySignature`/`MethodSignature` as declaration plans, not only class declarations |
+| Intrinsics emitted as ordinary calls | `const x = defaultof<int>();` | `defaultof<int>()` remains in generated C# | Carry `intrinsicSemanticsFact` into lowering plans and render `default(T)`, `is`, `as`, `nameof`, etc. |
+| Destructuring names not declared | `const [first, second] = values;` | later generated code references `first`/`second` without declarations | Lower binding patterns into deterministic temp plus element/member declarations |
+| Contextual callback params degrade to `object` | `values.map(x => x + 1)` under a typed delegate context | lambda parameter emits as `object x`, causing delegate conversion errors | Query TSTS contextual/checker answers for unannotated lambda/function parameters |
+| Unsupported source expression nodes leak to renderer | `void f();`, `function* g(){ yield 1; }` | `KindVoidExpression` / `KindYieldExpression` unsupported in expression context | Add explicit lowering/rendering plans for required expression nodes or deterministic diagnostics |
+| External source-package names lose qualified target identity | `new DefaultHttpContext()` from an external source package | bare `DefaultHttpContext` missing namespace/import in generated C# | Use canonical external binding/source-package facts in lowering/rendering; no name guessing |
 
 ## Reporting Cadence
 
