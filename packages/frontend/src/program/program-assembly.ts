@@ -67,6 +67,17 @@ const createSourceFilePathSet = (
   return canonicalPaths;
 };
 
+const isFileUnderDirectory = (filePath: string, directoryPath: string): boolean => {
+  const relativePath = path.relative(
+    canonicalizeFilePath(directoryPath),
+    canonicalizeFilePath(filePath)
+  );
+  return (
+    relativePath.length === 0 ||
+    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
+  );
+};
+
 const getLineColumnFromTextOffset = (
   text: string,
   offset: number
@@ -221,6 +232,9 @@ export const createProgram = (
     sourceProgram = createTstsSourceProgram(allFiles, {
       projectRoot: options.projectRoot,
       runExtensionChecks: true,
+      sourceDiagnosticFileNames: discovery.emittableSourceFiles.filter(
+        (filePath) => isFileUnderDirectory(filePath, options.sourceRoot)
+      ),
     });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);

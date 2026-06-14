@@ -35,18 +35,23 @@ export type CreateTstsSourceProgramOptions = {
   readonly projectRoot?: string;
   readonly runSemanticChecks?: boolean;
   readonly runExtensionChecks?: boolean;
+  readonly sourceDiagnosticFileNames?: readonly string[];
 };
 
-const defaultExtensions = (): readonly CompilerExtension[] => [
+const defaultExtensions = (
+  options: Pick<CreateTstsSourceProgramOptions, "sourceDiagnosticFileNames"> = {}
+): readonly CompilerExtension[] => [
   createTsonicNumericPrimitiveExtension(),
-  createTsonicSourceSemanticsExtension(),
+  createTsonicSourceSemanticsExtension({
+    sourceDiagnosticFileNames: options.sourceDiagnosticFileNames,
+  }),
 ];
 
 export const createTstsSourceProgram = (
   filePaths: readonly string[],
   options: CreateTstsSourceProgramOptions = {}
 ): TstsSourceProgram => {
-  const extensions = options.extensions ?? defaultExtensions();
+  const extensions = options.extensions ?? defaultExtensions(options);
   const compiledSource = createCompilerSourceProgram(filePaths, {
     projectRoot: options.projectRoot,
     extensions,

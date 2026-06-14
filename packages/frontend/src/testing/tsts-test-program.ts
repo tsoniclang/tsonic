@@ -41,6 +41,14 @@ const releaseTempRoot = (root: string): void => {
 const CANONICAL_CORE_PACKAGE_FILES: Readonly<Record<string, string>> = {
   "tsonic-std.d.ts": [
     "type PropertyKey = string | number | symbol;",
+    "interface Array<T> {",
+    "  readonly length: number;",
+    "  [n: number]: T;",
+    "}",
+    "interface ReadonlyArray<T> {",
+    "  readonly length: number;",
+    "  readonly [n: number]: T;",
+    "}",
     "type Record<K extends PropertyKey, T> = { [P in K]: T };",
     "type Partial<T> = { [P in keyof T]?: T[P] };",
     "type Required<T> = { [P in keyof T]-?: T[P] };",

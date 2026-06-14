@@ -27,6 +27,7 @@ import {
   TstsSyntax,
   visitTstsSubtree,
 } from "@tsonic/tsts";
+import * as path from "node:path";
 import type {
   FieldSemanticsFact,
   IntrinsicSemanticsFact,
@@ -283,6 +284,9 @@ const isDependencySupportSourceFile = (fileName: string): boolean => {
   );
 };
 
+const normalizeSourceFileName = (fileName: string): string =>
+  path.resolve(fileName).replace(/\\/g, "/");
+
 const nodeHasAncestorKind = (
   parents: readonly TstsNode[],
   kind: number
@@ -335,6 +339,26 @@ const isIdentifierGenericSymbol = (
   const symbol = symbolForName(context, node);
   return symbol ? genericSymbols.has(symbol) : false;
 };
+
+const isMonomorphicCallableType = (
+  context: CheckedContext,
+  type: TstsType | undefined
+): boolean => {
+  if (!type) return false;
+  const signatures = context.checker.getCallSignatures(type);
+  return (
+    signatures.length > 0 &&
+    signatures.every(
+      (signature) => !context.checker.signatureHasTypeParameters(signature)
+    )
+  );
+};
+
+const hasMonomorphicCallableContext = (
+  context: CheckedContext,
+  node: TstsNode | undefined
+): boolean =>
+  isMonomorphicCallableType(context, context.checker.getContextualType(node));
 
 const isFieldWrapper = (
   node: TstsNode | undefined,
@@ -870,10 +894,26 @@ const selectSourceSignature = (
   return best && best.score > (second?.score ?? -1) ? best.signature : undefined;
 };
 
-export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
-  id: "tsonic.source-semantics",
-  runsAfter: ["tsonic.numeric-primitives"],
-  afterParseSourceFile: (context): void => {
+export type TsonicSourceSemanticsExtensionOptions = {
+  readonly sourceDiagnosticFileNames?: readonly string[];
+};
+
+export const createTsonicSourceSemanticsExtension = (
+  options: TsonicSourceSemanticsExtensionOptions = {}
+): CompilerExtension => {
+  const sourceDiagnosticFileNames =
+    options.sourceDiagnosticFileNames === undefined
+      ? undefined
+      : new Set(
+          options.sourceDiagnosticFileNames.map((fileName) =>
+            normalizeSourceFileName(fileName)
+          )
+        );
+
+  return {
+    id: "tsonic.source-semantics",
+    runsAfter: ["tsonic.numeric-primitives"],
+    afterParseSourceFile: (context): void => {
     const coreTypesBindingByLocalName = collectImportedNamesByLocalName(
       context.imports,
       coreTypesModules
@@ -1060,15 +1100,19 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
         });
       }
     });
-  },
-  afterCheckSourceFile: (context): void => {
+    },
+    afterCheckSourceFile: (context): void => {
     if (!context.sourceFile) return;
     const sourceFileName = context.sourceFile.FileName();
     const isCoreSourceFile = isCorePackageSourceFile(sourceFileName);
     const shouldValidateSourceDiagnostics =
       context.sourceFile.IsDeclarationFile !== true &&
       !isCoreSourceFile &&
-      !isDependencySupportSourceFile(sourceFileName);
+      (sourceDiagnosticFileNames === undefined
+        ? !isDependencySupportSourceFile(sourceFileName)
+        : sourceDiagnosticFileNames.has(
+            normalizeSourceFileName(sourceFileName)
+          ));
     const coreTypesBindingByLocalName = collectImportedNamesByLocalName(
       context.imports,
       coreTypesModules
@@ -1225,7 +1269,10 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
         const contextualType = functionParent
           ? context.checker.getContextualType(functionParent)
           : undefined;
-        if (!parameterType && !contextualType) {
+        if (
+          !parameterType &&
+          !isMonomorphicCallableType(context, contextualType)
+        ) {
           addSourceDiagnostic(
             context,
             "TSN7405",
@@ -1439,6 +1486,24 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
         }
       }
 
+      if (node.Kind === TstsSyntax.KindShorthandPropertyAssignment) {
+        const valueSymbol = context.checker.resolveAlias(
+          context.checker.getShorthandAssignmentValueSymbol(node)
+        );
+        if (
+          valueSymbol &&
+          genericSymbols.has(valueSymbol) &&
+          !hasMonomorphicCallableContext(context, TstsSyntax.Node_Name(node))
+        ) {
+          addSourceDiagnostic(
+            context,
+            "TSN7432",
+            node,
+            "Generic function values cannot be used as runtime object properties outside monomorphic callable contexts."
+          );
+        }
+      }
+
       if (TstsSyntax.IsIdentifier(node) && isIdentifierGenericSymbol(context, node, genericSymbols)) {
         if (
           directParent &&
@@ -1451,19 +1516,14 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
           directParent?.Kind === TstsSyntax.KindTypeQuery ||
           directParent?.Kind === TstsSyntax.KindImportSpecifier ||
           directParent?.Kind === TstsSyntax.KindExportSpecifier ||
+          directParent?.Kind === TstsSyntax.KindExportAssignment ||
           directParent?.Kind === TstsSyntax.KindVariableDeclaration ||
           directParent?.Kind === TstsSyntax.KindFunctionDeclaration
         ) {
           return;
         }
 
-        const contextualType = context.checker.getContextualType(node);
-        const contextualText = context.checker.typeToString(contextualType);
-        if (
-          contextualText &&
-          !contextualText.includes("<") &&
-          /\(.*\)\s*=>/.test(contextualText)
-        ) {
+        if (hasMonomorphicCallableContext(context, node)) {
           return;
         }
 
@@ -1522,5 +1582,6 @@ export const createTsonicSourceSemanticsExtension = (): CompilerExtension => ({
       if (!selected) return;
       context.facts.set(selectedSignatureFactKey, node, { signature: selected });
     });
-  },
-});
+    },
+  };
+};
