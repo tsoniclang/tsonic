@@ -1,18 +1,23 @@
-const jsRuntimeSupport = `#nullable enable
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.Json;
-using System.Text.RegularExpressions;
+const jsRuntimePrelude = (usesJson: boolean): string =>
+  [
+    "#nullable enable",
+    "using System;",
+    "using System.Collections.Generic;",
+    "using System.Linq;",
+    ...(usesJson ? ["using System.Text.Json;"] : []),
+    "using System.Text.RegularExpressions;",
+    "",
+    "namespace js;",
+    "",
+  ].join("\n");
 
-namespace js;
-
-public sealed class Error : Exception
+const jsErrorSupport = `public sealed class Error : Exception
 {
     public Error(string? message = null) : base(message ?? "") { }
 }
+`;
 
-public sealed class RegExp
+const jsRegExpSupport = `public sealed class RegExp
 {
     private readonly Regex regex;
 
@@ -27,8 +32,9 @@ public sealed class RegExp
 
     public bool test(string value) => regex.IsMatch(value);
 }
+`;
 
-public static class String
+const jsStringSupport = `public static class String
 {
     public static string trim(string value) => value.Trim();
     public static string trimStart(string value) => value.TrimStart();
@@ -54,8 +60,9 @@ public static class String
     public static string fromCharCode(params int[] codes) => new string(codes.Select(code => (char)code).ToArray());
     public static string fromCodePoint(params int[] codes) => string.Concat(codes.Select(char.ConvertFromUtf32));
 }
+`;
 
-public static class Object
+const jsObjectSupport = `public static class Object
 {
     public static bool @is(object? left, object? right) => object.Equals(left, right);
     public static IEnumerable<string> keys<T>(Dictionary<string, T> value) => value.Keys;
@@ -63,14 +70,16 @@ public static class Object
     public static IEnumerable<KeyValuePair<string, T>> entries<T>(Dictionary<string, T> value) => value;
     public static Dictionary<string, T> fromEntries<T>(IEnumerable<KeyValuePair<string, T>> entries) => entries.ToDictionary(entry => entry.Key, entry => entry.Value);
 }
+`;
 
-public static class JSON
+const jsJsonSupport = `public static class JSON
 {
     public static T? parse<T>(string value) => JsonSerializer.Deserialize<T>(value);
     public static string stringify(object? value) => JsonSerializer.Serialize(value);
 }
+`;
 
-public sealed class Array<T> : List<T>
+const jsCollectionsSupport = `public sealed class Array<T> : List<T>
 {
     public Array() { }
     public Array(IEnumerable<T> values) : base(values) { }
@@ -167,11 +176,41 @@ public sealed class DataView
 }
 `;
 
+const supportNeeded = (
+  emittedFiles: ReadonlyMap<string, string>,
+  runtimeName: string
+): boolean =>
+  [...emittedFiles.values()].some((code) => code.includes(runtimeName));
+
 export const csharpRuntimeSupportFiles = (
   emittedFiles: ReadonlyMap<string, string>
 ): ReadonlyMap<string, string> => {
   if (![...emittedFiles.values()].some((code) => code.includes("global::js."))) {
     return new Map();
   }
-  return new Map([["__tsonic_runtime/js.cs", jsRuntimeSupport]]);
+  const usesJson = supportNeeded(emittedFiles, "global::js.JSON");
+  const sections = [
+    jsRuntimePrelude(usesJson),
+    ...(supportNeeded(emittedFiles, "global::js.Error") ? [jsErrorSupport] : []),
+    ...(supportNeeded(emittedFiles, "global::js.RegExp")
+      ? [jsRegExpSupport]
+      : []),
+    ...(supportNeeded(emittedFiles, "global::js.String")
+      ? [jsStringSupport]
+      : []),
+    ...(supportNeeded(emittedFiles, "global::js.Object")
+      ? [jsObjectSupport]
+      : []),
+    ...(usesJson ? [jsJsonSupport] : []),
+    ...(supportNeeded(emittedFiles, "global::js.Array") ||
+    supportNeeded(emittedFiles, "global::js.Map") ||
+    supportNeeded(emittedFiles, "global::js.Set") ||
+    supportNeeded(emittedFiles, "global::js.Uint") ||
+    supportNeeded(emittedFiles, "global::js.Int") ||
+    supportNeeded(emittedFiles, "global::js.Float") ||
+    supportNeeded(emittedFiles, "global::js.DataView")
+      ? [jsCollectionsSupport]
+      : []),
+  ];
+  return new Map([["__tsonic_runtime/js.cs", sections.join("\n")]]);
 };
