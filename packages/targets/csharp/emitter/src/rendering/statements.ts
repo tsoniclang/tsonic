@@ -184,6 +184,25 @@ const renderVariableStatement = (
     })
     .join("\n");
 
+const renderVoidExpressionStatement = (
+  expression: LoweringStatementPlan["expression"],
+  context: RenderContext
+): string => {
+  const inner = expression?.expression;
+  if (!inner) return "";
+  const rendered = renderExpression(inner, context);
+  switch (inner.expressionKind) {
+    case "call":
+    case "new":
+    case "postfix-unary":
+    case "prefix-unary":
+    case "await":
+      return `${rendered};`;
+    default:
+      return `_ = ${rendered};`;
+  }
+};
+
 export const renderStatement = (
   plan: LoweringStatementPlan | undefined,
   context: RenderContext
@@ -211,6 +230,9 @@ export const renderStatement = (
           return "";
         }
         return `yield return ${renderExpression(plan.expression.expression, context)};`;
+      }
+      if (plan.expression?.expressionKind === "void") {
+        return renderVoidExpressionStatement(plan.expression, context);
       }
       return `${renderExpression(plan.expression, context)};`;
     case "variable":

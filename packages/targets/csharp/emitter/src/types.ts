@@ -22,6 +22,7 @@ export type ModuleEmitResult =
 
 export type RenderContext = {
   readonly diagnostics: Diagnostic[];
+  readonly expressionAliases: ReadonlyMap<string, string>;
   readonly allocateTempName: (prefix: string) => string;
   readonly reportUnsupported: (
     feature: string,

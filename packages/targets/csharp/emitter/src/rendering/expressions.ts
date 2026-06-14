@@ -361,7 +361,10 @@ export const renderExpression = (
   switch (plan.expressionKind) {
     case "identifier":
       if ((plan.literalText ?? plan.name) === "undefined") return "null";
-      return sanitizeIdentifier(plan.literalText ?? plan.name ?? "value");
+      {
+        const rawName = plan.literalText ?? plan.name ?? "value";
+        return sanitizeIdentifier(context.expressionAliases.get(rawName) ?? rawName);
+      }
     case "this":
       return "this";
     case "super":
