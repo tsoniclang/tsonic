@@ -12,7 +12,10 @@ import type {
   TstsType,
 } from "@tsonic/tsts";
 import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
-import type { IntrinsicSemanticsFact } from "../source-frontend/source-facts.js";
+import type {
+  IntrinsicSemanticsFact,
+  ParameterPassingMode,
+} from "../source-frontend/source-facts.js";
 import type { TstsSourceProgram } from "../source-frontend/index.js";
 import type { Diagnostic } from "../types/diagnostic.js";
 
@@ -155,6 +158,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly typeText?: string;
   readonly contextualTypeText?: string;
   readonly intrinsicKind?: IntrinsicSemanticsFact["kind"];
+  readonly passingMode?: ParameterPassingMode;
   readonly literalKind?: "string" | "number" | "bigint" | "boolean" | "null" | "undefined";
   readonly literalText?: string;
   readonly returnTypeText?: string;

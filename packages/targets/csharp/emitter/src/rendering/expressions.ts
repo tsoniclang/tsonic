@@ -270,10 +270,23 @@ const renderLambda = (
 const renderCallArgument = (
   argument: LoweringExpressionPlan,
   context: RenderContext
-): string =>
-  argument.expressionKind === "spread"
-    ? renderExpression(argument.expression, context)
-    : renderExpression(argument, context);
+): string => {
+  const rendered =
+    argument.expressionKind === "spread"
+      ? renderExpression(argument.expression, context)
+      : renderExpression(argument, context);
+  switch (argument.passingMode) {
+    case "byref-writeonly-must-init":
+      return `out ${rendered}`;
+    case "byref-readwrite":
+      return `ref ${rendered}`;
+    case "byref-readonly":
+      return `in ${rendered}`;
+    case "by-value":
+    case undefined:
+      return rendered;
+  }
+};
 
 const renderIntrinsicCall = (
   plan: LoweringExpressionPlan,

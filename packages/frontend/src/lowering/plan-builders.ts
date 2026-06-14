@@ -3,6 +3,7 @@ import type { TstsNode, TstsSourceFile, TstsType } from "@tsonic/tsts";
 import {
   intrinsicSemanticsFactKey,
   numericPrimitiveFactKey,
+  parameterPassingFactKey,
   selectedSignatureFactKey,
 } from "../source-frontend/source-facts.js";
 import type {
@@ -306,6 +307,7 @@ const expressionPlan = (
       expectedTypeText ?? typeText(context, sourceFile, undefined, contextualType),
     intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
       ?.kind,
+    passingMode: context.input.facts.get(parameterPassingFactKey, node)?.mode,
     arguments: [] as readonly LoweringExpressionPlan[],
     typeArguments: [] as readonly string[],
     elements: [] as readonly LoweringExpressionPlan[],
@@ -412,10 +414,16 @@ const expressionPlan = (
     case TstsSyntax.KindAsExpression:
     case TstsSyntax.KindSatisfiesExpression:
     case TstsSyntax.KindTypeAssertionExpression:
-    case TstsSyntax.KindNonNullExpression:
+    case TstsSyntax.KindNonNullExpression: {
+      const wrapperType = TstsSyntax.Node_Type(node);
       return {
         ...base,
         expressionKind: "erased-wrapper",
+        passingMode:
+          (wrapperType
+            ? context.input.facts.get(parameterPassingFactKey, wrapperType)?.mode
+            : undefined) ??
+          base.passingMode,
         expression: expressionPlan(
           sourceFile,
           TstsSyntax.Node_Expression(node),
@@ -423,6 +431,7 @@ const expressionPlan = (
           expectedTypeText
         ),
       };
+    }
     case TstsSyntax.KindAwaitExpression:
       return {
         ...base,
