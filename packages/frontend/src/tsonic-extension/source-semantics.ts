@@ -9,6 +9,7 @@ import type {
 import {
   forEachTstsChild,
   getTstsCallExpressionDetails,
+  getTstsContainingSourceFile,
   getTstsDeclaredTypeNode,
   getTstsExpressionWithTypeArgumentsName,
   getTstsHeritageTypeNodes,
@@ -40,13 +41,16 @@ import {
   coreTypesModules,
 } from "./core-imports.js";
 import {
+  expressionSemanticsFactKey,
   fieldSemanticsFactKey,
+  genericFunctionAliasFactKey,
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
   parameterPassingFactKey,
   sourceTypeSemanticsFactKey,
   extensionReceiverSemanticsFactKey,
   heritageWrapperSemanticsFactKey,
+  wellKnownComputedNameFactKey,
 } from "../source-frontend/source-facts.js";
 
 const fieldFact: FieldSemanticsFact = { storage: "field" };
@@ -270,6 +274,116 @@ const isPropertyAccessNamed = (
   isIdentifierNamed(TstsSyntax.Node_Expression(node), receiverName) &&
   isIdentifierNamed(TstsSyntax.Node_Name(node), memberName);
 
+const symbolDeclarationFileName = (
+  declaration: TstsNode | undefined
+): string | undefined => getTstsContainingSourceFile(declaration)?.FileName();
+
+const isExternalSupportDeclaration = (
+  declaration: TstsNode | undefined
+): boolean => {
+  const fileName = symbolDeclarationFileName(declaration);
+  return fileName !== undefined && isDependencySupportSourceFile(fileName);
+};
+
+const isAmbientGlobalIdentifier = (
+  context: CheckedContext,
+  node: TstsNode | undefined,
+  name: string
+): boolean => {
+  if (!isIdentifierNamed(node, name)) return false;
+  if (context.imports.resolveLocalName(name)) return false;
+  const symbol = symbolForName(context, node);
+  if (!symbol) return true;
+  const declarations = context.checker.getSymbolDeclarations(symbol);
+  return (
+    declarations.length === 0 ||
+    declarations.every((declaration) =>
+      isExternalSupportDeclaration(declaration)
+    )
+  );
+};
+
+const isWellKnownSymbolName = (
+  context: CheckedContext,
+  node: TstsNode | undefined
+): "symbol-iterator" | "symbol-async-iterator" | undefined => {
+  if (node?.Kind !== TstsSyntax.KindComputedPropertyName) return undefined;
+  const expression = TstsSyntax.Node_Expression(node);
+  if (expression?.Kind !== TstsSyntax.KindPropertyAccessExpression) {
+    return undefined;
+  }
+  if (
+    !isAmbientGlobalIdentifier(
+      context,
+      TstsSyntax.Node_Expression(expression),
+      "Symbol"
+    )
+  ) {
+    return undefined;
+  }
+  const memberName = getTstsIdentifierText(TstsSyntax.Node_Name(expression));
+  switch (memberName) {
+    case "iterator":
+      return "symbol-iterator";
+    case "asyncIterator":
+      return "symbol-async-iterator";
+    default:
+      return undefined;
+  }
+};
+
+const expressionSemanticsKind = (
+  context: CheckedContext,
+  node: TstsNode
+):
+  | "undefined-value"
+  | "console-write"
+  | "error-constructor"
+  | "length-property"
+  | undefined => {
+  if (isAmbientGlobalIdentifier(context, node, "undefined")) {
+    return "undefined-value";
+  }
+
+  if (node.Kind === TstsSyntax.KindPropertyAccessExpression) {
+    const memberName = getTstsIdentifierText(TstsSyntax.Node_Name(node));
+    if (
+      isAmbientGlobalIdentifier(
+        context,
+        TstsSyntax.Node_Expression(node),
+        "console"
+      ) &&
+      (memberName === "log" ||
+        memberName === "info" ||
+        memberName === "warn" ||
+        memberName === "error")
+    ) {
+      return "console-write";
+    }
+
+    if (memberName === "length") {
+      const receiverType = context.checker.getNarrowedTypeAtLocation(
+        TstsSyntax.Node_Expression(node)
+      );
+      return receiverType &&
+        (context.checker.isStringLikeType(receiverType) ||
+          context.checker.isArrayType(receiverType) ||
+          context.checker.isTupleType(receiverType))
+        ? "length-property"
+        : undefined;
+    }
+  }
+
+  if (
+    node.Kind === TstsSyntax.KindNewExpression &&
+    isAmbientGlobalIdentifier(context, TstsSyntax.Node_Expression(node), "Error")
+  ) {
+    return "error-constructor";
+  }
+
+  return undefined;
+};
+
 const isAllowedDictionaryKeyTypeNode = (
   node: TstsNode | undefined
 ): boolean => {
@@ -392,6 +506,18 @@ const isIdentifierGenericSymbol = (
   if (!node || !TstsSyntax.IsIdentifier(node)) return false;
   const symbol = symbolForName(context, node);
   return symbol ? genericSymbols.has(symbol) : false;
+};
+
+const genericTargetSymbolForIdentifier = (
+  context: CheckedContext,
+  node: TstsNode | undefined,
+  genericSymbols: ReadonlySet<TstsSymbol>,
+  genericAliasTargets: ReadonlyMap<TstsSymbol, TstsSymbol>
+): TstsSymbol | undefined => {
+  if (!node || !TstsSyntax.IsIdentifier(node)) return undefined;
+  const symbol = symbolForName(context, node);
+  if (!symbol) return undefined;
+  return genericAliasTargets.get(symbol) ?? (genericSymbols.has(symbol) ? symbol : undefined);
 };
 
 const isMonomorphicCallableType = (
@@ -745,6 +871,7 @@ export const createTsonicSourceSemanticsExtension = (
 
     const variableDeclarations: TstsNode[] = [];
     const genericSymbols = new Set<TstsSymbol>();
+    const genericAliasTargets = new Map<TstsSymbol, TstsSymbol>();
     visitTstsSubtree(context.sourceFile, (node): void => {
       if (!node) return;
       if (TstsSyntax.IsFunctionDeclaration(node) && isGenericFunctionNode(node)) {
@@ -766,16 +893,60 @@ export const createTsonicSourceSemanticsExtension = (
       addedGenericAlias = false;
       for (const declaration of variableDeclarations) {
         const initializer = TstsSyntax.Node_Initializer(declaration);
-        if (!isIdentifierGenericSymbol(context, initializer, genericSymbols)) {
+        const targetSymbol = genericTargetSymbolForIdentifier(
+          context,
+          initializer,
+          genericSymbols,
+          genericAliasTargets
+        );
+        if (!targetSymbol) {
           continue;
         }
         const symbol = symbolForName(context, TstsSyntax.Node_Name(declaration));
         if (symbol && !genericSymbols.has(symbol)) {
           genericSymbols.add(symbol);
+          genericAliasTargets.set(symbol, targetSymbol);
           addedGenericAlias = true;
         }
       }
     }
+
+    for (const declaration of variableDeclarations) {
+      const symbol = symbolForName(context, TstsSyntax.Node_Name(declaration));
+      const targetSymbol = symbol ? genericAliasTargets.get(symbol) : undefined;
+      if (!targetSymbol) continue;
+      context.facts.set(genericFunctionAliasFactKey, declaration, {
+        targetName: context.checker.getSymbolName(targetSymbol),
+      });
+    }
+
+    visitTstsSubtree(context.sourceFile, (node): void => {
+      if (!node) return;
+
+      if (TstsSyntax.IsIdentifier(node)) {
+        const symbol = symbolForName(context, node);
+        const targetSymbol = symbol ? genericAliasTargets.get(symbol) : undefined;
+        if (targetSymbol) {
+          context.facts.set(genericFunctionAliasFactKey, node, {
+            targetName: context.checker.getSymbolName(targetSymbol),
+          });
+        }
+      }
+
+      const computedName = isWellKnownSymbolName(context, node);
+      if (computedName) {
+        context.facts.set(wellKnownComputedNameFactKey, node, {
+          kind: computedName,
+        });
+      }
+
+      const expressionKind = expressionSemanticsKind(context, node);
+      if (expressionKind) {
+        context.facts.set(expressionSemanticsFactKey, node, {
+          kind: expressionKind,
+        });
+      }
+    });
 
     if (shouldValidateSourceDiagnostics) {
       visitTstsSubtreeWithParents(context.sourceFile, (node, parents): void => {

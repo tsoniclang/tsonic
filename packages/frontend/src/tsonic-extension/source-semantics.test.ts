@@ -17,7 +17,9 @@ import {
 import type { GoPtr, TstsNode } from "@tsonic/tsts";
 import {
   fieldSemanticsFactKey,
+  expressionSemanticsFactKey,
   extensionReceiverSemanticsFactKey,
+  wellKnownComputedNameFactKey,
   heritageWrapperSemanticsFactKey,
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
@@ -25,6 +27,7 @@ import {
   sourceTypeSemanticsFactKey,
 } from "../source-frontend/source-facts.js";
 import { createTsonicSourceSemanticsExtension } from "./source-semantics.js";
+import { createTstsTestProgramFromFiles } from "../testing/tsts-test-program.js";
 
 const collectSemanticNodes = (sourceText: string) => {
   const sourceFile = parseTstsSourceFile(sourceText);
@@ -386,5 +389,118 @@ describe("Tsonic TSTS source semantics extension", () => {
       export interface FakeStruct extends struct {}
     `).get("FakeStruct")
     ).to.equal("interface");
+  });
+
+  it("attaches checked expression facts only to proven ambient/global source semantics", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "node_modules/@fixture/globals/index.d.ts": [
+          "declare global {",
+          "  const console: { log(message: string): void; error(message: string): void };",
+          "  class Error { constructor(message: string); }",
+          "  const Symbol: { readonly iterator: symbol; readonly asyncIterator: symbol };",
+          "}",
+          "export {};",
+          "",
+        ].join("\n"),
+        "src/test.ts": [
+          "export class IteratorSource {",
+          "  [Symbol.iterator](): void {}",
+          "  [Symbol.asyncIterator](): void {}",
+          "}",
+          "export function run(value: string, items: number[]): void {",
+          "  const missing = undefined;",
+          "  console.log(value);",
+          "  console.error(items.length.toString());",
+          "  throw new Error(value.length.toString());",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "src/test.ts"
+    );
+    try {
+      const expressionKinds: string[] = [];
+      const computedKinds: string[] = [];
+
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        const expressionFact = program.sourceProgram.extensionHost.facts.get(
+          expressionSemanticsFactKey,
+          node
+        );
+        if (expressionFact) expressionKinds.push(expressionFact.kind);
+        const computedFact = program.sourceProgram.extensionHost.facts.get(
+          wellKnownComputedNameFactKey,
+          node
+        );
+        if (computedFact) computedKinds.push(computedFact.kind);
+      });
+
+      expect(expressionKinds).to.deep.equal([
+        "undefined-value",
+        "console-write",
+        "console-write",
+        "length-property",
+        "error-constructor",
+        "length-property",
+      ]);
+      expect(computedKinds).to.deep.equal([
+        "symbol-iterator",
+        "symbol-async-iterator",
+      ]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("does not attach ambient expression facts to local shadowed names", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "src/test.ts": [
+          "const console = { log(_message: string): void {} };",
+          "const Symbol = { iterator: 'local' };",
+          "class Error {",
+          "  message: string;",
+          "  constructor(message: string) { this.message = message; }",
+          "}",
+          "export class LocalIterator {",
+          "  [Symbol.iterator](): void {}",
+          "}",
+          "export function run(value: string): void {",
+          "  console.log(value);",
+          "  const err = new Error(value);",
+          "  const size = value.length;",
+          "  void err;",
+          "  void size;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "src/test.ts"
+    );
+    try {
+      const expressionKinds: string[] = [];
+      const computedKinds: string[] = [];
+
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        const expressionFact = program.sourceProgram.extensionHost.facts.get(
+          expressionSemanticsFactKey,
+          node
+        );
+        if (expressionFact) expressionKinds.push(expressionFact.kind);
+        const computedFact = program.sourceProgram.extensionHost.facts.get(
+          wellKnownComputedNameFactKey,
+          node
+        );
+        if (computedFact) computedKinds.push(computedFact.kind);
+      });
+
+      expect(expressionKinds).to.deep.equal(["length-property"]);
+      expect(computedKinds).to.deep.equal([]);
+    } finally {
+      program.cleanup();
+    }
   });
 });

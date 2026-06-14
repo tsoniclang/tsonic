@@ -4,11 +4,8 @@ import { createDiagnostic, type Diagnostic } from "../types/diagnostic.js";
 import type {
   BackendTargetId,
   LoweringBuildContext,
-  LoweringDeclarationPlan,
-  LoweringExpressionAliasPlan,
   LoweringModulePlan,
   LoweringPipelineOptions,
-  LoweringVariablePlan,
 } from "./types.js";
 import { buildLoweringPlansForSourceFile } from "./plan-builders.js";
 import { sourceFileStatements } from "./tsts-node-classification.js";
@@ -18,70 +15,6 @@ export type CreateLoweringModulePlanResult<
 > =
   | { readonly ok: true; readonly plan: LoweringModulePlan<Target> }
   | { readonly ok: false; readonly diagnostic: Diagnostic };
-
-const variableInitializerIdentifier = (
-  declaration: LoweringDeclarationPlan
-): string | undefined =>
-  declaration.declarationKind === "variable" &&
-  declaration.initializer?.expressionKind === "identifier"
-    ? declaration.initializer.literalText ?? declaration.initializer.name
-    : undefined;
-
-const variablePlanInitializerIdentifier = (
-  declaration: LoweringVariablePlan
-): string | undefined =>
-  declaration.initializer?.expressionKind === "identifier"
-    ? declaration.initializer.literalText ?? declaration.initializer.name
-    : undefined;
-
-const buildExpressionAliases = (
-  declarations: readonly LoweringDeclarationPlan[],
-  topLevelStatements: readonly LoweringModulePlan["topLevelStatements"][number][]
-): readonly LoweringExpressionAliasPlan[] => {
-  const topLevelVariables = topLevelStatements.flatMap(
-    (statement) => statement.declarations
-  );
-  const genericFunctions = new Set(
-    declarations
-      .filter(
-        (declaration) =>
-          declaration.declarationKind === "function" &&
-          declaration.name !== undefined &&
-          declaration.typeParameters.length > 0
-      )
-      .map((declaration) => declaration.name)
-  );
-  const aliases = new Map<string, string>();
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const declaration of declarations) {
-      if (declaration.declarationKind !== "variable" || !declaration.name) {
-        continue;
-      }
-      if (aliases.has(declaration.name)) continue;
-      const target = variableInitializerIdentifier(declaration);
-      if (!target) continue;
-      const resolvedTarget = aliases.get(target) ?? target;
-      if (!genericFunctions.has(resolvedTarget)) continue;
-      aliases.set(declaration.name, resolvedTarget);
-      changed = true;
-    }
-    for (const declaration of topLevelVariables) {
-      if (aliases.has(declaration.name)) continue;
-      const target = variablePlanInitializerIdentifier(declaration);
-      if (!target) continue;
-      const resolvedTarget = aliases.get(target) ?? target;
-      if (!genericFunctions.has(resolvedTarget)) continue;
-      aliases.set(declaration.name, resolvedTarget);
-      changed = true;
-    }
-  }
-  return [...aliases].map(([aliasName, targetName]) => ({
-    aliasName,
-    targetName,
-  }));
-};
 
 export const createLoweringModulePlan = <
   Target extends BackendTargetId = BackendTargetId,
@@ -128,7 +61,6 @@ export const createLoweringModulePlan = <
       sourceModule,
       imports: input.moduleGraph.getImports(sourceFile),
       exports: input.moduleGraph.getExports(sourceFile),
-      expressionAliases: buildExpressionAliases(declarations, topLevelStatements),
       declarations,
       topLevelStatements,
       types: plans.types,

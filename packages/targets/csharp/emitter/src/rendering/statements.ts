@@ -48,6 +48,7 @@ export const renderVariableFragment = (
   declaration: LoweringVariablePlan,
   context: RenderContext
 ): string => {
+  if (declaration.compileTimeOnly) return "";
   if (declaration.bindingElements.length > 0) {
     context.reportUnsupported("variable fragment binding pattern", "BindingPattern", declaration.name);
     return "";
@@ -73,6 +74,7 @@ export const renderStaticField = (
   declaration: LoweringVariablePlan,
   context: RenderContext
 ): string => {
+  if (declaration.compileTimeOnly) return "";
   if (declaration.bindingElements.length > 0) {
     context.reportUnsupported("top-level binding pattern", "BindingPattern", declaration.name);
     return "";
@@ -157,6 +159,9 @@ const renderVariableStatement = (
 ): string =>
   declarations
     .flatMap((declaration): readonly string[] => {
+      if (declaration.compileTimeOnly) {
+        return [];
+      }
       if (declaration.bindingElements.length === 0) {
         return [`${renderVariableFragment(declaration, context)};`];
       }

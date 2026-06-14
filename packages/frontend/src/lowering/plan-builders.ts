@@ -7,10 +7,13 @@ import {
 } from "@tsonic/tsts";
 import type { TstsNode, TstsSourceFile, TstsType } from "@tsonic/tsts";
 import {
+  expressionSemanticsFactKey,
+  genericFunctionAliasFactKey,
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
+  wellKnownComputedNameFactKey,
 } from "../source-frontend/source-facts.js";
 import type {
   LoweringBinaryOperator,
@@ -75,31 +78,10 @@ type NodeNameInfo = {
   readonly computedName?: "symbol-iterator" | "symbol-async-iterator";
 };
 
-const computedWellKnownName = (
-  node: TstsNode | undefined
-): NodeNameInfo["computedName"] => {
-  if (!node || node.Kind !== TstsSyntax.KindComputedPropertyName) return undefined;
-  const expression = TstsSyntax.Node_Expression(node);
-  if (expression?.Kind !== TstsSyntax.KindPropertyAccessExpression) return undefined;
-  const receiver = TstsSyntax.Node_Expression(expression);
-  const member = TstsSyntax.Node_Name(expression);
-  if (receiver?.Kind !== TstsSyntax.KindIdentifier || member?.Kind !== TstsSyntax.KindIdentifier) {
-    return undefined;
-  }
-  if (TstsSyntax.Node_Text(receiver) !== "Symbol") return undefined;
-  switch (TstsSyntax.Node_Text(member)) {
-    case "iterator":
-      return "symbol-iterator";
-    case "asyncIterator":
-      return "symbol-async-iterator";
-    default:
-      return undefined;
-  }
-};
-
 const nodeNameInfo = (
   sourceFile: TstsSourceFile,
-  node: TstsNode | undefined
+  node: TstsNode | undefined,
+  context?: LoweringBuildContext
 ): NodeNameInfo => {
   if (!node) return { computed: false };
   const nameNode = TstsSyntax.Node_Name(node);
@@ -111,7 +93,8 @@ const nodeNameInfo = (
       sourceKindName,
       sourceText,
       computed: true,
-      computedName: computedWellKnownName(nameNode),
+      computedName: context?.input.facts.get(wellKnownComputedNameFactKey, nameNode)
+        ?.kind,
     };
   }
   return {
@@ -129,11 +112,12 @@ const nodeName = (
 
 const propertyNameInfo = (
   sourceFile: TstsSourceFile,
-  node: TstsNode | undefined
+  node: TstsNode | undefined,
+  context?: LoweringBuildContext
 ): NodeNameInfo => {
   if (!node) return { computed: false };
   const nameNode = TstsSyntax.Node_PropertyNameOrName(node);
-  if (!nameNode) return nodeNameInfo(sourceFile, node);
+  if (!nameNode) return nodeNameInfo(sourceFile, node, context);
   const sourceKindName = TstsSyntax.Node_KindString(nameNode);
   const sourceText = nodeSourceText(sourceFile, nameNode);
   if (nameNode.Kind === TstsSyntax.KindComputedPropertyName) {
@@ -141,7 +125,8 @@ const propertyNameInfo = (
       sourceKindName,
       sourceText,
       computed: true,
-      computedName: computedWellKnownName(nameNode),
+      computedName: context?.input.facts.get(wellKnownComputedNameFactKey, nameNode)
+        ?.kind,
     };
   }
   return {
@@ -657,7 +642,7 @@ const typeMemberPlan = (
   node: TstsNode,
   context: LoweringBuildContext
 ): LoweringTypeMemberPlan | undefined => {
-  const name = propertyNameInfo(sourceFile, node);
+  const name = propertyNameInfo(sourceFile, node, context);
   if (name.computed || !name.name) return undefined;
   switch (node.Kind) {
     case TstsSyntax.KindPropertySignature:
@@ -728,9 +713,10 @@ const callExpectedArgumentTypes = (
 const planBase = <TKind extends string>(
   kind: TKind,
   sourceFile: TstsSourceFile,
-  sourceNode: TstsNode
+  sourceNode: TstsNode,
+  context?: LoweringBuildContext
 ) => {
-  const name = nodeNameInfo(sourceFile, sourceNode);
+  const name = nodeNameInfo(sourceFile, sourceNode, context);
   return {
     kind,
     sourceFile,
@@ -755,7 +741,7 @@ const unsupportedExpression = (
   const useSiteType = checker.getNarrowedTypeAtLocation(node);
   const contextualType = checker.getContextualType(node);
   return {
-    ...planBase("expression", sourceFile, node),
+    ...planBase("expression", sourceFile, node, context),
     expressionKind: "unsupported",
     type: checkerTypePlan(context, sourceFile, useSiteType),
     contextualTypePlan: checkerTypePlan(context, sourceFile, contextualType),
@@ -780,12 +766,6 @@ const functionReturnType = (
   const signature = checker.getSignatureFromDeclaration(node);
   return signature ? checker.getReturnTypeOfSignature(signature) : undefined;
 };
-
-const isIdentifierText = (
-  node: TstsNode | undefined,
-  text: string
-): boolean =>
-  node?.Kind === TstsSyntax.KindIdentifier && nodeTokenText(node) === text;
 
 const isCompileTimeMarkerApiExpression = (
   node: TstsNode | undefined,
@@ -813,35 +793,7 @@ const isCompileTimeMarkerApiExpression = (
   }
 };
 
-const propertyAccessSemantic = (
-  sourceFile: TstsSourceFile,
-  node: TstsNode,
-  context: LoweringBuildContext
-): "console-write" | "length-property" | undefined => {
-  const receiver = TstsSyntax.Node_Expression(node);
-  const memberName = nodeTokenText(TstsSyntax.Node_Name(node));
-  if (
-    isIdentifierText(receiver, "console") &&
-    (memberName === "log" ||
-      memberName === "info" ||
-      memberName === "warn" ||
-      memberName === "error")
-  ) {
-    return "console-write";
-  }
-  if (memberName !== "length") return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const receiverType = checker.getNarrowedTypeAtLocation(receiver);
-  return receiverType &&
-    (checker.isStringLikeType(receiverType) ||
-      checker.isArrayType(receiverType) ||
-      checker.isTupleType(receiverType))
-    ? "length-property"
-    : undefined;
-};
-
 const expressionSemantic = (
-  sourceFile: TstsSourceFile,
   node: TstsNode,
   context: LoweringBuildContext
 ):
@@ -854,17 +806,7 @@ const expressionSemantic = (
   if (isCompileTimeMarkerApiExpression(node, context)) {
     return "compile-time-marker-call";
   }
-  if (isIdentifierText(node, "undefined")) return "undefined-value";
-  if (node.Kind === TstsSyntax.KindPropertyAccessExpression) {
-    return propertyAccessSemantic(sourceFile, node, context);
-  }
-  if (
-    node.Kind === TstsSyntax.KindNewExpression &&
-    isIdentifierText(TstsSyntax.Node_Expression(node), "Error")
-  ) {
-    return "error-constructor";
-  }
-  return undefined;
+  return context.input.facts.get(expressionSemanticsFactKey, node)?.kind;
 };
 
 const expressionPlan = (
@@ -878,11 +820,13 @@ const expressionPlan = (
   const useSiteType = checker.getNarrowedTypeAtLocation(node);
   const contextualType = checker.getContextualType(node);
   const base = {
-    ...planBase("expression", sourceFile, node),
+    ...planBase("expression", sourceFile, node, context),
     type: checkerTypePlan(context, sourceFile, useSiteType),
     contextualTypePlan:
       expectedType ?? checkerTypePlan(context, sourceFile, contextualType),
-    semantic: expressionSemantic(sourceFile, node, context),
+    semantic: expressionSemantic(node, context),
+    aliasTargetName: context.input.facts.get(genericFunctionAliasFactKey, node)
+      ?.targetName,
     intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
       ?.kind,
     passingMode: context.input.facts.get(parameterPassingFactKey, node)?.mode,
@@ -1215,7 +1159,7 @@ const expressionPlan = (
         properties: (TstsSyntax.Node_Properties(node) ?? [])
           .filter((property): property is TstsNode => property !== undefined)
           .map((property): LoweringObjectPropertyPlan | undefined => {
-            const name = propertyNameInfo(sourceFile, property);
+            const name = propertyNameInfo(sourceFile, property, context);
             const value =
               property?.Kind === TstsSyntax.KindShorthandPropertyAssignment
                 ? expressionPlan(
@@ -1310,7 +1254,9 @@ const variablePlan = (
   const declaredType = variable?.Type ?? TstsSyntax.Node_Type(node);
   const type = sourceTypePlan(context, sourceFile, declaredType);
   const nameNode = TstsSyntax.Node_Name(node);
+  const genericAlias = context.input.facts.get(genericFunctionAliasFactKey, node);
   return {
+    sourceNode: node,
     name: nodeName(sourceFile, node) ?? "value",
     type,
     initializer: expressionPlan(
@@ -1320,6 +1266,7 @@ const variablePlan = (
       type
     ),
     bindingElements: bindingElementsFromName(sourceFile, nameNode, context),
+    compileTimeOnly: genericAlias !== undefined,
   };
 };
 
@@ -1342,7 +1289,7 @@ const statementPlan = (
 ): LoweringStatementPlan | undefined => {
   if (!node) return undefined;
   const empty = {
-    ...planBase("statement", sourceFile, node),
+    ...planBase("statement", sourceFile, node, context),
     statements: [] as readonly LoweringStatementPlan[],
     declarations: [] as readonly LoweringVariablePlan[],
     cases: [],
@@ -1676,7 +1623,7 @@ const declarationPlan = (
   const explicitReturnType = TstsSyntax.Node_Type(node);
   const returnType = typePlan(context, sourceFile, explicitReturnType, inferredReturnType);
   return {
-    ...planBase("declaration", sourceFile, node),
+    ...planBase("declaration", sourceFile, node, context),
     declarationKind: kind,
     symbol,
     declaredType,
@@ -1751,7 +1698,7 @@ export const buildLoweringPlansForSourceFile = (
       const type = checker.getTypeFromTypeNode(node);
       if (type) {
         buckets.types.push({
-          ...planBase("type", sourceFile, node),
+          ...planBase("type", sourceFile, node, context),
           sourceType: type,
           sourceSymbol: checker.getTypeAliasOrSymbol(type),
         });
@@ -1793,7 +1740,7 @@ export const buildLoweringPlansForSourceFile = (
       buckets.expressions.push(expression);
       if (node.Kind === TstsSyntax.KindIdentifier && expression.useSiteType) {
         buckets.narrowings.push({
-          ...planBase("narrowing", sourceFile, node),
+          ...planBase("narrowing", sourceFile, node, context),
           useSiteType: expression.useSiteType,
         });
       }
@@ -1805,7 +1752,7 @@ export const buildLoweringPlansForSourceFile = (
     ) {
       const selected = checker.getResolvedSignature(node);
       buckets.calls.push({
-        ...planBase("call", sourceFile, node),
+        ...planBase("call", sourceFile, node, context),
         signature: selected,
         returnType: selected
           ? checker.getReturnTypeOfSignature(selected)
@@ -1819,7 +1766,7 @@ export const buildLoweringPlansForSourceFile = (
       const name = TstsSyntax.Node_Name(node);
       const memberSymbol = name ? checker.getSymbolAtLocation(name) : undefined;
       buckets.members.push({
-        ...planBase("member-access", sourceFile, node),
+        ...planBase("member-access", sourceFile, node, context),
         receiverType,
         memberSymbol,
         memberType: memberSymbol
@@ -1832,7 +1779,7 @@ export const buildLoweringPlansForSourceFile = (
       const receiver = TstsSyntax.Node_Expression(node);
       const argument = TstsSyntax.AsElementAccessExpression(node)?.ArgumentExpression;
       buckets.indexes.push({
-        ...planBase("index-access", sourceFile, node),
+        ...planBase("index-access", sourceFile, node, context),
         receiverType: checker.getNarrowedTypeAtLocation(receiver),
         indexType: argument
           ? checker.getNarrowedTypeAtLocation(argument)

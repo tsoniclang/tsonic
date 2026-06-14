@@ -63,6 +63,22 @@ export type MarkerApiSemanticsFact = {
   readonly kind: "attributes" | "attribute-targets" | "overloads";
 };
 
+export type ExpressionSemanticsFact = {
+  readonly kind:
+    | "undefined-value"
+    | "console-write"
+    | "error-constructor"
+    | "length-property";
+};
+
+export type WellKnownComputedNameFact = {
+  readonly kind: "symbol-iterator" | "symbol-async-iterator";
+};
+
+export type GenericFunctionAliasFact = {
+  readonly targetName: string;
+};
+
 export type IntrinsicSemanticsFact = {
   readonly kind:
     | "asinterface"
@@ -121,6 +137,24 @@ export const markerApiSemanticsFactKey =
     "Source-level compiler marker API provenance such as attributes or overloads."
   );
 
+export const expressionSemanticsFactKey =
+  defineSourceFactKey<ExpressionSemanticsFact>(
+    "tsonic:source:expression-semantics",
+    "Source-level expression semantics proven by the TSTS source extension."
+  );
+
+export const wellKnownComputedNameFactKey =
+  defineSourceFactKey<WellKnownComputedNameFact>(
+    "tsonic:source:well-known-computed-name",
+    "Source-level well-known computed declaration names such as Symbol.iterator."
+  );
+
+export const genericFunctionAliasFactKey =
+  defineSourceFactKey<GenericFunctionAliasFact>(
+    "tsonic:source:generic-function-alias",
+    "Source-level compile-time generic function alias target."
+  );
+
 export const intrinsicSemanticsFactKey =
   defineSourceFactKey<IntrinsicSemanticsFact>(
     "tsonic:source:intrinsic-semantics",
@@ -137,5 +171,8 @@ export const visitSourceSemanticFactKeys = (
   visit(extensionReceiverSemanticsFactKey);
   visit(heritageWrapperSemanticsFactKey);
   visit(markerApiSemanticsFactKey);
+  visit(expressionSemanticsFactKey);
+  visit(wellKnownComputedNameFactKey);
+  visit(genericFunctionAliasFactKey);
   visit(intrinsicSemanticsFactKey);
 };

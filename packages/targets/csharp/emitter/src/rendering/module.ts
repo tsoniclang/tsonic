@@ -221,14 +221,11 @@ const renderStructuralType = (
   ].join("\n");
 };
 
-const createRenderContext = (
-  expressionAliases: ReadonlyMap<string, string>
-): RenderContext => {
+const createRenderContext = (): RenderContext => {
   const diagnostics: RenderContext["diagnostics"] = [];
   let nextTempId = 0;
   return {
     diagnostics,
-    expressionAliases,
     getStructuralTypeName: structuralTypeName,
     allocateTempName: (prefix) => {
       const name = `__tsonic_${prefix}_${nextTempId}`;
@@ -250,26 +247,21 @@ export const emitModule = (
   module: CSharpLoweringModulePlan,
   _options: Partial<EmitterOptions> = {}
 ): ModuleEmitResult => {
-  const expressionAliases = new Map(
-    module.expressionAliases.map((alias) => [alias.aliasName, alias.targetName])
-  );
-  const context = createRenderContext(expressionAliases);
-  const isGenericFunctionAlias = (name: string | undefined): boolean =>
-    name !== undefined && expressionAliases.has(name);
+  const context = createRenderContext();
   const namespaceDeclarations = module.declarations
     .filter(hasNamespaceDeclarationShape)
     .map((declaration) => renderDeclaration(declaration, context))
     .filter((rendered): rendered is string => rendered !== undefined);
   const staticMembers = module.declarations
     .filter((declaration) => !hasNamespaceDeclarationShape(declaration))
-    .filter((declaration) => !isGenericFunctionAlias(declaration.name))
     .map((declaration) => renderStaticContainerMember(declaration, context))
     .filter((rendered): rendered is string => rendered !== undefined);
   const topLevelFields = module.topLevelStatements
     .filter(isStaticTopLevelVariableStatement)
     .flatMap((statement) => statement.declarations)
-    .filter((declaration) => !isGenericFunctionAlias(declaration.name))
+    .filter((declaration) => !declaration.compileTimeOnly)
     .map((declaration) => renderStaticField(declaration, context))
+    .filter((rendered) => rendered.length > 0)
     .map((rendered) => `    ${rendered}`);
   const structuralDeclarations = collectStructuralTypes(module)
     .map((type) => renderStructuralType(type, context))

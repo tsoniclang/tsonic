@@ -7,7 +7,6 @@ export type {
   LoweringCallPlan,
   LoweringDeclarationPlan,
   LoweringExpressionPlan,
-  LoweringExpressionAliasPlan,
   LoweringExpressionSemantic,
   LoweringFeature,
   LoweringIndexAccessPlan,

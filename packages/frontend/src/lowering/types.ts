@@ -48,11 +48,6 @@ export type LoweringModuleIdentity = {
   readonly className: string;
 };
 
-export type LoweringExpressionAliasPlan = {
-  readonly aliasName: string;
-  readonly targetName: string;
-};
-
 export type LoweringPlanBase<TKind extends string> = {
   readonly kind: TKind;
   readonly sourceFile: TstsSourceFile;
@@ -186,10 +181,12 @@ export type LoweringParameterPlan = {
 };
 
 export type LoweringVariablePlan = {
+  readonly sourceNode: TstsNode;
   readonly name: string;
   readonly type?: LoweringTypeRefPlan;
   readonly initializer?: LoweringExpressionPlan;
   readonly bindingElements: readonly LoweringBindingElementPlan[];
+  readonly compileTimeOnly?: boolean;
 };
 
 export type LoweringBindingAccessPlan =
@@ -331,6 +328,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly binaryOperator?: LoweringBinaryOperator;
   readonly unaryOperator?: LoweringUnaryOperator;
   readonly semantic?: LoweringExpressionSemantic;
+  readonly aliasTargetName?: string;
   readonly yieldDelegates?: boolean;
   readonly expression?: LoweringExpressionPlan;
   readonly left?: LoweringExpressionPlan;
@@ -441,7 +439,6 @@ export type LoweringModulePlan<Target extends BackendTargetId = BackendTargetId>
     readonly sourceModule: ExtensionSourceModule;
     readonly imports: readonly ExtensionModuleImport[];
     readonly exports: readonly ExtensionExportBinding[];
-    readonly expressionAliases: readonly LoweringExpressionAliasPlan[];
     readonly declarations: readonly LoweringDeclarationPlan[];
     readonly topLevelStatements: readonly LoweringStatementPlan[];
     readonly types: readonly LoweringTypePlan[];

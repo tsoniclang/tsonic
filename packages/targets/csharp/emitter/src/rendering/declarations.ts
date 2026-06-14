@@ -233,7 +233,7 @@ const renderEnum = (
     ...plan.enumMembers.map((member, index) => {
       const suffix = index === plan.enumMembers.length - 1 ? "" : ",";
       const initializer = member.initializer
-        ? ` = ${member.initializer.literalText ?? "0"}`
+        ? ` = ${renderExpression(member.initializer, context)}`
         : "";
       return `    ${sanitizeIdentifier(member.name)}${initializer}${suffix}`;
     }),
@@ -249,6 +249,7 @@ const renderVariable = (
   if (!declarationName) return undefined;
   return renderStaticField(
     {
+      sourceNode: plan.sourceNode,
       name: declarationName,
       type: plan.returnType ?? plan.declaredTypePlan,
       initializer: plan.initializer,
