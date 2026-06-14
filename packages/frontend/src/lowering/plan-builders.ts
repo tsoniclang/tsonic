@@ -27,18 +27,13 @@ import type {
   LoweringBindingAccessPlan,
   LoweringBindingElementPlan,
   LoweringBuildContext,
-  LoweringCallPlan,
   LoweringDeclarationPlan,
   LoweringEnumMemberPlan,
   LoweringExpressionPlan,
-  LoweringIndexAccessPlan,
   LoweringIntrinsicTypeName,
-  LoweringMemberAccessPlan,
-  LoweringNarrowingPlan,
   LoweringObjectPropertyPlan,
   LoweringParameterPlan,
   LoweringStatementPlan,
-  LoweringSyntheticDeclarationPlan,
   LoweringTemplatePartPlan,
   LoweringTypeMemberPlan,
   LoweringTypePlan,
@@ -2077,11 +2072,6 @@ type PlanBuckets = {
   readonly types: LoweringTypePlan[];
   readonly statements: LoweringStatementPlan[];
   readonly expressions: LoweringExpressionPlan[];
-  readonly calls: LoweringCallPlan[];
-  readonly members: LoweringMemberAccessPlan[];
-  readonly indexes: LoweringIndexAccessPlan[];
-  readonly narrowings: LoweringNarrowingPlan[];
-  readonly syntheticDeclarations: LoweringSyntheticDeclarationPlan[];
 };
 
 const createBuckets = (): PlanBuckets => ({
@@ -2089,11 +2079,6 @@ const createBuckets = (): PlanBuckets => ({
   types: [],
   statements: [],
   expressions: [],
-  calls: [],
-  members: [],
-  indexes: [],
-  narrowings: [],
-  syntheticDeclarations: [],
 });
 
 export const buildLoweringPlansForSourceFile = (
@@ -2119,28 +2104,6 @@ export const buildLoweringPlansForSourceFile = (
         });
       }
 
-      const numericPrimitive = context.input.facts.get(
-        numericPrimitiveFactKey,
-        node
-      );
-      if (numericPrimitive) {
-        const name = nodeNameInfo(sourceFile, node);
-        buckets.syntheticDeclarations.push({
-          kind: "synthetic-declaration",
-          sourceFile,
-          sourceNode: node,
-          sourceKind: Number(node.Kind),
-          sourceKindName: TstsSyntax.Node_KindString(node),
-          sourceText: nodeSourceText(sourceFile, node),
-          name: name.name,
-          nameSourceKindName: name.sourceKindName,
-          nameSourceText: name.sourceText,
-          nameIsComputed: name.computed,
-          computedName: name.computedName,
-          stableId: `source-primitive:${numericPrimitive.kind}:${numericPrimitive.sourceName}`,
-          sourceFeature: "type",
-        });
-      }
     }
 
     const statement = isStatementNode(node)
@@ -2151,58 +2114,7 @@ export const buildLoweringPlansForSourceFile = (
     const expression = isExpressionNode(node)
       ? expressionPlan(sourceFile, node, context)
       : undefined;
-    if (expression) {
-      buckets.expressions.push(expression);
-      if (node.Kind === TstsSyntax.KindIdentifier && expression.useSiteType) {
-        buckets.narrowings.push({
-          ...planBase("narrowing", sourceFile, node, context),
-          useSiteType: expression.useSiteType,
-        });
-      }
-    }
-
-    if (
-      node.Kind === TstsSyntax.KindCallExpression ||
-      node.Kind === TstsSyntax.KindNewExpression
-    ) {
-      const selected = checker.getResolvedSignature(node);
-      buckets.calls.push({
-        ...planBase("call", sourceFile, node, context),
-        signature: selected,
-        returnType: selected
-          ? checker.getReturnTypeOfSignature(selected)
-          : undefined,
-      });
-    }
-
-    if (node.Kind === TstsSyntax.KindPropertyAccessExpression) {
-      const receiver = TstsSyntax.Node_Expression(node);
-      const receiverType = checker.getNarrowedTypeAtLocation(receiver);
-      const name = TstsSyntax.Node_Name(node);
-      const memberSymbol = name ? checker.getSymbolAtLocation(name) : undefined;
-      buckets.members.push({
-        ...planBase("member-access", sourceFile, node, context),
-        receiverType,
-        memberSymbol,
-        memberType: memberSymbol
-          ? checker.getTypeOfSymbolAtLocation(memberSymbol, node)
-          : undefined,
-      });
-    }
-
-    if (node.Kind === TstsSyntax.KindElementAccessExpression) {
-      const receiver = TstsSyntax.Node_Expression(node);
-      const argument =
-        TstsSyntax.AsElementAccessExpression(node)?.ArgumentExpression;
-      buckets.indexes.push({
-        ...planBase("index-access", sourceFile, node, context),
-        receiverType: checker.getNarrowedTypeAtLocation(receiver),
-        indexType: argument
-          ? checker.getNarrowedTypeAtLocation(argument)
-          : undefined,
-        resultType: checker.getNarrowedTypeAtLocation(node),
-      });
-    }
+    if (expression) buckets.expressions.push(expression);
   });
 
   return buckets;

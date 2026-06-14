@@ -66,11 +66,6 @@ export const createLoweringModulePlan = <
       types: plans.types,
       statements: plans.statements,
       expressions: plans.expressions,
-      calls: plans.calls,
-      members: plans.members,
-      indexes: plans.indexes,
-      narrowings: plans.narrowings,
-      syntheticDeclarations: plans.syntheticDeclarations,
     },
   };
 };

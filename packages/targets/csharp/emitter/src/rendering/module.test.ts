@@ -69,11 +69,6 @@ describe("C# module renderer", () => {
       types: [],
       statements: [],
       expressions: [],
-      calls: [],
-      members: [],
-      indexes: [],
-      narrowings: [],
-      syntheticDeclarations: [],
     };
 
     const result = emitModule(module);

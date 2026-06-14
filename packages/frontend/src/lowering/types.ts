@@ -6,7 +6,6 @@ import type {
   ExtensionSourceModule,
   ExtensionTypeChecker,
   TstsNode,
-  TstsSignature,
   TstsSourceFile,
   TstsSymbol,
   TstsType,
@@ -22,19 +21,6 @@ import type { TstsSourceProgram } from "../source-frontend/index.js";
 import type { Diagnostic } from "../types/diagnostic.js";
 
 export type BackendTargetId = string;
-
-export type LoweringFeature =
-  | "module"
-  | "declaration"
-  | "type"
-  | "statement"
-  | "expression"
-  | "call"
-  | "member-access"
-  | "index-access"
-  | "narrowing"
-  | "synthetic-declaration"
-  | "capability";
 
 export type LoweringInput = {
   readonly sourceProgram: TstsSourceProgram;
@@ -416,33 +402,6 @@ export type LoweringSwitchCasePlan = {
   readonly isDefault: boolean;
 };
 
-export type LoweringCallPlan = LoweringPlanBase<"call"> & {
-  readonly signature?: TstsSignature;
-  readonly returnType?: TstsType;
-};
-
-export type LoweringMemberAccessPlan = LoweringPlanBase<"member-access"> & {
-  readonly receiverType?: TstsType;
-  readonly memberSymbol?: TstsSymbol;
-  readonly memberType?: TstsType;
-};
-
-export type LoweringIndexAccessPlan = LoweringPlanBase<"index-access"> & {
-  readonly receiverType?: TstsType;
-  readonly indexType?: TstsType;
-  readonly resultType?: TstsType;
-};
-
-export type LoweringNarrowingPlan = LoweringPlanBase<"narrowing"> & {
-  readonly useSiteType?: TstsType;
-};
-
-export type LoweringSyntheticDeclarationPlan =
-  LoweringPlanBase<"synthetic-declaration"> & {
-    readonly stableId: string;
-    readonly sourceFeature: LoweringFeature;
-  };
-
 export type LoweringModulePlan<
   Target extends BackendTargetId = BackendTargetId,
 > = {
@@ -458,11 +417,6 @@ export type LoweringModulePlan<
   readonly types: readonly LoweringTypePlan[];
   readonly statements: readonly LoweringStatementPlan[];
   readonly expressions: readonly LoweringExpressionPlan[];
-  readonly calls: readonly LoweringCallPlan[];
-  readonly members: readonly LoweringMemberAccessPlan[];
-  readonly indexes: readonly LoweringIndexAccessPlan[];
-  readonly narrowings: readonly LoweringNarrowingPlan[];
-  readonly syntheticDeclarations: readonly LoweringSyntheticDeclarationPlan[];
 };
 
 export type LoweringPipelineOptions<
