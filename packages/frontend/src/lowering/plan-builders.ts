@@ -151,6 +151,35 @@ const modifierFlags = (node: TstsNode): number =>
 const nodeHasModifier = (node: TstsNode, flag: number): boolean =>
   (modifierFlags(node) & flag) !== 0;
 
+const nodeHasModifierToken = (node: TstsNode, kind: number): boolean =>
+  (TstsSyntax.Node_ModifierNodes(node) ?? []).some(
+    (modifier) => modifier?.Kind === kind
+  );
+
+const nodeAccessibility = (
+  node: TstsNode
+): LoweringDeclarationPlan["accessibility"] => {
+  if (nodeHasModifierToken(node, TstsSyntax.KindPrivateKeyword)) return "private";
+  if (nodeHasModifierToken(node, TstsSyntax.KindProtectedKeyword)) {
+    return "protected";
+  }
+  return "public";
+};
+
+const nodeHasExplicitAccessibility = (node: TstsNode): boolean =>
+  nodeHasModifierToken(node, TstsSyntax.KindPublicKeyword) ||
+  nodeHasModifierToken(node, TstsSyntax.KindPrivateKeyword) ||
+  nodeHasModifierToken(node, TstsSyntax.KindProtectedKeyword);
+
+const nodeOrAncestorHasModifier = (node: TstsNode, flag: number): boolean => {
+  let current: TstsNode | undefined = node;
+  while (current) {
+    if (nodeHasModifier(current, flag)) return true;
+    current = current.Parent;
+  }
+  return false;
+};
+
 const binaryOperatorFromKind = (
   kind: number | undefined
 ): LoweringBinaryOperator | undefined => {
@@ -609,6 +638,181 @@ const createSourceTypePlanState = (): SourceTypePlanState => ({
   aliasKeys: new Set<string>(),
 });
 
+type TypeSubstitutionMap = ReadonlyMap<string, LoweringTypeRefPlan>;
+
+const withoutSubstitutions = (
+  substitutions: TypeSubstitutionMap,
+  names: readonly string[]
+): TypeSubstitutionMap => {
+  if (names.length === 0 || substitutions.size === 0) return substitutions;
+  const next = new Map(substitutions);
+  for (const name of names) {
+    next.delete(name);
+  }
+  return next;
+};
+
+const substituteTypePlan = (
+  type: LoweringTypeRefPlan | undefined,
+  substitutions: TypeSubstitutionMap
+): LoweringTypeRefPlan | undefined => {
+  if (!type || substitutions.size === 0) return type;
+  switch (type.kind) {
+    case "named": {
+      const replacement =
+        !type.aliasTarget &&
+        !type.qualifiedRuntimeName &&
+        type.declarationKind === undefined &&
+        type.typeArguments.length === 0
+          ? substitutions.get(type.name)
+          : undefined;
+      if (replacement) return replacement;
+      return {
+        ...type,
+        typeArguments: type.typeArguments
+          .map((argument) => substituteTypePlan(argument, substitutions))
+          .filter(
+            (argument): argument is LoweringTypeRefPlan => argument !== undefined
+          ),
+        aliasTarget: substituteTypePlan(type.aliasTarget, substitutions),
+      };
+    }
+    case "array":
+      return {
+        ...type,
+        elementType:
+          substituteTypePlan(type.elementType, substitutions) ?? type.elementType,
+      };
+    case "tuple":
+      return {
+        ...type,
+        elements: type.elements
+          .map((element) => substituteTypePlan(element, substitutions))
+          .filter(
+            (element): element is LoweringTypeRefPlan => element !== undefined
+          ),
+      };
+    case "union":
+      return {
+        ...type,
+        types: type.types
+          .map((member) => substituteTypePlan(member, substitutions))
+          .filter((member): member is LoweringTypeRefPlan => member !== undefined),
+      };
+    case "intersection":
+      return {
+        ...type,
+        types: type.types
+          .map((member) => substituteTypePlan(member, substitutions))
+          .filter((member): member is LoweringTypeRefPlan => member !== undefined),
+      };
+    case "function": {
+      const scoped = withoutSubstitutions(substitutions, type.typeParameters);
+      return {
+        ...type,
+        parameters: type.parameters.map((parameter) =>
+          substituteParameterPlan(parameter, scoped)
+        ),
+        returnType: substituteTypePlan(type.returnType, scoped),
+      };
+    }
+    case "object":
+      return {
+        ...type,
+        members: type.members.map((member) =>
+          substituteTypeMemberPlan(member, substitutions)
+        ),
+      };
+    case "predicate":
+      return {
+        ...type,
+        assertedType: substituteTypePlan(type.assertedType, substitutions),
+      };
+    case "intrinsic":
+    case "source-primitive":
+    case "literal":
+    case "unsupported":
+      return type;
+  }
+};
+
+const substituteParameterPlan = (
+  parameter: LoweringParameterPlan,
+  substitutions: TypeSubstitutionMap
+): LoweringParameterPlan => ({
+  ...parameter,
+  type: substituteTypePlan(parameter.type, substitutions),
+});
+
+const substituteTypeMemberPlan = (
+  member: LoweringTypeMemberPlan,
+  substitutions: TypeSubstitutionMap
+): LoweringTypeMemberPlan => {
+  switch (member.kind) {
+    case "property":
+      return { ...member, type: substituteTypePlan(member.type, substitutions) };
+    case "method": {
+      const scoped = withoutSubstitutions(substitutions, member.typeParameters);
+      return {
+        ...member,
+        parameters: member.parameters.map((parameter) =>
+          substituteParameterPlan(parameter, scoped)
+        ),
+        returnType: substituteTypePlan(member.returnType, scoped),
+      };
+    }
+    case "index-signature":
+      return {
+        ...member,
+        keyType: substituteTypePlan(member.keyType, substitutions),
+        valueType: substituteTypePlan(member.valueType, substitutions),
+      };
+  }
+};
+
+const aliasTypeSubstitutions = (
+  parameters: readonly string[],
+  arguments_: readonly LoweringTypeRefPlan[]
+): TypeSubstitutionMap => {
+  const substitutions = new Map<string, LoweringTypeRefPlan>();
+  parameters.forEach((parameter, index) => {
+    const argument = arguments_[index];
+    if (argument) substitutions.set(parameter, argument);
+  });
+  return substitutions;
+};
+
+const checkerTypeArgumentPlans = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  type: TstsType | undefined
+): readonly LoweringTypeRefPlan[] => {
+  if (!type) return [];
+  const checker = context.checkerForSourceFile(sourceFile);
+  return [
+    ...checker.getAliasTypeArguments(type),
+    ...checker.getReferenceTypeArguments(type),
+  ]
+    .map((argument) => checkerTypePlan(context, sourceFile, argument))
+    .filter((argument): argument is LoweringTypeRefPlan => argument !== undefined);
+};
+
+const sourceTypeArgumentPlans = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  node: TstsNode,
+  type: TstsType | undefined,
+  state: SourceTypePlanState
+): readonly LoweringTypeRefPlan[] => {
+  const reference = getTstsTypeReferenceDetails(node);
+  const sourceArguments = (reference?.typeArguments ?? [])
+    .map((argument) => sourceTypePlan(context, sourceFile, argument, state))
+    .filter((argument): argument is LoweringTypeRefPlan => argument !== undefined);
+  return sourceArguments.length > 0
+    ? sourceArguments
+    : checkerTypeArgumentPlans(context, sourceFile, type);
+};
+
 const sourceTypeAliasKey = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -676,6 +880,15 @@ const sourceTypeAliasTargetPlan = (
   const interfaceCallSignature = declaration
     ? singleInterfaceCallSignature(declaration)
     : undefined;
+  const declarationSourceFile = declaration
+    ? sourceFileForNode(declaration, sourceFile)
+    : sourceFile;
+  const substitutions = declaration
+    ? aliasTypeSubstitutions(
+        typeParameterNames(declarationSourceFile, declaration),
+        sourceTypeArgumentPlans(context, sourceFile, node, type, state)
+      )
+    : new Map<string, LoweringTypeRefPlan>();
   if (declaration && interfaceCallSignature) {
     const aliasKey = sourceTypeAliasKey(context, sourceFile, declaration, symbol);
     if (state.aliasKeys.has(aliasKey)) {
@@ -683,11 +896,14 @@ const sourceTypeAliasTargetPlan = (
     }
     state.aliasKeys.add(aliasKey);
     try {
-      return interfaceCallSignatureTypePlan(
-        context,
-        sourceFileForNode(interfaceCallSignature, sourceFile),
-        interfaceCallSignature,
-        state
+      return substituteTypePlan(
+        interfaceCallSignatureTypePlan(
+          context,
+          sourceFileForNode(interfaceCallSignature, sourceFile),
+          interfaceCallSignature,
+          state
+        ),
+        substitutions
       );
     } finally {
       state.aliasKeys.delete(aliasKey);
@@ -711,11 +927,14 @@ const sourceTypeAliasTargetPlan = (
   state.aliasTargets.add(targetType);
   state.aliasKeys.add(aliasKey);
   try {
-    return sourceTypePlan(
-      context,
-      sourceFileForNode(targetType, sourceFile),
-      targetType,
-      state
+    return substituteTypePlan(
+      sourceTypePlan(
+        context,
+        sourceFileForNode(targetType, sourceFile),
+        targetType,
+        state
+      ),
+      substitutions
     );
   } finally {
     state.aliasTargets.delete(targetType);
@@ -744,6 +963,15 @@ const checkerTypeAliasTargetPlan = (
   const interfaceCallSignature = declaration
     ? singleInterfaceCallSignature(declaration)
     : undefined;
+  const declarationSourceFile = declaration
+    ? sourceFileForNode(declaration, sourceFile)
+    : sourceFile;
+  const substitutions = declaration
+    ? aliasTypeSubstitutions(
+        typeParameterNames(declarationSourceFile, declaration),
+        checkerTypeArgumentPlans(context, sourceFile, type)
+      )
+    : new Map<string, LoweringTypeRefPlan>();
   if (declaration && interfaceCallSignature) {
     const aliasKey = sourceTypeAliasKey(context, sourceFile, declaration, symbol);
     if (state.aliasKeys.has(aliasKey)) {
@@ -751,11 +979,14 @@ const checkerTypeAliasTargetPlan = (
     }
     state.aliasKeys.add(aliasKey);
     try {
-      return interfaceCallSignatureTypePlan(
-        context,
-        sourceFileForNode(interfaceCallSignature, sourceFile),
-        interfaceCallSignature,
-        state
+      return substituteTypePlan(
+        interfaceCallSignatureTypePlan(
+          context,
+          sourceFileForNode(interfaceCallSignature, sourceFile),
+          interfaceCallSignature,
+          state
+        ),
+        substitutions
       );
     } finally {
       state.aliasKeys.delete(aliasKey);
@@ -774,11 +1005,14 @@ const checkerTypeAliasTargetPlan = (
   state.aliasTargets.add(targetType);
   state.aliasKeys.add(aliasKey);
   try {
-    return sourceTypePlan(
-      context,
-      sourceFileForNode(targetType, sourceFile),
-      targetType,
-      state
+    return substituteTypePlan(
+      sourceTypePlan(
+        context,
+        sourceFileForNode(targetType, sourceFile),
+        targetType,
+        state
+      ),
+      substitutions
     );
   } finally {
     state.aliasTargets.delete(targetType);
@@ -1186,11 +1420,27 @@ const symbolStorageTypePlan = (
     checker.getSymbolValueDeclaration(symbol) ??
     checker.getSymbolDeclarations(symbol)[0];
   if (!declaration) return undefined;
+  const declarationSourceFile = sourceFileForNode(declaration, sourceFile);
+  const variable = TstsSyntax.AsVariableDeclaration(declaration);
+  const initializerStorage = sourceRuntimeExpressionStorageTypePlan(
+    context,
+    declarationSourceFile,
+    variable?.Initializer
+  );
+  const initializerCheckerType = variable?.Initializer
+    ? checkerTypePlan(
+        context,
+        declarationSourceFile,
+        checker.getNarrowedTypeAtLocation(variable.Initializer)
+      )
+    : undefined;
   return (
-    declarationSourceTypePlan(context, sourceFile, declaration) ??
+    declarationSourceTypePlan(context, declarationSourceFile, declaration) ??
+    initializerStorage ??
+    initializerCheckerType ??
     checkerTypePlan(
       context,
-      sourceFileForNode(declaration, sourceFile),
+      declarationSourceFile,
       checker.getTypeOfSymbolAtLocation(symbol, declaration)
     )
   );
@@ -1299,6 +1549,48 @@ const expressionTypePlan = (
 ): LoweringTypeRefPlan | undefined =>
   expressionSourceTypePlan(sourceFile, node, context) ??
   checkerTypePlan(context, sourceFile, useSiteType);
+
+const objectEntriesEntryArrayTypePlan = (): LoweringTypeRefPlan => ({
+  kind: "array",
+  readonly: false,
+  elementType: intrinsicTypePlan("object"),
+});
+
+const sourceRuntimeExpressionStorageTypePlan = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  node: TstsNode | undefined
+): LoweringTypeRefPlan | undefined => {
+  if (!node) return undefined;
+  if (node.Kind === TstsSyntax.KindCallExpression) {
+    const callee = TstsSyntax.Node_Expression(node);
+    const operation = callee
+      ? context.input.facts.get(sourceRuntimeOperationFactKey, callee)
+      : undefined;
+    if (
+      operation?.dispatch === "static-call" &&
+      operation.owner === "Object" &&
+      operation.member === "entries"
+    ) {
+      return {
+        kind: "array",
+        readonly: false,
+        elementType: objectEntriesEntryArrayTypePlan(),
+      };
+    }
+  }
+  if (node.Kind === TstsSyntax.KindElementAccessExpression) {
+    const element = TstsSyntax.AsElementAccessExpression(node);
+    const receiverStorage = sourceRuntimeExpressionStorageTypePlan(
+      context,
+      sourceFile,
+      element?.Expression
+    );
+    if (receiverStorage?.kind === "array") return receiverStorage.elementType;
+    if (receiverStorage?.kind === "tuple") return receiverStorage.elements[0];
+  }
+  return undefined;
+};
 
 const objectMemberExpectedType = (
   type: LoweringTypeRefPlan | undefined,
@@ -2068,7 +2360,19 @@ const bindingElementsFromName = (
   if (!node) return [];
   if (node.Kind === TstsSyntax.KindIdentifier) {
     const name = nodeTokenText(node);
-    return name && accessPath.length > 0 ? [{ name, accessPath }] : [];
+    if (!name || accessPath.length === 0) return [];
+    const checker = context.checkerForSourceFile(sourceFile);
+    return [
+      {
+        name,
+        type: checkerTypePlan(
+          context,
+          sourceFile,
+          checker.getNarrowedTypeAtLocation(node)
+        ),
+        accessPath,
+      },
+    ];
   }
   const bindingPattern = TstsSyntax.AsBindingPattern(node);
   if (!bindingPattern?.Elements) return [];
@@ -2157,6 +2461,22 @@ const variablePlan = (
   const declarationSymbol = nameNode
     ? checker.getSymbolAtLocation(nameNode)
     : undefined;
+  const initializerStorage = sourceRuntimeExpressionStorageTypePlan(
+    context,
+    sourceFile,
+    initializerNode
+  );
+  const initializerCheckerType = initializerNode
+    ? checkerTypePlan(
+        context,
+        sourceFile,
+        checker.getNarrowedTypeAtLocation(initializerNode)
+      )
+    : undefined;
+  const storageType =
+    type ??
+    initializerStorage ??
+    initializerCheckerType;
   const genericAlias = context.input.facts.get(
     genericFunctionAliasFactKey,
     node
@@ -2165,14 +2485,17 @@ const variablePlan = (
     sourceNode: node,
     name: nodeName(sourceFile, node) ?? "value",
     type,
+    storageType,
     initializer: expressionPlan(
       sourceFile,
       initializerNode,
       context,
-      type
+      storageType
     ),
     bindingElements: bindingElementsFromName(sourceFile, nameNode, context),
-    compileTimeOnly: genericAlias !== undefined,
+    compileTimeOnly:
+      genericAlias !== undefined ||
+      nodeOrAncestorHasModifier(node, TstsSyntax.ModifierFlagsAmbient),
     initializerReferencesDeclaration: nodeReferencesSymbol(
       sourceFile,
       initializerNode,
@@ -2588,9 +2911,13 @@ const declarationPlan = (
     ),
     members: memberPlans(sourceFile, node, context),
     enumMembers: enumMembers(sourceFile, node, context),
+    compileTimeOnly: nodeHasModifier(node, TstsSyntax.ModifierFlagsAmbient),
     exported: nodeHasModifier(node, TstsSyntax.ModifierFlagsExport),
     async: nodeHasModifier(node, TstsSyntax.ModifierFlagsAsync),
     static: nodeHasModifier(node, TstsSyntax.ModifierFlagsStatic),
+    override: nodeHasModifierToken(node, TstsSyntax.KindOverrideKeyword),
+    accessibility: nodeAccessibility(node),
+    accessibilityExplicit: nodeHasExplicitAccessibility(node),
   };
 };
 

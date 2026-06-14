@@ -37,18 +37,70 @@ const unsupportedStatement = (
 
 const renderBindingAccess = (
   rootName: string,
-  accessPath: readonly LoweringBindingAccessPlan[]
-): string =>
-  accessPath.reduce((current, access) => {
+  accessPath: readonly LoweringBindingAccessPlan[],
+  rootType?: LoweringTypeRefPlan
+): string => {
+  let currentType = rootType;
+  return accessPath.reduce((current, access) => {
     switch (access.kind) {
-      case "element":
+      case "element": {
+        if (currentType?.kind === "tuple") {
+          const nextType = currentType.elements[access.index];
+          currentType = nextType;
+          return `${current}.Item${access.index + 1}`;
+        }
+        if (currentType?.kind === "array") {
+          currentType = currentType.elementType;
+        } else {
+          currentType = undefined;
+        }
         return `${current}[${access.index}]`;
-      case "property":
+      }
+      case "property": {
+        const member =
+          currentType?.kind === "object"
+            ? currentType.members.find(
+                (candidate) =>
+                  candidate.kind === "property" && candidate.name === access.name
+              )
+            : undefined;
+        currentType = member?.kind === "property" ? member.type : undefined;
         return `${current}.${sanitizeIdentifier(access.name)}`;
+      }
       default:
+        currentType = undefined;
         return current;
     }
   }, rootName);
+};
+
+const renderBindingInitializer = (
+  expression: string,
+  type: LoweringTypeRefPlan | undefined,
+  context: RenderContext
+): string => {
+  const renderedType = type ? renderCSharpType(type, context) : undefined;
+  if (!renderedType || renderedType === "object?" || renderedType === "void") {
+    return expression;
+  }
+  return `((${renderedType})(${expression}))`;
+};
+
+const renderBindingElementDeclaration = (
+  binding: LoweringVariablePlan["bindingElements"][number],
+  rootName: string,
+  rootType: LoweringTypeRefPlan | undefined,
+  context: RenderContext
+): string => {
+  const bindingType = binding.type
+    ? renderCSharpType(binding.type, context)
+    : "var";
+  return `${bindingType} ${sanitizeIdentifier(binding.name)} = ${renderBindingInitializer(
+    renderBindingAccess(rootName, binding.accessPath, rootType),
+    binding.type,
+    context
+  )};`;
+};
 
 const variableFunctionExpressionType = (
   declaration: LoweringVariablePlan,
@@ -65,7 +117,7 @@ const variableDeclaredType = (
 const variableRenderType = (
   declaration: LoweringVariablePlan,
   context: RenderContext,
-  fallback: string
+  defaultType: string
 ): string => {
   const functionExpressionType = variableFunctionExpressionType(
     declaration,
@@ -74,7 +126,7 @@ const variableRenderType = (
   const declaredType = variableDeclaredType(declaration, context);
   return functionExpressionType && (!declaredType || declaredType === "object?")
     ? functionExpressionType
-    : declaredType ?? fallback;
+    : declaredType ?? defaultType;
 };
 
 const renderDelegateParameter = (
@@ -254,10 +306,12 @@ const renderVariableStatement = (
           continue;
         }
         lines.push(
-          `var ${sanitizeIdentifier(binding.name)} = ${renderBindingAccess(
+          renderBindingElementDeclaration(
+            binding,
             tempName,
-            binding.accessPath
-          )};`
+            declaration.initializer.type,
+            context
+          )
         );
       }
       return lines;
@@ -428,6 +482,30 @@ export const renderStatement = (
       }
       const declaration = plan.declarations[0];
       if (!declaration) return unsupportedStatement(context, plan);
+      if (declaration.bindingElements.length > 0) {
+        const tempName = context.allocateTempName("binding");
+        const bindingLines = declaration.bindingElements.map((binding) =>
+          renderBindingElementDeclaration(
+            binding,
+            tempName,
+            declaration.type,
+            context
+          )
+        );
+        const body = renderStatement(plan.body, context);
+        const innerBody =
+          plan.body?.statementKind === "block"
+            ? plan.body.statements
+                .map((statement) => renderStatement(statement, context))
+                .filter((line) => line.length > 0)
+            : [body].filter((line) => line.length > 0);
+        return [
+          `foreach (var ${tempName} in ${renderExpression(plan.iterable, context)})`,
+          "{",
+          ...[...bindingLines, ...innerBody].map((line) => indent(line, 4)),
+          "}",
+        ].join("\n");
+      }
       const type = declaration.type
         ? renderCSharpType(declaration.type, context)
         : "var";

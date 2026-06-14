@@ -15,6 +15,7 @@ import { renderDeclaration, renderStaticContainerMember } from "./declarations.j
 import { renderStaticField, renderTopLevelBody } from "./statements.js";
 import {
   renderTypeMember,
+  shouldEmitStructuralObjectType,
   shouldExpandNamedAliasTarget,
   structuralTypeName,
   typePlanKey,
@@ -82,6 +83,9 @@ const collectStructuralType = (
   if (!typeState) return;
   switch (type.kind) {
     case "object":
+      if (!shouldEmitStructuralObjectType(type)) {
+        break;
+      }
       types.set(typePlanKey(type), type);
       for (const member of type.members) {
         switch (member.kind) {
@@ -201,9 +205,11 @@ const collectStructuralTypesFromExpression = (
   if (!expression) return;
   const expressionState = withExpressionPlan(state, expression);
   if (!expressionState) return;
-  if (expression.expressionKind === "object-literal") {
-    collectStructuralType(types, expression.contextualTypePlan);
-  }
+  collectStructuralType(types, expression.type);
+  collectStructuralType(types, expression.contextualTypePlan);
+  collectStructuralType(types, expression.storageTypePlan);
+  collectStructuralType(types, expression.receiverTypePlan);
+  collectStructuralType(types, expression.callTargetTypePlan);
   collectStructuralType(types, expression.returnType);
   for (const typeArgument of expression.typeArguments) {
     collectStructuralType(types, typeArgument);
@@ -379,12 +385,20 @@ const renderStructuralType = (
   ].join("\n");
 };
 
-const createRenderContext = (): RenderContext => {
+const createRenderContext = (
+  options: Partial<EmitterOptions>
+): RenderContext => {
   const diagnostics: RenderContext["diagnostics"] = [];
+  diagnostics.push(...(options.externalBindingMetadata?.diagnostics ?? []));
   let nextTempId = 0;
   return {
     diagnostics,
     getStructuralTypeName: structuralTypeName,
+    overrideMemberAccessibility: (heritageTypes, member) =>
+      options.externalBindingMetadata?.resolveOverrideAccessibility(
+        heritageTypes,
+        member
+      ),
     allocateTempName: (prefix) => {
       const name = `__tsonic_${prefix}_${nextTempId}`;
       nextTempId += 1;
@@ -403,15 +417,21 @@ const createRenderContext = (): RenderContext => {
 
 export const emitModule = (
   module: CSharpLoweringModulePlan,
-  _options: Partial<EmitterOptions> = {}
+  options: Partial<EmitterOptions> = {}
 ): ModuleEmitResult => {
-  const context = createRenderContext();
+  const context = createRenderContext(options);
   const namespaceDeclarations = module.declarations
-    .filter(hasNamespaceDeclarationShape)
+    .filter(
+      (declaration) =>
+        hasNamespaceDeclarationShape(declaration) && !declaration.compileTimeOnly
+    )
     .map((declaration) => renderDeclaration(declaration, context))
     .filter((rendered): rendered is string => rendered !== undefined);
   const staticMembers = module.declarations
-    .filter((declaration) => !hasNamespaceDeclarationShape(declaration))
+    .filter(
+      (declaration) =>
+        !hasNamespaceDeclarationShape(declaration) && !declaration.compileTimeOnly
+    )
     .map((declaration) => renderStaticContainerMember(declaration, context))
     .filter((rendered): rendered is string => rendered !== undefined);
   const topLevelFields = module.topLevelStatements

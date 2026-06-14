@@ -168,6 +168,22 @@ const renderObjectProperty = (
   return `${sanitizeIdentifier(property.name)} = ${renderedExpression}`;
 };
 
+const renderDictionaryObjectProperty = (
+  property: LoweringObjectPropertyPlan,
+  valueType: string,
+  context: RenderContext
+): string | undefined => {
+  if (property.computed || !property.name) {
+    context.reportUnsupported(
+      "dictionary object property name",
+      property.sourceKindName,
+      property.sourceText
+    );
+    return undefined;
+  }
+  return `["${property.name}"] = ${castExpression(renderExpression(property.expression, context), valueType)}`;
+};
+
 const arrayLiteralElementType = (
   plan: LoweringExpressionPlan,
   context: RenderContext
@@ -431,6 +447,14 @@ const renderExpressionWithUseSiteCast = (
 ): string => {
   const rendered = renderExpression(plan, context);
   if (!isCastableUseSiteExpression(plan)) return rendered;
+  if (
+    plan?.expressionKind === "call" &&
+    plan.expression?.sourceOperation?.dispatch === "static-call" &&
+    plan.expression.sourceOperation.owner === "Object" &&
+    plan.expression.sourceOperation.member === "entries"
+  ) {
+    return rendered;
+  }
   const castType = useSiteCastType(useSiteTypeOverride ?? plan?.type, context);
   return castType ? `((${castType})(${rendered}))` : rendered;
 };
@@ -514,7 +538,7 @@ const renderSourceRuntimeName = (
 ): string => {
   switch (operation.owner) {
     case "Console":
-      return "global::System.Console";
+      return "global::js.ConsoleModule";
     case "Array":
     case "Error":
     case "Global":
@@ -531,6 +555,30 @@ const renderSourceRuntimeName = (
   }
   return "global::System.Object";
 };
+
+const renderQualifiedRuntimeExpressionName = (qualifiedName: string): string =>
+  qualifiedName
+    .split(".")
+    .map((segment) => {
+      const globalPrefix = "global::";
+      if (segment.startsWith(globalPrefix)) {
+        return `${globalPrefix}${sanitizeIdentifier(segment.slice(globalPrefix.length))}`;
+      }
+      return sanitizeIdentifier(segment);
+    })
+    .join(".");
+
+const consoleMemberTarget = (member: string): string =>
+  `${renderSourceRuntimeName({
+    dispatch: "static-call",
+    owner: "Console",
+    member,
+  })}.${member}`;
+
+const renderConsoleCall = (
+  operation: SourceRuntimeOperation,
+  args: readonly string[]
+): string => `${consoleMemberTarget(operation.member)}(${args.join(", ")})`;
 
 const renderFunctionLength = (
   plan: LoweringExpressionPlan | undefined
@@ -567,6 +615,39 @@ const unwrapAliasTarget = (
   type?.kind === "named" && type.aliasTarget
     ? unwrapAliasTarget(type.aliasTarget)
     : type;
+
+const recordValueType = (
+  type: LoweringTypeRefPlan | undefined
+): LoweringTypeRefPlan | undefined => {
+  const unwrapped = unwrapAliasTarget(type);
+  if (!unwrapped) return undefined;
+  if (unwrapped.kind === "named" && unwrapped.name === "Record") {
+    return unwrapped.typeArguments[1];
+  }
+  if (unwrapped.kind === "union") {
+    const values = nonNullishUnionTypes(unwrapped)
+      .map((member) => recordValueType(member))
+      .filter((value): value is LoweringTypeRefPlan => value !== undefined);
+    const firstKey = values[0] ? renderTypeIdentityKey(values[0]) : undefined;
+    return firstKey && values.every((value) => renderTypeIdentityKey(value) === firstKey)
+      ? values[0]
+      : undefined;
+  }
+  return undefined;
+};
+
+const renderTypeIdentityKey = (type: LoweringTypeRefPlan): string => {
+  switch (type.kind) {
+    case "intrinsic":
+      return `intrinsic:${type.name}`;
+    case "source-primitive":
+      return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
+    case "named":
+      return `named:${type.qualifiedRuntimeName ?? type.name}<${type.typeArguments.map(renderTypeIdentityKey).join(",")}>`;
+    default:
+      return type.sourceText ?? type.kind;
+  }
+};
 
 const isNamedFunctionAlias = (
   type: LoweringTypeRefPlan | undefined
@@ -726,6 +807,37 @@ const renderArrayElementAccess = (
   return `global::System.Linq.Enumerable.ElementAt(${enumerableObjectCast(renderExpression(receiverPlan, context))}, ${renderExpression(indexPlan, context)})`;
 };
 
+const renderObjectEntriesCall = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext
+): string | undefined => {
+  const callee = plan.expression;
+  if (
+    callee?.sourceOperation?.dispatch !== "static-call" ||
+    callee.sourceOperation.owner !== "Object" ||
+    callee.sourceOperation.member !== "entries"
+  ) {
+    return undefined;
+  }
+  const source = plan.arguments[0];
+  if (!source) return undefined;
+  const valuePlan =
+    recordValueType(source.type) ?? recordValueType(source.contextualTypePlan);
+  const valueType = renderCSharpType(valuePlan, context);
+  const dictionaryType = `global::System.Collections.Generic.Dictionary<string, ${valueType}>`;
+  const dictionary = castExpression(renderExpression(source, context), dictionaryType);
+  return `new global::System.Collections.Generic.List<object?[]>(global::System.Linq.Enumerable.Select(${dictionary}, entry => new object?[] { entry.Key, entry.Value }))`;
+};
+
+const dictionaryValueTypeFromRenderedType = (
+  renderedType: string | undefined
+): string | undefined => {
+  const prefix = "global::System.Collections.Generic.Dictionary<string, ";
+  return renderedType?.startsWith(prefix) === true && renderedType.endsWith(">")
+    ? renderedType.slice(prefix.length, -1)
+    : undefined;
+};
+
 const functionParameterCountMatches = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "function" }>,
   argumentCount: number
@@ -804,6 +916,61 @@ const renderCallableExpression = (
 
 const castExpression = (rendered: string, targetType: string): string =>
   `((${targetType})(${rendered}))`;
+
+const prefixCastExpression = (rendered: string, targetType: string): string =>
+  /^[A-Za-z_@][A-Za-z0-9_@]*$/.test(rendered)
+    ? `(${targetType})${rendered}`
+    : castExpression(rendered, targetType);
+
+const isBroadRuntimeType = (type: LoweringTypeRefPlan | undefined): boolean =>
+  type === undefined ||
+  (type.kind === "intrinsic" &&
+    (type.name === "any" || type.name === "unknown" || type.name === "object")) ||
+  type.kind === "unsupported";
+
+const numericObjectConversion = (
+  rendered: string,
+  targetType: string
+): string =>
+  `(${targetType})(${rendered} switch { int __tsonic_number => (${targetType})__tsonic_number, uint __tsonic_number => (${targetType})__tsonic_number, long __tsonic_number => (${targetType})__tsonic_number, ulong __tsonic_number => (${targetType})__tsonic_number, short __tsonic_number => (${targetType})__tsonic_number, ushort __tsonic_number => (${targetType})__tsonic_number, byte __tsonic_number => (${targetType})__tsonic_number, sbyte __tsonic_number => (${targetType})__tsonic_number, float __tsonic_number => (${targetType})__tsonic_number, double __tsonic_number => (${targetType})__tsonic_number, decimal __tsonic_number => (${targetType})__tsonic_number, _ => throw new global::System.InvalidCastException("Value is not numeric.") })`;
+
+const renderAssignmentValue = (
+  target: LoweringExpressionPlan | undefined,
+  value: LoweringExpressionPlan | undefined,
+  context: RenderContext
+): string => {
+  const rendered = renderExpression(value, context);
+  const targetType = target?.storageTypePlan ?? target?.type;
+  const sourceStorageType = value?.storageTypePlan ?? value?.type;
+  const shouldCastRuntimeSlot =
+    value?.expressionKind === "identifier" ||
+    value?.expressionKind === "property-access" ||
+    value?.expressionKind === "element-access";
+  if (
+    !targetType ||
+    (!isBroadRuntimeType(sourceStorageType) && !shouldCastRuntimeSlot)
+  ) {
+    return rendered;
+  }
+  const renderedTargetType = renderCSharpType(targetType, context);
+  if (
+    renderedTargetType === "object?" ||
+    renderedTargetType === "void" ||
+    renderedTargetType === "this"
+  ) {
+    return rendered;
+  }
+  if (
+    renderedTargetType === "double" ||
+    renderedTargetType === "bool" ||
+    renderedTargetType === "string"
+  ) {
+    return renderedTargetType === "double"
+      ? numericObjectConversion(rendered, renderedTargetType)
+      : prefixCastExpression(rendered, renderedTargetType);
+  }
+  return castExpression(rendered, renderedTargetType);
+};
 
 const renderArrayEnumerableReceiver = (
   receiver: string,
@@ -919,7 +1086,14 @@ const renderSourceRuntimeCall = (
   );
 
   if (operation.dispatch === "receiver-call") {
-    const receiver = renderExpression(callee.expression, context);
+    const receiver =
+      operation.owner === "String"
+        ? renderExpressionWithUseSiteCast(
+            callee.expression,
+            context,
+            { kind: "intrinsic", name: "string" }
+          )
+        : renderExpression(callee.expression, context);
     if (operation.owner === "Array") {
       return renderArrayReceiverCall(
         receiver,
@@ -948,7 +1122,7 @@ const renderSourceRuntimeCall = (
   if (operation.dispatch === "static-call") {
     switch (operation.owner) {
       case "Console":
-        return `global::System.Console.WriteLine(${args.join(", ")})`;
+        return renderConsoleCall(operation, args);
       case "Array":
         if (operation.member === "isArray") {
           return `(${args[0] ?? "null"} is global::System.Collections.IEnumerable && ${args[0] ?? "null"} is not string)`;
@@ -957,6 +1131,11 @@ const renderSourceRuntimeCall = (
       case "Object":
         if (operation.member === "is") {
           return `${renderSourceRuntimeName(operation)}.@is(${args.join(", ")})`;
+        }
+        break;
+      case "JSON":
+        if (operation.member === "parse") {
+          return `${renderSourceRuntimeName(operation)}.parse<${renderCSharpType(plan.type, context)}>(${args.join(", ")})`;
         }
         break;
       default:
@@ -1070,11 +1249,15 @@ export const renderExpression = (
   if (!plan) return "";
 
   switch (plan.expressionKind) {
-    case "identifier": {
-      const rawName = plan.literalText ?? plan.name ?? "value";
-      if (plan.qualifiedRuntimeName) return plan.qualifiedRuntimeName;
+	    case "identifier": {
+	      const rawName = plan.literalText ?? plan.name ?? "value";
+	      if (plan.qualifiedRuntimeName) {
+	        return renderQualifiedRuntimeExpressionName(plan.qualifiedRuntimeName);
+	      }
       if (plan.sourceOperation?.dispatch === "static-call") {
-        return `${renderSourceRuntimeName(plan.sourceOperation)}.${plan.sourceOperation.member}`;
+        return plan.sourceOperation.owner === "Console"
+          ? consoleMemberTarget(plan.sourceOperation.member)
+          : `${renderSourceRuntimeName(plan.sourceOperation)}.${plan.sourceOperation.member}`;
       }
       const defaultedName = context.currentDefaultedParameters?.get(rawName);
       if (defaultedName) return defaultedName;
@@ -1155,7 +1338,7 @@ export const renderExpression = (
         return `${renderExpression(plan.left, context)} ${operator} ${renderExpression(plan.right, context)}`;
       }
       if (plan.binaryOperator === "assign") {
-        return `${renderExpression(plan.left, context)} ${operator} ${renderExpression(plan.right, context)}`;
+        return `${renderExpression(plan.left, context)} ${operator} ${renderAssignmentValue(plan.left, plan.right, context)}`;
       }
       if (plan.binaryOperator?.endsWith("assign") === true) {
         return `${renderExpression(plan.left, context)} ${operator} ${renderExpressionWithUseSiteCast(plan.right, context)}`;
@@ -1245,6 +1428,10 @@ export const renderExpression = (
         if (intrinsic !== undefined) return intrinsic;
       }
       {
+        const objectEntries = renderObjectEntriesCall(plan, context);
+        if (objectEntries !== undefined) return objectEntries;
+      }
+      {
         const sourceRuntimeCall = renderSourceRuntimeCall(plan, context);
         if (sourceRuntimeCall !== undefined) return sourceRuntimeCall;
       }
@@ -1265,7 +1452,21 @@ export const renderExpression = (
     case "array-literal":
       return renderArrayLiteral(plan, context);
     case "object-literal": {
+      const recordElementPlan =
+        recordValueType(plan.contextualTypePlan) ?? recordValueType(plan.type);
       const targetType = objectLiteralTargetType(plan, context);
+      const dictionaryValueType =
+        recordElementPlan !== undefined
+          ? renderCSharpType(recordElementPlan, context)
+          : dictionaryValueTypeFromRenderedType(targetType);
+      if (dictionaryValueType) {
+        return `new global::System.Collections.Generic.Dictionary<string, ${dictionaryValueType}> { ${plan.properties
+          .map((property) =>
+            renderDictionaryObjectProperty(property, dictionaryValueType, context)
+          )
+          .filter((rendered): rendered is string => rendered !== undefined)
+          .join(", ")} }`;
+      }
       const constructor = targetType ? `new ${targetType}` : "new";
       return `${constructor} { ${plan.properties
         .map((property) => renderObjectProperty(property, context))

@@ -81,7 +81,8 @@ const renderFunction = (
   plan: LoweringDeclarationPlan,
   context: RenderContext,
   insideClass: boolean,
-  className?: string
+  className?: string,
+  heritageTypes: readonly LoweringDeclarationPlan["heritageTypes"][number][] = []
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "function");
   if (!declarationName) return undefined;
@@ -91,11 +92,12 @@ const renderFunction = (
     .map((parameter) => renderParameter(parameter, context))
     .join(", ");
   const asyncModifier = plan.async ? "async " : "";
-  const staticModifier = insideClass
-    ? plan.static
-      ? "static "
-      : ""
-    : "static ";
+  const accessibility = insideClass
+    ? (context.overrideMemberAccessibility(heritageTypes, plan) ??
+      plan.accessibility)
+    : "public";
+  const staticModifier = insideClass ? (plan.static ? "static " : "") : "static ";
+  const overrideModifier = insideClass && plan.override ? "override " : "";
   const effectiveReturnType =
     className &&
     plan.returnType?.kind === "intrinsic" &&
@@ -114,7 +116,7 @@ const renderFunction = (
       ? effectiveReturnType.typeArguments[0]
       : effectiveReturnType;
   return [
-    `public ${staticModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
+    `${accessibility} ${staticModifier}${overrideModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
     renderFunctionBody(plan.body, context, bodyReturnType, plan.parameters),
   ].join("\n");
 };
@@ -146,7 +148,10 @@ const renderConstructor = (
           ...bodyLines.slice(1, -1),
           "}",
         ].join("\n");
-  return [`public ${sanitizeTypeName(className)}(${parameters})${baseInitializer}`, bodyWithPrologue].join("\n");
+  return [
+    `${plan.accessibility} ${sanitizeTypeName(className)}(${parameters})${baseInitializer}`,
+    bodyWithPrologue,
+  ].join("\n");
 };
 
 const leadingSuperConstructorCall = (
@@ -172,7 +177,8 @@ const removeLeadingSuperConstructorCall = (
 
 const renderProperty = (
   plan: LoweringDeclarationPlan,
-  context: RenderContext
+  context: RenderContext,
+  heritageTypes: readonly LoweringDeclarationPlan["heritageTypes"][number][] = []
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "property");
   if (!declarationName) return undefined;
@@ -181,8 +187,12 @@ const renderProperty = (
     ? ` = ${renderExpression(plan.initializer, context)}`
     : "";
   const staticModifier = plan.static ? "static " : "";
+  const overrideModifier = plan.override ? "override " : "";
   const suffix = initializer.length > 0 ? ";" : "";
-  return `public ${staticModifier}${type} ${sanitizeIdentifier(declarationName)} { get; set; }${initializer}${suffix}`;
+  const accessibility =
+    context.overrideMemberAccessibility(heritageTypes, plan) ??
+    plan.accessibility;
+  return `${accessibility} ${staticModifier}${overrideModifier}${type} ${sanitizeIdentifier(declarationName)} { get; set; }${initializer}${suffix}`;
 };
 
 const renderIndexSignature = (
@@ -202,15 +212,16 @@ const renderClassMember = (
   plan: LoweringDeclarationPlan,
   context: RenderContext,
   className: string,
-  constructorPrologueStatements: readonly string[]
+  constructorPrologueStatements: readonly string[],
+  heritageTypes: readonly LoweringDeclarationPlan["heritageTypes"][number][]
 ): string | undefined => {
   switch (plan.declarationKind) {
     case "method":
-      return renderFunction(plan, context, true, className);
+      return renderFunction(plan, context, true, className, heritageTypes);
     case "constructor":
       return renderConstructor(plan, context, className, constructorPrologueStatements);
     case "property":
-      return renderProperty(plan, context);
+      return renderProperty(plan, context, heritageTypes);
     case "index-signature":
       return renderIndexSignature(plan.parameters, plan.returnType, context, true);
     default:
@@ -255,6 +266,11 @@ const coalesceAccessorMembers = (
       declaredTypePlan: existing.declaredTypePlan ?? member.declaredTypePlan,
       returnType: existing.returnType ?? member.returnType,
       initializer: existing.initializer ?? member.initializer,
+      override: existing.override || member.override,
+      accessibility:
+        existing.accessibility === "public" ? member.accessibility : existing.accessibility,
+      accessibilityExplicit:
+        existing.accessibilityExplicit || member.accessibilityExplicit,
     };
   }
   return result;
@@ -308,7 +324,8 @@ const renderClass = (
           member,
           context,
           declarationName,
-          constructorPrologueStatements
+          constructorPrologueStatements,
+          plan.heritageTypes
         )
       )
       .filter((rendered): rendered is string => rendered !== undefined)

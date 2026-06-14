@@ -1,9 +1,11 @@
 import type {
   Diagnostic,
+  LoweringDeclarationPlan,
   LoweringModulePlan,
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
 import type { CSharpEmitterTargetId } from "./target.js";
+import type { ExternalBindingMetadataIndex } from "./rendering/external-bindings.js";
 
 export type CSharpLoweringModulePlan =
   LoweringModulePlan<CSharpEmitterTargetId>;
@@ -13,6 +15,8 @@ export type EmitterOptions = {
   readonly entryPointPath?: string;
   readonly referenceModules?: readonly CSharpLoweringModulePlan[];
   readonly libraries?: readonly string[];
+  readonly bindingMetadataRoots?: readonly string[];
+  readonly externalBindingMetadata?: ExternalBindingMetadataIndex;
   readonly surface?: string;
 };
 
@@ -30,6 +34,10 @@ export type RenderContext = {
   currentDefaultedParameters?: ReadonlyMap<string, string>;
   readonly allocateTempName: (prefix: string) => string;
   readonly getStructuralTypeName: (type: LoweringTypeRefPlan) => string;
+  readonly overrideMemberAccessibility: (
+    heritageTypes: readonly LoweringTypeRefPlan[],
+    member: LoweringDeclarationPlan
+  ) => LoweringDeclarationPlan["accessibility"] | undefined;
   readonly reportUnsupported: (
     feature: string,
     sourceKindName: string,

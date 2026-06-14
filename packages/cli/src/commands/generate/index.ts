@@ -35,7 +35,6 @@ import {
 } from "./helpers.js";
 import {
   collectTransitiveDllLocalPackageReferences,
-  getDllModeLocalPackageReferences,
   resolveLocalPackageBuildReferences,
 } from "../local-package-references.js";
 
@@ -84,9 +83,6 @@ export const generateCommand = (
     if (!localPackageReferencesResult.ok) {
       return localPackageReferencesResult;
     }
-    const directDllLocalPackageReferences = getDllModeLocalPackageReferences(
-      localPackageReferencesResult.value
-    );
     const transitiveDllLocalPackageReferencesResult =
       collectTransitiveDllLocalPackageReferences(config);
     if (!transitiveDllLocalPackageReferencesResult.ok) {
@@ -156,7 +152,7 @@ export const generateCommand = (
 
     const { modules, entryModule } = graphResult.value;
     const dllModePackageIds = new Set(
-      directDllLocalPackageReferences.map((entry) => entry.id)
+      transitiveDllLocalPackageReferences.map((entry) => entry.id)
     );
     const emittedModules: readonly CSharpPlan[] =
       dllModePackageIds.size === 0
@@ -176,6 +172,7 @@ export const generateCommand = (
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries,
+      bindingMetadataRoots: allTypeRoots,
       referenceModules: modules,
     });
     if (!emitResult.ok) {

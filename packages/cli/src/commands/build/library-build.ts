@@ -14,7 +14,10 @@ import {
   resolveNugetConfigFile,
 } from "../../dotnet/nuget-config.js";
 import { assertNoOutputAssemblyNameConflicts } from "./assets.js";
-import { emitSourcePackageArtifacts } from "./source-package-artifacts.js";
+import {
+  emitSourcePackageArtifacts,
+  validateSourcePackageManifest,
+} from "./source-package-artifacts.js";
 
 const DOTNET_BUILD_MAX_BUFFER = 64 * 1024 * 1024;
 
@@ -28,6 +31,9 @@ export const buildLibrary = (
     config.dotnetVersion,
   ];
   const nativeAot = config.outputConfig.nativeAot ?? false;
+
+  const manifestResult = validateSourcePackageManifest(config.projectRoot);
+  if (!manifestResult.ok) return manifestResult;
 
   const nugetConfigResult = resolveNugetConfigFile(workspaceRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;

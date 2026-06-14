@@ -186,6 +186,7 @@ export type LoweringVariablePlan = {
   readonly sourceNode: TstsNode;
   readonly name: string;
   readonly type?: LoweringTypeRefPlan;
+  readonly storageType?: LoweringTypeRefPlan;
   readonly initializer?: LoweringExpressionPlan;
   readonly bindingElements: readonly LoweringBindingElementPlan[];
   readonly compileTimeOnly?: boolean;
@@ -204,6 +205,7 @@ export type LoweringBindingAccessPlan =
 
 export type LoweringBindingElementPlan = {
   readonly name: string;
+  readonly type?: LoweringTypeRefPlan;
   readonly accessPath: readonly LoweringBindingAccessPlan[];
   readonly initializer?: LoweringExpressionPlan;
 };
@@ -238,9 +240,13 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
   readonly initializer?: LoweringExpressionPlan;
   readonly members: readonly LoweringDeclarationPlan[];
   readonly enumMembers: readonly LoweringEnumMemberPlan[];
+  readonly compileTimeOnly?: boolean;
   readonly exported: boolean;
   readonly async: boolean;
   readonly static: boolean;
+  readonly override: boolean;
+  readonly accessibility: "public" | "protected" | "private";
+  readonly accessibilityExplicit: boolean;
 };
 
 export type LoweringBinaryOperator =

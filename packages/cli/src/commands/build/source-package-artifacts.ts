@@ -75,7 +75,7 @@ const parseAmbientEntries = (value: unknown): readonly string[] => {
   });
 };
 
-const validateSourcePackageManifest = (
+export const validateSourcePackageManifest = (
   projectRoot: string
 ): Result<{ readonly manifestPath: string; readonly ambientFiles: readonly string[] }, string> => {
   const manifestPath = nodePath.join(projectRoot, "tsonic.package.json");
@@ -218,8 +218,8 @@ export const emitSourcePackageArtifacts = (
   const packageJsonResult = readProjectPackageJson(config.projectRoot);
   if (!packageJsonResult.ok) return packageJsonResult;
 
-    const manifestResult = validateSourcePackageManifest(config.projectRoot);
-    if (!manifestResult.ok) return manifestResult;
+  const manifestResult = validateSourcePackageManifest(config.projectRoot);
+  if (!manifestResult.ok) return manifestResult;
 
   const distRoot = nodePath.join(config.projectRoot, "dist");
   mkdirSync(distRoot, { recursive: true });

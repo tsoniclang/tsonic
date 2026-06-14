@@ -1,5 +1,6 @@
 import { relative } from "node:path";
 import type { Diagnostic } from "@tsonic/frontend";
+import { createExternalBindingMetadataIndex } from "./rendering/external-bindings.js";
 import { emitModule } from "./rendering/module.js";
 import { csharpRuntimeSupportFiles } from "./rendering/runtime-support.js";
 import type {
@@ -64,7 +65,15 @@ const duplicateOutputDiagnostics = (
 export const emitCSharpFile = (
   module: CSharpLoweringModulePlan,
   options: Partial<EmitterOptions> = {}
-): ModuleEmitResult => emitModule(module, options);
+): ModuleEmitResult =>
+  emitModule(module, {
+    ...options,
+    externalBindingMetadata:
+      options.externalBindingMetadata ??
+      createExternalBindingMetadataIndex(
+        options.bindingMetadataRoots ?? options.libraries
+      ),
+  });
 
 export const emitCSharpFiles = (
   modules: readonly CSharpLoweringModulePlan[],
@@ -76,9 +85,17 @@ export const emitCSharpFiles = (
   }
 
   const commonRoot = findCommonRoot(modules.map((module) => module.identity.filePath));
+  const externalBindingMetadata =
+    options.externalBindingMetadata ??
+    createExternalBindingMetadataIndex(
+      options.bindingMetadataRoots ?? options.libraries
+    );
   const files = new Map<string, string>();
   for (const module of modules) {
-    const moduleResult = emitCSharpFile(module, options);
+    const moduleResult = emitCSharpFile(module, {
+      ...options,
+      externalBindingMetadata,
+    });
     if (!moduleResult.ok) {
       return { ok: false, errors: moduleResult.errors };
     }

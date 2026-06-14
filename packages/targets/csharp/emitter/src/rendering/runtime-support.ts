@@ -107,6 +107,16 @@ const jsGlobalsSupport = `public static class Globals
 }
 `;
 
+const jsConsoleSupport = `public static class ConsoleModule
+{
+    public static void log(params object?[] data) => Console.WriteLine(string.Join(" ", data.Select(Convert.ToString)));
+    public static void info(params object?[] data) => log(data);
+    public static void debug(params object?[] data) => log(data);
+    public static void warn(params object?[] data) => Console.Error.WriteLine(string.Join(" ", data.Select(Convert.ToString)));
+    public static void error(params object?[] data) => Console.Error.WriteLine(string.Join(" ", data.Select(Convert.ToString)));
+}
+`;
+
 const jsJsonSupport = `public static class JSON
 {
     public static T? parse<T>(string value) => JsonSerializer.Deserialize<T>(value);
@@ -242,6 +252,9 @@ export const csharpRuntimeSupportFiles = (
       : []),
     ...(supportNeeded(emittedFiles, "global::js.Globals")
       ? [jsGlobalsSupport]
+      : []),
+    ...(supportNeeded(emittedFiles, "global::js.ConsoleModule")
+      ? [jsConsoleSupport]
       : []),
     ...(usesJson ? [jsJsonSupport] : []),
     ...(supportNeeded(emittedFiles, "global::js.Array") ||

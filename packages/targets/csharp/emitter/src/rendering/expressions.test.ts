@@ -14,6 +14,7 @@ const createRenderContext = (): RenderContext => ({
   diagnostics: [],
   allocateTempName: (prefix) => `${prefix}0`,
   getStructuralTypeName: () => "Structural0",
+  overrideMemberAccessibility: () => undefined,
   reportUnsupported: () => {},
 });
 

@@ -289,6 +289,17 @@ const isExternalSupportDeclaration = (
   declaration: TstsNode | undefined,
   sourceDiagnosticFileNames?: ReadonlySet<string>
 ): boolean => {
+  let current = declaration;
+  while (current) {
+    if (
+      (Number(TstsSyntax.Node_ModifierFlags(current)) &
+        TstsSyntax.ModifierFlagsAmbient) !==
+      0
+    ) {
+      return true;
+    }
+    current = current.Parent;
+  }
   const sourceFile = getTstsContainingSourceFile(declaration);
   if (sourceFile?.IsDeclarationFile === true) return true;
   const fileName = sourceFile?.FileName();
@@ -1292,11 +1303,10 @@ export const createTsonicSourceSemanticsExtension = (
         }
       }
 
-      const computedName = isWellKnownSymbolName(
-        context,
-        node,
-        sourceDiagnosticFileNames
-      );
+      const computedName =
+        node.Kind === TstsSyntax.KindComputedPropertyName
+          ? isWellKnownSymbolName(context, node, sourceDiagnosticFileNames)
+          : undefined;
       if (computedName) {
         context.facts.set(wellKnownComputedNameFactKey, node, {
           kind: computedName,
@@ -1384,12 +1394,11 @@ export const createTsonicSourceSemanticsExtension = (
 
       if (
         !isCoreSourceFile &&
-        [
-          TstsSyntax.KindTypeAliasDeclaration,
-          TstsSyntax.KindFunctionDeclaration,
-          TstsSyntax.KindInterfaceDeclaration,
-          TstsSyntax.KindClassDeclaration,
-        ].includes(node.Kind)
+	        [
+	          TstsSyntax.KindTypeAliasDeclaration,
+	          TstsSyntax.KindInterfaceDeclaration,
+	          TstsSyntax.KindClassDeclaration,
+	        ].includes(node.Kind)
       ) {
         const name = getTstsNodeNameText(node);
         if (name && coreSourceNames.has(name)) {
