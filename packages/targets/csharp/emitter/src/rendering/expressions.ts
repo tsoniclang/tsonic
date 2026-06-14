@@ -147,6 +147,49 @@ const renderObjectProperty = (
   return `${sanitizeIdentifier(property.name)} = ${renderExpression(property.expression, context)}`;
 };
 
+const splitTopLevel = (text: string, delimiter: string): readonly string[] => {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "<" || char === "(" || char === "[" || char === "{") depth += 1;
+    if (char === ">" || char === ")" || char === "]" || char === "}") {
+      depth = Math.max(0, depth - 1);
+    }
+    if (depth === 0 && text.startsWith(delimiter, index)) {
+      parts.push(text.slice(start, index).trim());
+      start = index + delimiter.length;
+      index += delimiter.length - 1;
+    }
+  }
+  parts.push(text.slice(start).trim());
+  return parts.filter((part) => part.length > 0);
+};
+
+const arrayLiteralElementType = (
+  plan: LoweringExpressionPlan
+): string | undefined => {
+  const contextual = plan.contextualTypeText?.trim();
+  if (contextual?.endsWith("[]")) {
+    return renderCSharpType(contextual.slice(0, -2));
+  }
+  const typeText = plan.typeText?.trim();
+  if (typeText?.endsWith("[]")) {
+    return renderCSharpType(typeText.slice(0, -2));
+  }
+  if (typeText?.startsWith("[") && typeText.endsWith("]")) {
+    const elementTypes = splitTopLevel(typeText.slice(1, -1), ",").map((part) =>
+      renderCSharpType(part)
+    );
+    const first = elementTypes[0];
+    return first && elementTypes.every((part) => part === first)
+      ? first
+      : "object?";
+  }
+  return undefined;
+};
+
 const objectLiteralTargetType = (
   plan: LoweringExpressionPlan
 ): string | undefined => {
@@ -399,14 +442,13 @@ export const renderExpression = (
     case "function-expression":
       return renderLambda(plan, context);
     case "array-literal":
-      if (plan.typeText?.trim().startsWith("[")) {
-        return `(${plan.elements
-          .map((element) => renderExpression(element, context))
-          .join(", ")})`;
-      }
-      return `new[] { ${plan.elements
+      {
+        const elementType = arrayLiteralElementType(plan);
+        const constructor = elementType ? `new ${elementType}[]` : "new[]";
+        return `${constructor} { ${plan.elements
         .map((element) => renderExpression(element, context))
         .join(", ")} }`;
+      }
     case "object-literal":
       {
         const targetType = objectLiteralTargetType(plan);

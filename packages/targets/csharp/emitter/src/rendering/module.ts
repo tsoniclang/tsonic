@@ -15,6 +15,14 @@ const hasNamespaceDeclarationShape = (
   declaration.declarationKind === "enum" ||
   declaration.declarationKind === "interface";
 
+const isStaticTopLevelVariableStatement = (
+  statement: CSharpLoweringModulePlan["topLevelStatements"][number]
+): boolean =>
+  statement.statementKind === "variable" &&
+  statement.declarations.every(
+    (declaration) => declaration.bindingElements.length === 0
+  );
+
 const createRenderContext = (): RenderContext => {
   const diagnostics: RenderContext["diagnostics"] = [];
   let nextTempId = 0;
@@ -50,14 +58,14 @@ export const emitModule = (
     .map((declaration) => renderStaticContainerMember(declaration, context))
     .filter((rendered): rendered is string => rendered !== undefined);
   const topLevelFields = module.topLevelStatements
-    .filter((statement) => statement.statementKind === "variable")
+    .filter(isStaticTopLevelVariableStatement)
     .flatMap((statement) => statement.declarations)
     .map((declaration) => renderStaticField(declaration, context))
     .map((rendered) => `    ${rendered}`);
   const executableTopLevelStatements = module.topLevelStatements.filter(
     (statement) =>
       statement.statementKind !== "declaration" &&
-      statement.statementKind !== "variable"
+      !isStaticTopLevelVariableStatement(statement)
   );
   const topLevelMethod =
     executableTopLevelStatements.length > 0
