@@ -193,12 +193,14 @@ export const createTstsTestProgramFromFiles = (
   const sourceProgram = createTstsSourceProgram(filePaths, {
     projectRoot: options.projectRoot ?? tempRoot,
     runSemanticChecks: true,
+    sourceDiagnosticFileNames: filePaths.filter(
+      (filePath) =>
+        !filePath.endsWith(".d.ts") &&
+        !filePath.endsWith(".d.mts") &&
+        !filePath.endsWith(".d.cts")
+    ),
   });
   const sourceFile = findSourceFile(sourceProgram.sourceFiles, entryPath);
-  const sourceChecker = sourceProgram.withTypeChecker(
-    sourceFile,
-    (checker) => checker
-  );
   const sourceFiles = sourceProgram.sourceFiles.filter(
     (candidate) => candidate.IsDeclarationFile !== true
   );
@@ -225,7 +227,6 @@ export const createTstsTestProgramFromFiles = (
   return {
     options: compilerOptions,
     sourceProgram,
-    sourceChecker,
     surfaceCapabilities,
     workspaceGraph: buildWorkspaceGraphSnapshot({
       projectRoot,
@@ -237,6 +238,8 @@ export const createTstsTestProgramFromFiles = (
       options: compilerOptions,
       surfaceCapabilities,
     }),
+    authoritativeTsonicPackageRoots: new Map(),
+    declarationModuleAliases: new Map(),
     sourceFiles,
     declarationSourceFiles,
     sourceFile,

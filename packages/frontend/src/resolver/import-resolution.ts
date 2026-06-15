@@ -34,11 +34,11 @@ const isLocalImport = (specifier: string): boolean =>
  * Options for import resolution
  */
 export type ResolveImportOptions = {
-  readonly projectRoot?: string;
+  readonly projectRoot: string;
   readonly surface?: string;
   readonly backendTargetId?: string;
-  readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
-  readonly declarationModuleAliases?: ReadonlyMap<
+  readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
+  readonly declarationModuleAliases: ReadonlyMap<
     string,
     DeclarationModuleAlias
   >;
@@ -46,12 +46,8 @@ export type ResolveImportOptions = {
 
 const findAuthoritativePackageRootForImport = (
   importSpecifier: string,
-  authoritativeTsonicPackageRoots: ReadonlyMap<string, string> | undefined
+  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
 ): string | undefined => {
-  if (!authoritativeTsonicPackageRoots) {
-    return undefined;
-  }
-
   let bestMatch: string | undefined;
   for (const [packageName, packageRoot] of authoritativeTsonicPackageRoots) {
     if (
@@ -113,7 +109,7 @@ const findCaseMismatchPath = (
 const resolveCoreDeclarationPath = (
   importSpecifier: string,
   containingFile: string,
-  opts: ResolveImportOptions | undefined
+  opts: ResolveImportOptions
 ): string | undefined => {
   const module = CORE_TYPES_MODULE_SPECIFIERS.has(importSpecifier)
     ? "types"
@@ -125,10 +121,8 @@ const resolveCoreDeclarationPath = (
   }
 
   const packageRoots = [
-    opts?.authoritativeTsonicPackageRoots?.get(CORE_PACKAGE_NAME),
-    opts?.projectRoot
-      ? path.join(opts.projectRoot, "node_modules", "@tsonic", "core")
-      : undefined,
+    opts.authoritativeTsonicPackageRoots.get(CORE_PACKAGE_NAME),
+    path.join(opts.projectRoot, "node_modules", "@tsonic", "core"),
     findInstalledPackageRoot(CORE_PACKAGE_NAME, containingFile),
   ].filter((root): root is string => root !== undefined);
 
@@ -151,13 +145,13 @@ const resolveCoreDeclarationPath = (
  * @param importSpecifier - The import path to resolve
  * @param containingFile - The file containing the import
  * @param sourceRoot - The project source root
- * @param opts - Optional package/source-resolution context
+ * @param opts - Package/source-resolution context
  */
 export const resolveImport = (
   importSpecifier: string,
   containingFile: string,
   sourceRoot: string,
-  opts?: ResolveImportOptions
+  opts: ResolveImportOptions
 ): Result<ResolvedModule, Diagnostic> => {
   const canonicalImportSpecifier = importSpecifier;
 
@@ -179,19 +173,28 @@ export const resolveImport = (
       containingFile,
       opts
     );
+    if (resolvedPath === undefined) {
+      return error(
+        createDiagnostic(
+          "TSN1004",
+          "error",
+          `Cannot resolve core source declaration import: "${importSpecifier}"`,
+          undefined,
+          `Expected ${importSpecifier} to resolve through the active @tsonic/core source package.`
+        )
+      );
+    }
     return ok({
-      resolvedPath: resolvedPath ?? "",
+      resolvedPath,
       isLocal: false,
       resolutionKind: "phantomTypeOnly",
       originalSpecifier: importSpecifier,
     });
   }
 
-  // Prefer installed source packages over external/module bindings so packages like
-  // @tsonic/nodejs use their native source implementation instead of external
-  // facade packages when both are available.
-  if (opts?.projectRoot) {
-    const declarationAlias = opts.declarationModuleAliases?.get(
+  // Prefer authoritative source packages before installed declaration packages.
+  {
+    const declarationAlias = opts.declarationModuleAliases.get(
       canonicalImportSpecifier
     );
     if (declarationAlias) {

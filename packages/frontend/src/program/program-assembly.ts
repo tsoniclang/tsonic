@@ -391,8 +391,7 @@ export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
   );
   const workspaceGraphEdges = collectTstsWorkspaceGraphEdges(sourceProgram);
 
-  const firstTstsSourceFile = sourceFiles[0];
-  if (!firstTstsSourceFile) {
+  if (sourceFiles.length === 0) {
     return error(
       addDiagnostic(
         createDiagnosticsCollector(),
@@ -405,14 +404,8 @@ export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
     );
   }
 
-  const sourceChecker = sourceProgram.withTypeChecker(
-    firstTstsSourceFile,
-    (checker) => checker
-  );
-
   return ok({
     sourceProgram,
-    sourceChecker,
     options,
     surfaceCapabilities,
     workspaceGraph: buildWorkspaceGraphSnapshot({

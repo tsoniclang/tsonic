@@ -93,22 +93,26 @@ describe("Program Creation – module bindings", function () {
       expect(importSpecifierName).to.not.equal(undefined);
       if (!importSpecifierName) return;
 
-      const importSymbol = result.value.sourceChecker.getSymbolAtLocation(
-        importSpecifierName
-      );
-      expect(importSymbol).to.not.equal(undefined);
-      if (!importSymbol) return;
+      const declarationFiles = result.value.sourceProgram.withTypeChecker(
+        sourceFile,
+        (checker) => {
+          const importSymbol = checker.getSymbolAtLocation(importSpecifierName);
+          expect(importSymbol).to.not.equal(undefined);
+          if (!importSymbol) return [];
 
-      const aliasedSymbol = result.value.sourceChecker.resolveAlias(
-        importSymbol
+          const aliasedSymbol = checker.resolveAlias(importSymbol);
+          expect(aliasedSymbol).to.not.equal(undefined);
+          if (!aliasedSymbol) return [];
+
+          return checker
+            .getSymbolDeclarations(aliasedSymbol)
+            .map((declaration) =>
+              getTstsContainingSourceFileName(declaration)
+            )
+            .filter((fileName): fileName is string => fileName !== undefined)
+            .map((fileName) => path.resolve(fileName));
+        }
       );
-      expect(aliasedSymbol).to.not.equal(undefined);
-      if (!aliasedSymbol) return;
-      const declarationFiles = result.value.sourceChecker
-        .getSymbolDeclarations(aliasedSymbol)
-        .map((declaration) => getTstsContainingSourceFileName(declaration))
-        .filter((fileName): fileName is string => fileName !== undefined)
-        .map((fileName) => path.resolve(fileName));
       expect(declarationFiles).to.include(path.resolve(packageEntry));
     } finally {
       fixture.cleanup();

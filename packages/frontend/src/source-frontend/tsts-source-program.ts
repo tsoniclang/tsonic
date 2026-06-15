@@ -37,11 +37,11 @@ export type CreateTstsSourceProgramOptions = {
   readonly moduleResolutionBaseUrl?: string;
   readonly runSemanticChecks?: boolean;
   readonly runExtensionChecks?: boolean;
-  readonly sourceDiagnosticFileNames?: readonly string[];
+  readonly sourceDiagnosticFileNames: readonly string[];
 };
 
 const defaultExtensions = (
-  options: Pick<CreateTstsSourceProgramOptions, "sourceDiagnosticFileNames"> = {}
+  options: Pick<CreateTstsSourceProgramOptions, "sourceDiagnosticFileNames">
 ): readonly CompilerExtension[] => [
   createTsonicNumericPrimitiveExtension(),
   createTsonicSourceSemanticsExtension({
@@ -51,7 +51,7 @@ const defaultExtensions = (
 
 export const createTstsSourceProgram = (
   filePaths: readonly string[],
-  options: CreateTstsSourceProgramOptions = {}
+  options: CreateTstsSourceProgramOptions
 ): TstsSourceProgram => {
   const extensions = options.extensions ?? defaultExtensions(options);
   const compiledSource = createCompilerSourceProgram(filePaths, {
@@ -75,7 +75,9 @@ export const createTstsSourceProgram = (
 };
 
 export const createEmptyTstsSourceProgramForTests = (): TstsSourceProgram => {
-  const extensionHost = createExtensionHost(defaultExtensions());
+  const extensionHost = createExtensionHost(
+    defaultExtensions({ sourceDiagnosticFileNames: [] })
+  );
   extensionHost.configure();
   return {
     engine: "tsts",

@@ -6,6 +6,7 @@ export type SourceProgramBuildOptions = {
   readonly extensions?: readonly CompilerExtension[];
   readonly projectRoot?: string;
   readonly runSemanticChecks?: boolean;
+  readonly sourceDiagnosticFileNames: readonly string[];
 };
 
 export type SourceTranspileOptions = {
@@ -33,7 +34,7 @@ export interface SourceFrontend<TSourceProgram> {
   readonly engine: SourceFrontendEngine;
   createProgram(
     filePaths: readonly string[],
-    options?: SourceProgramBuildOptions
+    options: SourceProgramBuildOptions
   ): TSourceProgram;
 }
 

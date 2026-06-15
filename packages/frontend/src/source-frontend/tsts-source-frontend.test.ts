@@ -34,6 +34,7 @@ describe("TSTS source frontend", () => {
       const frontend = createTstsSourceFrontend();
       const program = frontend.createProgram([filePath], {
         projectRoot: path.dirname(filePath),
+        sourceDiagnosticFileNames: [filePath],
       });
 
       expect(program.engine).to.equal("tsts");
@@ -60,6 +61,7 @@ describe("TSTS source frontend", () => {
         const program = frontend.createProgram([filePath], {
           projectRoot: path.dirname(filePath),
           runSemanticChecks: true,
+          sourceDiagnosticFileNames: [filePath],
         });
         const sourceFile = must(program.sourceFiles[0], "source file missing");
         const valueUseTypes: string[] = [];

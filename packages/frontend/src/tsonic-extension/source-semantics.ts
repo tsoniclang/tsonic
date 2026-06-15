@@ -302,7 +302,7 @@ const isPropertyAccessNamed = (
 
 const isExternalSupportDeclaration = (
   declaration: TstsNode | undefined,
-  sourceDiagnosticFileNames?: ReadonlySet<string>
+  sourceDiagnosticFileNames: ReadonlySet<string>
 ): boolean => {
   let current = declaration;
   while (current) {
@@ -320,7 +320,6 @@ const isExternalSupportDeclaration = (
   const fileName = sourceFile?.FileName();
   if (fileName === undefined) return false;
   if (
-    sourceDiagnosticFileNames !== undefined &&
     !sourceDiagnosticFileNames.has(normalizeSourceFileName(fileName))
   ) {
     return true;
@@ -332,7 +331,7 @@ const isAmbientGlobalIdentifier = (
   context: CheckedContext,
   node: TstsNode | undefined,
   name: string,
-  sourceDiagnosticFileNames?: ReadonlySet<string>
+  sourceDiagnosticFileNames: ReadonlySet<string>
 ): boolean => {
   if (!isIdentifierNamed(node, name)) return false;
   if (context.imports.resolveLocalName(name)) return false;
@@ -350,7 +349,7 @@ const isAmbientGlobalIdentifier = (
 const isWellKnownSymbolName = (
   context: CheckedContext,
   node: TstsNode | undefined,
-  sourceDiagnosticFileNames?: ReadonlySet<string>
+  sourceDiagnosticFileNames: ReadonlySet<string>
 ):
   | "symbol-iterator"
   | "symbol-async-iterator"
@@ -389,7 +388,7 @@ const isWellKnownSymbolName = (
 const expressionSemanticsKind = (
   context: CheckedContext,
   node: TstsNode,
-  sourceDiagnosticFileNames?: ReadonlySet<string>
+  sourceDiagnosticFileNames: ReadonlySet<string>
 ): "undefined-value" | undefined =>
   isAmbientGlobalIdentifier(context, node, "undefined", sourceDiagnosticFileNames)
     ? "undefined-value"
@@ -517,7 +516,7 @@ const globalRuntimeMembers = new Set([
 const runtimeConstructorOperationForIdentifier = (
   context: CheckedContext,
   node: TstsNode | undefined,
-  sourceDiagnosticFileNames?: ReadonlySet<string>
+  sourceDiagnosticFileNames: ReadonlySet<string>
 ): SourceRuntimeOperationFact | undefined => {
   const memberName = getTstsIdentifierText(node);
   if (!memberName) return undefined;
@@ -597,7 +596,7 @@ const isLengthCarrierUnionType = (
 const sourceRuntimeOperation = (
   context: CheckedContext,
   node: TstsNode,
-  sourceDiagnosticFileNames?: ReadonlySet<string>
+  sourceDiagnosticFileNames: ReadonlySet<string>
 ): SourceRuntimeOperationFact | undefined => {
   if (node.Kind === TstsSyntax.KindElementAccessExpression) {
     const receiver = TstsSyntax.Node_Expression(node);
@@ -636,6 +635,13 @@ const sourceRuntimeOperation = (
   }
 
   if (node.Kind === TstsSyntax.KindIdentifier) {
+    if (
+      node.Parent?.Kind === TstsSyntax.KindNewExpression &&
+      TstsSyntax.Node_Expression(node.Parent) === node
+    ) {
+      return undefined;
+    }
+
     const constructorOperation = runtimeConstructorOperationForIdentifier(
       context,
       node,
@@ -1122,7 +1128,7 @@ const setDeclarationBindingFacts = (
 
 const isAmbientRecordDeclaration = (
   declaration: TstsNode,
-  sourceDiagnosticFileNames?: ReadonlySet<string>
+  sourceDiagnosticFileNames: ReadonlySet<string>
 ): boolean =>
   getTstsNodeNameText(declaration) === "Record" &&
   isExternalSupportDeclaration(declaration, sourceDiagnosticFileNames);
@@ -1130,7 +1136,7 @@ const isAmbientRecordDeclaration = (
 const isAmbientRecordTypeReference = (
   context: CheckedContext,
   node: TstsNode,
-  sourceDiagnosticFileNames?: ReadonlySet<string>
+  sourceDiagnosticFileNames: ReadonlySet<string>
 ): boolean => {
   if (getTstsTypeReferenceDetails(node)?.name !== "Record") return false;
   const typeNameNode =
@@ -1680,20 +1686,17 @@ const collectAttributeApplicationFacts = (
 };
 
 export type TsonicSourceSemanticsExtensionOptions = {
-  readonly sourceDiagnosticFileNames?: readonly string[];
+  readonly sourceDiagnosticFileNames: readonly string[];
 };
 
 export const createTsonicSourceSemanticsExtension = (
-  options: TsonicSourceSemanticsExtensionOptions = {}
+  options: TsonicSourceSemanticsExtensionOptions
 ): CompilerExtension => {
-  const sourceDiagnosticFileNames =
-    options.sourceDiagnosticFileNames === undefined
-      ? undefined
-      : new Set(
-          options.sourceDiagnosticFileNames.map((fileName) =>
-            normalizeSourceFileName(fileName)
-          )
-        );
+  const sourceDiagnosticFileNames = new Set(
+    options.sourceDiagnosticFileNames.map((fileName) =>
+      normalizeSourceFileName(fileName)
+    )
+  );
 
   return {
     id: "tsonic.source-semantics",
@@ -1893,11 +1896,7 @@ export const createTsonicSourceSemanticsExtension = (
     const shouldValidateSourceDiagnostics =
       context.sourceFile.IsDeclarationFile !== true &&
       !isCoreSourceFile &&
-      (sourceDiagnosticFileNames === undefined
-        ? !isDependencySupportSourceFile(sourceFileName)
-        : sourceDiagnosticFileNames.has(
-            normalizeSourceFileName(sourceFileName)
-          ));
+      sourceDiagnosticFileNames.has(normalizeSourceFileName(sourceFileName));
     const coreTypesBindingByLocalName = collectImportedNamesByLocalName(
       context.imports,
       coreTypesModules

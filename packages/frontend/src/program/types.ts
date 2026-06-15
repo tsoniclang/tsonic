@@ -2,7 +2,7 @@
  * Program type definitions
  */
 
-import type { ExtensionTypeChecker, TstsSourceFile } from "@tsonic/tsts";
+import type { TstsSourceFile } from "@tsonic/tsts";
 import type { DeclarationModuleAlias } from "./declaration-module-aliases.js";
 import type { SurfaceCapabilities } from "../surface/profiles.js";
 import type { WorkspaceGraphSnapshot } from "./workspace-fingerprint.js";
@@ -30,12 +30,11 @@ export type CompilerOptions<Target extends BackendTargetId = BackendTargetId> =
 
 export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
   readonly sourceProgram: TstsSourceProgram;
-  readonly sourceChecker: ExtensionTypeChecker;
   readonly options: CompilerOptions<Target>;
   readonly surfaceCapabilities: SurfaceCapabilities;
   readonly workspaceGraph: WorkspaceGraphSnapshot;
-  readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
-  readonly declarationModuleAliases?: ReadonlyMap<
+  readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
+  readonly declarationModuleAliases: ReadonlyMap<
     string,
     DeclarationModuleAlias
   >;

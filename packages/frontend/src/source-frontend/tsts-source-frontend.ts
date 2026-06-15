@@ -16,12 +16,13 @@ export const createTstsSourceFrontend = (): TstsSourceFrontend => ({
   engine: "tsts",
   createProgram: (
     filePaths: readonly string[],
-    options: SourceProgramBuildOptions = {}
+    options: SourceProgramBuildOptions
   ): TstsSourceProgram =>
     createTstsSourceProgram(filePaths, {
       extensions: options.extensions,
       projectRoot: options.projectRoot,
       runSemanticChecks: options.runSemanticChecks,
+      sourceDiagnosticFileNames: options.sourceDiagnosticFileNames,
     }),
   transpileModule: async (
     sourceText: string,

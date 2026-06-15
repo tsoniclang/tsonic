@@ -101,21 +101,6 @@ export type DiagnosticCode =
   | "TSN9016" // Metadata directory not found
   | "TSN9017" // Not a directory
   | "TSN9018" // No .metadata.json files found
-  // Bindings loading errors (TSN9101-TSN9114)
-  | "TSN9101" // Bindings file not found
-  | "TSN9102" // Failed to read bindings file
-  | "TSN9103" // Invalid JSON in bindings file
-  | "TSN9104" // Bindings file must be an object
-  | "TSN9105" // Missing or invalid 'namespace' field
-  | "TSN9106" // Missing or invalid 'types' field
-  | "TSN9107" // Invalid type binding: must be an object
-  | "TSN9108" // Invalid type binding: missing or invalid field
-  | "TSN9109" // Invalid type binding: 'metadataToken' must be a number
-  | "TSN9110" // Invalid type binding: member field must be an array if present
-  | "TSN9111" // Invalid type binding: heritage field must be an array if present
-  | "TSN9112" // Bindings directory not found
-  | "TSN9113" // Not a directory
-  | "TSN9114" // No bindings.json files found
   // Numeric proof errors (TSN5101-TSN5199)
   | "TSN5101" // Cannot prove numeric narrowing
   | "TSN5102" // Literal out of range for numeric type

@@ -243,7 +243,6 @@ export type ProgramInputDiscovery = {
     DeclarationModuleAlias
   >;
   readonly ambientSupportFiles: readonly string[];
-  readonly dependencyEdges: readonly WorkspaceGraphEdge[];
   readonly diagnostics: readonly Diagnostic[];
   readonly allFiles: readonly string[];
   readonly emittableSourceFiles: readonly string[];
@@ -871,7 +870,6 @@ export const discoverProgramInputs = (
     namespaceIndexFiles,
     declarationModuleAliases,
     ambientSupportFiles,
-    dependencyEdges,
     diagnostics: [
       ...discoveryDiagnostics,
       ...runtimeSourceClosure.diagnostics,

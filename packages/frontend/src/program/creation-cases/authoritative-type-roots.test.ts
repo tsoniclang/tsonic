@@ -65,22 +65,24 @@ describe("Program Creation – authoritative type roots", function () {
 
       const returnTypes = new Map<string, string>();
 
-      visitTstsSubtree(sourceFile, (node) => {
-        if (!node || !TstsSyntax.IsCallExpression(node)) return;
-        const call = TstsSyntax.AsCallExpression(node);
-        const expression = call?.Expression;
-        if (expression && TstsSyntax.IsPropertyAccessExpression(expression)) {
-          const callee = expressionText(expression);
-          if (callee === "path.join" || callee === "process.cwd") {
-            returnTypes.set(
-              callee,
-              result.value.sourceChecker.typeToString(
-                result.value.sourceChecker.getNarrowedTypeAtLocation(node) ??
-                  result.value.sourceChecker.getTypeAtLocation(node)
-              )
-            );
+      result.value.sourceProgram.withTypeChecker(sourceFile, (checker) => {
+        visitTstsSubtree(sourceFile, (node) => {
+          if (!node || !TstsSyntax.IsCallExpression(node)) return;
+          const call = TstsSyntax.AsCallExpression(node);
+          const expression = call?.Expression;
+          if (expression && TstsSyntax.IsPropertyAccessExpression(expression)) {
+            const callee = expressionText(expression);
+            if (callee === "path.join" || callee === "process.cwd") {
+              returnTypes.set(
+                callee,
+                checker.typeToString(
+                  checker.getNarrowedTypeAtLocation(node) ??
+                    checker.getTypeAtLocation(node)
+                )
+              );
+            }
           }
-        }
+        });
       });
 
       expect(returnTypes.get("path.join")).to.equal("string");
@@ -131,26 +133,28 @@ describe("Program Creation – authoritative type roots", function () {
 
       const returnTypes = new Map<string, string>();
 
-      visitTstsSubtree(sourceFile, (node) => {
-        if (!node || !TstsSyntax.IsCallExpression(node)) return;
-        const call = TstsSyntax.AsCallExpression(node);
-        const expression = call?.Expression;
-        if (
-          expression &&
-          (TstsSyntax.IsIdentifier(expression) ||
-            TstsSyntax.IsPropertyAccessExpression(expression))
-        ) {
-          const callee = expressionText(expression);
-          if (callee === "join" || callee === "process.cwd") {
-            returnTypes.set(
-              callee,
-              result.value.sourceChecker.typeToString(
-                result.value.sourceChecker.getNarrowedTypeAtLocation(node) ??
-                  result.value.sourceChecker.getTypeAtLocation(node)
-              )
-            );
+      result.value.sourceProgram.withTypeChecker(sourceFile, (checker) => {
+        visitTstsSubtree(sourceFile, (node) => {
+          if (!node || !TstsSyntax.IsCallExpression(node)) return;
+          const call = TstsSyntax.AsCallExpression(node);
+          const expression = call?.Expression;
+          if (
+            expression &&
+            (TstsSyntax.IsIdentifier(expression) ||
+              TstsSyntax.IsPropertyAccessExpression(expression))
+          ) {
+            const callee = expressionText(expression);
+            if (callee === "join" || callee === "process.cwd") {
+              returnTypes.set(
+                callee,
+                checker.typeToString(
+                  checker.getNarrowedTypeAtLocation(node) ??
+                    checker.getTypeAtLocation(node)
+                )
+              );
+            }
           }
-        }
+        });
       });
 
       expect(returnTypes.get("join")).to.equal("string");

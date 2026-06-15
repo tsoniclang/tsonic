@@ -157,13 +157,6 @@ describe("discoverProgramInputs", () => {
 
       expect(discovery.allFiles).to.include(path.resolve(declarationEntry));
       expect(discovery.allFiles).to.include(path.resolve(internalDeclaration));
-      expect(
-        discovery.dependencyEdges.some(
-          (edge) =>
-            path.resolve(edge.from) === path.resolve(declarationEntry) &&
-            path.resolve(edge.to) === path.resolve(internalDeclaration)
-        )
-      ).to.equal(true);
     } finally {
       fixture.cleanup();
     }

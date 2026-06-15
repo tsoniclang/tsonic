@@ -36,7 +36,14 @@ import { createTstsTestProgramFromFiles } from "../testing/tsts-test-program.js"
 
 const collectSemanticNodes = (sourceText: string) => {
   const sourceFile = parseTstsSourceFile(sourceText);
-  const host = createExtensionHost([createTsonicSourceSemanticsExtension()]);
+  if (!sourceFile) {
+    throw new Error("Failed to parse TSTS source text.");
+  }
+  const host = createExtensionHost([
+    createTsonicSourceSemanticsExtension({
+      sourceDiagnosticFileNames: [sourceFile.FileName()],
+    }),
+  ]);
   const nodes: GoPtr<TstsNode>[] = [];
 
   host.afterParseSourceFile(sourceFile);
