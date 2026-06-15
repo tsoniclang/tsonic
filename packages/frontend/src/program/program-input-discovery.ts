@@ -709,11 +709,7 @@ export const discoverProgramInputs = (
     if (fs.existsSync(absoluteRoot)) {
       const entries = fs.readdirSync(absoluteRoot, { withFileTypes: true });
       for (const entry of entries) {
-        if (
-          entry.isDirectory() &&
-          !entry.name.startsWith("_") &&
-          !entry.name.startsWith("internal")
-        ) {
+        if (entry.isDirectory()) {
           const indexPath = path.join(absoluteRoot, entry.name, "index.d.ts");
           if (fs.existsSync(indexPath)) {
             namespaceIndexFiles.push(indexPath);
