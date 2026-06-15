@@ -107,6 +107,7 @@ const CANONICAL_CORE_PACKAGE_FILES: Readonly<Record<string, string>> = {
     "export type ref<T> = T;",
     "export type inref<T> = T;",
     "export type struct<T> = T;",
+    "export type JsValue = unknown;",
     "",
   ].join("\n"),
   "node_modules/@tsonic/core/lang.js": [

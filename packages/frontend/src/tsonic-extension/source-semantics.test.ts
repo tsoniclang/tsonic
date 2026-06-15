@@ -478,6 +478,48 @@ describe("Tsonic TSTS source semantics extension", () => {
     }
   });
 
+  it("attaches opaque runtime visibility to core JsValue from source facts", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "index.ts": [
+          "import type { JsValue } from '@tsonic/core/types.js';",
+          "export function use(value: JsValue): void {",
+          "  void value;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const visibilityFacts: string[] = [];
+      for (const sourceFile of program.sourceProgram.sourceFiles) {
+        visitTstsSubtree(sourceFile, (node) => {
+          if (!node) return;
+          const fact = program.sourceProgram.extensionHost.facts.get(
+            sourceRuntimeVisibilityFactKey,
+            node
+          );
+          if (fact) {
+            visibilityFacts.push(
+              `${sourceFile.FileName()}:${TstsSyntax.Node_KindString(node)}:${fact.visibility}`
+            );
+          }
+        });
+      }
+
+      expect(
+        visibilityFacts.some(
+          (entry) =>
+            entry.includes("/node_modules/@tsonic/core/types.d.ts:") &&
+            entry.endsWith(":opaque")
+        )
+      ).to.equal(true);
+    } finally {
+      program.cleanup();
+    }
+  });
+
   it("attaches dictionary facts only to the ambient Record utility type", () => {
     const program = createTstsTestProgramFromFiles(
       {

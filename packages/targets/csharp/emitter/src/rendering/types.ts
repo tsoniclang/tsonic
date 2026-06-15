@@ -55,7 +55,6 @@ const knownNamedTypes: ReadonlyMap<string, string> = new Map([
   ["Float32Array", "global::js.Float32Array"],
   ["Float64Array", "global::js.Float64Array"],
   ["DataView", "global::js.DataView"],
-  ["JsValue", "object?"],
 ]);
 
 export const sourceRuntimeNameKey = (
@@ -347,8 +346,7 @@ export const isOpaqueRuntimeTypePlan = (
   type.kind === "unsupported" ||
   type.kind === "intersection" ||
   (type.kind === "object" && !shouldEmitStructuralObjectType(type)) ||
-  (type.kind === "named" &&
-    (type.name === "JsValue" || type.runtimeVisibility === "opaque"));
+  (type.kind === "named" && type.runtimeVisibility === "opaque");
 
 const isOpaqueNullableType = isOpaqueRuntimeTypePlan;
 

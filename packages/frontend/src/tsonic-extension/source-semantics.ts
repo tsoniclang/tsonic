@@ -1058,7 +1058,13 @@ const sourceBindingIdentityFact = (
   const declarationKind = sourceBindingDeclarationKind(declaration);
   if (!declaration || !declarationKind) return undefined;
   const sourceFile = getTstsContainingSourceFile(declaration);
-  if (!sourceFile || sourceFile.IsDeclarationFile === true) return undefined;
+  if (
+    !sourceFile ||
+    (sourceFile.IsDeclarationFile === true &&
+      !isCorePackageSourceFile(sourceFile.FileName()))
+  ) {
+    return undefined;
+  }
   const name =
     getTstsNodeNameText(declaration) ?? context.checker.getSymbolName(symbol);
   if (!name) return undefined;
@@ -1076,6 +1082,7 @@ const sourceFileNameSegments = (fileName: string): readonly string[] =>
 const sourceRuntimeVisibilityFactForBinding = (
   fact: SourceBindingIdentityFact
 ): SourceRuntimeVisibilityFact | undefined =>
+  (fact.name === "JsValue" && isCorePackageSourceFile(fact.sourceFileName)) ||
   fact.name === "_" ||
   fact.name.includes("\uFFFD") ||
   sourceFileNameSegments(fact.sourceFileName).includes("_")
