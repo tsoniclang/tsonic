@@ -49,17 +49,30 @@ export const createLoweringModuleGraph = <
 
   const modules = sortModulesBySourceIdentity(loweringResult.value.modules);
   const entryRelative = relative(sourceRootAbs, entryAbs).replace(/\\/g, "/");
-  const entryModule =
-    modules.find((module) => module.identity.filePath === entryRelative) ??
-    modules[0];
+  const entryModule = modules.find(
+    (module) => module.identity.filePath === entryRelative
+  );
   if (entryModule === undefined) {
     return error([
-      createDiagnostic("TSN1001", "error", "No modules found in the project", {
-        file: entryAbs,
-        line: 1,
-        column: 1,
-        length: 1,
-      }),
+      modules.length === 0
+        ? createDiagnostic("TSN1001", "error", "No modules found in the project", {
+            file: entryAbs,
+            line: 1,
+            column: 1,
+            length: 1,
+          })
+        : createDiagnostic(
+            "TSN1001",
+            "fatal",
+            `TSTS lowering graph did not contain the requested entry module '${entryRelative}'.`,
+            {
+              file: entryAbs,
+              line: 1,
+              column: 1,
+              length: 1,
+            },
+            modules.map((module) => module.identity.filePath).join("\n")
+          ),
     ]);
   }
 

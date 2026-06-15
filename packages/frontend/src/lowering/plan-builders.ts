@@ -89,6 +89,19 @@ const nodeTokenText = (node: TstsNode | undefined): string | undefined => {
 const nodeLiteralText = (node: TstsNode | undefined): string | undefined =>
   node ? getTstsNodeText(node) : undefined;
 
+const symbolValueOrSingleDeclaration = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  symbol: TstsSymbol | undefined
+): TstsNode | undefined => {
+  if (!symbol) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const valueDeclaration = checker.getSymbolValueDeclaration(symbol);
+  if (valueDeclaration) return valueDeclaration;
+  const declarations = checker.getSymbolDeclarations(symbol);
+  return declarations.length === 1 ? declarations[0] : undefined;
+};
+
 type NodeNameInfo = {
   readonly name?: string;
   readonly sourceKindName?: string;
@@ -443,9 +456,11 @@ const checkerTypePlan = (
     return {
       kind: "function",
       parameters: checker.getSignatureParameters(signature).map((parameter) => {
-        const declaration =
-          checker.getSymbolValueDeclaration(parameter) ??
-          checker.getSymbolDeclarations(parameter)[0];
+        const declaration = symbolValueOrSingleDeclaration(
+          context,
+          sourceFile,
+          parameter
+        );
         const parameterType = declaration
           ? checker.getTypeOfSymbolAtLocation(parameter, declaration)
           : undefined;
@@ -520,9 +535,11 @@ const checkerTypePlan = (
     return {
       kind: "object",
       members: properties.map((property) => {
-        const declaration =
-          checker.getSymbolValueDeclaration(property) ??
-          checker.getSymbolDeclarations(property)[0];
+        const declaration = symbolValueOrSingleDeclaration(
+          context,
+          sourceFile,
+          property
+        );
         return {
           kind: "property",
           name: checker.getSymbolName(property),
@@ -1918,9 +1935,11 @@ const callExpectedArgumentTypes = (
   const selected = checker.getResolvedSignature(node);
   if (!selected) return [];
   return checker.getSignatureParameters(selected).map((parameter) => {
-    const declaration =
-      checker.getSymbolValueDeclaration(parameter) ??
-      checker.getSymbolDeclarations(parameter)[0];
+    const declaration = symbolValueOrSingleDeclaration(
+      context,
+      sourceFile,
+      parameter
+    );
     const typeNode = declaration
       ? TstsSyntax.Node_Type(declaration)
       : undefined;
@@ -1965,9 +1984,7 @@ const symbolDeclarationSourceTypePlan = (
 ): LoweringTypeRefPlan | undefined => {
   if (!symbol) return undefined;
   const checker = context.checkerForSourceFile(sourceFile);
-  const declaration =
-    checker.getSymbolValueDeclaration(symbol) ??
-    checker.getSymbolDeclarations(symbol)[0];
+  const declaration = symbolValueOrSingleDeclaration(context, sourceFile, symbol);
   if (isFunctionLikeDeclaration(declaration)) {
     return checkerTypePlan(
       context,
@@ -2023,9 +2040,7 @@ const symbolStorageTypePlan = (
   if (context.resolvingStorageSymbols.has(storageKey)) return undefined;
   context.resolvingStorageSymbols.add(storageKey);
   try {
-  const declaration =
-    checker.getSymbolValueDeclaration(symbol) ??
-    checker.getSymbolDeclarations(symbol)[0];
+  const declaration = symbolValueOrSingleDeclaration(context, sourceFile, symbol);
   if (!declaration) return undefined;
   const declarationSourceFile = sourceFileForNode(declaration, sourceFile);
   const variable = TstsSyntax.AsVariableDeclaration(declaration);
@@ -2742,8 +2757,7 @@ const receiverOwnerTypePlan = (
   const symbol = name ? checker.getSymbolAtLocation(name) : undefined;
   const declaration =
     symbol !== undefined
-      ? (checker.getSymbolValueDeclaration(symbol) ??
-        checker.getSymbolDeclarations(symbol)[0])
+      ? symbolValueOrSingleDeclaration(context, sourceFile, symbol)
       : undefined;
   const owner = declaration?.Parent;
   if (
@@ -2977,9 +2991,7 @@ const propertyAccessStorageTypePlan = (
   if (receiverMemberStorage) return receiverMemberStorage;
   const symbol = name ? checker.getSymbolAtLocation(name) : undefined;
   if (!symbol) return undefined;
-  const declaration =
-    checker.getSymbolValueDeclaration(symbol) ??
-    checker.getSymbolDeclarations(symbol)[0];
+  const declaration = symbolValueOrSingleDeclaration(context, sourceFile, symbol);
   const owner = declaration?.Parent;
   if (!isClassOrInterfaceDeclaration(owner)) {
     return symbolStorageTypePlan(context, sourceFile, symbol);
@@ -4110,14 +4122,17 @@ const baseConstructorParameters = (
   if (!heritage) return [];
   const checker = context.checkerForSourceFile(sourceFile);
   const heritageType = checker.getTypeFromTypeNode(heritage);
-  const [signature] = heritageType
+  const signatures = heritageType
     ? checker.getConstructSignatures(heritageType)
     : [];
+  const signature = signatures.length === 1 ? signatures[0] : undefined;
   if (signature) {
     return checker.getSignatureParameters(signature).map((parameter) => {
-      const declaration =
-        checker.getSymbolValueDeclaration(parameter) ??
-        checker.getSymbolDeclarations(parameter)[0];
+      const declaration = symbolValueOrSingleDeclaration(
+        context,
+        sourceFile,
+        parameter
+      );
       const parameterType = checker.getTypeOfSymbolAtLocation(
         parameter,
         declaration ?? heritage

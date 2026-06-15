@@ -391,12 +391,16 @@ export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
   );
   const workspaceGraphEdges = collectTstsWorkspaceGraphEdges(sourceProgram);
 
-  const firstTstsSourceFile = sourceFiles[0] ?? sourceProgram.sourceFiles[0];
+  const firstTstsSourceFile = sourceFiles[0];
   if (!firstTstsSourceFile) {
     return error(
       addDiagnostic(
         createDiagnosticsCollector(),
-        createDiagnostic("TSN1008", "error", "TSTS source program is empty.")
+        createDiagnostic(
+          "TSN1008",
+          "fatal",
+          "TSTS source program did not contain a runtime source file."
+        )
       )
     );
   }

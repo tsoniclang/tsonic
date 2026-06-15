@@ -54,14 +54,6 @@ export const compile = <Target extends BackendTargetId = BackendTargetId>(
   filePaths: readonly string[],
   options: CompilerOptions<Target>
 ): Result<CompileResult<Target>, DiagnosticsCollector> => {
-  // Create Tsonic program through the TSTS source engine
-  const programResult = createProgram(filePaths, options);
-
-  if (!programResult.ok) {
-    return programResult;
-  }
-
-  const program = programResult.value;
   const entryFile = filePaths[0];
   if (entryFile === undefined) {
     return error(
@@ -71,6 +63,15 @@ export const compile = <Target extends BackendTargetId = BackendTargetId>(
       )
     );
   }
+
+  // Create Tsonic program through the TSTS source engine
+  const programResult = createProgram(filePaths, options);
+
+  if (!programResult.ok) {
+    return programResult;
+  }
+
+  const program = programResult.value;
 
   // Validate ESM rules and Tsonic source constraints
   const validationDiagnostics = validateProgram(program);
