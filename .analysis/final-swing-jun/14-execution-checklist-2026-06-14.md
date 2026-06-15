@@ -30,7 +30,7 @@ current TSTS ownership cleanup 2: destructuring binding projection is now produc
 current TSTS ownership discovery 3: whole-wrapper `getSymbolAtLocation(typeReferenceNode)` was a fragile stale pattern; source-semantics now resolves type-reference identity through the type-reference name node only, matching TSTS symbol ownership
 current TSTS ownership cleanup 3: external binding target identity is split from frontend source identity; frontend only discovers nearest external `bindings.json` and emits `externalBinding` source references through `external-binding-source-identity.ts`, while the C# emitter owns `targetSurface` parsing and exact target classification such as `System.Threading.Tasks.Task` or `System.Collections.Generic.List\`1`; `sourceRuntimeName` no longer carries `System.*` target names; stale filename `external-binding-targets.ts` is removed
 current TSTS ownership cleanup 4: unresolved external bindings no longer fall through to source/local names in the C# emitter; they report unsupported diagnostics at type/expression render sites. Frontend source tests and the focused package-resolution/package-root fixtures use neutral runtime/native vocabulary. The tsconfig declaration include matcher now treats `**/` as zero-or-more directories, so `types/**/*.d.ts` includes `types/augment.d.ts` like TypeScript. Focused validation after this cleanup: frontend source/package/lowering subset `33 passing / 0 failing`; C# emitter expression/module subset `13 passing / 0 failing`
-not done: final stale frontend sweep, final run-all, downstreams, branch hygiene, final PR report
+not done: final run-all, downstreams, branch hygiene, final PR report
 ```
 
 ## Low-Level Work Items
