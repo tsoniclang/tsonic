@@ -178,6 +178,42 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("keeps target runtime identity terms out of frontend source", () => {
+    const bannedTerms = [
+      "source" + "RuntimeName",
+      "Source" + "RuntimeName",
+      "resolved" + "C" + "lr",
+      "resolved" + "C" + "LR",
+      "emitted" + "C" + "lr",
+      "emitted" + "C" + "LR",
+      "C" + "Sharp",
+      "c" + "sharp",
+      "C" + "LR",
+      "C" + "lr",
+      "c" + "lr",
+      "@" + "tsonic/" + "dot" + "net",
+      "dot" + "net",
+      "System" + ".",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(frontendSrcRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) => line.includes(candidate));
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("does not expose a TypeScript compiler program on TsonicProgram", () => {
     const programTypesPath = path.join(frontendSrcRoot, "program/types.ts");
     const text = fs.readFileSync(programTypesPath, "utf8");
