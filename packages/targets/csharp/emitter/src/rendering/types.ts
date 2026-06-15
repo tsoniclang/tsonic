@@ -401,6 +401,7 @@ export const shouldExpandNamedAliasTarget = (
 ): boolean =>
   type.kind === "named" &&
   type.sourceQualifiedName === undefined &&
+  type.externalBinding === undefined &&
   type.aliasTarget?.kind !== "union";
 
 export const isNullishType = (type: LoweringTypeRefPlan): boolean =>
@@ -434,13 +435,22 @@ export const runtimeUnionCarrierArms = (
   if (!target) return [];
   const arms: LoweringTypeRefPlan[] = [];
   const runtimeTypes = new Set<string>();
-  for (const arm of target.types) {
-    if (isNullishType(arm)) continue;
-    if (isOpaqueRuntimeTypePlan(arm) || isVoidLikeTypePlan(arm)) continue;
+  const addArm = (arm: LoweringTypeRefPlan): void => {
+    if (isNullishType(arm)) return;
+    if (arm.kind === "union") {
+      for (const nested of arm.types) {
+        addArm(nested);
+      }
+      return;
+    }
+    if (isOpaqueRuntimeTypePlan(arm) || isVoidLikeTypePlan(arm)) return;
     const key = runtimeTypeIdentityKey(arm);
-    if (runtimeTypes.has(key)) continue;
+    if (runtimeTypes.has(key)) return;
     runtimeTypes.add(key);
     arms.push(arm);
+  };
+  for (const arm of target.types) {
+    addArm(arm);
   }
   return arms;
 };
@@ -504,11 +514,25 @@ export const isOpaqueRuntimeTypePlan = (
   (type.kind === "union" && isOpaqueUnionTypePlan(type));
 
 const isScalarRuntimeTypePlan = (
-  type: LoweringTypeRefPlan | undefined
+  type: LoweringTypeRefPlan | undefined,
+  seen: ReadonlySet<LoweringTypeRefPlan> = new Set()
 ): boolean => {
   if (!type) return false;
+  if (seen.has(type)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
   if (type.kind === "named" && type.aliasTarget) {
-    return isScalarRuntimeTypePlan(type.aliasTarget);
+    return isScalarRuntimeTypePlan(type.aliasTarget, nextSeen);
+  }
+  if (type.kind === "union") {
+    return (
+      type.types.length > 0 &&
+      type.types.every(
+        (member) =>
+          isScalarRuntimeTypePlan(member, nextSeen) ||
+          isOpaqueRuntimeTypePlan(member)
+      )
+    );
   }
   if (type.kind === "source-primitive") return true;
   if (type.kind === "intrinsic") {
@@ -645,10 +669,18 @@ const isTaskType = (
   context?: RenderContext
 ): boolean => isExternalTargetType(type, context, "System.Threading.Tasks.Task");
 
+const isPrivateJsPromiseConstructorAliasTarget = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  type?.kind === "named" &&
+  (type.name === "PromiseConstructor" || type.name === "PromiseLike") &&
+  isPrivateJsRuntimeName(type.sourceQualifiedName);
+
 const isPromiseType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "named" &&
-  isPrivateJsRuntimeName(type.sourceQualifiedName) &&
-  type.name === "Promise";
+  (type.name === "Promise" || type.name === "PromiseLike") &&
+  (isPrivateJsRuntimeName(type.sourceQualifiedName) ||
+    isPrivateJsPromiseConstructorAliasTarget(type.aliasTarget));
 
 export const isTaskLikeTypePlan = (
   type: LoweringTypeRefPlan | undefined,
@@ -863,12 +895,32 @@ const renderTaskReturnType = (
   return `global::System.Threading.Tasks.Task<${renderCSharpType(awaitedType, context)}>`;
 };
 
+const flattenNonNullishUnionMembers = (
+  type: LoweringTypeRefPlan
+): readonly LoweringTypeRefPlan[] => {
+  const result: LoweringTypeRefPlan[] = [];
+  const seen = new Set<string>();
+  const visit = (member: LoweringTypeRefPlan): void => {
+    if (isNullishType(member)) return;
+    if (member.kind === "union") {
+      for (const nested of member.types) visit(nested);
+      return;
+    }
+    const key = runtimeTypeIdentityKey(member);
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(member);
+  };
+  visit(type);
+  return result;
+};
+
 const renderUnionType = (
   type: LoweringTypeRefPlan,
   context: RenderContext
 ): string => {
   if (type.kind !== "union") return renderCSharpType(type, context);
-  const nonNullish = type.types.filter((member) => !isNullishType(member));
+  const nonNullish = flattenNonNullishUnionMembers(type);
   const voidLike = nonNullish.filter(isVoidLikeTypePlan);
   const taskLike = nonNullish.filter((member) =>
     isTaskLikeTypePlan(member, context)
@@ -878,6 +930,34 @@ const renderUnionType = (
     if (taskType) return renderCSharpType(taskType, context);
     context.reportUnsupported("union task type", "UnionType", type.sourceText ?? "union");
     return "object?";
+  }
+  if (taskLike.length === 1) {
+    const taskType = taskLike[0];
+    const awaited = promiseOrTaskAwaitedType(
+      taskType,
+      context,
+      "union task type"
+    );
+    const synchronousMembers = nonNullish.filter(
+      (member) =>
+        !isTaskLikeTypePlan(member, context) && !isVoidLikeTypePlan(member)
+    );
+    if (synchronousMembers.every(isBroadIntrinsicTypePlan)) {
+      context.reportUnsupported(
+        "union task type",
+        "UnionType",
+        type.sourceText ?? "union"
+      );
+      return renderTaskReturnType(objectTypePlan, context);
+    }
+    if (
+      awaited &&
+      synchronousMembers.every(
+        (member) => typePlanKey(member) === typePlanKey(awaited)
+      )
+    ) {
+      return renderTaskReturnType(awaited, context);
+    }
   }
   if (nonNullish.length === 1) {
     const member = nonNullish[0];
@@ -935,6 +1015,17 @@ const renderSpecialNamedType = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
   context: RenderContext
 ): string | undefined => {
+  if (isPromiseType(type)) {
+    const awaited = requiredTypeArgument(
+      type,
+      0,
+      context,
+      "Promise awaited type"
+    );
+    return isVoidLikeTypePlan(awaited)
+      ? "global::System.Threading.Tasks.Task"
+      : `global::System.Threading.Tasks.Task<${renderCSharpType(awaited, context)}>`;
+  }
   const privateJsRuntimeName = isPrivateJsRuntimeName(type.sourceQualifiedName)
     ? type.name
     : undefined;
@@ -948,17 +1039,6 @@ const renderSpecialNamedType = (
     case "Iterator":
     case "Generator":
       return `global::System.Collections.Generic.IEnumerable<${renderCSharpType(requiredTypeArgument(type, 0, context, `${type.name} type argument`), context)}>`;
-    case "Promise": {
-      const awaited = requiredTypeArgument(
-        type,
-        0,
-        context,
-        "Promise awaited type"
-      );
-      return isVoidLikeTypePlan(awaited)
-        ? "global::System.Threading.Tasks.Task"
-        : `global::System.Threading.Tasks.Task<${renderCSharpType(awaited, context)}>`;
-    }
     default:
       return undefined;
   }
@@ -1019,6 +1099,21 @@ export const renderCSharpType = (
         type.runtimeVisibility === "opaque"
       ) {
         return "object?";
+      }
+      if (
+        type.declarationKind === "type-alias" &&
+        type.aliasTarget?.kind === "named" &&
+        type.aliasTarget.aliasTarget?.kind !== "union"
+      ) {
+        return renderCSharpType(type.aliasTarget, context);
+      }
+      if (
+        isPrivateJsRuntimeName(type.sourceQualifiedName) &&
+        type.aliasTarget &&
+        type.aliasTarget.kind !== "object" &&
+        type.aliasTarget.kind !== "function"
+      ) {
+        return renderCSharpType(type.aliasTarget, context);
       }
       if (type.sourceQualifiedName || type.externalBinding) {
         return renderNamedRuntimeType(type, context) ?? renderNamedType(type);

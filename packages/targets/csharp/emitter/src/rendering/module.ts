@@ -33,6 +33,8 @@ import {
 } from "./types.js";
 import { sanitizeIdentifier } from "./names.js";
 
+export const SHARED_STRUCTURAL_NAMESPACE = "Tsonic.Generated.Structural";
+
 const hasNamespaceDeclarationShape = (
   declaration: LoweringDeclarationPlan
 ): boolean =>
@@ -407,7 +409,7 @@ const collectStructuralTypesFromDeclaration = (
   }
 };
 
-const collectStructuralTypes = (
+export const collectModuleStructuralTypes = (
   module: CSharpLoweringModulePlan
 ): readonly LoweringTypeRefPlan[] => {
   const types = new Map<string, LoweringTypeRefPlan>();
@@ -431,7 +433,7 @@ const renderStructuralType = (
   if (type.kind === "union") {
     const arms = runtimeUnionCarrierArms(type, context);
     if (arms.length < 2) return undefined;
-    const name = context.getStructuralTypeName(type);
+    const name = structuralTypeName(type);
     const typeParameterList = renderTypeParameters(
       structuralTypeParameterNames(type)
     );
@@ -497,7 +499,7 @@ const renderStructuralType = (
     ].join("\n");
   }
   if (type.kind !== "object") return undefined;
-  const name = context.getStructuralTypeName(type);
+  const name = structuralTypeName(type);
   const typeParameterList = renderTypeParameters(
     structuralTypeParameterNames(type)
   );
@@ -520,15 +522,34 @@ const renderStructuralType = (
   ].join("\n");
 };
 
+const renderCSharpHeader = (namespace: string): string[] => [
+  "#nullable enable",
+  "using System;",
+  "using System.Collections.Concurrent;",
+  "using System.Collections.Generic;",
+  "using System.Globalization;",
+  "using System.Text;",
+  "using System.Text.RegularExpressions;",
+  "using System.Threading;",
+  "using System.Threading.Tasks;",
+  "",
+  `namespace ${namespace};`,
+  "",
+];
+
 const createRenderContext = (
   options: Partial<EmitterOptions>
 ): RenderContext => {
   const diagnostics: RenderContext["diagnostics"] = [];
   diagnostics.push(...(options.externalBindingMetadata?.diagnostics ?? []));
   let nextTempId = 0;
+  const structuralReferenceName = (type: LoweringTypeRefPlan): string =>
+    options.includeStructuralDeclarations === false
+      ? `global::${SHARED_STRUCTURAL_NAMESPACE}.${structuralTypeName(type)}`
+      : structuralTypeName(type);
   return {
     diagnostics,
-    getStructuralTypeName: structuralTypeName,
+    getStructuralTypeName: structuralReferenceName,
     externalBindingTargetName: (binding) =>
       options.externalBindingMetadata?.resolveTargetName(binding),
     overrideMemberAccessibility: (heritageTypes, member) =>
@@ -549,6 +570,29 @@ const createRenderContext = (
         hint: sourceText.replace(/\s+/g, " ").slice(0, 240),
       });
     },
+  };
+};
+
+export const emitStructuralTypesModule = (
+  namespace: string,
+  types: readonly LoweringTypeRefPlan[],
+  options: Partial<EmitterOptions> = {}
+): ModuleEmitResult => {
+  const context = createRenderContext(options);
+  const structuralDeclarations = [
+    ...new Map(types.map((type) => [typePlanKey(type), type])).values(),
+  ]
+    .map((type) => renderStructuralType(type, context))
+    .filter((rendered): rendered is string => rendered !== undefined);
+  if (context.diagnostics.length > 0) {
+    return { ok: false, errors: context.diagnostics };
+  }
+  return {
+    ok: true,
+    code: `${[
+      ...renderCSharpHeader(namespace),
+      ...structuralDeclarations,
+    ].join("\n")}\n`,
   };
 };
 
@@ -579,9 +623,12 @@ export const emitModule = (
     .filter((rendered) => rendered.length > 0)
     .map((rendered) => `    ${rendered}`);
   const exportAliasFields = renderExportAliasFields(module, context);
-  const structuralDeclarations = collectStructuralTypes(module)
-    .map((type) => renderStructuralType(type, context))
-    .filter((rendered): rendered is string => rendered !== undefined);
+  const structuralDeclarations =
+    options.includeStructuralDeclarations === false
+      ? []
+      : collectModuleStructuralTypes(module)
+          .map((type) => renderStructuralType(type, context))
+          .filter((rendered): rendered is string => rendered !== undefined);
   const executableTopLevelStatements = module.topLevelStatements.filter(
     (statement) =>
       statement.statementKind !== "declaration" &&
@@ -598,20 +645,7 @@ export const emitModule = (
         ]
       : [];
 
-  const lines: string[] = [
-    "#nullable enable",
-    "using System;",
-    "using System.Collections.Concurrent;",
-    "using System.Collections.Generic;",
-    "using System.Globalization;",
-    "using System.Text;",
-    "using System.Text.RegularExpressions;",
-    "using System.Threading;",
-    "using System.Threading.Tasks;",
-    "",
-    `namespace ${module.identity.namespace};`,
-    "",
-  ];
+  const lines: string[] = renderCSharpHeader(module.identity.namespace);
 
   lines.push(...namespaceDeclarations);
   if (structuralDeclarations.length > 0) {

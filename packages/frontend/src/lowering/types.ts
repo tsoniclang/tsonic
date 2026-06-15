@@ -390,6 +390,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly resolvedAliasName?: string;
   readonly sourceQualifiedName?: LoweringSourceQualifiedNamePlan;
   readonly externalBinding?: LoweringExternalBindingReferencePlan;
+  readonly optionalAccess?: boolean;
   readonly yieldDelegates?: boolean;
   readonly expression?: LoweringExpressionPlan;
   readonly receiverTypePlan?: LoweringTypeRefPlan;

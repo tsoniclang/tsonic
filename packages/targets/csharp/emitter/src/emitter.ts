@@ -1,8 +1,14 @@
 import { relative } from "node:path";
-import type { Diagnostic } from "@tsonic/frontend";
+import type { Diagnostic, LoweringTypeRefPlan } from "@tsonic/frontend";
 import { createExternalBindingMetadataIndex } from "./rendering/external-bindings.js";
-import { emitModule } from "./rendering/module.js";
+import {
+  collectModuleStructuralTypes,
+  emitModule,
+  emitStructuralTypesModule,
+  SHARED_STRUCTURAL_NAMESPACE,
+} from "./rendering/module.js";
 import { csharpRuntimeSupportFiles } from "./rendering/runtime-support.js";
+import { typePlanKey } from "./rendering/types.js";
 import type {
   CSharpLoweringModulePlan,
   EmitResult,
@@ -62,6 +68,23 @@ const duplicateOutputDiagnostics = (
   return diagnostics;
 };
 
+const structuralTypesForModules = (
+  modules: readonly CSharpLoweringModulePlan[]
+): ReadonlyMap<string, LoweringTypeRefPlan> => {
+  const structuralTypes = new Map<string, LoweringTypeRefPlan>();
+  for (const module of modules) {
+    for (const type of collectModuleStructuralTypes(module)) {
+      structuralTypes.set(typePlanKey(type), type);
+    }
+  }
+  return structuralTypes;
+};
+
+const structuralTypesOutputPath = (): string =>
+  `__tsonic_structural/${
+    SHARED_STRUCTURAL_NAMESPACE.split(".").filter(Boolean).join("/")
+  }.cs`;
+
 export const emitCSharpFile = (
   module: CSharpLoweringModulePlan,
   options: Partial<EmitterOptions> = {}
@@ -90,16 +113,32 @@ export const emitCSharpFiles = (
     createExternalBindingMetadataIndex(
       options.bindingMetadataRoots ?? options.libraries
     );
+  const structuralTypes = structuralTypesForModules(modules);
   const files = new Map<string, string>();
   for (const module of modules) {
     const moduleResult = emitCSharpFile(module, {
       ...options,
       externalBindingMetadata,
+      includeStructuralDeclarations: false,
     });
     if (!moduleResult.ok) {
       return { ok: false, errors: moduleResult.errors };
     }
     files.set(outputPathForModule(module, commonRoot), moduleResult.code);
+  }
+  if (structuralTypes.size > 0) {
+    const structuralResult = emitStructuralTypesModule(
+      SHARED_STRUCTURAL_NAMESPACE,
+      [...structuralTypes.values()],
+      {
+        ...options,
+        externalBindingMetadata,
+      }
+    );
+    if (!structuralResult.ok) {
+      return { ok: false, errors: structuralResult.errors };
+    }
+    files.set(structuralTypesOutputPath(), structuralResult.code);
   }
   for (const [filePath, code] of csharpRuntimeSupportFiles(files)) {
     files.set(filePath, code);

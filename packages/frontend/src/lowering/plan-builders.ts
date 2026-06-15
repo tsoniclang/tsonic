@@ -330,7 +330,8 @@ const compactNodeSourceText = (
 const templateFragmentText = (
   _sourceFile: TstsSourceFile,
   node: TstsNode
-): string => nodeTokenText(node) ?? "";
+): string =>
+  (node as { readonly Text?: string }).Text ?? nodeTokenText(node) ?? "";
 
 const nodeListNodes = (
   list: { readonly Nodes?: readonly (TstsNode | undefined)[] } | undefined
@@ -1199,17 +1200,6 @@ const sourceTypePlan = (
     };
   }
 
-  const projectedType = context.input.facts.get(
-    sourceTypeNodeProjectionFactKey,
-    node
-  )?.type;
-  const projectedTypePlan = sourceBindingProjectionTypePlan(
-    context,
-    sourceFile,
-    projectedType
-  );
-  if (projectedTypePlan) return projectedTypePlan;
-
   switch (node.Kind) {
     case TstsSyntax.KindArrayType: {
       const arrayType = TstsSyntax.AsArrayTypeNode(node);
@@ -1431,8 +1421,16 @@ const sourceTypePlan = (
       return intrinsicTypePlan("never", sourceText);
     case TstsSyntax.KindThisType:
       return intrinsicTypePlan("this", sourceText);
-    default:
-      return unsupportedTypePlan(sourceFile, node);
+    default: {
+      const projectedType = context.input.facts.get(
+        sourceTypeNodeProjectionFactKey,
+        node
+      )?.type;
+      return (
+        sourceBindingProjectionTypePlan(context, sourceFile, projectedType) ??
+        unsupportedTypePlan(sourceFile, node)
+      );
+    }
   }
 };
 
@@ -1663,7 +1661,7 @@ const expressionSourceTypePlan = (
 
   const explicitType = declarationSourceTypePlan(context, sourceFile, node);
   if (explicitType) return explicitType;
-  return sourceExpressionProjectedStorageTypePlan(context, sourceFile, node);
+  return sourceExpressionProjectedTypePlan(context, sourceFile, node);
 };
 
 const expressionTypePlan = (
@@ -1722,6 +1720,20 @@ const sourceExpressionProjectedStorageTypePlan = (
   node: TstsNode | undefined
 ): LoweringTypeRefPlan | undefined => {
   if (!node) return undefined;
+  const fact = context.input.facts.get(sourceExpressionTypeProjectionFactKey, node);
+  return sourceBindingProjectionTypePlan(
+    context,
+    sourceFile,
+    fact?.storageType ?? fact?.type
+  );
+};
+
+const sourceExpressionProjectedTypePlan = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  node: TstsNode | undefined
+): LoweringTypeRefPlan | undefined => {
+  if (!node) return undefined;
   return sourceBindingProjectionTypePlan(
     context,
     sourceFile,
@@ -1744,13 +1756,55 @@ const sourceExpressionProjectedContextualTypePlan = (
 };
 
 const objectMemberExpectedType = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
   type: LoweringTypeRefPlan | undefined,
-  propertyName: string | undefined
+  propertyName: string | undefined,
+  seen: ReadonlySet<string> = new Set()
 ): LoweringTypeRefPlan | undefined => {
+  if (!propertyName || !type) return undefined;
+  const key = loweringTypeIdentityKey(type);
+  if (seen.has(key)) return undefined;
+  const nextSeen = new Set(seen);
+  nextSeen.add(key);
   if (type?.kind === "named" && type.aliasTarget) {
-    return objectMemberExpectedType(type.aliasTarget, propertyName);
+    const aliasMember = objectMemberExpectedType(
+      context,
+      sourceFile,
+      type.aliasTarget,
+      propertyName,
+      nextSeen
+    );
+    if (aliasMember) return aliasMember;
   }
-  if (!propertyName || type?.kind !== "object") return undefined;
+  if (type.kind === "named" && type.declaration) {
+    const declarationSourceFile = type.declaration.sourceFile;
+    const substitutions = aliasTypeSubstitutions(
+      typeParameterNames(declarationSourceFile, type.declaration.sourceNode),
+      type.typeArguments
+    );
+    const members = (TstsSyntax.Node_Members(type.declaration.sourceNode) ?? [])
+      .filter((member): member is TstsNode => member !== undefined)
+      .map((member) =>
+        typeMemberPlan(
+          declarationSourceFile,
+          member,
+          context,
+          createSourceTypePlanState()
+        )
+      )
+      .filter((member): member is LoweringTypeMemberPlan => member !== undefined);
+    const matchingMembers = members.filter(
+      (candidate) =>
+        candidate.kind === "property" && candidate.name === propertyName
+    );
+    const member =
+      matchingMembers.length === 1 ? matchingMembers[0] : undefined;
+    if (member?.kind === "property") {
+      return substituteTypePlan(member.type, substitutions);
+    }
+  }
+  if (type.kind !== "object") return undefined;
   const members = type.members.filter(
     (candidate) =>
       candidate.kind === "property" && candidate.name === propertyName
@@ -2310,6 +2364,9 @@ const expressionPlan = (
           sourceFile,
           node
         ),
+        optionalAccess:
+          TstsSyntax.AsPropertyAccessExpression(node)?.QuestionDotToken !==
+          undefined,
         literalText:
           nodeTokenText(name) ??
           nodeName(sourceFile, node),
@@ -2333,6 +2390,7 @@ const expressionPlan = (
           sourceFile,
           node
         ),
+        optionalAccess: element.QuestionDotToken !== undefined,
         arguments: [
           expressionPlan(sourceFile, element.ArgumentExpression, context),
         ].filter((item): item is LoweringExpressionPlan => item !== undefined),
@@ -2480,8 +2538,18 @@ const expressionPlan = (
           .map((property): LoweringObjectPropertyPlan | undefined => {
             const name = propertyNameInfo(sourceFile, property, context);
             const propertyExpectedType =
-              objectMemberExpectedType(expectedType, name.name) ??
-              objectMemberExpectedType(base.contextualTypePlan, name.name);
+              objectMemberExpectedType(
+                context,
+                sourceFile,
+                expectedType,
+                name.name
+              ) ??
+              objectMemberExpectedType(
+                context,
+                sourceFile,
+                base.contextualTypePlan,
+                name.name
+              );
             const value =
               property?.Kind === TstsSyntax.KindShorthandPropertyAssignment
                 ? expressionPlan(
@@ -2543,9 +2611,13 @@ const expressionPlan = (
 const sourceBindingProjectionTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
-  type: SourceBindingProjectedType | undefined
+  type: SourceBindingProjectedType | undefined,
+  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
 ): LoweringTypeRefPlan | undefined => {
   if (!type) return undefined;
+  if (seen.has(type)) return undefined;
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
   switch (type.kind) {
     case "type-node":
       return sourceTypePlan(
@@ -2588,7 +2660,12 @@ const sourceBindingProjectionTypePlan = (
         name: type.name,
         typeArguments: type.typeArguments
           .map((argument) =>
-            sourceBindingProjectionTypePlan(context, sourceFile, argument)
+            sourceBindingProjectionTypePlan(
+              context,
+              sourceFile,
+              argument,
+              nextSeen
+            )
           )
           .filter(
             (argument): argument is LoweringTypeRefPlan => argument !== undefined
@@ -2596,7 +2673,8 @@ const sourceBindingProjectionTypePlan = (
         aliasTarget: sourceBindingProjectionTypePlan(
           context,
           sourceFile,
-          type.aliasTarget
+          type.aliasTarget,
+          nextSeen
         ),
         sourceQualifiedName:
           sourceQualifiedNameForSourceBindingNode(
@@ -2632,12 +2710,14 @@ const sourceBindingProjectionTypePlan = (
       const keyType = sourceBindingProjectionTypePlan(
         context,
         sourceFile,
-        type.keyType
+        type.keyType,
+        nextSeen
       );
       const valueType = sourceBindingProjectionTypePlan(
         context,
         sourceFile,
-        type.valueType
+        type.valueType,
+        nextSeen
       );
       return keyType && valueType
         ? {
@@ -2662,7 +2742,8 @@ const sourceBindingProjectionTypePlan = (
         returnType: sourceBindingProjectionTypePlan(
           context,
           sourceFile,
-          type.returnType
+          type.returnType,
+          nextSeen
         ),
         typeParameters: type.typeParameters,
         sourceText: type.sourceNode
@@ -2676,7 +2757,8 @@ const sourceBindingProjectionTypePlan = (
       const elementType = sourceBindingProjectionTypePlan(
         context,
         sourceFile,
-        type.elementType
+        type.elementType,
+        nextSeen
       );
       return elementType
         ? {
@@ -2697,7 +2779,12 @@ const sourceBindingProjectionTypePlan = (
         kind: "tuple",
         elements: type.elements
           .map((element) =>
-            sourceBindingProjectionTypePlan(context, sourceFile, element)
+            sourceBindingProjectionTypePlan(
+              context,
+              sourceFile,
+              element,
+              nextSeen
+            )
           )
           .filter(
             (element): element is LoweringTypeRefPlan => element !== undefined
@@ -2717,7 +2804,12 @@ const sourceBindingProjectionTypePlan = (
           kind: "property",
           name: member.name,
           optional: member.optional,
-          type: sourceBindingProjectionTypePlan(context, sourceFile, member.type),
+          type: sourceBindingProjectionTypePlan(
+            context,
+            sourceFile,
+            member.type,
+            nextSeen
+          ),
         })),
         sourceText: type.sourceNode
           ? compactNodeSourceText(
@@ -2729,7 +2821,7 @@ const sourceBindingProjectionTypePlan = (
     case "union": {
       const types = type.types
         .map((member) =>
-          sourceBindingProjectionTypePlan(context, sourceFile, member)
+          sourceBindingProjectionTypePlan(context, sourceFile, member, nextSeen)
         )
         .filter(
           (member): member is LoweringTypeRefPlan => member !== undefined
@@ -2755,7 +2847,7 @@ const sourceBindingProjectionTypePlan = (
     case "intersection": {
       const types = type.types
         .map((member) =>
-          sourceBindingProjectionTypePlan(context, sourceFile, member)
+          sourceBindingProjectionTypePlan(context, sourceFile, member, nextSeen)
         )
         .filter(
           (member): member is LoweringTypeRefPlan => member !== undefined

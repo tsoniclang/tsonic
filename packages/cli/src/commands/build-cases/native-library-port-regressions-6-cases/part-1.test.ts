@@ -435,9 +435,9 @@ describe("build command (native library port regressions)", function () {
       );
       expect(tree).to.not.include("var items = value;");
       expect(tree).to.include(
-        "global::System.Array items = (global::System.Array)value;"
+        "global::System.Collections.Generic.IReadOnlyList<object?> items = ((global::System.Collections.Generic.IReadOnlyList<object?>)(value));"
       );
-      expect(tree).to.include("items.GetValue(index)");
+      expect(tree).to.include("items[global::System.Convert.ToInt32");
       expect(tree).to.match(
         /class MemoryResponse\s*:\s*global::.*TransportResponse/
       );
@@ -445,13 +445,13 @@ describe("build command (native library port regressions)", function () {
         "global::App._._._.node_modules.demo.expresslike.src.types.App._._._.node_modules.demo.expresslike.src.types.TransportResponse"
       );
       expect(tree).to.match(
-        /public global::System\.Threading\.Tasks\.Task\? sendText\(string [A-Za-z_][A-Za-z0-9_]*\)/
+        /public (?:virtual )?global::System\.Threading\.Tasks\.Task\?? sendText\(string [A-Za-z_][A-Za-z0-9_]*\)/
       );
       expect(tree).to.match(
-        /public global::System\.Threading\.Tasks\.Task\? sendBytes\(global::js\.Uint8Array [A-Za-z_][A-Za-z0-9_]*\)/
+        /public (?:virtual )?global::System\.Threading\.Tasks\.Task\?? sendBytes\(global::js\.Uint8Array [A-Za-z_][A-Za-z0-9_]*\)/
       );
       expect(tree).to.include(
-        "return default(global::System.Threading.Tasks.Task?);"
+        "return global::System.Threading.Tasks.Task.CompletedTask;"
       );
 
       // Semantic alias preservation: the mountedAt ternary must preserve

@@ -16,7 +16,9 @@ import {
 } from "./expressions.js";
 import {
   isOpaqueRuntimeTypePlan,
+  isTaskLikeTypePlan,
   isVoidLikeTypePlan,
+  nonNullishUnionTypes,
   renderCSharpType,
   renderFunctionReturnType,
   renderRequiredCSharpType,
@@ -534,6 +536,13 @@ const renderReturnExpression = (
   context: RenderContext
 ): string => {
   const expectedType = context.currentReturnType;
+  if (
+    (expression?.semantic === "undefined-value" ||
+      expression?.literalKind === "undefined") &&
+    isTaskReturnTypePlan(expectedType, context)
+  ) {
+    return "global::System.Threading.Tasks.Task.CompletedTask";
+  }
   const rendered = renderExpressionWithUseSiteCast(
     expression,
     context,
@@ -550,6 +559,30 @@ const renderReturnExpression = (
     return `((${renderCSharpType(expectedType, context)})(${rendered}))`;
   }
   return rendered;
+};
+
+const isUndefinedOrVoidLikeTypePlan = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  isVoidLikeTypePlan(type) ||
+  (type?.kind === "intrinsic" && type.name === "undefined") ||
+  (type?.kind === "literal" && type.literalKind === "undefined");
+
+const isTaskReturnTypePlan = (
+  type: LoweringTypeRefPlan | undefined,
+  context: RenderContext
+): boolean => {
+  if (isTaskLikeTypePlan(type, context)) return true;
+  if (type?.kind !== "union") return false;
+  const members = nonNullishUnionTypes(type);
+  return (
+    members.some((member) => isTaskLikeTypePlan(member, context)) &&
+    members.every(
+      (member) =>
+        isTaskLikeTypePlan(member, context) ||
+        isUndefinedOrVoidLikeTypePlan(member)
+    )
+  );
 };
 
 export const renderStatement = (

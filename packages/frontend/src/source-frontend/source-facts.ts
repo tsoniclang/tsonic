@@ -263,6 +263,7 @@ export type SourceTypeNodeProjectionFact = {
 
 export type SourceExpressionTypeProjectionFact = {
   readonly type: SourceBindingProjectedType;
+  readonly storageType?: SourceBindingProjectedType;
   readonly contextualType?: SourceBindingProjectedType;
 };
 

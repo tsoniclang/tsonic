@@ -767,6 +767,9 @@ const renderTypeAlias = (
   if (!declarationName) return undefined;
   const name = sanitizeTypeName(declarationName);
   const target = plan.typeAliasTarget;
+  if (target?.kind === "named" && target.aliasTarget?.kind !== "union") {
+    return undefined;
+  }
   const functionTarget =
     target?.kind === "function"
       ? target

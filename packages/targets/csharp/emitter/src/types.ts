@@ -19,6 +19,7 @@ export type EmitterOptions = {
   readonly bindingMetadataRoots?: readonly string[];
   readonly externalBindingMetadata?: ExternalBindingMetadataIndex;
   readonly surface?: string;
+  readonly includeStructuralDeclarations?: boolean;
 };
 
 export type EmitResult =

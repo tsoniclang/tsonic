@@ -19,6 +19,7 @@ export {
   sourceDeclarationTypeProjectionFactKey,
   sourceExpressionTypeProjectionFactKey,
   sourceInitializerReferencesDeclarationFactKey,
+  sourceTypeNodeProjectionFactKey,
   sourceTypeSemanticsFactKey,
   visitSourceSemanticFactKeys,
 } from "./source-facts.js";
