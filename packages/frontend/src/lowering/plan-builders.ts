@@ -38,7 +38,7 @@ import type {
   LoweringIntrinsicTypeName,
   LoweringObjectPropertyPlan,
   LoweringParameterPlan,
-  LoweringRuntimeNamePlan,
+  LoweringSourceRuntimeNamePlan,
   LoweringStatementPlan,
   LoweringTemplatePartPlan,
   LoweringTypeDeclarationBinding,
@@ -443,7 +443,7 @@ const checkerTypePlan = (
         .filter(
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ),
-      runtimeName: runtimeNameForType(
+      sourceRuntimeName: sourceRuntimeNameForType(
         context,
         sourceFile,
         type,
@@ -546,11 +546,11 @@ const isRuntimeTypeDeclaration = (
 
 const typeDeclarationBindingForDeclaration = (
   declaration: TstsNode | undefined,
-  fallbackSourceFile: TstsSourceFile
+  containingSourceFile: TstsSourceFile
 ): LoweringTypeDeclarationBinding | undefined => {
   if (!isRuntimeTypeDeclaration(declaration)) return undefined;
   return {
-    sourceFile: sourceFileForNode(declaration, fallbackSourceFile),
+    sourceFile: sourceFileForNode(declaration, containingSourceFile),
     sourceNode: declaration,
   };
 };
@@ -594,11 +594,11 @@ const typeDeclarationBindingForNode = (
   return typeDeclarationBindingForSymbol(context, sourceFile, resolved);
 };
 
-const runtimeNameForSourceBindingFact = (
+const sourceRuntimeNameForSourceBindingFact = (
   context: LoweringBuildContext,
   fact: SourceBindingIdentityFact | undefined,
   target: "type" | "value"
-): LoweringRuntimeNamePlan | undefined => {
+): LoweringSourceRuntimeNamePlan | undefined => {
   if (!fact) return undefined;
   const identity = resolveSourceFileIdentity(
     fact.sourceFileName,
@@ -623,25 +623,25 @@ const runtimeNameForSourceBindingFact = (
   }
 };
 
-const runtimeNameForSourceBindingNode = (
+const sourceRuntimeNameForSourceBindingNode = (
   context: LoweringBuildContext,
   node: TstsNode | undefined,
   target: "type" | "value"
-): LoweringRuntimeNamePlan | undefined =>
+): LoweringSourceRuntimeNamePlan | undefined =>
   node
-    ? runtimeNameForSourceBindingFact(
+    ? sourceRuntimeNameForSourceBindingFact(
         context,
         context.input.facts.get(sourceBindingIdentityFactKey, node),
         target
       )
     : undefined;
 
-const runtimeNameForDeclaration = (
+const sourceRuntimeNameForDeclaration = (
   context: LoweringBuildContext,
   declaration: TstsNode | undefined,
   exportedName: string,
   target: "type" | "value"
-): LoweringRuntimeNamePlan | undefined => {
+): LoweringSourceRuntimeNamePlan | undefined => {
   if (!declaration) return undefined;
   if (declaration.Kind === TstsSyntax.KindTypeParameter) return undefined;
   const declarationSourceFile = getTstsContainingSourceFile(declaration);
@@ -674,12 +674,12 @@ const runtimeNameForDeclaration = (
   return undefined;
 };
 
-const runtimeNameForType = (
+const sourceRuntimeNameForType = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
   type: TstsType | undefined,
   name: string
-): LoweringRuntimeNamePlan | undefined => {
+): LoweringSourceRuntimeNamePlan | undefined => {
   if (!type) return undefined;
   const checker = context.checkerForSourceFile(sourceFile);
   const symbol = checker.getTypeAliasOrSymbol(type);
@@ -688,7 +688,7 @@ const runtimeNameForType = (
         (candidate): candidate is TstsNode => candidate !== undefined
       )
     : undefined;
-  return runtimeNameForDeclaration(context, declaration, name, "type");
+  return sourceRuntimeNameForDeclaration(context, declaration, name, "type");
 };
 
 const namedDeclarationKindForDeclaration = (
@@ -730,12 +730,12 @@ const namedDeclarationKindForType = (
   return namedDeclarationKindForDeclaration(declaration);
 };
 
-const runtimeNameForSymbol = (
+const sourceRuntimeNameForSymbol = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
   symbol: TstsSymbol | undefined,
   exportedName: string
-): LoweringRuntimeNamePlan | undefined => {
+): LoweringSourceRuntimeNamePlan | undefined => {
   if (!symbol) return undefined;
   const checker = context.checkerForSourceFile(sourceFile);
   const declaration =
@@ -743,7 +743,7 @@ const runtimeNameForSymbol = (
     checker
       .getSymbolDeclarations(symbol)
       .find((candidate): candidate is TstsNode => candidate !== undefined);
-  return runtimeNameForDeclaration(
+  return sourceRuntimeNameForDeclaration(
     context,
     declaration,
     exportedName,
@@ -784,7 +784,7 @@ const substituteTypePlan = (
     case "named": {
       const replacement =
         !type.aliasTarget &&
-        !type.runtimeName &&
+        !type.sourceRuntimeName &&
         type.declarationKind === undefined &&
         type.typeArguments.length === 0
           ? substitutions.get(type.name)
@@ -1198,10 +1198,10 @@ const sourceTypeAliasDeclarationTargetPlan = (
         (argument): argument is LoweringTypeRefPlan => argument !== undefined
       ),
     aliasTarget: sourceTypeAliasTargetPlan(context, sourceFile, node, state),
-    runtimeName:
-      runtimeNameForSourceBindingNode(context, node, "type") ??
-      runtimeNameForType(context, sourceFile, sourceType, typeName) ??
-      runtimeNameForSymbol(
+    sourceRuntimeName:
+      sourceRuntimeNameForSourceBindingNode(context, node, "type") ??
+      sourceRuntimeNameForType(context, sourceFile, sourceType, typeName) ??
+      sourceRuntimeNameForSymbol(
         context,
         sourceFile,
         resolvedTypeNodeSymbol,
@@ -1330,10 +1330,10 @@ const sourceTypePlan = (
     const resolvedTypeNodeSymbol = typeNodeSymbol
       ? checker.resolveAlias(typeNodeSymbol)
       : undefined;
-    const runtimeName =
-      runtimeNameForSourceBindingNode(context, node, "type") ??
-      runtimeNameForType(context, sourceFile, sourceType, typeName) ??
-      runtimeNameForSymbol(
+    const sourceRuntimeName =
+      sourceRuntimeNameForSourceBindingNode(context, node, "type") ??
+      sourceRuntimeNameForType(context, sourceFile, sourceType, typeName) ??
+      sourceRuntimeNameForSymbol(
         context,
         sourceFile,
         resolvedTypeNodeSymbol,
@@ -1349,7 +1349,7 @@ const sourceTypePlan = (
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ),
       aliasTarget,
-      runtimeName,
+      sourceRuntimeName,
       declaration,
       declarationKind: namedDeclarationKindForType(
         context,
@@ -1451,7 +1451,7 @@ const sourceTypePlan = (
                 (argument): argument is LoweringTypeRefPlan =>
                   argument !== undefined
               ),
-            runtimeName: runtimeNameForSourceBindingNode(
+            sourceRuntimeName: sourceRuntimeNameForSourceBindingNode(
               context,
               node,
               "type"
@@ -1985,14 +1985,14 @@ const loweringUnwrapAliasTarget = (
     ? loweringUnwrapAliasTarget(type.aliasTarget)
     : type;
 
-const runtimeNameKey = (
-  runtimeName: LoweringRuntimeNamePlan | undefined
+const sourceRuntimeNameKey = (
+  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
 ): string | undefined =>
-  runtimeName
+  sourceRuntimeName
     ? [
-        runtimeName.namespace,
-        runtimeName.container,
-        runtimeName.name,
+        sourceRuntimeName.namespace,
+        sourceRuntimeName.container,
+        sourceRuntimeName.name,
       ]
         .filter((part): part is string => part !== undefined && part.length > 0)
         .join(".")
@@ -2005,7 +2005,7 @@ const loweringTypeIdentityKey = (type: LoweringTypeRefPlan): string => {
     case "source-primitive":
       return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
-      return `named:${runtimeNameKey(type.runtimeName) ?? type.name}<${type.typeArguments.map(loweringTypeIdentityKey).join(",")}>`;
+      return `named:${sourceRuntimeNameKey(type.sourceRuntimeName) ?? type.name}<${type.typeArguments.map(loweringTypeIdentityKey).join(",")}>`;
     case "array":
       return `array:${type.storage ?? (type.readonly ? "readonly" : "mutable")}:${loweringTypeIdentityKey(type.elementType)}`;
     case "tuple":
@@ -2766,7 +2766,7 @@ const expressionPlan = (
       genericFunctionAliasFactKey,
       node
     )?.resolvedName,
-    runtimeName: runtimeNameForSourceBindingNode(context, node, "value"),
+    sourceRuntimeName: sourceRuntimeNameForSourceBindingNode(context, node, "value"),
     intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
       ?.kind,
     passingMode: context.input.facts.get(parameterPassingFactKey, node)?.mode,

@@ -10,7 +10,7 @@ import type {
   LoweringDeclarationPlan,
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
-import { runtimeNameKey } from "./types.js";
+import { sourceRuntimeNameKey } from "./types.js";
 
 export type ExternalMemberAccessibility = "public" | "protected" | "private";
 
@@ -169,9 +169,9 @@ const resolveHeritageOwnerNames = (
   bySimpleName: ReadonlyMap<string, readonly string[]>
 ): readonly string[] => {
   if (type.kind !== "named") return [];
-  const runtimeName = runtimeNameKey(type.runtimeName);
-  if (runtimeName) {
-    return [normalizeRuntimeName(runtimeName)];
+  const sourceRuntimeName = sourceRuntimeNameKey(type.sourceRuntimeName);
+  if (sourceRuntimeName) {
+    return [normalizeRuntimeName(sourceRuntimeName)];
   }
   if (type.name.includes(".")) {
     return [normalizeRuntimeName(type.name)];

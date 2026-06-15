@@ -72,7 +72,7 @@ export type LoweringIntrinsicTypeName =
   | "symbol"
   | "this";
 
-export type LoweringRuntimeNamePlan = {
+export type LoweringSourceRuntimeNamePlan = {
   readonly namespace?: string;
   readonly container?: string;
   readonly name: string;
@@ -120,7 +120,7 @@ export type LoweringTypeRefPlan =
       readonly name: string;
       readonly typeArguments: readonly LoweringTypeRefPlan[];
       readonly aliasTarget?: LoweringTypeRefPlan;
-      readonly runtimeName?: LoweringRuntimeNamePlan;
+      readonly sourceRuntimeName?: LoweringSourceRuntimeNamePlan;
       readonly declaration?: LoweringTypeDeclarationBinding;
       readonly declarationKind?:
         | "class"
@@ -358,7 +358,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly semantic?: LoweringExpressionSemantic;
   readonly sourceOperation?: SourceRuntimeOperationFact;
   readonly resolvedAliasName?: string;
-  readonly runtimeName?: LoweringRuntimeNamePlan;
+  readonly sourceRuntimeName?: LoweringSourceRuntimeNamePlan;
   readonly yieldDelegates?: boolean;
   readonly expression?: LoweringExpressionPlan;
   readonly receiverTypePlan?: LoweringTypeRefPlan;

@@ -23,7 +23,7 @@ import {
   shouldEmitAnonymousRuntimeUnionCarrier,
   shouldExpandNamedAliasTarget,
   structuralTypeName,
-  runtimeNameKey,
+  sourceRuntimeNameKey,
   typePlanKey,
 } from "./types.js";
 import { sanitizeIdentifier } from "./names.js";
@@ -91,7 +91,7 @@ const createStructuralTypeTraversalState = (): StructuralTypeTraversalState => (
 const structuralNamedTypeKey = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>
 ): string =>
-  `${runtimeNameKey(type.runtimeName) ?? type.name}<${type.typeArguments.length}>`;
+  `${sourceRuntimeNameKey(type.sourceRuntimeName) ?? type.name}<${type.typeArguments.length}>`;
 
 const withStructuralType = (
   state: StructuralTypeTraversalState,

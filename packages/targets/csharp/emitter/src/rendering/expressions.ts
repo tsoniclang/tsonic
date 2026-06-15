@@ -489,7 +489,7 @@ const isUnboundGenericPlaceholderType = (
   context?: RenderContext
 ): boolean =>
   type?.kind === "named" &&
-  (isPrivateJsRuntimeName(type.runtimeName) || !type.runtimeName) &&
+  (isPrivateJsRuntimeName(type.sourceRuntimeName) || !type.sourceRuntimeName) &&
   !type.aliasTarget &&
   type.typeArguments.length === 0 &&
   /^[A-Z]$/.test(type.name) &&
@@ -587,7 +587,7 @@ const useSiteCastType = (
     case "named":
       if (type.name === "_") return undefined;
       if (type.name.includes("\uFFFD")) return undefined;
-      if (type.runtimeName?.name === "_") return undefined;
+      if (type.sourceRuntimeName?.name === "_") return undefined;
       return isOpaqueRuntimeTypePlan(type) ? undefined : renderCSharpType(type, context);
     case "literal":
       return undefined;
@@ -1655,9 +1655,11 @@ export const renderExpression = (
   switch (plan.expressionKind) {
     case "identifier": {
       const rawName = plan.literalText ?? plan.name ?? "value";
-      const runtimeName = renderCSharpRuntimeExpressionName(plan.runtimeName);
-      if (runtimeName) {
-        return runtimeName;
+      const sourceRuntimeName = renderCSharpRuntimeExpressionName(
+        plan.sourceRuntimeName
+      );
+      if (sourceRuntimeName) {
+        return sourceRuntimeName;
       }
       if (plan.sourceOperation?.dispatch === "static-call") {
         return plan.sourceOperation.owner === "Console"
