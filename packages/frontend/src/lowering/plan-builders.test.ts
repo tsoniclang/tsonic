@@ -440,6 +440,38 @@ describe("TSTS-backed lowering plan builders", () => {
     }
   });
 
+  it("uses the exact tuple index for element-access storage", () => {
+    const result = lowerProgram(`
+      import type { int } from "@tsonic/core/types.js";
+
+      export function read(pair: [int, string]): void {
+        const first = pair[0];
+        const second = pair[1];
+        void first;
+        void second;
+      }
+    `);
+
+    const firstAccess = firstExpression(
+      result,
+      (expression) =>
+        expression.expressionKind === "element-access" &&
+        expression.arguments[0]?.literalText === "0"
+    );
+    const secondAccess = firstExpression(
+      result,
+      (expression) =>
+        expression.expressionKind === "element-access" &&
+        expression.arguments[0]?.literalText === "1"
+    );
+
+    expectSourcePrimitive(firstAccess.storageTypePlan, "int32");
+    expect(secondAccess.storageTypePlan).to.deep.include({
+      kind: "intrinsic",
+      name: "string",
+    });
+  });
+
   it("projects marker source facts into declaration and parameter plans", () => {
     const result = lowerProgram(`
       import type { int, struct } from "@tsonic/core/types.js";

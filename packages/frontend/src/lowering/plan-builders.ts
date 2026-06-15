@@ -2581,6 +2581,16 @@ const objectEntriesEntryArrayTypePlan = (
       }
     : undefined;
 
+const staticElementAccessIndex = (
+  indexExpression: TstsNode | undefined
+): number | undefined => {
+  if (indexExpression?.Kind !== TstsSyntax.KindNumericLiteral) return undefined;
+  const text = nodeLiteralText(indexExpression);
+  if (!text || !/^(?:0|[1-9]\d*)$/.test(text)) return undefined;
+  const value = Number(text);
+  return Number.isSafeInteger(value) ? value : undefined;
+};
+
 const objectLiteralStorageTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -2737,7 +2747,13 @@ const sourceRuntimeExpressionStorageTypePlan = (
     }
     const recordElement = loweringRecordValueType(receiverStorage);
     if (recordElement) return recordElement;
-    if (receiverStorage?.kind === "tuple") return receiverStorage.elements[0];
+    if (receiverStorage?.kind === "tuple") {
+      const index = staticElementAccessIndex(element?.ArgumentExpression);
+      return (
+        (index === undefined ? undefined : receiverStorage.elements[index]) ??
+        expressionSourceTypePlan(sourceFile, node, context)
+      );
+    }
   }
   if (node.Kind === TstsSyntax.KindConditionalExpression) {
     const condition = TstsSyntax.AsConditionalExpression(node);
