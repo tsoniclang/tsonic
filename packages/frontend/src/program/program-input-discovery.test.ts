@@ -355,9 +355,9 @@ describe("discoverProgramInputs", () => {
     }
   });
 
-  it("does not activate unrelated installed source-package ambients for clr compilations", () => {
+  it("does not activate unrelated installed source-package ambients for non-js compilations", () => {
     const fixture = materializeFrontendFixture(
-      "program/program-input-discovery/no-js-leak-clr"
+      "program/program-input-discovery/no-js-leak-native"
     );
 
     try {
@@ -378,7 +378,7 @@ describe("discoverProgramInputs", () => {
         },
         {
           requiredTypeRoots: [],
-          resolvedModes: ["clr"],
+          resolvedModes: ["native"],
         }
       );
 
@@ -504,7 +504,6 @@ describe("discoverProgramInputs", () => {
         JSON.stringify(
           {
             $schema: "https://tsonic.org/schema/workspace/v1.json",
-            dotnetVersion: "net10.0",
           },
           null,
           2
@@ -551,7 +550,7 @@ describe("discoverProgramInputs", () => {
         },
         {
           requiredTypeRoots: [],
-          resolvedModes: ["clr"],
+          resolvedModes: ["native"],
         }
       );
 

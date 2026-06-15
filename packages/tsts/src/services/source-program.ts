@@ -149,8 +149,8 @@ const applyModuleResolutionPaths = (
 };
 
 const collectDefinedDiagnostics = (
-  diagnostics: readonly GoPtr<Diagnostic>[]
-): Diagnostic[] => diagnostics.filter(isDefined);
+  diagnostics: readonly GoPtr<Diagnostic>[] | undefined
+): Diagnostic[] => (diagnostics ?? []).filter(isDefined);
 
 const collectCompilerDiagnostics = (
   program: GoPtr<Program>,

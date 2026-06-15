@@ -10,11 +10,11 @@ describe("resolveDependencyPackageRoot", () => {
 
     try {
       const globalsRoot = fixture.path("workspace/globals/versions/10");
-      const dotnetSiblingRoot = fixture.path("workspace/dotnet/versions/10");
+      const runtimeSiblingRoot = fixture.path("workspace/runtime/versions/10");
 
       expect(
-        resolveDependencyPackageRoot(globalsRoot, "@tsonic/dotnet")
-      ).to.equal(dotnetSiblingRoot);
+        resolveDependencyPackageRoot(globalsRoot, "@tsonic/runtime")
+      ).to.equal(runtimeSiblingRoot);
     } finally {
       fixture.cleanup();
     }
@@ -27,13 +27,13 @@ describe("resolveDependencyPackageRoot", () => {
 
     try {
       const packageRoot = fixture.path("app/node_modules/@tsonic/globals");
-      const installedDotnetRoot = fixture.path(
-        "app/node_modules/@tsonic/dotnet"
+      const installedRuntimeRoot = fixture.path(
+        "app/node_modules/@tsonic/runtime"
       );
 
       expect(
-        resolveDependencyPackageRoot(packageRoot, "@tsonic/dotnet")
-      ).to.equal(installedDotnetRoot);
+        resolveDependencyPackageRoot(packageRoot, "@tsonic/runtime")
+      ).to.equal(installedRuntimeRoot);
     } finally {
       fixture.cleanup();
     }
@@ -46,17 +46,17 @@ describe("resolveDependencyPackageRoot", () => {
 
     try {
       const globalsRoot = fixture.path("workspace/globals/versions/10");
-      const installedDotnetRoot = fixture.path(
-        "workspace/globals/versions/10/node_modules/@tsonic/dotnet"
+      const installedRuntimeRoot = fixture.path(
+        "workspace/globals/versions/10/node_modules/@tsonic/runtime"
       );
 
       expect(
         resolveDependencyPackageRoot(
           globalsRoot,
-          "@tsonic/dotnet",
+          "@tsonic/runtime",
           "installed-first"
         )
-      ).to.equal(installedDotnetRoot);
+      ).to.equal(installedRuntimeRoot);
     } finally {
       fixture.cleanup();
     }
@@ -162,7 +162,7 @@ describe("resolveDependencyPackageRoot", () => {
     }
   });
 
-  it("prefers sibling source packages over CLR siblings with the same package name", () => {
+  it("prefers sibling source packages over compiled siblings with the same package name", () => {
     const fixture = materializeFrontendFixture(
       "program/package-roots/source-package-preference"
     );

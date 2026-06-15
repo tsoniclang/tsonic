@@ -64,6 +64,7 @@ export type ExtensionTypeChecker = {
     getResolvedSignature(node: GoPtr<Node>): GoPtr<Signature>;
     getSignatureDeclaration(signature: GoPtr<Signature>): GoPtr<Node>;
     getSignatureParameters(signature: GoPtr<Signature>): readonly GoPtr<Symbol>[];
+    getTypeOfSignatureParameter(parameter: GoPtr<Symbol>): GoPtr<Type>;
     signatureHasTypeParameters(signature: GoPtr<Signature>): boolean;
     getSignatureFromDeclaration(node: GoPtr<Node>): GoPtr<Signature>;
     getReturnTypeOfSignature(signature: GoPtr<Signature>): GoPtr<Type>;

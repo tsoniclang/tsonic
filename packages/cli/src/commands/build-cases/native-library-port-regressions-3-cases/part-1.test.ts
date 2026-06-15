@@ -190,7 +190,7 @@ describe("build command (native library port regressions)", function () {
       expect(result.ok).to.equal(true);
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.include("return writeTask();");
+      expect(tree).to.include("return global::App.index.writeTask();");
       expect(tree).to.not.include("writeTask();\n                return;");
     } finally {
       rmSync(dir, { recursive: true, force: true });

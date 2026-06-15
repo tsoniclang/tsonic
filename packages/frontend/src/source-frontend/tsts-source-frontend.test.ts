@@ -22,6 +22,27 @@ describe("TSTS source frontend", () => {
     }
   };
 
+  const withTempProject = (
+    files: Readonly<Record<string, string>>,
+    run: (projectRoot: string, filePaths: Readonly<Record<string, string>>) => void
+  ): void => {
+    const tempRoot = path.join(process.cwd(), ".temp", "tsts-source-frontend");
+    fs.mkdirSync(tempRoot, { recursive: true });
+    const projectRoot = fs.mkdtempSync(path.join(tempRoot, "case-"));
+    const filePaths: Record<string, string> = {};
+    for (const [relativePath, sourceText] of Object.entries(files)) {
+      const filePath = path.join(projectRoot, relativePath);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, sourceText);
+      filePaths[relativePath] = filePath;
+    }
+    try {
+      run(projectRoot, filePaths);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  };
+
   const must = <T>(value: GoPtr<T>, message: string): T => {
     if (value === undefined) {
       throw new Error(message);
@@ -94,4 +115,47 @@ describe("TSTS source frontend", () => {
     );
   });
 
+  it("allows explicit TypeScript extension imports during source analysis", () => {
+    withTempProject(
+      {
+        "index.ts": 'import { value } from "./dep.ts";\nexport const answer = value;\n',
+        "dep.ts": "export const value: number = 42;\n",
+      },
+      (projectRoot, filePaths) => {
+        const indexFile = must(filePaths["index.ts"], "index.ts missing");
+        const depFile = must(filePaths["dep.ts"], "dep.ts missing");
+        const frontend = createTstsSourceFrontend();
+        const program = frontend.createProgram([indexFile, depFile], {
+          projectRoot,
+          moduleResolutionPaths: {},
+          sourceDiagnosticFileNames: [indexFile, depFile],
+        });
+
+        expect(program.compilerDiagnostics).to.deep.equal([]);
+        expect(program.diagnostics).to.deep.equal([]);
+      }
+    );
+  });
+
+  it("reports compiler diagnostics only for configured source diagnostic files", () => {
+    withTempProject(
+      {
+        "index.ts": "export const answer: number = 42;\n",
+        "support.ts": 'export const broken: number = "not a number";\n',
+      },
+      (projectRoot, filePaths) => {
+        const indexFile = must(filePaths["index.ts"], "index.ts missing");
+        const supportFile = must(filePaths["support.ts"], "support.ts missing");
+        const frontend = createTstsSourceFrontend();
+        const program = frontend.createProgram([indexFile, supportFile], {
+          projectRoot,
+          moduleResolutionPaths: {},
+          sourceDiagnosticFileNames: [indexFile],
+        });
+
+        expect(program.compilerDiagnostics).to.deep.equal([]);
+        expect(program.diagnostics).to.deep.equal([]);
+      }
+    );
+  });
 });

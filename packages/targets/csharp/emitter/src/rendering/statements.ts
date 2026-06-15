@@ -153,7 +153,8 @@ const variableRenderType = (
     defaultType === "var" &&
     declaration.initializer &&
     !functionExpressionType &&
-    !declaredType
+    !declaredType &&
+    !storageType
   ) {
     return "var";
   }
@@ -170,8 +171,23 @@ const shouldRenderVariableStorageType = (
     case "array":
     case "function":
     case "record":
+    case "source-primitive":
     case "tuple":
       return true;
+    case "intrinsic":
+      return (
+        type.name === "string" ||
+        type.name === "number" ||
+        type.name === "boolean" ||
+        type.name === "bigint"
+      );
+    case "literal":
+      return (
+        type.literalKind === "string" ||
+        type.literalKind === "number" ||
+        type.literalKind === "boolean" ||
+        type.literalKind === "bigint"
+      );
     case "object":
       return shouldEmitStructuralObjectType(type);
     case "union":
@@ -179,10 +195,7 @@ const shouldRenderVariableStorageType = (
     case "named":
       return type.aliasTarget?.kind === "function" || type.declarationKind === "class";
     case "intersection":
-    case "intrinsic":
-    case "literal":
     case "predicate":
-    case "source-primitive":
     case "unsupported":
     case undefined:
       return false;
@@ -507,8 +520,12 @@ const renderReturnExpression = (
   expression: LoweringStatementPlan["expression"],
   context: RenderContext
 ): string => {
-  const rendered = renderExpression(expression, context);
   const expectedType = context.currentReturnType;
+  const rendered = renderExpressionWithUseSiteCast(
+    expression,
+    context,
+    expectedType
+  );
   if (
     expectedType &&
     !(

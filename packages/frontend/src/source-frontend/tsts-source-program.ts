@@ -7,6 +7,8 @@ import type {
   TstsDiagnostic,
   TstsSourceFile,
 } from "@tsonic/tsts";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   createCompilerSourceProgram,
   createExtensionHost,
@@ -45,12 +47,44 @@ const defaultExtensions = (
   }),
 ];
 
+const canonicalizeFilePath = (filePath: string): string => {
+  const resolvedPath = path.resolve(filePath);
+  try {
+    return fs.realpathSync(resolvedPath);
+  } catch {
+    return resolvedPath;
+  }
+};
+
+const sourceDiagnosticFileSet = (
+  fileNames: readonly string[]
+): ReadonlySet<string> =>
+  new Set(fileNames.map((fileName) => canonicalizeFilePath(fileName)));
+
+const isScopedCompilerDiagnostic = (
+  sourceDiagnosticFiles: ReadonlySet<string>,
+  diagnostic: TstsDiagnostic
+): boolean => {
+  const fileName = diagnostic.file?.FileName();
+  return (
+    fileName === undefined ||
+    sourceDiagnosticFiles.has(canonicalizeFilePath(fileName))
+  );
+};
+
 export const createTstsSourceProgram = (
   filePaths: readonly string[],
   options: CreateTstsSourceProgramOptions
 ): TstsSourceProgram => {
+  const sourceDiagnosticFiles = sourceDiagnosticFileSet(
+    options.sourceDiagnosticFileNames
+  );
   const compiledSource = createCompilerSourceProgram(filePaths, {
     projectRoot: options.projectRoot,
+    compilerOptions: {
+      allowImportingTsExtensions: true,
+      skipLibCheck: true,
+    },
     moduleResolutionPaths: options.moduleResolutionPaths,
     moduleResolutionBaseUrl: options.projectRoot,
     extensions: defaultExtensions(options),
@@ -64,7 +98,9 @@ export const createTstsSourceProgram = (
     moduleGraph: compiledSource.moduleGraph,
     extensionHost: compiledSource.extensionHost,
     diagnostics: compiledSource.extensionDiagnostics,
-    compilerDiagnostics: compiledSource.diagnostics,
+    compilerDiagnostics: compiledSource.diagnostics.filter((diagnostic) =>
+      isScopedCompilerDiagnostic(sourceDiagnosticFiles, diagnostic)
+    ),
     withTypeChecker: compiledSource.withTypeChecker,
   };
 };

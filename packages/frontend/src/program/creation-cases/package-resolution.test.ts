@@ -196,7 +196,7 @@ describe("Program Creation – package resolution", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const expectedDts = path.resolve(path.join(fakePkgRoot, "System.d.ts"));
+      const expectedDts = path.resolve(path.join(fakePkgRoot, "index.d.ts"));
       expect(
         hasSourceFile(result.value.declarationSourceFiles, expectedDts)
       ).to.equal(true);

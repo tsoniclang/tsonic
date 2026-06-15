@@ -1,5 +1,5 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
-import type { ExtensionFactKeyLike, TstsNode } from "@tsonic/tsts";
+import type { ExtensionFactKeyLike, TstsNode, TstsType } from "@tsonic/tsts";
 
 export type SourceSemanticFactKey<T> = ExtensionFactKeyLike<T>;
 
@@ -116,6 +116,10 @@ export type GenericFunctionAliasFact = {
   readonly resolvedName: string;
 };
 
+export type SourceOverloadFamilyFact = {
+  readonly implementations: readonly TstsNode[];
+};
+
 export type IntrinsicSemanticsFact = {
   readonly kind:
     | "asinterface"
@@ -148,6 +152,42 @@ export type SourceRuntimeVisibilityFact = {
 
 export type SourceDictionaryTypeFact = {
   readonly kind: "record";
+};
+
+export type SourceBindingProjectedType =
+  | {
+      readonly kind: "type-node";
+      readonly node: TstsNode;
+    }
+  | {
+      readonly kind: "checker-type";
+      readonly type: TstsType;
+    }
+  | {
+      readonly kind: "array";
+      readonly elementType: SourceBindingProjectedType;
+      readonly readonly: boolean;
+      readonly sourceNode?: TstsNode;
+    }
+  | {
+      readonly kind: "tuple";
+      readonly elements: readonly SourceBindingProjectedType[];
+      readonly readonly: boolean;
+      readonly sourceNode?: TstsNode;
+    }
+  | {
+      readonly kind: "union";
+      readonly types: readonly SourceBindingProjectedType[];
+      readonly sourceNode?: TstsNode;
+    }
+  | {
+      readonly kind: "intersection";
+      readonly types: readonly SourceBindingProjectedType[];
+      readonly sourceNode?: TstsNode;
+    };
+
+export type SourceBindingTypeProjectionFact = {
+  readonly type: SourceBindingProjectedType;
 };
 
 export type SourceAttributeTargetKind =
@@ -253,6 +293,12 @@ export const genericFunctionAliasFactKey =
     "Source-level compile-time generic function alias target."
   );
 
+export const sourceOverloadFamilyFactKey =
+  defineSourceFactKey<SourceOverloadFamilyFact>(
+    "tsonic:source:overload-family",
+    "Source-level overload family implementations proven from overload marker builders."
+  );
+
 export const intrinsicSemanticsFactKey =
   defineSourceFactKey<IntrinsicSemanticsFact>(
     "tsonic:source:intrinsic-semantics",
@@ -275,6 +321,12 @@ export const sourceDictionaryTypeFactKey =
   defineSourceFactKey<SourceDictionaryTypeFact>(
     "tsonic:source:dictionary-type",
     "Source-level dictionary type identity such as Record<K, V>."
+  );
+
+export const sourceBindingTypeProjectionFactKey =
+  defineSourceFactKey<SourceBindingTypeProjectionFact>(
+    "tsonic:source:binding-type-projection",
+    "Source-level type projected by TSTS for destructured binding elements."
   );
 
 export const sourceAttributeDescriptorFactKey =
@@ -303,10 +355,12 @@ export const visitSourceSemanticFactKeys = (
   visit(sourceRuntimeOperationFactKey);
   visit(wellKnownComputedNameFactKey);
   visit(genericFunctionAliasFactKey);
+  visit(sourceOverloadFamilyFactKey);
   visit(intrinsicSemanticsFactKey);
   visit(sourceBindingIdentityFactKey);
   visit(sourceRuntimeVisibilityFactKey);
   visit(sourceDictionaryTypeFactKey);
+  visit(sourceBindingTypeProjectionFactKey);
   visit(sourceAttributeDescriptorFactKey);
   visit(sourceAttributeApplicationsFactKey);
 };

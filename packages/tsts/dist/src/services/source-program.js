@@ -60,7 +60,7 @@ const applyModuleResolutionPaths = (parsed, options, projectRoot) => {
     compilerOptions.Paths = paths;
     compilerOptions.PathsBasePath = options.moduleResolutionBaseUrl ?? projectRoot;
 };
-const collectDefinedDiagnostics = (diagnostics) => diagnostics.filter(isDefined);
+const collectDefinedDiagnostics = (diagnostics) => (diagnostics ?? []).filter(isDefined);
 const collectCompilerDiagnostics = (program, sourceFiles, runSemanticChecks) => {
     const diagnostics = [];
     diagnostics.push(...collectDefinedDiagnostics(Program_GetConfigFileParsingDiagnostics(program)));

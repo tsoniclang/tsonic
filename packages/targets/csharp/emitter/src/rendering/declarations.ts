@@ -20,6 +20,7 @@ import {
   renderNullableCSharpType,
   renderRequiredCSharpType,
   renderRequiredNullableCSharpType,
+  renderTypeParameters,
   runtimeUnionCarrierArms,
 } from "./types.js";
 
@@ -98,13 +99,6 @@ const renderParameter = (
   const receiverModifier = parameter.extensionReceiver ? "this " : "";
   return `${restModifier}${receiverModifier}${type} ${parameterName}${initializer}`;
 };
-
-const renderTypeParameters = (
-  typeParameters: readonly string[] | undefined
-): string =>
-  typeParameters && typeParameters.length > 0
-    ? `<${typeParameters.map((name) => sanitizeTypeName(name)).join(", ")}>`
-    : "";
 
 const withTypeParameterScope = <T>(
   context: RenderContext,
@@ -200,7 +194,7 @@ const renderFunction = (
   );
   const bodyReturnType =
     plan.async &&
-    isTaskLikeTypePlan(effectiveReturnType) &&
+    isTaskLikeTypePlan(effectiveReturnType, context) &&
     effectiveReturnType?.kind === "named"
       ? effectiveReturnType.typeArguments[0]
       : effectiveReturnType;
@@ -719,9 +713,13 @@ const renderRuntimeUnionCarrier = (
       const armNumber = index + 1;
       const armType = renderCSharpType(arm, context);
       const nullableArmType = renderNullableCSharpType(arm, context);
-      const recursiveArrayArm = isRecursiveRuntimeArrayArm(arm, carrierType);
+      const recursiveArrayArm = isRecursiveRuntimeArrayArm(
+        arm,
+        carrierType,
+        context
+      );
       return [
-        `    public static ${typeName} From${armNumber}(${armType} value) => new ${name}(value);`,
+        `    public static ${typeName} From${armNumber}(${armType} value) => new ${typeName}(value);`,
         ...(recursiveArrayArm
           ? [
               `    public static ${typeName} From${armNumber}(object?[] value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
@@ -732,14 +730,18 @@ const renderRuntimeUnionCarrier = (
         "",
       ];
     }),
-    `    public static ${typeName} FromNull() => new ${name}(null);`,
+    `    public static ${typeName} FromNull() => new ${typeName}(null);`,
     "    public static " + typeName + " FromValue(object? value)",
     "    {",
     "        if (value == null) return FromNull();",
     ...arms.flatMap((arm, index) => {
       const armNumber = index + 1;
       const armType = renderCSharpType(arm, context);
-      const recursiveArrayArm = isRecursiveRuntimeArrayArm(arm, carrierType);
+      const recursiveArrayArm = isRecursiveRuntimeArrayArm(
+        arm,
+        carrierType,
+        context
+      );
       return [
         ...(recursiveArrayArm
           ? [

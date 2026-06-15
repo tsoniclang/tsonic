@@ -126,13 +126,13 @@ describe("Source Package Resolution", () => {
         entryPath,
         "@tsonic/js",
         tempDir,
-        "csharp"
+        "native"
       );
 
       expect(result.ok).to.equal(false);
       if (result.ok) return;
       expect(result.error.message).to.include(
-        "does not support target 'csharp'"
+        "does not support target 'native'"
       );
       expect(result.error.hint).to.equal("Supported targets: rust");
     } finally {
@@ -174,13 +174,13 @@ describe("Source Package Resolution", () => {
         packageRoot,
         "@tsonic/js",
         tempDir,
-        "csharp"
+        "native"
       );
 
       expect(result.ok).to.equal(false);
       if (result.ok) return;
       expect(result.error.message).to.include(
-        "does not support target 'csharp'"
+        "does not support target 'native'"
       );
       expect(result.error.hint).to.equal("Supported targets: rust");
     } finally {

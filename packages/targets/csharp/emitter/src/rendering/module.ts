@@ -18,12 +18,16 @@ import {
   renderCSharpType,
   renderNullableCSharpType,
   renderRequiredCSharpType,
+  renderStructuralTypeReference,
+  renderTypeParameters,
   runtimeUnionCarrierArms,
   renderTypeMember,
   shouldEmitStructuralObjectType,
   shouldEmitAnonymousRuntimeUnionCarrier,
   shouldExpandNamedAliasTarget,
   structuralTypeName,
+  structuralTypeParameterNames,
+  externalBindingKey,
   sourceRuntimeNameKey,
   typePlanKey,
 } from "./types.js";
@@ -92,7 +96,7 @@ const createStructuralTypeTraversalState = (): StructuralTypeTraversalState => (
 const structuralNamedTypeKey = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>
 ): string =>
-  `${sourceRuntimeNameKey(type.sourceRuntimeName) ?? type.name}<${type.typeArguments.length}>`;
+  `${sourceRuntimeNameKey(type.sourceRuntimeName) ?? externalBindingKey(type.externalBinding) ?? type.name}<${type.typeArguments.length}>`;
 
 const withStructuralType = (
   state: StructuralTypeTraversalState,
@@ -320,6 +324,7 @@ const collectStructuralTypesFromStatement = (
   state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
 ): void => {
   if (!statement) return;
+  if (statement.compileTimeOnly) return;
   const statementState = withStatementPlan(state, statement);
   if (!statementState) return;
   collectStructuralTypesFromExpression(types, statement.expression, statementState);
@@ -370,9 +375,13 @@ const collectStructuralTypesFromDeclaration = (
   if (!declarationState) return;
   collectStructuralType(types, declaration.declaredTypePlan);
   if (
-    declaration.declarationKind !== "type-alias" ||
-    declaration.typeAliasTarget?.kind !== "union"
+    declaration.declarationKind === "type-alias" &&
+    declaration.typeAliasTarget?.kind === "union"
   ) {
+    for (const member of declaration.typeAliasTarget.types) {
+      collectStructuralType(types, member);
+    }
+  } else {
     collectStructuralType(types, declaration.typeAliasTarget);
   }
   collectStructuralType(types, declaration.returnType);
@@ -412,9 +421,6 @@ const collectStructuralTypes = (
   for (const statement of module.topLevelStatements) {
     collectStructuralTypesFromStatement(types, statement, state);
   }
-  for (const expression of module.expressions) {
-    collectStructuralTypesFromExpression(types, expression, state);
-  }
   return [...types.values()];
 };
 
@@ -426,8 +432,12 @@ const renderStructuralType = (
     const arms = runtimeUnionCarrierArms(type, context);
     if (arms.length < 2) return undefined;
     const name = context.getStructuralTypeName(type);
+    const typeParameterList = renderTypeParameters(
+      structuralTypeParameterNames(type)
+    );
+    const typeReference = renderStructuralTypeReference(type, context);
     return [
-      `public sealed class ${name}`,
+      `public sealed class ${name}${typeParameterList}`,
       "{",
       "    private readonly object? value;",
       `    private ${name}(object? value)`,
@@ -441,27 +451,35 @@ const renderStructuralType = (
         const armNumber = index + 1;
         const armType = renderCSharpType(arm, context);
         const nullableArmType = renderNullableCSharpType(arm, context);
-        const recursiveArrayArm = isRecursiveRuntimeArrayArm(arm, type);
+        const recursiveArrayArm = isRecursiveRuntimeArrayArm(
+          arm,
+          type,
+          context
+        );
         return [
-          `    public static ${name} From${armNumber}(${armType} value) => new ${name}(value);`,
+          `    public static ${typeReference} From${armNumber}(${armType} value) => new ${typeReference}(value);`,
           ...(recursiveArrayArm
             ? [
-                `    public static ${name} From${armNumber}(object?[] value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
-                `    public static ${name} From${armNumber}(global::System.Collections.Generic.List<object?> value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
+                `    public static ${typeReference} From${armNumber}(object?[] value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
+                `    public static ${typeReference} From${armNumber}(global::System.Collections.Generic.List<object?> value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
               ]
             : []),
           `    public ${nullableArmType} As${armNumber}() => this.value is ${armType} value ? value : default;`,
           "",
         ];
       }),
-      `    public static ${name} FromNull() => new ${name}(null);`,
-      `    public static ${name} FromValue(object? value)`,
+      `    public static ${typeReference} FromNull() => new ${typeReference}(null);`,
+      `    public static ${typeReference} FromValue(object? value)`,
       "    {",
       "        if (value == null) return FromNull();",
       ...arms.flatMap((arm, index) => {
         const armNumber = index + 1;
         const armType = renderCSharpType(arm, context);
-        const recursiveArrayArm = isRecursiveRuntimeArrayArm(arm, type);
+        const recursiveArrayArm = isRecursiveRuntimeArrayArm(
+          arm,
+          type,
+          context
+        );
         return [
           ...(recursiveArrayArm
             ? [
@@ -480,17 +498,20 @@ const renderStructuralType = (
   }
   if (type.kind !== "object") return undefined;
   const name = context.getStructuralTypeName(type);
+  const typeParameterList = renderTypeParameters(
+    structuralTypeParameterNames(type)
+  );
   const hasMethods = type.members.some((member) => member.kind === "method");
   if (hasMethods) {
     return [
-      `public interface ${name}`,
+      `public interface ${name}${typeParameterList}`,
       "{",
       ...type.members.map((member) => `    ${renderTypeMember(member, context)}`),
       "}",
     ].join("\n");
   }
   return [
-    `public sealed class ${name}`,
+    `public sealed class ${name}${typeParameterList}`,
     "{",
     ...type.members.map(
       (member) => `    public ${renderTypeMember(member, context)}`
@@ -508,6 +529,8 @@ const createRenderContext = (
   return {
     diagnostics,
     getStructuralTypeName: structuralTypeName,
+    externalBindingTargetName: (binding) =>
+      options.externalBindingMetadata?.resolveTargetName(binding),
     overrideMemberAccessibility: (heritageTypes, member) =>
       options.externalBindingMetadata?.resolveOverrideAccessibility(
         heritageTypes,

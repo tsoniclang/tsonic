@@ -25,6 +25,7 @@ import {
   Checker_getResolvedSignature,
   Checker_getSignatureFromDeclaration,
   Checker_getSignaturesOfType,
+  Checker_getTypeOfParameter,
   Checker_getTypeArguments,
 } from "../internal/checker/checker/signatures.js";
 import {
@@ -154,6 +155,7 @@ export type ExtensionTypeChecker = {
   getResolvedSignature(node: GoPtr<Node>): GoPtr<Signature>;
   getSignatureDeclaration(signature: GoPtr<Signature>): GoPtr<Node>;
   getSignatureParameters(signature: GoPtr<Signature>): readonly GoPtr<Symbol>[];
+  getTypeOfSignatureParameter(parameter: GoPtr<Symbol>): GoPtr<Type>;
   signatureHasTypeParameters(signature: GoPtr<Signature>): boolean;
   getSignatureFromDeclaration(node: GoPtr<Node>): GoPtr<Signature>;
   getReturnTypeOfSignature(signature: GoPtr<Signature>): GoPtr<Type>;
@@ -196,8 +198,13 @@ export const createExtensionTypeChecker = (
 ): ExtensionTypeChecker => ({
   getTypeAtLocation: (node: GoPtr<Node>): GoPtr<Type> =>
     Checker_GetTypeAtLocation(checker, node),
-  getNarrowedTypeAtLocation: (node: GoPtr<Node>): GoPtr<Type> =>
-    Checker_GetTypeAtLocation(checker, node),
+  getNarrowedTypeAtLocation: (node: GoPtr<Node>): GoPtr<Type> => {
+    const symbol = Checker_GetSymbolAtLocation(checker, node);
+    return symbol
+      ? (Checker_GetTypeOfSymbolAtLocation(checker, symbol, node) ??
+          Checker_GetTypeAtLocation(checker, node))
+      : Checker_GetTypeAtLocation(checker, node);
+  },
   getSymbolAtLocation: (node: GoPtr<Node>): GoPtr<Symbol> =>
     Checker_GetSymbolAtLocation(checker, node),
   resolveAlias: (symbol: GoPtr<Symbol>): GoPtr<Symbol> =>
@@ -356,6 +363,8 @@ export const createExtensionTypeChecker = (
     signature: GoPtr<Signature>,
   ): readonly GoPtr<Symbol>[] =>
     Signature_Parameters(signature),
+  getTypeOfSignatureParameter: (parameter: GoPtr<Symbol>): GoPtr<Type> =>
+    Checker_getTypeOfParameter(checker, parameter),
   signatureHasTypeParameters: (signature: GoPtr<Signature>): boolean =>
     Signature_TypeParameters(signature).length > 0,
   getSignatureFromDeclaration: (node: GoPtr<Node>): GoPtr<Signature> =>

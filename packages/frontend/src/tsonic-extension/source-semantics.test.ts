@@ -5,6 +5,7 @@ import {
   getTstsCallExpressionDetails,
   getTstsIdentifierText,
   getTstsNodeNameText,
+  getTstsNodeText,
   getTstsTypeReferenceDetails,
   isTstsCallExpression,
   isTstsClassDeclaration,
@@ -25,12 +26,14 @@ import {
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
   parameterPassingFactKey,
+  sourceBindingTypeProjectionFactKey,
   sourceDictionaryTypeFactKey,
   sourceAttributeApplicationsFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
 } from "../source-frontend/source-facts.js";
+import type { SourceBindingProjectedType } from "../source-frontend/source-facts.js";
 import { createTsonicSourceSemanticsExtension } from "./source-semantics.js";
 import { createTstsTestProgramFromFiles } from "../testing/tsts-test-program.js";
 
@@ -69,6 +72,23 @@ const collectDeclarationFactsByName = (sourceText: string) => {
   }
 
   return facts;
+};
+
+const projectionSummary = (type: SourceBindingProjectedType): string => {
+  switch (type.kind) {
+    case "type-node":
+      return getTstsNodeText(type.node)?.replace(/\s+/g, " ").trim() ?? "";
+    case "checker-type":
+      return "checker-type";
+    case "array":
+      return `${type.readonly ? "readonly " : ""}${projectionSummary(type.elementType)}[]`;
+    case "tuple":
+      return `[${type.elements.map(projectionSummary).join(", ")}]`;
+    case "union":
+      return type.types.map(projectionSummary).join(" | ");
+    case "intersection":
+      return type.types.map(projectionSummary).join(" & ");
+  }
 };
 
 describe("Tsonic TSTS source semantics extension", () => {
@@ -515,6 +535,50 @@ describe("Tsonic TSTS source semantics extension", () => {
             entry.endsWith(":opaque")
         )
       ).to.equal(true);
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("attaches destructured binding type projections as source facts", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "index.ts": [
+          "import type { int } from '@tsonic/core/types.js';",
+          "type Same = { value: int } | { value: int };",
+          "type Different = { value: int } | { value: string };",
+          "export function readSame(input: Same): int {",
+          "  const { value } = input;",
+          "  return value;",
+          "}",
+          "export function readDifferent(input: Different): void {",
+          "  const { value } = input;",
+          "  void value;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (
+          !node ||
+          node.Kind !== TstsSyntax.KindIdentifier ||
+          getTstsIdentifierText(node) !== "value" ||
+          node.Parent?.Kind !== TstsSyntax.KindBindingElement
+        ) {
+          return;
+        }
+        const fact = program.sourceProgram.extensionHost.facts.get(
+          sourceBindingTypeProjectionFactKey,
+          node
+        );
+        if (fact) summaries.push(projectionSummary(fact.type));
+      });
+
+      expect(summaries).to.deep.equal(["int", "int | string"]);
     } finally {
       program.cleanup();
     }

@@ -1,6 +1,7 @@
 import type {
   Diagnostic,
   LoweringDeclarationPlan,
+  LoweringExternalBindingReferencePlan,
   LoweringModulePlan,
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
@@ -35,6 +36,9 @@ export type RenderContext = {
   currentTypeParameters?: ReadonlySet<string>;
   readonly allocateTempName: (prefix: string) => string;
   readonly getStructuralTypeName: (type: LoweringTypeRefPlan) => string;
+  readonly externalBindingTargetName: (
+    binding: LoweringExternalBindingReferencePlan
+  ) => string | undefined;
   readonly overrideMemberAccessibility: (
     heritageTypes: readonly LoweringTypeRefPlan[],
     member: LoweringDeclarationPlan

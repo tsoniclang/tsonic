@@ -81,6 +81,11 @@ export type LoweringSourceRuntimeNamePlan = {
   readonly name: string;
 };
 
+export type LoweringExternalBindingReferencePlan = {
+  readonly bindingFile: string;
+  readonly sourceName: string;
+};
+
 export type LoweringRuntimeVisibility = "opaque";
 
 export type LoweringTypeDeclarationBinding = {
@@ -126,6 +131,7 @@ export type LoweringTypeRefPlan =
       readonly typeArguments: readonly LoweringTypeRefPlan[];
       readonly aliasTarget?: LoweringTypeRefPlan;
       readonly sourceRuntimeName?: LoweringSourceRuntimeNamePlan;
+      readonly externalBinding?: LoweringExternalBindingReferencePlan;
       readonly runtimeVisibility?: LoweringRuntimeVisibility;
       readonly declaration?: LoweringTypeDeclarationBinding;
       readonly declarationKind?:
@@ -393,6 +399,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly sourceOperation?: SourceRuntimeOperationFact;
   readonly resolvedAliasName?: string;
   readonly sourceRuntimeName?: LoweringSourceRuntimeNamePlan;
+  readonly externalBinding?: LoweringExternalBindingReferencePlan;
   readonly yieldDelegates?: boolean;
   readonly expression?: LoweringExpressionPlan;
   readonly receiverTypePlan?: LoweringTypeRefPlan;
@@ -403,6 +410,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly whenTrue?: LoweringExpressionPlan;
   readonly whenFalse?: LoweringExpressionPlan;
   readonly arguments: readonly LoweringExpressionPlan[];
+  readonly argumentUseSiteTypes?: readonly (LoweringTypeRefPlan | undefined)[];
   readonly typeArguments: readonly LoweringTypeRefPlan[];
   readonly elements: readonly LoweringExpressionPlan[];
   readonly properties: readonly LoweringObjectPropertyPlan[];

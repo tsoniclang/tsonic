@@ -3,7 +3,7 @@ import { SymbolFlagsAlias } from "../internal/ast/symbolflags.js";
 import { CheckModeNormal, isTupleType, } from "../internal/checker/checker/state.js";
 import { Checker_isArrayType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
 import { Checker_GetAliasedSymbol, Checker_getFullyQualifiedName, Checker_getIndexTypeOfType, Checker_GetTypeOfSymbolAtLocation, Checker_GetSymbolAtLocation, } from "../internal/checker/checker/symbols.js";
-import { Checker_getReturnTypeOfSignature, Checker_getResolvedSignature, Checker_getSignatureFromDeclaration, Checker_getSignaturesOfType, Checker_getTypeArguments, } from "../internal/checker/checker/signatures.js";
+import { Checker_getReturnTypeOfSignature, Checker_getResolvedSignature, Checker_getSignatureFromDeclaration, Checker_getSignaturesOfType, Checker_getTypeOfParameter, Checker_getTypeArguments, } from "../internal/checker/checker/signatures.js";
 import { Checker_GetContextualType, Checker_GetElementTypeOfArrayType, Checker_GetExportSpecifierLocalTargetSymbol, Checker_GetExportsOfModule, Checker_GetShorthandAssignmentValueSymbol, Checker_GetSymbolsInScope, } from "../internal/checker/services.js";
 import { Checker_GetApparentType, Checker_GetPropertiesOfType, Checker_GetPropertyOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfSymbol, } from "../internal/checker/exports.js";
 import { Checker_SymbolToString, Checker_TypeToTypeNode, Checker_TypeToString, } from "../internal/checker/printer.js";
@@ -17,7 +17,13 @@ const typeMembers = (type, flags) => hasTypeFlags(type, flags) ? Type_Types(type
 const nonNullishType = (type) => !hasTypeFlags(type, TypeFlagsNull | TypeFlagsUndefined);
 export const createExtensionTypeChecker = (checker) => ({
     getTypeAtLocation: (node) => Checker_GetTypeAtLocation(checker, node),
-    getNarrowedTypeAtLocation: (node) => Checker_GetTypeAtLocation(checker, node),
+    getNarrowedTypeAtLocation: (node) => {
+        const symbol = Checker_GetSymbolAtLocation(checker, node);
+        return symbol
+            ? (Checker_GetTypeOfSymbolAtLocation(checker, symbol, node) ??
+                Checker_GetTypeAtLocation(checker, node))
+            : Checker_GetTypeAtLocation(checker, node);
+    },
     getSymbolAtLocation: (node) => Checker_GetSymbolAtLocation(checker, node),
     resolveAlias: (symbol) => symbol !== undefined && (symbol.Flags & SymbolFlagsAlias) !== 0
         ? Checker_GetAliasedSymbol(checker, symbol)
@@ -94,6 +100,7 @@ export const createExtensionTypeChecker = (checker) => ({
     getResolvedSignature: (node) => Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal),
     getSignatureDeclaration: (signature) => Signature_Declaration(signature),
     getSignatureParameters: (signature) => Signature_Parameters(signature),
+    getTypeOfSignatureParameter: (parameter) => Checker_getTypeOfParameter(checker, parameter),
     signatureHasTypeParameters: (signature) => Signature_TypeParameters(signature).length > 0,
     getSignatureFromDeclaration: (node) => Checker_getSignatureFromDeclaration(checker, node),
     getReturnTypeOfSignature: (signature) => Checker_getReturnTypeOfSignature(checker, signature),

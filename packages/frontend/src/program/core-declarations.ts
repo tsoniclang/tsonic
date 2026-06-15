@@ -107,10 +107,16 @@ const globPatternToRegExp = (pattern: string): RegExp => {
   for (let index = 0; index < normalized.length; index += 1) {
     const char = normalized[index];
     const next = normalized[index + 1];
+    const afterNext = normalized[index + 2];
 
     if (char === "*" && next === "*") {
-      source += ".*";
-      index += 1;
+      if (afterNext === "/") {
+        source += "(?:.*/)?";
+        index += 2;
+      } else {
+        source += ".*";
+        index += 1;
+      }
       continue;
     }
     if (char === "*") {

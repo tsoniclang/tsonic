@@ -14,6 +14,7 @@ const createRenderContext = (unsupportedFeatures: string[] = []): RenderContext 
   diagnostics: [],
   allocateTempName: (prefix) => `${prefix}0`,
   getStructuralTypeName: () => "Structural0",
+  externalBindingTargetName: () => undefined,
   overrideMemberAccessibility: () => undefined,
   reportUnsupported: (feature) => {
     unsupportedFeatures.push(feature);
@@ -155,7 +156,7 @@ describe("C# expression renderer", () => {
     );
 
     expect(rendered).to.equal(
-      "new global::System.Collections.Generic.List<int>(global::System.Linq.Enumerable.Concat(global::System.Linq.Enumerable.Concat(new int[] { 1 }, items), new int[] { 2 }))"
+      "new global::System.Collections.Generic.List<int>(global::System.Linq.Enumerable.Concat(global::System.Linq.Enumerable.Concat(new int[] { ((int)(1)) }, items), new int[] { ((int)(2)) }))"
     );
   });
 

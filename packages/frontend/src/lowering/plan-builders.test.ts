@@ -19,7 +19,7 @@ const lowerProgram = (sourceText: string): LoweringPipelineResult => {
     const result = runLoweringPipeline(program, {
       sourceRoot: program.options.sourceRoot,
       rootNamespace: program.options.rootNamespace,
-      backendTargetId: "csharp",
+      backendTargetId: "native",
     });
     if (!result.ok) {
       throw new Error(
@@ -43,7 +43,7 @@ const lowerFiles = (
     const result = runLoweringPipeline(program, {
       sourceRoot: program.options.sourceRoot,
       rootNamespace: program.options.rootNamespace,
-      backendTargetId: "csharp",
+      backendTargetId: "native",
     });
     if (!result.ok) {
       throw new Error(
@@ -331,15 +331,10 @@ describe("TSTS-backed lowering plan builders", () => {
   it("projects opaque runtime visibility from source facts", () => {
     const result = lowerFiles(
       {
-        "_internal.ts": `
-          export interface _ {
-            readonly value: number;
-          }
-        `,
         "index.ts": `
-          import type { _ as Internal } from "./_internal.js";
+          import type { JsValue } from "@tsonic/core/types.js";
 
-          export function use(value: Internal): void {
+          export function use(value: JsValue): void {
             void value;
           }
         `,
@@ -360,7 +355,7 @@ describe("TSTS-backed lowering plan builders", () => {
             visibility: parameterType.runtimeVisibility,
           }
         : undefined
-    ).to.deep.equal({ name: "_", visibility: "opaque" });
+    ).to.deep.equal({ name: "JsValue", visibility: "opaque" });
   });
 
   it("projects ambient Record references into dictionary type plans", () => {

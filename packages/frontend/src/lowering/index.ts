@@ -7,6 +7,7 @@ export type {
   LoweringDeclarationPlan,
   LoweringExpressionPlan,
   LoweringExpressionSemantic,
+  LoweringExternalBindingReferencePlan,
   LoweringIntrinsicTypeName,
   LoweringModuleIdentity,
   LoweringModulePlan,

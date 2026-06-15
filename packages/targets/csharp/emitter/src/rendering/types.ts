@@ -1,4 +1,5 @@
 import type {
+  LoweringExternalBindingReferencePlan,
   LoweringSourceRuntimeNamePlan,
   LoweringTypeMemberPlan,
   LoweringTypeRefPlan,
@@ -98,13 +99,106 @@ export const renderCSharpRuntimeExpressionName = (
     ? `global::${renderRuntimeNameSegments(sourceRuntimeName, sanitizeIdentifier)}`
     : undefined;
 
+export const externalBindingKey = (
+  externalBinding: LoweringExternalBindingReferencePlan | undefined
+): string | undefined =>
+  externalBinding
+    ? `${externalBinding.bindingFile}#${externalBinding.sourceName}`
+    : undefined;
+
+const renderExternalTargetTypeName = (
+  externalBinding: LoweringExternalBindingReferencePlan | undefined,
+  context: RenderContext
+): string | undefined => {
+  if (!externalBinding) return undefined;
+  const targetName = context.externalBindingTargetName(externalBinding);
+  return targetName
+    ? `global::${targetName
+        .replace(/^global::/u, "")
+        .replace(/\+/gu, ".")
+        .replace(/\$/gu, "_")
+        .replace(/`\d+$/u, "")
+        .split(".")
+        .filter(Boolean)
+        .map(sanitizeTypeName)
+        .join(".")}`
+    : undefined;
+};
+
+export const renderExternalTargetExpressionName = (
+  externalBinding: LoweringExternalBindingReferencePlan | undefined,
+  context: RenderContext
+): string | undefined => {
+  if (!externalBinding) return undefined;
+  const targetName = context.externalBindingTargetName(externalBinding);
+  return targetName
+    ? `global::${targetName
+        .replace(/^global::/u, "")
+        .replace(/\+/gu, ".")
+        .replace(/\$/gu, "_")
+        .replace(/`\d+$/u, "")
+        .split(".")
+        .filter(Boolean)
+        .map(sanitizeIdentifier)
+        .join(".")}`
+    : undefined;
+};
+
 const renderNamedType = (
-  name: string,
-  sourceRuntimeName?: LoweringSourceRuntimeNamePlan
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>
 ): string =>
-  privateJsRuntimeTypes.get(sourceRuntimeNameKey(sourceRuntimeName) ?? "") ??
-  renderCSharpRuntimeTypeName(sourceRuntimeName) ??
-  sanitizeTypeName(name.replace(/\$/g, "_").replace(/\./g, "_"));
+  privateJsRuntimeTypes.get(sourceRuntimeNameKey(type.sourceRuntimeName) ?? "") ??
+  renderCSharpRuntimeTypeName(type.sourceRuntimeName) ??
+  sanitizeTypeName(type.name.replace(/\$/g, "_").replace(/\./g, "_"));
+
+const renderNamedRuntimeType = (
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
+  context: RenderContext
+): string | undefined => {
+  const special = renderSpecialNamedType(type, context);
+  if (special) return special;
+  if (type.runtimeVisibility === "opaque") {
+    return undefined;
+  }
+  if (type.externalBinding) {
+    const externalName = renderExternalTargetTypeName(type.externalBinding, context);
+    if (!externalName) {
+      context.reportUnsupported(
+        "external binding target type",
+        "TypeReference",
+        type.sourceText ?? type.name
+      );
+      return "object?";
+    }
+    return type.typeArguments.length === 0
+      ? externalName
+      : `${externalName}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
+  }
+  if (!type.sourceRuntimeName) return undefined;
+  const name = renderNamedType(type);
+  return type.typeArguments.length === 0
+    ? name
+    : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
+};
+
+const renderIntersectionRuntimeType = (
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "intersection" }>,
+  context: RenderContext
+): string | undefined => {
+  const renderedTypes = new Set<string>();
+  for (const member of type.types) {
+    if (member.kind === "named") {
+      const rendered = renderNamedRuntimeType(member, context);
+      if (rendered) renderedTypes.add(rendered);
+      continue;
+    }
+    if (member.kind === "intersection") {
+      const rendered = renderIntersectionRuntimeType(member, context);
+      if (rendered) renderedTypes.add(rendered);
+    }
+  }
+  return renderedTypes.size === 1 ? [...renderedTypes][0] : undefined;
+};
 
 const requiredTypeArgument = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
@@ -157,7 +251,7 @@ const typePlanKeyWithSeen = (
     case "source-primitive":
       return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
-      return `named:${type.runtimeVisibility ?? "public"}:${sourceRuntimeNameKey(type.sourceRuntimeName) ?? type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
+      return `named:${type.runtimeVisibility ?? "public"}:${sourceRuntimeNameKey(type.sourceRuntimeName) ?? externalBindingKey(type.externalBinding) ?? type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
     case "record":
       return `record:${typePlanKeyWithSeen(type.keyType, nextSeen)}:${typePlanKeyWithSeen(type.valueType, nextSeen)}`;
     case "array":
@@ -189,6 +283,103 @@ export function typePlanKey(type: LoweringTypeRefPlan | undefined): string {
 
 export const structuralTypeName = (type: LoweringTypeRefPlan): string =>
   `__TsonicShape_${stableHash(typePlanKey(type))}`;
+
+const collectTypeParameterNames = (
+  type: LoweringTypeRefPlan | undefined,
+  names: Set<string>,
+  seen: ReadonlySet<LoweringTypeRefPlan> = new Set()
+): void => {
+  if (!type || seen.has(type)) return;
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+  switch (type.kind) {
+    case "named":
+      if (type.declarationKind === "type-parameter") {
+        names.add(type.name);
+      }
+      for (const argument of type.typeArguments) {
+        collectTypeParameterNames(argument, names, nextSeen);
+      }
+      if (type.sourceRuntimeName === undefined) {
+        collectTypeParameterNames(type.aliasTarget, names, nextSeen);
+      }
+      break;
+    case "record":
+      collectTypeParameterNames(type.keyType, names, nextSeen);
+      collectTypeParameterNames(type.valueType, names, nextSeen);
+      break;
+    case "array":
+      collectTypeParameterNames(type.elementType, names, nextSeen);
+      break;
+    case "tuple":
+      for (const element of type.elements) {
+        collectTypeParameterNames(element, names, nextSeen);
+      }
+      break;
+    case "union":
+    case "intersection":
+      for (const member of type.types) {
+        collectTypeParameterNames(member, names, nextSeen);
+      }
+      break;
+    case "function":
+      for (const parameter of type.parameters) {
+        collectTypeParameterNames(parameter.type, names, nextSeen);
+      }
+      collectTypeParameterNames(type.returnType, names, nextSeen);
+      break;
+    case "object":
+      for (const member of type.members) {
+        switch (member.kind) {
+          case "property":
+            collectTypeParameterNames(member.type, names, nextSeen);
+            break;
+          case "method":
+            for (const parameter of member.parameters) {
+              collectTypeParameterNames(parameter.type, names, nextSeen);
+            }
+            collectTypeParameterNames(member.returnType, names, nextSeen);
+            break;
+          case "index-signature":
+            collectTypeParameterNames(member.keyType, names, nextSeen);
+            collectTypeParameterNames(member.valueType, names, nextSeen);
+            break;
+        }
+      }
+      break;
+    case "predicate":
+      collectTypeParameterNames(type.assertedType, names, nextSeen);
+      break;
+    case "intrinsic":
+    case "source-primitive":
+    case "literal":
+    case "unsupported":
+      break;
+  }
+};
+
+export const structuralTypeParameterNames = (
+  type: LoweringTypeRefPlan
+): readonly string[] => {
+  const names = new Set<string>();
+  collectTypeParameterNames(type, names);
+  return [...names];
+};
+
+export const renderTypeParameters = (
+  typeParameters: readonly string[] | undefined
+): string =>
+  typeParameters && typeParameters.length > 0
+    ? `<${typeParameters.map((name) => sanitizeTypeName(name)).join(", ")}>`
+    : "";
+
+export const renderStructuralTypeReference = (
+  type: LoweringTypeRefPlan,
+  context: RenderContext
+): string =>
+  `${context.getStructuralTypeName(type)}${renderTypeParameters(
+    structuralTypeParameterNames(type)
+  )}`;
 
 export const sameRuntimeTypePlan = (
   left: LoweringTypeRefPlan | undefined,
@@ -270,9 +461,9 @@ const armNeedsRuntimeIdentity = (arm: LoweringTypeRefPlan): boolean => {
         arm.declarationKind === "type-alias"
       );
     case "array":
-      return armNeedsRuntimeIdentity(arm.elementType);
+      return true;
     case "tuple":
-      return arm.elements.some(armNeedsRuntimeIdentity);
+      return true;
     case "union":
     case "intersection":
       return arm.types.some(armNeedsRuntimeIdentity);
@@ -309,7 +500,45 @@ export const isOpaqueRuntimeTypePlan = (
   type.kind === "unsupported" ||
   type.kind === "intersection" ||
   (type.kind === "object" && !shouldEmitStructuralObjectType(type)) ||
-  (type.kind === "named" && type.runtimeVisibility === "opaque");
+  (type.kind === "named" && type.runtimeVisibility === "opaque") ||
+  (type.kind === "union" && isOpaqueUnionTypePlan(type));
+
+const isScalarRuntimeTypePlan = (
+  type: LoweringTypeRefPlan | undefined
+): boolean => {
+  if (!type) return false;
+  if (type.kind === "named" && type.aliasTarget) {
+    return isScalarRuntimeTypePlan(type.aliasTarget);
+  }
+  if (type.kind === "source-primitive") return true;
+  if (type.kind === "intrinsic") {
+    return (
+      type.name === "string" ||
+      type.name === "number" ||
+      type.name === "boolean" ||
+      type.name === "bigint" ||
+      type.name === "symbol"
+    );
+  }
+  if (type.kind === "literal") {
+    return (
+      type.literalKind === "string" ||
+      type.literalKind === "number" ||
+      type.literalKind === "boolean" ||
+      type.literalKind === "bigint" ||
+      type.literalKind === "null" ||
+      type.literalKind === "undefined"
+    );
+  }
+  return false;
+};
+
+const isOpaqueUnionTypePlan = (type: LoweringTypeRefPlan): boolean =>
+  type.kind === "union" &&
+  type.types.length > 0 &&
+  type.types.every(
+    (member) => isScalarRuntimeTypePlan(member) || isOpaqueRuntimeTypePlan(member)
+  );
 
 const isOpaqueNullableType = isOpaqueRuntimeTypePlan;
 
@@ -319,11 +548,6 @@ export const isVoidLikeTypePlan = (
   type?.kind === "intrinsic" &&
   (type.name === "void" || type.name === "never");
 
-const isOutOfScopeTypeParameterType = (
-  type: LoweringTypeRefPlan | undefined
-): boolean =>
-  type?.kind === "named" && type.declarationKind === "type-parameter";
-
 const containsUnemittableStructuralMemberType = (
   type: LoweringTypeRefPlan | undefined,
   seen: ReadonlySet<LoweringTypeRefPlan> = new Set()
@@ -332,7 +556,7 @@ const containsUnemittableStructuralMemberType = (
   if (seen.has(type)) return false;
   const nextSeen = new Set(seen);
   nextSeen.add(type);
-  if (isVoidLikeTypePlan(type) || isOutOfScopeTypeParameterType(type)) {
+  if (isVoidLikeTypePlan(type)) {
     return true;
   }
   switch (type.kind) {
@@ -407,9 +631,19 @@ export const shouldEmitStructuralObjectType = (
   });
 };
 
-const isTaskType = (type: LoweringTypeRefPlan | undefined): boolean =>
+const isExternalTargetType = (
+  type: LoweringTypeRefPlan | undefined,
+  context: RenderContext | undefined,
+  targetName: string
+): boolean =>
   type?.kind === "named" &&
-  sourceRuntimeNameKey(type.sourceRuntimeName) === "System.Threading.Tasks.Task";
+  type.externalBinding !== undefined &&
+  context?.externalBindingTargetName(type.externalBinding) === targetName;
+
+const isTaskType = (
+  type: LoweringTypeRefPlan | undefined,
+  context?: RenderContext
+): boolean => isExternalTargetType(type, context, "System.Threading.Tasks.Task");
 
 const isPromiseType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "named" &&
@@ -417,9 +651,10 @@ const isPromiseType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type.name === "Promise";
 
 export const isTaskLikeTypePlan = (
-  type: LoweringTypeRefPlan | undefined
+  type: LoweringTypeRefPlan | undefined,
+  context?: RenderContext
 ): boolean =>
-  isTaskType(type) || isPromiseType(type);
+  isTaskType(type, context) || isPromiseType(type);
 
 export const isBroadIntrinsicTypePlan = (
   type: LoweringTypeRefPlan | undefined
@@ -466,7 +701,8 @@ export const unwrapAliasTarget = (
     : type;
 
 export const arrayTypeFromTypePlan = (
-  type: LoweringTypeRefPlan | undefined
+  type: LoweringTypeRefPlan | undefined,
+  context?: RenderContext
 ): Extract<LoweringTypeRefPlan, { readonly kind: "array" }> | undefined => {
   if (type?.kind === "named" && type.aliasTarget?.kind === "union") {
     return undefined;
@@ -486,6 +722,29 @@ export const arrayTypeFromTypePlan = (
           elementType,
           readonly: unwrapped.name === "ReadonlyArray",
         }
+        : undefined;
+  }
+  const externalCollectionTarget =
+    unwrapped.kind === "named" && unwrapped.externalBinding
+      ? context?.externalBindingTargetName(unwrapped.externalBinding)
+      : undefined;
+  const externalCollectionReadonly =
+    externalCollectionTarget === "System.Collections.Generic.IEnumerable`1" ||
+    externalCollectionTarget === "System.Collections.Generic.IReadOnlyList`1";
+  const externalCollectionMutable =
+    externalCollectionTarget === "System.Collections.Generic.IList`1" ||
+    externalCollectionTarget === "System.Collections.Generic.List`1";
+  if (
+    unwrapped.kind === "named" &&
+    (externalCollectionReadonly || externalCollectionMutable)
+  ) {
+    const elementType = unwrapped.typeArguments[0];
+    return elementType
+      ? {
+          kind: "array",
+          elementType,
+          readonly: externalCollectionReadonly,
+        }
       : undefined;
   }
   if (unwrapped.kind === "union") {
@@ -504,9 +763,10 @@ export const arrayTypeFromTypePlan = (
 
 export const isRecursiveRuntimeArrayArm = (
   arm: LoweringTypeRefPlan | undefined,
-  carrier: LoweringTypeRefPlan | undefined
+  carrier: LoweringTypeRefPlan | undefined,
+  context?: RenderContext
 ): boolean => {
-  const arrayType = arrayTypeFromTypePlan(arm);
+  const arrayType = arrayTypeFromTypePlan(arm, context);
   return (
     arrayType !== undefined && sameRuntimeTypePlan(arrayType.elementType, carrier)
   );
@@ -535,10 +795,11 @@ const promiseOrTaskAwaitedType = (
   context: RenderContext,
   feature: string
 ): LoweringTypeRefPlan | undefined => {
-  if (!isTaskLikeTypePlan(type) || type?.kind !== "named") return undefined;
+  if (!isTaskLikeTypePlan(type, context) || type?.kind !== "named")
+    return undefined;
   const awaitedType = type.typeArguments[0];
   if (awaitedType) return awaitedType;
-  if (isTaskType(type)) return voidTypePlan;
+  if (isTaskType(type, context)) return voidTypePlan;
   context.reportUnsupported(
     `${feature} awaited type`,
     "TypeReference",
@@ -555,7 +816,9 @@ const asyncReturnAwaitedType = (
   if (direct) return direct;
   if (type?.kind !== "union") return undefined;
   const nonNullish = type.types.filter((member) => !isNullishType(member));
-  const asyncMembers = nonNullish.filter(isTaskLikeTypePlan);
+  const asyncMembers = nonNullish.filter((member) =>
+    isTaskLikeTypePlan(member, context)
+  );
   if (asyncMembers.length !== 1) return undefined;
   const awaited = promiseOrTaskAwaitedType(
     asyncMembers[0],
@@ -564,7 +827,8 @@ const asyncReturnAwaitedType = (
   );
   if (!awaited) return undefined;
   const synchronousMembers = nonNullish.filter(
-    (member) => !isTaskLikeTypePlan(member) && !isVoidLikeTypePlan(member)
+    (member) =>
+      !isTaskLikeTypePlan(member, context) && !isVoidLikeTypePlan(member)
   );
   if (synchronousMembers.length === 0) return awaited;
   if (synchronousMembers.every(isBroadIntrinsicTypePlan)) {
@@ -606,7 +870,9 @@ const renderUnionType = (
   if (type.kind !== "union") return renderCSharpType(type, context);
   const nonNullish = type.types.filter((member) => !isNullishType(member));
   const voidLike = nonNullish.filter(isVoidLikeTypePlan);
-  const taskLike = nonNullish.filter(isTaskLikeTypePlan);
+  const taskLike = nonNullish.filter((member) =>
+    isTaskLikeTypePlan(member, context)
+  );
   if (voidLike.length > 0 && taskLike.length === 1) {
     const taskType = taskLike[0];
     if (taskType) return renderCSharpType(taskType, context);
@@ -620,7 +886,10 @@ const renderUnionType = (
     return "object?";
   }
   if (shouldEmitAnonymousRuntimeUnionCarrier(type, context)) {
-    return context.getStructuralTypeName(type);
+    return renderStructuralTypeReference(type, context);
+  }
+  if (isOpaqueRuntimeTypePlan(type)) {
+    return "object?";
   }
   context.reportUnsupported("union type", "UnionType", type.sourceText ?? "union");
   return "object?";
@@ -751,11 +1020,8 @@ export const renderCSharpType = (
       ) {
         return "object?";
       }
-      if (type.sourceRuntimeName) {
-        const name = renderNamedType(type.name, type.sourceRuntimeName);
-        return type.typeArguments.length === 0
-          ? name
-          : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
+      if (type.sourceRuntimeName || type.externalBinding) {
+        return renderNamedRuntimeType(type, context) ?? "object?";
       }
       if (
         type.aliasTarget &&
@@ -763,12 +1029,17 @@ export const renderCSharpType = (
         type.aliasTarget.kind !== "function"
       ) {
         if (type.aliasTarget.kind === "union") {
-          const name = renderNamedType(type.name, type.sourceRuntimeName);
+          const name = renderNamedType(type);
           return type.typeArguments.length === 0
             ? name
             : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
         }
         if (type.aliasTarget.kind === "intersection") {
+          const runtimeType = renderIntersectionRuntimeType(
+            type.aliasTarget,
+            context
+          );
+          if (runtimeType) return runtimeType;
           context.reportUnsupported(
             "intersection type alias target",
             "IntersectionType",
@@ -778,7 +1049,7 @@ export const renderCSharpType = (
         }
         return renderCSharpType(type.aliasTarget, context);
       }
-      const name = renderNamedType(type.name, type.sourceRuntimeName);
+      const name = renderNamedType(type);
       return type.typeArguments.length === 0
         ? name
         : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
@@ -797,17 +1068,21 @@ export const renderCSharpType = (
     case "union":
       return renderUnionType(type, context);
     case "intersection":
-      context.reportUnsupported(
-        "intersection type",
-        "IntersectionType",
-        type.sourceText ?? "intersection"
-      );
-      return "object?";
+      {
+        const runtimeType = renderIntersectionRuntimeType(type, context);
+        if (runtimeType) return runtimeType;
+        context.reportUnsupported(
+          "intersection type",
+          "IntersectionType",
+          type.sourceText ?? "intersection"
+        );
+        return "object?";
+      }
     case "function":
       return renderFunctionType(type, context);
     case "object":
       return shouldEmitStructuralObjectType(type)
-        ? context.getStructuralTypeName(type)
+        ? renderStructuralTypeReference(type, context)
         : "object?";
     case "predicate":
       return "bool";
@@ -885,7 +1160,7 @@ export const renderFunctionReturnType = (
   }
   const effectiveReturnType = returnType ?? objectTypePlan;
   const rendered = renderCSharpType(effectiveReturnType, context);
-  if (isTaskLikeTypePlan(returnType)) {
+  if (isTaskLikeTypePlan(returnType, context)) {
     return rendered;
   }
   if (!isAsync) return rendered;

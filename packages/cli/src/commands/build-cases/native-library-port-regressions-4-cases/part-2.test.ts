@@ -260,7 +260,7 @@ describe("build command (native library port regressions)", function () {
         "utf-8"
       );
       expect(generatedModule).to.include(
-        'global::js.String.trim("  airplane  ")'
+        'global::js.String.trim(((string)("  airplane  ")))'
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -4,9 +4,10 @@ import {
   readFileSync,
   statSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type {
   Diagnostic,
+  LoweringExternalBindingReferencePlan,
   LoweringDeclarationPlan,
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
@@ -22,7 +23,9 @@ type ExternalMemberMetadata = {
 };
 
 type ExternalTypeMetadata = {
+  readonly bindingFile: string;
   readonly targetName: string;
+  readonly sourceNames: readonly string[];
   readonly baseTypeName?: string;
   readonly interfaces: readonly string[];
   readonly members: readonly ExternalMemberMetadata[];
@@ -30,6 +33,9 @@ type ExternalTypeMetadata = {
 
 export type ExternalBindingMetadataIndex = {
   readonly diagnostics: readonly Diagnostic[];
+  readonly resolveTargetName: (
+    binding: LoweringExternalBindingReferencePlan
+  ) => string | undefined;
   readonly resolveOverrideAccessibility: (
     heritageTypes: readonly LoweringTypeRefPlan[],
     member: LoweringDeclarationPlan
@@ -38,6 +44,7 @@ export type ExternalBindingMetadataIndex = {
 
 const emptyIndex: ExternalBindingMetadataIndex = {
   diagnostics: [],
+  resolveTargetName: () => undefined,
   resolveOverrideAccessibility: () => undefined,
 };
 
@@ -124,12 +131,42 @@ const parseMembers = (
 const targetNameFromTypeRef = (value: unknown): string | undefined =>
   isObjectRecord(value) ? stringValue(value.targetName) : undefined;
 
-const parseType = (value: unknown): ExternalTypeMetadata | undefined => {
+const sourceNameForTargetName = (targetName: string): string | undefined => {
+  const normalizedTargetName = targetName.replace(/\+/gu, ".");
+  const lastDot = normalizedTargetName.lastIndexOf(".");
+  const simpleName =
+    lastDot >= 0
+      ? normalizedTargetName.slice(lastDot + 1)
+      : normalizedTargetName;
+  const unqualifiedName = simpleName.replace(/`\d+$/u, "");
+  if (unqualifiedName.length === 0) return undefined;
+  const arity = targetName.match(/`(\d+)$/u)?.[1];
+  return arity ? `${unqualifiedName}_${arity}` : unqualifiedName;
+};
+
+const typeSourceNames = (value: Record<string, unknown>, targetName: string): readonly string[] => {
+  const names = new Set<string>();
+  const alias = stringValue(value.alias);
+  const derived = sourceNameForTargetName(targetName);
+  for (const sourceName of [alias, derived]) {
+    if (!sourceName) continue;
+    names.add(sourceName);
+    names.add(`${sourceName}$instance`);
+  }
+  return [...names];
+};
+
+const parseType = (
+  bindingFile: string,
+  value: unknown
+): ExternalTypeMetadata | undefined => {
   if (!isObjectRecord(value)) return undefined;
   const targetName = stringValue(value.targetName);
   if (!targetName) return undefined;
   return {
+    bindingFile,
     targetName,
+    sourceNames: typeSourceNames(value, targetName),
     baseTypeName: targetNameFromTypeRef(value.baseType),
     interfaces: Array.isArray(value.interfaces)
       ? value.interfaces
@@ -146,6 +183,7 @@ const parseType = (value: unknown): ExternalTypeMetadata | undefined => {
 const parseBindingFile = (
   filePath: string
 ): { readonly types: readonly ExternalTypeMetadata[] } => {
+  const bindingFile = resolve(filePath);
   const json = JSON.parse(readFileSync(filePath, "utf-8")) as unknown;
   const types = isObjectRecord(json)
     ? isObjectRecord(json.targetSurface) && Array.isArray(json.targetSurface.types)
@@ -154,15 +192,26 @@ const parseBindingFile = (
     : [];
   return {
     types: types
-      .map(parseType)
+      .map((type) => parseType(bindingFile, type))
       .filter((type): type is ExternalTypeMetadata => type !== undefined),
   };
 };
 
+const externalBindingKey = (
+  binding: LoweringExternalBindingReferencePlan
+): string => `${resolve(binding.bindingFile)}#${binding.sourceName}`;
+
 const resolveHeritageOwnerNames = (
+  resolveTargetName: (
+    binding: LoweringExternalBindingReferencePlan
+  ) => string | undefined,
   type: LoweringTypeRefPlan
 ): readonly string[] => {
   if (type.kind !== "named") return [];
+  if (type.externalBinding) {
+    const targetName = resolveTargetName(type.externalBinding);
+    return targetName ? [normalizeRuntimeName(targetName)] : [];
+  }
   const sourceRuntimeName = sourceRuntimeNameKey(type.sourceRuntimeName);
   if (sourceRuntimeName) {
     return [normalizeRuntimeName(sourceRuntimeName)];
@@ -199,12 +248,32 @@ export const createExternalBindingMetadataIndex = (
 
   const diagnostics: Diagnostic[] = [];
   const byQualifiedName = new Map<string, ExternalTypeMetadata>();
+  const bySourceBinding = new Map<string, ExternalTypeMetadata | "ambiguous">();
+
+  const addSourceBinding = (type: ExternalTypeMetadata): void => {
+    for (const sourceName of type.sourceNames) {
+      const key = externalBindingKey({
+        bindingFile: type.bindingFile,
+        sourceName,
+      });
+      const existing = bySourceBinding.get(key);
+      if (!existing) {
+        bySourceBinding.set(key, type);
+        continue;
+      }
+      if (existing !== "ambiguous" && existing.targetName === type.targetName) {
+        continue;
+      }
+      bySourceBinding.set(key, "ambiguous");
+    }
+  };
 
   for (const root of roots) {
     for (const filePath of bindingFilesUnder(root)) {
       try {
         for (const type of parseBindingFile(filePath).types) {
           byQualifiedName.set(type.targetName, type);
+          addSourceBinding(type);
         }
       } catch (cause) {
         diagnostics.push({
@@ -251,12 +320,23 @@ export const createExternalBindingMetadataIndex = (
     return undefined;
   };
 
+  const resolveTargetName = (
+    binding: LoweringExternalBindingReferencePlan
+  ): string | undefined => {
+    const type = bySourceBinding.get(externalBindingKey(binding));
+    return type && type !== "ambiguous" ? type.targetName : undefined;
+  };
+
   return {
     diagnostics,
+    resolveTargetName,
     resolveOverrideAccessibility: (heritageTypes, member) => {
       if (!member.override || member.accessibilityExplicit) return undefined;
       for (const heritageType of heritageTypes) {
-        for (const ownerName of resolveHeritageOwnerNames(heritageType)) {
+        for (const ownerName of resolveHeritageOwnerNames(
+          resolveTargetName,
+          heritageType
+        )) {
           const accessibility = findMemberAccessibility(ownerName, member);
           if (accessibility) return accessibility;
         }

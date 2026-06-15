@@ -52,7 +52,7 @@ describe("Frontend Surface Profiles", () => {
       ]);
       expect(caps.includesCore).to.equal(false);
       expect(caps.requiredTypeRoots).to.not.include(
-        "node_modules/@tsonic/dotnet"
+        "node_modules/@tsonic/native-runtime"
       );
       expect(caps.requiredTypeRoots).to.include(resolve(packageRoot, "types"));
       expect(caps.requiredTypeRoots).to.include(
