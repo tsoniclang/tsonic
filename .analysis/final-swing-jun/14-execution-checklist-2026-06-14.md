@@ -16,14 +16,14 @@ Report this checklist every 15 minutes while long-running work is active.
 
 ```text
 branch: feature/tsts-final-completion
-latest pushed commit before this checkpoint: 1f938a44 Harden TSTS lowering and diagnostic metadata
-current local state: source runtime operation expansion, source-package runtime qualification, compile-time marker top-level filtering, AST/fact-backed C# renderer hardening, and source-attribute fact/lowering/rendering support ready to commit
-focused validation: @tsonic/frontend lowering plan builders/source-semantics attribute subset 2 passing / 0 failing; @tsonic/csharp-emitter attribute renderer subset 1 passing / 0 failing; previous @tsonic/frontend validator/maximus suites 260 passing / 0 failing; previous targeted native-library/source-package CLI subset 8 passing / 0 failing
+latest pushed commit before this checkpoint: 12be000b Move source attributes into TSTS lowering facts
+current local state: stale surface-profile member semantics removed from frontend/CLI product contracts, tests, and first-party fixtures
+focused validation: @tsonic/frontend surface profile subset 14 passing / 0 failing; @tsonic/cli surface profile subset 15 passing / 0 failing; previous @tsonic/frontend lowering plan builders/source-semantics attribute subset 2 passing / 0 failing; previous @tsonic/csharp-emitter attribute renderer subset 1 passing / 0 failing; previous @tsonic/frontend validator/maximus suites 260 passing / 0 failing; previous targeted native-library/source-package CLI subset 8 passing / 0 failing
 package validation: @tsonic/frontend full package test 418 passing / 0 failing; @tsonic/csharp-emitter full package test 3 passing / 0 failing
-build validation: @tsonic/tsts, @tsonic/frontend, and @tsonic/csharp-emitter build after current local changes
+build validation: @tsonic/tsts, @tsonic/frontend, @tsonic/csharp-emitter, and @tsonic/cli build after current local changes
 audit validation: product TSC import search clean outside vendored TSTS; frontend CLR/C#/System target leakage search clean; old IR/source-text emission decision search clean except diagnostics/token labels; message-substring capability gating removed
 full run-all: not restarted after current lowering sweep; final gates wait for code-completeness signoff
-not done: runtimeVisibility name-policy audit, final run-all, downstreams, branch hygiene, final PR report
+not done: runtimeVisibility name-policy audit, final stale frontend sweep, final run-all, downstreams, branch hygiene, final PR report
 ```
 
 ## Low-Level Work Items
@@ -49,7 +49,7 @@ not done: runtimeVisibility name-policy audit, final run-all, downstreams, branc
 | 3.1 | Fact keys | Tsonic facts use typed keys | Done | Search for string-keyed fact lookup |
 | 3.2 | Core imports | `@tsonic/core` imports resolve through extension identity | Done | Alias/shadow tests green |
 | 3.3 | Numeric primitives | Numeric primitive facts attach in source terms | Done | Emitted-output fixture proof |
-| 3.4 | Source package bindings | External bindings attach through canonical metadata | In progress | Source package fixture/downstream proof |
+| 3.4 | Source package bindings | External bindings attach through canonical metadata | Expanded | Surface-profile target member semantics removed from manifests/resolvers; source package fixture/downstream proof still pending |
 | 3.5 | Passing mode | `out`/`ref`/`inref` source facts are backend-neutral | In progress | Passing-mode validation and emit proof |
 | 3.6 | Attributes | Attribute slots are source facts, not CLR facts | Expanded | TSTS source fact, lowering plan, and C# renderer focused tests green; full attribute fixture proof pending |
 | 3.7 | Native diagnostics | Tsonic source restrictions run through extension diagnostics | Expanded | Capability-dependent diagnostics carry `capabilityFeatureKey` metadata |
@@ -77,7 +77,7 @@ not done: runtimeVisibility name-policy audit, final run-all, downstreams, branc
 | 6.6 | Member/index access | Member/index lookup delegated to TSTS | Partial | Fixtures green |
 | 6.7 | Control-flow/narrowing | No eager branch narrowing engine remains | Partial | Search audit and fixtures |
 | 6.8 | Attributes | Attribute handling moved to source facts/lowering | Expanded | Descriptor/application facts, lowering plans, and C# renderer support implemented; full fixture proof pending |
-| 6.9 | External source bindings | External binding facts use one manifest shape | Partial | No legacy/v1/v2 bridge audit |
+| 6.9 | External source bindings | External binding facts use one manifest shape | Expanded | `memberSemantics` surface-manifest parser/merger removed from frontend and CLI; source package fixture/downstream proof still pending |
 | 6.10 | Synthetic declarations | Synthetic declarations no longer depend on old IR | Partial | Compile/audit proof |
 | 7.1 | Delete `typescript` product imports | Product frontend does not import TSC | Clean in current product search | Final search gate |
 | 7.2 | Delete old graph extraction | No product import/export semantic walkers | Pending final search | Final search gate |
@@ -115,6 +115,7 @@ not done: runtimeVisibility name-policy audit, final run-all, downstreams, branc
 | Generic function aliases | C# module rendering used a module-wide alias map from source names | Source extension writes `genericFunctionAliasFactKey`; identifier plans carry `resolvedAliasName`; alias declarations carry `compileTimeOnly` | Focused generic-function tests green |
 | Enum initializers | C# enum rendering used `initializer.literalText ?? "0"` | C# enum rendering calls `renderExpression(member.initializer, context)` | C# emitter build green |
 | Marker declaration semantics | C# renderer filtered `extends struct` by checking `heritageType.name === "struct"` and had no plan fields for `field<T>` / `thisarg<T>` | TSTS source extension writes marker facts; lowering removes compile-time heritage markers and carries `sourceTypeKind`, `storageSemantics`, and `extensionReceiver` | Lowering marker projection test green; C# renderer struct/field/extension receiver tests green |
+| Surface member semantics | Surface manifests carried target/runtime member behavior such as `storageAccess: "arrayLength"`, `emittedMemberName: "Length"`, and borrowed mutation write-back | Surface manifests now carry only package surface data: extension chain, type roots, and package requirements; runtime/member behavior must come from TSTS facts/lowering plans | Product search for `memberSemantics`, `emittedMemberName`, `storageAccess`, `borrowedMutationWriteBack`, `returnsArray`, `returnsReceiver`, and `mutatesReceiver` is clean |
 | Audit result | Legacy string/parser patterns existed in lowering/emitter | Targeted audit reports only diagnostic source snippets, diagnostic `sourceFile.Text()`, and AST token reads for names/literals | Audit command: `rg 'Node_Text\\(|\\.Text\\(|sourceText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|literalText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|nameSourceText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|expressionRootName|buildGenericFunctionAliasMap|expressionAliases|LoweringExpressionAliasPlan|typeText|returnTypeText|declaredTypeText|contextualTypeText|operatorText' packages/frontend/src packages/targets/csharp/emitter/src -g '*.ts'` |
 
 Concrete source example now covered:
