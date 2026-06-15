@@ -41,9 +41,10 @@ const renderParameter = (
     parameter.rest && parameter.type?.kind === "array"
       ? `${renderCSharpType(parameter.type.elementType, context)}[]`
       : parameter.optional || parameter.initializer
-        ? renderNullableCSharpType(parameter.type, context)
-        : renderCSharpType(parameter.type, context);
-  return `${restModifier}${type} ${sanitizeIdentifier(parameter.name)}${initializer}`;
+      ? renderNullableCSharpType(parameter.type, context)
+      : renderCSharpType(parameter.type, context);
+  const receiverModifier = parameter.extensionReceiver ? "this " : "";
+  return `${restModifier}${receiverModifier}${type} ${sanitizeIdentifier(parameter.name)}${initializer}`;
 };
 
 const renderTypeParameters = (
@@ -255,6 +256,9 @@ const renderProperty = (
   const accessibility =
     context.overrideMemberAccessibility(heritageTypes, plan) ??
     plan.accessibility;
+  if (plan.storageSemantics === "field") {
+    return `${accessibility} ${staticModifier}${type} ${sanitizeIdentifier(declarationName)}${initializer};`;
+  }
   return `${accessibility} ${staticModifier}${overrideModifier}${type} ${sanitizeIdentifier(declarationName)} { get; set; }${initializer}${suffix}`;
 };
 
@@ -353,14 +357,12 @@ const renderClass = (
   const declarationName = requireDeclarationName(plan, context, "class");
   if (!declarationName) return undefined;
   const members = coalesceAccessorMembers(plan.members);
-  const heritage = plan.heritageTypes
-    .filter(
-      (heritageType) =>
-        !(heritageType.kind === "named" && heritageType.name === "struct")
-    )
-    .map((heritageType) => renderCSharpType(heritageType, context));
+  const heritage = plan.heritageTypes.map((heritageType) =>
+    renderCSharpType(heritageType, context)
+  );
   const heritageClause =
     heritage.length > 0 ? ` : ${heritage.join(", ")}` : "";
+  const declarationKeyword = plan.sourceTypeKind === "struct" ? "struct" : "class";
   const constructorPrologueStatements = members
     .filter(
       (member) =>
@@ -390,7 +392,7 @@ const renderClass = (
         )
       : undefined;
   return [
-    `public class ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}${heritageClause}`,
+    `public ${declarationKeyword} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}${heritageClause}`,
     "{",
     ...members
       .map((member) =>
@@ -709,6 +711,9 @@ export const renderDeclaration = (
     case "function":
       return renderFunction(plan, context, false);
     case "interface":
+      if (plan.sourceTypeKind === "struct") {
+        return renderClass(plan, context);
+      }
       return renderInterface(plan, context);
     case "variable":
       return renderVariable(plan, context);

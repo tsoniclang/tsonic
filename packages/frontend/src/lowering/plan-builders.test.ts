@@ -285,4 +285,44 @@ describe("TSTS-backed lowering plan builders", () => {
 
     expectSourcePrimitive(call.type, "int32");
   });
+
+  it("projects marker source facts into declaration and parameter plans", () => {
+    const result = lowerProgram(`
+      import type { int, struct } from "@tsonic/core/types.js";
+      import type { field, Interface, thisarg } from "@tsonic/core/lang.js";
+
+      export interface Point extends struct {
+        x: field<int>;
+        y: int;
+      }
+
+      export interface Contract {}
+      export class Service implements Interface<Contract> {}
+      export function inc(value: thisarg<int>): int {
+        return value;
+      }
+    `);
+
+    const [module] = result.modules;
+    const point = module?.declarations.find(
+      (declaration) => declaration.name === "Point"
+    );
+    const service = module?.declarations.find(
+      (declaration) => declaration.name === "Service"
+    );
+    const inc = module?.declarations.find(
+      (declaration) => declaration.name === "inc"
+    );
+
+    expect(point?.sourceTypeKind).to.equal("struct");
+    expect(point?.heritageTypes).to.deep.equal([]);
+    expect(
+      point?.members.find((member) => member.name === "x")?.storageSemantics
+    ).to.equal("field");
+    expect(
+      point?.members.find((member) => member.name === "y")?.storageSemantics
+    ).to.equal(undefined);
+    expect(service?.heritageTypes).to.deep.equal([]);
+    expect(inc?.parameters[0]?.extensionReceiver).to.equal(true);
+  });
 });

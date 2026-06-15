@@ -17,15 +17,25 @@ import type {
 } from "@tsonic/tsts";
 import {
   expressionSemanticsFactKey,
+  extensionReceiverSemanticsFactKey,
+  fieldSemanticsFactKey,
   genericFunctionAliasFactKey,
+  heritageWrapperSemanticsFactKey,
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
   sourceBindingIdentityFactKey,
   sourceRuntimeOperationFactKey,
+  sourceTypeSemanticsFactKey,
   wellKnownComputedNameFactKey,
 } from "../source-frontend/source-facts.js";
+import {
+  isExtensionReceiverFact,
+  isFieldStorageFact,
+  isHeritageInterfaceErasure,
+  isSourceTypeKind,
+} from "../source-frontend/source-fact-queries.js";
 import type { SourceBindingIdentityFact } from "../source-frontend/source-facts.js";
 import type {
   LoweringBinaryOperator,
@@ -637,6 +647,37 @@ const sourceRuntimeNameForSourceBindingNode = (
         target
       )
     : undefined;
+
+const isCompileTimeHeritageMarker = (
+  context: LoweringBuildContext,
+  heritage: TstsNode | undefined
+): boolean =>
+  heritage !== undefined &&
+  (isSourceTypeKind(
+    context.input.facts.get(sourceTypeSemanticsFactKey, heritage),
+    "struct"
+  ) ||
+    isHeritageInterfaceErasure(
+      context.input.facts.get(heritageWrapperSemanticsFactKey, heritage)
+    ));
+
+const runtimeHeritageTypeNodes = (
+  context: LoweringBuildContext,
+  declaration: TstsNode
+): readonly TstsNode[] =>
+  getTstsHeritageTypeNodes(declaration).filter(
+    (heritage): heritage is TstsNode =>
+      heritage !== undefined && !isCompileTimeHeritageMarker(context, heritage)
+  );
+
+const hasExtensionReceiverFact = (
+  context: LoweringBuildContext,
+  node: TstsNode | undefined
+): boolean =>
+  node !== undefined &&
+  isExtensionReceiverFact(
+    context.input.facts.get(extensionReceiverSemanticsFactKey, node)
+  );
 
 const sourceRuntimeNameSegments = (
   sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
@@ -2551,8 +2592,7 @@ const typeSubstitutionsFromDeclarationToOwner = (
     return currentSubstitutions;
   }
   const checker = context.checkerForSourceFile(declarationSourceFile);
-  for (const heritage of getTstsHeritageTypeNodes(declaration)) {
-    if (!heritage) continue;
+  for (const heritage of runtimeHeritageTypeNodes(context, declaration)) {
     const heritageSourceFile = sourceFileForNode(heritage, declarationSourceFile);
     const heritageType = checker.getTypeFromTypeNode(heritage);
     const heritageDeclaration = classOrInterfaceDeclarationForType(
@@ -3827,6 +3867,9 @@ const parameterPlans = (
         rest:
           TstsSyntax.AsParameterDeclaration(parameter)?.DotDotDotToken !==
           undefined,
+        extensionReceiver:
+          hasExtensionReceiverFact(context, parameter) ||
+          hasExtensionReceiverFact(context, explicitType),
       };
     });
 
@@ -3852,7 +3895,7 @@ const baseConstructorParameters = (
   context: LoweringBuildContext
 ): readonly LoweringParameterPlan[] => {
   if (node.Kind !== TstsSyntax.KindClassDeclaration) return [];
-  const heritage = getTstsHeritageTypeNodes(node)[0];
+  const heritage = runtimeHeritageTypeNodes(context, node)[0];
   if (!heritage) return [];
   const checker = context.checkerForSourceFile(sourceFile);
   const heritageType = checker.getTypeFromTypeNode(heritage);
@@ -3968,7 +4011,14 @@ const declarationPlan = (
             explicitReturnType
           )
         : undefined,
-    heritageTypes: getTstsHeritageTypeNodes(node)
+    sourceTypeKind: context.input.facts.get(sourceTypeSemanticsFactKey, node)
+      ?.kind,
+    storageSemantics: isFieldStorageFact(
+      context.input.facts.get(fieldSemanticsFactKey, node)
+    )
+      ? "field"
+      : undefined,
+    heritageTypes: runtimeHeritageTypeNodes(context, node)
       .map((heritage) => sourceTypePlan(context, sourceFile, heritage))
       .filter(
         (heritage): heritage is LoweringTypeRefPlan => heritage !== undefined

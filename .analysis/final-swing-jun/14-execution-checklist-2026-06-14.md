@@ -23,7 +23,7 @@ package validation: @tsonic/frontend full package test 418 passing / 0 failing; 
 build validation: @tsonic/tsts, @tsonic/frontend, and @tsonic/csharp-emitter build after current local changes
 audit validation: product TSC import search clean outside vendored TSTS; frontend CLR/C#/System target leakage search clean; old IR/source-text emission decision search clean except diagnostics/token labels; message-substring capability gating removed
 full run-all: not restarted after current lowering sweep; final gates wait for code-completeness signoff
-not done: final run-all, downstreams, branch hygiene, final PR report
+not done: runtimeVisibility name-policy audit, final run-all, downstreams, branch hygiene, final PR report
 ```
 
 ## Low-Level Work Items
@@ -53,7 +53,7 @@ not done: final run-all, downstreams, branch hygiene, final PR report
 | 3.5 | Passing mode | `out`/`ref`/`inref` source facts are backend-neutral | In progress | Passing-mode validation and emit proof |
 | 3.6 | Attributes | Attribute slots are source facts, not CLR facts | In progress | Attribute fixture and backend render proof |
 | 3.7 | Native diagnostics | Tsonic source restrictions run through extension diagnostics | Expanded | Capability-dependent diagnostics carry `capabilityFeatureKey` metadata |
-| 3.8 | Fact tests | Every fact family has positive/negative tests | Expanded | Expression/computed-name fact tests green; continue remaining groups |
+| 3.8 | Fact tests | Every fact family has positive/negative tests | Expanded | Expression/computed-name facts green; marker projection and C# struct/field/extension receiver tests green |
 | 4.1 | TSTS builder | Program builder invokes TSTS | Done | Final product audit |
 | 4.2 | Extension registration | Tsonic source extension is registered by default | Done | Creation tests green |
 | 4.3 | Diagnostic adaptation | TSTS and extension diagnostics are converted once | Expanded | Message-based suppression deleted; validator suites 260 passing |
@@ -61,7 +61,7 @@ not done: final run-all, downstreams, branch hygiene, final PR report
 | 4.5 | Checker/facts exposure | Lowering can query TSTS checker and fact store | Done | Lowering tests green |
 | 4.6 | Fixture comparisons | Key fixtures prove equivalent or intended behavior | Partial | Focused fixtures green |
 | 5.1 | LoweringInput | Lowering reads TSTS program/facts/checker | Done | Compile/test proof |
-| 5.2 | Module/declaration plans | Declarations lower as AST/fact-backed plans | Expanded | Top-level structural helper collection covered by C# module renderer test |
+| 5.2 | Module/declaration plans | Declarations lower as AST/fact-backed plans | Expanded | TSTS marker facts now project into declaration/parameter plans; top-level structural helper collection covered by C# module renderer test |
 | 5.3 | Type plans | Types render from source plans/facts | Expanded | Source primitive use-sites, alias targets, and recursive alias guard covered; full emitted fixtures still required |
 | 5.4 | Expression/statement plans | Expressions/statements lower through plan builders | Expanded | New lowering and renderer tests green |
 | 5.5 | Call plans | Calls use TSTS signatures, not local overload scoring | In progress | Generic alias emission now fact-backed; remaining overload fixtures pending |
@@ -70,7 +70,7 @@ not done: final run-all, downstreams, branch hygiene, final PR report
 | 5.8 | Synthetic declarations | Synthetic declarations are backend-neutral plan artifacts | Partial | Audit and fixture proof |
 | 5.9 | Capability validation | Capability checks use source-feature terms | Expanded | Capability filtering is keyed by feature metadata; validator suites 260 passing |
 | 6.1 | Module graph/diagnostics | TSTS owns semantic module graph | Partial | Type-root/package tests green |
-| 6.2 | Declarations/exports | Exports/declarations use TSTS graph/checker | In progress | Declaration/export fixtures green |
+| 6.2 | Declarations/exports | Exports/declarations use TSTS graph/checker | Expanded | `struct`, `field<T>`, `Interface<T>`, and `thisarg<T>` are plan facts, not renderer source-name checks |
 | 6.3 | Type refs/numerics | Type references use facts/checker | Expanded | Lowering tests prove `int`/`char` and recursive aliases; emitted fixture proof still required |
 | 6.4 | Expressions/literals | Expression plans cover required source forms | Expanded | Char literals, array spread, and structural alias helper renderer tests green |
 | 6.5 | Calls/overloads | Overload/generic resolution delegated to TSTS | Partial | Generic-function-value failures fixed |
@@ -114,6 +114,7 @@ not done: final run-all, downstreams, branch hygiene, final PR report
 | Well-known computed names | Lowering recognized `[Symbol.iterator]` and `[Symbol.asyncIterator]` by `Node_Text` on receiver/member | TSTS source extension writes `wellKnownComputedNameFactKey`; declaration lowering consumes the fact | `source-semantics.test.js`: ambient/global positives and local-shadow negatives |
 | Generic function aliases | C# module rendering used a module-wide alias map from source names | Source extension writes `genericFunctionAliasFactKey`; identifier plans carry `resolvedAliasName`; alias declarations carry `compileTimeOnly` | Focused generic-function tests green |
 | Enum initializers | C# enum rendering used `initializer.literalText ?? "0"` | C# enum rendering calls `renderExpression(member.initializer, context)` | C# emitter build green |
+| Marker declaration semantics | C# renderer filtered `extends struct` by checking `heritageType.name === "struct"` and had no plan fields for `field<T>` / `thisarg<T>` | TSTS source extension writes marker facts; lowering removes compile-time heritage markers and carries `sourceTypeKind`, `storageSemantics`, and `extensionReceiver` | Lowering marker projection test green; C# renderer struct/field/extension receiver tests green |
 | Audit result | Legacy string/parser patterns existed in lowering/emitter | Targeted audit reports only diagnostic source snippets, diagnostic `sourceFile.Text()`, and AST token reads for names/literals | Audit command: `rg 'Node_Text\\(|\\.Text\\(|sourceText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|literalText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|nameSourceText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|expressionRootName|buildGenericFunctionAliasMap|expressionAliases|LoweringExpressionAliasPlan|typeText|returnTypeText|declaredTypeText|contextualTypeText|operatorText' packages/frontend/src packages/targets/csharp/emitter/src -g '*.ts'` |
 
 Concrete source example now covered:

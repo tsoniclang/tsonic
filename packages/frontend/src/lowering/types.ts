@@ -12,9 +12,11 @@ import type {
 } from "@tsonic/tsts";
 import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
 import type {
+  FieldSemanticsFact,
   IntrinsicSemanticsFact,
   NumericPrimitiveFact,
   ParameterPassingMode,
+  SourceTypeSemanticsFact,
   SourceRuntimeOperationFact,
 } from "../source-frontend/source-facts.js";
 import type { TstsSourceProgram } from "../source-frontend/index.js";
@@ -197,6 +199,7 @@ export type LoweringParameterPlan = {
   readonly initializer?: LoweringExpressionPlan;
   readonly optional: boolean;
   readonly rest: boolean;
+  readonly extensionReceiver?: boolean;
 };
 
 export type LoweringVariablePlan = {
@@ -254,6 +257,8 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
   readonly declaredTypePlan?: LoweringTypeRefPlan;
   readonly typeAliasTarget?: LoweringTypeRefPlan;
   readonly heritageTypes: readonly LoweringTypeRefPlan[];
+  readonly sourceTypeKind?: SourceTypeSemanticsFact["kind"];
+  readonly storageSemantics?: FieldSemanticsFact["storage"];
   readonly baseConstructorParameters: readonly LoweringParameterPlan[];
   readonly parameters: readonly LoweringParameterPlan[];
   readonly typeParameters: readonly string[];

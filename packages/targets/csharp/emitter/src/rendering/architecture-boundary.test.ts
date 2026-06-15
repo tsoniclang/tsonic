@@ -69,6 +69,7 @@ describe("C# emitter architecture boundary", () => {
     expect(
       matchingLines([
         'rawMember === "length"',
+        'heritageType.name === "struct"',
         'operation.member !== "length"',
         'operation.member === "length" && !plan.sourceOperation',
       ])
