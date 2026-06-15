@@ -102,6 +102,19 @@ const symbolValueOrSingleDeclaration = (
   return declarations.length === 1 ? declarations[0] : undefined;
 };
 
+const singleSymbolDeclaration = (
+  checker: ReturnType<LoweringBuildContext["checkerForSourceFile"]>,
+  symbol: TstsSymbol | undefined,
+  predicate: (node: TstsNode) => boolean
+): TstsNode | undefined => {
+  if (!symbol) return undefined;
+  const declarations = checker
+    .getSymbolDeclarations(symbol)
+    .filter((candidate): candidate is TstsNode => candidate !== undefined)
+    .filter(predicate);
+  return declarations.length === 1 ? declarations[0] : undefined;
+};
+
 type NodeNameInfo = {
   readonly name?: string;
   readonly sourceKindName?: string;
@@ -1332,13 +1345,11 @@ const sourceTypeAliasTargetPlan = (
   const type = checker.getTypeFromTypeNode(node);
   const directSymbol = checker.getSymbolAtLocation(node);
   const directTypeAliasDeclaration = directSymbol
-    ? checker
-        .getSymbolDeclarations(directSymbol)
-        .find(
-          (candidate): candidate is TstsNode =>
-            candidate !== undefined &&
-            candidate.Kind === TstsSyntax.KindTypeAliasDeclaration
-        )
+    ? singleSymbolDeclaration(
+        checker,
+        directSymbol,
+        (candidate) => candidate.Kind === TstsSyntax.KindTypeAliasDeclaration
+      )
     : undefined;
   const symbol = directTypeAliasDeclaration
     ? directSymbol
@@ -1347,14 +1358,13 @@ const sourceTypeAliasTargetPlan = (
       : undefined;
   const declaration = symbol
     ? directTypeAliasDeclaration ??
-      checker
-          .getSymbolDeclarations(symbol)
-          .find(
-            (candidate): candidate is TstsNode =>
-              candidate !== undefined &&
-              (candidate.Kind === TstsSyntax.KindTypeAliasDeclaration ||
-                candidate.Kind === TstsSyntax.KindInterfaceDeclaration)
-          )
+      singleSymbolDeclaration(
+        checker,
+        symbol,
+        (candidate) =>
+          candidate.Kind === TstsSyntax.KindTypeAliasDeclaration ||
+          candidate.Kind === TstsSyntax.KindInterfaceDeclaration
+      )
     : undefined;
   const interfaceCallSignature = declaration
     ? singleInterfaceCallSignature(declaration)
@@ -1489,14 +1499,13 @@ const checkerTypeAliasTargetPlan = (
   const checker = context.checkerForSourceFile(sourceFile);
   const symbol = checker.getTypeAliasOrSymbol(type);
   const declaration = symbol
-    ? checker
-        .getSymbolDeclarations(symbol)
-        .find(
-          (candidate): candidate is TstsNode =>
-            candidate !== undefined &&
-            (candidate.Kind === TstsSyntax.KindTypeAliasDeclaration ||
-              candidate.Kind === TstsSyntax.KindInterfaceDeclaration)
-        )
+    ? singleSymbolDeclaration(
+        checker,
+        symbol,
+        (candidate) =>
+          candidate.Kind === TstsSyntax.KindTypeAliasDeclaration ||
+          candidate.Kind === TstsSyntax.KindInterfaceDeclaration
+      )
     : undefined;
   const interfaceCallSignature = declaration
     ? singleInterfaceCallSignature(declaration)
@@ -2532,10 +2541,11 @@ const objectMemberExpectedType = (
     return objectMemberExpectedType(type.aliasTarget, propertyName);
   }
   if (!propertyName || type?.kind !== "object") return undefined;
-  const member = type.members.find(
+  const members = type.members.filter(
     (candidate) =>
       candidate.kind === "property" && candidate.name === propertyName
   );
+  const member = members.length === 1 ? members[0] : undefined;
   return member?.kind === "property" ? member.type : undefined;
 };
 
@@ -2909,11 +2919,13 @@ const memberStorageTypeFromDeclaration = (
     typeParameterNames(declarationSourceFile, declaration),
     typeArguments
   );
-  const memberDeclaration = (TstsSyntax.Node_Members(declaration) ?? []).find(
+  const memberDeclarations = (TstsSyntax.Node_Members(declaration) ?? []).filter(
     (member): member is TstsNode =>
       member !== undefined &&
       propertyNameInfo(declarationSourceFile, member, context).name === memberName
   );
+  const memberDeclaration =
+    memberDeclarations.length === 1 ? memberDeclarations[0] : undefined;
   if (!memberDeclaration) return undefined;
   const memberPlan = typeMemberPlan(
     declarationSourceFile,
@@ -2971,11 +2983,12 @@ const memberStorageTypeFromTypePlan = (
       }
       return undefined;
     case "object": {
-      const member = type.members.find(
+      const members = type.members.filter(
         (candidate) =>
           (candidate.kind === "property" || candidate.kind === "method") &&
           candidate.name === memberName
       );
+      const member = members.length === 1 ? members[0] : undefined;
       return memberStorageTypeFromMemberPlan(member);
     }
     case "union": {
@@ -3710,10 +3723,11 @@ const typeAtBindingAccess = (
       return undefined;
     }
     if (current?.kind !== "object") return undefined;
-    const member = current.members.find(
+    const members = current.members.filter(
       (candidate) =>
         candidate.kind === "property" && candidate.name === access.name
     );
+    const member = members.length === 1 ? members[0] : undefined;
     current = member?.kind === "property" ? member.type : undefined;
   }
   return current;
@@ -4220,18 +4234,17 @@ const baseConstructorParameters = (
     ? checker.getTypeAliasOrSymbol(heritageType)
     : undefined;
   const baseDeclaration = symbol
-    ? checker
-        .getSymbolDeclarations(symbol)
-        .find(
-          (candidate): candidate is TstsNode =>
-            candidate !== undefined &&
-            candidate.Kind === TstsSyntax.KindClassDeclaration
-        )
+    ? singleSymbolDeclaration(
+        checker,
+        symbol,
+        (candidate) => candidate.Kind === TstsSyntax.KindClassDeclaration
+      )
     : undefined;
-  const constructor = (TstsSyntax.Node_Members(baseDeclaration) ?? []).find(
+  const constructors = (TstsSyntax.Node_Members(baseDeclaration) ?? []).filter(
     (member): member is TstsNode =>
       member !== undefined && member.Kind === TstsSyntax.KindConstructor
   );
+  const constructor = constructors.length === 1 ? constructors[0] : undefined;
   if (!baseDeclaration || !constructor || !heritageType) return [];
   const baseSourceFile = sourceFileForNode(baseDeclaration, sourceFile);
   const substitutions = aliasTypeSubstitutions(

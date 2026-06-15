@@ -1062,6 +1062,16 @@ const symbolForName = (
   return symbol ? context.checker.resolveAlias(symbol) : undefined;
 };
 
+const singleDeclaration = (
+  declarations: readonly (TstsNode | undefined)[],
+  predicate: (declaration: TstsNode) => boolean
+): TstsNode | undefined => {
+  const matches = declarations
+    .filter((declaration): declaration is TstsNode => declaration !== undefined)
+    .filter(predicate);
+  return matches.length === 1 ? matches[0] : undefined;
+};
+
 const variableDeclarationKind = (
   declaration: TstsNode
 ): "const" | "let" | "var" | undefined => {
@@ -1118,9 +1128,9 @@ const sourceBindingIdentityFact = (
   const declarations = context.checker.getSymbolDeclarations(symbol);
   const declaration =
     valueDeclaration ??
-    declarations.find(
-      (candidate): candidate is TstsNode =>
-        sourceBindingDeclarationKind(candidate) !== undefined
+    singleDeclaration(
+      declarations,
+      (candidate) => sourceBindingDeclarationKind(candidate) !== undefined
     );
   const declarationKind = sourceBindingDeclarationKind(declaration);
   if (!declaration || !declarationKind) return undefined;
@@ -1448,27 +1458,25 @@ const attributeTypeTargetDeclaration = (
     ? context.checker.resolveAlias(directSymbol)
     : typeSymbol;
   return symbol
-    ? context.checker
-        .getSymbolDeclarations(symbol)
-        .find(
-          (declaration): declaration is TstsNode =>
-            declaration !== undefined &&
-            [
-              TstsSyntax.KindClassDeclaration,
-              TstsSyntax.KindInterfaceDeclaration,
-              TstsSyntax.KindEnumDeclaration,
-              TstsSyntax.KindTypeAliasDeclaration,
-            ].includes(declaration.Kind)
-        )
+    ? singleDeclaration(
+        context.checker.getSymbolDeclarations(symbol),
+        (declaration) =>
+          [
+            TstsSyntax.KindClassDeclaration,
+            TstsSyntax.KindInterfaceDeclaration,
+            TstsSyntax.KindEnumDeclaration,
+            TstsSyntax.KindTypeAliasDeclaration,
+          ].includes(declaration.Kind)
+      )
     : undefined;
 };
 
 const constructorDeclarationForType = (
   declaration: TstsNode
 ): TstsNode | undefined =>
-  (TstsSyntax.Node_Members(declaration) ?? []).find(
-    (member): member is TstsNode =>
-      member !== undefined && member.Kind === TstsSyntax.KindConstructor
+  singleDeclaration(
+    TstsSyntax.Node_Members(declaration) ?? [],
+    (member) => member.Kind === TstsSyntax.KindConstructor
   );
 
 const memberDeclarationByName = (
@@ -1476,8 +1484,8 @@ const memberDeclarationByName = (
   name: string,
   targetKind: Extract<SourceAttributeTargetKind, "method" | "property">
 ): TstsNode | undefined =>
-  (TstsSyntax.Node_Members(owner) ?? []).find((member): member is TstsNode => {
-    if (!member || getTstsNodeNameText(member) !== name) return false;
+  singleDeclaration(TstsSyntax.Node_Members(owner) ?? [], (member) => {
+    if (getTstsNodeNameText(member) !== name) return false;
     return targetKind === "method"
       ? member.Kind === TstsSyntax.KindMethodDeclaration
       : [
@@ -1501,9 +1509,10 @@ const selectedMemberDeclaration = (
   const name = TstsSyntax.Node_Name(body);
   const symbol = symbolForName(context, name);
   const declaration = symbol
-    ? context.checker
-        .getSymbolDeclarations(symbol)
-        .find((candidate): candidate is TstsNode => candidate !== undefined)
+    ? singleDeclaration(
+        context.checker.getSymbolDeclarations(symbol),
+        () => true
+      )
     : undefined;
   return (
     declaration ??
