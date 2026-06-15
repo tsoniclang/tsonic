@@ -34,8 +34,7 @@ const isBoundaryFile = (filePath: string): boolean => {
     normalized.includes("-cases/") ||
     normalized.startsWith("lowering/") ||
     normalized === "source-frontend/tsts-semantic-view.ts" ||
-    normalized === "tsonic-extension/source-semantics.ts" ||
-    normalized === "types/test-harness.ts"
+    normalized === "tsonic-extension/source-semantics.ts"
   );
 };
 
