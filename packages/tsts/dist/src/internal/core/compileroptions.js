@@ -1,4 +1,4 @@
-import { OrderedMap_Size } from "../collections/ordered_map.js";
+import { NewOrderedMapWithSizeHint, OrderedMap_Size } from "../collections/ordered_map.js";
 import * as slices from "../../go/slices.js";
 import * as strings from "../../go/strings.js";
 import { CombinePaths, ForEachAncestorDirectory, GetDirectoryPath } from "../tspath/path.js";
@@ -162,6 +162,7 @@ export function NormalizeCompilerOptions(options) {
     target.ModuleDetection ??= 0;
     target.NewLine ??= 0;
     target.Target ??= 0;
+    target.Paths ??= NewOrderedMapWithSizeHint(0);
     return options;
 }
 /**

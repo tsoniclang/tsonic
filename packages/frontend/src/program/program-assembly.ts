@@ -229,6 +229,8 @@ export const createProgram = (
   try {
     sourceProgram = createTstsSourceProgram(allFiles, {
       projectRoot: options.projectRoot,
+      moduleResolutionPaths: discovery.moduleResolutionPaths,
+      moduleResolutionBaseUrl: options.projectRoot,
       runExtensionChecks: true,
       sourceDiagnosticFileNames: discovery.emittableSourceFiles.filter(
         (filePath) => isFileUnderDirectory(filePath, options.sourceRoot)

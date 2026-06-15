@@ -284,6 +284,8 @@ const renderClassMember = (
     case "constructor":
       return renderConstructor(plan, context, className, constructorPrologueStatements);
     case "property":
+    case "get-accessor":
+    case "set-accessor":
       return renderProperty(plan, context, heritageTypes);
     case "index-signature":
       return renderIndexSignature(plan.parameters, plan.returnType, context, true);
@@ -297,10 +299,14 @@ const renderClassMember = (
   }
 };
 
+const isPropertyLikeDeclaration = (member: LoweringDeclarationPlan): boolean =>
+  member.declarationKind === "property" ||
+  member.declarationKind === "get-accessor" ||
+  member.declarationKind === "set-accessor";
+
 const isAccessorProperty = (member: LoweringDeclarationPlan): boolean =>
-  member.declarationKind === "property" &&
-  (member.sourceKindName === "KindGetAccessor" ||
-    member.sourceKindName === "KindSetAccessor");
+  member.declarationKind === "get-accessor" ||
+  member.declarationKind === "set-accessor";
 
 const coalesceAccessorMembers = (
   members: readonly LoweringDeclarationPlan[]
@@ -358,7 +364,7 @@ const renderClass = (
   const constructorPrologueStatements = members
     .filter(
       (member) =>
-        member.declarationKind === "property" &&
+        isPropertyLikeDeclaration(member) &&
         !member.static &&
         member.initializer !== undefined &&
         requireDeclarationName(member, context, "property") !== undefined
@@ -409,9 +415,10 @@ const renderInterfaceMember = (
   context: RenderContext
 ): string | undefined => {
   switch (plan.declarationKind) {
-    case "method": {
+    case "method":
+    case "call-signature": {
       const name =
-        plan.sourceKindName === "KindCallSignature"
+        plan.declarationKind === "call-signature"
           ? "Invoke"
           : requireDeclarationName(plan, context, "interface member");
       if (!name) return undefined;
@@ -420,7 +427,9 @@ const renderInterfaceMember = (
         .join(", ");
       return `${renderCSharpType(plan.returnType, context)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
     }
-    case "property": {
+    case "property":
+    case "get-accessor":
+    case "set-accessor": {
       const name = requireDeclarationName(plan, context, "interface member");
       if (!name) return undefined;
       return `${renderCSharpType(plan.returnType ?? plan.declaredTypePlan, context)} ${sanitizeIdentifier(name)} { get; set; }`;
@@ -445,8 +454,7 @@ const renderInterface = (
   if (!declarationName) return undefined;
   const callSignature =
     plan.members.length === 1 &&
-    plan.members[0]?.declarationKind === "method" &&
-    plan.members[0].sourceKindName === "KindCallSignature"
+    plan.members[0]?.declarationKind === "call-signature"
       ? plan.members[0]
       : undefined;
   if (callSignature) {
@@ -455,7 +463,7 @@ const renderInterface = (
       .join(", ");
     return `public delegate ${renderCSharpType(callSignature.returnType, context)} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
   }
-  if (plan.members.every((member) => member.declarationKind === "property")) {
+  if (plan.members.every(isPropertyLikeDeclaration)) {
     return [
       `public sealed class ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}`,
       "{",
@@ -707,6 +715,10 @@ export const renderDeclaration = (
     case "type-alias":
       return renderTypeAlias(plan, context);
     case "method":
+    case "call-signature":
+    case "construct-signature":
+    case "get-accessor":
+    case "set-accessor":
     case "constructor":
     case "index-signature":
     case "property":

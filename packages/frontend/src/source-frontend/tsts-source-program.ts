@@ -33,6 +33,8 @@ export type TstsSourceProgram = {
 export type CreateTstsSourceProgramOptions = {
   readonly extensions?: readonly CompilerExtension[];
   readonly projectRoot?: string;
+  readonly moduleResolutionPaths?: Readonly<Record<string, readonly string[]>>;
+  readonly moduleResolutionBaseUrl?: string;
   readonly runSemanticChecks?: boolean;
   readonly runExtensionChecks?: boolean;
   readonly sourceDiagnosticFileNames?: readonly string[];
@@ -54,6 +56,8 @@ export const createTstsSourceProgram = (
   const extensions = options.extensions ?? defaultExtensions(options);
   const compiledSource = createCompilerSourceProgram(filePaths, {
     projectRoot: options.projectRoot,
+    moduleResolutionPaths: options.moduleResolutionPaths,
+    moduleResolutionBaseUrl: options.moduleResolutionBaseUrl,
     extensions,
     runSemanticChecks: options.runSemanticChecks === true,
     runExtensionChecks: options.runExtensionChecks === true,

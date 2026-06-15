@@ -126,7 +126,8 @@ export type LoweringTypeRefPlan =
         | "class"
         | "enum"
         | "interface"
-        | "type-alias";
+        | "type-alias"
+        | "type-parameter";
       readonly sourceText?: string;
     }
   | {
@@ -233,8 +234,12 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
     | "class"
     | "enum"
     | "function"
+    | "call-signature"
+    | "construct-signature"
     | "interface"
     | "method"
+    | "get-accessor"
+    | "set-accessor"
     | "constructor"
     | "index-signature"
     | "property"

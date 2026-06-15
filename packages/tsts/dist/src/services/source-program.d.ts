@@ -9,6 +9,8 @@ import type { TranspileCompilerOptions } from "./transpile.js";
 export type CreateCompilerSourceProgramOptions = {
     readonly projectRoot?: string;
     readonly compilerOptions?: TranspileCompilerOptions;
+    readonly moduleResolutionPaths?: Readonly<Record<string, readonly string[]>>;
+    readonly moduleResolutionBaseUrl?: string;
     readonly extensions?: readonly CompilerExtension[];
     readonly runSemanticChecks?: boolean;
     readonly runExtensionChecks?: boolean;

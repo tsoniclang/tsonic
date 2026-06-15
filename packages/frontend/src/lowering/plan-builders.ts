@@ -706,6 +706,8 @@ const namedDeclarationKindForDeclaration = (
       return "interface";
     case TstsSyntax.KindTypeAliasDeclaration:
       return "type-alias";
+    case TstsSyntax.KindTypeParameter:
+      return "type-parameter";
     default:
       return undefined;
   }
@@ -3738,16 +3740,20 @@ const declarationKind = (
       return "interface";
     case TstsSyntax.KindMethodDeclaration:
     case TstsSyntax.KindMethodSignature:
-    case TstsSyntax.KindCallSignature:
-    case TstsSyntax.KindConstructSignature:
       return "method";
+    case TstsSyntax.KindCallSignature:
+      return "call-signature";
+    case TstsSyntax.KindConstructSignature:
+      return "construct-signature";
     case TstsSyntax.KindIndexSignature:
       return "index-signature";
     case TstsSyntax.KindPropertyDeclaration:
     case TstsSyntax.KindPropertySignature:
-    case TstsSyntax.KindGetAccessor:
-    case TstsSyntax.KindSetAccessor:
       return "property";
+    case TstsSyntax.KindGetAccessor:
+      return "get-accessor";
+    case TstsSyntax.KindSetAccessor:
+      return "set-accessor";
     case TstsSyntax.KindTypeAliasDeclaration:
       return "type-alias";
     case TstsSyntax.KindVariableDeclaration:
@@ -3897,7 +3903,13 @@ const declarationPlan = (
     : checker.getTypeAtLocation(node);
   const kind = declarationKind(node);
   const signature =
-    kind === "function" || kind === "method" || kind === "constructor"
+    kind === "function" ||
+      kind === "method" ||
+      kind === "call-signature" ||
+      kind === "construct-signature" ||
+      kind === "get-accessor" ||
+      kind === "set-accessor" ||
+      kind === "constructor"
       ? checker.getSignatureFromDeclaration(node)
       : undefined;
   const inferredReturnType = signature

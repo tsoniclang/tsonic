@@ -9,7 +9,6 @@ import { sanitizeIdentifier } from "./names.js";
 import { renderStatement } from "./statements.js";
 import {
   arrayTypeFromTypePlan,
-  isPrivateJsRuntimeName,
   isBooleanLikeTypePlan,
   isDoubleRuntimeTypePlan,
   isOpaqueRuntimeTypePlan,
@@ -484,18 +483,15 @@ const isCastableUseSiteExpression = (
   }
 };
 
-const isUnboundGenericPlaceholderType = (
+const isOutOfScopeTypeParameterType = (
   type: LoweringTypeRefPlan | undefined,
   context?: RenderContext
 ): boolean =>
   type?.kind === "named" &&
-  (isPrivateJsRuntimeName(type.sourceRuntimeName) || !type.sourceRuntimeName) &&
-  !type.aliasTarget &&
-  type.typeArguments.length === 0 &&
-  /^[A-Z]$/.test(type.name) &&
+  type.declarationKind === "type-parameter" &&
   context?.currentTypeParameters?.has(type.name) !== true;
 
-const containsUnboundGenericPlaceholderTypePlan = (
+const containsOutOfScopeTypeParameterTypePlan = (
   type: LoweringTypeRefPlan | undefined,
   context: RenderContext,
   seen: ReadonlySet<LoweringTypeRefPlan> = new Set()
@@ -503,51 +499,51 @@ const containsUnboundGenericPlaceholderTypePlan = (
   if (!type || seen.has(type)) return false;
   const nextSeen = new Set(seen);
   nextSeen.add(type);
-  if (isUnboundGenericPlaceholderType(type, context)) return true;
+  if (isOutOfScopeTypeParameterType(type, context)) return true;
   switch (type.kind) {
     case "named":
       return (
         type.typeArguments.some((argument) =>
-          containsUnboundGenericPlaceholderTypePlan(argument, context, nextSeen)
+          containsOutOfScopeTypeParameterTypePlan(argument, context, nextSeen)
         ) ||
-        containsUnboundGenericPlaceholderTypePlan(
+        containsOutOfScopeTypeParameterTypePlan(
           type.aliasTarget,
           context,
           nextSeen
         )
       );
     case "array":
-      return containsUnboundGenericPlaceholderTypePlan(
+      return containsOutOfScopeTypeParameterTypePlan(
         type.elementType,
         context,
         nextSeen
       );
     case "tuple":
       return type.elements.some((element) =>
-        containsUnboundGenericPlaceholderTypePlan(element, context, nextSeen)
+        containsOutOfScopeTypeParameterTypePlan(element, context, nextSeen)
       );
     case "union":
     case "intersection":
       return type.types.some((member) =>
-        containsUnboundGenericPlaceholderTypePlan(member, context, nextSeen)
+        containsOutOfScopeTypeParameterTypePlan(member, context, nextSeen)
       );
     case "function":
       return (
         type.parameters.some((parameter) =>
-          containsUnboundGenericPlaceholderTypePlan(
+          containsOutOfScopeTypeParameterTypePlan(
             parameter.type,
             context,
             nextSeen
           )
         ) ||
-        containsUnboundGenericPlaceholderTypePlan(
+        containsOutOfScopeTypeParameterTypePlan(
           type.returnType,
           context,
           nextSeen
         )
       );
     case "predicate":
-      return containsUnboundGenericPlaceholderTypePlan(
+      return containsOutOfScopeTypeParameterTypePlan(
         type.assertedType,
         context,
         nextSeen
@@ -566,7 +562,7 @@ const useSiteCastType = (
   context: RenderContext
 ): string | undefined => {
   if (!type) return undefined;
-  if (containsUnboundGenericPlaceholderTypePlan(type, context)) return undefined;
+  if (containsOutOfScopeTypeParameterTypePlan(type, context)) return undefined;
   switch (type.kind) {
     case "intrinsic":
       switch (type.name) {
@@ -1116,9 +1112,6 @@ const arrayReceiverElementType = (
 const enumerableObjectCast = (receiver: string): string =>
   `global::System.Linq.Enumerable.Cast<object?>((global::System.Collections.IEnumerable)(${receiver}))`;
 
-const containsUnboundPlaceholderCast = (receiver: string): boolean =>
-  /<\s*[A-Z]\s*[>,]/.test(receiver) || /<\s*[A-Z]\s*>/.test(receiver);
-
 const renderArrayLength = (
   receiverPlan: LoweringExpressionPlan | undefined,
   context: RenderContext,
@@ -1153,8 +1146,7 @@ const renderArrayLength = (
   if (
     !elementTypePlan ||
     !receiverCastType ||
-    isUnboundGenericPlaceholderType(elementTypePlan, context) ||
-    containsUnboundPlaceholderCast(typedReceiver)
+    isOutOfScopeTypeParameterType(elementTypePlan, context)
   ) {
     return `global::System.Linq.Enumerable.Count(${enumerableObjectCast(renderExpression(receiverPlan, context))})`;
   }
@@ -1197,8 +1189,7 @@ const renderArrayElementAccess = (
   if (
     !elementTypePlan ||
     (receiverCastType &&
-      !isUnboundGenericPlaceholderType(elementTypePlan, context) &&
-      !containsUnboundPlaceholderCast(typedReceiver))
+      !isOutOfScopeTypeParameterType(elementTypePlan, context))
   ) {
     return undefined;
   }

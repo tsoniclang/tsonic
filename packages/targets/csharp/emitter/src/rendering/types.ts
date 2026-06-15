@@ -351,14 +351,10 @@ export const isVoidLikeTypePlan = (
   type?.kind === "intrinsic" &&
   (type.name === "void" || type.name === "never");
 
-const isUnboundGenericPlaceholderType = (
+const isOutOfScopeTypeParameterType = (
   type: LoweringTypeRefPlan | undefined
 ): boolean =>
-  type?.kind === "named" &&
-  (isPrivateJsRuntimeName(type.sourceRuntimeName) || !type.sourceRuntimeName) &&
-  !type.aliasTarget &&
-  type.typeArguments.length === 0 &&
-  /^[A-Z]$/.test(type.name);
+  type?.kind === "named" && type.declarationKind === "type-parameter";
 
 const containsUnemittableStructuralMemberType = (
   type: LoweringTypeRefPlan | undefined,
@@ -368,7 +364,7 @@ const containsUnemittableStructuralMemberType = (
   if (seen.has(type)) return false;
   const nextSeen = new Set(seen);
   nextSeen.add(type);
-  if (isVoidLikeTypePlan(type) || isUnboundGenericPlaceholderType(type)) {
+  if (isVoidLikeTypePlan(type) || isOutOfScopeTypeParameterType(type)) {
     return true;
   }
   switch (type.kind) {

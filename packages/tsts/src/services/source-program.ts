@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool, int } from "@tsonic/core/types.js";
 import type { GoPtr } from "../go/compat.js";
 import { Background } from "../go/context.js";
 import type { Diagnostic } from "../internal/ast/diagnostic.js";
@@ -20,6 +20,9 @@ import type { ParseConfigHost } from "../internal/tsoptions/tsconfigparsing.js";
 import type { FS } from "../internal/vfs/vfs.js";
 import { FS as createOsFs } from "../internal/vfs/osvfs/os.js";
 import { TSTrue } from "../internal/core/tristate.js";
+import { NewOrderedMapWithSizeHint, OrderedMap_Set } from "../internal/collections/ordered_map.js";
+import type { OrderedMap } from "../internal/collections/ordered_map.js";
+import { ParsedCommandLine_CompilerOptions } from "../internal/tsoptions/parsedcommandline.js";
 import type {
   CompilerExtension,
   ExtensionDiagnostic,
@@ -41,6 +44,8 @@ import type {
 export type CreateCompilerSourceProgramOptions = {
   readonly projectRoot?: string;
   readonly compilerOptions?: TranspileCompilerOptions;
+  readonly moduleResolutionPaths?: Readonly<Record<string, readonly string[]>>;
+  readonly moduleResolutionBaseUrl?: string;
   readonly extensions?: readonly CompilerExtension[];
   readonly runSemanticChecks?: boolean;
   readonly runExtensionChecks?: boolean;
@@ -104,10 +109,43 @@ const sourceProgramCommandLineArgs = (
     pretty: false,
     noEmit: true,
     noLib: true,
-    noResolve: true,
   });
   args.push(...filePaths);
   return args;
+};
+
+const applyModuleResolutionPaths = (
+  parsed: ReturnType<typeof ParseCommandLine>,
+  options: CreateCompilerSourceProgramOptions,
+  projectRoot: string
+): void => {
+  const moduleResolutionPaths = options.moduleResolutionPaths;
+  if (!moduleResolutionPaths) {
+    return;
+  }
+
+  const entries = Object.entries(moduleResolutionPaths).filter(
+    ([specifier, targetPaths]) =>
+      specifier.length > 0 && targetPaths.length > 0
+  );
+  if (entries.length === 0) {
+    return;
+  }
+
+  const paths = NewOrderedMapWithSizeHint<string, string[]>(
+    entries.length as int
+  );
+  for (const [specifier, targetPaths] of entries) {
+    OrderedMap_Set(
+      paths,
+      specifier,
+      [...targetPaths]
+    );
+  }
+
+  const compilerOptions = ParsedCommandLine_CompilerOptions(parsed)!;
+  compilerOptions.Paths = paths as unknown as GoPtr<OrderedMap<string, string[]>>;
+  compilerOptions.PathsBasePath = options.moduleResolutionBaseUrl ?? projectRoot;
 };
 
 const collectDefinedDiagnostics = (
@@ -159,6 +197,7 @@ export const createCompilerSourceProgram = (
     sourceProgramCommandLineArgs(filePaths, options),
     parseHost
   );
+  applyModuleResolutionPaths(parsed, options, projectRoot);
   const host = NewCompilerHost(
     projectRoot,
     fs,

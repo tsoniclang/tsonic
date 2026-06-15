@@ -40,6 +40,15 @@ export type {
   CompilerSourceProgram,
   CreateCompilerSourceProgramOptions,
 } from "./services/source-program.js";
+export { collectTstsModuleClosure } from "./services/module-closure.js";
+export type {
+  TstsModuleClosureDiagnostic,
+  TstsModuleClosureEdge,
+  TstsModuleClosureOptions,
+  TstsModuleClosureResolution,
+  TstsModuleClosureResolver,
+  TstsModuleClosureResult,
+} from "./services/module-closure.js";
 export * from "./extensions/index.js";
 export type { GoPtr, GoSlice } from "./go/compat.js";
 export type { Diagnostic as TstsDiagnostic } from "./internal/ast/diagnostic.js";

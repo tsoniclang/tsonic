@@ -4,5 +4,6 @@ export { NewProgram } from "./internal/compiler/program.js";
 export { ParseBuildCommandLine, ParseCommandLine, } from "./internal/tsoptions/commandlineparser.js";
 export { barebonesLibContent, formatDiagnostics, transpile, transpileDeclaration, transpileModule, } from "./services/transpile.js";
 export { createCompilerSourceProgram } from "./services/source-program.js";
+export { collectTstsModuleClosure } from "./services/module-closure.js";
 export * from "./extensions/index.js";
 //# sourceMappingURL=index.js.map
