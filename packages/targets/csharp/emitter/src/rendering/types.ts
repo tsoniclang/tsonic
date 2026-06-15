@@ -1021,7 +1021,7 @@ export const renderCSharpType = (
         return "object?";
       }
       if (type.sourceQualifiedName || type.externalBinding) {
-        return renderNamedRuntimeType(type, context) ?? "object?";
+        return renderNamedRuntimeType(type, context) ?? renderNamedType(type);
       }
       if (
         type.aliasTarget &&
