@@ -147,7 +147,7 @@ export const generateCommand = (
       };
     }
 
-    const { modules, entryModule } = compileResult.value.loweringGraph;
+    const { modules } = compileResult.value.loweringGraph;
     const dllModePackageIds = new Set(
       transitiveDllLocalPackageReferences.map((entry) => entry.id)
     );
@@ -205,47 +205,52 @@ export const generateCommand = (
         absoluteSourceRoot,
         absoluteEntryPoint
       ).replace(/\\/g, "/");
-      const foundEntryModule =
-        emittedModules.find(
-          (module: CSharpPlan) => module.identity.filePath === entryRelative
-        ) ?? entryModule;
-      if (foundEntryModule) {
-        const hasTopLevelCode =
-          hasTopLevelExecutableStatements(foundEntryModule);
-        const mainExport = findMainEntryInfo(foundEntryModule);
-        if (mainExport && hasTopLevelCode) {
-          return {
-            ok: false,
-            error:
-              "Entry point module exports main() and also contains top-level executable statements. Remove the top-level code or remove the main export to make program startup deterministic.",
-          };
-        }
-
-        const entryInfo =
-          mainExport ??
-          (hasTopLevelCode
-            ? {
-                namespace: foundEntryModule.identity.namespace,
-                className: foundEntryModule.identity.className,
-                methodName: "__TopLevel",
-                isAsync: false,
-                needsProgram: true,
-              }
-            : null);
-
-        if (!entryInfo) {
-          return {
-            ok: false,
-            error:
-              "Entry point module must either export main() or contain top-level executable statements.",
-          };
-        }
-        writeFileSync(
-          join(outputDir, "Program.cs"),
-          generateProgramCs(entryInfo),
-          "utf-8"
-        );
+      const foundEntryModule = emittedModules.find(
+        (module: CSharpPlan) => module.identity.filePath === entryRelative
+      );
+      if (!foundEntryModule) {
+        return {
+          ok: false,
+          error:
+            `Generated module set does not contain the runtime entry module '${entryRelative}'. ` +
+            "This indicates an invalid lowering/emission graph; the entry module must not be filtered or substituted.",
+        };
       }
+      const hasTopLevelCode =
+        hasTopLevelExecutableStatements(foundEntryModule);
+      const mainExport = findMainEntryInfo(foundEntryModule);
+      if (mainExport && hasTopLevelCode) {
+        return {
+          ok: false,
+          error:
+            "Entry point module exports main() and also contains top-level executable statements. Remove the top-level code or remove the main export to make program startup deterministic.",
+        };
+      }
+
+      const entryInfo =
+        mainExport ??
+        (hasTopLevelCode
+          ? {
+              namespace: foundEntryModule.identity.namespace,
+              className: foundEntryModule.identity.className,
+              methodName: "__TopLevel",
+              isAsync: false,
+              needsProgram: true,
+            }
+          : null);
+
+      if (!entryInfo) {
+        return {
+          ok: false,
+          error:
+            "Entry point module must either export main() or contain top-level executable statements.",
+        };
+      }
+      writeFileSync(
+        join(outputDir, "Program.cs"),
+        generateProgramCs(entryInfo),
+        "utf-8"
+      );
     }
 
     const csprojPath = join(outputDir, "tsonic.csproj");
