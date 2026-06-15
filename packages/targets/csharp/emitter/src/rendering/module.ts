@@ -156,6 +156,10 @@ const collectStructuralType = (
     case "array":
       collectStructuralType(types, type.elementType, typeState);
       break;
+    case "record":
+      collectStructuralType(types, type.keyType, typeState);
+      collectStructuralType(types, type.valueType, typeState);
+      break;
     case "tuple":
       for (const element of type.elements) {
         collectStructuralType(types, element, typeState);

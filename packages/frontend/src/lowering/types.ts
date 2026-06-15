@@ -144,6 +144,12 @@ export type LoweringTypeRefPlan =
       readonly sourceText?: string;
     }
   | {
+      readonly kind: "record";
+      readonly keyType: LoweringTypeRefPlan;
+      readonly valueType: LoweringTypeRefPlan;
+      readonly sourceText?: string;
+    }
+  | {
       readonly kind: "tuple";
       readonly elements: readonly LoweringTypeRefPlan[];
       readonly readonly: boolean;

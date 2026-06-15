@@ -17,7 +17,7 @@ echo "=== Building Tsonic ==="
 # Define the build order (dependencies first).
 PACKAGES=(
   "packages/tsts"                     # Vendored TSTS compiler substrate
-  "packages/frontend"                 # TypeScript parser and IR builder
+  "packages/frontend"                 # TSTS-backed source frontend and lowering planner
   "packages/targets/csharp/emitter"   # C# code generator
   "packages/targets/csharp/backend"   # dotnet CLI orchestration
   "packages/cli"                      # CLI (depends on all others)

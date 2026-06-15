@@ -146,6 +146,10 @@ export type SourceRuntimeVisibilityFact = {
   readonly visibility: "opaque";
 };
 
+export type SourceDictionaryTypeFact = {
+  readonly kind: "record";
+};
+
 export type SourceAttributeTargetKind =
   | "type"
   | "constructor"
@@ -267,6 +271,12 @@ export const sourceRuntimeVisibilityFactKey =
     "Source-level runtime visibility such as opaque generated/internal identities."
   );
 
+export const sourceDictionaryTypeFactKey =
+  defineSourceFactKey<SourceDictionaryTypeFact>(
+    "tsonic:source:dictionary-type",
+    "Source-level dictionary type identity such as Record<K, V>."
+  );
+
 export const sourceAttributeDescriptorFactKey =
   defineSourceFactKey<SourceAttributeDescriptorFact>(
     "tsonic:source:attribute-descriptor",
@@ -296,6 +306,7 @@ export const visitSourceSemanticFactKeys = (
   visit(intrinsicSemanticsFactKey);
   visit(sourceBindingIdentityFactKey);
   visit(sourceRuntimeVisibilityFactKey);
+  visit(sourceDictionaryTypeFactKey);
   visit(sourceAttributeDescriptorFactKey);
   visit(sourceAttributeApplicationsFactKey);
 };

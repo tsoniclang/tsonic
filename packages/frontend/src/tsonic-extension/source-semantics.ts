@@ -40,6 +40,7 @@ import type {
   SourceAttributeTargetSpecifier,
   SourceBindingDeclarationKind,
   SourceBindingIdentityFact,
+  SourceDictionaryTypeFact,
   SourceRuntimeVisibilityFact,
   SourceRuntimeOperationOwner,
   SourceRuntimeOperationFact,
@@ -60,6 +61,7 @@ import {
   sourceAttributeApplicationsFactKey,
   sourceAttributeDescriptorFactKey,
   sourceBindingIdentityFactKey,
+  sourceDictionaryTypeFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
@@ -71,6 +73,7 @@ import {
 const fieldFact: FieldSemanticsFact = { storage: "field" };
 const extensionReceiverFact = { kind: "extension-receiver" } as const;
 const interfaceHeritageFact = { kind: "interface-erasure" } as const;
+const recordDictionaryFact: SourceDictionaryTypeFact = { kind: "record" };
 
 type TsonicSourceDiagnosticCode =
   | "TSN2001"
@@ -1117,6 +1120,43 @@ const setDeclarationBindingFacts = (
   setSourceBindingIdentityFact(context, declaration, symbol);
 };
 
+const isAmbientRecordDeclaration = (
+  declaration: TstsNode,
+  sourceDiagnosticFileNames?: ReadonlySet<string>
+): boolean =>
+  getTstsNodeNameText(declaration) === "Record" &&
+  isExternalSupportDeclaration(declaration, sourceDiagnosticFileNames);
+
+const isAmbientRecordTypeReference = (
+  context: CheckedContext,
+  node: TstsNode,
+  sourceDiagnosticFileNames?: ReadonlySet<string>
+): boolean => {
+  if (getTstsTypeReferenceDetails(node)?.name !== "Record") return false;
+  const typeNameNode =
+    node.Kind === TstsSyntax.KindTypeReference
+      ? TstsSyntax.AsTypeReferenceNode(node)?.TypeName
+      : TstsSyntax.Node_Name(node);
+  const type = context.checker.getTypeFromTypeNode(node);
+  const symbols = [
+    context.checker.getSymbolAtLocation(node),
+    symbolForName(context, typeNameNode),
+    type ? context.checker.getTypeAliasOrSymbol(type) : undefined,
+  ]
+    .filter((symbol): symbol is TstsSymbol => symbol !== undefined)
+    .map((symbol) => context.checker.resolveAlias(symbol) ?? symbol);
+
+  return symbols.some((symbol) => {
+    const declarations = context.checker.getSymbolDeclarations(symbol);
+    return (
+      declarations.length > 0 &&
+      declarations.every((declaration) =>
+        isExternalSupportDeclaration(declaration, sourceDiagnosticFileNames)
+      )
+    );
+  });
+};
+
 const isIdentifierGenericSymbol = (
   context: CheckedContext,
   node: TstsNode | undefined,
@@ -1935,6 +1975,9 @@ export const createTsonicSourceSemanticsExtension = (
       if (!node) return;
 
       setDeclarationBindingFacts(context, node);
+      if (isAmbientRecordDeclaration(node, sourceDiagnosticFileNames)) {
+        context.facts.set(sourceDictionaryTypeFactKey, node, recordDictionaryFact);
+      }
 
       if (TstsSyntax.IsIdentifier(node)) {
         const symbol = symbolForName(context, node);
@@ -1977,6 +2020,9 @@ export const createTsonicSourceSemanticsExtension = (
               typeReference?.name ?? getTstsExpressionWithTypeArgumentsName(node)
             )
           );
+        }
+        if (isAmbientRecordTypeReference(context, node, sourceDiagnosticFileNames)) {
+          context.facts.set(sourceDictionaryTypeFactKey, node, recordDictionaryFact);
         }
       }
 
@@ -2235,7 +2281,7 @@ export const createTsonicSourceSemanticsExtension = (
 
       if (
         node.Kind === TstsSyntax.KindTypeReference &&
-        getTstsTypeReferenceDetails(node)?.name === "Record"
+        context.facts.has(sourceDictionaryTypeFactKey, node)
       ) {
         const [keyType] = getTstsTypeArguments(node);
         if (!isAllowedDictionaryKeyTypeNode(keyType)) {

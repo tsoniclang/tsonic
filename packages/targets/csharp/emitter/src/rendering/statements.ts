@@ -162,6 +162,7 @@ const shouldRenderVariableStorageType = (
   switch (type?.kind) {
     case "array":
     case "function":
+    case "record":
     case "tuple":
       return true;
     case "object":

@@ -40,6 +40,11 @@ const intType: LoweringTypeRefPlan = {
   },
 };
 
+const stringType: LoweringTypeRefPlan = {
+  kind: "intrinsic",
+  name: "string",
+};
+
 const declarationPlan = (
   overrides: Partial<LoweringDeclarationPlan>
 ): LoweringDeclarationPlan => ({
@@ -176,6 +181,52 @@ describe("C# module renderer", () => {
       expect(result.code).to.match(/public sealed class __TsonicShape_[a-f0-9]+/u);
       expect(result.code).to.contain("public string value { get; set; }");
       expect(result.code).to.contain("public static Alias item;");
+    }
+  });
+
+  it("renders record type plans as dictionary storage without named Record checks", () => {
+    const module: CSharpLoweringModulePlan = {
+      kind: "lowering-module",
+      backendTargetId: "csharp",
+      identity: {
+        filePath: "/src/index.ts",
+        className: "Index",
+        namespace: "Example",
+      },
+      sourceFile: dummySourceFile,
+      sourceModule: dummySourceModule,
+      imports: [],
+      exports: [],
+      declarations: [],
+      topLevelStatements: [
+        statementPlan({
+          statementKind: "variable",
+          declarations: [
+            {
+              sourceNode: dummySourceNode,
+              name: "table",
+              type: {
+                kind: "record",
+                keyType: stringType,
+                valueType: intType,
+              },
+              bindingElements: [],
+            },
+          ],
+        }),
+      ],
+      types: [],
+      statements: [],
+      expressions: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result.ok).to.equal(true);
+    if (result.ok) {
+      expect(result.code).to.contain(
+        "public static global::System.Collections.Generic.Dictionary<string, int> table;"
+      );
     }
   });
 

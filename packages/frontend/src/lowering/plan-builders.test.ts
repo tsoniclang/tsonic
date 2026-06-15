@@ -329,6 +329,47 @@ describe("TSTS-backed lowering plan builders", () => {
     ).to.deep.equal({ name: "_", visibility: "opaque" });
   });
 
+  it("projects ambient Record references into dictionary type plans", () => {
+    const result = lowerFiles(
+      {
+        "local.ts": `
+          type Record<K, T> = { readonly local: T };
+          export const localTable: Record<string, number> = { local: 1 };
+        `,
+        "index.ts": `
+          import { localTable } from "./local.js";
+          export const table: Record<string, number> = { count: 1 };
+          export const local = localTable;
+        `,
+      },
+      "index.ts"
+    );
+
+    const indexModule = result.modules.find((module) =>
+      module.sourceFile.FileName().endsWith("/index.ts")
+    );
+    const localModule = result.modules.find((module) =>
+      module.sourceFile.FileName().endsWith("/local.ts")
+    );
+    const tableType =
+      indexModule?.topLevelStatements[0]?.declarations[0]?.type;
+    const localTableType =
+      localModule?.topLevelStatements[0]?.declarations[0]?.type;
+
+    expect(tableType?.kind).to.equal("record");
+    if (tableType?.kind === "record") {
+      expect(tableType.keyType).to.deep.include({
+        kind: "intrinsic",
+        name: "string",
+      });
+      expect(tableType.valueType).to.deep.include({
+        kind: "intrinsic",
+        name: "number",
+      });
+    }
+    expect(localTableType?.kind).to.equal("named");
+  });
+
   it("projects marker source facts into declaration and parameter plans", () => {
     const result = lowerProgram(`
       import type { int, struct } from "@tsonic/core/types.js";

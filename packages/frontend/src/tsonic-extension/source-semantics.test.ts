@@ -25,6 +25,7 @@ import {
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
   parameterPassingFactKey,
+  sourceDictionaryTypeFactKey,
   sourceAttributeApplicationsFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
@@ -465,6 +466,54 @@ describe("Tsonic TSTS source semantics extension", () => {
       });
 
       expect(visibilityFacts).to.include("KindIdentifier:opaque");
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("attaches dictionary facts only to the ambient Record utility type", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "src/local.ts": [
+          "type Record<K, T> = { readonly local: T };",
+          "export type LocalTable = Record<string, number>;",
+          "",
+        ].join("\n"),
+        "src/index.ts": [
+          "import type { LocalTable } from './local.js';",
+          "export type GlobalTable = Record<string, number>;",
+          "export type ImportedLocalTable = LocalTable;",
+          "",
+        ].join("\n"),
+      },
+      "src/index.ts"
+    );
+    try {
+      const recordReferences = program.sourceFiles.flatMap((sourceFile) => {
+        const references: {
+          readonly fileName: string;
+          readonly hasFact: boolean;
+        }[] = [];
+        visitTstsSubtree(sourceFile, (node) => {
+          if (!node) return;
+          const typeReference = getTstsTypeReferenceDetails(node);
+          if (typeReference?.name !== "Record") return;
+          const fileNameParts = sourceFile.FileName().split("/");
+          references.push({
+            fileName: fileNameParts[fileNameParts.length - 1] ?? "",
+            hasFact: program.sourceProgram.extensionHost.facts.has(
+              sourceDictionaryTypeFactKey,
+              node
+            ),
+          });
+        });
+        return references;
+      });
+
+      expect(recordReferences).to.deep.include.members([
+        { fileName: "index.ts", hasFact: true },
+        { fileName: "local.ts", hasFact: false },
+      ]);
     } finally {
       program.cleanup();
     }

@@ -512,6 +512,19 @@ const containsOutOfScopeTypeParameterTypePlan = (
           nextSeen
         )
       );
+    case "record":
+      return (
+        containsOutOfScopeTypeParameterTypePlan(
+          type.keyType,
+          context,
+          nextSeen
+        ) ||
+        containsOutOfScopeTypeParameterTypePlan(
+          type.valueType,
+          context,
+          nextSeen
+        )
+      );
     case "array":
       return containsOutOfScopeTypeParameterTypePlan(
         type.elementType,
@@ -994,13 +1007,13 @@ const isTypedArrayRuntimeOwner = (
 const recordValueType = (
   type: LoweringTypeRefPlan | undefined
 ): LoweringTypeRefPlan | undefined => {
-  if (type?.kind === "named" && type.name === "Record") {
-    return type.typeArguments[1];
+  if (type?.kind === "record") {
+    return type.valueType;
   }
   const unwrapped = unwrapAliasTarget(type);
   if (!unwrapped) return undefined;
-  if (unwrapped.kind === "named" && unwrapped.name === "Record") {
-    return unwrapped.typeArguments[1];
+  if (unwrapped.kind === "record") {
+    return unwrapped.valueType;
   }
   if (unwrapped.kind === "union") {
     const values = nonNullishUnionTypes(unwrapped)

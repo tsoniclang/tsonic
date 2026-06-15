@@ -124,7 +124,6 @@ const nonStructuralNamedTypes = new Set([
   "Map",
   "ReadonlyArray",
   "ReadonlyMap",
-  "Record",
   "RegExp",
   "Set",
   "Uint8Array",
@@ -181,6 +180,8 @@ const typePlanKeyWithSeen = (
       return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
       return `named:${type.runtimeVisibility ?? "public"}:${sourceRuntimeNameKey(type.sourceRuntimeName) ?? type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
+    case "record":
+      return `record:${typePlanKeyWithSeen(type.keyType, nextSeen)}:${typePlanKeyWithSeen(type.valueType, nextSeen)}`;
     case "array":
       return `array:${type.storage ?? (type.readonly ? "readonly" : "mutable")}:${typePlanKeyWithSeen(type.elementType, nextSeen)}`;
     case "tuple":
@@ -280,6 +281,7 @@ const armNeedsRuntimeIdentity = (arm: LoweringTypeRefPlan): boolean => {
   switch (arm.kind) {
     case "function":
     case "object":
+    case "record":
       return true;
     case "named":
       return (
@@ -365,6 +367,11 @@ const containsUnemittableStructuralMemberType = (
         ) ||
         (type.sourceRuntimeName === undefined &&
           containsUnemittableStructuralMemberType(type.aliasTarget, nextSeen))
+      );
+    case "record":
+      return (
+        containsUnemittableStructuralMemberType(type.keyType, nextSeen) ||
+        containsUnemittableStructuralMemberType(type.valueType, nextSeen)
       );
     case "array":
       return containsUnemittableStructuralMemberType(type.elementType, nextSeen);
@@ -631,11 +638,6 @@ const renderSpecialNamedType = (
   context?: RenderContext
 ): string | undefined => {
   switch (type.name) {
-    case "Record": {
-      const key = type.typeArguments[0];
-      const value = type.typeArguments[1];
-      return `global::System.Collections.Generic.Dictionary<${renderCSharpType(key, context)}, ${renderCSharpType(value, context)}>`;
-    }
     case "Array":
       return `global::System.Collections.Generic.List<${renderCSharpType(type.typeArguments[0], context)}>`;
     case "ReadonlyArray":
@@ -731,6 +733,8 @@ export const renderCSharpType = (
         ? name
         : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
     }
+    case "record":
+      return `global::System.Collections.Generic.Dictionary<${renderCSharpType(type.keyType, context)}, ${renderCSharpType(type.valueType, context)}>`;
     case "array":
       if (type.storage === "native-array") {
         return `${renderCSharpType(type.elementType, context)}[]`;

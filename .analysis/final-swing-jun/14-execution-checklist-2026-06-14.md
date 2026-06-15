@@ -16,12 +16,12 @@ Report this checklist every 15 minutes while long-running work is active.
 
 ```text
 branch: feature/tsts-final-completion
-latest pushed commit before this checkpoint: 12be000b Move source attributes into TSTS lowering facts
-current local state: source runtime visibility moved from lowering name policy into TSTS source facts; lowering consumes `sourceRuntimeVisibilityFactKey`
-focused validation: @tsonic/frontend runtime-visibility/source-primitive subset 3 passing / 0 failing; previous @tsonic/frontend surface profile subset 14 passing / 0 failing; previous @tsonic/cli surface profile subset 15 passing / 0 failing; previous @tsonic/frontend lowering plan builders/source-semantics attribute subset 2 passing / 0 failing; previous @tsonic/csharp-emitter attribute renderer subset 1 passing / 0 failing; previous @tsonic/frontend validator/maximus suites 260 passing / 0 failing; previous targeted native-library/source-package CLI subset 8 passing / 0 failing
+latest pushed commit before this checkpoint: deb3ccb5 Move runtime visibility into source facts
+current local state: `Record<K, V>` moved from duplicated named-type checks into `sourceDictionaryTypeFactKey` plus a lowering `record` type plan; C# emitter renders the plan directly as dictionary storage
+focused validation: @tsonic/frontend dictionary/runtime-visibility subset 4 passing / 0 failing; @tsonic/csharp-emitter record renderer subset 1 passing / 0 failing; previous @tsonic/frontend surface profile subset 14 passing / 0 failing; previous @tsonic/cli surface profile subset 15 passing / 0 failing; previous @tsonic/frontend lowering plan builders/source-semantics attribute subset 2 passing / 0 failing; previous @tsonic/csharp-emitter attribute renderer subset 1 passing / 0 failing; previous @tsonic/frontend validator/maximus suites 260 passing / 0 failing; previous targeted native-library/source-package CLI subset 8 passing / 0 failing
 package validation: @tsonic/frontend full package test 418 passing / 0 failing; @tsonic/csharp-emitter full package test 3 passing / 0 failing
 build validation: @tsonic/tsts, @tsonic/frontend, @tsonic/csharp-emitter, and @tsonic/cli build after current local changes
-audit validation: product TSC import search clean outside vendored TSTS; frontend CLR/C#/System target leakage search clean; old IR/source-text emission decision search clean except diagnostics/token labels; message-substring capability gating removed
+audit validation: product TSC import search clean outside vendored TSTS; frontend CLR/C#/System target leakage search clean; old IR/source-text emission decision search clean except diagnostics/token labels; message-substring capability gating removed; product duplicate `Record` named-type checks removed outside source fact production
 full run-all: not restarted after current lowering sweep; final gates wait for code-completeness signoff
 not done: final stale frontend sweep, final run-all, downstreams, branch hygiene, final PR report
 ```
@@ -62,19 +62,19 @@ not done: final stale frontend sweep, final run-all, downstreams, branch hygiene
 | 4.6 | Fixture comparisons | Key fixtures prove equivalent or intended behavior | Partial | Focused fixtures green |
 | 5.1 | LoweringInput | Lowering reads TSTS program/facts/checker | Done | Compile/test proof |
 | 5.2 | Module/declaration plans | Declarations lower as AST/fact-backed plans | Expanded | TSTS marker and attribute facts now project into declaration/parameter plans; top-level structural helper collection covered by C# module renderer test |
-| 5.3 | Type plans | Types render from source plans/facts | Expanded | Source primitive use-sites, alias targets, and recursive alias guard covered; full emitted fixtures still required |
+| 5.3 | Type plans | Types render from source plans/facts | Expanded | Source primitive use-sites, alias targets, recursive alias guard, and `Record<K, V>` dictionary plans covered; full emitted fixtures still required |
 | 5.4 | Expression/statement plans | Expressions/statements lower through plan builders | Expanded | New lowering and renderer tests green |
 | 5.5 | Call plans | Calls use TSTS signatures, not local overload scoring | In progress | Generic alias emission now fact-backed; remaining overload fixtures pending |
-| 5.6 | Member/index plans | Member/index access use checker answers and source facts | In progress | Length-property emission now fact-backed; remaining member/index fixtures pending |
+| 5.6 | Member/index plans | Member/index access use checker answers and source facts | Expanded | Length-property and dictionary value typing are fact/plan-backed; remaining member/index fixtures pending |
 | 5.7 | Narrowing plans | Use-site type comes from TSTS checker facade | Expanded | Product lowering uses TSTS use-site/contextual queries; runtime visibility is fact-backed; final search after run-all still required |
 | 5.8 | Synthetic declarations | Synthetic declarations are backend-neutral plan artifacts | Partial | Audit and fixture proof |
 | 5.9 | Capability validation | Capability checks use source-feature terms | Expanded | Capability filtering is keyed by feature metadata; validator suites 260 passing |
 | 6.1 | Module graph/diagnostics | TSTS owns semantic module graph | Partial | Type-root/package tests green |
 | 6.2 | Declarations/exports | Exports/declarations use TSTS graph/checker | Expanded | `struct`, `field<T>`, `Interface<T>`, and `thisarg<T>` are plan facts, not renderer source-name checks |
-| 6.3 | Type refs/numerics | Type references use facts/checker | Expanded | Lowering tests prove `int`/`char` and recursive aliases; emitted fixture proof still required |
+| 6.3 | Type refs/numerics | Type references use facts/checker | Expanded | Lowering tests prove `int`/`char`, recursive aliases, and ambient `Record<K, V>` dictionary facts; emitted fixture proof still required |
 | 6.4 | Expressions/literals | Expression plans cover required source forms | Expanded | Char literals, array spread, and structural alias helper renderer tests green |
 | 6.5 | Calls/overloads | Overload/generic resolution delegated to TSTS | Partial | Generic-function-value failures fixed |
-| 6.6 | Member/index access | Member/index lookup delegated to TSTS | Partial | Fixtures green |
+| 6.6 | Member/index access | Member/index lookup delegated to TSTS | Expanded | Record value typing no longer uses named `Record` checks; broad fixtures pending |
 | 6.7 | Control-flow/narrowing | No eager branch narrowing engine remains | Partial | Search audit and fixtures |
 | 6.8 | Attributes | Attribute handling moved to source facts/lowering | Expanded | Descriptor/application facts, lowering plans, and C# renderer support implemented; full fixture proof pending |
 | 6.9 | External source bindings | External binding facts use one manifest shape | Expanded | `memberSemantics` surface-manifest parser/merger removed from frontend and CLI; source package fixture/downstream proof still pending |
@@ -82,15 +82,15 @@ not done: final stale frontend sweep, final run-all, downstreams, branch hygiene
 | 7.1 | Delete `typescript` product imports | Product frontend does not import TSC | Clean in current product search | Final search gate |
 | 7.2 | Delete old graph extraction | No product import/export semantic walkers | Pending final search | Final search gate |
 | 7.3 | Delete old symbol IDs | No target-rendered source IDs | Pending audit | Search and dependency audit |
-| 7.4 | Delete old IR builder | No parallel source IR tree as product source of truth | In progress | Build breaks repaired via lowering plans |
+| 7.4 | Delete old IR builder | No parallel source IR tree as product source of truth | In progress | `Record<K, V>` added as a lowering plan kind backed by source facts; remaining old-plan audit pending |
 | 7.5 | Delete old inference/binding | No local checker/generic/call inference owner | Expanded | Standalone generic-function helper and helper tests deleted; source extension is single fact owner |
 | 7.6 | Delete eager narrowing | No old narrowing engine in product path | Expanded | Lowering uses TSTS `getNarrowedTypeAtLocation`; old-path search clean |
 | 7.7 | Delete legacy manifests | One metadata schema only | Expanded | `AliasMetadataV1` removed; no V1/V2 bridge names remain in frontend/emitter product code |
 | 7.8 | Delete backend leakage | No frontend CLR/C#/System facts | Expanded | Lowering no longer derives opacity from runtime/source names; source extension attaches `sourceRuntimeVisibilityFactKey`; final audit before run-all |
-| 8.1 | Frontend focused tests | Focused repaired suites green | Green for current lowering hardening | `5 passing / 0 failing` for lowering plan builders |
+| 8.1 | Frontend focused tests | Focused repaired suites green | Green for current lowering hardening | `4 passing / 0 failing` for dictionary/runtime-visibility source semantics and lowering |
 | 8.2 | Frontend full tests | Frontend package tests green | Green after metadata change | `418 passing / 0 failing` |
 | 8.3 | TSTS package build | Vendored TSTS compiles | Green after metadata change | `npm run build --workspace @tsonic/tsts` |
-| 8.4 | C# emitter tests | Plan renderer tests green | Green after structural-helper hardening | `3 passing / 0 failing` |
+| 8.4 | C# emitter tests | Plan renderer tests green | Green after record renderer hardening | `1 passing / 0 failing` for `record` dictionary rendering; previous structural/attribute subsets green |
 | 8.5 | Full run-all | Complete Tsonic gate green | Pending | `./test/scripts/run-all.sh` |
 | 8.6 | Downstreams | Proof pudding, tsumo, clickmeter, first-party consumers green | Pending | Run after run-all |
 | 8.7 | Branch hygiene | No uncommitted/unmerged local work | Pending | Hygiene script and clean status |
@@ -117,6 +117,7 @@ not done: final stale frontend sweep, final run-all, downstreams, branch hygiene
 | Marker declaration semantics | C# renderer filtered `extends struct` by checking `heritageType.name === "struct"` and had no plan fields for `field<T>` / `thisarg<T>` | TSTS source extension writes marker facts; lowering removes compile-time heritage markers and carries `sourceTypeKind`, `storageSemantics`, and `extensionReceiver` | Lowering marker projection test green; C# renderer struct/field/extension receiver tests green |
 | Surface member semantics | Surface manifests carried target/runtime member behavior such as `storageAccess: "arrayLength"`, `emittedMemberName: "Length"`, and borrowed mutation write-back | Surface manifests now carry only package surface data: extension chain, type roots, and package requirements; runtime/member behavior must come from TSTS facts/lowering plans | Product search for `memberSemantics`, `emittedMemberName`, `storageAccess`, `borrowedMutationWriteBack`, `returnsArray`, `returnsReceiver`, and `mutatesReceiver` is clean |
 | Runtime visibility | Lowering marked named types opaque by checking runtime/source names such as `_` and U+FFFD | TSTS source extension attaches `sourceRuntimeVisibilityFactKey`; lowering reads only that fact from use nodes, declarations, or resolved symbols | Focused frontend test subset `3 passing / 0 failing`; product search for `runtimeVisibilityForNamedType` and source-runtime name policy in lowering is clean |
+| Dictionary type semantics | Lowering and the C# emitter treated `Record<K, V>` by checking named-type text such as `type.name === "Record"` | TSTS source extension attaches `sourceDictionaryTypeFactKey`; lowering emits a dedicated `record` type plan; C# rendering consumes the plan as dictionary storage | Focused frontend subset `4 passing / 0 failing`; focused emitter subset `1 passing / 0 failing`; product search for named `Record` checks is clean |
 | Audit result | Legacy string/parser patterns existed in lowering/emitter | Targeted audit reports only diagnostic source snippets, diagnostic `sourceFile.Text()`, and AST token reads for names/literals | Audit command: `rg 'Node_Text\\(|\\.Text\\(|sourceText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|literalText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|nameSourceText\\.(includes|startsWith|endsWith|match|split|slice|substring|replace)|expressionRootName|buildGenericFunctionAliasMap|expressionAliases|LoweringExpressionAliasPlan|typeText|returnTypeText|declaredTypeText|contextualTypeText|operatorText' packages/frontend/src packages/targets/csharp/emitter/src -g '*.ts'` |
 
 Concrete source example now covered:

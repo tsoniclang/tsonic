@@ -27,6 +27,7 @@ import {
   parameterPassingFactKey,
   sourceAttributeApplicationsFactKey,
   sourceBindingIdentityFactKey,
+  sourceDictionaryTypeFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
@@ -334,6 +335,17 @@ const intrinsicTypePlan = (
   sourceText,
 });
 
+const recordTypePlan = (
+  keyType: LoweringTypeRefPlan | undefined,
+  valueType: LoweringTypeRefPlan | undefined,
+  sourceText?: string
+): LoweringTypeRefPlan => ({
+  kind: "record",
+  keyType: keyType ?? intrinsicTypePlan("unknown"),
+  valueType: valueType ?? intrinsicTypePlan("unknown"),
+  sourceText,
+});
+
 const unsupportedTypePlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode
@@ -448,6 +460,12 @@ const checkerTypePlan = (
       ...checker.getAliasTypeArguments(type),
       ...checker.getReferenceTypeArguments(type),
     ];
+    if (hasSourceDictionaryFactForType(context, sourceFile, type)) {
+      return recordTypePlan(
+        checkerTypePlan(context, sourceFile, typeArguments[0], state),
+        checkerTypePlan(context, sourceFile, typeArguments[1], state)
+      );
+    }
     const sourceRuntimeName = sourceRuntimeNameForType(
       context,
       sourceFile,
@@ -751,6 +769,56 @@ const sourceRuntimeVisibilityForType = (
   );
 };
 
+const hasSourceDictionaryFactForNode = (
+  context: LoweringBuildContext,
+  node: TstsNode | undefined
+): boolean =>
+  node !== undefined && context.input.facts.has(sourceDictionaryTypeFactKey, node);
+
+const hasSourceDictionaryFactForSymbol = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  symbol: TstsSymbol | undefined
+): boolean => {
+  if (!symbol) return false;
+  const checker = context.checkerForSourceFile(sourceFile);
+  return checker
+    .getSymbolDeclarations(symbol)
+    .some((declaration) =>
+      declaration !== undefined &&
+      context.input.facts.has(sourceDictionaryTypeFactKey, declaration)
+    );
+};
+
+const hasSourceDictionaryFactForType = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  type: TstsType | undefined
+): boolean => {
+  if (!type) return false;
+  const checker = context.checkerForSourceFile(sourceFile);
+  return hasSourceDictionaryFactForSymbol(
+    context,
+    sourceFile,
+    checker.getTypeAliasOrSymbol(type)
+  );
+};
+
+const recordTypePlanFromTypeArguments = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  typeArguments: readonly (TstsNode | undefined)[],
+  state: SourceTypePlanState,
+  sourceText?: string
+): LoweringTypeRefPlan => {
+  const [keyTypeNode, valueTypeNode] = typeArguments;
+  return recordTypePlan(
+    sourceTypePlan(context, sourceFile, keyTypeNode, state),
+    sourceTypePlan(context, sourceFile, valueTypeNode, state),
+    sourceText
+  );
+};
+
 const sourceRuntimeNameForDeclaration = (
   context: LoweringBuildContext,
   declaration: TstsNode | undefined,
@@ -922,6 +990,13 @@ const substituteTypePlan = (
         ...type,
         elementType:
           substituteTypePlan(type.elementType, substitutions) ?? type.elementType,
+      };
+    case "record":
+      return {
+        ...type,
+        keyType: substituteTypePlan(type.keyType, substitutions) ?? type.keyType,
+        valueType:
+          substituteTypePlan(type.valueType, substitutions) ?? type.valueType,
       };
     case "tuple":
       return {
@@ -1315,6 +1390,15 @@ const sourceTypeAliasDeclarationTargetPlan = (
       typeName
     );
   const state = createSourceTypePlanState();
+  if (hasSourceDictionaryFactForNode(context, node)) {
+    return recordTypePlanFromTypeArguments(
+      context,
+      sourceFile,
+      typeReference.typeArguments,
+      state,
+      compactNodeSourceText(sourceFile, node)
+    );
+  }
   return {
     kind: "named",
     name: typeName,
@@ -1436,6 +1520,15 @@ const sourceTypePlan = (
 
   const typeReference = getTstsTypeReferenceDetails(node);
   if (typeReference) {
+    if (hasSourceDictionaryFactForNode(context, node)) {
+      return recordTypePlanFromTypeArguments(
+        context,
+        sourceFile,
+        typeReference.typeArguments,
+        state,
+        sourceText
+      );
+    }
     const checker = context.checkerForSourceFile(sourceFile);
     const sourceType = checker.getTypeFromTypeNode(node);
     const aliasTarget = sourceTypeAliasTargetPlan(
@@ -2137,6 +2230,8 @@ const loweringTypeIdentityKey = (type: LoweringTypeRefPlan): string => {
       return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
       return `named:${sourceRuntimeNameKey(type.sourceRuntimeName) ?? type.name}<${type.typeArguments.map(loweringTypeIdentityKey).join(",")}>`;
+    case "record":
+      return `record:${loweringTypeIdentityKey(type.keyType)}:${loweringTypeIdentityKey(type.valueType)}`;
     case "array":
       return `array:${type.storage ?? (type.readonly ? "readonly" : "mutable")}:${loweringTypeIdentityKey(type.elementType)}`;
     case "tuple":
@@ -2153,13 +2248,13 @@ const loweringTypeIdentityKey = (type: LoweringTypeRefPlan): string => {
 const loweringRecordValueType = (
   type: LoweringTypeRefPlan | undefined
 ): LoweringTypeRefPlan | undefined => {
-  if (type?.kind === "named" && type.name === "Record") {
-    return type.typeArguments[1];
+  if (type?.kind === "record") {
+    return type.valueType;
   }
   const unwrapped = loweringUnwrapAliasTarget(type);
   if (!unwrapped) return undefined;
-  if (unwrapped.kind === "named" && unwrapped.name === "Record") {
-    return unwrapped.typeArguments[1];
+  if (unwrapped.kind === "record") {
+    return unwrapped.valueType;
   }
   if (unwrapped.kind === "union") {
     const values = loweringNonNullishUnionTypes(unwrapped)
