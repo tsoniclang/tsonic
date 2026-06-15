@@ -406,10 +406,12 @@ describe("TSTS-backed lowering plan builders", () => {
 
   it("does not pick an arbitrary first union arm for destructured binding types", () => {
     const result = lowerProgram(`
-      type Same = { value: number } | { value: number };
-      type Different = { value: number } | { value: string };
+      import type { int } from "@tsonic/core/types.js";
 
-      export function readSame(input: Same): number {
+      type Same = { value: int } | { value: int };
+      type Different = { value: int } | { value: string };
+
+      export function readSame(input: Same): int {
         const { value } = input;
         return value;
       }
@@ -431,16 +433,16 @@ describe("TSTS-backed lowering plan builders", () => {
     const differentValue =
       readDifferent?.body?.statements[0]?.declarations[0]?.bindingElements[0];
 
-    expect(sameValue?.type).to.deep.include({
-      kind: "intrinsic",
-      name: "number",
-    });
+    expectSourcePrimitive(sameValue?.type, "int32");
     expect(differentValue?.type?.kind).to.equal("union");
-    expect(
-      differentValue?.type?.kind === "union"
-        ? differentValue.type.types.map((type) => type.kind === "intrinsic" ? type.name : type.kind)
-        : []
-    ).to.have.members(["number", "string"]);
+    if (differentValue?.type?.kind === "union") {
+      const [numberArm, stringArm] = differentValue.type.types;
+      expectSourcePrimitive(numberArm, "int32");
+      expect(stringArm).to.deep.include({
+        kind: "intrinsic",
+        name: "string",
+      });
+    }
   });
 
   it("projects marker source facts into declaration and parameter plans", () => {

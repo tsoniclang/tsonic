@@ -3632,6 +3632,7 @@ const typeAtBindingAccess = (
   let current = rootType;
   for (const access of accessPath) {
     if (!current) return undefined;
+    current = loweringUnwrapAliasTarget(current) ?? current;
     const currentArms = loweringNonNullishUnionTypes(current);
     if (currentArms.length > 1) {
       const armResults = currentArms.map((arm) =>
@@ -3652,10 +3653,16 @@ const typeAtBindingAccess = (
           (result) => loweringTypeIdentityKey(result) === firstKey
         )
           ? firstResult
-          : undefined;
+          : {
+              kind: "union",
+              types: completeArmResults,
+            };
       continue;
     }
-    current = currentArms[0];
+    current =
+      currentArms[0] === undefined
+        ? undefined
+        : loweringUnwrapAliasTarget(currentArms[0]) ?? currentArms[0];
     if (access.kind === "element") {
       if (current?.kind === "tuple") {
         current = current.elements[access.index];
