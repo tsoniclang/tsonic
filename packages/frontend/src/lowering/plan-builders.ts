@@ -3759,7 +3759,7 @@ const variablePlan = (
   );
   return {
     sourceNode: node,
-    name: nodeName(sourceFile, node) ?? "value",
+    name: nodeName(sourceFile, node) ?? nodeSourceText(sourceFile, nameNode ?? node),
     type,
     storageType,
     initializer: expressionPlan(

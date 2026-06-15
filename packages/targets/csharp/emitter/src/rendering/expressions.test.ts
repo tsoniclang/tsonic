@@ -10,12 +10,14 @@ import { renderExpression } from "./expressions.js";
 const dummySourceFile = {} as LoweringExpressionPlan["sourceFile"];
 const dummySourceNode = {} as LoweringExpressionPlan["sourceNode"];
 
-const createRenderContext = (): RenderContext => ({
+const createRenderContext = (unsupportedFeatures: string[] = []): RenderContext => ({
   diagnostics: [],
   allocateTempName: (prefix) => `${prefix}0`,
   getStructuralTypeName: () => "Structural0",
   overrideMemberAccessibility: () => undefined,
-  reportUnsupported: () => {},
+  reportUnsupported: (feature) => {
+    unsupportedFeatures.push(feature);
+  },
 });
 
 const intType: LoweringTypeRefPlan = {
@@ -67,6 +69,17 @@ const expressionPlan = (
 describe("C# expression renderer", () => {
   it("renders char-context string literals as C# char literals", () => {
     const context = createRenderContext();
+
+    expect(
+      renderExpression(
+        expressionPlan({
+          expressionKind: "literal",
+          literalKind: "string",
+          literalText: "",
+        }),
+        context
+      )
+    ).to.equal('""');
 
     expect(
       renderExpression(
@@ -182,5 +195,73 @@ describe("C# expression renderer", () => {
         context
       )
     ).to.equal("value.Length");
+  });
+
+  it("reports missing required plan data instead of inventing renderer defaults", () => {
+    const unsupportedFeatures: string[] = [];
+    const context = createRenderContext(unsupportedFeatures);
+    const receiver = expressionPlan({
+      expressionKind: "identifier",
+      literalText: "items",
+      type: {
+        kind: "array",
+        elementType: intType,
+        readonly: false,
+      },
+    });
+
+    expect(
+      renderExpression(
+        expressionPlan({
+          expressionKind: "identifier",
+        }),
+        context
+      )
+    ).to.equal("");
+    expect(
+      renderExpression(
+        expressionPlan({
+          expressionKind: "property-access",
+          expression: receiver,
+        }),
+        context
+      )
+    ).to.equal("");
+    expect(
+      renderExpression(
+        expressionPlan({
+          expressionKind: "literal",
+          literalKind: "number",
+        }),
+        context
+      )
+    ).to.equal("");
+    expect(
+      renderExpression(
+        expressionPlan({
+          expressionKind: "call",
+          expression: expressionPlan({
+            expressionKind: "property-access",
+            expression: receiver,
+            sourceOperation: {
+              owner: "Array",
+              member: "map",
+              dispatch: "receiver-call",
+            },
+          }),
+          sourceOperation: {
+            owner: "Array",
+            member: "map",
+            dispatch: "receiver-call",
+          },
+        }),
+        context
+      )
+    ).to.contain("Select(");
+
+    expect(unsupportedFeatures).to.include("identifier name");
+    expect(unsupportedFeatures).to.include("property member name");
+    expect(unsupportedFeatures).to.include("number literal text");
+    expect(unsupportedFeatures).to.include("Array.map callback");
   });
 });

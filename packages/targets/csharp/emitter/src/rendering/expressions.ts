@@ -90,6 +90,48 @@ const unsupportedExpression = (
   return "";
 };
 
+const reportMissingExpressionData = (
+  context: RenderContext,
+  plan: LoweringExpressionPlan,
+  feature: string
+): string => {
+  context.reportUnsupported(feature, plan.sourceKindName, plan.sourceText);
+  return "";
+};
+
+const requiredPlanText = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext,
+  feature: string,
+  value: string | undefined
+): string | undefined => {
+  if (value !== undefined) return value;
+  reportMissingExpressionData(context, plan, feature);
+  return undefined;
+};
+
+const requiredCallArgument = (
+  plan: LoweringExpressionPlan,
+  index: number,
+  context: RenderContext,
+  feature: string
+): LoweringExpressionPlan | undefined => {
+  const argument = plan.arguments[index];
+  if (argument) return argument;
+  reportMissingExpressionData(context, plan, feature);
+  return undefined;
+};
+
+const requiredRenderedCallArgument = (
+  plan: LoweringExpressionPlan,
+  index: number,
+  context: RenderContext,
+  feature: string
+): string | undefined => {
+  const argument = requiredCallArgument(plan, index, context, feature);
+  return argument ? renderCallArgument(argument, context) : undefined;
+};
+
 const binaryOperatorMap: ReadonlyMap<LoweringBinaryOperator, string> = new Map([
   ["equal", "=="],
   ["strict-equal", "=="],
@@ -1166,10 +1208,17 @@ const renderArrayLength = (
 
 const renderArrayElementAccess = (
   receiverPlan: LoweringExpressionPlan | undefined,
-  indexPlan: LoweringExpressionPlan | undefined,
+  elementAccessPlan: LoweringExpressionPlan,
   context: RenderContext,
   useSiteTypeOverride?: LoweringTypeRefPlan
 ): string | undefined => {
+  const indexPlan = requiredCallArgument(
+    elementAccessPlan,
+    0,
+    context,
+    "array index expression"
+  );
+  if (!indexPlan) return "";
   const elementTypePlan =
     arrayTypeFromUseSite(useSiteTypeOverride)?.elementType ??
     arrayReceiverElementType(receiverPlan);
@@ -1392,11 +1441,14 @@ const renderArrayListReceiver = (
 };
 
 const renderArrayElementArgument = (
-  argument: LoweringExpressionPlan | undefined,
+  plan: LoweringExpressionPlan,
+  argumentIndex: number,
   receiverPlan: LoweringExpressionPlan | undefined,
-  context: RenderContext
-): string => {
-  if (!argument) return "default!";
+  context: RenderContext,
+  feature: string
+): string | undefined => {
+  const argument = requiredCallArgument(plan, argumentIndex, context, feature);
+  if (!argument) return undefined;
   const elementType = arrayReceiverElementType(receiverPlan);
   if (!elementType) return renderCallArgument(argument, context);
   return renderExpressionWithUseSiteCast(argument, context, elementType);
@@ -1426,16 +1478,16 @@ const renderArrayReceiverCall = (
         );
         return "";
       }
-      return `${listReceiver()}.Add(${renderArrayElementArgument(plan.arguments[0], receiverPlan, context)})`;
+      return `${listReceiver()}.Add(${renderArrayElementArgument(plan, 0, receiverPlan, context, "Array.push argument") ?? ""})`;
     case "pop":
       return `${listReceiver()}[^1]`;
     case "join":
     case "toString":
       return `global::System.String.Join(${operation.member === "join" ? (args[0] ?? "\",\"") : "\",\""}, ${enumerableReceiver()})`;
     case "map":
-      return `global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(${enumerableReceiver()}, ${args[0] ?? "value => value"}))`;
+      return `global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(${enumerableReceiver()}, ${requiredRenderedCallArgument(plan, 0, context, "Array.map callback") ?? ""}))`;
     case "filter":
-      return `global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Where(${enumerableReceiver()}, ${args[0] ?? "value => true"}))`;
+      return `global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Where(${enumerableReceiver()}, ${requiredRenderedCallArgument(plan, 0, context, "Array.filter callback") ?? ""}))`;
     case "slice": {
       const start = args[0] ?? "0";
       const end = args[1];
@@ -1446,19 +1498,19 @@ const renderArrayReceiverCall = (
       return `global::System.Linq.Enumerable.ToList(${sliced})`;
     }
     case "includes":
-      return `global::System.Linq.Enumerable.Contains(${enumerableReceiver()}, ${renderArrayElementArgument(plan.arguments[0], receiverPlan, context)})`;
+      return `global::System.Linq.Enumerable.Contains(${enumerableReceiver()}, ${renderArrayElementArgument(plan, 0, receiverPlan, context, "Array.includes argument") ?? ""})`;
     case "indexOf":
-      return `${listReceiver()}.IndexOf(${renderArrayElementArgument(plan.arguments[0], receiverPlan, context)})`;
+      return `${listReceiver()}.IndexOf(${renderArrayElementArgument(plan, 0, receiverPlan, context, "Array.indexOf argument") ?? ""})`;
     case "forEach":
-      return `${listReceiver()}.ForEach(${args[0] ?? "_ => { }"})`;
+      return `${listReceiver()}.ForEach(${requiredRenderedCallArgument(plan, 0, context, "Array.forEach callback") ?? ""})`;
     case "find":
-      return `global::System.Linq.Enumerable.FirstOrDefault(${enumerableReceiver()}, ${args[0] ?? "_ => false"})`;
+      return `global::System.Linq.Enumerable.FirstOrDefault(${enumerableReceiver()}, ${requiredRenderedCallArgument(plan, 0, context, "Array.find callback") ?? ""})`;
     case "findIndex":
-      return `${listReceiver()}.FindIndex(${args[0] ?? "_ => false"})`;
+      return `${listReceiver()}.FindIndex(${requiredRenderedCallArgument(plan, 0, context, "Array.findIndex callback") ?? ""})`;
     case "every":
-      return `global::System.Linq.Enumerable.All(${enumerableReceiver()}, ${args[0] ?? "_ => true"})`;
+      return `global::System.Linq.Enumerable.All(${enumerableReceiver()}, ${requiredRenderedCallArgument(plan, 0, context, "Array.every callback") ?? ""})`;
     case "some":
-      return `global::System.Linq.Enumerable.Any(${enumerableReceiver()}, ${args[0] ?? "_ => false"})`;
+      return `global::System.Linq.Enumerable.Any(${enumerableReceiver()}, ${requiredRenderedCallArgument(plan, 0, context, "Array.some callback") ?? ""})`;
     default:
       return `${receiver}.${operation.member}(${args.join(", ")})`;
   }
@@ -1512,6 +1564,13 @@ const renderSourceRuntimeCall = (
       case "Array":
         if (operation.member === "isArray") {
           const argument = plan.arguments[0];
+          const renderedArgument = requiredRenderedCallArgument(
+            plan,
+            0,
+            context,
+            "Array.isArray argument"
+          );
+          if (!renderedArgument) return "";
           const sourceCarrier =
             runtimeUnionCarrierType(argument?.storageTypePlan) ??
             runtimeUnionCarrierType(argument?.type);
@@ -1519,7 +1578,7 @@ const renderSourceRuntimeCall = (
           if (argument && armIndex) {
             return `${renderExpression(argument, context)}.As${armIndex}() != null`;
           }
-          return `(${args[0] ?? "null"} is global::System.Collections.IEnumerable && ${args[0] ?? "null"} is not string)`;
+          return `(${renderedArgument} is global::System.Collections.IEnumerable && ${renderedArgument} is not string)`;
         }
         break;
       case "Object":
@@ -1603,7 +1662,9 @@ const renderIntrinsicCall = (
     }
     case "nameof": {
       const argument = plan.arguments[0];
-      return argument ? `nameof(${renderExpression(argument, context)})` : '""';
+      return argument
+        ? `nameof(${renderExpression(argument, context)})`
+        : reportMissingExpressionData(context, plan, "nameof intrinsic argument");
     }
     case "sizeof": {
       const type = firstRenderedTypeArgument(plan, context, "sizeof intrinsic");
@@ -1611,7 +1672,13 @@ const renderIntrinsicCall = (
     }
     case "istype": {
       const type = firstRenderedTypeArgument(plan, context, "istype intrinsic");
-      const value = renderExpression(plan.arguments[0], context);
+      const value = requiredRenderedCallArgument(
+        plan,
+        0,
+        context,
+        "istype intrinsic value"
+      );
+      if (!value) return "";
       return type ? `${value} is ${type}` : "";
     }
     case "trycast": {
@@ -1620,7 +1687,13 @@ const renderIntrinsicCall = (
         context,
         "trycast intrinsic"
       );
-      const value = renderExpression(plan.arguments[0], context);
+      const value = requiredRenderedCallArgument(
+        plan,
+        0,
+        context,
+        "trycast intrinsic value"
+      );
+      if (!value) return "";
       return type ? `${value} as ${type}` : "";
     }
     case "asinterface": {
@@ -1629,7 +1702,13 @@ const renderIntrinsicCall = (
         context,
         "asinterface intrinsic"
       );
-      const value = renderExpression(plan.arguments[0], context);
+      const value = requiredRenderedCallArgument(
+        plan,
+        0,
+        context,
+        "asinterface intrinsic value"
+      );
+      if (!value) return "";
       return type ? `((${type})(${value}))` : "";
     }
     case "stackalloc": {
@@ -1638,7 +1717,13 @@ const renderIntrinsicCall = (
         context,
         "stackalloc intrinsic"
       );
-      const length = renderExpression(plan.arguments[0], context);
+      const length = requiredRenderedCallArgument(
+        plan,
+        0,
+        context,
+        "stackalloc intrinsic length"
+      );
+      if (!length) return "";
       return type ? `stackalloc ${type}[${length}]` : "";
     }
   }
@@ -1656,7 +1741,6 @@ export const renderExpression = (
 
   switch (plan.expressionKind) {
     case "identifier": {
-      const rawName = plan.literalText ?? plan.name ?? "value";
       const sourceRuntimeName = renderCSharpRuntimeExpressionName(
         plan.sourceRuntimeName
       );
@@ -1671,6 +1755,13 @@ export const renderExpression = (
       if (plan.sourceOperation?.dispatch === "constructor") {
         return renderSourceRuntimeName(plan.sourceOperation);
       }
+      const rawName = requiredPlanText(
+        plan,
+        context,
+        "identifier name",
+        plan.literalText ?? plan.name
+      );
+      if (rawName === undefined) return "";
       const defaultedName = context.currentDefaultedParameters?.get(rawName);
       if (defaultedName) return defaultedName;
       return sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
@@ -1681,12 +1772,23 @@ export const renderExpression = (
       return "base";
     case "literal":
       switch (plan.literalKind) {
-        case "string":
+        case "string": {
+          const literalText = requiredPlanText(
+            plan,
+            context,
+            "string literal text",
+            plan.literalText
+          );
+          if (literalText === undefined) return "";
           return shouldRenderStringLiteralAsChar(plan)
-            ? escapeChar(plan.literalText ?? "", context, plan)
-            : `"${escapeString(plan.literalText ?? "")}"`;
+            ? escapeChar(literalText, context, plan)
+            : `"${escapeString(literalText)}"`;
+        }
         case "number":
-          return plan.literalText ?? "0";
+          return (
+            requiredPlanText(plan, context, "number literal text", plan.literalText) ??
+            ""
+          );
         case "bigint":
           context.reportUnsupported(
             "bigint literal",
@@ -1695,7 +1797,14 @@ export const renderExpression = (
           );
           return "";
         case "boolean":
-          return plan.literalText === "true" ? "true" : "false";
+          if (plan.literalText !== "true" && plan.literalText !== "false") {
+            return reportMissingExpressionData(
+              context,
+              plan,
+              "boolean literal text"
+            );
+          }
+          return plan.literalText;
         case "null":
         case "undefined":
           return "null";
@@ -1804,7 +1913,6 @@ export const renderExpression = (
     case "void":
       return renderExpression(plan.expression, context);
     case "property-access": {
-      const rawMember = plan.literalText ?? "member";
       const operation = plan.sourceOperation;
       if (operation?.dispatch === "property") {
         switch (operation.owner) {
@@ -1832,8 +1940,15 @@ export const renderExpression = (
               return `${castExpression(renderExpression(plan.expression, context), renderSourceRuntimeName(operation))}.Count`;
             }
             break;
-        }
+          }
       }
+      const rawMember = requiredPlanText(
+        plan,
+        context,
+        "property member name",
+        plan.literalText
+      );
+      if (rawMember === undefined) return "";
       const member = sanitizeIdentifier(rawMember);
       return `${renderExpressionWithUseSiteCast(
         plan.expression,
@@ -1846,7 +1961,14 @@ export const renderExpression = (
         plan.sourceOperation?.dispatch === "index" &&
         plan.sourceOperation.owner === "String"
       ) {
-        return `global::js.String.charAt(${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}, ${renderExpression(plan.arguments[0], context)})`;
+        const index = requiredRenderedCallArgument(
+          plan,
+          0,
+          context,
+          "string index expression"
+        );
+        if (!index) return "";
+        return `global::js.String.charAt(${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}, ${index})`;
       }
       if (
         plan.sourceOperation?.dispatch === "index" &&
@@ -1854,7 +1976,7 @@ export const renderExpression = (
       ) {
         const rendered = renderArrayElementAccess(
           plan.expression,
-          plan.arguments[0],
+          plan,
           context,
           plan.receiverTypePlan
         );
@@ -1867,7 +1989,14 @@ export const renderExpression = (
       ) {
         return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.__tsonic_symbol_toStringTag`;
       }
-      return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}[${renderExpression(plan.arguments[0], context)}]`;
+      const index = requiredRenderedCallArgument(
+        plan,
+        0,
+        context,
+        "element index expression"
+      );
+      if (!index) return "";
+      return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}[${index}]`;
     case "call":
       {
         const intrinsic = renderIntrinsicCall(plan, context);
