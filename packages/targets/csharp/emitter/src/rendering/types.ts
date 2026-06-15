@@ -606,6 +606,7 @@ const renderUnionType = (
   if (shouldEmitAnonymousRuntimeUnionCarrier(type, context)) {
     return context.getStructuralTypeName(type);
   }
+  context.reportUnsupported("union type", "UnionType", type.sourceText ?? "union");
   return "object?";
 };
 
@@ -702,11 +703,25 @@ export const renderCSharpType = (
           return "object?";
       }
     case "source-primitive":
-      return primitiveRuntimeTypes.get(type.fact.kind) ?? "object?";
+      {
+        const primitiveType = primitiveRuntimeTypes.get(type.fact.kind);
+        if (primitiveType) return primitiveType;
+        context.reportUnsupported(
+          "source primitive runtime type",
+          "TypeReference",
+          type.sourceText ?? type.fact.sourceName
+        );
+        return "object?";
+      }
     case "named": {
       const special = renderSpecialNamedType(type, context);
       if (special) return special;
       if (type.declarationKind === "type-alias" && !type.aliasTarget) {
+        context.reportUnsupported(
+          "type alias target",
+          "TypeReference",
+          type.sourceText ?? type.name
+        );
         return "object?";
       }
       if (
@@ -754,6 +769,11 @@ export const renderCSharpType = (
     case "union":
       return renderUnionType(type, context);
     case "intersection":
+      context.reportUnsupported(
+        "intersection type",
+        "IntersectionType",
+        type.sourceText ?? "intersection"
+      );
       return "object?";
     case "function":
       return renderFunctionType(type, context);
@@ -778,6 +798,11 @@ export const renderCSharpType = (
           return "object?";
       }
     case "unsupported":
+      context.reportUnsupported(
+        "type",
+        type.sourceKindName,
+        type.sourceText
+      );
       return "object?";
   }
 };

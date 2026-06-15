@@ -301,6 +301,20 @@ const arrayLiteralTypePlan = (
   arrayTypeFromUseSite(plan.storageTypePlan) ??
   arrayTypeFromUseSite(plan.type);
 
+const requiredArrayLiteralElementType = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext,
+  elementType: string | undefined
+): string => {
+  if (elementType) return elementType;
+  context.reportUnsupported(
+    "array literal element type",
+    plan.sourceKindName,
+    plan.sourceText
+  );
+  return "object?";
+};
+
 const isCharType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "source-primitive" && type.fact.kind === "char";
 
@@ -368,7 +382,12 @@ const renderArrayLiteral = (
     : arrayLiteralElementType(plan, context);
   if (!plan.elements.some((element) => element.expressionKind === "spread")) {
     if (arrayPlan?.kind === "array" && !arrayPlan.readonly) {
-      return `new global::System.Collections.Generic.List<${elementType ?? "object?"}> { ${plan.elements
+      const listElementType = requiredArrayLiteralElementType(
+        plan,
+        context,
+        elementType
+      );
+      return `new global::System.Collections.Generic.List<${listElementType}> { ${plan.elements
         .map((element) =>
           renderArrayLiteralElement(element, arrayPlan.elementType, context)
         )
@@ -382,7 +401,7 @@ const renderArrayLiteral = (
       .join(", ")} }`;
   }
 
-  const segmentType = elementType ?? "object?";
+  const segmentType = requiredArrayLiteralElementType(plan, context, elementType);
   const segmentTypePlan = arrayPlan?.elementType;
   const segments: string[] = [];
   let currentElements: LoweringExpressionPlan[] = [];
