@@ -3,20 +3,6 @@ import type {
   PackageReferenceConfig,
 } from "../../types.js";
 
-export type SerializedSourceTypeDescriptor = {
-  readonly kind: string;
-  readonly [key: string]: unknown;
-};
-
-export type SerializedOverloadFamilyDescriptor = {
-  readonly familyId: string;
-  readonly ownerKind: "function" | "method" | "constructor";
-  readonly publicName: string;
-  readonly publicMembers: readonly unknown[];
-  readonly resolutionMetadata: Readonly<Record<string, unknown>>;
-  readonly [key: string]: unknown;
-};
-
 export type ManifestDotnet = {
   readonly frameworkReferences?: readonly FrameworkReferenceConfig[];
   readonly packageReferences?: readonly PackageReferenceConfig[];
@@ -54,18 +40,4 @@ export type NormalizedBindingsManifest = {
   readonly producer?: PackageManifestProducer;
   readonly dotnet?: ManifestDotnet;
   readonly testDotnet?: ManifestDotnet;
-  readonly semanticMetadata?: {
-    readonly version: 1;
-    readonly aliases?: Readonly<Record<string, AliasMetadata>>;
-    readonly overloadFamilies?: Readonly<
-      Record<string, SerializedOverloadFamilyDescriptor>
-    >;
-  };
-};
-
-export type AliasMetadata = {
-  readonly aliasId: string;
-  readonly definition: SerializedSourceTypeDescriptor;
-  readonly isRecursive: boolean;
-  readonly typeParameters: readonly string[];
 };

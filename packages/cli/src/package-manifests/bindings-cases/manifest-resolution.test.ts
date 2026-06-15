@@ -70,46 +70,6 @@ describe("tsonic.package bindings", function () {
     }
   });
 
-  it("treats source-package semantic metadata as overlay metadata", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-semantic-"));
-    try {
-      const pkgRoot = writeInstalledPackage(dir, "@acme/semantic", "1.0.0", {
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-source-package",
-          semanticMetadata: {
-            version: 1,
-            aliases: {
-              "@acme/semantic:Result": {
-                aliasId: "@acme/semantic:Result",
-                definition: { kind: "referenceType", name: "Result" },
-                isRecursive: true,
-                typeParameters: ["T", "E"],
-              },
-            },
-          },
-          source: {
-            exports: {
-              ".": "./src/index.ts",
-            },
-          },
-        },
-      });
-
-      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
-      expect(result.ok).to.equal(true);
-      const manifest = result.ok ? result.value : null;
-      expect(
-        manifest?.semanticMetadata?.aliases?.["@acme/semantic:Result"]
-      ).to.deep.include({
-        aliasId: "@acme/semantic:Result",
-        isRecursive: true,
-      });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
   it("returns null for pure source packages without overlay metadata", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-package-pure-source-"));
     try {
