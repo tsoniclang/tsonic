@@ -40,6 +40,7 @@ import type {
   SourceAttributeTargetSpecifier,
   SourceBindingDeclarationKind,
   SourceBindingIdentityFact,
+  SourceRuntimeVisibilityFact,
   SourceRuntimeOperationOwner,
   SourceRuntimeOperationFact,
   SourceTypeSemanticsFact,
@@ -59,6 +60,7 @@ import {
   sourceAttributeApplicationsFactKey,
   sourceAttributeDescriptorFactKey,
   sourceBindingIdentityFactKey,
+  sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
   extensionReceiverSemanticsFactKey,
@@ -1059,15 +1061,60 @@ const sourceBindingIdentityFact = (
   };
 };
 
+const sourceFileNameSegments = (fileName: string): readonly string[] =>
+  fileName.replace(/\\/g, "/").split("/").filter(Boolean);
+
+const sourceRuntimeVisibilityFactForBinding = (
+  fact: SourceBindingIdentityFact
+): SourceRuntimeVisibilityFact | undefined =>
+  fact.name === "_" ||
+  fact.name.includes("\uFFFD") ||
+  sourceFileNameSegments(fact.sourceFileName).includes("_")
+    ? { visibility: "opaque" }
+    : undefined;
+
+const sourceRuntimeVisibilityFactForUnboundName = (
+  name: string | undefined
+): SourceRuntimeVisibilityFact | undefined =>
+  name === "_" || name?.startsWith("_") === true || name?.includes("\uFFFD")
+    ? { visibility: "opaque" }
+    : undefined;
+
+const setSourceRuntimeVisibilityFact = (
+  context: CheckedContext,
+  subject: TstsNode,
+  fact: SourceRuntimeVisibilityFact | undefined
+): void => {
+  if (fact) {
+    context.facts.set(sourceRuntimeVisibilityFactKey, subject, fact);
+  }
+};
+
 const setSourceBindingIdentityFact = (
   context: CheckedContext,
   subject: TstsNode,
   symbol: TstsSymbol | undefined
-): void => {
+): SourceBindingIdentityFact | undefined => {
   const fact = sourceBindingIdentityFact(context, symbol);
   if (fact) {
     context.facts.set(sourceBindingIdentityFactKey, subject, fact);
+    setSourceRuntimeVisibilityFact(
+      context,
+      subject,
+      sourceRuntimeVisibilityFactForBinding(fact)
+    );
   }
+  return fact;
+};
+
+const setDeclarationBindingFacts = (
+  context: CheckedContext,
+  declaration: TstsNode
+): void => {
+  if (sourceBindingDeclarationKind(declaration) === undefined) return;
+  const name = TstsSyntax.Node_Name(declaration);
+  const symbol = symbolForName(context, name);
+  setSourceBindingIdentityFact(context, declaration, symbol);
 };
 
 const isIdentifierGenericSymbol = (
@@ -1887,9 +1934,20 @@ export const createTsonicSourceSemanticsExtension = (
     visitTstsSubtree(context.sourceFile, (node): void => {
       if (!node) return;
 
+      setDeclarationBindingFacts(context, node);
+
       if (TstsSyntax.IsIdentifier(node)) {
         const symbol = symbolForName(context, node);
-        setSourceBindingIdentityFact(context, node, symbol);
+        const bindingFact = setSourceBindingIdentityFact(context, node, symbol);
+        if (!bindingFact) {
+          setSourceRuntimeVisibilityFact(
+            context,
+            node,
+            sourceRuntimeVisibilityFactForUnboundName(
+              getTstsIdentifierText(node)
+            )
+          );
+        }
         const targetSymbol = symbol ? genericAliasTargets.get(symbol) : undefined;
         if (targetSymbol) {
           context.facts.set(genericFunctionAliasFactKey, node, {
@@ -1902,12 +1960,24 @@ export const createTsonicSourceSemanticsExtension = (
         node.Kind === TstsSyntax.KindTypeReference ||
         node.Kind === TstsSyntax.KindExpressionWithTypeArguments
       ) {
-        const symbol = context.checker.getSymbolAtLocation(node);
-        setSourceBindingIdentityFact(
+        const symbol =
+          context.checker.getSymbolAtLocation(node) ??
+          symbolForName(context, TstsSyntax.Node_Name(node));
+        const bindingFact = setSourceBindingIdentityFact(
           context,
           node,
           symbol ? context.checker.resolveAlias(symbol) : undefined
         );
+        if (!bindingFact) {
+          const typeReference = getTstsTypeReferenceDetails(node);
+          setSourceRuntimeVisibilityFact(
+            context,
+            node,
+            sourceRuntimeVisibilityFactForUnboundName(
+              typeReference?.name ?? getTstsExpressionWithTypeArgumentsName(node)
+            )
+          );
+        }
       }
 
       const computedName =

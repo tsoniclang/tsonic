@@ -26,6 +26,7 @@ import {
   markerApiSemanticsFactKey,
   parameterPassingFactKey,
   sourceAttributeApplicationsFactKey,
+  sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
 } from "../source-frontend/source-facts.js";
@@ -424,6 +425,46 @@ describe("Tsonic TSTS source semantics extension", () => {
       expect(
         getTstsIdentifierText(userAttributes?.[0]?.attributeType)
       ).to.equal("ObsoleteAttribute");
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("attaches opaque runtime visibility as a source fact", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "_internal.ts": [
+          "export interface _ {",
+          "  readonly value: number;",
+          "}",
+          "",
+        ].join("\n"),
+        "index.ts": [
+          "import type { _ as Internal } from './_internal.js';",
+          "export function use(value: Internal): void {",
+          "  void value;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const visibilityFacts: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        const fact = program.sourceProgram.extensionHost.facts.get(
+          sourceRuntimeVisibilityFactKey,
+          node
+        );
+        if (fact) {
+          visibilityFacts.push(
+            `${TstsSyntax.Node_KindString(node)}:${fact.visibility}`
+          );
+        }
+      });
+
+      expect(visibilityFacts).to.include("KindIdentifier:opaque");
     } finally {
       program.cleanup();
     }

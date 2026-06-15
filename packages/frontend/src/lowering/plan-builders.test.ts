@@ -294,6 +294,41 @@ describe("TSTS-backed lowering plan builders", () => {
     expectSourcePrimitive(call.type, "int32");
   });
 
+  it("projects opaque runtime visibility from source facts", () => {
+    const result = lowerFiles(
+      {
+        "_internal.ts": `
+          export interface _ {
+            readonly value: number;
+          }
+        `,
+        "index.ts": `
+          import type { _ as Internal } from "./_internal.js";
+
+          export function use(value: Internal): void {
+            void value;
+          }
+        `,
+      },
+      "index.ts"
+    );
+
+    const declaration = result.modules
+      .flatMap((module) => module.declarations)
+      .find((entry) => entry.name === "use");
+    const parameterType = declaration?.parameters[0]?.type;
+
+    expect(parameterType?.kind).to.equal("named");
+    expect(
+      parameterType?.kind === "named"
+        ? {
+            name: parameterType.name,
+            visibility: parameterType.runtimeVisibility,
+          }
+        : undefined
+    ).to.deep.equal({ name: "_", visibility: "opaque" });
+  });
+
   it("projects marker source facts into declaration and parameter plans", () => {
     const result = lowerProgram(`
       import type { int, struct } from "@tsonic/core/types.js";

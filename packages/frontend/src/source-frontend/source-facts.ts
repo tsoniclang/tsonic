@@ -142,6 +142,10 @@ export type SourceBindingIdentityFact = {
   readonly topLevelStaticValue: boolean;
 };
 
+export type SourceRuntimeVisibilityFact = {
+  readonly visibility: "opaque";
+};
+
 export type SourceAttributeTargetKind =
   | "type"
   | "constructor"
@@ -257,6 +261,12 @@ export const sourceBindingIdentityFactKey =
     "Source-level binding declaration identity resolved by TSTS."
   );
 
+export const sourceRuntimeVisibilityFactKey =
+  defineSourceFactKey<SourceRuntimeVisibilityFact>(
+    "tsonic:source:runtime-visibility",
+    "Source-level runtime visibility such as opaque generated/internal identities."
+  );
+
 export const sourceAttributeDescriptorFactKey =
   defineSourceFactKey<SourceAttributeDescriptorFact>(
     "tsonic:source:attribute-descriptor",
@@ -285,6 +295,7 @@ export const visitSourceSemanticFactKeys = (
   visit(genericFunctionAliasFactKey);
   visit(intrinsicSemanticsFactKey);
   visit(sourceBindingIdentityFactKey);
+  visit(sourceRuntimeVisibilityFactKey);
   visit(sourceAttributeDescriptorFactKey);
   visit(sourceAttributeApplicationsFactKey);
 };

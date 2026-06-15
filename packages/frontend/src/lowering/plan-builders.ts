@@ -27,6 +27,7 @@ import {
   parameterPassingFactKey,
   sourceAttributeApplicationsFactKey,
   sourceBindingIdentityFactKey,
+  sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
   wellKnownComputedNameFactKey,
@@ -460,9 +461,13 @@ const checkerTypePlan = (
         .map((argument) => checkerTypePlan(context, sourceFile, argument, state))
         .filter(
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
-        ),
+      ),
       sourceRuntimeName,
-      runtimeVisibility: runtimeVisibilityForNamedType(name, sourceRuntimeName),
+      runtimeVisibility: sourceRuntimeVisibilityForType(
+        context,
+        sourceFile,
+        type
+      ),
       declaration: typeDeclarationBindingForType(context, sourceFile, type),
       declarationKind: namedDeclarationKindForType(context, sourceFile, type),
       aliasTarget: checkerTypeAliasTargetPlan(context, sourceFile, type),
@@ -681,22 +686,70 @@ const hasExtensionReceiverFact = (
     context.input.facts.get(extensionReceiverSemanticsFactKey, node)
   );
 
-const sourceRuntimeNameSegments = (
-  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
-): readonly string[] =>
-  sourceRuntimeName?.namespace?.split(".").filter(Boolean) ?? [];
-
-const runtimeVisibilityForNamedType = (
-  name: string,
-  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
-): Extract<LoweringTypeRefPlan, { readonly kind: "named" }>["runtimeVisibility"] =>
-  sourceRuntimeName?.name === "_" ||
-  sourceRuntimeNameSegments(sourceRuntimeName).includes("_") ||
-  name === "_" ||
-  name.includes("\uFFFD") ||
-  (!sourceRuntimeName && name.startsWith("_"))
-    ? "opaque"
+const sourceRuntimeVisibilityForNode = (
+  context: LoweringBuildContext,
+  node: TstsNode | undefined
+): Extract<
+  LoweringTypeRefPlan,
+  { readonly kind: "named" }
+>["runtimeVisibility"] => {
+  if (!node) return undefined;
+  const direct = context.input.facts.get(sourceRuntimeVisibilityFactKey, node);
+  if (direct) return direct.visibility;
+  const name = TstsSyntax.Node_Name(node);
+  return name
+    ? context.input.facts.get(sourceRuntimeVisibilityFactKey, name)?.visibility
     : undefined;
+};
+
+const sourceRuntimeVisibilityForDeclaration = (
+  context: LoweringBuildContext,
+  declaration: TstsNode | undefined
+): Extract<
+  LoweringTypeRefPlan,
+  { readonly kind: "named" }
+>["runtimeVisibility"] =>
+  declaration
+    ? context.input.facts.get(sourceRuntimeVisibilityFactKey, declaration)
+        ?.visibility
+    : undefined;
+
+const sourceRuntimeVisibilityForSymbol = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  symbol: TstsSymbol | undefined
+): Extract<
+  LoweringTypeRefPlan,
+  { readonly kind: "named" }
+>["runtimeVisibility"] => {
+  if (!symbol) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  for (const declaration of checker.getSymbolDeclarations(symbol)) {
+    const visibility = sourceRuntimeVisibilityForDeclaration(
+      context,
+      declaration
+    );
+    if (visibility) return visibility;
+  }
+  return undefined;
+};
+
+const sourceRuntimeVisibilityForType = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  type: TstsType | undefined
+): Extract<
+  LoweringTypeRefPlan,
+  { readonly kind: "named" }
+>["runtimeVisibility"] => {
+  if (!type) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  return sourceRuntimeVisibilityForSymbol(
+    context,
+    sourceFile,
+    checker.getTypeAliasOrSymbol(type)
+  );
+};
 
 const sourceRuntimeNameForDeclaration = (
   context: LoweringBuildContext,
@@ -1272,10 +1325,10 @@ const sourceTypeAliasDeclarationTargetPlan = (
       ),
     aliasTarget: sourceTypeAliasTargetPlan(context, sourceFile, node, state),
     sourceRuntimeName,
-    runtimeVisibility: runtimeVisibilityForNamedType(
-      typeName,
-      sourceRuntimeName
-    ),
+    runtimeVisibility:
+      sourceRuntimeVisibilityForNode(context, node) ??
+      sourceRuntimeVisibilityForType(context, sourceFile, sourceType) ??
+      sourceRuntimeVisibilityForSymbol(context, sourceFile, resolvedTypeNodeSymbol),
     declaration: typeDeclarationBindingForNode(context, sourceFile, node),
     declarationKind: namedDeclarationKindForType(context, sourceFile, sourceType),
     sourceText: compactNodeSourceText(sourceFile, node),
@@ -1419,10 +1472,14 @@ const sourceTypePlan = (
       ),
       aliasTarget,
       sourceRuntimeName,
-      runtimeVisibility: runtimeVisibilityForNamedType(
-        typeName,
-        sourceRuntimeName
-      ),
+      runtimeVisibility:
+        sourceRuntimeVisibilityForNode(context, node) ??
+        sourceRuntimeVisibilityForType(context, sourceFile, sourceType) ??
+        sourceRuntimeVisibilityForSymbol(
+          context,
+          sourceFile,
+          resolvedTypeNodeSymbol
+        ),
       declaration,
       declarationKind: namedDeclarationKindForType(
         context,
@@ -1530,10 +1587,7 @@ const sourceTypePlan = (
               argument !== undefined
           ),
         sourceRuntimeName,
-        runtimeVisibility: runtimeVisibilityForNamedType(
-          name,
-          sourceRuntimeName
-        ),
+        runtimeVisibility: sourceRuntimeVisibilityForNode(context, node),
         declaration: typeDeclarationBindingForNode(context, sourceFile, node),
         sourceText,
       };
