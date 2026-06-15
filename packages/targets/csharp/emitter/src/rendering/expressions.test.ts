@@ -5,7 +5,11 @@ import type {
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
-import { renderExpression, renderFunctionExpressionType } from "./expressions.js";
+import {
+  renderExpression,
+  renderExpressionWithUseSiteCast,
+  renderFunctionExpressionType,
+} from "./expressions.js";
 
 const dummySourceFile = {} as LoweringExpressionPlan["sourceFile"];
 const dummySourceNode = {} as LoweringExpressionPlan["sourceNode"];
@@ -158,6 +162,73 @@ describe("C# expression renderer", () => {
     expect(rendered).to.equal(
       "new global::System.Collections.Generic.List<int>(global::System.Linq.Enumerable.Concat(global::System.Linq.Enumerable.Concat(new int[] { ((int)(1)) }, items), new int[] { ((int)(2)) }))"
     );
+  });
+
+  it("uses exact runtime-union arm type before array category matching", () => {
+    const context = createRenderContext();
+    const stringArrayType: LoweringTypeRefPlan = {
+      kind: "array",
+      elementType: stringType,
+      readonly: false,
+    };
+    const intArrayType: LoweringTypeRefPlan = {
+      kind: "array",
+      elementType: intType,
+      readonly: false,
+    };
+    const unionType: LoweringTypeRefPlan = {
+      kind: "union",
+      types: [stringArrayType, intArrayType],
+    };
+
+    const rendered = renderExpressionWithUseSiteCast(
+      expressionPlan({
+        expressionKind: "array-literal",
+        type: intArrayType,
+        elements: [],
+      }),
+      context,
+      unionType
+    );
+
+    expect(rendered).to.contain(".From2(");
+    expect(rendered).to.contain(
+      "new global::System.Collections.Generic.List<int>"
+    );
+  });
+
+  it("does not pick an arbitrary runtime-union array arm", () => {
+    const unsupportedFeatures: string[] = [];
+    const context = createRenderContext(unsupportedFeatures);
+    const unionType: LoweringTypeRefPlan = {
+      kind: "union",
+      types: [
+        {
+          kind: "array",
+          elementType: stringType,
+          readonly: false,
+        },
+        {
+          kind: "array",
+          elementType: intType,
+          readonly: false,
+        },
+      ],
+    };
+
+    const rendered = renderExpressionWithUseSiteCast(
+      expressionPlan({
+        expressionKind: "array-literal",
+        elements: [],
+      }),
+      context,
+      unionType
+    );
+
+    expect(rendered).to.not.contain(".From1(");
+    expect(rendered).to.not.contain(".From2(");
+    expect(rendered).to.not.contain("((Structural0)(");
+    expect(unsupportedFeatures).to.include("runtime union arm selection");
   });
 
   it("renders string length only from a TSTS-proven runtime operation", () => {

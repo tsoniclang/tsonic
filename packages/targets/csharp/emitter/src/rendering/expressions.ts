@@ -808,6 +808,14 @@ export const renderExpressionWithUseSiteCast = (
     context
   );
   if (runtimeUnionCarrier) return runtimeUnionCarrier;
+  if (runtimeUnionCarrierType(useSiteTypeOverride, context)) {
+    context.reportUnsupported(
+      "runtime union arm selection",
+      plan?.sourceKindName ?? "Expression",
+      plan?.sourceText ?? ""
+    );
+    return rendered;
+  }
   const useSiteArrayLiteral = arrayLiteralExpressionPlan(plan);
   if (arrayTypeFromUseSite(useSiteTypeOverride) && useSiteArrayLiteral) {
     return renderArrayLiteral(
@@ -861,6 +869,16 @@ const runtimeUnionCarrierType = (
       ? type
     : undefined;
 
+const singleRuntimeUnionArmIndex = (
+  arms: readonly LoweringTypeRefPlan[],
+  predicate: (arm: LoweringTypeRefPlan) => boolean
+): number | undefined => {
+  const matches = arms
+    .map((arm, index) => (predicate(arm) ? index + 1 : undefined))
+    .filter((index): index is number => index !== undefined);
+  return matches.length === 1 ? matches[0] : undefined;
+};
+
 const arrayLiteralExpressionPlan = (
   plan: LoweringExpressionPlan | undefined
 ): LoweringExpressionPlan | undefined =>
@@ -886,13 +904,16 @@ const runtimeUnionArmIndexForExpression = (
     plan.storageTypePlan,
     plan.type,
   ].filter((type): type is LoweringTypeRefPlan => type !== undefined);
-  const exactIndex = arms.findIndex((arm) =>
+  const exactIndex = singleRuntimeUnionArmIndex(arms, (arm) =>
     expressionTypes.some((type) => sameRuntimeTypePlan(type, arm))
   );
-  if (exactIndex >= 0) return exactIndex + 1;
+  if (exactIndex) return exactIndex;
   if (arrayLiteralExpressionPlan(plan) || plan.expressionKind === "spread") {
-    const arrayIndex = arms.findIndex((arm) => arm.kind === "array");
-    if (arrayIndex >= 0) return arrayIndex + 1;
+    const arrayIndex = singleRuntimeUnionArmIndex(
+      arms,
+      (arm) => arm.kind === "array"
+    );
+    if (arrayIndex) return arrayIndex;
   }
   if (
     plan.literalKind === "string" ||
@@ -902,38 +923,41 @@ const runtimeUnionArmIndexForExpression = (
         (type.kind === "literal" && type.literalKind === "string")
     )
   ) {
-    const stringIndex = arms.findIndex(
+    const stringIndex = singleRuntimeUnionArmIndex(
+      arms,
       (arm) =>
         (arm.kind === "intrinsic" && arm.name === "string") ||
         (arm.kind === "literal" && arm.literalKind === "string")
     );
-    if (stringIndex >= 0) return stringIndex + 1;
+    if (stringIndex) return stringIndex;
   }
   if (
     plan.expressionKind === "arrow-function" ||
     plan.expressionKind === "function-expression" ||
     expressionTypes.some((type) => type.kind === "function")
   ) {
-    const functionIndex = arms.findIndex(
+    const functionIndex = singleRuntimeUnionArmIndex(
+      arms,
       (arm) =>
         arm.kind === "function" ||
         (arm.kind === "named" && arm.aliasTarget?.kind === "function")
     );
-    if (functionIndex >= 0) return functionIndex + 1;
+    if (functionIndex) return functionIndex;
   }
   if (expressionTypes.some((type) => type.kind === "named")) {
-    const concreteIndex = arms.findIndex(
+    const concreteIndex = singleRuntimeUnionArmIndex(
+      arms,
       (arm) =>
         arm.kind === "named" &&
         (arm.declarationKind === "class" || arm.declarationKind === "interface")
     );
-    if (concreteIndex >= 0) return concreteIndex + 1;
+    if (concreteIndex) return concreteIndex;
   }
   if (plan.expressionKind === "object-literal") {
-    const objectIndex = arms.findIndex((arm) =>
+    const objectIndex = singleRuntimeUnionArmIndex(arms, (arm) =>
       objectLiteralMatchesArm(plan, arm)
     );
-    if (objectIndex >= 0) return objectIndex + 1;
+    if (objectIndex) return objectIndex;
   }
   return undefined;
 };
@@ -943,8 +967,10 @@ const runtimeUnionArrayArmIndex = (
   context: RenderContext
 ): number | undefined => {
   const arms = runtimeUnionCarrierArms(carrier, context);
-  const index = arms.findIndex((arm) => arrayTypeFromUseSite(arm) !== undefined);
-  return index >= 0 ? index + 1 : undefined;
+  return singleRuntimeUnionArmIndex(
+    arms,
+    (arm) => arrayTypeFromUseSite(arm) !== undefined
+  );
 };
 
 const runtimeUnionArmIndexForTargetType = (
@@ -954,8 +980,9 @@ const runtimeUnionArmIndexForTargetType = (
 ): number | undefined => {
   if (!carrier || !target) return undefined;
   const arms = runtimeUnionCarrierArms(carrier, context);
-  const index = arms.findIndex((arm) => sameRuntimeTypePlan(arm, target));
-  return index >= 0 ? index + 1 : undefined;
+  return singleRuntimeUnionArmIndex(arms, (arm) =>
+    sameRuntimeTypePlan(arm, target)
+  );
 };
 
 const runtimeUnionSourceArmValue = (

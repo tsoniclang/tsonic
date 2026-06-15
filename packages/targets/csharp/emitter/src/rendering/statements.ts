@@ -41,6 +41,14 @@ const unsupportedStatement = (
   return "";
 };
 
+const singleMatchingType = (
+  types: readonly LoweringTypeRefPlan[],
+  predicate: (type: LoweringTypeRefPlan) => boolean
+): LoweringTypeRefPlan | undefined => {
+  const matches = types.filter(predicate);
+  return matches.length === 1 ? matches[0] : undefined;
+};
+
 const renderBindingAccess = (
   rootName: string,
   accessPath: readonly LoweringBindingAccessPlan[],
@@ -52,7 +60,10 @@ const renderBindingAccess = (
       case "element": {
         const nullableTuple =
           currentType?.kind === "union"
-            ? currentType.types.find((member) => member.kind === "tuple")
+            ? singleMatchingType(
+                currentType.types,
+                (member) => member.kind === "tuple"
+              )
             : undefined;
         const tupleType =
           currentType?.kind === "tuple" ? currentType : nullableTuple;
@@ -69,13 +80,15 @@ const renderBindingAccess = (
         return `${current}[${access.index}]`;
       }
       case "property": {
-        const member =
+        const matchingMembers =
           currentType?.kind === "object"
-            ? currentType.members.find(
+            ? currentType.members.filter(
                 (candidate) =>
                   candidate.kind === "property" && candidate.name === access.name
               )
-            : undefined;
+            : [];
+        const member =
+          matchingMembers.length === 1 ? matchingMembers[0] : undefined;
         currentType = member?.kind === "property" ? member.type : undefined;
         return `${current}.${sanitizeIdentifier(access.name)}`;
       }
