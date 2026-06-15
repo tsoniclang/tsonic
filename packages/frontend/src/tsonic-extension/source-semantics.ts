@@ -291,15 +291,6 @@ const isIdentifierNamed = (
   name: string
 ): boolean => getTstsIdentifierText(node) === name;
 
-const isPropertyAccessNamed = (
-  node: TstsNode | undefined,
-  receiverName: string,
-  memberName: string
-): boolean =>
-  node?.Kind === TstsSyntax.KindPropertyAccessExpression &&
-  isIdentifierNamed(TstsSyntax.Node_Expression(node), receiverName) &&
-  isIdentifierNamed(TstsSyntax.Node_Name(node), memberName);
-
 const isExternalSupportDeclaration = (
   declaration: TstsNode | undefined,
   sourceDiagnosticFileNames: ReadonlySet<string>
@@ -345,6 +336,22 @@ const isAmbientGlobalIdentifier = (
     )
   );
 };
+
+const isAmbientGlobalPropertyAccess = (
+  context: CheckedContext,
+  node: TstsNode | undefined,
+  receiverName: string,
+  memberName: string,
+  sourceDiagnosticFileNames: ReadonlySet<string>
+): boolean =>
+  node?.Kind === TstsSyntax.KindPropertyAccessExpression &&
+  isIdentifierNamed(TstsSyntax.Node_Name(node), memberName) &&
+  isAmbientGlobalIdentifier(
+    context,
+    TstsSyntax.Node_Expression(node),
+    receiverName,
+    sourceDiagnosticFileNames
+  );
 
 const isWellKnownSymbolName = (
   context: CheckedContext,
@@ -860,12 +867,65 @@ const nodeHasAncestorKind = (
   kind: number
 ): boolean => parents.some((parent) => parent.Kind === kind);
 
-const isJsValueType = (
+const isCoreJsValueTypeNode = (
+  node: TstsNode | undefined,
+  coreTypesBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): boolean =>
+  importedTypeReferenceName(node, coreTypesBindingByLocalName) === "JsValue";
+
+const typeResolvesToCoreJsValue = (
   checker: CheckedContext["checker"],
   type: TstsType | undefined
+): boolean => {
+  if (!type) return false;
+  const symbol = checker.getTypeAliasOrSymbol(type);
+  if (!symbol) return false;
+  return checker.getSymbolDeclarations(symbol).some((declaration) => {
+    const sourceFile = getTstsContainingSourceFile(declaration);
+    return (
+      getTstsNodeNameText(declaration) === "JsValue" &&
+      sourceFile !== undefined &&
+      isCorePackageSourceFile(sourceFile.FileName())
+    );
+  });
+};
+
+const isJsValueCarrier = (
+  checker: CheckedContext["checker"],
+  type: TstsType | undefined,
+  typeNode: TstsNode | undefined,
+  coreTypesBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
 ): boolean =>
-  checker.getTypeAliasSymbolName(type) === "JsValue" ||
-  checker.getTypeSymbolName(type) === "JsValue";
+  isCoreJsValueTypeNode(typeNode, coreTypesBindingByLocalName) ||
+  typeResolvesToCoreJsValue(checker, type);
+
+const declaredTypeNodeForExpression = (
+  context: CheckedContext,
+  expression: TstsNode | undefined
+): TstsNode | undefined => {
+  const parent = expression?.Parent;
+  if (
+    parent?.Kind === TstsSyntax.KindVariableDeclaration &&
+    TstsSyntax.Node_Initializer(parent) === expression
+  ) {
+    return getTstsDeclaredTypeNode(parent);
+  }
+  if (TstsSyntax.IsIdentifier(expression)) {
+    const symbol = context.checker.getSymbolAtLocation(expression);
+    const resolved = symbol ? context.checker.resolveAlias(symbol) : undefined;
+    const valueDeclaration = resolved
+      ? context.checker.getSymbolValueDeclaration(resolved)
+      : undefined;
+    return getTstsDeclaredTypeNode(valueDeclaration);
+  }
+  return undefined;
+};
 
 const hasDictionaryIndexShape = (
   checker: CheckedContext["checker"],
@@ -876,9 +936,16 @@ const hasDictionaryIndexShape = (
 
 const isBroadJsonType = (
   checker: CheckedContext["checker"],
-  type: TstsType | undefined
+  type: TstsType | undefined,
+  typeNode: TstsNode | undefined,
+  coreTypesBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
 ): boolean => {
-  if (!type || isJsValueType(checker, type)) return false;
+  if (!type || isJsValueCarrier(checker, type, typeNode, coreTypesBindingByLocalName)) {
+    return false;
+  }
   if (checker.getUnionMembers(type)?.length) return true;
   if (checker.isAnyUnknownOrTypeParameter(type)) return true;
   if (hasDictionaryIndexShape(checker, type)) return true;
@@ -2213,7 +2280,14 @@ export const createTsonicSourceSemanticsExtension = (
             "Dynamic import is not supported."
           );
         }
-        if (isIdentifierNamed(callee, "Array")) {
+        if (
+          isAmbientGlobalIdentifier(
+            context,
+            callee,
+            "Array",
+            sourceDiagnosticFileNames
+          )
+        ) {
           addSourceDiagnostic(
             context,
             "TSN2001",
@@ -2221,7 +2295,15 @@ export const createTsonicSourceSemanticsExtension = (
             "Array constructor inference is not supported; use an array literal or explicit collection type."
           );
         }
-        if (isPropertyAccessNamed(callee, "Array", "isArray")) {
+        if (
+          isAmbientGlobalPropertyAccess(
+            context,
+            callee,
+            "Array",
+            "isArray",
+            sourceDiagnosticFileNames
+          )
+        ) {
           const [argument] = call?.arguments ?? [];
           const argumentType = context.checker.getTypeAtLocation(argument);
           if (
@@ -2238,14 +2320,32 @@ export const createTsonicSourceSemanticsExtension = (
             );
           }
         }
-        if (isPropertyAccessNamed(callee, "JSON", "parse")) {
+        if (
+          isAmbientGlobalPropertyAccess(
+            context,
+            callee,
+            "JSON",
+            "parse",
+            sourceDiagnosticFileNames
+          )
+        ) {
           const explicitTypeArguments = getTstsTypeArguments(node);
           const resultContext = context.checker.getContextualType(node);
           const resultType =
             explicitTypeArguments.length > 0
               ? context.checker.getTypeFromTypeNode(explicitTypeArguments[0])
               : resultContext;
-          if (isBroadJsonType(context.checker, resultType)) {
+          const resultTypeNode =
+            explicitTypeArguments[0] ??
+            declaredTypeNodeForExpression(context, node);
+          if (
+            isBroadJsonType(
+              context.checker,
+              resultType,
+              resultTypeNode,
+              coreTypesBindingByLocalName
+            )
+          ) {
             addSourceDiagnostic(
               context,
               "TSN5001",
@@ -2255,10 +2355,25 @@ export const createTsonicSourceSemanticsExtension = (
             );
           }
         }
-        if (isPropertyAccessNamed(callee, "JSON", "stringify")) {
+        if (
+          isAmbientGlobalPropertyAccess(
+            context,
+            callee,
+            "JSON",
+            "stringify",
+            sourceDiagnosticFileNames
+          )
+        ) {
           const [argument] = call?.arguments ?? [];
           const argumentType = context.checker.getTypeAtLocation(argument);
-          if (isBroadJsonType(context.checker, argumentType)) {
+          if (
+            isBroadJsonType(
+              context.checker,
+              argumentType,
+              declaredTypeNodeForExpression(context, argument),
+              coreTypesBindingByLocalName
+            )
+          ) {
             addSourceDiagnostic(
               context,
               "TSN5001",

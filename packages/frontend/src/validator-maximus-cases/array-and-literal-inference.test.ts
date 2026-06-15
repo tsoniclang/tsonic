@@ -64,6 +64,19 @@ describe("Maximus Validation Coverage", () => {
           console.log(a.value);
         `,
       },
+      {
+        name: "local value named Array",
+        source: `
+          class Array {
+            value: number;
+            constructor(value: number) {
+              this.value = value;
+            }
+          }
+          const a = new Array(1);
+          console.log(a.value);
+        `,
+      },
     ];
 
     for (const c of allowCases) {

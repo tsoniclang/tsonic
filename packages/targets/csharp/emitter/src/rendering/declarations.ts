@@ -14,6 +14,7 @@ import {
 } from "./statements.js";
 import {
   isRecursiveRuntimeArrayArm,
+  isTaskLikeTypePlan,
   renderCSharpType,
   renderFunctionReturnType,
   renderNullableCSharpType,
@@ -197,8 +198,8 @@ const renderFunction = (
   );
   const bodyReturnType =
     plan.async &&
-    effectiveReturnType?.kind === "named" &&
-    effectiveReturnType.name === "Promise"
+    isTaskLikeTypePlan(effectiveReturnType) &&
+    effectiveReturnType?.kind === "named"
       ? effectiveReturnType.typeArguments[0]
       : effectiveReturnType;
   const rendered = [
