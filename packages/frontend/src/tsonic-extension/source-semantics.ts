@@ -49,8 +49,10 @@ import type {
   SourceBindingIdentityFact,
   SourceBindingProjectedType,
   SourceDictionaryTypeFact,
+  SourceIntrinsicTypeName,
   SourceOverloadFamilyFact,
   SourceOverloadCallImplementationFact,
+  SourceProjectedDeclarationKind,
   SourceRuntimeVisibilityFact,
   SourceRuntimeOperationOwner,
   SourceRuntimeOperationFact,
@@ -1231,8 +1233,14 @@ const projectedTypeKey = (type: SourceBindingProjectedType): string => {
   switch (type.kind) {
     case "type-node":
       return `node:${type.node.Kind}:${getTstsNodeText(type.node) ?? getTstsNodeNameText(type.node) ?? ""}`;
-    case "checker-type":
-      return `checker:${checkerTypeIdentityKey(type.type)}`;
+    case "intrinsic":
+      return `intrinsic:${type.name}`;
+    case "named":
+      return `named:${type.name}<${type.typeArguments.map(projectedTypeKey).join(",")}>:${type.declarationKind ?? ""}:${type.aliasTarget ? projectedTypeKey(type.aliasTarget) : ""}`;
+    case "record":
+      return `record:${projectedTypeKey(type.keyType)}:${projectedTypeKey(type.valueType)}`;
+    case "function":
+      return `function:<${type.typeParameters.join(",")}>(${type.parameters.map((parameter) => `${parameter.name}:${parameter.optional}:${parameter.rest}:${parameter.type ? projectedTypeKey(parameter.type) : ""}`).join(",")}):${type.returnType ? projectedTypeKey(type.returnType) : ""}`;
     case "array":
       return `array:${type.readonly}:${projectedTypeKey(type.elementType)}`;
     case "tuple":
@@ -1250,18 +1258,6 @@ const projectedTypeKey = (type: SourceBindingProjectedType): string => {
     case "intersection":
       return `intersection:${type.types.map(projectedTypeKey).sort().join("&")}`;
   }
-};
-
-const checkerTypeIds = new WeakMap<object, number>();
-let nextCheckerTypeId = 1;
-
-const checkerTypeIdentityKey = (type: TstsType): string => {
-  if (typeof type !== "object" || type === null) return String(type);
-  const existing = checkerTypeIds.get(type);
-  if (existing !== undefined) return String(existing);
-  const id = nextCheckerTypeId++;
-  checkerTypeIds.set(type, id);
-  return String(id);
 };
 
 const uniqueProjectedTypes = (
@@ -1455,7 +1451,7 @@ const projectedTypeFromMemberDeclaration = (
     symbol && name
       ? context.checker.getTypeOfSymbolAtLocation(symbol, name)
       : undefined;
-  return type ? { kind: "checker-type", type } : undefined;
+  return checkerTypeProjection(context, type);
 };
 
 const projectedMemberTypesFromOwner = (
@@ -1495,7 +1491,8 @@ const projectedTypesFromPropertySymbol = (
   );
   if (declared.length > 0) return declared;
   const type = context.checker.getTypeOfSymbolAtLocation(symbol, location);
-  return type ? [{ kind: "checker-type", type }] : [];
+  const projected = checkerTypeProjection(context, type);
+  return projected ? [projected] : [];
 };
 
 const projectTypeNodeByBindingSegment = (
@@ -1663,28 +1660,10 @@ const projectTypeNodeByBindingSegment = (
       const elementType =
         context.checker.getElementTypeOfArrayType(type) ??
         context.checker.getNumberIndexType(type);
-      return elementType ? [{ kind: "checker-type", type: elementType }] : [];
+      const projected = checkerTypeProjection(context, elementType);
+      return projected ? [projected] : [];
     }
   }
-};
-
-const projectCheckerTypeByBindingSegment = (
-  context: CheckedContext,
-  type: TstsType,
-  segment: SourceBindingAccessSegment,
-  location: TstsNode
-): readonly SourceBindingProjectedType[] => {
-  if (segment.kind === "property") {
-    return projectedTypesFromPropertySymbol(
-      context,
-      context.checker.getPropertyOfType(type, segment.name),
-      location
-    );
-  }
-  const elementType =
-    context.checker.getElementTypeOfArrayType(type) ??
-    context.checker.getNumberIndexType(type);
-  return elementType ? [{ kind: "checker-type", type: elementType }] : [];
 };
 
 const projectSourceBindingTypeBySegment = (
@@ -1708,13 +1687,36 @@ const projectSourceBindingTypeBySegment = (
       } finally {
         seen.delete(type.node);
       }
-    case "checker-type":
-      return projectCheckerTypeByBindingSegment(
+    case "intrinsic":
+      return [];
+    case "named": {
+      const viaAlias = type.aliasTarget
+        ? projectSourceBindingTypeBySegment(
+            context,
+            type.aliasTarget,
+            segment,
+            seen
+          )
+        : [];
+      if (viaAlias.length > 0) return viaAlias;
+      if (!type.declaration || segment.kind !== "property") return [];
+      const substitutions = new Map<string, SourceBindingProjectedType>();
+      sourceTypeParameterNames(type.declaration).forEach((parameter, index) => {
+        const argument = type.typeArguments[index];
+        if (argument) substitutions.set(parameter, argument);
+      });
+      return projectedMemberTypesFromOwner(
         context,
-        type.type,
-        segment,
-        context.sourceFile as TstsNode
+        type.declaration,
+        segment.name,
+        substitutions,
+        seen
       );
+    }
+    case "record":
+      return segment.kind === "element" ? [type.valueType] : [];
+    case "function":
+      return [];
     case "array":
       return segment.kind === "element" ? [type.elementType] : [];
     case "tuple":
@@ -1837,10 +1839,237 @@ const isSourceExpressionProjectionNode = (node: TstsNode): boolean => {
   return true;
 };
 
+type CheckerTypeProjectionState = {
+  readonly types: Set<TstsType>;
+};
+
+const createCheckerTypeProjectionState = (): CheckerTypeProjectionState => ({
+  types: new Set<TstsType>(),
+});
+
+const intrinsicProjection = (
+  name: SourceIntrinsicTypeName
+): SourceBindingProjectedType => ({
+  kind: "intrinsic",
+  name,
+});
+
+const sourceProjectedDeclarationKind = (
+  declaration: TstsNode | undefined
+): SourceProjectedDeclarationKind | undefined => {
+  switch (declaration?.Kind) {
+    case TstsSyntax.KindClassDeclaration:
+      return "class";
+    case TstsSyntax.KindEnumDeclaration:
+      return "enum";
+    case TstsSyntax.KindInterfaceDeclaration:
+      return "interface";
+    case TstsSyntax.KindTypeAliasDeclaration:
+      return "type-alias";
+    case TstsSyntax.KindTypeParameter:
+      return "type-parameter";
+    default:
+      return undefined;
+  }
+};
+
+const projectedTypeDeclarationForSymbol = (
+  context: CheckedContext,
+  symbol: TstsSymbol | undefined
+): TstsNode | undefined => {
+  if (!symbol) return undefined;
+  return singleDeclaration(context.checker.getSymbolDeclarations(symbol), (node) =>
+    sourceProjectedDeclarationKind(node) !== undefined
+  );
+};
+
+const checkerSignatureProjection = (
+  context: CheckedContext,
+  signature: TstsSignature,
+  state: CheckerTypeProjectionState
+): SourceBindingProjectedType => ({
+  kind: "function",
+  parameters: context.checker.getSignatureParameters(signature).map((parameter) => {
+    const declaration = context.checker.getSymbolValueDeclaration(parameter);
+    const declaredType = TstsSyntax.Node_Type(declaration);
+    return {
+      name: context.checker.getSymbolName(parameter),
+      type:
+        projectedTypeFromTypeNode(context, declaredType) ??
+        checkerTypeProjection(
+          context,
+          context.checker.getTypeOfSignatureParameter(parameter),
+          state
+        ),
+      optional: false,
+      rest: false,
+    };
+  }),
+  returnType: (() => {
+    const declaration = context.checker.getSignatureDeclaration(signature);
+    return (
+      projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(declaration)) ??
+      checkerTypeProjection(
+        context,
+        context.checker.getReturnTypeOfSignature(signature),
+        state
+      )
+    );
+  })(),
+  typeParameters: [],
+});
+
+const checkerTypeAliasTargetProjection = (
+  context: CheckedContext,
+  declaration: TstsNode | undefined,
+  typeArguments: readonly SourceBindingProjectedType[]
+): SourceBindingProjectedType | undefined => {
+  if (declaration?.Kind !== TstsSyntax.KindTypeAliasDeclaration) {
+    return undefined;
+  }
+  const target = TstsSyntax.Node_Type(declaration);
+  if (!target) return undefined;
+  const substitutions = new Map<string, SourceBindingProjectedType>();
+  sourceTypeParameterNames(declaration).forEach((parameter, index) => {
+    const argument = typeArguments[index];
+    if (argument) substitutions.set(parameter, argument);
+  });
+  return projectedTypeFromTypeNode(context, target, substitutions);
+};
+
 const checkerTypeProjection = (
-  type: TstsType | undefined
-): SourceBindingProjectedType | undefined =>
-  type ? { kind: "checker-type", type } : undefined;
+  context: CheckedContext,
+  type: TstsType | undefined,
+  state: CheckerTypeProjectionState = createCheckerTypeProjectionState()
+): SourceBindingProjectedType | undefined => {
+  if (!type) return undefined;
+  if (state.types.has(type)) return undefined;
+  state.types.add(type);
+  try {
+    const checker = context.checker;
+    const unionMembers = checker.getUnionMembers(type);
+    if (unionMembers && unionMembers.length > 0) {
+      return combinedProjectedType(
+        "union",
+        unionMembers.map((member) => checkerTypeProjection(context, member, state))
+      );
+    }
+
+    const intersectionMembers = checker.getIntersectionMembers(type);
+    if (intersectionMembers && intersectionMembers.length > 0) {
+      return combinedProjectedType(
+        "intersection",
+        intersectionMembers.map((member) =>
+          checkerTypeProjection(context, member, state)
+        )
+      );
+    }
+
+    const arrayElement = checker.getElementTypeOfArrayType(type);
+    if (arrayElement) {
+      const elementType = checkerTypeProjection(context, arrayElement, state);
+      return elementType
+        ? { kind: "array", elementType, readonly: false }
+        : undefined;
+    }
+
+    if (checker.isAnyType(type)) return intrinsicProjection("any");
+    if (checker.isUnknownType(type)) return intrinsicProjection("unknown");
+    if (checker.isVoidType(type)) return intrinsicProjection("void");
+    if (checker.isNeverType(type)) return intrinsicProjection("never");
+    if (checker.isUndefinedType(type)) return intrinsicProjection("undefined");
+    if (checker.isNullType(type)) return intrinsicProjection("null");
+    if (checker.isStringLikeType(type)) return intrinsicProjection("string");
+    if (checker.isNumberLikeType(type)) return intrinsicProjection("number");
+    if (checker.isBooleanLikeType(type)) return intrinsicProjection("boolean");
+    if (checker.isBigIntLikeType(type)) return intrinsicProjection("bigint");
+
+    const signatures = checker.getCallSignatures(type);
+    const signature = signatures.length === 1 ? signatures[0] : undefined;
+    if (signature) {
+      return checkerSignatureProjection(context, signature, state);
+    }
+
+    const symbol = checker.getTypeAliasOrSymbol(type);
+    const declaration = projectedTypeDeclarationForSymbol(context, symbol);
+    const name =
+      checker.getTypeAliasSymbolName(type) ??
+      checker.getTypeSymbolName(type) ??
+      (symbol ? checker.getSymbolName(symbol) : undefined);
+    if (name) {
+      const typeArguments = [
+        ...checker.getAliasTypeArguments(type),
+        ...checker.getReferenceTypeArguments(type),
+      ]
+        .map((argument) => checkerTypeProjection(context, argument, state))
+        .filter(
+          (argument): argument is SourceBindingProjectedType =>
+            argument !== undefined
+        );
+
+      const [recordKeyType, recordValueType] = typeArguments;
+      if (
+        declaration &&
+        context.facts.has(sourceDictionaryTypeFactKey, declaration) &&
+        recordKeyType &&
+        recordValueType
+      ) {
+        return {
+          kind: "record",
+          keyType: recordKeyType,
+          valueType: recordValueType,
+          sourceNode: declaration,
+        };
+      }
+
+      return {
+        kind: "named",
+        name,
+        typeArguments,
+        declaration,
+        declarationKind: sourceProjectedDeclarationKind(declaration),
+        aliasTarget: checkerTypeAliasTargetProjection(
+          context,
+          declaration,
+          typeArguments
+        ),
+        runtimeVisibility: declaration
+          ? context.facts.get(sourceRuntimeVisibilityFactKey, declaration)
+              ?.visibility
+          : undefined,
+        sourceNode: declaration,
+      };
+    }
+
+    const properties = checker.getProperties(type);
+    if (properties.length > 0) {
+      return {
+        kind: "object",
+        members: properties.map((property) => {
+          const declaration = context.checker.getSymbolValueDeclaration(property);
+          const declaredType = TstsSyntax.Node_Type(declaration);
+          return {
+            name: checker.getSymbolName(property),
+            optional: false,
+            type:
+              projectedTypeFromTypeNode(context, declaredType) ??
+              checkerTypeProjection(
+                context,
+                declaration
+                  ? checker.getTypeOfSymbolAtLocation(property, declaration)
+                  : undefined,
+                state
+              ),
+          };
+        }),
+      };
+    }
+
+    return undefined;
+  } finally {
+    state.types.delete(type);
+  }
+};
 
 const staticElementAccessIndex = (
   indexExpression: TstsNode | undefined
@@ -1909,7 +2138,10 @@ const resolvedSignatureReturnProjection = (
   const declarationReturnType = TstsSyntax.Node_Type(declaration);
   return (
     projectedTypeFromTypeNode(context, declarationReturnType) ??
-    checkerTypeProjection(context.checker.getReturnTypeOfSignature(signature))
+    checkerTypeProjection(
+      context,
+      context.checker.getReturnTypeOfSignature(signature)
+    )
   );
 };
 
@@ -1922,7 +2154,10 @@ const signatureParameterProjection = (
   const declaredType = TstsSyntax.Node_Type(declaration);
   return (
     projectedTypeFromTypeNode(context, declaredType) ??
-    checkerTypeProjection(context.checker.getTypeOfSignatureParameter(parameter))
+    checkerTypeProjection(
+      context,
+      context.checker.getTypeOfSignatureParameter(parameter)
+    )
   );
 };
 
@@ -1943,7 +2178,7 @@ const signatureTargetProjection = (
     ) {
       return (
         projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(owner)) ??
-        checkerTypeProjection(context.checker.getTypeAtLocation(owner))
+        checkerTypeProjection(context, context.checker.getTypeAtLocation(owner))
       );
     }
   }
@@ -1982,7 +2217,10 @@ const sourceParameterTypeProjection = (
   const type =
     projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(declaration)) ??
     (typeof parameter === "object" && parameter !== undefined && !("Kind" in parameter)
-      ? checkerTypeProjection(context.checker.getTypeOfSignatureParameter(parameter))
+      ? checkerTypeProjection(
+          context,
+          context.checker.getTypeOfSignatureParameter(parameter)
+        )
       : undefined);
   return {
     name,
@@ -2065,13 +2303,19 @@ const declarationTypeProjectionFact = (
     : undefined;
   const fact: SourceDeclarationTypeProjectionFact = {
     declaredType: checkerTypeProjection(
+      context,
       symbol
         ? context.checker.getDeclaredTypeOfSymbol(symbol)
         : context.checker.getTypeAtLocation(node)
     ),
     returnType:
       projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(node)) ??
-      checkerTypeProjection(context.checker.getReturnTypeOfSignature(signature)),
+      checkerTypeProjection(
+        context,
+        signature
+          ? context.checker.getReturnTypeOfSignature(signature)
+          : undefined
+      ),
     baseConstructorParameters: baseConstructorParameterProjections(context, node),
   };
   return fact.declaredType || fact.returnType || fact.baseConstructorParameters
@@ -2148,18 +2392,16 @@ const callableReturnProjection = (
     cache,
     sourceDiagnosticRoots
   );
-  if (projected?.kind === "checker-type") {
-    const signatures = context.checker.getCallSignatures(projected.type);
-    if (signatures.length === 1) {
-      return checkerTypeProjection(
-        context.checker.getReturnTypeOfSignature(signatures[0])
-      );
-    }
+  if (projected?.kind === "function") {
+    return projected.returnType;
   }
   const type = context.checker.getTypeAtLocation(node);
   const signatures = context.checker.getCallSignatures(type);
   return signatures.length === 1
-    ? checkerTypeProjection(context.checker.getReturnTypeOfSignature(signatures[0]))
+    ? checkerTypeProjection(
+        context,
+        context.checker.getReturnTypeOfSignature(signatures[0])
+      )
     : undefined;
 };
 
@@ -2301,7 +2543,10 @@ const sourceExpressionTypeProjection = (
           cache,
           sourceDiagnosticRoots
         ) ??
-          checkerTypeProjection(context.checker.getNarrowedTypeAtLocation(node))
+          checkerTypeProjection(
+            context,
+            context.checker.getNarrowedTypeAtLocation(node)
+          )
       );
     case TstsSyntax.KindObjectLiteralExpression:
       return set(
@@ -2338,6 +2583,7 @@ const sourceExpressionTypeProjection = (
         projectedFromReceiver ??
           declaredProjectionForExpression(context, node) ??
           checkerTypeProjection(
+            context,
             context.checker.getNarrowedTypeAtLocation(node) ??
               context.checker.getTypeAtLocation(node)
           )
@@ -2359,6 +2605,7 @@ const sourceExpressionTypeProjection = (
           node
         ) ??
           checkerTypeProjection(
+            context,
             context.checker.getNarrowedTypeAtLocation(node) ??
               context.checker.getTypeAtLocation(node)
           )
@@ -2396,6 +2643,7 @@ const sourceExpressionTypeProjection = (
           : undefined) ??
           resolvedSignatureReturnProjection(context, node) ??
           checkerTypeProjection(
+            context,
             context.checker.getNarrowedTypeAtLocation(node) ??
               context.checker.getTypeAtLocation(node)
           )
@@ -2420,6 +2668,7 @@ const sourceExpressionTypeProjection = (
     default:
       return set(
         checkerTypeProjection(
+          context,
           context.checker.getNarrowedTypeAtLocation(node) ??
             context.checker.getTypeAtLocation(node)
         )
@@ -2444,7 +2693,7 @@ const initializerSourceProjectionRoot = (
   const checkerType =
     context.checker.getNarrowedTypeAtLocation(initializer) ??
     context.checker.getTypeAtLocation(initializer);
-  return checkerType ? { kind: "checker-type", type: checkerType } : undefined;
+  return checkerTypeProjection(context, checkerType);
 };
 
 const variableSourceProjectionRoot = (
@@ -2601,6 +2850,7 @@ const sourceBindingIdentityFact = (
     name,
     declarationKind,
     topLevelStaticValue: isTopLevelStaticValueDeclaration(declaration),
+    declaration,
   };
 };
 
@@ -3781,6 +4031,7 @@ export const createTsonicSourceSemanticsExtension = (
         );
         if (expressionProjection) {
           const contextualProjection = checkerTypeProjection(
+            context,
             context.checker.getContextualType(node)
           );
           context.facts.set(sourceExpressionTypeProjectionFactKey, node, {

@@ -82,8 +82,14 @@ const projectionSummary = (type: SourceBindingProjectedType): string => {
   switch (type.kind) {
     case "type-node":
       return getTstsNodeText(type.node)?.replace(/\s+/g, " ").trim() ?? "";
-    case "checker-type":
-      return "checker-type";
+    case "intrinsic":
+      return type.name;
+    case "named":
+      return `${type.name}${type.typeArguments.length > 0 ? `<${type.typeArguments.map(projectionSummary).join(", ")}>` : ""}`;
+    case "record":
+      return `Record<${projectionSummary(type.keyType)}, ${projectionSummary(type.valueType)}>`;
+    case "function":
+      return `(${type.parameters.map((parameter) => `${parameter.name}: ${parameter.type ? projectionSummary(parameter.type) : "unknown"}`).join(", ")}) => ${type.returnType ? projectionSummary(type.returnType) : "void"}`;
     case "array":
       return `${type.readonly ? "readonly " : ""}${projectionSummary(type.elementType)}[]`;
     case "tuple":

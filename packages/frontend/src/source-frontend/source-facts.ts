@@ -1,5 +1,5 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
-import type { ExtensionFactKeyLike, TstsNode, TstsType } from "@tsonic/tsts";
+import type { ExtensionFactKeyLike, TstsNode } from "@tsonic/tsts";
 
 export type SourceSemanticFactKey<T> = ExtensionFactKeyLike<T>;
 
@@ -148,6 +148,7 @@ export type SourceBindingIdentityFact = {
   readonly name: string;
   readonly declarationKind: SourceBindingDeclarationKind;
   readonly topLevelStaticValue: boolean;
+  readonly declaration: TstsNode;
 };
 
 export type SourceRuntimeVisibilityFact = {
@@ -158,14 +159,60 @@ export type SourceDictionaryTypeFact = {
   readonly kind: "record";
 };
 
+export type SourceIntrinsicTypeName =
+  | "any"
+  | "unknown"
+  | "object"
+  | "undefined"
+  | "null"
+  | "void"
+  | "never"
+  | "string"
+  | "number"
+  | "boolean"
+  | "bigint"
+  | "symbol"
+  | "this";
+
+export type SourceProjectedDeclarationKind =
+  | "class"
+  | "enum"
+  | "interface"
+  | "type-alias"
+  | "type-parameter";
+
 export type SourceBindingProjectedType =
   | {
       readonly kind: "type-node";
       readonly node: TstsNode;
     }
   | {
-      readonly kind: "checker-type";
-      readonly type: TstsType;
+      readonly kind: "intrinsic";
+      readonly name: SourceIntrinsicTypeName;
+      readonly sourceNode?: TstsNode;
+    }
+  | {
+      readonly kind: "named";
+      readonly name: string;
+      readonly typeArguments: readonly SourceBindingProjectedType[];
+      readonly declaration?: TstsNode;
+      readonly declarationKind?: SourceProjectedDeclarationKind;
+      readonly aliasTarget?: SourceBindingProjectedType;
+      readonly runtimeVisibility?: "opaque";
+      readonly sourceNode?: TstsNode;
+    }
+  | {
+      readonly kind: "record";
+      readonly keyType: SourceBindingProjectedType;
+      readonly valueType: SourceBindingProjectedType;
+      readonly sourceNode?: TstsNode;
+    }
+  | {
+      readonly kind: "function";
+      readonly parameters: readonly SourceParameterTypeProjection[];
+      readonly returnType?: SourceBindingProjectedType;
+      readonly typeParameters: readonly string[];
+      readonly sourceNode?: TstsNode;
     }
   | {
       readonly kind: "array";

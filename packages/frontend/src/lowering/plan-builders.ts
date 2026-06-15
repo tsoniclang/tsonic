@@ -11,10 +11,7 @@ import { externalBindingSourceIdentityForDeclaration } from "../program/external
 import { resolveSourceFileIdentity } from "../program/source-file-identity.js";
 import type {
   TstsNode,
-  TstsSignature,
   TstsSourceFile,
-  TstsSymbol,
-  TstsType,
 } from "@tsonic/tsts";
 import {
   expressionSemanticsFactKey,
@@ -100,32 +97,6 @@ const nodeTokenText = (node: TstsNode | undefined): string | undefined => {
 const nodeLiteralText = (node: TstsNode | undefined): string | undefined =>
   node ? getTstsNodeText(node) : undefined;
 
-const symbolValueOrSingleDeclaration = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  symbol: TstsSymbol | undefined
-): TstsNode | undefined => {
-  if (!symbol) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const valueDeclaration = checker.getSymbolValueDeclaration(symbol);
-  if (valueDeclaration) return valueDeclaration;
-  const declarations = checker.getSymbolDeclarations(symbol);
-  return declarations.length === 1 ? declarations[0] : undefined;
-};
-
-const singleSymbolDeclaration = (
-  checker: ReturnType<LoweringBuildContext["checkerForSourceFile"]>,
-  symbol: TstsSymbol | undefined,
-  predicate: (node: TstsNode) => boolean
-): TstsNode | undefined => {
-  if (!symbol) return undefined;
-  const declarations = checker
-    .getSymbolDeclarations(symbol)
-    .filter((candidate): candidate is TstsNode => candidate !== undefined)
-    .filter(predicate);
-  return declarations.length === 1 ? declarations[0] : undefined;
-};
-
 type NodeNameInfo = {
   readonly name?: string;
   readonly sourceKindName?: string;
@@ -185,13 +156,6 @@ const parameterPlanSource = (
     nameSourceText: nameNode ? nodeSourceText(sourceFile, nameNode) : undefined,
   };
 };
-
-const symbolParameterPlanSource = (
-  name: string | undefined
-): Pick<LoweringParameterPlan, "sourceKindName" | "sourceText"> => ({
-  sourceKindName: "Parameter",
-  sourceText: name ?? "",
-});
 
 const propertyNameInfo = (
   sourceFile: TstsSourceFile,
@@ -405,21 +369,6 @@ const recordTypePlan = (
   sourceText,
 });
 
-const recordTypePlanFromCheckerTypes = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  keyType: TstsType | undefined,
-  valueType: TstsType | undefined,
-  state: CheckerTypePlanState,
-  sourceText?: string
-): LoweringTypeRefPlan | undefined => {
-  const keyPlan = checkerTypePlan(context, sourceFile, keyType, state);
-  const valuePlan = checkerTypePlan(context, sourceFile, valueType, state);
-  return keyPlan && valuePlan
-    ? recordTypePlan(keyPlan, valuePlan, sourceText)
-    : undefined;
-};
-
 const unsupportedTypePlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode
@@ -428,229 +377,6 @@ const unsupportedTypePlan = (
   sourceKindName: TstsSyntax.Node_KindString(node),
   sourceText: compactNodeSourceText(sourceFile, node),
 });
-
-type CheckerTypePlanState = {
-  readonly types: Set<TstsType>;
-};
-
-const createCheckerTypePlanState = (): CheckerTypePlanState => ({
-  types: new Set<TstsType>(),
-});
-
-const checkerTypePlan = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  type: TstsType | undefined,
-  state: CheckerTypePlanState = createCheckerTypePlanState()
-): LoweringTypeRefPlan | undefined => {
-  if (!type) return undefined;
-  if (state.types.has(type)) return undefined;
-  state.types.add(type);
-  try {
-  const checker = context.checkerForSourceFile(sourceFile);
-  const unionMembers = checker.getUnionMembers(type);
-  if (unionMembers && unionMembers.length > 0) {
-    return {
-      kind: "union",
-      types: unionMembers
-        .map((member) => checkerTypePlan(context, sourceFile, member, state))
-        .filter(
-          (member): member is LoweringTypeRefPlan => member !== undefined
-        ),
-    };
-  }
-  const intersectionMembers = checker.getIntersectionMembers(type);
-  if (intersectionMembers && intersectionMembers.length > 0) {
-    return {
-      kind: "intersection",
-      types: intersectionMembers
-        .map((member) => checkerTypePlan(context, sourceFile, member, state))
-        .filter(
-          (member): member is LoweringTypeRefPlan => member !== undefined
-        ),
-    };
-  }
-  const arrayElement = checker.getElementTypeOfArrayType(type);
-  if (arrayElement) {
-    const elementType = checkerTypePlan(
-      context,
-      sourceFile,
-      arrayElement,
-      state
-    );
-    if (!elementType) return undefined;
-    return {
-      kind: "array",
-      elementType,
-      readonly: false,
-    };
-  }
-  if (checker.isAnyType(type)) return intrinsicTypePlan("any");
-  if (checker.isUnknownType(type)) return intrinsicTypePlan("unknown");
-  if (checker.isVoidType(type)) return intrinsicTypePlan("void");
-  if (checker.isNeverType(type)) return intrinsicTypePlan("never");
-  if (checker.isUndefinedType(type)) return intrinsicTypePlan("undefined");
-  if (checker.isNullType(type)) return intrinsicTypePlan("null");
-  if (checker.isStringLikeType(type)) return intrinsicTypePlan("string");
-  if (checker.isNumberLikeType(type)) return intrinsicTypePlan("number");
-  if (checker.isBooleanLikeType(type)) return intrinsicTypePlan("boolean");
-  if (checker.isBigIntLikeType(type)) return intrinsicTypePlan("bigint");
-
-  const callSignatures = checker.getCallSignatures(type);
-  if (callSignatures.length === 1) {
-    const signature = callSignatures[0];
-    return {
-      kind: "function",
-      parameters: checker.getSignatureParameters(signature).map((parameter) => {
-        const declaration = symbolValueOrSingleDeclaration(
-          context,
-          sourceFile,
-          parameter
-        );
-        const declarationSourceFile = declaration
-          ? sourceFileForNode(declaration, sourceFile)
-          : sourceFile;
-        const name = checker.getSymbolName(parameter);
-        const sourcePlan = declarationSourceTypePlan(
-          context,
-          declarationSourceFile,
-          declaration
-        );
-        const instantiatedPlan = checkerTypePlan(
-          context,
-          declarationSourceFile,
-          checker.getTypeOfSignatureParameter(parameter),
-          state
-        );
-        return {
-          name,
-          ...(declaration
-            ? parameterPlanSource(declarationSourceFile, declaration)
-            : symbolParameterPlanSource(name)),
-          type: typePlanContainsTypeParameter(sourcePlan)
-            ? instantiatedPlan ?? sourcePlan
-            : sourcePlan ?? instantiatedPlan,
-          optional: false,
-          rest: false,
-        };
-      }),
-      returnType: (() => {
-        const sourcePlan = signatureReturnSourceTypePlan(
-          context,
-          sourceFile,
-          signature
-        );
-        const instantiatedPlan = checkerTypePlan(
-          context,
-          sourceFile,
-          checker.getReturnTypeOfSignature(signature),
-          state
-        );
-        return typePlanContainsTypeParameter(sourcePlan)
-          ? instantiatedPlan ?? sourcePlan
-          : sourcePlan ?? instantiatedPlan;
-      })(),
-      typeParameters: [],
-    };
-  }
-
-  const typeSymbol = checker.getTypeAliasOrSymbol(type);
-  const name =
-    checker.getTypeAliasSymbolName(type) ??
-    checker.getTypeSymbolName(type) ??
-    (typeSymbol ? checker.getSymbolName(typeSymbol) : undefined);
-  if (name) {
-    const typeArguments = [
-      ...checker.getAliasTypeArguments(type),
-      ...checker.getReferenceTypeArguments(type),
-    ];
-    if (hasSourceDictionaryFactForType(context, sourceFile, type)) {
-      return recordTypePlanFromCheckerTypes(
-        context,
-        sourceFile,
-        typeArguments[0],
-        typeArguments[1],
-        state
-      );
-    }
-    const sourceQualifiedName = sourceQualifiedNameForType(
-      context,
-      sourceFile,
-      type,
-      name
-    );
-    const declaration = typeDeclarationBindingForType(context, sourceFile, type);
-    return {
-      kind: "named",
-      name,
-      typeArguments: typeArguments
-        .map((argument) => checkerTypePlan(context, sourceFile, argument, state))
-        .filter(
-          (argument): argument is LoweringTypeRefPlan => argument !== undefined
-      ),
-      sourceQualifiedName,
-      externalBinding: externalBindingForDeclaration(
-        declaration?.sourceNode,
-        name
-      ),
-      runtimeVisibility: sourceRuntimeVisibilityForType(
-        context,
-        sourceFile,
-        type
-      ),
-      declaration,
-      declarationKind: namedDeclarationKindForType(context, sourceFile, type),
-      aliasTarget: checkerTypeAliasTargetPlan(context, sourceFile, type),
-    };
-  }
-
-  const properties = checker.getProperties(type);
-  if (properties.length > 0) {
-    return {
-      kind: "object",
-      members: properties.map((property) => {
-        const declaration = symbolValueOrSingleDeclaration(
-          context,
-          sourceFile,
-          property
-        );
-        return {
-          kind: "property",
-          name: checker.getSymbolName(property),
-          optional: false,
-          type:
-            declarationSourceTypePlan(context, sourceFile, declaration) ??
-            checkerTypePlan(
-              context,
-              sourceFile,
-              declaration
-                ? checker.getTypeOfSymbolAtLocation(property, declaration)
-                : undefined,
-              state
-            ),
-        };
-      }),
-    };
-  }
-
-  return undefined;
-  } finally {
-    state.types.delete(type);
-  }
-};
-
-const typePlan = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  node: TstsNode | undefined,
-  type: TstsType | undefined,
-  state: SourceTypePlanState = createSourceTypePlanState()
-): LoweringTypeRefPlan | undefined => {
-  if (node) {
-    return sourceTypePlan(context, sourceFile, node, state);
-  }
-  return checkerTypePlan(context, sourceFile, type);
-};
 
 const sourceFileForNode = (
   node: TstsNode | undefined,
@@ -712,33 +438,22 @@ const typeDeclarationBindingForDeclaration = (
   };
 };
 
-const typeDeclarationBindingForSymbol = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  symbol: TstsSymbol | undefined
-): LoweringTypeDeclarationBinding | undefined => {
-  if (!symbol) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const declarations = checker
-    .getSymbolDeclarations(symbol)
-    .filter(isRuntimeTypeDeclaration);
-  const declaration =
-    declarations.length === 1 ? declarations[0] : undefined;
-  return typeDeclarationBindingForDeclaration(declaration, sourceFile);
-};
+const typeReferenceBindingNode = (node: TstsNode): TstsNode | undefined =>
+  TstsSyntax.AsTypeReferenceNode(node)?.TypeName ??
+  TstsSyntax.AsExpressionWithTypeArguments(node)?.Expression ??
+  TstsSyntax.Node_Name(node);
 
-const typeDeclarationBindingForType = (
+const sourceBindingFactForNode = (
   context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  type: TstsType | undefined
-): LoweringTypeDeclarationBinding | undefined => {
-  if (!type) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  return typeDeclarationBindingForSymbol(
-    context,
-    sourceFile,
-    checker.getTypeAliasOrSymbol(type)
-  );
+  node: TstsNode | undefined
+): SourceBindingIdentityFact | undefined => {
+  if (!node) return undefined;
+  const direct = context.input.facts.get(sourceBindingIdentityFactKey, node);
+  if (direct) return direct;
+  const bindingNode = typeReferenceBindingNode(node);
+  return bindingNode
+    ? context.input.facts.get(sourceBindingIdentityFactKey, bindingNode)
+    : undefined;
 };
 
 const typeDeclarationBindingForNode = (
@@ -746,11 +461,10 @@ const typeDeclarationBindingForNode = (
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined
 ): LoweringTypeDeclarationBinding | undefined => {
-  if (!node) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const symbol = checker.getSymbolAtLocation(node);
-  const resolved = symbol ? checker.resolveAlias(symbol) : undefined;
-  return typeDeclarationBindingForSymbol(context, sourceFile, resolved);
+  return typeDeclarationBindingForDeclaration(
+    sourceBindingFactForNode(context, node)?.declaration,
+    sourceFile
+  );
 };
 
 const sourceQualifiedNameForSourceBindingFact = (
@@ -796,23 +510,17 @@ const sourceQualifiedNameForSourceBindingNode = (
   node: TstsNode | undefined,
   target: "type" | "value"
 ): LoweringSourceQualifiedNamePlan | undefined =>
-  node
-    ? sourceQualifiedNameForSourceBindingFact(
-        context,
-        context.input.facts.get(sourceBindingIdentityFactKey, node),
-        target
-      )
-    : undefined;
+  sourceQualifiedNameForSourceBindingFact(
+    context,
+    sourceBindingFactForNode(context, node),
+    target
+  );
 
 const externalBindingForSourceBindingNode = (
   context: LoweringBuildContext,
   node: TstsNode | undefined
 ): LoweringExternalBindingReferencePlan | undefined =>
-  node
-    ? externalBindingForSourceBindingFact(
-        context.input.facts.get(sourceBindingIdentityFactKey, node)
-      )
-    : undefined;
+  externalBindingForSourceBindingFact(sourceBindingFactForNode(context, node));
 
 const isCompileTimeHeritageMarker = (
   context: LoweringBuildContext,
@@ -873,83 +581,11 @@ const sourceRuntimeVisibilityForDeclaration = (
         ?.visibility
     : undefined;
 
-const sourceRuntimeVisibilityForSymbol = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  symbol: TstsSymbol | undefined
-): Extract<
-  LoweringTypeRefPlan,
-  { readonly kind: "named" }
->["runtimeVisibility"] => {
-  if (!symbol) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const visibilities = new Set<NonNullable<ReturnType<typeof sourceRuntimeVisibilityForDeclaration>>>();
-  const symbols = new Set<TstsSymbol>([symbol]);
-  const resolved = checker.resolveAlias(symbol);
-  if (resolved) symbols.add(resolved);
-  for (const candidate of symbols) {
-    for (const declaration of checker.getSymbolDeclarations(candidate)) {
-      const visibility = sourceRuntimeVisibilityForDeclaration(
-        context,
-        declaration
-      );
-      if (visibility) visibilities.add(visibility);
-    }
-  }
-  return visibilities.size === 1 ? [...visibilities][0] : undefined;
-};
-
-const sourceRuntimeVisibilityForType = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  type: TstsType | undefined
-): Extract<
-  LoweringTypeRefPlan,
-  { readonly kind: "named" }
->["runtimeVisibility"] => {
-  if (!type) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  return sourceRuntimeVisibilityForSymbol(
-    context,
-    sourceFile,
-    checker.getTypeAliasOrSymbol(type)
-  );
-};
-
 const hasSourceDictionaryFactForNode = (
   context: LoweringBuildContext,
   node: TstsNode | undefined
 ): boolean =>
   node !== undefined && context.input.facts.has(sourceDictionaryTypeFactKey, node);
-
-const hasSourceDictionaryFactForSymbol = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  symbol: TstsSymbol | undefined
-): boolean => {
-  if (!symbol) return false;
-  const checker = context.checkerForSourceFile(sourceFile);
-  return checker
-    .getSymbolDeclarations(symbol)
-    .some((declaration) =>
-      declaration !== undefined &&
-      context.input.facts.has(sourceDictionaryTypeFactKey, declaration)
-    );
-};
-
-const hasSourceDictionaryFactForType = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  type: TstsType | undefined
-): boolean => {
-  if (!type) return false;
-  const checker = context.checkerForSourceFile(sourceFile);
-  return hasSourceDictionaryFactForSymbol(
-    context,
-    sourceFile,
-    checker.getTypeAliasOrSymbol(type)
-  );
-};
 
 const recordTypePlanFromTypeArguments = (
   context: LoweringBuildContext,
@@ -1029,19 +665,6 @@ const externalBindingForDeclaration = (
     : undefined;
 };
 
-const sourceQualifiedNameForType = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  type: TstsType | undefined,
-  name: string
-): LoweringSourceQualifiedNamePlan | undefined => {
-  if (!type) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const symbol = checker.getTypeAliasOrSymbol(type);
-  const declaration = symbolValueOrSingleDeclaration(context, sourceFile, symbol);
-  return sourceQualifiedNameForDeclaration(context, declaration, name, "type");
-};
-
 const namedDeclarationKindForDeclaration = (
   declaration: TstsNode | undefined
 ): Extract<
@@ -1062,37 +685,6 @@ const namedDeclarationKindForDeclaration = (
     default:
       return undefined;
   }
-};
-
-const namedDeclarationKindForType = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  type: TstsType | undefined
-): Extract<
-  LoweringTypeRefPlan,
-  { readonly kind: "named" }
->["declarationKind"] => {
-  if (!type) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const symbol = checker.getTypeAliasOrSymbol(type);
-  const declaration = symbolValueOrSingleDeclaration(context, sourceFile, symbol);
-  return namedDeclarationKindForDeclaration(declaration);
-};
-
-const sourceQualifiedNameForSymbol = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  symbol: TstsSymbol | undefined,
-  exportedName: string
-): LoweringSourceQualifiedNamePlan | undefined => {
-  if (!symbol) return undefined;
-  const declaration = symbolValueOrSingleDeclaration(context, sourceFile, symbol);
-  return sourceQualifiedNameForDeclaration(
-    context,
-    declaration,
-    exportedName,
-    "value"
-  );
 };
 
 type SourceTypePlanState = {
@@ -1256,47 +848,24 @@ const aliasTypeSubstitutions = (
   return substitutions;
 };
 
-const checkerTypeArgumentPlans = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  type: TstsType | undefined
-): readonly LoweringTypeRefPlan[] => {
-  if (!type) return [];
-  const checker = context.checkerForSourceFile(sourceFile);
-  return [
-    ...checker.getAliasTypeArguments(type),
-    ...checker.getReferenceTypeArguments(type),
-  ]
-    .map((argument) => checkerTypePlan(context, sourceFile, argument))
-    .filter((argument): argument is LoweringTypeRefPlan => argument !== undefined);
-};
-
 const sourceTypeArgumentPlans = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
   node: TstsNode,
-  type: TstsType | undefined,
   state: SourceTypePlanState
 ): readonly LoweringTypeRefPlan[] => {
   const reference = getTstsTypeReferenceDetails(node);
-  const sourceArguments = (reference?.typeArguments ?? [])
+  return (reference?.typeArguments ?? [])
     .map((argument) => sourceTypePlan(context, sourceFile, argument, state))
     .filter((argument): argument is LoweringTypeRefPlan => argument !== undefined);
-  return sourceArguments.length > 0
-    ? sourceArguments
-    : checkerTypeArgumentPlans(context, sourceFile, type);
 };
 
 const sourceTypeAliasKey = (
-  context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
-  declaration: TstsNode,
-  symbol: TstsSymbol | undefined
+  declaration: TstsNode
 ): string => {
   const declarationSourceFile = sourceFileForNode(declaration, sourceFile);
-  const checker = context.checkerForSourceFile(declarationSourceFile);
   const name =
-    (symbol ? checker.getSymbolName(symbol) : undefined) ??
     nodeName(declarationSourceFile, declaration) ??
     TstsSyntax.Node_KindString(declaration);
   return `${declarationSourceFile.FileName()}\0${name}`;
@@ -1389,10 +958,8 @@ const sourceTypeAliasTargetPlan = (
       resolvedDeclaration.sourceNode
     );
     const aliasKey = sourceTypeAliasKey(
-      context,
       resolvedDeclaration.sourceFile,
-      resolvedDeclaration.sourceNode,
-      undefined
+      resolvedDeclaration.sourceNode
     );
     if (state.aliasKeys.has(aliasKey)) {
       return undefined;
@@ -1428,31 +995,7 @@ const sourceTypeAliasTargetPlan = (
       state.aliasKeys.delete(aliasKey);
     }
   }
-  const checker = context.checkerForSourceFile(sourceFile);
-  const type = checker.getTypeFromTypeNode(node);
-  const directSymbol = checker.getSymbolAtLocation(node);
-  const directTypeAliasDeclaration = directSymbol
-    ? singleSymbolDeclaration(
-        checker,
-        directSymbol,
-        (candidate) => candidate.Kind === TstsSyntax.KindTypeAliasDeclaration
-      )
-    : undefined;
-  const symbol = directTypeAliasDeclaration
-    ? directSymbol
-    : type
-      ? checker.getTypeAliasOrSymbol(type)
-      : undefined;
-  const declaration = symbol
-    ? directTypeAliasDeclaration ??
-      singleSymbolDeclaration(
-        checker,
-        symbol,
-        (candidate) =>
-          candidate.Kind === TstsSyntax.KindTypeAliasDeclaration ||
-          candidate.Kind === TstsSyntax.KindInterfaceDeclaration
-      )
-    : undefined;
+  const declaration = sourceBindingFactForNode(context, node)?.declaration;
   const interfaceCallSignature = declaration
     ? singleInterfaceCallSignature(declaration)
     : undefined;
@@ -1462,11 +1005,11 @@ const sourceTypeAliasTargetPlan = (
   const substitutions = declaration
     ? aliasTypeSubstitutions(
         typeParameterNames(declarationSourceFile, declaration),
-        sourceTypeArgumentPlans(context, sourceFile, node, type, state)
+        sourceTypeArgumentPlans(context, sourceFile, node, state)
       )
     : new Map<string, LoweringTypeRefPlan>();
   if (declaration && interfaceCallSignature) {
-    const aliasKey = sourceTypeAliasKey(context, sourceFile, declaration, symbol);
+    const aliasKey = sourceTypeAliasKey(sourceFile, declaration);
     if (state.aliasKeys.has(aliasKey)) {
       return undefined;
     }
@@ -1496,7 +1039,7 @@ const sourceTypeAliasTargetPlan = (
   ) {
     return undefined;
   }
-  const aliasKey = sourceTypeAliasKey(context, sourceFile, declaration, symbol);
+  const aliasKey = sourceTypeAliasKey(sourceFile, declaration);
   if (state.aliasKeys.has(aliasKey)) {
     return undefined;
   }
@@ -1526,24 +1069,19 @@ const sourceTypeAliasDeclarationTargetPlan = (
   if (!node) return undefined;
   const typeReference = getTstsTypeReferenceDetails(node);
   if (!typeReference) return sourceTypePlan(context, sourceFile, node);
-  const checker = context.checkerForSourceFile(sourceFile);
-  const sourceType = checker.getTypeFromTypeNode(node);
-  const typeNodeSymbol = checker.getSymbolAtLocation(node);
-  const resolvedTypeNodeSymbol = typeNodeSymbol
-    ? checker.resolveAlias(typeNodeSymbol)
-    : undefined;
-  const typeName =
-    checker.getTypeAliasSymbolName(sourceType) ??
-    checker.getTypeSymbolName(sourceType) ??
-    typeReference.name;
+  const typeName = typeReference.name;
+  const bindingFact = sourceBindingFactForNode(context, node);
+  const declaration = typeDeclarationBindingForDeclaration(
+    bindingFact?.declaration,
+    sourceFile
+  );
   const sourceQualifiedName =
     sourceQualifiedNameForSourceBindingNode(context, node, "type") ??
-    sourceQualifiedNameForType(context, sourceFile, sourceType, typeName) ??
-    sourceQualifiedNameForSymbol(
+    sourceQualifiedNameForDeclaration(
       context,
-      sourceFile,
-      resolvedTypeNodeSymbol,
-      typeName
+      bindingFact?.declaration,
+      typeName,
+      "type"
     );
   const state = createSourceTypePlanState();
   if (hasSourceDictionaryFactForNode(context, node)) {
@@ -1569,95 +1107,14 @@ const sourceTypeAliasDeclarationTargetPlan = (
     sourceQualifiedName,
     externalBinding:
       externalBindingForSourceBindingNode(context, node) ??
-      externalBindingForDeclaration(
-        typeDeclarationBindingForNode(context, sourceFile, node)?.sourceNode,
-        typeName
-      ),
+      externalBindingForDeclaration(bindingFact?.declaration, typeName),
     runtimeVisibility:
       sourceRuntimeVisibilityForNode(context, node) ??
-      sourceRuntimeVisibilityForType(context, sourceFile, sourceType) ??
-      sourceRuntimeVisibilityForSymbol(context, sourceFile, resolvedTypeNodeSymbol),
-    declaration: typeDeclarationBindingForNode(context, sourceFile, node),
-    declarationKind: namedDeclarationKindForType(context, sourceFile, sourceType),
+      sourceRuntimeVisibilityForDeclaration(context, bindingFact?.declaration),
+    declaration,
+    declarationKind: namedDeclarationKindForDeclaration(bindingFact?.declaration),
     sourceText: compactNodeSourceText(sourceFile, node),
   };
-};
-
-const checkerTypeAliasTargetPlan = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  type: TstsType,
-  state: SourceTypePlanState = createSourceTypePlanState()
-): LoweringTypeRefPlan | undefined => {
-  const checker = context.checkerForSourceFile(sourceFile);
-  const symbol = checker.getTypeAliasOrSymbol(type);
-  const declaration = symbol
-    ? singleSymbolDeclaration(
-        checker,
-        symbol,
-        (candidate) =>
-          candidate.Kind === TstsSyntax.KindTypeAliasDeclaration ||
-          candidate.Kind === TstsSyntax.KindInterfaceDeclaration
-      )
-    : undefined;
-  const interfaceCallSignature = declaration
-    ? singleInterfaceCallSignature(declaration)
-    : undefined;
-  const declarationSourceFile = declaration
-    ? sourceFileForNode(declaration, sourceFile)
-    : sourceFile;
-  const substitutions = declaration
-    ? aliasTypeSubstitutions(
-        typeParameterNames(declarationSourceFile, declaration),
-        checkerTypeArgumentPlans(context, sourceFile, type)
-      )
-    : new Map<string, LoweringTypeRefPlan>();
-  if (declaration && interfaceCallSignature) {
-    const aliasKey = sourceTypeAliasKey(context, sourceFile, declaration, symbol);
-    if (state.aliasKeys.has(aliasKey)) {
-      return undefined;
-    }
-    state.aliasKeys.add(aliasKey);
-    try {
-      return substituteTypePlan(
-        interfaceCallSignatureTypePlan(
-          context,
-          sourceFileForNode(interfaceCallSignature, sourceFile),
-          interfaceCallSignature,
-          state
-        ),
-        substitutions
-      );
-    } finally {
-      state.aliasKeys.delete(aliasKey);
-    }
-  }
-  const targetType = declaration
-    ? TstsSyntax.Node_Type(declaration)
-    : undefined;
-  if (!declaration || !targetType || state.aliasTargets.has(targetType)) {
-    return undefined;
-  }
-  const aliasKey = sourceTypeAliasKey(context, sourceFile, declaration, symbol);
-  if (state.aliasKeys.has(aliasKey)) {
-    return undefined;
-  }
-  state.aliasTargets.add(targetType);
-  state.aliasKeys.add(aliasKey);
-  try {
-    return substituteTypePlan(
-      sourceTypePlan(
-        context,
-        sourceFileForNode(targetType, sourceFile),
-        targetType,
-        state
-      ),
-      substitutions
-    );
-  } finally {
-    state.aliasTargets.delete(targetType);
-    state.aliasKeys.delete(aliasKey);
-  }
 };
 
 const sourceTypePlan = (
@@ -1694,32 +1151,26 @@ const sourceTypePlan = (
         ) ?? unsupportedTypePlan(sourceFile, node)
       );
     }
-    const checker = context.checkerForSourceFile(sourceFile);
-    const sourceType = checker.getTypeFromTypeNode(node);
     const aliasTarget = sourceTypeAliasTargetPlan(
       context,
       sourceFile,
       node,
       state
     );
-    const typeName =
-      aliasTarget === undefined
-        ? (checker.getTypeSymbolName(sourceType) ?? typeReference.name)
-        : typeReference.name;
-    const typeNodeSymbol = checker.getSymbolAtLocation(node);
-    const resolvedTypeNodeSymbol = typeNodeSymbol
-      ? checker.resolveAlias(typeNodeSymbol)
-      : undefined;
+    const typeName = typeReference.name;
+    const bindingFact = sourceBindingFactForNode(context, node);
     const sourceQualifiedName =
       sourceQualifiedNameForSourceBindingNode(context, node, "type") ??
-      sourceQualifiedNameForType(context, sourceFile, sourceType, typeName) ??
-      sourceQualifiedNameForSymbol(
+      sourceQualifiedNameForDeclaration(
         context,
-        sourceFile,
-        resolvedTypeNodeSymbol,
-        typeName
+        bindingFact?.declaration,
+        typeName,
+        "type"
       );
-    const declaration = typeDeclarationBindingForNode(context, sourceFile, node);
+    const declaration = typeDeclarationBindingForDeclaration(
+      bindingFact?.declaration,
+      sourceFile
+    );
     return {
       kind: "named",
       name: typeName,
@@ -1732,21 +1183,12 @@ const sourceTypePlan = (
       sourceQualifiedName,
       externalBinding:
         externalBindingForSourceBindingNode(context, node) ??
-        externalBindingForDeclaration(declaration?.sourceNode, typeName),
+        externalBindingForDeclaration(bindingFact?.declaration, typeName),
       runtimeVisibility:
         sourceRuntimeVisibilityForNode(context, node) ??
-        sourceRuntimeVisibilityForType(context, sourceFile, sourceType) ??
-        sourceRuntimeVisibilityForSymbol(
-          context,
-          sourceFile,
-          resolvedTypeNodeSymbol
-        ),
+        sourceRuntimeVisibilityForDeclaration(context, bindingFact?.declaration),
       declaration,
-      declarationKind: namedDeclarationKindForType(
-        context,
-        sourceFile,
-        sourceType
-      ),
+      declarationKind: namedDeclarationKindForDeclaration(bindingFact?.declaration),
       sourceText,
     };
   }
@@ -2154,20 +1596,6 @@ const declarationSourceTypePlan = (
   return typeNode
     ? sourceTypePlan(context, sourceFileForNode(typeNode, sourceFile), typeNode)
     : undefined;
-};
-
-const signatureReturnSourceTypePlan = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  signature: TstsSignature | undefined
-): LoweringTypeRefPlan | undefined => {
-  if (!signature) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  return declarationSourceTypePlan(
-    context,
-    sourceFile,
-    checker.getSignatureDeclaration(signature)
-  );
 };
 
 const expressionSourceTypePlan = (
@@ -3108,8 +2536,114 @@ const sourceBindingProjectionTypePlan = (
         sourceFileForNode(type.node, sourceFile),
         type.node
       );
-    case "checker-type":
-      return checkerTypePlan(context, sourceFile, type.type);
+    case "intrinsic":
+      return {
+        kind: "intrinsic",
+        name: type.name,
+        sourceText: type.sourceNode
+          ? compactNodeSourceText(
+              sourceFileForNode(type.sourceNode, sourceFile),
+              type.sourceNode
+            )
+          : undefined,
+      };
+    case "named": {
+      const declarationSourceFile = type.declaration
+        ? sourceFileForNode(type.declaration, sourceFile)
+        : sourceFile;
+      const declaration = typeDeclarationBindingForDeclaration(
+        type.declaration,
+        declarationSourceFile
+      );
+      return {
+        kind: "named",
+        name: type.name,
+        typeArguments: type.typeArguments
+          .map((argument) =>
+            sourceBindingProjectionTypePlan(context, sourceFile, argument)
+          )
+          .filter(
+            (argument): argument is LoweringTypeRefPlan => argument !== undefined
+          ),
+        aliasTarget: sourceBindingProjectionTypePlan(
+          context,
+          sourceFile,
+          type.aliasTarget
+        ),
+        sourceQualifiedName:
+          sourceQualifiedNameForSourceBindingNode(
+            context,
+            type.declaration,
+            "type"
+          ) ??
+          sourceQualifiedNameForDeclaration(
+            context,
+            type.declaration,
+            type.name,
+            "type"
+          ),
+        externalBinding:
+          externalBindingForSourceBindingNode(context, type.declaration) ??
+          externalBindingForDeclaration(type.declaration, type.name),
+        runtimeVisibility:
+          type.runtimeVisibility ??
+          sourceRuntimeVisibilityForDeclaration(context, type.declaration),
+        declaration,
+        declarationKind:
+          type.declarationKind ??
+          namedDeclarationKindForDeclaration(type.declaration),
+        sourceText: type.sourceNode
+          ? compactNodeSourceText(
+              sourceFileForNode(type.sourceNode, sourceFile),
+              type.sourceNode
+            )
+          : undefined,
+      };
+    }
+    case "record": {
+      const keyType = sourceBindingProjectionTypePlan(
+        context,
+        sourceFile,
+        type.keyType
+      );
+      const valueType = sourceBindingProjectionTypePlan(
+        context,
+        sourceFile,
+        type.valueType
+      );
+      return keyType && valueType
+        ? {
+            kind: "record",
+            keyType,
+            valueType,
+            sourceText: type.sourceNode
+              ? compactNodeSourceText(
+                  sourceFileForNode(type.sourceNode, sourceFile),
+                  type.sourceNode
+                )
+              : undefined,
+          }
+        : undefined;
+    }
+    case "function":
+      return {
+        kind: "function",
+        parameters: type.parameters.map((parameter) =>
+          sourceProjectedParameterPlan(context, sourceFile, parameter)
+        ),
+        returnType: sourceBindingProjectionTypePlan(
+          context,
+          sourceFile,
+          type.returnType
+        ),
+        typeParameters: type.typeParameters,
+        sourceText: type.sourceNode
+          ? compactNodeSourceText(
+              sourceFileForNode(type.sourceNode, sourceFile),
+              type.sourceNode
+            )
+          : undefined,
+      };
     case "array": {
       const elementType = sourceBindingProjectionTypePlan(
         context,
@@ -3635,7 +3169,7 @@ const parameterPlans = (
         name: nodeName(sourceFile, parameter) ?? "",
         ...parameterPlanSource(sourceFile, parameter),
         type:
-          typePlan(context, sourceFile, explicitType, undefined, sourceTypeState) ??
+          sourceTypePlan(context, sourceFile, explicitType, sourceTypeState) ??
           expectedParameterTypes[index],
         initializer: expressionPlan(
           sourceFile,
@@ -3776,11 +3310,10 @@ const declarationPlan = (
     sourceDeclarationTypeProjectionFactKey,
     node
   );
-  const returnType = typePlan(
+  const returnType = sourceTypePlan(
     context,
     sourceFile,
-    explicitReturnType,
-    undefined
+    explicitReturnType
   ) ?? sourceBindingProjectionTypePlan(
     context,
     sourceFile,
