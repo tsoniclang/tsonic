@@ -7,12 +7,7 @@ import {
   getTstsTypeReferenceDetails,
   TstsSyntax,
 } from "@tsonic/tsts";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import {
-  resolveInstalledSourcePackageNamespace,
-  resolveSourceFileIdentity,
-} from "../program/source-file-identity.js";
+import { resolveSourceFileIdentity } from "../program/source-file-identity.js";
 import type {
   TstsNode,
   TstsSignature,
@@ -27,9 +22,11 @@ import {
   markerApiSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
+  sourceBindingIdentityFactKey,
   sourceRuntimeOperationFactKey,
   wellKnownComputedNameFactKey,
 } from "../source-frontend/source-facts.js";
+import type { SourceBindingIdentityFact } from "../source-frontend/source-facts.js";
 import type {
   LoweringBinaryOperator,
   LoweringBindingAccessPlan,
@@ -44,6 +41,7 @@ import type {
   LoweringRuntimeNamePlan,
   LoweringStatementPlan,
   LoweringTemplatePartPlan,
+  LoweringTypeDeclarationBinding,
   LoweringTypeMemberPlan,
   LoweringTypePlan,
   LoweringTypeRefPlan,
@@ -451,6 +449,7 @@ const checkerTypePlan = (
         type,
         name
       ),
+      declaration: typeDeclarationBindingForType(context, sourceFile, type),
       declarationKind: namedDeclarationKindForType(context, sourceFile, type),
       aliasTarget: checkerTypeAliasTargetPlan(context, sourceFile, type),
     };
@@ -537,6 +536,106 @@ const isTopLevelStaticValueDeclaration = (declaration: TstsNode): boolean => {
   );
 };
 
+const isRuntimeTypeDeclaration = (
+  declaration: TstsNode | undefined
+): declaration is TstsNode =>
+  declaration?.Kind === TstsSyntax.KindClassDeclaration ||
+  declaration?.Kind === TstsSyntax.KindEnumDeclaration ||
+  declaration?.Kind === TstsSyntax.KindInterfaceDeclaration ||
+  declaration?.Kind === TstsSyntax.KindTypeAliasDeclaration;
+
+const typeDeclarationBindingForDeclaration = (
+  declaration: TstsNode | undefined,
+  fallbackSourceFile: TstsSourceFile
+): LoweringTypeDeclarationBinding | undefined => {
+  if (!isRuntimeTypeDeclaration(declaration)) return undefined;
+  return {
+    sourceFile: sourceFileForNode(declaration, fallbackSourceFile),
+    sourceNode: declaration,
+  };
+};
+
+const typeDeclarationBindingForSymbol = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  symbol: TstsSymbol | undefined
+): LoweringTypeDeclarationBinding | undefined => {
+  if (!symbol) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const declaration = checker
+    .getSymbolDeclarations(symbol)
+    .find(isRuntimeTypeDeclaration);
+  return typeDeclarationBindingForDeclaration(declaration, sourceFile);
+};
+
+const typeDeclarationBindingForType = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  type: TstsType | undefined
+): LoweringTypeDeclarationBinding | undefined => {
+  if (!type) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  return typeDeclarationBindingForSymbol(
+    context,
+    sourceFile,
+    checker.getTypeAliasOrSymbol(type)
+  );
+};
+
+const typeDeclarationBindingForNode = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  node: TstsNode | undefined
+): LoweringTypeDeclarationBinding | undefined => {
+  if (!node) return undefined;
+  const checker = context.checkerForSourceFile(sourceFile);
+  const symbol = checker.getSymbolAtLocation(node);
+  const resolved = symbol ? checker.resolveAlias(symbol) : undefined;
+  return typeDeclarationBindingForSymbol(context, sourceFile, resolved);
+};
+
+const runtimeNameForSourceBindingFact = (
+  context: LoweringBuildContext,
+  fact: SourceBindingIdentityFact | undefined,
+  target: "type" | "value"
+): LoweringRuntimeNamePlan | undefined => {
+  if (!fact) return undefined;
+  const identity = resolveSourceFileIdentity(
+    fact.sourceFileName,
+    context.options.sourceRoot,
+    context.options.rootNamespace
+  );
+  switch (fact.declarationKind) {
+    case "class":
+    case "enum":
+    case "interface":
+    case "type-alias":
+      return { namespace: identity.namespace, name: fact.name };
+    case "function":
+    case "variable":
+      return target === "value" && fact.topLevelStaticValue
+        ? {
+            namespace: identity.namespace,
+            container: identity.className,
+            name: fact.name,
+          }
+        : undefined;
+  }
+};
+
+const runtimeNameForSourceBindingNode = (
+  context: LoweringBuildContext,
+  node: TstsNode | undefined,
+  target: "type" | "value"
+): LoweringRuntimeNamePlan | undefined =>
+  node
+    ? runtimeNameForSourceBindingFact(
+        context,
+        context.input.facts.get(sourceBindingIdentityFactKey, node),
+        target
+      )
+    : undefined;
+
 const runtimeNameForDeclaration = (
   context: LoweringBuildContext,
   declaration: TstsNode | undefined,
@@ -548,9 +647,6 @@ const runtimeNameForDeclaration = (
   const declarationSourceFile = getTstsContainingSourceFile(declaration);
   if (!declarationSourceFile) return undefined;
   if (declarationSourceFile.IsDeclarationFile === true) return undefined;
-  if (!context.input.moduleGraph.getSourceFileModule(declarationSourceFile)) {
-    return undefined;
-  }
   const identity = resolveSourceFileIdentity(
     declarationSourceFile.FileName(),
     context.options.sourceRoot,
@@ -922,13 +1018,16 @@ const sourceTypeAliasTargetPlan = (
       state
     );
   }
-  const importedDeclaration = typeReference
-    ? importedTypeDeclaration(sourceFile, typeReference.name, context)
+  const resolvedDeclaration = typeReference
+    ? typeDeclarationBindingForNode(context, sourceFile, node)
     : undefined;
-  if (importedDeclaration) {
-    const targetType = TstsSyntax.Node_Type(importedDeclaration.declaration);
+  if (resolvedDeclaration) {
+    const targetType = TstsSyntax.Node_Type(resolvedDeclaration.sourceNode);
     const substitutions = aliasTypeSubstitutions(
-      typeParameterNames(importedDeclaration.sourceFile, importedDeclaration.declaration),
+      typeParameterNames(
+        resolvedDeclaration.sourceFile,
+        resolvedDeclaration.sourceNode
+      ),
       typeReference?.typeArguments
         .map((argument) => sourceTypePlan(context, sourceFile, argument, state))
         .filter(
@@ -936,12 +1035,12 @@ const sourceTypeAliasTargetPlan = (
         ) ?? []
     );
     const interfaceCallSignature = singleInterfaceCallSignature(
-      importedDeclaration.declaration
+      resolvedDeclaration.sourceNode
     );
     const aliasKey = sourceTypeAliasKey(
       context,
-      importedDeclaration.sourceFile,
-      importedDeclaration.declaration,
+      resolvedDeclaration.sourceFile,
+      resolvedDeclaration.sourceNode,
       undefined
     );
     if (state.aliasKeys.has(aliasKey)) {
@@ -953,7 +1052,10 @@ const sourceTypeAliasTargetPlan = (
         return substituteTypePlan(
           interfaceCallSignatureTypePlan(
             context,
-            sourceFileForNode(interfaceCallSignature, importedDeclaration.sourceFile),
+            sourceFileForNode(
+              interfaceCallSignature,
+              resolvedDeclaration.sourceFile
+            ),
             interfaceCallSignature,
             state
           ),
@@ -964,7 +1066,7 @@ const sourceTypeAliasTargetPlan = (
         ? substituteTypePlan(
             sourceTypePlan(
               context,
-              sourceFileForNode(targetType, importedDeclaration.sourceFile),
+              sourceFileForNode(targetType, resolvedDeclaration.sourceFile),
               targetType,
               state
             ),
@@ -1097,19 +1199,15 @@ const sourceTypeAliasDeclarationTargetPlan = (
       ),
     aliasTarget: sourceTypeAliasTargetPlan(context, sourceFile, node, state),
     runtimeName:
+      runtimeNameForSourceBindingNode(context, node, "type") ??
       runtimeNameForType(context, sourceFile, sourceType, typeName) ??
       runtimeNameForSymbol(
         context,
         sourceFile,
         resolvedTypeNodeSymbol,
         typeName
-      ) ??
-      runtimeNameForImportedType(
-        sourceFile,
-        typeReference.name,
-        typeName,
-        context
       ),
+    declaration: typeDeclarationBindingForNode(context, sourceFile, node),
     declarationKind: namedDeclarationKindForType(context, sourceFile, sourceType),
     sourceText: compactNodeSourceText(sourceFile, node),
   };
@@ -1233,19 +1331,15 @@ const sourceTypePlan = (
       ? checker.resolveAlias(typeNodeSymbol)
       : undefined;
     const runtimeName =
+      runtimeNameForSourceBindingNode(context, node, "type") ??
       runtimeNameForType(context, sourceFile, sourceType, typeName) ??
       runtimeNameForSymbol(
         context,
         sourceFile,
         resolvedTypeNodeSymbol,
         typeName
-      ) ??
-      runtimeNameForImportedType(
-        sourceFile,
-        typeReference.name,
-        typeName,
-        context
       );
+    const declaration = typeDeclarationBindingForNode(context, sourceFile, node);
     return {
       kind: "named",
       name: typeName,
@@ -1256,6 +1350,7 @@ const sourceTypePlan = (
         ),
       aliasTarget,
       runtimeName,
+      declaration,
       declarationKind: namedDeclarationKindForType(
         context,
         sourceFile,
@@ -1356,12 +1451,12 @@ const sourceTypePlan = (
                 (argument): argument is LoweringTypeRefPlan =>
                   argument !== undefined
               ),
-            runtimeName: runtimeNameForImportedType(
-              sourceFile,
-              name,
-              name,
-              context
+            runtimeName: runtimeNameForSourceBindingNode(
+              context,
+              node,
+              "type"
             ),
+            declaration: typeDeclarationBindingForNode(context, sourceFile, node),
             sourceText,
           }
         : unsupportedTypePlan(sourceFile, node);
@@ -2354,247 +2449,6 @@ const expressionSemantic = (
   return context.input.facts.get(expressionSemanticsFactKey, node)?.kind;
 };
 
-const canonicalFilePath = (fileName: string): string => {
-  try {
-    return fs.realpathSync.native(fileName).replace(/\\/g, "/");
-  } catch {
-    return path.resolve(fileName).replace(/\\/g, "/");
-  }
-};
-
-const sourceFileByModuleFileName = (
-  context: LoweringBuildContext,
-  fileName: string | undefined
-): TstsSourceFile | undefined => {
-  if (!fileName) return undefined;
-  const canonicalTarget = canonicalFilePath(fileName);
-  return (
-    context.input.sourceProgram.sourceFiles.find(
-      (sourceFile) => canonicalFilePath(sourceFile.FileName()) === canonicalTarget
-    ) ??
-    context.input.moduleGraph.modules.find(
-      (module) => canonicalFilePath(module.fileName) === canonicalTarget
-    )?.sourceFile
-  );
-};
-
-const isTypeDeclarationNode = (node: TstsNode | undefined): node is TstsNode =>
-  node?.Kind === TstsSyntax.KindTypeAliasDeclaration ||
-  node?.Kind === TstsSyntax.KindInterfaceDeclaration ||
-  node?.Kind === TstsSyntax.KindClassDeclaration;
-
-const findTypeDeclarationByName = (
-  sourceFile: TstsSourceFile,
-  name: string | undefined
-): TstsNode | undefined => {
-  if (!name) return undefined;
-  let match: TstsNode | undefined;
-  visitTstsNodes(sourceFile, (node) => {
-    if (match || !isTypeDeclarationNode(node)) return;
-    if (nodeTokenText(TstsSyntax.Node_Name(node)) === name) {
-      match = node;
-    }
-  });
-  return match;
-};
-
-const importModuleForBinding = (
-  sourceFile: TstsSourceFile,
-  localName: string,
-  context: LoweringBuildContext
-) => {
-  const binding = context.input.moduleGraph.getImportBinding(sourceFile, localName);
-  if (!binding) return undefined;
-  const moduleImport = context.input.moduleGraph
-    .getImports(sourceFile)
-    .find((candidate) =>
-      candidate.bindings.some(
-        (importBinding) => importBinding.bindingNode === binding.bindingNode
-      )
-    );
-  return moduleImport ? { binding, moduleImport } : undefined;
-};
-
-const importedTypeDeclaration = (
-  sourceFile: TstsSourceFile,
-  localName: string,
-  context: LoweringBuildContext
-):
-  | {
-      readonly declaration: TstsNode;
-      readonly sourceFile: TstsSourceFile;
-    }
-  | undefined => {
-  const imported = importModuleForBinding(sourceFile, localName, context);
-  if (!imported || imported.binding.kind === "namespace") return undefined;
-  const resolvedImportFileName =
-    imported.moduleImport.resolvedModule?.resolvedFileName ??
-    context.input.moduleGraph.getResolvedModule(
-      sourceFile,
-      imported.moduleImport.specifier
-    )?.resolvedFileName;
-  let targetSourceFile = sourceFileByModuleFileName(
-    context,
-    resolvedImportFileName
-  );
-  if (!targetSourceFile) return undefined;
-  let currentExportName = imported.binding.importedName;
-  for (let depth = 0; depth < 16; depth += 1) {
-    const exportBinding = context.input.moduleGraph.getExportBinding(
-      targetSourceFile,
-      currentExportName
-    );
-    if (!exportBinding) return undefined;
-    if (exportBinding.sourceSpecifier) {
-      const resolved = context.input.moduleGraph.getResolvedModule(
-        targetSourceFile,
-        exportBinding.sourceSpecifier
-      );
-      const nextSourceFile = sourceFileByModuleFileName(
-        context,
-        resolved?.resolvedFileName ?? exportBinding.resolvedModule?.resolvedFileName
-      );
-      if (!nextSourceFile) return undefined;
-      targetSourceFile = nextSourceFile;
-      currentExportName =
-        exportBinding.localName ?? exportBinding.exportedName ?? currentExportName;
-      continue;
-    }
-    const bindingNode = exportBinding.bindingNode;
-    if (isTypeDeclarationNode(bindingNode)) {
-      return {
-        declaration: bindingNode,
-        sourceFile: sourceFileForNode(bindingNode, targetSourceFile),
-      };
-    }
-    const sameNameTypeDeclaration = findTypeDeclarationByName(
-      targetSourceFile,
-      exportBinding.localName ?? exportBinding.exportedName ?? currentExportName
-    );
-    if (sameNameTypeDeclaration) {
-      return {
-        declaration: sameNameTypeDeclaration,
-        sourceFile: sourceFileForNode(sameNameTypeDeclaration, targetSourceFile),
-      };
-    }
-    const checker = context.checkerForSourceFile(targetSourceFile);
-    const symbol = checker.getSymbolAtLocation(bindingNode);
-    const resolvedSymbol = symbol ? checker.resolveAlias(symbol) : undefined;
-    const declaration = resolvedSymbol
-      ? checker
-          .getSymbolDeclarations(resolvedSymbol)
-          .find(isTypeDeclarationNode)
-      : undefined;
-    return declaration
-      ? {
-          declaration,
-          sourceFile: sourceFileForNode(declaration, targetSourceFile),
-        }
-      : undefined;
-  }
-  return undefined;
-};
-
-const runtimeNameForImportedType = (
-  sourceFile: TstsSourceFile,
-  localName: string,
-  exportedName: string,
-  context: LoweringBuildContext
-): LoweringRuntimeNamePlan | undefined => {
-  const imported = importModuleForBinding(sourceFile, localName, context);
-  if (!imported || imported.binding.kind === "namespace") return undefined;
-  const resolvedImportFileName =
-    imported.moduleImport.resolvedModule?.resolvedFileName ??
-    context.input.moduleGraph.getResolvedModule(
-      sourceFile,
-      imported.moduleImport.specifier
-    )?.resolvedFileName;
-  const installedSourcePackageRuntimeName =
-    (): LoweringRuntimeNamePlan | undefined => {
-    const targetNamespace = resolveInstalledSourcePackageNamespace(
-      resolvedImportFileName ?? ""
-    );
-    return targetNamespace
-      ? { namespace: targetNamespace, name: exportedName }
-      : undefined;
-  };
-  let targetSourceFile = sourceFileByModuleFileName(
-    context,
-    resolvedImportFileName
-  );
-  if (!targetSourceFile) return installedSourcePackageRuntimeName();
-  let currentExportName = imported.binding.importedName;
-  for (let depth = 0; depth < 16; depth += 1) {
-    const exportBinding = context.input.moduleGraph.getExportBinding(
-      targetSourceFile,
-      currentExportName
-    );
-    if (!exportBinding) break;
-    if (exportBinding.sourceSpecifier) {
-      const resolved = context.input.moduleGraph.getResolvedModule(
-        targetSourceFile,
-        exportBinding.sourceSpecifier
-      );
-      const nextSourceFile = sourceFileByModuleFileName(
-        context,
-        resolved?.resolvedFileName ?? exportBinding.resolvedModule?.resolvedFileName
-      );
-      if (!nextSourceFile) break;
-      targetSourceFile = nextSourceFile;
-      currentExportName =
-        exportBinding.localName ?? exportBinding.exportedName ?? currentExportName;
-      continue;
-    }
-    const declarationSourceFile = sourceFileForNode(
-      exportBinding.bindingNode,
-      targetSourceFile
-    );
-    const identity = resolveSourceFileIdentity(
-      declarationSourceFile.FileName(),
-      context.options.sourceRoot,
-      context.options.rootNamespace
-    );
-    return { namespace: identity.namespace, name: exportedName };
-  }
-  return installedSourcePackageRuntimeName();
-};
-
-const importRuntimeName = (
-  sourceFile: TstsSourceFile,
-  node: TstsNode,
-  context: LoweringBuildContext
-): LoweringRuntimeNamePlan | undefined => {
-  if (node.Kind !== TstsSyntax.KindIdentifier) return undefined;
-  const localName = nodeTokenText(node);
-  if (!localName) return undefined;
-  const imported = importModuleForBinding(sourceFile, localName, context);
-  const binding = imported?.binding;
-  if (!binding || binding.isTypeOnly) return undefined;
-  if (binding.kind === "namespace") return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const rawSymbol = checker.getSymbolAtLocation(node);
-  const symbol = rawSymbol ? checker.resolveAlias(rawSymbol) : undefined;
-  return runtimeNameForSymbol(
-    context,
-    sourceFile,
-    symbol,
-    binding.importedName
-  );
-};
-
-const localRuntimeName = (
-  sourceFile: TstsSourceFile,
-  node: TstsNode,
-  context: LoweringBuildContext
-): LoweringRuntimeNamePlan | undefined => {
-  if (node.Kind !== TstsSyntax.KindIdentifier) return undefined;
-  const localName = nodeTokenText(node);
-  if (!localName) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const symbol = checker.getSymbolAtLocation(node);
-  return runtimeNameForSymbol(context, sourceFile, symbol, localName);
-};
-
 const receiverOwnerTypePlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
@@ -2701,20 +2555,6 @@ const typeSubstitutionsFromDeclarationToOwner = (
   return undefined;
 };
 
-const findTypeDeclarationInProgram = (
-  context: LoweringBuildContext,
-  preferredSourceFile: TstsSourceFile,
-  name: string
-): TstsNode | undefined =>
-  findTypeDeclarationByName(preferredSourceFile, name) ??
-  context.input.sourceProgram.sourceFiles
-    .map((candidateSourceFile) =>
-      candidateSourceFile === preferredSourceFile
-        ? undefined
-        : findTypeDeclarationByName(candidateSourceFile, name)
-    )
-    .find((declaration): declaration is TstsNode => declaration !== undefined);
-
 const memberStorageTypeFromMemberPlan = (
   member: LoweringTypeMemberPlan | undefined
 ): LoweringTypeRefPlan | undefined => {
@@ -2786,16 +2626,11 @@ const memberStorageTypeFromTypePlan = (
         seen
       );
       if (aliasMember) return aliasMember;
-      const declaration = findTypeDeclarationInProgram(
-        context,
-        sourceFile,
-        type.name
-      );
-      return declaration
+      return type.declaration
         ? memberStorageTypeFromDeclaration(
             context,
-            sourceFileForNode(declaration, sourceFile),
-            declaration,
+            type.declaration.sourceFile,
+            type.declaration.sourceNode,
             type.typeArguments,
             memberName
           )
@@ -2931,9 +2766,7 @@ const expressionPlan = (
       genericFunctionAliasFactKey,
       node
     )?.resolvedName,
-    runtimeName:
-      importRuntimeName(sourceFile, node, context) ??
-      localRuntimeName(sourceFile, node, context),
+    runtimeName: runtimeNameForSourceBindingNode(context, node, "value"),
     intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
       ?.kind,
     passingMode: context.input.facts.get(parameterPassingFactKey, node)?.mode,

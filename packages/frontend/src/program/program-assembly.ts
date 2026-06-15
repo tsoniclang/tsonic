@@ -225,7 +225,6 @@ export const createProgram = (
   }
 
   const allFiles = dedupeCanonicalFilePaths(discovery.allFiles);
-  const dependencyEdges = [...discovery.dependencyEdges];
 
   let sourceProgram: TstsSourceProgram;
   try {
@@ -293,11 +292,7 @@ export const createProgram = (
   const sourceSemantics = sourceProgram.withSourceSemantics(
     firstTstsSourceFile,
     (checker) =>
-      createTstsSemanticView(checker, sourceProgram.extensionHost.facts, {
-        moduleGraph: sourceProgram.moduleGraph,
-        sourceFiles: sourceProgram.sourceFiles,
-        dependencyEdges,
-      })
+      createTstsSemanticView(checker, sourceProgram.extensionHost.facts)
   );
 
   return ok({

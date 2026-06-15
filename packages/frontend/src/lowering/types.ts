@@ -78,6 +78,11 @@ export type LoweringRuntimeNamePlan = {
   readonly name: string;
 };
 
+export type LoweringTypeDeclarationBinding = {
+  readonly sourceFile: TstsSourceFile;
+  readonly sourceNode: TstsNode;
+};
+
 export type LoweringTypeMemberPlan =
   | {
       readonly kind: "property";
@@ -116,6 +121,7 @@ export type LoweringTypeRefPlan =
       readonly typeArguments: readonly LoweringTypeRefPlan[];
       readonly aliasTarget?: LoweringTypeRefPlan;
       readonly runtimeName?: LoweringRuntimeNamePlan;
+      readonly declaration?: LoweringTypeDeclarationBinding;
       readonly declarationKind?:
         | "class"
         | "enum"

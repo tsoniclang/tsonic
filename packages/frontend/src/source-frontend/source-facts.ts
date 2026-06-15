@@ -125,6 +125,21 @@ export type IntrinsicSemanticsFact = {
     | "trycast";
 };
 
+export type SourceBindingDeclarationKind =
+  | "class"
+  | "enum"
+  | "function"
+  | "interface"
+  | "type-alias"
+  | "variable";
+
+export type SourceBindingIdentityFact = {
+  readonly sourceFileName: string;
+  readonly name: string;
+  readonly declarationKind: SourceBindingDeclarationKind;
+  readonly topLevelStaticValue: boolean;
+};
+
 const defineSourceFactKey = <T>(
   id: string,
   description: string
@@ -202,6 +217,12 @@ export const intrinsicSemanticsFactKey =
     "Source-level intrinsic semantics."
   );
 
+export const sourceBindingIdentityFactKey =
+  defineSourceFactKey<SourceBindingIdentityFact>(
+    "tsonic:source:binding-identity",
+    "Source-level binding declaration identity resolved by TSTS."
+  );
+
 export const visitSourceSemanticFactKeys = (
   visit: <T>(factKey: SourceSemanticFactKey<T>) => void
 ): void => {
@@ -217,4 +238,5 @@ export const visitSourceSemanticFactKeys = (
   visit(wellKnownComputedNameFactKey);
   visit(genericFunctionAliasFactKey);
   visit(intrinsicSemanticsFactKey);
+  visit(sourceBindingIdentityFactKey);
 };

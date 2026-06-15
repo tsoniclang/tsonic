@@ -34,6 +34,8 @@ import type {
   MarkerApiSemanticsFact,
   ParameterPassingFact,
   ParameterPassingMode,
+  SourceBindingDeclarationKind,
+  SourceBindingIdentityFact,
   SourceRuntimeOperationOwner,
   SourceRuntimeOperationFact,
   SourceTypeSemanticsFact,
@@ -50,6 +52,7 @@ import {
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
   parameterPassingFactKey,
+  sourceBindingIdentityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
   extensionReceiverSemanticsFactKey,
@@ -986,6 +989,81 @@ const variableDeclarationKind = (
   return "var";
 };
 
+const sourceBindingDeclarationKind = (
+  declaration: TstsNode | undefined
+): SourceBindingDeclarationKind | undefined => {
+  switch (declaration?.Kind) {
+    case TstsSyntax.KindClassDeclaration:
+      return "class";
+    case TstsSyntax.KindEnumDeclaration:
+      return "enum";
+    case TstsSyntax.KindFunctionDeclaration:
+      return "function";
+    case TstsSyntax.KindInterfaceDeclaration:
+      return "interface";
+    case TstsSyntax.KindTypeAliasDeclaration:
+      return "type-alias";
+    case TstsSyntax.KindVariableDeclaration:
+      return "variable";
+    default:
+      return undefined;
+  }
+};
+
+const isTopLevelStaticValueDeclaration = (declaration: TstsNode): boolean => {
+  if (declaration.Kind === TstsSyntax.KindFunctionDeclaration) {
+    return declaration.Parent?.Kind === TstsSyntax.KindSourceFile;
+  }
+  if (declaration.Kind !== TstsSyntax.KindVariableDeclaration) {
+    return false;
+  }
+  const list = declaration.Parent;
+  const statement = list?.Parent;
+  return (
+    statement?.Kind === TstsSyntax.KindVariableStatement &&
+    statement.Parent?.Kind === TstsSyntax.KindSourceFile
+  );
+};
+
+const sourceBindingIdentityFact = (
+  context: CheckedContext,
+  symbol: TstsSymbol | undefined
+): SourceBindingIdentityFact | undefined => {
+  if (!symbol) return undefined;
+  const valueDeclaration = context.checker.getSymbolValueDeclaration(symbol);
+  const declarations = context.checker.getSymbolDeclarations(symbol);
+  const declaration =
+    valueDeclaration ??
+    declarations.find(
+      (candidate): candidate is TstsNode =>
+        sourceBindingDeclarationKind(candidate) !== undefined
+    );
+  const declarationKind = sourceBindingDeclarationKind(declaration);
+  if (!declaration || !declarationKind) return undefined;
+  const sourceFile = getTstsContainingSourceFile(declaration);
+  if (!sourceFile || sourceFile.IsDeclarationFile === true) return undefined;
+  const name =
+    getTstsNodeNameText(declaration) ?? context.checker.getSymbolName(symbol);
+  if (!name) return undefined;
+  return {
+    sourceFileName: sourceFile.FileName(),
+    name,
+    declarationKind,
+    topLevelStaticValue: isTopLevelStaticValueDeclaration(declaration),
+  };
+};
+
+const setSourceBindingIdentityFact = (
+  context: CheckedContext,
+  subject: TstsNode,
+  symbol: TstsSymbol | undefined
+): void => {
+  const fact = sourceBindingIdentityFact(context, symbol);
+  if (fact) {
+    context.facts.set(sourceBindingIdentityFactKey, subject, fact);
+  }
+};
+
 const isIdentifierGenericSymbol = (
   context: CheckedContext,
   node: TstsNode | undefined,
@@ -1439,12 +1517,25 @@ export const createTsonicSourceSemanticsExtension = (
 
       if (TstsSyntax.IsIdentifier(node)) {
         const symbol = symbolForName(context, node);
+        setSourceBindingIdentityFact(context, node, symbol);
         const targetSymbol = symbol ? genericAliasTargets.get(symbol) : undefined;
         if (targetSymbol) {
           context.facts.set(genericFunctionAliasFactKey, node, {
             resolvedName: context.checker.getSymbolName(targetSymbol),
           });
         }
+      }
+
+      if (
+        node.Kind === TstsSyntax.KindTypeReference ||
+        node.Kind === TstsSyntax.KindExpressionWithTypeArguments
+      ) {
+        const symbol = context.checker.getSymbolAtLocation(node);
+        setSourceBindingIdentityFact(
+          context,
+          node,
+          symbol ? context.checker.resolveAlias(symbol) : undefined
+        );
       }
 
       const computedName =

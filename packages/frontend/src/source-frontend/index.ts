@@ -15,6 +15,7 @@ export {
   markerApiSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
+  sourceBindingIdentityFactKey,
   sourceTypeSemanticsFactKey,
   visitSourceSemanticFactKeys,
 } from "./source-facts.js";
@@ -53,6 +54,8 @@ export type {
   NumericPrimitiveRuntimeBase,
   ParameterPassingFact,
   ParameterPassingMode,
+  SourceBindingDeclarationKind,
+  SourceBindingIdentityFact,
   SourceTypeSemanticsFact,
 } from "./source-facts.js";
 export {
