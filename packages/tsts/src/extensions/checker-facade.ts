@@ -48,7 +48,11 @@ import {
   Checker_TypeToTypeNode,
   Checker_TypeToString,
 } from "../internal/checker/printer.js";
-import { Checker_getTypePredicateOfSignature } from "../internal/checker/relater.js";
+import {
+  Checker_getTypePredicateOfSignature,
+  Checker_isTypeAssignableTo,
+  Checker_isTypeIdenticalTo,
+} from "../internal/checker/relater.js";
 import type {
   ContextFlags,
   Signature,
@@ -139,6 +143,8 @@ export type ExtensionTypeChecker = {
   isNumberLikeType(type: GoPtr<Type>): boolean;
   isBooleanLikeType(type: GoPtr<Type>): boolean;
   isBigIntLikeType(type: GoPtr<Type>): boolean;
+  isTypeAssignableTo(source: GoPtr<Type>, target: GoPtr<Type>): boolean;
+  isTypeIdenticalTo(source: GoPtr<Type>, target: GoPtr<Type>): boolean;
   isStringLiteralType(type: GoPtr<Type>): boolean;
   isNumberLiteralType(type: GoPtr<Type>): boolean;
   isBooleanLiteralType(type: GoPtr<Type>): boolean;
@@ -323,6 +329,14 @@ export const createExtensionTypeChecker = (
     hasTypeFlags(type, TypeFlagsBooleanLike),
   isBigIntLikeType: (type: GoPtr<Type>): boolean =>
     hasTypeFlags(type, TypeFlagsBigIntLike),
+  isTypeAssignableTo: (source: GoPtr<Type>, target: GoPtr<Type>): boolean =>
+    source !== undefined &&
+    target !== undefined &&
+    Checker_isTypeAssignableTo(checker, source, target) === true,
+  isTypeIdenticalTo: (source: GoPtr<Type>, target: GoPtr<Type>): boolean =>
+    source !== undefined &&
+    target !== undefined &&
+    Checker_isTypeIdenticalTo(checker, source, target) === true,
   isStringLiteralType: (type: GoPtr<Type>): boolean =>
     hasTypeFlags(type, TypeFlagsStringLiteral) &&
     !hasTypeFlags(type, TypeFlagsString),

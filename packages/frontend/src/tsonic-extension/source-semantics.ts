@@ -46,6 +46,7 @@ import type {
   SourceBindingProjectedType,
   SourceDictionaryTypeFact,
   SourceOverloadFamilyFact,
+  SourceOverloadCallImplementationFact,
   SourceRuntimeVisibilityFact,
   SourceRuntimeOperationOwner,
   SourceRuntimeOperationFact,
@@ -69,6 +70,7 @@ import {
   sourceBindingTypeProjectionFactKey,
   sourceDictionaryTypeFactKey,
   sourceOverloadFamilyFactKey,
+  sourceOverloadCallImplementationFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
@@ -2578,6 +2580,39 @@ const appendOverloadFamilyFact = (
   context.facts.set(sourceOverloadFamilyFactKey, declaration, fact);
 };
 
+const overloadFamilyImplementationMatchesDeclaration = (
+  context: CheckedContext,
+  declaration: TstsNode,
+  implementation: TstsNode
+): boolean => {
+  const declarationSignature = context.checker.getSignatureFromDeclaration(
+    declaration
+  );
+  const implementationSignature = context.checker.getSignatureFromDeclaration(
+    implementation
+  );
+  const declarationParameters =
+    context.checker.getSignatureParameters(declarationSignature);
+  const implementationParameters =
+    context.checker.getSignatureParameters(implementationSignature);
+  if (declarationParameters.length !== implementationParameters.length) {
+    return false;
+  }
+  return declarationParameters.every((declarationParameter, index) => {
+    const implementationParameter = implementationParameters[index];
+    if (!implementationParameter) return false;
+    const declarationType =
+      context.checker.getTypeOfSignatureParameter(declarationParameter);
+    const implementationType =
+      context.checker.getTypeOfSignatureParameter(implementationParameter);
+    return (
+      context.checker.isTypeIdenticalTo(declarationType, implementationType) ||
+      (context.checker.isTypeAssignableTo(declarationType, implementationType) &&
+        context.checker.isTypeAssignableTo(implementationType, declarationType))
+    );
+  });
+};
+
 const collectOverloadFamilyFacts = (
   context: CheckedContext,
   coreLangBindingByLocalName: ReadonlyMap<
@@ -2601,7 +2636,46 @@ const collectOverloadFamilyFacts = (
     const familyName = selectedMemberName((TstsSyntax.Node_Arguments(node) ?? [])[0]);
     if (!familyName) return;
     for (const declaration of memberDeclarationsByName(base.owner, familyName)) {
-      appendOverloadFamilyFact(context, declaration, base.implementation);
+      if (
+        overloadFamilyImplementationMatchesDeclaration(
+          context,
+          declaration,
+          base.implementation
+        )
+      ) {
+        appendOverloadFamilyFact(context, declaration, base.implementation);
+      }
+    }
+  });
+};
+
+const selectedOverloadCallImplementationFact = (
+  context: CheckedContext,
+  node: TstsNode
+): SourceOverloadCallImplementationFact | undefined => {
+  const signature = context.checker.getResolvedSignature(node);
+  const declaration = context.checker.getSignatureDeclaration(signature);
+  if (!declaration) return undefined;
+  const family = context.facts.get(sourceOverloadFamilyFactKey, declaration);
+  const implementation =
+    family?.implementations.length === 1 ? family.implementations[0] : undefined;
+  return implementation ? { implementation } : undefined;
+};
+
+const collectOverloadCallImplementationFacts = (
+  context: CheckedContext
+): void => {
+  visitTstsSubtree(context.sourceFile, (node): void => {
+    if (
+      !node ||
+      (node.Kind !== TstsSyntax.KindCallExpression &&
+        node.Kind !== TstsSyntax.KindNewExpression)
+    ) {
+      return;
+    }
+    const fact = selectedOverloadCallImplementationFact(context, node);
+    if (fact) {
+      context.facts.set(sourceOverloadCallImplementationFactKey, node, fact);
     }
   });
 };
@@ -2891,6 +2965,7 @@ export const createTsonicSourceSemanticsExtension = (
     collectAttributeDescriptorFacts(context, coreLangBindingByLocalName);
     collectAttributeApplicationFacts(context, coreLangBindingByLocalName);
     collectOverloadFamilyFacts(context, coreLangBindingByLocalName);
+    collectOverloadCallImplementationFacts(context);
     collectBindingTypeProjectionFacts(context);
 
     visitTstsSubtree(context.sourceFile, (node): void => {

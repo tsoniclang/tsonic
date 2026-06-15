@@ -55,6 +55,8 @@ const bannedSemanticQueries = [
   "checker.getApparentType(",
   "checker.getPropertyOfType(",
   "checker.getSignaturesOfType(",
+  "checker.isTypeAssignableTo(",
+  "checker.isTypeIdenticalTo(",
   "checker.isArrayType(",
   "checker.isTupleType(",
   "checker.typeToString(",
@@ -79,6 +81,26 @@ describe("source semantic boundary", () => {
             : [];
         });
       });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps overload implementation selection out of lowering-side type matching", () => {
+    const loweringPlanBuilders = fs.readFileSync(
+      path.join(frontendSrcRoot, "lowering/plan-builders.ts"),
+      "utf8"
+    );
+    const bannedLoweringMatchers = [
+      "selectedOverloadFamilyImplementation",
+      "typePlanMatchesParameter",
+      "overloadFamilyImplementationsForCallee",
+      "comparableTypePlan",
+      "literalBaseTypePlan",
+    ] as const;
+
+    const offenders = bannedLoweringMatchers.filter((matcher) =>
+      loweringPlanBuilders.includes(matcher)
+    );
 
     expect(offenders).to.deep.equal([]);
   });

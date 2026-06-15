@@ -120,6 +120,10 @@ export type SourceOverloadFamilyFact = {
   readonly implementations: readonly TstsNode[];
 };
 
+export type SourceOverloadCallImplementationFact = {
+  readonly implementation: TstsNode;
+};
+
 export type IntrinsicSemanticsFact = {
   readonly kind:
     | "asinterface"
@@ -299,6 +303,12 @@ export const sourceOverloadFamilyFactKey =
     "Source-level overload family implementations proven from overload marker builders."
   );
 
+export const sourceOverloadCallImplementationFactKey =
+  defineSourceFactKey<SourceOverloadCallImplementationFact>(
+    "tsonic:source:overload-call-implementation",
+    "Source-level overload call implementation selected by the TSTS checker."
+  );
+
 export const intrinsicSemanticsFactKey =
   defineSourceFactKey<IntrinsicSemanticsFact>(
     "tsonic:source:intrinsic-semantics",
@@ -356,6 +366,7 @@ export const visitSourceSemanticFactKeys = (
   visit(wellKnownComputedNameFactKey);
   visit(genericFunctionAliasFactKey);
   visit(sourceOverloadFamilyFactKey);
+  visit(sourceOverloadCallImplementationFactKey);
   visit(intrinsicSemanticsFactKey);
   visit(sourceBindingIdentityFactKey);
   visit(sourceRuntimeVisibilityFactKey);

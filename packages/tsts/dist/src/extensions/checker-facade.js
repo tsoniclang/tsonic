@@ -7,7 +7,7 @@ import { Checker_getReturnTypeOfSignature, Checker_getResolvedSignature, Checker
 import { Checker_GetContextualType, Checker_GetElementTypeOfArrayType, Checker_GetExportSpecifierLocalTargetSymbol, Checker_GetExportsOfModule, Checker_GetShorthandAssignmentValueSymbol, Checker_GetSymbolsInScope, } from "../internal/checker/services.js";
 import { Checker_GetApparentType, Checker_GetPropertiesOfType, Checker_GetPropertyOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfSymbol, } from "../internal/checker/exports.js";
 import { Checker_SymbolToString, Checker_TypeToTypeNode, Checker_TypeToString, } from "../internal/checker/printer.js";
-import { Checker_getTypePredicateOfSignature } from "../internal/checker/relater.js";
+import { Checker_getTypePredicateOfSignature, Checker_isTypeAssignableTo, Checker_isTypeIdenticalTo, } from "../internal/checker/relater.js";
 import { ContextFlagsNone, ObjectFlagsReference, SignatureKindCall, SignatureKindConstruct, Signature_Declaration, Signature_Parameters, Signature_TypeParameters, TypeAlias_Symbol, TypeAlias_TypeArguments, Type_Flags, Type_ObjectFlags, Type_Symbol, Type_Types, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsString, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsTypeParameter, TypeFlagsUndefined, TypeFlagsUnknown, TypeFlagsUnion, TypeFlagsVoid, } from "../internal/checker/types.js";
 const hasTypeFlags = (type, flags) => type !== undefined && (Type_Flags(type) & flags) !== 0;
 const isReferenceType = (type) => type !== undefined &&
@@ -83,6 +83,12 @@ export const createExtensionTypeChecker = (checker) => ({
     isNumberLikeType: (type) => hasTypeFlags(type, TypeFlagsNumberLike),
     isBooleanLikeType: (type) => hasTypeFlags(type, TypeFlagsBooleanLike),
     isBigIntLikeType: (type) => hasTypeFlags(type, TypeFlagsBigIntLike),
+    isTypeAssignableTo: (source, target) => source !== undefined &&
+        target !== undefined &&
+        Checker_isTypeAssignableTo(checker, source, target) === true,
+    isTypeIdenticalTo: (source, target) => source !== undefined &&
+        target !== undefined &&
+        Checker_isTypeIdenticalTo(checker, source, target) === true,
     isStringLiteralType: (type) => hasTypeFlags(type, TypeFlagsStringLiteral) &&
         !hasTypeFlags(type, TypeFlagsString),
     isNumberLiteralType: (type) => hasTypeFlags(type, TypeFlagsNumberLiteral),

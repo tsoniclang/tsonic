@@ -48,6 +48,8 @@ export type ExtensionTypeChecker = {
     isNumberLikeType(type: GoPtr<Type>): boolean;
     isBooleanLikeType(type: GoPtr<Type>): boolean;
     isBigIntLikeType(type: GoPtr<Type>): boolean;
+    isTypeAssignableTo(source: GoPtr<Type>, target: GoPtr<Type>): boolean;
+    isTypeIdenticalTo(source: GoPtr<Type>, target: GoPtr<Type>): boolean;
     isStringLiteralType(type: GoPtr<Type>): boolean;
     isNumberLiteralType(type: GoPtr<Type>): boolean;
     isBooleanLiteralType(type: GoPtr<Type>): boolean;

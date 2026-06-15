@@ -32,7 +32,7 @@ import {
   sourceBindingIdentityFactKey,
   sourceBindingTypeProjectionFactKey,
   sourceDictionaryTypeFactKey,
-  sourceOverloadFamilyFactKey,
+  sourceOverloadCallImplementationFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
@@ -2195,133 +2195,6 @@ const mergedCallExpectedArgumentTypes = (
   });
 };
 
-const overloadFamilyImplementationsForCallee = (
-  sourceFile: TstsSourceFile,
-  callee: TstsNode | undefined,
-  context: LoweringBuildContext
-): readonly TstsNode[] => {
-  if (callee?.Kind !== TstsSyntax.KindPropertyAccessExpression) return [];
-  const name = TstsSyntax.Node_Name(callee);
-  const checker = context.checkerForSourceFile(sourceFile);
-  const symbol = name ? checker.getSymbolAtLocation(name) : undefined;
-  if (!symbol) return [];
-  const implementations: TstsNode[] = [];
-  for (const declaration of checker.getSymbolDeclarations(symbol)) {
-    if (!declaration) continue;
-    const fact = context.input.facts.get(
-      sourceOverloadFamilyFactKey,
-      declaration
-    );
-    if (!fact) continue;
-    for (const implementation of fact.implementations) {
-      if (!implementations.includes(implementation)) {
-        implementations.push(implementation);
-      }
-    }
-  }
-  return implementations;
-};
-
-const comparableTypePlan = (
-  type: LoweringTypeRefPlan | undefined
-): LoweringTypeRefPlan | undefined =>
-  type?.kind === "named" && type.aliasTarget
-    ? comparableTypePlan(type.aliasTarget)
-    : type;
-
-const literalBaseTypePlan = (
-  type: LoweringTypeRefPlan
-): LoweringTypeRefPlan => {
-  if (type.kind !== "literal") return type;
-  switch (type.literalKind) {
-    case "string":
-      return intrinsicTypePlan("string");
-    case "number":
-      return intrinsicTypePlan("number");
-    case "bigint":
-      return intrinsicTypePlan("bigint");
-    case "boolean":
-      return intrinsicTypePlan("boolean");
-    case "null":
-      return intrinsicTypePlan("null");
-    case "undefined":
-      return intrinsicTypePlan("undefined");
-  }
-};
-
-const typePlanMatchesParameter = (
-  parameterType: LoweringTypeRefPlan | undefined,
-  argumentType: LoweringTypeRefPlan | undefined
-): boolean => {
-  const parameter = comparableTypePlan(parameterType);
-  const argument = comparableTypePlan(
-    argumentType ? literalBaseTypePlan(argumentType) : undefined
-  );
-  if (!parameter || !argument) return false;
-  if (parameter.kind === "union") {
-    return parameter.types.some((member) =>
-      typePlanMatchesParameter(member, argument)
-    );
-  }
-  if (argument.kind === "union") {
-    return argument.types.every((member) =>
-      typePlanMatchesParameter(parameter, member)
-    );
-  }
-  if (parameter.kind === "array" && argument.kind === "array") {
-    return typePlanMatchesParameter(parameter.elementType, argument.elementType);
-  }
-  if (parameter.kind === "tuple" && argument.kind === "tuple") {
-    return (
-      parameter.elements.length === argument.elements.length &&
-      parameter.elements.every((element, index) =>
-        typePlanMatchesParameter(element, argument.elements[index])
-      )
-    );
-  }
-  return loweringTypeIdentityKey(parameter) === loweringTypeIdentityKey(argument);
-};
-
-const selectedOverloadFamilyImplementation = (
-  sourceFile: TstsSourceFile,
-  node: TstsNode,
-  callee: TstsNode | undefined,
-  context: LoweringBuildContext
-): TstsNode | undefined => {
-  const implementations = overloadFamilyImplementationsForCallee(
-    sourceFile,
-    callee,
-    context
-  );
-  if (implementations.length === 0) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const arguments_ = (TstsSyntax.Node_Arguments(node) ?? []).filter(
-    (argument): argument is TstsNode => argument !== undefined
-  );
-  const argumentTypes = arguments_.map((argument) =>
-    sourceRuntimeExpressionStorageTypePlan(context, sourceFile, argument) ??
-    expressionTypePlan(
-      sourceFile,
-      argument,
-      context,
-      checker.getNarrowedTypeAtLocation(argument)
-    )
-  );
-  const matches = implementations.filter((implementation) => {
-    const implementationSourceFile = sourceFileForNode(implementation, sourceFile);
-    const parameters = parameterPlans(
-      implementationSourceFile,
-      implementation,
-      context
-    );
-    if (parameters.length !== argumentTypes.length) return false;
-    return parameters.every((parameter, index) =>
-      typePlanMatchesParameter(parameter.type, argumentTypes[index])
-    );
-  });
-  return matches.length === 1 ? matches[0] : undefined;
-};
-
 const declarationSourceTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -3756,12 +3629,10 @@ const expressionPlan = (
       const calleeNarrowedType = calleeNode
         ? checker.getNarrowedTypeAtLocation(calleeNode)
         : undefined;
-      const overloadImplementation = selectedOverloadFamilyImplementation(
-        sourceFile,
-        node,
-        calleeNode,
-        context
-      );
+      const overloadImplementation = context.input.facts.get(
+        sourceOverloadCallImplementationFactKey,
+        node
+      )?.implementation;
       const signatureTarget = signatureTargetSourceTypePlan(
         context,
         sourceFile,

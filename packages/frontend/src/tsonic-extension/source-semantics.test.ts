@@ -31,6 +31,7 @@ import {
   sourceAttributeApplicationsFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
+  sourceOverloadCallImplementationFactKey,
   sourceTypeSemanticsFactKey,
 } from "../source-frontend/source-facts.js";
 import type { SourceBindingProjectedType } from "../source-frontend/source-facts.js";
@@ -343,6 +344,71 @@ describe("Tsonic TSTS source semantics extension", () => {
       { name: "AttributeTargets", marker: "attribute-targets" },
       { name: "O", marker: "overloads" },
     ]);
+  });
+
+  it("attaches TSTS-selected overload implementation facts to call sites", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "node_modules/@tsonic/core/lang.js": [
+          "export const overloads = undefined;",
+          "",
+        ].join("\n"),
+        "node_modules/@tsonic/core/lang.d.ts": [
+          "export interface OverloadMethodBuilder<T> {",
+          "  family<TMember>(selector: (value: T) => TMember): void;",
+          "}",
+          "export interface OverloadTypeBuilder<T> {",
+          "  method<TMember>(selector: (value: T) => TMember): OverloadMethodBuilder<T>;",
+          "}",
+          "export declare function overloads<T>(): OverloadTypeBuilder<T>;",
+          "",
+        ].join("\n"),
+        "src/test.ts": [
+          "import { overloads as O } from '@tsonic/core/lang.js';",
+          "export class Writer {",
+          "  append(value: string): string;",
+          "  append(value: readonly string[]): string;",
+          "  append(_value: unknown): string { return ''; }",
+          "  appendOne(value: string): string { return value; }",
+          "  appendMany(value: readonly string[]): string { return value.join('|'); }",
+          "}",
+          "O<Writer>().method((writer) => writer.appendOne).family((writer) => writer.append);",
+          "O<Writer>().method((writer) => writer.appendMany).family((writer) => writer.append);",
+          "const writer = new Writer();",
+          "export const single = writer.append('x');",
+          "export const many = writer.append(['x', 'y']);",
+          "",
+        ].join("\n"),
+      },
+      "src/test.ts"
+    );
+    try {
+      const selectedImplementations: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node || node.Kind !== TstsSyntax.KindCallExpression) return;
+        const callee = TstsSyntax.Node_Expression(node);
+        if (
+          callee?.Kind !== TstsSyntax.KindPropertyAccessExpression ||
+          getTstsIdentifierText(TstsSyntax.Node_Name(callee)) !== "append"
+        ) {
+          return;
+        }
+        const implementation = program.sourceProgram.extensionHost.facts.get(
+          sourceOverloadCallImplementationFactKey,
+          node
+        )?.implementation;
+        selectedImplementations.push(
+          getTstsNodeNameText(implementation) ?? "missing"
+        );
+      });
+
+      expect(selectedImplementations).to.deep.equal([
+        "appendOne",
+        "appendMany",
+      ]);
+    } finally {
+      program.cleanup();
+    }
   });
 
   it("attaches checked attribute facts to declaration targets", () => {
