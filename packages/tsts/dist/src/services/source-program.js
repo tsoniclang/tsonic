@@ -75,7 +75,7 @@ export const createCompilerSourceProgram = (filePaths, options = {}) => {
     });
     const sourceFiles = Program_GetSourceFiles(program).filter(isDefined);
     const extensionHost = createExtensionHost(options.extensions ?? []);
-    const withSemanticView = (sourceFile, run) => {
+    const withTypeChecker = (sourceFile, run) => {
         const [checker, release] = Program_GetTypeCheckerForFile(program, Background(), sourceFile);
         try {
             return run(createExtensionTypeChecker(checker));
@@ -113,7 +113,7 @@ export const createCompilerSourceProgram = (filePaths, options = {}) => {
         extensionHost,
         diagnostics: collectCompilerDiagnostics(program, sourceFiles, options.runSemanticChecks === true),
         extensionDiagnostics: extensionHost.diagnostics.all(),
-        withSemanticView,
+        withTypeChecker,
     };
 };
 //# sourceMappingURL=source-program.js.map

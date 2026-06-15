@@ -3,10 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { TstsSourceFile } from "@tsonic/tsts";
 import type { CompilerOptions, TsonicProgram } from "../program/types.js";
-import {
-  createTstsSemanticView,
-  createTstsSourceProgram,
-} from "../source-frontend/index.js";
+import { createTstsSourceProgram } from "../source-frontend/index.js";
 
 export type TstsTestProgram = TsonicProgram & {
   readonly sourceFile: TstsSourceFile;
@@ -196,10 +193,9 @@ export const createTstsTestProgramFromFiles = (
     runSemanticChecks: true,
   });
   const sourceFile = findSourceFile(sourceProgram.sourceFiles, entryPath);
-  const sourceSemantics = sourceProgram.withSourceSemantics(
+  const sourceChecker = sourceProgram.withTypeChecker(
     sourceFile,
-    (checker) =>
-      createTstsSemanticView(checker, sourceProgram.extensionHost.facts)
+    (checker) => checker
   );
   const sourceFiles = sourceProgram.sourceFiles.filter(
     (candidate) => candidate.IsDeclarationFile !== true
@@ -223,7 +219,7 @@ export const createTstsTestProgramFromFiles = (
       programInputScope: options.programInputScope,
     },
     sourceProgram,
-    sourceSemantics,
+    sourceChecker,
     sourceFiles,
     declarationSourceFiles,
     sourceFile,

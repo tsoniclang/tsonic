@@ -64,7 +64,7 @@ describe("TSTS source frontend", () => {
         const sourceFile = must(program.sourceFiles[0], "source file missing");
         const valueUseTypes: string[] = [];
 
-        program.withSourceSemantics(sourceFile, (semantics) => {
+        program.withTypeChecker(sourceFile, (checker) => {
           for (const statement of must(
             sourceFile.Statements,
             "source file statements missing"
@@ -74,9 +74,9 @@ describe("TSTS source frontend", () => {
                 return;
               }
 
-              const type = semantics.getTypeAtLocation(node);
+              const type = checker.getTypeAtLocation(node);
               if (type !== undefined) {
-                valueUseTypes.push(semantics.typeToString(type));
+                valueUseTypes.push(checker.typeToString(type));
               }
             });
           }

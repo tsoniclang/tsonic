@@ -27,7 +27,7 @@ export const runLoweringPipeline = <
     input,
     options,
     checkerForSourceFile: (sourceFile: TstsSourceFile) =>
-      program.sourceProgram.withSourceSemantics(sourceFile, (checker) => checker),
+      program.sourceProgram.withTypeChecker(sourceFile, (checker) => checker),
     diagnostics,
     symbolStorageTypes: new Map<TstsSymbol, LoweringTypeRefPlan>(),
     resolvingStorageSymbols: new Set<TstsSymbol>(),

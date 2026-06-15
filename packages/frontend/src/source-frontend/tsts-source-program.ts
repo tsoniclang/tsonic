@@ -24,9 +24,9 @@ export type TstsSourceProgram = {
   readonly extensionHost: ExtensionHost;
   readonly diagnostics: readonly ExtensionDiagnostic[];
   readonly compilerDiagnostics: readonly TstsDiagnostic[];
-  withSourceSemantics<T>(
+  withTypeChecker<T>(
     sourceFile: TstsSourceFile,
-    run: (semantics: ExtensionTypeChecker) => T
+    run: (checker: ExtensionTypeChecker) => T
   ): T;
 };
 
@@ -66,7 +66,7 @@ export const createTstsSourceProgram = (
     extensionHost: compiledSource.extensionHost,
     diagnostics: compiledSource.extensionDiagnostics,
     compilerDiagnostics: compiledSource.diagnostics,
-    withSourceSemantics: compiledSource.withSemanticView,
+    withTypeChecker: compiledSource.withTypeChecker,
   };
 };
 
@@ -80,8 +80,8 @@ export const createEmptyTstsSourceProgramForTests = (): TstsSourceProgram => {
     extensionHost,
     diagnostics: extensionHost.diagnostics.all(),
     compilerDiagnostics: [],
-    withSourceSemantics: () => {
-      throw new Error("Empty TSTS source program has no source semantics.");
+    withTypeChecker: () => {
+      throw new Error("Empty TSTS source program has no type checker.");
     },
   };
 };

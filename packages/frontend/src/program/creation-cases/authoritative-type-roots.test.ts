@@ -74,8 +74,9 @@ describe("Program Creation – authoritative type roots", function () {
           if (callee === "path.join" || callee === "process.cwd") {
             returnTypes.set(
               callee,
-              result.value.sourceSemantics.typeToString(
-                result.value.sourceSemantics.getExpressionType(node)
+              result.value.sourceChecker.typeToString(
+                result.value.sourceChecker.getNarrowedTypeAtLocation(node) ??
+                  result.value.sourceChecker.getTypeAtLocation(node)
               )
             );
           }
@@ -143,8 +144,9 @@ describe("Program Creation – authoritative type roots", function () {
           if (callee === "join" || callee === "process.cwd") {
             returnTypes.set(
               callee,
-              result.value.sourceSemantics.typeToString(
-                result.value.sourceSemantics.getExpressionType(node)
+              result.value.sourceChecker.typeToString(
+                result.value.sourceChecker.getNarrowedTypeAtLocation(node) ??
+                  result.value.sourceChecker.getTypeAtLocation(node)
               )
             );
           }

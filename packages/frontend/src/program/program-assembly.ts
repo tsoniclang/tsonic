@@ -20,7 +20,6 @@ import {
   resolveSurfaceCapabilities,
 } from "../surface/profiles.js";
 import {
-  createTstsSemanticView,
   createTstsSourceProgram,
   type TstsSourceProgram,
 } from "../source-frontend/index.js";
@@ -289,15 +288,14 @@ export const createProgram = (
     );
   }
 
-  const sourceSemantics = sourceProgram.withSourceSemantics(
+  const sourceChecker = sourceProgram.withTypeChecker(
     firstTstsSourceFile,
-    (checker) =>
-      createTstsSemanticView(checker, sourceProgram.extensionHost.facts)
+    (checker) => checker
   );
 
   return ok({
     sourceProgram,
-    sourceSemantics,
+    sourceChecker,
     options,
     surfaceCapabilities,
     authoritativeTsonicPackageRoots:

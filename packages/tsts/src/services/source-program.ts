@@ -53,9 +53,9 @@ export type CompilerSourceProgram = {
   readonly extensionHost: ExtensionHost;
   readonly diagnostics: readonly Diagnostic[];
   readonly extensionDiagnostics: readonly ExtensionDiagnostic[];
-  withSemanticView<T>(
+  withTypeChecker<T>(
     sourceFile: GoPtr<SourceFile>,
-    run: (semantics: ExtensionTypeChecker) => T,
+    run: (checker: ExtensionTypeChecker) => T,
   ): T;
 };
 
@@ -177,9 +177,9 @@ export const createCompilerSourceProgram = (
   } satisfies ProgramOptions);
   const sourceFiles = Program_GetSourceFiles(program).filter(isDefined);
   const extensionHost = createExtensionHost(options.extensions ?? []);
-  const withSemanticView = <T>(
+  const withTypeChecker = <T>(
     sourceFile: GoPtr<SourceFile>,
-    run: (semantics: ExtensionTypeChecker) => T,
+    run: (checker: ExtensionTypeChecker) => T,
   ): T => {
     const [checker, release] = Program_GetTypeCheckerForFile(
       program,
@@ -239,6 +239,6 @@ export const createCompilerSourceProgram = (
       options.runSemanticChecks === true
     ),
     extensionDiagnostics: extensionHost.diagnostics.all(),
-    withSemanticView,
+    withTypeChecker,
   };
 };

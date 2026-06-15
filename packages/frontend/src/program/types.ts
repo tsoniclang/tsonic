@@ -2,15 +2,12 @@
  * Program type definitions
  */
 
-import type { TstsSourceFile } from "@tsonic/tsts";
+import type { ExtensionTypeChecker, TstsSourceFile } from "@tsonic/tsts";
 import type { DeclarationModuleAlias } from "./declaration-module-aliases.js";
 import type { SurfaceCapabilities } from "../surface/profiles.js";
 import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
 import type { BackendTargetId } from "../lowering/index.js";
-import type {
-  TstsSourceProgram,
-  TstsSourceSemanticView,
-} from "../source-frontend/index.js";
+import type { TstsSourceProgram } from "../source-frontend/index.js";
 
 export type SurfaceMode = string;
 
@@ -32,7 +29,7 @@ export type CompilerOptions<Target extends BackendTargetId = BackendTargetId> =
 
 export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
   readonly sourceProgram: TstsSourceProgram;
-  readonly sourceSemantics: TstsSourceSemanticView;
+  readonly sourceChecker: ExtensionTypeChecker;
   readonly options: CompilerOptions<Target>;
   readonly surfaceCapabilities?: SurfaceCapabilities;
   readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;

@@ -6,7 +6,6 @@ export type {
   SourceTranspileOptions,
   SourceTranspileResult,
 } from "./source-frontend.js";
-export { createSourceSemanticFactStore } from "./semantic-view.js";
 export {
   extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,
@@ -32,17 +31,7 @@ export {
   canonicalCoreModuleSpecifier,
 } from "./core-module-identity.js";
 export type { CoreModule } from "./core-module-identity.js";
-export type {
-  SourceSemanticEngine,
-  SourceSemanticFactKey,
-  SourceSemanticFactStore,
-  SourceSemanticView,
-} from "./semantic-view.js";
-export type {
-  TstsSourceCallLikeExpression,
-  TstsSourceSemanticView,
-} from "./tsts-semantic-view.js";
-export { createTstsSemanticView } from "./tsts-semantic-view.js";
+export type { SourceSemanticFactKey } from "./source-facts.js";
 export type {
   ExtensionReceiverSemanticsFact,
   FieldSemanticsFact,

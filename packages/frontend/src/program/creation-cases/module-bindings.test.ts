@@ -93,18 +93,18 @@ describe("Program Creation – module bindings", function () {
       expect(importSpecifierName).to.not.equal(undefined);
       if (!importSpecifierName) return;
 
-      const importSymbol = result.value.sourceSemantics.getSymbol(
+      const importSymbol = result.value.sourceChecker.getSymbolAtLocation(
         importSpecifierName
       );
       expect(importSymbol).to.not.equal(undefined);
       if (!importSymbol) return;
 
-      const aliasedSymbol = result.value.sourceSemantics.resolveAlias(
+      const aliasedSymbol = result.value.sourceChecker.resolveAlias(
         importSymbol
       );
       expect(aliasedSymbol).to.not.equal(undefined);
       if (!aliasedSymbol) return;
-      const declarationFiles = result.value.sourceSemantics
+      const declarationFiles = result.value.sourceChecker
         .getSymbolDeclarations(aliasedSymbol)
         .map((declaration) => getTstsContainingSourceFileName(declaration))
         .filter((fileName): fileName is string => fileName !== undefined)

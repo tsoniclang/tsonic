@@ -147,50 +147,30 @@ describe("Program Creation – source frontend engine", () => {
       if (!sourceFile) return;
 
       const projected: string[] = [];
+      const facts = result.value.sourceProgram.extensionHost.facts;
       visitTstsSubtree(sourceFile, (node) => {
         if (!node) return;
-        const primitive = result.value.sourceSemantics.getFact(
-          node,
-          numericPrimitiveFactKey
-        );
+        const primitive = facts.get(numericPrimitiveFactKey, node);
         if (primitive) projected.push(`primitive:${primitive.kind}`);
 
-        const typeSemantics = result.value.sourceSemantics.getFact(
-          node,
-          sourceTypeSemanticsFactKey
-        );
+        const typeSemantics = facts.get(sourceTypeSemanticsFactKey, node);
         if (typeSemantics) projected.push(`type:${typeSemantics.kind}`);
 
-        const field = result.value.sourceSemantics.getFact(
-          node,
-          fieldSemanticsFactKey
-        );
+        const field = facts.get(fieldSemanticsFactKey, node);
         if (field) projected.push(`field:${field.storage}`);
 
-        const passing = result.value.sourceSemantics.getFact(
-          node,
-          parameterPassingFactKey
-        );
+        const passing = facts.get(parameterPassingFactKey, node);
         if (passing) projected.push(`passing:${passing.mode}`);
 
-        const receiver = result.value.sourceSemantics.getFact(
-          node,
-          extensionReceiverSemanticsFactKey
-        );
+        const receiver = facts.get(extensionReceiverSemanticsFactKey, node);
         if (receiver) projected.push(`receiver:${receiver.kind}`);
 
-        const heritageWrapper = result.value.sourceSemantics.getFact(
-          node,
-          heritageWrapperSemanticsFactKey
-        );
+        const heritageWrapper = facts.get(heritageWrapperSemanticsFactKey, node);
         if (heritageWrapper) {
           projected.push(`heritage:${heritageWrapper.kind}`);
         }
 
-        const intrinsic = result.value.sourceSemantics.getFact(
-          node,
-          intrinsicSemanticsFactKey
-        );
+        const intrinsic = facts.get(intrinsicSemanticsFactKey, node);
         if (intrinsic) projected.push(`intrinsic:${intrinsic.kind}`);
       });
 

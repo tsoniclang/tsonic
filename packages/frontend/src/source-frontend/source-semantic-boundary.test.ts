@@ -33,7 +33,6 @@ const isBoundaryFile = (filePath: string): boolean => {
     normalized.endsWith(".test.ts") ||
     normalized.includes("-cases/") ||
     normalized.startsWith("lowering/") ||
-    normalized === "source-frontend/tsts-semantic-view.ts" ||
     normalized === "tsonic-extension/source-semantics.ts"
   );
 };
@@ -63,7 +62,7 @@ const bannedSemanticQueries = [
 ] as const;
 
 describe("source semantic boundary", () => {
-  it("keeps source semantic queries behind the TSTS semantic bridge", () => {
+  it("keeps source semantic queries behind TSTS facts and lowering boundaries", () => {
     const offenders = collectTypeScriptFiles(frontendSrcRoot)
       .filter((filePath) => !isBoundaryFile(filePath))
       .flatMap((filePath) => {
@@ -84,7 +83,7 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
-  it("keeps raw source symbol/type object methods behind the TSTS semantic bridge", () => {
+  it("keeps raw source symbol/type object reads behind TSTS facts and lowering boundaries", () => {
     const bannedReads = [
       ".getDeclarations(",
       ".getConstructSignatures(",
@@ -94,7 +93,6 @@ describe("source semantic boundary", () => {
       "symbol.declarations",
       "symbol?.declarations",
       "SymbolFlags.Alias",
-      "sourceSemantics.getAliasedSymbol",
       ".aliasSymbol",
       ".aliasTypeArguments",
       ".getSymbol()",
@@ -110,12 +108,6 @@ describe("source semantic boundary", () => {
         const text = fs.readFileSync(filePath, "utf8");
         const lines = text.split(/\r?\n/);
         return lines.flatMap((line, index) => {
-          const isAllowedBoundaryCall =
-            /sourceSemantics\.(getSymbolDeclarations|getSymbolValueDeclaration|getConstructSignatures|getCallSignatures|getProperties)\(/.test(
-              line
-            );
-          if (isAllowedBoundaryCall) return [];
-
           const read = bannedReads.find((candidate) =>
             line.includes(candidate)
           );
@@ -130,7 +122,7 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
-  it("keeps validation type classification behind the semantic bridge", () => {
+  it("keeps validation type classification behind TSTS facts and lowering boundaries", () => {
     const validationRoot = path.join(frontendSrcRoot, "validation");
     if (!fs.existsSync(validationRoot)) {
       return;
@@ -164,11 +156,10 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
-  it("does not expose the raw source checker on TsonicProgram", () => {
+  it("does not expose a TypeScript compiler program on TsonicProgram", () => {
     const programTypesPath = path.join(frontendSrcRoot, "program/types.ts");
     const text = fs.readFileSync(programTypesPath, "utf8");
 
-    expect(text).not.to.include("readonly checker:");
     expect(text).not.to.include("checker: ts.TypeChecker");
     expect(text).not.to.include("readonly program: ts.Program");
   });
@@ -230,33 +221,30 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
-  it("uses TSTS fact primitives for source-extension facts", () => {
-    const semanticViewPath = path.join(
+  it("defines source-extension facts directly on TSTS fact primitives", () => {
+    const sourceFactsPath = path.join(
       frontendSrcRoot,
-      "source-frontend/semantic-view.ts"
+      "source-frontend/source-facts.ts"
     );
-    const text = fs.readFileSync(semanticViewPath, "utf8");
+    const text = fs.readFileSync(sourceFactsPath, "utf8");
 
     expect(text).to.include('from "@tsonic/tsts"');
-    expect(text).to.include("ExtensionFacts");
     expect(text).to.include("ExtensionFactKeyLike");
+    expect(text).to.include("defineExtensionFactKey");
     expect(text).not.to.include("defineSourceSemanticFactKey");
     expect(text).not.to.include("new WeakMap");
     expect(text).not.to.include("Map<string, unknown>");
   });
 
-  it("does not export the TypeScript semantic bridge from the source frontend barrel", () => {
-    const sourceFrontendIndexPath = path.join(
-      frontendSrcRoot,
-      "source-frontend/index.ts"
-    );
-    const text = fs.readFileSync(sourceFrontendIndexPath, "utf8");
-
-    expect(text).not.to.include("createTypeScriptSemanticView");
-    expect(text).not.to.include("typescript-semantic-view.js");
-  });
-
-  it("does not keep the stale frontend semantic alias module", () => {
+  it("does not keep semantic-view bridge modules", () => {
+    expect(
+      fs.existsSync(path.join(frontendSrcRoot, "source-frontend/semantic-view.ts"))
+    ).to.equal(false);
+    expect(
+      fs.existsSync(
+        path.join(frontendSrcRoot, "source-frontend/tsts-semantic-view.ts")
+      )
+    ).to.equal(false);
     expect(
       fs.existsSync(
         path.join(
@@ -265,6 +253,19 @@ describe("source semantic boundary", () => {
         )
       )
     ).to.equal(false);
+  });
+
+  it("does not export semantic bridge factories from the source frontend barrel", () => {
+    const sourceFrontendIndexPath = path.join(
+      frontendSrcRoot,
+      "source-frontend/index.ts"
+    );
+    const text = fs.readFileSync(sourceFrontendIndexPath, "utf8");
+
+    expect(text).not.to.include("createTypeScriptSemanticView");
+    expect(text).not.to.include("typescript-semantic-view.js");
+    expect(text).not.to.include("createTstsSemanticView");
+    expect(text).not.to.include("tsts-semantic-view.js");
   });
 
   it("does not keep a TSTS-to-TypeScript fact projection bridge", () => {

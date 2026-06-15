@@ -1,5 +1,7 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
-import type { SourceSemanticFactKey } from "./semantic-view.js";
+import type { ExtensionFactKeyLike } from "@tsonic/tsts";
+
+export type SourceSemanticFactKey<T> = ExtensionFactKeyLike<T>;
 
 export type NumericPrimitiveKind =
   | "bool"

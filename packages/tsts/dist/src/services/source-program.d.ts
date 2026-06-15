@@ -20,7 +20,7 @@ export type CompilerSourceProgram = {
     readonly extensionHost: ExtensionHost;
     readonly diagnostics: readonly Diagnostic[];
     readonly extensionDiagnostics: readonly ExtensionDiagnostic[];
-    withSemanticView<T>(sourceFile: GoPtr<SourceFile>, run: (semantics: ExtensionTypeChecker) => T): T;
+    withTypeChecker<T>(sourceFile: GoPtr<SourceFile>, run: (checker: ExtensionTypeChecker) => T): T;
 };
 export declare const createCompilerSourceProgram: (filePaths: readonly string[], options?: CreateCompilerSourceProgramOptions) => CompilerSourceProgram;
 //# sourceMappingURL=source-program.d.ts.map
