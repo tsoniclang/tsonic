@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,7 +47,11 @@ const resolveFrontendPackageRoot = (): string => {
 const frontendPackageRoot = resolveFrontendPackageRoot();
 const repoRoot = path.resolve(frontendPackageRoot, "../..");
 const fixtureSourceRoot = path.join(frontendPackageRoot, "test-fixtures");
-const materializedFixtureRoot = path.join(tmpdir(), "frontend-test-fixtures");
+const materializedFixtureRoot = path.join(
+  repoRoot,
+  ".temp",
+  "frontend-test-fixtures"
+);
 const activeFixtureRoots = new Set<string>();
 let fixtureCleanupRegistered = false;
 

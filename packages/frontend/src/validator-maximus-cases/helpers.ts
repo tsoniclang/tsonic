@@ -1,6 +1,5 @@
 import { expect } from "chai";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import type { TsonicProgram } from "../program.js";
 import { validateProgram } from "../validator.js";
@@ -56,8 +55,10 @@ export const collectCodesInTempProject = (
   source: string,
   extraFiles: Readonly<Record<string, string>> = {}
 ): readonly string[] => {
+  const tempRoot = path.join(process.cwd(), ".temp", "validator-maximus");
+  fs.mkdirSync(tempRoot, { recursive: true });
   const tempDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "tsonic-maximus-dynamic-import-")
+    path.join(tempRoot, "dynamic-import-")
   );
 
   try {

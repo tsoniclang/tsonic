@@ -1,7 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { createProgram } from "../creation.js";
 import { installMinimalCoreGlobalsSurface } from "./test-package-helpers.js";
@@ -32,8 +31,10 @@ const createTempProgram = (
   readonly globalsRoot: string;
   readonly cleanup: () => void;
 } => {
+  const tempRoot = path.join(process.cwd(), ".temp", "source-frontend-engine");
+  fs.mkdirSync(tempRoot, { recursive: true });
   const projectRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), "tsonic-source-frontend-")
+    path.join(tempRoot, "case-")
   );
   const sourceRoot = path.join(projectRoot, "src");
   const entryPath = path.join(sourceRoot, "index.ts");

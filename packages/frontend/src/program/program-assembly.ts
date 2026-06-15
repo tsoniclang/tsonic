@@ -354,8 +354,6 @@ export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
     sourceProgram = createTstsSourceProgram(allFiles, {
       projectRoot: options.projectRoot,
       moduleResolutionPaths: discovery.moduleResolutionPaths,
-      moduleResolutionBaseUrl: options.projectRoot,
-      runExtensionChecks: true,
       sourceDiagnosticFileNames: discovery.emittableSourceFiles.filter(
         (filePath) => isFileUnderDirectory(filePath, options.sourceRoot)
       ),

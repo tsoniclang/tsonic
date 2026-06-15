@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import type { TstsSourceFile } from "@tsonic/tsts";
 import type { CompilerOptions, TsonicProgram } from "../program/types.js";
@@ -183,7 +182,11 @@ export const createTstsTestProgramFromFiles = (
   entryRelativePath: string,
   options: TstsTestProgramOptions = {}
 ): TstsTestProgram => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tsonic-tsts-test-"));
+  const tempParent = path.join(process.cwd(), ".temp");
+  fs.mkdirSync(tempParent, { recursive: true });
+  const tempRoot = fs.mkdtempSync(
+    path.join(tempParent, "tsts-test-program-")
+  );
   registerTempRoot(tempRoot);
   const filePaths = writeTestFiles(
     tempRoot,
@@ -192,7 +195,7 @@ export const createTstsTestProgramFromFiles = (
   const entryPath = path.join(tempRoot, entryRelativePath.replace(/^\/*/, ""));
   const sourceProgram = createTstsSourceProgram(filePaths, {
     projectRoot: options.projectRoot ?? tempRoot,
-    runSemanticChecks: true,
+    moduleResolutionPaths: {},
     sourceDiagnosticFileNames: filePaths.filter(
       (filePath) =>
         !filePath.endsWith(".d.ts") &&

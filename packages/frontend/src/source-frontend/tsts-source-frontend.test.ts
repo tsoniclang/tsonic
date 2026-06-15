@@ -34,6 +34,7 @@ describe("TSTS source frontend", () => {
       const frontend = createTstsSourceFrontend();
       const program = frontend.createProgram([filePath], {
         projectRoot: path.dirname(filePath),
+        moduleResolutionPaths: {},
         sourceDiagnosticFileNames: [filePath],
       });
 
@@ -60,7 +61,7 @@ describe("TSTS source frontend", () => {
         const frontend = createTstsSourceFrontend();
         const program = frontend.createProgram([filePath], {
           projectRoot: path.dirname(filePath),
-          runSemanticChecks: true,
+          moduleResolutionPaths: {},
           sourceDiagnosticFileNames: [filePath],
         });
         const sourceFile = must(program.sourceFiles[0], "source file missing");
@@ -93,27 +94,4 @@ describe("TSTS source frontend", () => {
     );
   });
 
-  it("transpiles through the vendored TSTS public API", async () => {
-    const frontend = createTstsSourceFrontend();
-    const result = await frontend.transpileModule(
-      `
-        const left: number = 20;
-        const right: number = 22;
-        export const answer = left + right;
-      `,
-      {
-        fileName: "input.ts",
-        compilerOptions: {
-          module: "esnext",
-          target: "es2020",
-        },
-      }
-    );
-
-    expect(result.engine).to.equal("tsts");
-    expect(result.diagnosticCount).to.equal(0);
-    expect(result.diagnosticsText).to.equal("");
-    expect(result.emitText).to.contain("answer");
-    expect(result.emitText).to.contain("left + right");
-  });
 });

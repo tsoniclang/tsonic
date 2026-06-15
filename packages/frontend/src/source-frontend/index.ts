@@ -2,9 +2,6 @@ export type {
   SourceFrontend,
   SourceFrontendEngine,
   SourceProgramBuildOptions,
-  SourceTranspiler,
-  SourceTranspileOptions,
-  SourceTranspileResult,
 } from "./source-frontend.js";
 export {
   extensionReceiverSemanticsFactKey,
