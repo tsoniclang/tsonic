@@ -336,15 +336,30 @@ const intrinsicTypePlan = (
 });
 
 const recordTypePlan = (
-  keyType: LoweringTypeRefPlan | undefined,
-  valueType: LoweringTypeRefPlan | undefined,
+  keyType: LoweringTypeRefPlan,
+  valueType: LoweringTypeRefPlan,
   sourceText?: string
 ): LoweringTypeRefPlan => ({
   kind: "record",
-  keyType: keyType ?? intrinsicTypePlan("unknown"),
-  valueType: valueType ?? intrinsicTypePlan("unknown"),
+  keyType,
+  valueType,
   sourceText,
 });
+
+const recordTypePlanFromCheckerTypes = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  keyType: TstsType | undefined,
+  valueType: TstsType | undefined,
+  state: CheckerTypePlanState,
+  sourceText?: string
+): LoweringTypeRefPlan | undefined => {
+  const keyPlan = checkerTypePlan(context, sourceFile, keyType, state);
+  const valuePlan = checkerTypePlan(context, sourceFile, valueType, state);
+  return keyPlan && valuePlan
+    ? recordTypePlan(keyPlan, valuePlan, sourceText)
+    : undefined;
+};
 
 const unsupportedTypePlan = (
   sourceFile: TstsSourceFile,
@@ -461,9 +476,12 @@ const checkerTypePlan = (
       ...checker.getReferenceTypeArguments(type),
     ];
     if (hasSourceDictionaryFactForType(context, sourceFile, type)) {
-      return recordTypePlan(
-        checkerTypePlan(context, sourceFile, typeArguments[0], state),
-        checkerTypePlan(context, sourceFile, typeArguments[1], state)
+      return recordTypePlanFromCheckerTypes(
+        context,
+        sourceFile,
+        typeArguments[0],
+        typeArguments[1],
+        state
       );
     }
     const sourceRuntimeName = sourceRuntimeNameForType(
@@ -810,13 +828,13 @@ const recordTypePlanFromTypeArguments = (
   typeArguments: readonly (TstsNode | undefined)[],
   state: SourceTypePlanState,
   sourceText?: string
-): LoweringTypeRefPlan => {
+): LoweringTypeRefPlan | undefined => {
   const [keyTypeNode, valueTypeNode] = typeArguments;
-  return recordTypePlan(
-    sourceTypePlan(context, sourceFile, keyTypeNode, state),
-    sourceTypePlan(context, sourceFile, valueTypeNode, state),
-    sourceText
-  );
+  const keyType = sourceTypePlan(context, sourceFile, keyTypeNode, state);
+  const valueType = sourceTypePlan(context, sourceFile, valueTypeNode, state);
+  return keyType && valueType
+    ? recordTypePlan(keyType, valueType, sourceText)
+    : undefined;
 };
 
 const sourceRuntimeNameForDeclaration = (
@@ -1391,12 +1409,14 @@ const sourceTypeAliasDeclarationTargetPlan = (
     );
   const state = createSourceTypePlanState();
   if (hasSourceDictionaryFactForNode(context, node)) {
-    return recordTypePlanFromTypeArguments(
-      context,
-      sourceFile,
-      typeReference.typeArguments,
-      state,
-      compactNodeSourceText(sourceFile, node)
+    return (
+      recordTypePlanFromTypeArguments(
+        context,
+        sourceFile,
+        typeReference.typeArguments,
+        state,
+        compactNodeSourceText(sourceFile, node)
+      ) ?? unsupportedTypePlan(sourceFile, node)
     );
   }
   return {
@@ -1521,12 +1541,14 @@ const sourceTypePlan = (
   const typeReference = getTstsTypeReferenceDetails(node);
   if (typeReference) {
     if (hasSourceDictionaryFactForNode(context, node)) {
-      return recordTypePlanFromTypeArguments(
-        context,
-        sourceFile,
-        typeReference.typeArguments,
-        state,
-        sourceText
+      return (
+        recordTypePlanFromTypeArguments(
+          context,
+          sourceFile,
+          typeReference.typeArguments,
+          state,
+          sourceText
+        ) ?? unsupportedTypePlan(sourceFile, node)
       );
     }
     const checker = context.checkerForSourceFile(sourceFile);
