@@ -16,6 +16,6 @@ export const createTstsSourceFrontend = (): TstsSourceFrontend => ({
     createTstsSourceProgram(filePaths, {
       projectRoot: options.projectRoot,
       moduleResolutionPaths: options.moduleResolutionPaths,
-      sourceDiagnosticFileNames: options.sourceDiagnosticFileNames,
+      sourceDiagnosticRoots: options.sourceDiagnosticRoots,
     }),
 });

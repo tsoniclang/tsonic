@@ -56,7 +56,7 @@ describe("TSTS source frontend", () => {
       const sourceProgram = frontend.createProgram([filePath], {
         projectRoot: path.dirname(filePath),
         moduleResolutionPaths: {},
-        sourceDiagnosticFileNames: [filePath],
+        sourceDiagnosticRoots: [path.dirname(filePath)],
       });
 
       expect(sourceProgram.engine).to.equal("tsts");
@@ -83,7 +83,7 @@ describe("TSTS source frontend", () => {
         const sourceProgram = frontend.createProgram([filePath], {
           projectRoot: path.dirname(filePath),
           moduleResolutionPaths: {},
-          sourceDiagnosticFileNames: [filePath],
+          sourceDiagnosticRoots: [path.dirname(filePath)],
         });
         const sourceFile = must(
           sourceProgram.sourceFiles[0],
@@ -131,7 +131,7 @@ describe("TSTS source frontend", () => {
         const program = frontend.createProgram([indexFile, depFile], {
           projectRoot,
           moduleResolutionPaths: {},
-          sourceDiagnosticFileNames: [indexFile, depFile],
+          sourceDiagnosticRoots: [projectRoot],
         });
 
         expect(program.compilerDiagnostics).to.deep.equal([]);
@@ -143,17 +143,20 @@ describe("TSTS source frontend", () => {
   it("reports compiler diagnostics only for configured source diagnostic files", () => {
     withTempProject(
       {
-        "index.ts": "export const answer: number = 42;\n",
-        "support.ts": 'export const broken: number = "not a number";\n',
+        "src/index.ts": "export const answer: number = 42;\n",
+        "support/support.ts": 'export const broken: number = "not a number";\n',
       },
       (projectRoot, filePaths) => {
-        const indexFile = must(filePaths["index.ts"], "index.ts missing");
-        const supportFile = must(filePaths["support.ts"], "support.ts missing");
+        const indexFile = must(filePaths["src/index.ts"], "index.ts missing");
+        const supportFile = must(
+          filePaths["support/support.ts"],
+          "support.ts missing"
+        );
         const frontend = createTstsSourceFrontend();
         const program = frontend.createProgram([indexFile, supportFile], {
           projectRoot,
           moduleResolutionPaths: {},
-          sourceDiagnosticFileNames: [indexFile],
+          sourceDiagnosticRoots: [path.join(projectRoot, "src")],
         });
 
         expect(program.compilerDiagnostics).to.deep.equal([]);

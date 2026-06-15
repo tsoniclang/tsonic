@@ -63,17 +63,6 @@ const dedupeCanonicalFilePaths = (
   return uniquePaths;
 };
 
-const isFileUnderDirectory = (filePath: string, directoryPath: string): boolean => {
-  const relativePath = path.relative(
-    canonicalizeFilePath(directoryPath),
-    canonicalizeFilePath(filePath)
-  );
-  return (
-    relativePath.length === 0 ||
-    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
-  );
-};
-
 const getLineColumnFromTextOffset = (
   text: string,
   offset: number
@@ -354,9 +343,7 @@ export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
     sourceProgram = createTstsSourceProgram(allFiles, {
       projectRoot: options.projectRoot,
       moduleResolutionPaths: discovery.moduleResolutionPaths,
-      sourceDiagnosticFileNames: discovery.emittableSourceFiles.filter(
-        (filePath) => isFileUnderDirectory(filePath, options.sourceRoot)
-      ),
+      sourceDiagnosticRoots: discovery.sourceDiagnosticRoots,
     });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);

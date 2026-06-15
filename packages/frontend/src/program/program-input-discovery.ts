@@ -7,20 +7,18 @@ import {
   scanForDeclarationFiles,
 } from "./core-declarations.js";
 import {
-  discoverDeclarationGlobalImports,
   discoverDeclarationModuleAliases,
   type DeclarationModuleAlias,
 } from "./declaration-module-aliases.js";
 import { readPackageName } from "./module-resolution.js";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
-import { resolveImport } from "../resolver/import-resolution.js";
-import { parsePackageSpecifier } from "../resolver/source-package-resolution.js";
 import { createDiagnostic, type Diagnostic } from "../types/diagnostic.js";
-import type { WorkspaceGraphEdge } from "./workspace-fingerprint.js";
 import {
-  collectTstsModuleClosure,
-  type TstsModuleClosureDiagnostic,
-} from "@tsonic/tsts";
+  CORE_LANG_MODULE_SPECIFIERS,
+  CORE_PACKAGE_NAME,
+  CORE_TYPES_MODULE_SPECIFIERS,
+  coreDeclarationFileBaseName,
+} from "../source-frontend/core-module-identity.js";
 
 type SurfaceCapabilitiesLike = {
   readonly requiredTypeRoots: readonly string[];
@@ -236,6 +234,7 @@ export type ProgramInputDiscovery = {
   readonly absolutePaths: readonly string[];
   readonly typeRoots: readonly string[];
   readonly moduleResolutionPaths: Readonly<Record<string, readonly string[]>>;
+  readonly sourceDiagnosticRoots: readonly string[];
   readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
   readonly namespaceIndexFiles: readonly string[];
   readonly declarationModuleAliases: ReadonlyMap<
@@ -245,51 +244,7 @@ export type ProgramInputDiscovery = {
   readonly ambientSupportFiles: readonly string[];
   readonly diagnostics: readonly Diagnostic[];
   readonly allFiles: readonly string[];
-  readonly emittableSourceFiles: readonly string[];
   readonly runtimeSeedFiles: readonly string[];
-};
-
-const isQueueableTsSourceDependency = (resolvedPath: string): boolean =>
-  (resolvedPath.endsWith(".ts") ||
-    resolvedPath.endsWith(".mts") ||
-    resolvedPath.endsWith(".cts")) &&
-  !resolvedPath.endsWith(".d.ts") &&
-  !resolvedPath.endsWith(".d.mts") &&
-  !resolvedPath.endsWith(".d.cts");
-
-const isDeclarationDependency = (resolvedPath: string): boolean =>
-  resolvedPath.endsWith(".d.ts") ||
-  resolvedPath.endsWith(".d.mts") ||
-  resolvedPath.endsWith(".d.cts");
-
-const findAuthoritativePackageRootForImport = (
-  importSpecifier: string,
-  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
-): string | undefined => {
-  const parsed = parsePackageSpecifier(importSpecifier);
-  if (!parsed) {
-    return undefined;
-  }
-  return authoritativeTsonicPackageRoots.get(parsed.packageName);
-};
-
-const shouldReportImportDiscoveryDiagnostic = (
-  importSpecifier: string,
-  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>,
-  declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>
-): boolean => {
-  if (importSpecifier.startsWith(".") || importSpecifier.startsWith("/")) {
-    return true;
-  }
-  if (declarationModuleAliases.has(importSpecifier)) {
-    return true;
-  }
-  return (
-    findAuthoritativePackageRootForImport(
-      importSpecifier,
-      authoritativeTsonicPackageRoots
-    ) !== undefined
-  );
 };
 
 const isPathMappingEligibleModuleSpecifier = (specifier: string): boolean =>
@@ -297,42 +252,154 @@ const isPathMappingEligibleModuleSpecifier = (specifier: string): boolean =>
   !specifier.startsWith(".") &&
   !path.isAbsolute(specifier);
 
-const createModuleResolutionPaths = (
-  dependencyEdges: readonly WorkspaceGraphEdge[]
-): {
+const exportSpecifierForSourcePackageEntry = (
+  packageName: string,
+  exportKey: string
+): string =>
+  exportKey === "."
+    ? packageName
+    : `${packageName}/${exportKey.replace(/^\.\//, "")}`;
+
+const addModuleResolutionPath = (
+  paths: Map<string, string>,
+  diagnostics: Diagnostic[],
+  specifier: string,
+  resolvedTarget: string
+): void => {
+  if (!isPathMappingEligibleModuleSpecifier(specifier)) {
+    return;
+  }
+
+  const absoluteTarget = path.resolve(resolvedTarget);
+  const existingTarget = paths.get(specifier);
+  if (existingTarget === undefined) {
+    paths.set(specifier, absoluteTarget);
+    return;
+  }
+
+  if (
+    canonicalizeRootDirPath(existingTarget) !==
+    canonicalizeRootDirPath(absoluteTarget)
+  ) {
+    diagnostics.push(
+      createDiagnostic(
+        "TSN1002",
+        "fatal",
+        `Module specifier '${specifier}' resolves to multiple source files and cannot be represented as a deterministic TSTS path mapping.`,
+        undefined,
+        `${existingTarget}\n${absoluteTarget}`
+      )
+    );
+  }
+};
+
+const addCoreModuleResolutionPaths = (
+  paths: Map<string, string>,
+  diagnostics: Diagnostic[],
+  projectRoot: string,
+  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
+): void => {
+  const packageRoots = [
+    authoritativeTsonicPackageRoots.get(CORE_PACKAGE_NAME),
+    path.join(projectRoot, "node_modules", "@tsonic", "core"),
+  ].filter((root): root is string => root !== undefined);
+  const coreRoot = packageRoots.find((root) =>
+    fs.existsSync(path.join(root, coreDeclarationFileBaseName("types")))
+  );
+  if (!coreRoot) {
+    return;
+  }
+
+  for (const specifier of CORE_TYPES_MODULE_SPECIFIERS) {
+    addModuleResolutionPath(
+      paths,
+      diagnostics,
+      specifier,
+      path.join(coreRoot, coreDeclarationFileBaseName("types"))
+    );
+  }
+  for (const specifier of CORE_LANG_MODULE_SPECIFIERS) {
+    addModuleResolutionPath(
+      paths,
+      diagnostics,
+      specifier,
+      path.join(coreRoot, coreDeclarationFileBaseName("lang"))
+    );
+  }
+};
+
+const addSourcePackageModuleResolutionPaths = (
+  paths: Map<string, string>,
+  diagnostics: Diagnostic[],
+  packageRoot: string
+): void => {
+  const metadata = readSourcePackageMetadata(packageRoot);
+  if (!metadata) {
+    return;
+  }
+
+  const packageExportPaths = new Map<string, string>();
+  for (const [exportKey, target] of Object.entries(metadata.exports)) {
+    const specifier = exportSpecifierForSourcePackageEntry(
+      metadata.packageName,
+      exportKey
+    );
+    const resolvedTarget = path.resolve(metadata.packageRoot, target);
+    if (!fs.existsSync(resolvedTarget)) {
+      continue;
+    }
+    packageExportPaths.set(specifier, resolvedTarget);
+    addModuleResolutionPath(paths, diagnostics, specifier, resolvedTarget);
+  }
+
+  for (const [specifier, targetSpecifier] of Object.entries(
+    metadata.moduleAliases
+  )) {
+    const targetPath = packageExportPaths.get(targetSpecifier);
+    if (targetPath) {
+      addModuleResolutionPath(paths, diagnostics, specifier, targetPath);
+    }
+  }
+};
+
+const addDeclarationModuleAliasPaths = (
+  paths: Map<string, string>,
+  diagnostics: Diagnostic[],
+  declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>
+): void => {
+  for (const [specifier, alias] of declarationModuleAliases) {
+    const targetPath = paths.get(alias.targetSpecifier);
+    if (targetPath) {
+      addModuleResolutionPath(paths, diagnostics, specifier, targetPath);
+    }
+  }
+};
+
+const createModuleResolutionPaths = (input: {
+  readonly projectRoot: string;
+  readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
+  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
+}): {
   readonly paths: Readonly<Record<string, readonly string[]>>;
   readonly diagnostics: readonly Diagnostic[];
 } => {
   const paths = new Map<string, string>();
   const diagnostics: Diagnostic[] = [];
 
-  for (const edge of dependencyEdges) {
-    if (!isPathMappingEligibleModuleSpecifier(edge.specifier)) {
-      continue;
-    }
-
-    const resolvedTarget = path.resolve(edge.to);
-    const existingTarget = paths.get(edge.specifier);
-    if (existingTarget === undefined) {
-      paths.set(edge.specifier, resolvedTarget);
-      continue;
-    }
-
-    if (
-      canonicalizeRootDirPath(existingTarget) !==
-      canonicalizeRootDirPath(resolvedTarget)
-    ) {
-      diagnostics.push(
-        createDiagnostic(
-          "TSN1002",
-          "fatal",
-          `Module specifier '${edge.specifier}' resolves to multiple source files and cannot be represented as a deterministic TSTS path mapping.`,
-          undefined,
-          `${existingTarget}\n${resolvedTarget}`
-        )
-      );
-    }
+  addCoreModuleResolutionPaths(
+    paths,
+    diagnostics,
+    input.projectRoot,
+    input.authoritativeTsonicPackageRoots
+  );
+  for (const packageRoot of input.authoritativeTsonicPackageRoots.values()) {
+    addSourcePackageModuleResolutionPaths(paths, diagnostics, packageRoot);
   }
+  addDeclarationModuleAliasPaths(
+    paths,
+    diagnostics,
+    input.declarationModuleAliases
+  );
 
   return {
     paths: Object.fromEntries(
@@ -345,152 +412,18 @@ const createModuleResolutionPaths = (
   };
 };
 
-const closureDiagnosticKey = (
-  containingFile: string,
-  specifier: string
-): string => `${path.resolve(containingFile)}\0${specifier}`;
+const sourceDiagnosticRootsForProgram = (
+  sourceRoot: string
+): readonly string[] => [canonicalizeRootDirPath(sourceRoot)];
 
-const toDiscoveryDiagnostics = (
-  diagnostics: readonly TstsModuleClosureDiagnostic[],
-  resolverDiagnostics: ReadonlyMap<string, Diagnostic>
-): readonly Diagnostic[] =>
-  diagnostics.map((diagnostic) => {
-    const resolverDiagnostic = resolverDiagnostics.get(
-      closureDiagnosticKey(diagnostic.containingFile, diagnostic.specifier)
-    );
-    if (resolverDiagnostic) {
-      return {
-        ...resolverDiagnostic,
-        location: {
-          file: canonicalizeRootDirPath(diagnostic.containingFile),
-          line: 1,
-          column: 1,
-          length: diagnostic.specifier.length,
-        },
-      };
-    }
-    return createDiagnostic(
-      "TSN1002",
-      "error",
-      `Cannot find module '${diagnostic.specifier}': ${diagnostic.message}`,
-      {
-        file: diagnostic.containingFile,
-        line: 1,
-        column: 1,
-        length: Math.max(1, diagnostic.specifier.length),
-      }
-    );
-  });
+const dedupePaths = (paths: readonly string[]): readonly string[] =>
+  Array.from(new Set(paths.map((entry) => canonicalizeRootDirPath(entry))));
 
-const collectSourceImportClosure = (input: {
-  readonly seedFiles: readonly string[];
-  readonly sourceRoot: string;
-  readonly projectRoot: string;
-  readonly surface: CompilerOptions["surface"];
-  readonly backendTargetId?: string;
-  readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
-  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
-}): {
-  readonly files: readonly string[];
-  readonly dependencyEdges: readonly WorkspaceGraphEdge[];
-  readonly diagnostics: readonly Diagnostic[];
-} => {
-  const resolverDiagnostics = new Map<string, Diagnostic>();
-  const closure = collectTstsModuleClosure({
-    seedFiles: input.seedFiles,
-    shouldIncludeResolvedFile: (resolvedPath) =>
-      isDeclarationDependency(resolvedPath) ||
-      isQueueableTsSourceDependency(resolvedPath),
-    shouldQueueResolvedFile: isQueueableTsSourceDependency,
-    shouldReportUnresolved: (specifier) =>
-      shouldReportImportDiscoveryDiagnostic(
-        specifier,
-        input.authoritativeTsonicPackageRoots,
-        input.declarationModuleAliases
-      ),
-    resolveModule: ({ specifier, containingFile }) => {
-      const resolved = resolveImport(specifier, containingFile, input.sourceRoot, {
-        projectRoot: input.projectRoot,
-        surface: input.surface,
-        backendTargetId: input.backendTargetId,
-        authoritativeTsonicPackageRoots: input.authoritativeTsonicPackageRoots,
-        declarationModuleAliases: input.declarationModuleAliases,
-      });
-      if (!resolved.ok) {
-        resolverDiagnostics.set(
-          closureDiagnosticKey(containingFile, specifier),
-          resolved.error
-        );
-        return { ok: false, message: resolved.error.message };
-      }
-      return { ok: true, resolvedPath: resolved.value.resolvedPath };
-    },
-  });
-
-  return {
-    files: closure.files,
-    dependencyEdges: closure.dependencyEdges,
-    diagnostics: toDiscoveryDiagnostics(
-      closure.diagnostics,
-      resolverDiagnostics
-    ),
-  };
-};
-
-const collectDeclarationImportClosure = (input: {
-  readonly files: readonly string[];
-  readonly sourceRoot: string;
-  readonly projectRoot: string;
-  readonly surface?: string;
-  readonly backendTargetId?: string;
-  readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
-  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
-}): {
-  readonly files: readonly string[];
-  readonly dependencyEdges: readonly WorkspaceGraphEdge[];
-  readonly diagnostics: readonly Diagnostic[];
-} => {
-  const resolverDiagnostics = new Map<string, Diagnostic>();
-  const closure = collectTstsModuleClosure({
-    seedFiles: input.files.filter((filePath) =>
-      isDeclarationDependency(path.resolve(filePath))
-    ),
-    shouldIncludeResolvedFile: isDeclarationDependency,
-    shouldQueueResolvedFile: isDeclarationDependency,
-    shouldReportUnresolved: (specifier) =>
-      shouldReportImportDiscoveryDiagnostic(
-        specifier,
-        input.authoritativeTsonicPackageRoots,
-        input.declarationModuleAliases
-      ),
-    resolveModule: ({ specifier, containingFile }) => {
-      const resolved = resolveImport(specifier, containingFile, input.sourceRoot, {
-        projectRoot: input.projectRoot,
-        surface: input.surface,
-        backendTargetId: input.backendTargetId,
-        authoritativeTsonicPackageRoots: input.authoritativeTsonicPackageRoots,
-        declarationModuleAliases: input.declarationModuleAliases,
-      });
-      if (!resolved.ok) {
-        resolverDiagnostics.set(
-          closureDiagnosticKey(containingFile, specifier),
-          resolved.error
-        );
-        return { ok: false, message: resolved.error.message };
-      }
-      return { ok: true, resolvedPath: resolved.value.resolvedPath };
-    },
-  });
-
-  return {
-    files: closure.files,
-    dependencyEdges: closure.dependencyEdges,
-    diagnostics: toDiscoveryDiagnostics(
-      closure.diagnostics,
-      resolverDiagnostics
-    ),
-  };
-};
+const createProgramFileSet = (
+  runtimeSeedFiles: readonly string[],
+  ambientSupportFiles: readonly string[]
+): readonly string[] =>
+  dedupePaths([...runtimeSeedFiles, ...ambientSupportFiles]);
 
 export const discoverProgramInputs = (
   filePaths: readonly string[],
@@ -751,130 +684,31 @@ export const discoverProgramInputs = (
       ...namespaceIndexFiles,
     ])
   );
-  const ambientGlobalSourceFiles: string[] = [];
-  const discoveryDiagnostics: Diagnostic[] = [];
-  for (const declarationGlobalImport of discoverDeclarationGlobalImports(
-    ambientSupportFiles
-  )) {
-    const resolvedGlobalImport = resolveImport(
-      declarationGlobalImport.targetSpecifier,
-      declarationGlobalImport.declarationFile,
-      path.resolve(options.sourceRoot),
-      {
-        projectRoot: options.projectRoot,
-        surface: options.surface,
-        backendTargetId:
-          options.backendTargetId === undefined
-            ? undefined
-            : String(options.backendTargetId),
-        authoritativeTsonicPackageRoots,
-        declarationModuleAliases,
-      }
-    );
-    if (!resolvedGlobalImport.ok) {
-      discoveryDiagnostics.push(resolvedGlobalImport.error);
-      continue;
-    }
-    if (
-      resolvedGlobalImport.value.resolvedPath &&
-      isQueueableTsSourceDependency(resolvedGlobalImport.value.resolvedPath)
-    ) {
-      ambientGlobalSourceFiles.push(resolvedGlobalImport.value.resolvedPath);
-    }
-  }
-
-  const runtimeSourceClosure = collectSourceImportClosure({
-    seedFiles: [
-      ...absolutePaths,
-      ...currentSourcePackageExportPaths,
-    ],
-    sourceRoot: path.resolve(options.sourceRoot),
+  const runtimeSeedFiles = dedupePaths([
+    ...absolutePaths,
+    ...currentSourcePackageExportPaths,
+  ]);
+  const allFiles = createProgramFileSet(runtimeSeedFiles, ambientSupportFiles);
+  const sourceDiagnosticRoots = sourceDiagnosticRootsForProgram(
+    options.sourceRoot
+  );
+  const moduleResolution = createModuleResolutionPaths({
     projectRoot: options.projectRoot,
-    surface: options.surface,
-    backendTargetId:
-      options.backendTargetId === undefined
-        ? undefined
-        : String(options.backendTargetId),
     authoritativeTsonicPackageRoots,
     declarationModuleAliases,
   });
-  const semanticSupportClosure = collectSourceImportClosure({
-    seedFiles: [
-      ...sourcePackageAmbientPaths,
-      ...ambientGlobalSourceFiles,
-    ],
-    sourceRoot: path.resolve(options.sourceRoot),
-    projectRoot: options.projectRoot,
-    surface: options.surface,
-    backendTargetId:
-      options.backendTargetId === undefined
-        ? undefined
-        : String(options.backendTargetId),
-    authoritativeTsonicPackageRoots,
-    declarationModuleAliases,
-  });
-
-  const initialAllFiles = Array.from(
-    new Set([
-      ...runtimeSourceClosure.files,
-      ...semanticSupportClosure.files,
-      ...projectDeclarationFiles,
-      ...declarationFiles,
-      ...namespaceIndexFiles,
-    ])
-  );
-  const declarationClosure = collectDeclarationImportClosure({
-    files: initialAllFiles,
-    sourceRoot: path.resolve(options.sourceRoot),
-    projectRoot: options.projectRoot,
-    surface: options.surface,
-    backendTargetId:
-      options.backendTargetId === undefined
-        ? undefined
-        : String(options.backendTargetId),
-    authoritativeTsonicPackageRoots,
-    declarationModuleAliases,
-  });
-
-  const allFiles = Array.from(
-    new Set([...initialAllFiles, ...declarationClosure.files])
-  );
-  const emittableSourceFiles = Array.from(
-    new Set([
-      ...runtimeSourceClosure.files,
-    ])
-  );
-  const runtimeSeedFiles = Array.from(
-    new Set([
-      ...absolutePaths,
-      ...currentSourcePackageExportPaths,
-    ])
-  );
-
-  const dependencyEdges = [
-    ...runtimeSourceClosure.dependencyEdges,
-    ...semanticSupportClosure.dependencyEdges,
-    ...declarationClosure.dependencyEdges,
-  ];
-  const moduleResolution = createModuleResolutionPaths(dependencyEdges);
 
   return {
     absolutePaths,
     typeRoots,
     moduleResolutionPaths: moduleResolution.paths,
+    sourceDiagnosticRoots,
     authoritativeTsonicPackageRoots,
     namespaceIndexFiles,
     declarationModuleAliases,
     ambientSupportFiles,
-    diagnostics: [
-      ...discoveryDiagnostics,
-      ...runtimeSourceClosure.diagnostics,
-      ...semanticSupportClosure.diagnostics,
-      ...declarationClosure.diagnostics,
-      ...moduleResolution.diagnostics,
-    ],
+    diagnostics: moduleResolution.diagnostics,
     allFiles,
-    emittableSourceFiles,
     runtimeSeedFiles,
   };
 };

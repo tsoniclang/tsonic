@@ -35,15 +35,15 @@ export type TstsSourceProgram = {
 export type CreateTstsSourceProgramOptions = {
   readonly projectRoot: string;
   readonly moduleResolutionPaths: Readonly<Record<string, readonly string[]>>;
-  readonly sourceDiagnosticFileNames: readonly string[];
+  readonly sourceDiagnosticRoots: readonly string[];
 };
 
 const defaultExtensions = (
-  options: Pick<CreateTstsSourceProgramOptions, "sourceDiagnosticFileNames">
+  options: Pick<CreateTstsSourceProgramOptions, "sourceDiagnosticRoots">
 ): readonly CompilerExtension[] => [
   createTsonicNumericPrimitiveExtension(),
   createTsonicSourceSemanticsExtension({
-    sourceDiagnosticFileNames: options.sourceDiagnosticFileNames,
+    sourceDiagnosticRoots: options.sourceDiagnosticRoots,
   }),
 ];
 
@@ -56,19 +56,24 @@ const canonicalizeFilePath = (filePath: string): string => {
   }
 };
 
-const sourceDiagnosticFileSet = (
-  fileNames: readonly string[]
-): ReadonlySet<string> =>
-  new Set(fileNames.map((fileName) => canonicalizeFilePath(fileName)));
+const sourceDiagnosticRoots = (roots: readonly string[]): readonly string[] =>
+  roots.map((root) => canonicalizeFilePath(root));
+
+const isFileUnderRoot = (fileName: string, root: string): boolean => {
+  const relative = path.relative(root, canonicalizeFilePath(fileName));
+  return (
+    relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+};
 
 const isScopedCompilerDiagnostic = (
-  sourceDiagnosticFiles: ReadonlySet<string>,
+  diagnosticRoots: readonly string[],
   diagnostic: TstsDiagnostic
 ): boolean => {
   const fileName = diagnostic.file?.FileName();
   return (
     fileName === undefined ||
-    sourceDiagnosticFiles.has(canonicalizeFilePath(fileName))
+    diagnosticRoots.some((root) => isFileUnderRoot(fileName, root))
   );
 };
 
@@ -76,9 +81,7 @@ export const createTstsSourceProgram = (
   filePaths: readonly string[],
   options: CreateTstsSourceProgramOptions
 ): TstsSourceProgram => {
-  const sourceDiagnosticFiles = sourceDiagnosticFileSet(
-    options.sourceDiagnosticFileNames
-  );
+  const diagnosticRoots = sourceDiagnosticRoots(options.sourceDiagnosticRoots);
   const compiledSource = createCompilerSourceProgram(filePaths, {
     projectRoot: options.projectRoot,
     compilerOptions: {
@@ -99,7 +102,7 @@ export const createTstsSourceProgram = (
     extensionHost: compiledSource.extensionHost,
     diagnostics: compiledSource.extensionDiagnostics,
     compilerDiagnostics: compiledSource.diagnostics.filter((diagnostic) =>
-      isScopedCompilerDiagnostic(sourceDiagnosticFiles, diagnostic)
+      isScopedCompilerDiagnostic(diagnosticRoots, diagnostic)
     ),
     withTypeChecker: compiledSource.withTypeChecker,
   };
@@ -107,7 +110,7 @@ export const createTstsSourceProgram = (
 
 export const createEmptyTstsSourceProgramForTests = (): TstsSourceProgram => {
   const extensionHost = createExtensionHost(
-    defaultExtensions({ sourceDiagnosticFileNames: [] })
+    defaultExtensions({ sourceDiagnosticRoots: [] })
   );
   extensionHost.configure();
   return {

@@ -233,6 +233,37 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("does not pre-walk imports outside the TSTS module graph", () => {
+    const bannedTerms = [
+      "collect" + "Tsts" + "ModuleClosure",
+      "collect" + "Source" + "ImportClosure",
+      "collect" + "Declaration" + "ImportClosure",
+      "runtime" + "SourceClosure",
+      "semantic" + "SupportClosure",
+      "declaration" + "Closure",
+      "emittable" + "SourceFiles",
+      "source" + "Diagnostic" + "FileNames",
+      "discover" + "Declaration" + "GlobalImports",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(frontendSrcRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) => line.includes(candidate));
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("does not expose a TypeScript compiler program on TsonicProgram", () => {
     const programTypesPath = path.join(frontendSrcRoot, "program/types.ts");
     const text = fs.readFileSync(programTypesPath, "utf8");

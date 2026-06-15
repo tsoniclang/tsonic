@@ -1,5 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
+import * as path from "node:path";
 import {
   createExtensionHost,
   getTstsCallExpressionDetails,
@@ -46,7 +47,7 @@ const collectSemanticNodes = (sourceText: string) => {
   }
   const host = createExtensionHost([
     createTsonicSourceSemanticsExtension({
-      sourceDiagnosticFileNames: [sourceFile.FileName()],
+      sourceDiagnosticRoots: [path.dirname(sourceFile.FileName())],
     }),
   ]);
   const nodes: GoPtr<TstsNode>[] = [];

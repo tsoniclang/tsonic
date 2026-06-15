@@ -197,12 +197,7 @@ export const createTstsTestProgramFromFiles = (
   const sourceProgram = createTstsSourceProgram(filePaths, {
     projectRoot: options.projectRoot ?? tempRoot,
     moduleResolutionPaths: {},
-    sourceDiagnosticFileNames: filePaths.filter(
-      (filePath) =>
-        !filePath.endsWith(".d.ts") &&
-        !filePath.endsWith(".d.mts") &&
-        !filePath.endsWith(".d.cts")
-    ),
+    sourceDiagnosticRoots: [tempRoot],
   });
   const sourceFile = findSourceFile(sourceProgram.sourceFiles, entryPath);
   const runtimeSourceFiles = sourceProgram.sourceFiles.filter(

@@ -302,7 +302,7 @@ const isIdentifierNamed = (
 
 const isExternalSupportDeclaration = (
   declaration: TstsNode | undefined,
-  sourceDiagnosticFileNames: ReadonlySet<string>
+  sourceDiagnosticRoots: readonly string[]
 ): boolean => {
   let current = declaration;
   while (current) {
@@ -319,9 +319,7 @@ const isExternalSupportDeclaration = (
   if (sourceFile?.IsDeclarationFile === true) return true;
   const fileName = sourceFile?.FileName();
   if (fileName === undefined) return false;
-  if (
-    !sourceDiagnosticFileNames.has(normalizeSourceFileName(fileName))
-  ) {
+  if (!isSourceDiagnosticFile(fileName, sourceDiagnosticRoots)) {
     return true;
   }
   return isDependencySupportSourceFile(fileName);
@@ -331,7 +329,7 @@ const isAmbientGlobalIdentifier = (
   context: CheckedContext,
   node: TstsNode | undefined,
   name: string,
-  sourceDiagnosticFileNames: ReadonlySet<string>
+  sourceDiagnosticRoots: readonly string[]
 ): boolean => {
   if (!isIdentifierNamed(node, name)) return false;
   if (context.imports.resolveLocalName(name)) return false;
@@ -341,7 +339,7 @@ const isAmbientGlobalIdentifier = (
   return (
     declarations.length === 0 ||
     declarations.every((declaration) =>
-      isExternalSupportDeclaration(declaration, sourceDiagnosticFileNames)
+      isExternalSupportDeclaration(declaration, sourceDiagnosticRoots)
     )
   );
 };
@@ -351,7 +349,7 @@ const isAmbientGlobalPropertyAccess = (
   node: TstsNode | undefined,
   receiverName: string,
   memberName: string,
-  sourceDiagnosticFileNames: ReadonlySet<string>
+  sourceDiagnosticRoots: readonly string[]
 ): boolean =>
   node?.Kind === TstsSyntax.KindPropertyAccessExpression &&
   isIdentifierNamed(TstsSyntax.Node_Name(node), memberName) &&
@@ -359,13 +357,13 @@ const isAmbientGlobalPropertyAccess = (
     context,
     TstsSyntax.Node_Expression(node),
     receiverName,
-    sourceDiagnosticFileNames
+    sourceDiagnosticRoots
   );
 
 const isWellKnownSymbolName = (
   context: CheckedContext,
   node: TstsNode | undefined,
-  sourceDiagnosticFileNames: ReadonlySet<string>
+  sourceDiagnosticRoots: readonly string[]
 ):
   | "symbol-iterator"
   | "symbol-async-iterator"
@@ -383,7 +381,7 @@ const isWellKnownSymbolName = (
       context,
       TstsSyntax.Node_Expression(expression),
       "Symbol",
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     )
   ) {
     return undefined;
@@ -404,9 +402,9 @@ const isWellKnownSymbolName = (
 const expressionSemanticsKind = (
   context: CheckedContext,
   node: TstsNode,
-  sourceDiagnosticFileNames: ReadonlySet<string>
+  sourceDiagnosticRoots: readonly string[]
 ): "undefined-value" | undefined =>
-  isAmbientGlobalIdentifier(context, node, "undefined", sourceDiagnosticFileNames)
+  isAmbientGlobalIdentifier(context, node, "undefined", sourceDiagnosticRoots)
     ? "undefined-value"
     : undefined;
 
@@ -532,7 +530,7 @@ const globalRuntimeMembers = new Set([
 const runtimeConstructorOperationForIdentifier = (
   context: CheckedContext,
   node: TstsNode | undefined,
-  sourceDiagnosticFileNames: ReadonlySet<string>
+  sourceDiagnosticRoots: readonly string[]
 ): SourceRuntimeOperationFact | undefined => {
   const memberName = getTstsIdentifierText(node);
   if (!memberName) return undefined;
@@ -542,7 +540,7 @@ const runtimeConstructorOperationForIdentifier = (
       context,
       node,
       memberName,
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     )
     ? { owner, member: "constructor", dispatch: "constructor" }
     : undefined;
@@ -655,7 +653,7 @@ const sourceRuntimeOwnerFromResolvedMemberDeclaration = (
 const sourceRuntimeOperation = (
   context: CheckedContext,
   node: TstsNode,
-  sourceDiagnosticFileNames: ReadonlySet<string>
+  sourceDiagnosticRoots: readonly string[]
 ): SourceRuntimeOperationFact | undefined => {
   if (node.Kind === TstsSyntax.KindElementAccessExpression) {
     const receiver = TstsSyntax.Node_Expression(node);
@@ -663,7 +661,7 @@ const sourceRuntimeOperation = (
     const computedName = isWellKnownSymbolName(
       context,
       argument,
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     );
     if (computedName === "symbol-to-string-tag") {
       return { owner: "Object", member: "toStringTag", dispatch: "property" };
@@ -689,7 +687,7 @@ const sourceRuntimeOperation = (
     return runtimeConstructorOperationForIdentifier(
       context,
       expression,
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     );
   }
 
@@ -704,7 +702,7 @@ const sourceRuntimeOperation = (
     const constructorOperation = runtimeConstructorOperationForIdentifier(
       context,
       node,
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     );
     if (constructorOperation) return constructorOperation;
     const memberName = getTstsIdentifierText(node);
@@ -715,7 +713,7 @@ const sourceRuntimeOperation = (
         context,
         node,
         "String",
-        sourceDiagnosticFileNames
+        sourceDiagnosticRoots
       )
     ) {
       return { owner: "String", member: "coerce", dispatch: "static-call" };
@@ -725,7 +723,7 @@ const sourceRuntimeOperation = (
         context,
         node,
         memberName,
-        sourceDiagnosticFileNames
+        sourceDiagnosticRoots
       )
       ? { owner: "Global", member: memberName, dispatch: "static-call" }
       : undefined;
@@ -744,7 +742,7 @@ const sourceRuntimeOperation = (
       context,
       receiver,
       "console",
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     ) &&
     consoleRuntimeMembers.has(memberName)
   ) {
@@ -756,7 +754,7 @@ const sourceRuntimeOperation = (
       context,
       receiver,
       "String",
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     ) &&
     stringStaticRuntimeMembers.has(memberName)
   ) {
@@ -768,7 +766,7 @@ const sourceRuntimeOperation = (
       context,
       receiver,
       "Array",
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     ) &&
     arrayStaticRuntimeMembers.has(memberName)
   ) {
@@ -780,7 +778,7 @@ const sourceRuntimeOperation = (
       context,
       receiver,
       "Object",
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     ) &&
     objectStaticRuntimeMembers.has(memberName)
   ) {
@@ -792,7 +790,7 @@ const sourceRuntimeOperation = (
       context,
       receiver,
       "JSON",
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     ) &&
     jsonStaticRuntimeMembers.has(memberName)
   ) {
@@ -804,7 +802,7 @@ const sourceRuntimeOperation = (
       context,
       receiver,
       "Promise",
-      sourceDiagnosticFileNames
+      sourceDiagnosticRoots
     ) &&
     promiseStaticRuntimeMembers.has(memberName)
   ) {
@@ -942,6 +940,24 @@ const isDependencySupportSourceFile = (fileName: string): boolean => {
 
 const normalizeSourceFileName = (fileName: string): string =>
   path.resolve(fileName).replace(/\\/g, "/");
+
+const normalizeSourceDiagnosticRoots = (
+  roots: readonly string[]
+): readonly string[] => roots.map((root) => normalizeSourceFileName(root));
+
+const isSourceDiagnosticFile = (
+  fileName: string,
+  sourceDiagnosticRoots: readonly string[]
+): boolean => {
+  const normalizedFileName = normalizeSourceFileName(fileName);
+  return sourceDiagnosticRoots.some((root) => {
+    const relative = path.relative(root, normalizedFileName);
+    return (
+      relative === "" ||
+      (!relative.startsWith("..") && !path.isAbsolute(relative))
+    );
+  });
+};
 
 const nodeHasAncestorKind = (
   parents: readonly TstsNode[],
@@ -1933,15 +1949,15 @@ const setDeclarationBindingFacts = (
 
 const isAmbientRecordDeclaration = (
   declaration: TstsNode,
-  sourceDiagnosticFileNames: ReadonlySet<string>
+  sourceDiagnosticRoots: readonly string[]
 ): boolean =>
   getTstsNodeNameText(declaration) === "Record" &&
-  isExternalSupportDeclaration(declaration, sourceDiagnosticFileNames);
+  isExternalSupportDeclaration(declaration, sourceDiagnosticRoots);
 
 const isAmbientRecordTypeReference = (
   context: CheckedContext,
   node: TstsNode,
-  sourceDiagnosticFileNames: ReadonlySet<string>
+  sourceDiagnosticRoots: readonly string[]
 ): boolean => {
   if (getTstsTypeReferenceDetails(node)?.name !== "Record") return false;
   const type = context.checker.getTypeFromTypeNode(node);
@@ -1957,7 +1973,7 @@ const isAmbientRecordTypeReference = (
     return (
       declarations.length > 0 &&
       declarations.every((declaration) =>
-        isExternalSupportDeclaration(declaration, sourceDiagnosticFileNames)
+        isExternalSupportDeclaration(declaration, sourceDiagnosticRoots)
       )
     );
   });
@@ -2681,16 +2697,14 @@ const collectOverloadCallImplementationFacts = (
 };
 
 export type TsonicSourceSemanticsExtensionOptions = {
-  readonly sourceDiagnosticFileNames: readonly string[];
+  readonly sourceDiagnosticRoots: readonly string[];
 };
 
 export const createTsonicSourceSemanticsExtension = (
   options: TsonicSourceSemanticsExtensionOptions
 ): CompilerExtension => {
-  const sourceDiagnosticFileNames = new Set(
-    options.sourceDiagnosticFileNames.map((fileName) =>
-      normalizeSourceFileName(fileName)
-    )
+  const sourceDiagnosticRoots = normalizeSourceDiagnosticRoots(
+    options.sourceDiagnosticRoots
   );
 
   return {
@@ -2891,7 +2905,7 @@ export const createTsonicSourceSemanticsExtension = (
     const shouldValidateSourceDiagnostics =
       context.sourceFile.IsDeclarationFile !== true &&
       !isCoreSourceFile &&
-      sourceDiagnosticFileNames.has(normalizeSourceFileName(sourceFileName));
+      isSourceDiagnosticFile(sourceFileName, sourceDiagnosticRoots);
     const coreTypesBindingByLocalName = collectImportedNamesByLocalName(
       context.imports,
       coreTypesModules
@@ -2972,7 +2986,7 @@ export const createTsonicSourceSemanticsExtension = (
       if (!node) return;
 
       setDeclarationBindingFacts(context, node);
-      if (isAmbientRecordDeclaration(node, sourceDiagnosticFileNames)) {
+      if (isAmbientRecordDeclaration(node, sourceDiagnosticRoots)) {
         context.facts.set(sourceDictionaryTypeFactKey, node, recordDictionaryFact);
       }
 
@@ -2997,14 +3011,14 @@ export const createTsonicSourceSemanticsExtension = (
           node,
           symbol ? context.checker.resolveAlias(symbol) : undefined
         );
-        if (isAmbientRecordTypeReference(context, node, sourceDiagnosticFileNames)) {
+        if (isAmbientRecordTypeReference(context, node, sourceDiagnosticRoots)) {
           context.facts.set(sourceDictionaryTypeFactKey, node, recordDictionaryFact);
         }
       }
 
       const computedName =
         node.Kind === TstsSyntax.KindComputedPropertyName
-          ? isWellKnownSymbolName(context, node, sourceDiagnosticFileNames)
+          ? isWellKnownSymbolName(context, node, sourceDiagnosticRoots)
           : undefined;
       if (computedName) {
         context.facts.set(wellKnownComputedNameFactKey, node, {
@@ -3015,7 +3029,7 @@ export const createTsonicSourceSemanticsExtension = (
       const expressionKind = expressionSemanticsKind(
         context,
         node,
-        sourceDiagnosticFileNames
+        sourceDiagnosticRoots
       );
       if (expressionKind) {
         context.facts.set(expressionSemanticsFactKey, node, {
@@ -3026,7 +3040,7 @@ export const createTsonicSourceSemanticsExtension = (
       const runtimeOperation = sourceRuntimeOperation(
         context,
         node,
-        sourceDiagnosticFileNames
+        sourceDiagnosticRoots
       );
       if (runtimeOperation) {
         context.facts.set(sourceRuntimeOperationFactKey, node, runtimeOperation);
@@ -3188,7 +3202,7 @@ export const createTsonicSourceSemanticsExtension = (
             context,
             callee,
             "Array",
-            sourceDiagnosticFileNames
+            sourceDiagnosticRoots
           )
         ) {
           addSourceDiagnostic(
@@ -3204,7 +3218,7 @@ export const createTsonicSourceSemanticsExtension = (
             callee,
             "Array",
             "isArray",
-            sourceDiagnosticFileNames
+            sourceDiagnosticRoots
           )
         ) {
           const [argument] = call?.arguments ?? [];
@@ -3229,7 +3243,7 @@ export const createTsonicSourceSemanticsExtension = (
             callee,
             "JSON",
             "parse",
-            sourceDiagnosticFileNames
+            sourceDiagnosticRoots
           )
         ) {
           const explicitTypeArguments = getTstsTypeArguments(node);
@@ -3264,7 +3278,7 @@ export const createTsonicSourceSemanticsExtension = (
             callee,
             "JSON",
             "stringify",
-            sourceDiagnosticFileNames
+            sourceDiagnosticRoots
           )
         ) {
           const [argument] = call?.arguments ?? [];
