@@ -215,6 +215,24 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("does not classify runtime visibility from source names in lowering", () => {
+    const loweringPlanBuilders = fs.readFileSync(
+      path.join(frontendSrcRoot, "lowering/plan-builders.ts"),
+      "utf8"
+    );
+    const bannedTerms = [
+      "source" + "RuntimeVisibilityForCanonicalDeclaration",
+      "getTstsNodeNameText(declaration) === " + '"JsValue"',
+      "sourceFileBelongsToPackage(sourceFile.FileName(), " + '"@tsonic/core"',
+    ] as const;
+
+    const offenders = bannedTerms.filter((term) =>
+      loweringPlanBuilders.includes(term)
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("does not expose a TypeScript compiler program on TsonicProgram", () => {
     const programTypesPath = path.join(frontendSrcRoot, "program/types.ts");
     const text = fs.readFileSync(programTypesPath, "utf8");

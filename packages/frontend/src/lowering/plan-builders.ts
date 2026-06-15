@@ -3,13 +3,11 @@ import {
   getTstsHeritageTypeNodes,
   getTstsIdentifierText,
   getTstsContainingSourceFile,
-  getTstsNodeNameText,
   getTstsNodeText,
   getTstsTypeReferenceDetails,
   TstsSyntax,
 } from "@tsonic/tsts";
 import { externalBindingSourceIdentityForDeclaration } from "../program/external-binding-source-identity.js";
-import { sourceFileBelongsToPackage } from "../program/package-identity.js";
 import { resolveSourceFileIdentity } from "../program/source-file-identity.js";
 import type {
   TstsNode,
@@ -871,24 +869,6 @@ const sourceRuntimeVisibilityForDeclaration = (
         ?.visibility
     : undefined;
 
-const sourceRuntimeVisibilityForCanonicalDeclaration = (
-  declaration: TstsNode | undefined
-): Extract<
-  LoweringTypeRefPlan,
-  { readonly kind: "named" }
->["runtimeVisibility"] => {
-  const sourceFile = getTstsContainingSourceFile(declaration);
-  if (
-    declaration &&
-    getTstsNodeNameText(declaration) === "JsValue" &&
-    sourceFile &&
-    sourceFileBelongsToPackage(sourceFile.FileName(), "@tsonic/core")
-  ) {
-    return "opaque";
-  }
-  return undefined;
-};
-
 const sourceRuntimeVisibilityForSymbol = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -905,9 +885,10 @@ const sourceRuntimeVisibilityForSymbol = (
   if (resolved) symbols.add(resolved);
   for (const candidate of symbols) {
     for (const declaration of checker.getSymbolDeclarations(candidate)) {
-      const visibility =
-        sourceRuntimeVisibilityForDeclaration(context, declaration) ??
-        sourceRuntimeVisibilityForCanonicalDeclaration(declaration);
+      const visibility = sourceRuntimeVisibilityForDeclaration(
+        context,
+        declaration
+      );
       if (visibility) visibilities.add(visibility);
     }
   }
