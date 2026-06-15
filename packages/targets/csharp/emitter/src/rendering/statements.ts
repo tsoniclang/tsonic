@@ -1,6 +1,5 @@
 import type {
   LoweringBindingAccessPlan,
-  LoweringExpressionPlan,
   LoweringParameterPlan,
   LoweringStatementPlan,
   LoweringTypeRefPlan,
@@ -16,14 +15,11 @@ import {
   renderFunctionExpressionType,
 } from "./expressions.js";
 import {
-  arrayTypeFromTypePlan,
   isOpaqueRuntimeTypePlan,
   isVoidLikeTypePlan,
   renderCSharpType,
   renderFunctionReturnType,
   renderNullableCSharpType,
-  runtimeUnionCarrierArms,
-  runtimeUnionTarget,
   sameRuntimeTypePlan,
   shouldEmitStructuralObjectType,
 } from "./types.js";
@@ -416,135 +412,6 @@ const renderVoidExpressionStatement = (
   }
 };
 
-const namedTypeFromExpression = (
-  expression: LoweringExpressionPlan | undefined
-): LoweringTypeRefPlan | undefined =>
-  expression?.literalText
-    ? {
-        kind: "named",
-        name: expression.literalText,
-        typeArguments: [],
-        runtimeName: expression.runtimeName,
-      }
-    : undefined;
-
-const instanceofIdentifierNarrowing = (
-  condition: LoweringStatementPlan["condition"],
-  context: RenderContext
-):
-  | {
-      readonly name: string;
-      readonly type: LoweringTypeRefPlan;
-      readonly aliasName?: string;
-      readonly condition?: string;
-    }
-  | undefined =>
-  condition?.expressionKind === "binary" &&
-  condition.binaryOperator === "instanceof" &&
-  condition.left?.expressionKind === "identifier" &&
-  condition.left.literalText
-    ? (() => {
-        const narrowedType =
-          namedTypeFromExpression(condition.right) ??
-          condition.right?.type ?? { kind: "intrinsic", name: "object" };
-        const carrier =
-          runtimeUnionTarget(condition.left?.type)
-            ? condition.left?.type
-            : runtimeUnionTarget(condition.left?.storageTypePlan)
-              ? condition.left?.storageTypePlan
-              : undefined;
-        const arms = runtimeUnionCarrierArms(carrier, context);
-        const exactArmIndex = arms.findIndex(
-          (arm) => sameRuntimeTypePlan(arm, narrowedType)
-        );
-        const compatibleArmIndex =
-          exactArmIndex >= 0
-            ? exactArmIndex
-            : narrowedType.kind === "named"
-              ? arms.findIndex(
-                  (arm) =>
-                    arm.kind === "named" &&
-                    (arm.declarationKind === "class" ||
-                      arm.declarationKind === "interface")
-                )
-              : -1;
-        if (carrier && compatibleArmIndex >= 0) {
-          const narrowedRendered = renderCSharpType(narrowedType, context);
-          const name = condition.left.literalText;
-          const aliasName = `${sanitizeIdentifier(name)}__is_1`;
-          return {
-            name,
-            type: narrowedType,
-            aliasName,
-            condition: `(${renderExpression(condition.left, context)}.As${compatibleArmIndex + 1}()) is ${narrowedRendered} ${aliasName}`,
-          };
-        }
-        return {
-          name: condition.left.literalText,
-          type: narrowedType,
-        };
-      })()
-    : condition?.expressionKind === "call" &&
-        condition.expression?.sourceOperation?.dispatch === "static-call" &&
-        condition.expression.sourceOperation.owner === "Array" &&
-        condition.expression.sourceOperation.member === "isArray" &&
-        condition.arguments[0]?.expressionKind === "identifier" &&
-        condition.arguments[0].literalText
-      ? (() => {
-          const argument = condition.arguments[0];
-          if (
-            argument?.expressionKind !== "identifier" ||
-            !argument.literalText
-          ) {
-            return undefined;
-          }
-          const carrier =
-            runtimeUnionTarget(argument.storageTypePlan)
-              ? argument.storageTypePlan
-              : runtimeUnionTarget(argument.type)
-                ? argument.type
-                : undefined;
-          const arms = runtimeUnionCarrierArms(carrier, context);
-          const armIndex = arms.findIndex(
-            (arm) => arrayTypeFromTypePlan(arm) !== undefined
-          );
-          const arm = arms[armIndex];
-          if (!carrier || armIndex < 0 || !arm) return undefined;
-          const name = argument.literalText;
-          const aliasName = `${renderExpression(argument, context)}.As${armIndex + 1}()`;
-          return {
-            name,
-            type: arm,
-            aliasName,
-            condition: `${aliasName} != null`,
-          };
-        })()
-    : undefined;
-
-const renderWithIdentifierNarrowing = (
-  narrowing: ReturnType<typeof instanceofIdentifierNarrowing>,
-  context: RenderContext,
-  render: () => string
-): string => {
-  if (!narrowing) return render();
-  const previousTypes = context.currentNarrowedIdentifiers;
-  const previousNames = context.currentNarrowedIdentifierNames;
-  const nextTypes = new Map(previousTypes ?? []);
-  nextTypes.set(narrowing.name, narrowing.type);
-  context.currentNarrowedIdentifiers = nextTypes;
-  if (narrowing.aliasName) {
-    const nextNames = new Map(previousNames ?? []);
-    nextNames.set(narrowing.name, narrowing.aliasName);
-    context.currentNarrowedIdentifierNames = nextNames;
-  }
-  try {
-    return render();
-  } finally {
-    context.currentNarrowedIdentifiers = previousTypes;
-    context.currentNarrowedIdentifierNames = previousNames;
-  }
-};
-
 const isCSharpStatementExpression = (
   expression: LoweringStatementPlan["expression"]
 ): boolean => {
@@ -666,14 +533,11 @@ export const renderStatement = (
     case "variable":
       return renderVariableStatement(plan.declarations, context);
     case "if": {
-      const narrowing = instanceofIdentifierNarrowing(plan.condition, context);
-      const thenBody = renderWithIdentifierNarrowing(narrowing, context, () =>
-        renderStatement(plan.thenStatement, context)
-      );
+      const thenBody = renderStatement(plan.thenStatement, context);
       const elseBody = plan.elseStatement
         ? `\nelse ${renderStatement(plan.elseStatement, context)}`
         : "";
-      return `if (${narrowing?.condition ?? renderConditionExpression(plan.condition, context)}) ${thenBody}${elseBody}`;
+      return `if (${renderConditionExpression(plan.condition, context)}) ${thenBody}${elseBody}`;
     }
     case "while":
       return `while (${renderConditionExpression(plan.condition, context)}) ${renderStatement(plan.body, context)}`;

@@ -615,7 +615,6 @@ export const renderExpressionWithUseSiteCast = (
   ) {
     return rendered;
   }
-  if (narrowedIdentifierName(plan, context)) return rendered;
   const useSiteArrayLiteral = arrayLiteralExpressionPlan(plan);
   if (arrayTypeFromUseSite(useSiteTypeOverride) && useSiteArrayLiteral) {
     return renderArrayLiteral(
@@ -654,22 +653,6 @@ export const renderExpressionWithUseSiteCast = (
   const castType = useSiteCastType(useSiteTypeOverride ?? plan?.type, context);
   return castType ? `((${castType})(${rendered}))` : rendered;
 };
-
-const narrowedIdentifierType = (
-  plan: LoweringExpressionPlan | undefined,
-  context: RenderContext
-): LoweringTypeRefPlan | undefined =>
-  plan?.expressionKind === "identifier" && plan.literalText
-    ? context.currentNarrowedIdentifiers?.get(plan.literalText)
-    : undefined;
-
-const narrowedIdentifierName = (
-  plan: LoweringExpressionPlan | undefined,
-  context: RenderContext
-): string | undefined =>
-  plan?.expressionKind === "identifier" && plan.literalText
-    ? context.currentNarrowedIdentifierNames?.get(plan.literalText)
-    : undefined;
 
 const runtimeUnionCarrierType = (
   type: LoweringTypeRefPlan | undefined
@@ -1686,8 +1669,6 @@ export const renderExpression = (
       }
       const defaultedName = context.currentDefaultedParameters?.get(rawName);
       if (defaultedName) return defaultedName;
-      const narrowedName = narrowedIdentifierName(plan, context);
-      if (narrowedName) return narrowedName;
       return sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
     }
     case "this":
@@ -1859,8 +1840,7 @@ export const renderExpression = (
         return renderArrayLength(plan.expression, context, plan.receiverTypePlan);
       }
       if (rawMember === "length") {
-        const receiverType =
-          narrowedIdentifierType(plan.expression, context) ?? plan.receiverTypePlan;
+        const receiverType = plan.receiverTypePlan;
         const stringReceiver =
           receiverType === undefined ||
           isOpaqueRuntimeTypePlan(receiverType)
@@ -1871,7 +1851,7 @@ export const renderExpression = (
       return `${renderExpressionWithUseSiteCast(
         plan.expression,
         context,
-        narrowedIdentifierType(plan.expression, context) ?? plan.receiverTypePlan
+        plan.receiverTypePlan
       )}.${member}`;
     }
     case "element-access":
