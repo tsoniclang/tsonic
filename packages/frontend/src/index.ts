@@ -16,7 +16,6 @@ export {
   isError as isDiagnosticError,
 } from "./types/diagnostic.js";
 
-export * from "./types/module.js";
 export * from "./types/result.js";
 
 export * from "./program.js";

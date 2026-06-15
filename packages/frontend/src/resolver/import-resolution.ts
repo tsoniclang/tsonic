@@ -7,7 +7,6 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
-import { isLocalImport } from "../types/module.js";
 import { ResolvedModule } from "./types.js";
 import {
   getLocalResolutionBoundary,
@@ -27,6 +26,9 @@ import {
   CORE_TYPES_MODULE_SPECIFIERS,
   coreDeclarationFileBaseName,
 } from "../source-frontend/core-module-identity.js";
+
+const isLocalImport = (specifier: string): boolean =>
+  specifier.startsWith(".") || specifier.startsWith("/");
 
 /**
  * Options for import resolution
