@@ -3632,7 +3632,30 @@ const typeAtBindingAccess = (
   let current = rootType;
   for (const access of accessPath) {
     if (!current) return undefined;
-    current = loweringNonNullishUnionTypes(current)[0];
+    const currentArms = loweringNonNullishUnionTypes(current);
+    if (currentArms.length > 1) {
+      const armResults = currentArms.map((arm) =>
+        typeAtBindingAccess(arm, [access])
+      );
+      const completeArmResults = armResults.filter(
+        (result): result is LoweringTypeRefPlan => result !== undefined
+      );
+      if (completeArmResults.length !== currentArms.length) {
+        return undefined;
+      }
+      const firstResult = completeArmResults[0];
+      if (!firstResult) return undefined;
+      const firstKey = loweringTypeIdentityKey(firstResult);
+      current =
+        firstKey &&
+        completeArmResults.every(
+          (result) => loweringTypeIdentityKey(result) === firstKey
+        )
+          ? firstResult
+          : undefined;
+      continue;
+    }
+    current = currentArms[0];
     if (access.kind === "element") {
       if (current?.kind === "tuple") {
         current = current.elements[access.index];

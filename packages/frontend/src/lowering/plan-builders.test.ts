@@ -404,6 +404,45 @@ describe("TSTS-backed lowering plan builders", () => {
     expect(localTableType?.kind).to.equal("named");
   });
 
+  it("does not pick an arbitrary first union arm for destructured binding types", () => {
+    const result = lowerProgram(`
+      type Same = { value: number } | { value: number };
+      type Different = { value: number } | { value: string };
+
+      export function readSame(input: Same): number {
+        const { value } = input;
+        return value;
+      }
+
+      export function readDifferent(input: Different): void {
+        const { value } = input;
+        void value;
+      }
+    `);
+
+    const readSame = result.modules
+      .flatMap((module) => module.declarations)
+      .find((declaration) => declaration.name === "readSame");
+    const readDifferent = result.modules
+      .flatMap((module) => module.declarations)
+      .find((declaration) => declaration.name === "readDifferent");
+    const sameValue =
+      readSame?.body?.statements[0]?.declarations[0]?.bindingElements[0];
+    const differentValue =
+      readDifferent?.body?.statements[0]?.declarations[0]?.bindingElements[0];
+
+    expect(sameValue?.type).to.deep.include({
+      kind: "intrinsic",
+      name: "number",
+    });
+    expect(differentValue?.type?.kind).to.equal("union");
+    expect(
+      differentValue?.type?.kind === "union"
+        ? differentValue.type.types.map((type) => type.kind === "intrinsic" ? type.name : type.kind)
+        : []
+    ).to.have.members(["number", "string"]);
+  });
+
   it("projects marker source facts into declaration and parameter plans", () => {
     const result = lowerProgram(`
       import type { int, struct } from "@tsonic/core/types.js";

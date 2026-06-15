@@ -350,19 +350,19 @@ export const resolveLocalImport = (
   const candidatePaths = candidateSpecifiers.map((specifier) =>
     path.resolve(containingDir, specifier)
   );
-  const resolvedPath =
-    candidatePaths.find((candidatePath) => fs.existsSync(candidatePath)) ??
-    candidatePaths[0]!;
+  const resolvedPath = candidatePaths.find((candidatePath) =>
+    fs.existsSync(candidatePath)
+  );
 
   // Check if file exists
-  if (!fs.existsSync(resolvedPath)) {
+  if (resolvedPath === undefined) {
     return error(
       createDiagnostic(
         "TSN1004",
         "error",
         `Cannot find module: "${importSpecifier}"`,
         undefined,
-        `File not found: ${resolvedPath}`
+        `Files not found:\n${candidatePaths.join("\n")}`
       )
     );
   }
