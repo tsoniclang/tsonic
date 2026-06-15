@@ -7,8 +7,8 @@ import {
 import {
   collectPackageTargets,
   findTargetKey,
+  listPackageFolders,
   normalizePkgId,
-  pickPackageFolder,
   type PackageTarget,
   type ProjectAssets,
 } from "./shared.js";
@@ -185,8 +185,8 @@ export const prepareNugetRestorePlan = (
   packageReferencesAll: readonly PackageReferenceConfig[],
   assets: ProjectAssets
 ): Result<NugetRestorePlan, string> => {
-  const packageFolder = pickPackageFolder(assets);
-  if (!packageFolder) {
+  const packageFolders = listPackageFolders(assets);
+  if (packageFolders.length === 0) {
     return {
       ok: false,
       error: "project.assets.json missing packageFolders (unexpected)",
@@ -207,7 +207,7 @@ export const prepareNugetRestorePlan = (
   const packagesByLibKey = collectPackageTargets(
     assets,
     targetKey,
-    packageFolder
+    packageFolders
   );
   const libKeyByPkgId = new Map<string, string>();
   for (const node of packagesByLibKey.values()) {
