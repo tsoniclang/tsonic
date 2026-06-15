@@ -173,9 +173,6 @@ const resolveHeritageOwnerNames = (
   if (sourceRuntimeName) {
     return [normalizeRuntimeName(sourceRuntimeName)];
   }
-  if (type.name.includes(".")) {
-    return [normalizeRuntimeName(type.name)];
-  }
   return bySimpleName.get(type.name) ?? [];
 };
 
