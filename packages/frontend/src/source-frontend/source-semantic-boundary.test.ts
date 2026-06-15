@@ -264,6 +264,20 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("does not keep old frontend analysis product directories", () => {
+    const staleDirectories = ["graph", "ir", "symbol-table"] as const;
+    const offenders = staleDirectories.flatMap((directory) => {
+      const directoryPath = path.join(frontendSrcRoot, directory);
+      return fs.existsSync(directoryPath)
+        ? collectTypeScriptFiles(directoryPath).map((filePath) =>
+            normalizePath(path.relative(repoRoot, filePath))
+          )
+        : [];
+    });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("does not expose a TypeScript compiler program on TsonicProgram", () => {
     const programTypesPath = path.join(frontendSrcRoot, "program/types.ts");
     const text = fs.readFileSync(programTypesPath, "utf8");
