@@ -12,6 +12,7 @@ import {
   isTstsParameterDeclaration,
   isTstsPropertyDeclarationLike,
   parseTstsSourceFile,
+  TstsSyntax,
   visitTstsSubtree,
 } from "@tsonic/tsts";
 import type { GoPtr, TstsNode } from "@tsonic/tsts";
@@ -24,6 +25,7 @@ import {
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
   parameterPassingFactKey,
+  sourceAttributeApplicationsFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
 } from "../source-frontend/source-facts.js";
@@ -311,6 +313,120 @@ describe("Tsonic TSTS source semantics extension", () => {
       { name: "AttributeTargets", marker: "attribute-targets" },
       { name: "O", marker: "overloads" },
     ]);
+  });
+
+  it("attaches checked attribute facts to declaration targets", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "node_modules/@tsonic/core/lang.js": [
+          "export const attributes = undefined;",
+          "export const AttributeTargets = undefined;",
+          "",
+        ].join("\n"),
+        "node_modules/@tsonic/core/lang.d.ts": [
+          "export type AttributeTarget = 'assembly' | 'module' | 'type' | 'method' | 'property' | 'field' | 'event' | 'param' | 'return';",
+          "export interface AttributeTargets { readonly method: 'method'; readonly return: 'return'; }",
+          "export declare const AttributeTargets: AttributeTargets;",
+          "export interface AttributeTargetBuilder {",
+          "  target(target: AttributeTarget): AttributeTargetBuilder;",
+          "  add(attributeType: unknown, ...args: readonly unknown[]): void;",
+          "}",
+          "export interface TypeAttributeBuilder<T> extends AttributeTargetBuilder {",
+          "  readonly ctor: AttributeTargetBuilder;",
+          "  method<TMember>(selector: (value: T) => TMember): AttributeTargetBuilder;",
+          "  prop<TMember>(selector: (value: T) => TMember): AttributeTargetBuilder;",
+          "}",
+          "export interface AttributesApi {",
+          "  <T>(): TypeAttributeBuilder<T>; ",
+          "  attr(attributeType: unknown, ...args: readonly unknown[]): unknown;",
+          "}",
+          "export declare const attributes: AttributesApi;",
+          "",
+        ].join("\n"),
+        "src/test.ts": [
+          "import { attributes as A, AttributeTargets } from '@tsonic/core/lang.js';",
+          "class ObsoleteAttribute { constructor(message?: string) { void message; } }",
+          "class SerializableAttribute {}",
+          "export class User {",
+          "  name: string = '';",
+          "  constructor() {}",
+          "  save(): string { return this.name; }",
+          "}",
+          "export class NoCtor {}",
+          "const descriptor = A.attr(ObsoleteAttribute, 'type');",
+          "A<User>().add(descriptor);",
+          "A<User>().ctor.add(ObsoleteAttribute, 'ctor');",
+          "A<User>().method((u) => u.save).target(AttributeTargets.return).add(ObsoleteAttribute, 'method');",
+          "A<User>().prop((u) => u.name).target('field').add(SerializableAttribute);",
+          "A<NoCtor>().ctor.add(ObsoleteAttribute, 'implicit');",
+          "",
+        ].join("\n"),
+      },
+      "src/test.ts"
+    );
+    try {
+      const declarations = new Map<string, TstsNode>();
+      const userMembers = new Map<string, TstsNode>();
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        const name = getTstsNodeNameText(node);
+        if (name === "User" || name === "NoCtor") {
+          declarations.set(name, node);
+        }
+        if (node.Parent === declarations.get("User") && name) {
+          userMembers.set(name, node);
+        }
+        if (
+          node.Parent === declarations.get("User") &&
+          node.Kind === TstsSyntax.KindConstructor
+        ) {
+          userMembers.set("constructor", node);
+        }
+      });
+
+      const facts = program.sourceProgram.extensionHost.facts;
+      const userAttributes = facts.get(
+        sourceAttributeApplicationsFactKey,
+        declarations.get("User") as TstsNode
+      )?.applications;
+      const constructorAttributes = facts.get(
+        sourceAttributeApplicationsFactKey,
+        userMembers.get("constructor") as TstsNode
+      )?.applications;
+      const methodAttributes = facts.get(
+        sourceAttributeApplicationsFactKey,
+        userMembers.get("save") as TstsNode
+      )?.applications;
+      const propertyAttributes = facts.get(
+        sourceAttributeApplicationsFactKey,
+        userMembers.get("name") as TstsNode
+      )?.applications;
+      const syntheticConstructorAttributes = facts.get(
+        sourceAttributeApplicationsFactKey,
+        declarations.get("NoCtor") as TstsNode
+      )?.applications;
+
+      expect(userAttributes?.map((fact) => fact.targetKind)).to.deep.equal([
+        "type",
+      ]);
+      expect(constructorAttributes?.map((fact) => fact.targetKind)).to.deep.equal([
+        "constructor",
+      ]);
+      expect(methodAttributes?.map((fact) => fact.targetSpecifier)).to.deep.equal([
+        "return",
+      ]);
+      expect(propertyAttributes?.map((fact) => fact.targetSpecifier)).to.deep.equal([
+        "field",
+      ]);
+      expect(
+        syntheticConstructorAttributes?.map((fact) => fact.targetKind)
+      ).to.deep.equal(["constructor"]);
+      expect(
+        getTstsIdentifierText(userAttributes?.[0]?.attributeType)
+      ).to.equal("ObsoleteAttribute");
+    } finally {
+      program.cleanup();
+    }
   });
 
   it("does not attach source marker facts to same-name local declarations", () => {

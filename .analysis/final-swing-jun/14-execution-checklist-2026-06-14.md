@@ -17,8 +17,8 @@ Report this checklist every 15 minutes while long-running work is active.
 ```text
 branch: feature/tsts-final-completion
 latest pushed commit before this checkpoint: 1f938a44 Harden TSTS lowering and diagnostic metadata
-current local state: source runtime operation expansion, source-package runtime qualification, compile-time marker top-level filtering, and AST/fact-backed C# renderer hardening ready to commit
-focused validation: @tsonic/frontend lowering plan builders 5 passing / 0 failing; @tsonic/frontend validator/maximus suites 260 passing / 0 failing; @tsonic/csharp-emitter module/expression renderer 3 passing / 0 failing; targeted native-library/source-package CLI subset 8 passing / 0 failing
+current local state: source runtime operation expansion, source-package runtime qualification, compile-time marker top-level filtering, AST/fact-backed C# renderer hardening, and source-attribute fact/lowering/rendering support ready to commit
+focused validation: @tsonic/frontend lowering plan builders/source-semantics attribute subset 2 passing / 0 failing; @tsonic/csharp-emitter attribute renderer subset 1 passing / 0 failing; previous @tsonic/frontend validator/maximus suites 260 passing / 0 failing; previous targeted native-library/source-package CLI subset 8 passing / 0 failing
 package validation: @tsonic/frontend full package test 418 passing / 0 failing; @tsonic/csharp-emitter full package test 3 passing / 0 failing
 build validation: @tsonic/tsts, @tsonic/frontend, and @tsonic/csharp-emitter build after current local changes
 audit validation: product TSC import search clean outside vendored TSTS; frontend CLR/C#/System target leakage search clean; old IR/source-text emission decision search clean except diagnostics/token labels; message-substring capability gating removed
@@ -51,7 +51,7 @@ not done: runtimeVisibility name-policy audit, final run-all, downstreams, branc
 | 3.3 | Numeric primitives | Numeric primitive facts attach in source terms | Done | Emitted-output fixture proof |
 | 3.4 | Source package bindings | External bindings attach through canonical metadata | In progress | Source package fixture/downstream proof |
 | 3.5 | Passing mode | `out`/`ref`/`inref` source facts are backend-neutral | In progress | Passing-mode validation and emit proof |
-| 3.6 | Attributes | Attribute slots are source facts, not CLR facts | In progress | Attribute fixture and backend render proof |
+| 3.6 | Attributes | Attribute slots are source facts, not CLR facts | Expanded | TSTS source fact, lowering plan, and C# renderer focused tests green; full attribute fixture proof pending |
 | 3.7 | Native diagnostics | Tsonic source restrictions run through extension diagnostics | Expanded | Capability-dependent diagnostics carry `capabilityFeatureKey` metadata |
 | 3.8 | Fact tests | Every fact family has positive/negative tests | Expanded | Expression/computed-name facts green; marker projection and C# struct/field/extension receiver tests green |
 | 4.1 | TSTS builder | Program builder invokes TSTS | Done | Final product audit |
@@ -61,7 +61,7 @@ not done: runtimeVisibility name-policy audit, final run-all, downstreams, branc
 | 4.5 | Checker/facts exposure | Lowering can query TSTS checker and fact store | Done | Lowering tests green |
 | 4.6 | Fixture comparisons | Key fixtures prove equivalent or intended behavior | Partial | Focused fixtures green |
 | 5.1 | LoweringInput | Lowering reads TSTS program/facts/checker | Done | Compile/test proof |
-| 5.2 | Module/declaration plans | Declarations lower as AST/fact-backed plans | Expanded | TSTS marker facts now project into declaration/parameter plans; top-level structural helper collection covered by C# module renderer test |
+| 5.2 | Module/declaration plans | Declarations lower as AST/fact-backed plans | Expanded | TSTS marker and attribute facts now project into declaration/parameter plans; top-level structural helper collection covered by C# module renderer test |
 | 5.3 | Type plans | Types render from source plans/facts | Expanded | Source primitive use-sites, alias targets, and recursive alias guard covered; full emitted fixtures still required |
 | 5.4 | Expression/statement plans | Expressions/statements lower through plan builders | Expanded | New lowering and renderer tests green |
 | 5.5 | Call plans | Calls use TSTS signatures, not local overload scoring | In progress | Generic alias emission now fact-backed; remaining overload fixtures pending |
@@ -76,7 +76,7 @@ not done: runtimeVisibility name-policy audit, final run-all, downstreams, branc
 | 6.5 | Calls/overloads | Overload/generic resolution delegated to TSTS | Partial | Generic-function-value failures fixed |
 | 6.6 | Member/index access | Member/index lookup delegated to TSTS | Partial | Fixtures green |
 | 6.7 | Control-flow/narrowing | No eager branch narrowing engine remains | Partial | Search audit and fixtures |
-| 6.8 | Attributes | Attribute handling moved to source facts/lowering | Partial | Search and emit proof |
+| 6.8 | Attributes | Attribute handling moved to source facts/lowering | Expanded | Descriptor/application facts, lowering plans, and C# renderer support implemented; full fixture proof pending |
 | 6.9 | External source bindings | External binding facts use one manifest shape | Partial | No legacy/v1/v2 bridge audit |
 | 6.10 | Synthetic declarations | Synthetic declarations no longer depend on old IR | Partial | Compile/audit proof |
 | 7.1 | Delete `typescript` product imports | Product frontend does not import TSC | Clean in current product search | Final search gate |

@@ -25,6 +25,7 @@ import {
   markerApiSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
+  sourceAttributeApplicationsFactKey,
   sourceBindingIdentityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
@@ -39,6 +40,7 @@ import {
 import type { SourceBindingIdentityFact } from "../source-frontend/source-facts.js";
 import type {
   LoweringBinaryOperator,
+  LoweringAttributePlan,
   LoweringBindingAccessPlan,
   LoweringBindingElementPlan,
   LoweringBuildContext,
@@ -3965,6 +3967,73 @@ const memberPlans = (
     .map((member) => declarationPlan(sourceFile, member, context))
     .filter((item): item is LoweringDeclarationPlan => item !== undefined);
 
+const declarationAttributeTargetKind = (
+  kind: LoweringDeclarationPlan["declarationKind"]
+):
+  | "type"
+  | "constructor"
+  | "method"
+  | "property"
+  | undefined => {
+  switch (kind) {
+    case "class":
+    case "enum":
+    case "interface":
+    case "type-alias":
+      return "type";
+    case "constructor":
+      return "constructor";
+    case "function":
+    case "method":
+      return "method";
+    case "property":
+    case "get-accessor":
+    case "set-accessor":
+      return "property";
+    default:
+      return undefined;
+  }
+};
+
+const attributePlans = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode,
+  context: LoweringBuildContext,
+  targetKind: ReturnType<typeof declarationAttributeTargetKind>
+): readonly LoweringAttributePlan[] => {
+  if (!targetKind) return [];
+  return (
+    context.input.facts.get(sourceAttributeApplicationsFactKey, node)
+      ?.applications ?? []
+  )
+    .filter((application) => application.targetKind === targetKind)
+    .map((application): LoweringAttributePlan | undefined => {
+      const attributeSourceFile = sourceFileForNode(
+        application.attributeType,
+        sourceFile
+      );
+      const attributeType = expressionPlan(
+        attributeSourceFile,
+        application.attributeType,
+        context
+      );
+      if (!attributeType) return undefined;
+      return {
+        targetSpecifier: application.targetSpecifier,
+        attributeType,
+        arguments: application.arguments
+          .map((argument) =>
+            expressionPlan(sourceFileForNode(argument, sourceFile), argument, context)
+          )
+          .filter(
+            (argument): argument is LoweringExpressionPlan =>
+              argument !== undefined
+          ),
+      };
+    })
+    .filter((plan): plan is LoweringAttributePlan => plan !== undefined);
+};
+
 const declarationPlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
@@ -3997,6 +4066,7 @@ const declarationPlan = (
     explicitReturnType,
     inferredReturnType
   );
+  const attributeTargetKind = declarationAttributeTargetKind(kind);
   return {
     ...planBase("declaration", sourceFile, node, context),
     declarationKind: kind,
@@ -4018,6 +4088,13 @@ const declarationPlan = (
     )
       ? "field"
       : undefined,
+    attributes: attributePlans(sourceFile, node, context, attributeTargetKind),
+    constructorAttributes: attributePlans(
+      sourceFile,
+      node,
+      context,
+      "constructor"
+    ),
     heritageTypes: runtimeHeritageTypeNodes(context, node)
       .map((heritage) => sourceTypePlan(context, sourceFile, heritage))
       .filter(

@@ -1,5 +1,5 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
-import type { ExtensionFactKeyLike } from "@tsonic/tsts";
+import type { ExtensionFactKeyLike, TstsNode } from "@tsonic/tsts";
 
 export type SourceSemanticFactKey<T> = ExtensionFactKeyLike<T>;
 
@@ -142,6 +142,38 @@ export type SourceBindingIdentityFact = {
   readonly topLevelStaticValue: boolean;
 };
 
+export type SourceAttributeTargetKind =
+  | "type"
+  | "constructor"
+  | "method"
+  | "property";
+
+export type SourceAttributeTargetSpecifier =
+  | "assembly"
+  | "module"
+  | "type"
+  | "method"
+  | "property"
+  | "field"
+  | "event"
+  | "param"
+  | "return";
+
+export type SourceAttributeDescriptorFact = {
+  readonly attributeType: TstsNode;
+  readonly arguments: readonly TstsNode[];
+};
+
+export type SourceAttributeApplicationFact =
+  SourceAttributeDescriptorFact & {
+    readonly targetKind: SourceAttributeTargetKind;
+    readonly targetSpecifier?: SourceAttributeTargetSpecifier;
+  };
+
+export type SourceAttributeApplicationsFact = {
+  readonly applications: readonly SourceAttributeApplicationFact[];
+};
+
 const defineSourceFactKey = <T>(
   id: string,
   description: string
@@ -225,6 +257,18 @@ export const sourceBindingIdentityFactKey =
     "Source-level binding declaration identity resolved by TSTS."
   );
 
+export const sourceAttributeDescriptorFactKey =
+  defineSourceFactKey<SourceAttributeDescriptorFact>(
+    "tsonic:source:attribute-descriptor",
+    "Source-level compile-time attribute descriptor created by attributes.attr."
+  );
+
+export const sourceAttributeApplicationsFactKey =
+  defineSourceFactKey<SourceAttributeApplicationsFact>(
+    "tsonic:source:attribute-applications",
+    "Source-level attribute applications attached to target declarations."
+  );
+
 export const visitSourceSemanticFactKeys = (
   visit: <T>(factKey: SourceSemanticFactKey<T>) => void
 ): void => {
@@ -241,4 +285,6 @@ export const visitSourceSemanticFactKeys = (
   visit(genericFunctionAliasFactKey);
   visit(intrinsicSemanticsFactKey);
   visit(sourceBindingIdentityFactKey);
+  visit(sourceAttributeDescriptorFactKey);
+  visit(sourceAttributeApplicationsFactKey);
 };

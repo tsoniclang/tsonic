@@ -1,4 +1,5 @@
 import type {
+  LoweringAttributePlan,
   LoweringDeclarationPlan,
   LoweringParameterPlan,
   LoweringStatementPlan,
@@ -26,6 +27,35 @@ const indent = (text: string, spaces: number): string => {
     .map((line) => (line.length === 0 ? line : `${prefix}${line}`))
     .join("\n");
 };
+
+const renderAttribute = (
+  attribute: LoweringAttributePlan,
+  context: RenderContext
+): string => {
+  const target = attribute.targetSpecifier
+    ? `${attribute.targetSpecifier}: `
+    : "";
+  const args =
+    attribute.arguments.length > 0
+      ? `(${attribute.arguments.map((argument) => renderExpression(argument, context)).join(", ")})`
+      : "";
+  return `[${target}${renderExpression(attribute.attributeType, context)}${args}]`;
+};
+
+const renderAttributes = (
+  attributes: readonly LoweringAttributePlan[],
+  context: RenderContext
+): string =>
+  attributes.map((attribute) => renderAttribute(attribute, context)).join("\n");
+
+const withAttributes = (
+  attributes: readonly LoweringAttributePlan[],
+  rendered: string,
+  context: RenderContext
+): string =>
+  attributes.length > 0
+    ? [renderAttributes(attributes, context), rendered].join("\n")
+    : rendered;
 
 const renderParameter = (
   parameter: LoweringParameterPlan,
@@ -150,10 +180,11 @@ const renderFunction = (
     effectiveReturnType.name === "Promise"
       ? effectiveReturnType.typeArguments[0]
       : effectiveReturnType;
-  return [
+  const rendered = [
     `${accessibility} ${staticModifier}${overrideModifier}${virtualModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
     renderFunctionBody(plan.body, context, bodyReturnType, plan.parameters),
   ].join("\n");
+  return withAttributes(plan.attributes, rendered, context);
   });
 };
 
@@ -184,19 +215,25 @@ const renderConstructor = (
           ...bodyLines.slice(1, -1),
           "}",
         ].join("\n");
-  return [
+  const rendered = [
     `${plan.accessibility} ${sanitizeTypeName(className)}(${parameters})${baseInitializer}`,
     bodyWithPrologue,
   ].join("\n");
+  return withAttributes(plan.attributes, rendered, context);
 };
 
 const renderSynthesizedConstructor = (
   className: string,
   parameters: readonly LoweringParameterPlan[],
   prologueStatements: readonly string[],
+  attributes: readonly LoweringAttributePlan[],
   context: RenderContext
 ): string | undefined => {
-  if (parameters.length === 0 && prologueStatements.length === 0) {
+  if (
+    parameters.length === 0 &&
+    prologueStatements.length === 0 &&
+    attributes.length === 0
+  ) {
     return undefined;
   }
   const renderedParameters = parameters
@@ -206,12 +243,13 @@ const renderSynthesizedConstructor = (
     parameters.length > 0
       ? ` : base(${parameters.map((parameter) => sanitizeIdentifier(parameter.name)).join(", ")})`
       : "";
-  return [
+  const rendered = [
     `public ${sanitizeTypeName(className)}(${renderedParameters})${baseInitializer}`,
     "{",
     ...prologueStatements.map((statement) => indent(statement, 4)),
     "}",
   ].join("\n");
+  return withAttributes(attributes, rendered, context);
 };
 
 const leadingSuperConstructorCall = (
@@ -257,9 +295,17 @@ const renderProperty = (
     context.overrideMemberAccessibility(heritageTypes, plan) ??
     plan.accessibility;
   if (plan.storageSemantics === "field") {
-    return `${accessibility} ${staticModifier}${type} ${sanitizeIdentifier(declarationName)}${initializer};`;
+    return withAttributes(
+      plan.attributes,
+      `${accessibility} ${staticModifier}${type} ${sanitizeIdentifier(declarationName)}${initializer};`,
+      context
+    );
   }
-  return `${accessibility} ${staticModifier}${overrideModifier}${type} ${sanitizeIdentifier(declarationName)} { get; set; }${initializer}${suffix}`;
+  return withAttributes(
+    plan.attributes,
+    `${accessibility} ${staticModifier}${overrideModifier}${type} ${sanitizeIdentifier(declarationName)} { get; set; }${initializer}${suffix}`,
+    context
+  );
 };
 
 const renderIndexSignature = (
@@ -388,10 +434,11 @@ const renderClass = (
           declarationName,
           plan.baseConstructorParameters,
           constructorPrologueStatements,
+          plan.constructorAttributes,
           context
         )
       : undefined;
-  return [
+  const rendered = [
     `public ${declarationKeyword} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}${heritageClause}`,
     "{",
     ...members
@@ -409,6 +456,7 @@ const renderClass = (
     ...(synthesizedConstructor ? [indent(synthesizedConstructor, 4)] : []),
     "}",
   ].join("\n");
+  return withAttributes(plan.attributes, rendered, context);
   });
 };
 
@@ -427,17 +475,29 @@ const renderInterfaceMember = (
       const parameters = plan.parameters
         .map((parameter) => renderParameter(parameter, context))
         .join(", ");
-      return `${renderCSharpType(plan.returnType, context)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
+      return withAttributes(
+        plan.attributes,
+        `${renderCSharpType(plan.returnType, context)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
+        context
+      );
     }
     case "property":
     case "get-accessor":
     case "set-accessor": {
       const name = requireDeclarationName(plan, context, "interface member");
       if (!name) return undefined;
-      return `${renderCSharpType(plan.returnType ?? plan.declaredTypePlan, context)} ${sanitizeIdentifier(name)} { get; set; }`;
+      return withAttributes(
+        plan.attributes,
+        `${renderCSharpType(plan.returnType ?? plan.declaredTypePlan, context)} ${sanitizeIdentifier(name)} { get; set; }`,
+        context
+      );
     }
     case "index-signature":
-      return renderIndexSignature(plan.parameters, plan.returnType, context, false);
+      return withAttributes(
+        plan.attributes,
+        renderIndexSignature(plan.parameters, plan.returnType, context, false),
+        context
+      );
     default:
       context.reportUnsupported(
         "interface member",
@@ -463,10 +523,14 @@ const renderInterface = (
     const parameters = callSignature.parameters
       .map((parameter) => renderParameter(parameter, context))
       .join(", ");
-    return `public delegate ${renderCSharpType(callSignature.returnType, context)} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
+    return withAttributes(
+      plan.attributes,
+      `public delegate ${renderCSharpType(callSignature.returnType, context)} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
+      context
+    );
   }
   if (plan.members.every(isPropertyLikeDeclaration)) {
-    return [
+    const rendered = [
       `public sealed class ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}`,
       "{",
       ...plan.members
@@ -475,8 +539,9 @@ const renderInterface = (
         .map((rendered) => indent(rendered, 4)),
       "}",
     ].join("\n");
+    return withAttributes(plan.attributes, rendered, context);
   }
-  return [
+  const rendered = [
     `public interface ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}`,
     "{",
     ...plan.members
@@ -485,6 +550,7 @@ const renderInterface = (
       .map((rendered) => indent(rendered, 4)),
     "}",
   ].join("\n");
+  return withAttributes(plan.attributes, rendered, context);
 };
 
 const renderEnum = (
@@ -493,7 +559,7 @@ const renderEnum = (
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "enum");
   if (!declarationName) return undefined;
-  return [
+  const rendered = [
     `public enum ${sanitizeTypeName(declarationName)}`,
     "{",
     ...plan.enumMembers.map((member, index) => {
@@ -505,6 +571,7 @@ const renderEnum = (
     }),
     "}",
   ].join("\n");
+  return withAttributes(plan.attributes, rendered, context);
 };
 
 const renderTypeMemberAlias = (
@@ -616,7 +683,11 @@ const renderTypeAlias = (
     const parameters = functionTarget.parameters
       .map((parameter) => renderParameter(parameter, context))
       .join(", ");
-    return `public delegate ${renderFunctionReturnType(functionTarget.returnType, false, context)} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
+    return withAttributes(
+      plan.attributes,
+      `public delegate ${renderFunctionReturnType(functionTarget.returnType, false, context)} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
+      context
+    );
   }
   const unionTarget =
     target?.kind === "union"
@@ -634,15 +705,16 @@ const renderTypeAlias = (
   if (target?.kind === "object") {
     const hasMethods = target.members.some((member) => member.kind === "method");
     if (hasMethods) {
-      return [
+      const rendered = [
         `public interface ${name}${renderTypeParameters(plan.typeParameters)}`,
         "{",
         ...target.members
           .map((member) => `    ${renderTypeMemberAlias(member, context, false)}`),
         "}",
       ].join("\n");
+      return withAttributes(plan.attributes, rendered, context);
     }
-    return [
+    const rendered = [
       `public sealed class ${name}${renderTypeParameters(plan.typeParameters)}`,
       "{",
       ...target.members.map(
@@ -650,6 +722,7 @@ const renderTypeAlias = (
       ),
       "}",
     ].join("\n");
+    return withAttributes(plan.attributes, rendered, context);
   }
   return undefined;
 };
@@ -678,7 +751,7 @@ const renderVariable = (
       initializer.async ?? false,
       context
     );
-    return [
+    const rendered = [
       `public delegate ${returnType} ${delegateName}(${parameters});`,
       `public static ${delegateName} ${sanitizeIdentifier(declarationName)} = ${renderExpressionWithUseSiteCast(
         initializer,
@@ -686,15 +759,20 @@ const renderVariable = (
         plan.returnType ?? plan.declaredTypePlan
       )};`,
     ].join("\n");
+    return withAttributes(plan.attributes, rendered, context);
   }
-  return renderStaticField(
-    {
-      sourceNode: plan.sourceNode,
-      name: declarationName,
-      type: plan.returnType ?? plan.declaredTypePlan,
-      initializer: plan.initializer,
-      bindingElements: [],
-    },
+  return withAttributes(
+    plan.attributes,
+    renderStaticField(
+      {
+        sourceNode: plan.sourceNode,
+        name: declarationName,
+        type: plan.returnType ?? plan.declaredTypePlan,
+        initializer: plan.initializer,
+        bindingElements: [],
+      },
+      context
+    ),
     context
   );
 };

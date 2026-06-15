@@ -34,6 +34,10 @@ import type {
   MarkerApiSemanticsFact,
   ParameterPassingFact,
   ParameterPassingMode,
+  SourceAttributeApplicationFact,
+  SourceAttributeDescriptorFact,
+  SourceAttributeTargetKind,
+  SourceAttributeTargetSpecifier,
   SourceBindingDeclarationKind,
   SourceBindingIdentityFact,
   SourceRuntimeOperationOwner,
@@ -52,6 +56,8 @@ import {
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
   parameterPassingFactKey,
+  sourceAttributeApplicationsFactKey,
+  sourceAttributeDescriptorFactKey,
   sourceBindingIdentityFactKey,
   sourceRuntimeOperationFactKey,
   sourceTypeSemanticsFactKey,
@@ -1223,6 +1229,369 @@ const isCompileTimeMarkerApiExpression = (
   }
 };
 
+type AttributeBuilderTarget = {
+  readonly targetKind: SourceAttributeTargetKind;
+  readonly declaration: TstsNode;
+  readonly targetSpecifier?: SourceAttributeTargetSpecifier;
+};
+
+const unwrapParenthesizedExpression = (
+  node: TstsNode | undefined
+): TstsNode | undefined => {
+  let current = node;
+  while (current?.Kind === TstsSyntax.KindParenthesizedExpression) {
+    current = TstsSyntax.Node_Expression(current);
+  }
+  return current;
+};
+
+const isImportedCoreLangIdentifier = (
+  node: TstsNode | undefined,
+  coreLangBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >,
+  importedName: string
+): boolean => {
+  const identifier = getTstsIdentifierText(node);
+  return (
+    identifier !== undefined &&
+    coreLangBindingByLocalName.get(identifier)?.importedName === importedName
+  );
+};
+
+const isAttributesRootCall = (
+  node: TstsNode | undefined,
+  coreLangBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): boolean => {
+  const call = getTstsCallExpressionDetails(node);
+  return (
+    call !== undefined &&
+    call.calleeName !== undefined &&
+    coreLangBindingByLocalName.get(call.calleeName)?.importedName ===
+      "attributes"
+  );
+};
+
+const attributeTypeTargetDeclaration = (
+  context: CheckedContext,
+  typeNode: TstsNode | undefined
+): TstsNode | undefined => {
+  if (!typeNode) return undefined;
+  const directSymbol = context.checker.getSymbolAtLocation(typeNode);
+  const type = context.checker.getTypeFromTypeNode(typeNode);
+  const typeSymbol = type ? context.checker.getTypeAliasOrSymbol(type) : undefined;
+  const symbol = directSymbol
+    ? context.checker.resolveAlias(directSymbol)
+    : typeSymbol;
+  return symbol
+    ? context.checker
+        .getSymbolDeclarations(symbol)
+        .find(
+          (declaration): declaration is TstsNode =>
+            declaration !== undefined &&
+            [
+              TstsSyntax.KindClassDeclaration,
+              TstsSyntax.KindInterfaceDeclaration,
+              TstsSyntax.KindEnumDeclaration,
+              TstsSyntax.KindTypeAliasDeclaration,
+            ].includes(declaration.Kind)
+        )
+    : undefined;
+};
+
+const constructorDeclarationForType = (
+  declaration: TstsNode
+): TstsNode | undefined =>
+  (TstsSyntax.Node_Members(declaration) ?? []).find(
+    (member): member is TstsNode =>
+      member !== undefined && member.Kind === TstsSyntax.KindConstructor
+  );
+
+const memberDeclarationByName = (
+  owner: TstsNode,
+  name: string,
+  targetKind: Extract<SourceAttributeTargetKind, "method" | "property">
+): TstsNode | undefined =>
+  (TstsSyntax.Node_Members(owner) ?? []).find((member): member is TstsNode => {
+    if (!member || getTstsNodeNameText(member) !== name) return false;
+    return targetKind === "method"
+      ? member.Kind === TstsSyntax.KindMethodDeclaration
+      : [
+          TstsSyntax.KindPropertyDeclaration,
+          TstsSyntax.KindGetAccessor,
+          TstsSyntax.KindSetAccessor,
+        ].includes(member.Kind);
+  });
+
+const selectedMemberDeclaration = (
+  context: CheckedContext,
+  owner: TstsNode,
+  selector: TstsNode | undefined,
+  targetKind: Extract<SourceAttributeTargetKind, "method" | "property">
+): TstsNode | undefined => {
+  if (!selector || selector.Kind !== TstsSyntax.KindArrowFunction) {
+    return undefined;
+  }
+  const body = unwrapParenthesizedExpression(TstsSyntax.Node_Body(selector));
+  if (body?.Kind !== TstsSyntax.KindPropertyAccessExpression) return undefined;
+  const name = TstsSyntax.Node_Name(body);
+  const symbol = symbolForName(context, name);
+  const declaration = symbol
+    ? context.checker
+        .getSymbolDeclarations(symbol)
+        .find((candidate): candidate is TstsNode => candidate !== undefined)
+    : undefined;
+  return (
+    declaration ??
+    memberDeclarationByName(
+      owner,
+      getTstsIdentifierText(name) ?? "",
+      targetKind
+    )
+  );
+};
+
+const attributeTargetSpecifier = (
+  context: CheckedContext,
+  node: TstsNode | undefined
+): SourceAttributeTargetSpecifier | undefined => {
+  const expression = unwrapParenthesizedExpression(node);
+  if (!expression) return undefined;
+  if (expression.Kind === TstsSyntax.KindStringLiteral) {
+    const text = TstsSyntax.AsStringLiteral(expression)?.Text;
+    return isSourceAttributeTargetSpecifier(text) ? text : undefined;
+  }
+  if (expression.Kind !== TstsSyntax.KindPropertyAccessExpression) {
+    return undefined;
+  }
+  const receiver = TstsSyntax.Node_Expression(expression);
+  const marker = receiver
+    ? context.facts.get(markerApiSemanticsFactKey, receiver)
+    : undefined;
+  if (marker?.kind !== "attribute-targets") return undefined;
+  const text = getTstsIdentifierText(TstsSyntax.Node_Name(expression));
+  return isSourceAttributeTargetSpecifier(text) ? text : undefined;
+};
+
+const isSourceAttributeTargetSpecifier = (
+  value: string | undefined
+): value is SourceAttributeTargetSpecifier =>
+  value === "assembly" ||
+  value === "module" ||
+  value === "type" ||
+  value === "method" ||
+  value === "property" ||
+  value === "field" ||
+  value === "event" ||
+  value === "param" ||
+  value === "return";
+
+const parseAttributeBuilderTarget = (
+  context: CheckedContext,
+  node: TstsNode | undefined,
+  coreLangBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): AttributeBuilderTarget | undefined => {
+  const expression = unwrapParenthesizedExpression(node);
+  if (!expression) return undefined;
+
+  if (isAttributesRootCall(expression, coreLangBindingByLocalName)) {
+    const typeArgument = getTstsTypeArguments(expression)[0];
+    const declaration = attributeTypeTargetDeclaration(context, typeArgument);
+    return declaration ? { targetKind: "type", declaration } : undefined;
+  }
+
+  if (expression.Kind === TstsSyntax.KindPropertyAccessExpression) {
+    const memberName = getTstsIdentifierText(TstsSyntax.Node_Name(expression));
+    const base = parseAttributeBuilderTarget(
+      context,
+      TstsSyntax.Node_Expression(expression),
+      coreLangBindingByLocalName
+    );
+    if (memberName === "ctor" && base) {
+      return {
+        targetKind: "constructor",
+        declaration: constructorDeclarationForType(base.declaration) ?? base.declaration,
+        targetSpecifier: base.targetSpecifier,
+      };
+    }
+    return base;
+  }
+
+  if (expression.Kind !== TstsSyntax.KindCallExpression) return undefined;
+  const callee = TstsSyntax.Node_Expression(expression);
+  if (callee?.Kind !== TstsSyntax.KindPropertyAccessExpression) {
+    return undefined;
+  }
+  const memberName = getTstsIdentifierText(TstsSyntax.Node_Name(callee));
+  const base = parseAttributeBuilderTarget(
+    context,
+    TstsSyntax.Node_Expression(callee),
+    coreLangBindingByLocalName
+  );
+  if (!base) return undefined;
+
+  const args = TstsSyntax.Node_Arguments(expression) ?? [];
+  if (memberName === "target") {
+    return {
+      ...base,
+      targetSpecifier: attributeTargetSpecifier(context, args[0]),
+    };
+  }
+  if (memberName === "method" || memberName === "prop") {
+    const targetKind = memberName === "method" ? "method" : "property";
+    const declaration = selectedMemberDeclaration(
+      context,
+      base.declaration,
+      args[0],
+      targetKind
+    );
+    return declaration
+      ? {
+          targetKind,
+          declaration,
+          targetSpecifier: base.targetSpecifier,
+        }
+      : undefined;
+  }
+  return undefined;
+};
+
+const isAttributesAttrCall = (
+  node: TstsNode,
+  coreLangBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): boolean => {
+  if (node.Kind !== TstsSyntax.KindCallExpression) return false;
+  const callee = TstsSyntax.Node_Expression(node);
+  if (callee?.Kind !== TstsSyntax.KindPropertyAccessExpression) return false;
+  if (getTstsIdentifierText(TstsSyntax.Node_Name(callee)) !== "attr") {
+    return false;
+  }
+  return isImportedCoreLangIdentifier(
+    TstsSyntax.Node_Expression(callee),
+    coreLangBindingByLocalName,
+    "attributes"
+  );
+};
+
+const attributeDescriptorForExpression = (
+  context: CheckedContext,
+  node: TstsNode | undefined
+): SourceAttributeDescriptorFact | undefined => {
+  if (!node) return undefined;
+  const direct = context.facts.get(sourceAttributeDescriptorFactKey, node);
+  if (direct) return direct;
+  const symbol = symbolForName(context, node);
+  const declarations = symbol ? context.checker.getSymbolDeclarations(symbol) : [];
+  for (const declaration of declarations) {
+    if (!declaration) continue;
+    const declared = context.facts.get(
+      sourceAttributeDescriptorFactKey,
+      declaration
+    );
+    if (declared) return declared;
+    const initializer = TstsSyntax.Node_Initializer(declaration);
+    const initialized = initializer
+      ? context.facts.get(sourceAttributeDescriptorFactKey, initializer)
+      : undefined;
+    if (initialized) return initialized;
+  }
+  return undefined;
+};
+
+const appendAttributeApplicationFact = (
+  context: CheckedContext,
+  target: TstsNode,
+  application: SourceAttributeApplicationFact
+): void => {
+  const existing =
+    context.facts.get(sourceAttributeApplicationsFactKey, target)
+      ?.applications ?? [];
+  context.facts.set(sourceAttributeApplicationsFactKey, target, {
+    applications: [...existing, application],
+  });
+};
+
+const collectAttributeDescriptorFacts = (
+  context: CheckedContext,
+  coreLangBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): void => {
+  visitTstsSubtree(context.sourceFile, (node): void => {
+    if (!node || !isAttributesAttrCall(node, coreLangBindingByLocalName)) {
+      return;
+    }
+    const args = TstsSyntax.Node_Arguments(node) ?? [];
+    const attributeType = args[0];
+    if (!attributeType) return;
+    const descriptor: SourceAttributeDescriptorFact = {
+      attributeType,
+      arguments: args.slice(1).filter((arg): arg is TstsNode => arg !== undefined),
+    };
+    context.facts.set(sourceAttributeDescriptorFactKey, node, descriptor);
+    if (
+      node.Parent?.Kind === TstsSyntax.KindVariableDeclaration &&
+      TstsSyntax.Node_Initializer(node.Parent) === node
+    ) {
+      context.facts.set(
+        sourceAttributeDescriptorFactKey,
+        node.Parent,
+        descriptor
+      );
+      const name = TstsSyntax.Node_Name(node.Parent);
+      if (name) {
+        context.facts.set(sourceAttributeDescriptorFactKey, name, descriptor);
+      }
+    }
+  });
+};
+
+const collectAttributeApplicationFacts = (
+  context: CheckedContext,
+  coreLangBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): void => {
+  visitTstsSubtree(context.sourceFile, (node): void => {
+    if (!node || node.Kind !== TstsSyntax.KindCallExpression) return;
+    const callee = TstsSyntax.Node_Expression(node);
+    if (callee?.Kind !== TstsSyntax.KindPropertyAccessExpression) return;
+    if (getTstsIdentifierText(TstsSyntax.Node_Name(callee)) !== "add") {
+      return;
+    }
+    const target = parseAttributeBuilderTarget(
+      context,
+      TstsSyntax.Node_Expression(callee),
+      coreLangBindingByLocalName
+    );
+    if (!target) return;
+    const args = TstsSyntax.Node_Arguments(node) ?? [];
+    const firstArg = args[0];
+    if (!firstArg) return;
+    const descriptor = attributeDescriptorForExpression(context, firstArg) ?? {
+      attributeType: firstArg,
+      arguments: args.slice(1).filter((arg): arg is TstsNode => arg !== undefined),
+    };
+    appendAttributeApplicationFact(context, target.declaration, {
+      ...descriptor,
+      targetKind: target.targetKind,
+      targetSpecifier: target.targetSpecifier,
+    });
+  });
+};
+
 export type TsonicSourceSemanticsExtensionOptions = {
   readonly sourceDiagnosticFileNames?: readonly string[];
 };
@@ -1511,6 +1880,9 @@ export const createTsonicSourceSemanticsExtension = (
         resolvedName: context.checker.getSymbolName(targetSymbol),
       });
     }
+
+    collectAttributeDescriptorFacts(context, coreLangBindingByLocalName);
+    collectAttributeApplicationFacts(context, coreLangBindingByLocalName);
 
     visitTstsSubtree(context.sourceFile, (node): void => {
       if (!node) return;

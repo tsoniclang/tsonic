@@ -133,6 +133,14 @@ const collectDeclarationExpressions = (
   ...declaration.parameters.flatMap((parameter) =>
     collectExpressionExpressions(parameter.initializer)
   ),
+  ...declaration.attributes.flatMap((attribute) => [
+    ...collectExpressionExpressions(attribute.attributeType),
+    ...attribute.arguments.flatMap(collectExpressionExpressions),
+  ]),
+  ...declaration.constructorAttributes.flatMap((attribute) => [
+    ...collectExpressionExpressions(attribute.attributeType),
+    ...attribute.arguments.flatMap(collectExpressionExpressions),
+  ]),
   ...collectStatementExpressions(declaration.body),
   ...declaration.members.flatMap(collectDeclarationExpressions),
   ...declaration.enumMembers.flatMap((member) =>
@@ -324,5 +332,87 @@ describe("TSTS-backed lowering plan builders", () => {
     ).to.equal(undefined);
     expect(service?.heritageTypes).to.deep.equal([]);
     expect(inc?.parameters[0]?.extensionReceiver).to.equal(true);
+  });
+
+  it("projects attribute source facts into declaration plans", () => {
+    const result = lowerFiles(
+      {
+        "node_modules/@tsonic/core/lang.js": [
+          "export const attributes = undefined;",
+          "export const AttributeTargets = undefined;",
+          "",
+        ].join("\n"),
+        "node_modules/@tsonic/core/lang.d.ts": [
+          "export type AttributeTarget = 'field' | 'return';",
+          "export interface AttributeTargets { readonly return: 'return'; }",
+          "export declare const AttributeTargets: AttributeTargets;",
+          "export interface AttributeTargetBuilder {",
+          "  target(target: AttributeTarget): AttributeTargetBuilder;",
+          "  add(attributeType: unknown, ...args: readonly unknown[]): void;",
+          "}",
+          "export interface TypeAttributeBuilder<T> extends AttributeTargetBuilder {",
+          "  readonly ctor: AttributeTargetBuilder;",
+          "  method<TMember>(selector: (value: T) => TMember): AttributeTargetBuilder;",
+          "  prop<TMember>(selector: (value: T) => TMember): AttributeTargetBuilder;",
+          "}",
+          "export interface AttributesApi {",
+          "  <T>(): TypeAttributeBuilder<T>; ",
+          "  attr(attributeType: unknown, ...args: readonly unknown[]): unknown;",
+          "}",
+          "export declare const attributes: AttributesApi;",
+          "",
+        ].join("\n"),
+        "index.ts": `
+          import { attributes as A, AttributeTargets } from "@tsonic/core/lang.js";
+
+          class ObsoleteAttribute { constructor(message?: string) { void message; } }
+          class SerializableAttribute {}
+
+          export class User {
+            name: string = "";
+            constructor() {}
+            save(): string { return this.name; }
+          }
+
+          export class NoCtor {}
+
+          const descriptor = A.attr(SerializableAttribute, "type");
+          A<User>().add(descriptor);
+          A<User>().ctor.add(ObsoleteAttribute, "ctor");
+          A<User>().method((u) => u.save).target(AttributeTargets.return).add(ObsoleteAttribute, "method");
+          A<User>().prop((u) => u.name).target("field").add(ObsoleteAttribute, "prop");
+          A<NoCtor>().ctor.add(ObsoleteAttribute, "implicit");
+        `,
+      },
+      "index.ts"
+    );
+
+    const [module] = result.modules;
+    const user = module?.declarations.find(
+      (declaration) => declaration.name === "User"
+    );
+    const noCtor = module?.declarations.find(
+      (declaration) => declaration.name === "NoCtor"
+    );
+    const constructor = user?.members.find(
+      (member) => member.declarationKind === "constructor"
+    );
+    const method = user?.members.find((member) => member.name === "save");
+    const property = user?.members.find((member) => member.name === "name");
+
+    expect(user?.attributes[0]?.attributeType.literalText).to.equal(
+      "SerializableAttribute"
+    );
+    expect(user?.attributes[0]?.arguments[0]?.literalText).to.equal("type");
+    expect(constructor?.attributes[0]?.arguments[0]?.literalText).to.equal(
+      "ctor"
+    );
+    expect(method?.attributes[0]?.targetSpecifier).to.equal("return");
+    expect(method?.attributes[0]?.arguments[0]?.literalText).to.equal("method");
+    expect(property?.attributes[0]?.targetSpecifier).to.equal("field");
+    expect(property?.attributes[0]?.arguments[0]?.literalText).to.equal("prop");
+    expect(noCtor?.constructorAttributes[0]?.arguments[0]?.literalText).to.equal(
+      "implicit"
+    );
   });
 });

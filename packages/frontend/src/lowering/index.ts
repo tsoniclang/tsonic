@@ -1,5 +1,6 @@
 export type {
   BackendTargetId,
+  LoweringAttributePlan,
   LoweringBinaryOperator,
   LoweringBindingAccessPlan,
   LoweringBindingElementPlan,

@@ -16,6 +16,7 @@ import type {
   IntrinsicSemanticsFact,
   NumericPrimitiveFact,
   ParameterPassingMode,
+  SourceAttributeTargetSpecifier,
   SourceTypeSemanticsFact,
   SourceRuntimeOperationFact,
 } from "../source-frontend/source-facts.js";
@@ -235,6 +236,12 @@ export type LoweringEnumMemberPlan = {
   readonly initializer?: LoweringExpressionPlan;
 };
 
+export type LoweringAttributePlan = {
+  readonly targetSpecifier: SourceAttributeTargetSpecifier | undefined;
+  readonly attributeType: LoweringExpressionPlan;
+  readonly arguments: readonly LoweringExpressionPlan[];
+};
+
 export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
   readonly declarationKind:
     | "class"
@@ -259,6 +266,8 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
   readonly heritageTypes: readonly LoweringTypeRefPlan[];
   readonly sourceTypeKind?: SourceTypeSemanticsFact["kind"];
   readonly storageSemantics?: FieldSemanticsFact["storage"];
+  readonly attributes: readonly LoweringAttributePlan[];
+  readonly constructorAttributes: readonly LoweringAttributePlan[];
   readonly baseConstructorParameters: readonly LoweringParameterPlan[];
   readonly parameters: readonly LoweringParameterPlan[];
   readonly typeParameters: readonly string[];

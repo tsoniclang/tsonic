@@ -52,6 +52,8 @@ const declarationPlan = (
   nameIsComputed: false,
   declarationKind: "unknown",
   heritageTypes: [],
+  attributes: [],
+  constructorAttributes: [],
   baseConstructorParameters: [],
   parameters: [],
   typeParameters: [],
@@ -102,6 +104,23 @@ const statementPlan = (
   declarations: [],
   ...overrides,
 });
+
+const attributeTypeExpression = (
+  namespace: string,
+  name: string
+): LoweringExpressionPlan =>
+  expressionPlan({
+    expressionKind: "identifier",
+    literalText: name,
+    sourceRuntimeName: { namespace, name },
+  });
+
+const stringLiteralExpression = (value: string): LoweringExpressionPlan =>
+  expressionPlan({
+    expressionKind: "literal",
+    literalKind: "string",
+    literalText: value,
+  });
 
 describe("C# module renderer", () => {
   it("collects structural helper types through named alias targets", () => {
@@ -258,6 +277,102 @@ describe("C# module renderer", () => {
     expect(result.ok).to.equal(true);
     if (result.ok) {
       expect(result.code).to.contain("public static int inc(this int value)");
+    }
+  });
+
+  it("renders attributes from lowering plan facts", () => {
+    const module: CSharpLoweringModulePlan = {
+      kind: "lowering-module",
+      backendTargetId: "csharp",
+      identity: {
+        filePath: "/src/index.ts",
+        className: "Index",
+        namespace: "Example",
+      },
+      sourceFile: dummySourceFile,
+      sourceModule: dummySourceModule,
+      imports: [],
+      exports: [],
+      declarations: [
+        declarationPlan({
+          declarationKind: "class",
+          name: "User",
+          attributes: [
+            {
+              targetSpecifier: undefined,
+              attributeType: attributeTypeExpression(
+                "System",
+                "SerializableAttribute"
+              ),
+              arguments: [],
+            },
+          ],
+          constructorAttributes: [
+            {
+              targetSpecifier: undefined,
+              attributeType: attributeTypeExpression(
+                "System",
+                "ObsoleteAttribute"
+              ),
+              arguments: [stringLiteralExpression("implicit")],
+            },
+          ],
+          members: [
+            declarationPlan({
+              declarationKind: "property",
+              name: "name",
+              returnType: { kind: "intrinsic", name: "string" },
+              attributes: [
+                {
+                  targetSpecifier: "field",
+                  attributeType: attributeTypeExpression(
+                    "System",
+                    "NonSerializedAttribute"
+                  ),
+                  arguments: [],
+                },
+              ],
+            }),
+            declarationPlan({
+              declarationKind: "method",
+              name: "save",
+              returnType: { kind: "intrinsic", name: "string" },
+              attributes: [
+                {
+                  targetSpecifier: "return",
+                  attributeType: attributeTypeExpression(
+                    "System",
+                    "ObsoleteAttribute"
+                  ),
+                  arguments: [stringLiteralExpression("method")],
+                },
+              ],
+              body: statementPlan({
+                statementKind: "return",
+                expression: stringLiteralExpression("ok"),
+              }),
+            }),
+          ],
+        }),
+      ],
+      topLevelStatements: [],
+      types: [],
+      statements: [],
+      expressions: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result.ok).to.equal(true);
+    if (result.ok) {
+      expect(result.code).to.contain("[global::System.SerializableAttribute]");
+      expect(result.code).to.contain("[field: global::System.NonSerializedAttribute]");
+      expect(result.code).to.contain(
+        '[return: global::System.ObsoleteAttribute("method")]'
+      );
+      expect(result.code).to.contain(
+        '[global::System.ObsoleteAttribute("implicit")]'
+      );
     }
   });
 });
