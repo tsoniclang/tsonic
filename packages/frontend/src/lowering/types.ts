@@ -4,7 +4,6 @@ import type {
   ExtensionModuleGraph,
   ExtensionModuleImport,
   ExtensionSourceModule,
-  ExtensionTypeChecker,
   TstsNode,
   TstsSourceFile,
 } from "@tsonic/tsts";
@@ -501,8 +500,5 @@ export type LoweringPipelineResult<
 export type LoweringBuildContext = {
   readonly input: LoweringInput;
   readonly options: LoweringPipelineOptions;
-  readonly checkerForSourceFile: (
-    sourceFile: TstsSourceFile
-  ) => ExtensionTypeChecker;
   readonly diagnostics: readonly Diagnostic[];
 };

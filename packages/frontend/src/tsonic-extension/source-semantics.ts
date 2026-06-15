@@ -70,6 +70,7 @@ import {
   genericFunctionAliasFactKey,
   intrinsicSemanticsFactKey,
   markerApiSemanticsFactKey,
+  numericPrimitiveFactKey,
   parameterPassingFactKey,
   sourceAttributeApplicationsFactKey,
   sourceAttributeDescriptorFactKey,
@@ -84,6 +85,7 @@ import {
   sourceOverloadCallImplementationFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
+  sourceTypeNodeProjectionFactKey,
   sourceTypeSemanticsFactKey,
   extensionReceiverSemanticsFactKey,
   heritageWrapperSemanticsFactKey,
@@ -1235,6 +1237,8 @@ const projectedTypeKey = (type: SourceBindingProjectedType): string => {
       return `node:${type.node.Kind}:${getTstsNodeText(type.node) ?? getTstsNodeNameText(type.node) ?? ""}`;
     case "intrinsic":
       return `intrinsic:${type.name}`;
+    case "source-primitive":
+      return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
       return `named:${type.name}<${type.typeArguments.map(projectedTypeKey).join(",")}>:${type.declarationKind ?? ""}:${type.aliasTarget ? projectedTypeKey(type.aliasTarget) : ""}`;
     case "record":
@@ -1293,6 +1297,41 @@ const sourceTypeParameterNames = (node: TstsNode): readonly string[] =>
     .map((typeParameter) => getTstsNodeNameText(typeParameter))
     .filter((name): name is string => name !== undefined);
 
+const intrinsicProjectionFromTypeNode = (
+  node: TstsNode
+): SourceBindingProjectedType | undefined => {
+  switch (node.Kind) {
+    case TstsSyntax.KindAnyKeyword:
+      return intrinsicProjection("any");
+    case TstsSyntax.KindUnknownKeyword:
+      return intrinsicProjection("unknown");
+    case TstsSyntax.KindVoidKeyword:
+      return intrinsicProjection("void");
+    case TstsSyntax.KindNeverKeyword:
+      return intrinsicProjection("never");
+    case TstsSyntax.KindUndefinedKeyword:
+      return intrinsicProjection("undefined");
+    case TstsSyntax.KindNullKeyword:
+      return intrinsicProjection("null");
+    case TstsSyntax.KindStringKeyword:
+      return intrinsicProjection("string");
+    case TstsSyntax.KindNumberKeyword:
+      return intrinsicProjection("number");
+    case TstsSyntax.KindBooleanKeyword:
+      return intrinsicProjection("boolean");
+    case TstsSyntax.KindBigIntKeyword:
+      return intrinsicProjection("bigint");
+    case TstsSyntax.KindSymbolKeyword:
+      return intrinsicProjection("symbol");
+    case TstsSyntax.KindObjectKeyword:
+      return intrinsicProjection("object");
+    case TstsSyntax.KindThisType:
+      return intrinsicProjection("this");
+    default:
+      return undefined;
+  }
+};
+
 const mergeTypeReferenceSubstitutions = (
   context: CheckedContext,
   typeReferenceNode: TstsNode,
@@ -1330,6 +1369,10 @@ const projectedTypeFromTypeNode = (
   if (typeReference && typeReference.typeArguments.length === 0) {
     const replacement = substitutions.get(typeReference.name);
     if (replacement) return replacement;
+  }
+  const numericPrimitive = context.facts.get(numericPrimitiveFactKey, node);
+  if (numericPrimitive) {
+    return { kind: "source-primitive", fact: numericPrimitive, sourceNode: node };
   }
   if (seen.has(node)) return undefined;
   seen.add(node);
@@ -1414,8 +1457,63 @@ const projectedTypeFromTypeNode = (
           node
         );
       }
+      case TstsSyntax.KindTypeReference:
+      case TstsSyntax.KindExpressionWithTypeArguments:
+        return projectedNamedTypeFromTypeReference(
+          context,
+          node,
+          typeReference,
+          substitutions,
+          seen
+        );
+      case TstsSyntax.KindFunctionType:
+      case TstsSyntax.KindConstructorType:
+        return {
+          kind: "function",
+          parameters: getTstsParameters(node)
+            .map((parameter) => sourceParameterTypeProjection(context, parameter))
+            .filter(
+              (parameter): parameter is SourceParameterTypeProjection =>
+                parameter !== undefined
+            ),
+          returnType: projectedTypeFromTypeNode(
+            context,
+            TstsSyntax.Node_Type(node),
+            substitutions,
+            seen
+          ),
+          typeParameters: sourceTypeParameterNames(node),
+          sourceNode: node,
+        };
+      case TstsSyntax.KindTypeLiteral:
+        return {
+          kind: "object",
+          members: (TstsSyntax.Node_Members(node) ?? [])
+            .filter((member): member is TstsNode => member !== undefined)
+            .map((member) => ({
+              name: getTstsNodeNameText(member) ?? "",
+              optional: TstsSyntax.Node_QuestionToken(member) !== undefined,
+              type: projectedTypeFromMemberDeclaration(
+                context,
+                member,
+                substitutions,
+                seen
+              ),
+            }))
+            .filter((member) => member.name.length > 0),
+          sourceNode: node,
+        };
+      case TstsSyntax.KindIndexedAccessType:
+      case TstsSyntax.KindTypeQuery:
+      case TstsSyntax.KindConditionalType:
+      case TstsSyntax.KindMappedType:
+      case TstsSyntax.KindImportType:
+      case TstsSyntax.KindInferType:
+      case TstsSyntax.KindOptionalType:
+      case TstsSyntax.KindRestType:
+        return checkerTypeProjection(context, context.checker.getTypeFromTypeNode(node));
       default:
-        return { kind: "type-node", node };
+        return intrinsicProjectionFromTypeNode(node) ?? { kind: "type-node", node };
     }
   } finally {
     seen.delete(node);
@@ -1688,6 +1786,7 @@ const projectSourceBindingTypeBySegment = (
         seen.delete(type.node);
       }
     case "intrinsic":
+    case "source-primitive":
       return [];
     case "named": {
       const viaAlias = type.aliasTarget
@@ -1839,6 +1938,21 @@ const isSourceExpressionProjectionNode = (node: TstsNode): boolean => {
   return true;
 };
 
+const sourceTypeProjectionKinds = new Set([
+  TstsSyntax.KindConditionalType,
+  TstsSyntax.KindImportType,
+  TstsSyntax.KindIndexedAccessType,
+  TstsSyntax.KindInferType,
+  TstsSyntax.KindMappedType,
+  TstsSyntax.KindOptionalType,
+  TstsSyntax.KindRestType,
+  TstsSyntax.KindTypePredicate,
+  TstsSyntax.KindTypeQuery,
+]);
+
+const isSourceTypeProjectionNode = (node: TstsNode): boolean =>
+  sourceTypeProjectionKinds.has(node.Kind);
+
 type CheckerTypeProjectionState = {
   readonly types: Set<TstsType>;
 };
@@ -1883,6 +1997,74 @@ const projectedTypeDeclarationForSymbol = (
   );
 };
 
+const projectedNamedTypeFromTypeReference = (
+  context: CheckedContext,
+  node: TstsNode,
+  typeReference:
+    | ReturnType<typeof getTstsTypeReferenceDetails>
+    | undefined,
+  substitutions: SourceTypeSubstitutionMap,
+  seen: Set<TstsNode>
+): SourceBindingProjectedType | undefined => {
+  if (!typeReference) return undefined;
+  const typeArguments = typeReference.typeArguments
+    .map((argument) =>
+      projectedTypeFromTypeNode(context, argument, substitutions, seen)
+    )
+    .filter(
+      (argument): argument is SourceBindingProjectedType =>
+        argument !== undefined
+    );
+
+  if (
+    typeArguments.length === 1 &&
+    (typeReference.name === "Array" || typeReference.name === "ReadonlyArray")
+  ) {
+    return {
+      kind: "array",
+      elementType: typeArguments[0]!,
+      readonly: typeReference.name === "ReadonlyArray",
+      sourceNode: node,
+    };
+  }
+
+  const symbol = symbolForTypeReference(context, node);
+  const resolved = symbol ? context.checker.resolveAlias(symbol) : undefined;
+  const declaration = projectedTypeDeclarationForSymbol(context, resolved);
+  const [recordKeyType, recordValueType] = typeArguments;
+  if (
+    declaration &&
+    context.facts.has(sourceDictionaryTypeFactKey, declaration) &&
+    recordKeyType &&
+    recordValueType
+  ) {
+    return {
+      kind: "record",
+      keyType: recordKeyType,
+      valueType: recordValueType,
+      sourceNode: node,
+    };
+  }
+
+  return {
+    kind: "named",
+    name: typeReference.name,
+    typeArguments,
+    declaration,
+    declarationKind: sourceProjectedDeclarationKind(declaration),
+    aliasTarget: checkerTypeAliasTargetProjection(
+      context,
+      declaration,
+      typeArguments,
+      seen
+    ),
+    runtimeVisibility: declaration
+      ? context.facts.get(sourceRuntimeVisibilityFactKey, declaration)?.visibility
+      : undefined,
+    sourceNode: node,
+  };
+};
+
 const checkerSignatureProjection = (
   context: CheckedContext,
   signature: TstsSignature,
@@ -1922,7 +2104,8 @@ const checkerSignatureProjection = (
 const checkerTypeAliasTargetProjection = (
   context: CheckedContext,
   declaration: TstsNode | undefined,
-  typeArguments: readonly SourceBindingProjectedType[]
+  typeArguments: readonly SourceBindingProjectedType[],
+  seen: Set<TstsNode> = new Set()
 ): SourceBindingProjectedType | undefined => {
   if (declaration?.Kind !== TstsSyntax.KindTypeAliasDeclaration) {
     return undefined;
@@ -1934,7 +2117,7 @@ const checkerTypeAliasTargetProjection = (
     const argument = typeArguments[index];
     if (argument) substitutions.set(parameter, argument);
   });
-  return projectedTypeFromTypeNode(context, target, substitutions);
+  return projectedTypeFromTypeNode(context, target, substitutions, seen);
 };
 
 const checkerTypeProjection = (
@@ -2089,6 +2272,57 @@ const containsTupleProjection = (type: SourceBindingProjectedType): boolean => {
     case "intersection":
       return type.types.some(containsTupleProjection);
     default:
+      return false;
+  }
+};
+
+const containsTypeParameterProjection = (
+  type: SourceBindingProjectedType | undefined,
+  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
+): boolean => {
+  if (!type || seen.has(type)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+  switch (type.kind) {
+    case "named":
+      return (
+        type.declarationKind === "type-parameter" ||
+        type.typeArguments.some((argument) =>
+          containsTypeParameterProjection(argument, nextSeen)
+        ) ||
+        containsTypeParameterProjection(type.aliasTarget, nextSeen)
+      );
+    case "record":
+      return (
+        containsTypeParameterProjection(type.keyType, nextSeen) ||
+        containsTypeParameterProjection(type.valueType, nextSeen)
+      );
+    case "function":
+      return (
+        type.typeParameters.length > 0 ||
+        type.parameters.some((parameter) =>
+          containsTypeParameterProjection(parameter.type, nextSeen)
+        ) ||
+        containsTypeParameterProjection(type.returnType, nextSeen)
+      );
+    case "array":
+      return containsTypeParameterProjection(type.elementType, nextSeen);
+    case "tuple":
+      return type.elements.some((element) =>
+        containsTypeParameterProjection(element, nextSeen)
+      );
+    case "object":
+      return type.members.some((member) =>
+        containsTypeParameterProjection(member.type, nextSeen)
+      );
+    case "union":
+    case "intersection":
+      return type.types.some((member) =>
+        containsTypeParameterProjection(member, nextSeen)
+      );
+    case "source-primitive":
+    case "intrinsic":
+    case "type-node":
       return false;
   }
 };
@@ -2297,17 +2531,10 @@ const declarationTypeProjectionFact = (
   context: CheckedContext,
   node: TstsNode
 ): SourceDeclarationTypeProjectionFact | undefined => {
-  const symbol = context.checker.getSymbolAtLocation(node);
   const signature = sourceFunctionLikeDeclaration(node)
     ? context.checker.getSignatureFromDeclaration(node)
     : undefined;
   const fact: SourceDeclarationTypeProjectionFact = {
-    declaredType: checkerTypeProjection(
-      context,
-      symbol
-        ? context.checker.getDeclaredTypeOfSymbol(symbol)
-        : context.checker.getTypeAtLocation(node)
-    ),
     returnType:
       projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(node)) ??
       checkerTypeProjection(
@@ -2318,7 +2545,7 @@ const declarationTypeProjectionFact = (
       ),
     baseConstructorParameters: baseConstructorParameterProjections(context, node),
   };
-  return fact.declaredType || fact.returnType || fact.baseConstructorParameters
+  return fact.returnType || fact.baseConstructorParameters
     ? fact
     : undefined;
 };
@@ -2630,6 +2857,15 @@ const sourceExpressionTypeProjection = (
       const operation = callee
         ? sourceRuntimeOperation(context, callee, sourceDiagnosticRoots)
         : undefined;
+      const signatureReturnProjection = resolvedSignatureReturnProjection(
+        context,
+        node
+      );
+      const checkerReturnProjection = checkerTypeProjection(
+        context,
+        context.checker.getNarrowedTypeAtLocation(node) ??
+          context.checker.getTypeAtLocation(node)
+      );
       return set(
         (callee && operation
           ? sourceRuntimeArrayCallProjection(
@@ -2641,12 +2877,11 @@ const sourceExpressionTypeProjection = (
               sourceDiagnosticRoots
             )
           : undefined) ??
-          resolvedSignatureReturnProjection(context, node) ??
-          checkerTypeProjection(
-            context,
-            context.checker.getNarrowedTypeAtLocation(node) ??
-              context.checker.getTypeAtLocation(node)
-          )
+          (signatureReturnProjection &&
+          !containsTypeParameterProjection(signatureReturnProjection)
+            ? signatureReturnProjection
+            : checkerReturnProjection) ??
+          signatureReturnProjection
       );
     }
     case TstsSyntax.KindConditionalExpression: {
@@ -3853,10 +4088,11 @@ export const createTsonicSourceSemanticsExtension = (
     if (!context.sourceFile) return;
     const sourceFileName = context.sourceFile.FileName();
     const isCoreSourceFile = isCorePackageSourceFile(sourceFileName);
-    const shouldValidateSourceDiagnostics =
+    const shouldProjectSourceTypes =
       context.sourceFile.IsDeclarationFile !== true &&
       !isCoreSourceFile &&
       isSourceDiagnosticFile(sourceFileName, sourceDiagnosticRoots);
+    const shouldValidateSourceDiagnostics = shouldProjectSourceTypes;
     const coreTypesBindingByLocalName = collectImportedNamesByLocalName(
       context.imports,
       coreTypesModules
@@ -3954,7 +4190,7 @@ export const createTsonicSourceSemanticsExtension = (
         }
       }
 
-      if (isTstsDeclarationLikeNode(node)) {
+      if (shouldProjectSourceTypes && isTstsDeclarationLikeNode(node)) {
         const declarationProjection = declarationTypeProjectionFact(context, node);
         if (declarationProjection) {
           context.facts.set(
@@ -3977,6 +4213,15 @@ export const createTsonicSourceSemanticsExtension = (
         );
         if (isAmbientRecordTypeReference(context, node, sourceDiagnosticRoots)) {
           context.facts.set(sourceDictionaryTypeFactKey, node, recordDictionaryFact);
+        }
+      }
+
+      if (shouldProjectSourceTypes && isSourceTypeProjectionNode(node)) {
+        const typeProjection = projectedTypeFromTypeNode(context, node);
+        if (typeProjection && typeProjection.kind !== "type-node") {
+          context.facts.set(sourceTypeNodeProjectionFactKey, node, {
+            type: typeProjection,
+          });
         }
       }
 
@@ -4011,8 +4256,9 @@ export const createTsonicSourceSemanticsExtension = (
       }
 
       if (
-        node.Kind === TstsSyntax.KindCallExpression ||
-        node.Kind === TstsSyntax.KindNewExpression
+        shouldProjectSourceTypes &&
+        (node.Kind === TstsSyntax.KindCallExpression ||
+          node.Kind === TstsSyntax.KindNewExpression)
       ) {
         const argumentTypes = callArgumentTypesFact(context, node);
         if (argumentTypes) {
@@ -4022,7 +4268,7 @@ export const createTsonicSourceSemanticsExtension = (
 
       setInitializerReferencesDeclarationFact(context, node);
 
-      if (isSourceExpressionProjectionNode(node)) {
+      if (shouldProjectSourceTypes && isSourceExpressionProjectionNode(node)) {
         const expressionProjection = sourceExpressionTypeProjection(
           context,
           node,
@@ -4109,7 +4355,6 @@ export const createTsonicSourceSemanticsExtension = (
           TstsSyntax.KindInterfaceDeclaration,
           TstsSyntax.KindClassDeclaration,
           TstsSyntax.KindFunctionDeclaration,
-          TstsSyntax.KindVariableDeclaration,
         ].includes(node.Kind)
       ) {
         const name = getTstsNodeNameText(node);

@@ -192,6 +192,11 @@ export type SourceBindingProjectedType =
       readonly sourceNode?: TstsNode;
     }
   | {
+      readonly kind: "source-primitive";
+      readonly fact: NumericPrimitiveFact;
+      readonly sourceNode?: TstsNode;
+    }
+  | {
       readonly kind: "named";
       readonly name: string;
       readonly typeArguments: readonly SourceBindingProjectedType[];
@@ -249,6 +254,10 @@ export type SourceBindingProjectedObjectMember = {
 };
 
 export type SourceBindingTypeProjectionFact = {
+  readonly type: SourceBindingProjectedType;
+};
+
+export type SourceTypeNodeProjectionFact = {
   readonly type: SourceBindingProjectedType;
 };
 
@@ -424,6 +433,12 @@ export const sourceBindingTypeProjectionFactKey =
     "Source-level type projected by TSTS for destructured binding elements."
   );
 
+export const sourceTypeNodeProjectionFactKey =
+  defineSourceFactKey<SourceTypeNodeProjectionFact>(
+    "tsonic:source:type-node-projection",
+    "Source-level type-node projection selected by TSTS for lowering."
+  );
+
 export const sourceExpressionTypeProjectionFactKey =
   defineSourceFactKey<SourceExpressionTypeProjectionFact>(
     "tsonic:source:expression-type-projection",
@@ -481,6 +496,7 @@ export const visitSourceSemanticFactKeys = (
   visit(sourceRuntimeVisibilityFactKey);
   visit(sourceDictionaryTypeFactKey);
   visit(sourceBindingTypeProjectionFactKey);
+  visit(sourceTypeNodeProjectionFactKey);
   visit(sourceExpressionTypeProjectionFactKey);
   visit(sourceCallArgumentTypesFactKey);
   visit(sourceInitializerReferencesDeclarationFactKey);

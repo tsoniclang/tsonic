@@ -9,7 +9,6 @@ import type {
   LoweringPipelineOptions,
   LoweringPipelineResult,
 } from "./types.js";
-import type { TstsSourceFile } from "@tsonic/tsts";
 
 export const runLoweringPipeline = <
   Target extends BackendTargetId = BackendTargetId,
@@ -26,8 +25,6 @@ export const runLoweringPipeline = <
   const context = {
     input,
     options,
-    checkerForSourceFile: (sourceFile: TstsSourceFile) =>
-      program.sourceProgram.withTypeChecker(sourceFile, (checker) => checker),
     diagnostics,
   };
 

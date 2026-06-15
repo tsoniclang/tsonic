@@ -42,12 +42,6 @@ export type ExternalBindingMetadataIndex = {
   ) => ExternalMemberAccessibility | undefined;
 };
 
-const emptyIndex: ExternalBindingMetadataIndex = {
-  diagnostics: [],
-  resolveTargetName: () => undefined,
-  resolveOverrideAccessibility: () => undefined,
-};
-
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -244,11 +238,10 @@ const memberKind = (
 export const createExternalBindingMetadataIndex = (
   roots: readonly string[] | undefined
 ): ExternalBindingMetadataIndex => {
-  if (!roots || roots.length === 0) return emptyIndex;
-
   const diagnostics: Diagnostic[] = [];
   const byQualifiedName = new Map<string, ExternalTypeMetadata>();
   const bySourceBinding = new Map<string, ExternalTypeMetadata | "ambiguous">();
+  const loadedBindingFiles = new Set<string>();
 
   const addSourceBinding = (type: ExternalTypeMetadata): void => {
     for (const sourceName of type.sourceNames) {
@@ -268,20 +261,28 @@ export const createExternalBindingMetadataIndex = (
     }
   };
 
-  for (const root of roots) {
-    for (const filePath of bindingFilesUnder(root)) {
-      try {
-        for (const type of parseBindingFile(filePath).types) {
-          byQualifiedName.set(type.targetName, type);
-          addSourceBinding(type);
-        }
-      } catch (cause) {
-        diagnostics.push({
-          code: "TSN9002",
-          severity: "error",
-          message: `Failed to read external binding metadata '${filePath}': ${cause instanceof Error ? cause.message : String(cause)}`,
-        });
+  const loadBindingFile = (filePath: string): void => {
+    const bindingFile = resolve(filePath);
+    if (loadedBindingFiles.has(bindingFile)) return;
+    loadedBindingFiles.add(bindingFile);
+    if (!existsSync(bindingFile)) return;
+    try {
+      for (const type of parseBindingFile(bindingFile).types) {
+        byQualifiedName.set(type.targetName, type);
+        addSourceBinding(type);
       }
+    } catch (cause) {
+      diagnostics.push({
+        code: "TSN9002",
+        severity: "error",
+        message: `Failed to read external binding metadata '${bindingFile}': ${cause instanceof Error ? cause.message : String(cause)}`,
+      });
+    }
+  };
+
+  for (const root of roots ?? []) {
+    for (const filePath of bindingFilesUnder(root)) {
+      loadBindingFile(filePath);
     }
   }
 
@@ -323,7 +324,9 @@ export const createExternalBindingMetadataIndex = (
   const resolveTargetName = (
     binding: LoweringExternalBindingReferencePlan
   ): string | undefined => {
-    const type = bySourceBinding.get(externalBindingKey(binding));
+    const key = externalBindingKey(binding);
+    if (!bySourceBinding.has(key)) loadBindingFile(binding.bindingFile);
+    const type = bySourceBinding.get(key);
     return type && type !== "ambiguous" ? type.targetName : undefined;
   };
 

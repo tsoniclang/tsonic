@@ -84,6 +84,8 @@ const projectionSummary = (type: SourceBindingProjectedType): string => {
       return getTstsNodeText(type.node)?.replace(/\s+/g, " ").trim() ?? "";
     case "intrinsic":
       return type.name;
+    case "source-primitive":
+      return type.fact.sourceName;
     case "named":
       return `${type.name}${type.typeArguments.length > 0 ? `<${type.typeArguments.map(projectionSummary).join(", ")}>` : ""}`;
     case "record":

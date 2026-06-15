@@ -34,6 +34,7 @@ import {
   sourceOverloadCallImplementationFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
+  sourceTypeNodeProjectionFactKey,
   sourceTypeSemanticsFactKey,
   wellKnownComputedNameFactKey,
 } from "../source-frontend/source-facts.js";
@@ -926,17 +927,22 @@ const sourceTypeAliasTargetPlan = (
     ? localTypeAliasDeclaration(sourceFile, typeReference.name)
     : undefined;
   const localAliasTarget = localAlias ? TstsSyntax.Node_Type(localAlias) : undefined;
-  if (
-    localAliasTarget &&
-    localAliasTarget !== node &&
-    getTstsTypeReferenceDetails(localAliasTarget)
-  ) {
-    return sourceTypePlan(
-      context,
-      sourceFileForNode(localAliasTarget, sourceFile),
-      localAliasTarget,
-      state
-    );
+  if (localAlias && localAliasTarget && localAliasTarget !== node) {
+    const aliasKey = sourceTypeAliasKey(sourceFile, localAlias);
+    if (state.aliasKeys.has(aliasKey)) {
+      return undefined;
+    }
+    state.aliasKeys.add(aliasKey);
+    try {
+      return sourceTypePlan(
+        context,
+        sourceFileForNode(localAliasTarget, sourceFile),
+        localAliasTarget,
+        state
+      );
+    } finally {
+      state.aliasKeys.delete(aliasKey);
+    }
   }
   const resolvedDeclaration = typeReference
     ? typeDeclarationBindingForNode(context, sourceFile, node)
@@ -1192,6 +1198,17 @@ const sourceTypePlan = (
       sourceText,
     };
   }
+
+  const projectedType = context.input.facts.get(
+    sourceTypeNodeProjectionFactKey,
+    node
+  )?.type;
+  const projectedTypePlan = sourceBindingProjectionTypePlan(
+    context,
+    sourceFile,
+    projectedType
+  );
+  if (projectedTypePlan) return projectedTypePlan;
 
   switch (node.Kind) {
     case TstsSyntax.KindArrayType: {
@@ -2540,6 +2557,17 @@ const sourceBindingProjectionTypePlan = (
       return {
         kind: "intrinsic",
         name: type.name,
+        sourceText: type.sourceNode
+          ? compactNodeSourceText(
+              sourceFileForNode(type.sourceNode, sourceFile),
+              type.sourceNode
+            )
+          : undefined,
+      };
+    case "source-primitive":
+      return {
+        kind: "source-primitive",
+        fact: type.fact,
         sourceText: type.sourceNode
           ? compactNodeSourceText(
               sourceFileForNode(type.sourceNode, sourceFile),

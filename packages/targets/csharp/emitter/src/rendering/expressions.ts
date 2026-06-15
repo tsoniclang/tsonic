@@ -1140,6 +1140,11 @@ const renderCallArgument = (
     contextualType?.kind === "function"
       ? contextualType
       : undefined;
+  const renderableTargetDelegateType =
+    targetDelegateType &&
+    !containsOutOfScopeTypeParameterTypePlan(targetDelegateType, context)
+      ? targetDelegateType
+      : undefined;
   if (
     argument.expressionKind === "arrow-function" ||
     argument.expressionKind === "function-expression"
@@ -1152,8 +1157,8 @@ const renderCallArgument = (
       context
     );
     if (runtimeUnionCarrier) return runtimeUnionCarrier;
-    return targetDelegateType
-      ? `((${renderCSharpType(targetDelegateType, context)})(${renderedLambda}))`
+    return renderableTargetDelegateType
+      ? `((${renderCSharpType(renderableTargetDelegateType, context)})(${renderedLambda}))`
       : renderedLambda;
   }
   const rendered =
@@ -1165,10 +1170,10 @@ const renderCallArgument = (
           contextualType
         );
   if (
-    targetDelegateType &&
-    !sameRuntimeTypePlan(argument.type, targetDelegateType)
+    renderableTargetDelegateType &&
+    !sameRuntimeTypePlan(argument.type, renderableTargetDelegateType)
   ) {
-    return `new ${renderCSharpType(targetDelegateType, context)}(${rendered}.Invoke)`;
+    return `new ${renderCSharpType(renderableTargetDelegateType, context)}(${rendered}.Invoke)`;
   }
   switch (argument.passingMode) {
     case "byref-writeonly-must-init":

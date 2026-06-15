@@ -62,6 +62,7 @@ export type {
   SourceExpressionTypeProjectionFact,
   SourceInitializerReferencesDeclarationFact,
   SourceParameterTypeProjection,
+  SourceTypeNodeProjectionFact,
   SourceTypeSemanticsFact,
 } from "./source-facts.js";
 export {
