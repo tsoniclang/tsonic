@@ -7,6 +7,7 @@ import * as path from "node:path";
 import {
   formatDiagnostics as formatTstsDiagnostics,
   type TstsDiagnostic,
+  type TstsSourceFile,
 } from "@tsonic/tsts";
 import { Result, ok, error } from "../types/result.js";
 import {
@@ -27,7 +28,10 @@ import {
   discoverProgramInputs,
   type ProgramInputDiscovery,
 } from "./program-input-discovery.js";
-import { buildWorkspaceGraphSnapshot } from "./workspace-fingerprint.js";
+import {
+  buildWorkspaceGraphSnapshot,
+  type WorkspaceGraphEdge,
+} from "./workspace-fingerprint.js";
 import type { CompilerOptions, TsonicProgram } from "./types.js";
 import type { BackendTargetId } from "../lowering/index.js";
 
@@ -57,18 +61,6 @@ const dedupeCanonicalFilePaths = (
   }
 
   return uniquePaths;
-};
-
-const createSourceFilePathSet = (
-  filePaths: readonly string[]
-): ReadonlySet<string> => {
-  const canonicalPaths = new Set<string>();
-
-  for (const filePath of filePaths) {
-    canonicalPaths.add(canonicalizeFilePath(filePath));
-  }
-
-  return canonicalPaths;
 };
 
 const isFileUnderDirectory = (filePath: string, directoryPath: string): boolean => {
@@ -159,6 +151,103 @@ const collectTstsSourceDiagnostics = (
   }
 
   return collector;
+};
+
+const isRuntimeSourceFile = (sourceFile: TstsSourceFile): boolean =>
+  sourceFile.IsDeclarationFile !== true;
+
+const tstsSourceFilePath = (sourceFile: TstsSourceFile): string =>
+  canonicalizeFilePath(sourceFile.FileName());
+
+const collectTstsRuntimeSourceFiles = (
+  sourceProgram: TstsSourceProgram,
+  seedFiles: readonly string[]
+): Result<readonly TstsSourceFile[], DiagnosticsCollector> => {
+  const runtimeSourceFilesByPath = new Map<string, TstsSourceFile>();
+  for (const sourceFile of sourceProgram.sourceFiles) {
+    if (!isRuntimeSourceFile(sourceFile)) {
+      continue;
+    }
+    runtimeSourceFilesByPath.set(tstsSourceFilePath(sourceFile), sourceFile);
+  }
+
+  const seedPaths = dedupeCanonicalFilePaths(seedFiles);
+  const missingSeeds = seedPaths.filter(
+    (seedFile) => !runtimeSourceFilesByPath.has(seedFile)
+  );
+  if (missingSeeds.length > 0) {
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1008",
+          "fatal",
+          "TSTS source program did not load every requested runtime seed file.",
+          undefined,
+          missingSeeds.join("\n")
+        )
+      )
+    );
+  }
+
+  const selectedSourceFiles: TstsSourceFile[] = [];
+  const seenSourceFiles = new Set<string>();
+  const queue = [...seedPaths];
+
+  while (queue.length > 0) {
+    const currentPath = queue.shift();
+    if (currentPath === undefined || seenSourceFiles.has(currentPath)) {
+      continue;
+    }
+
+    const sourceFile = runtimeSourceFilesByPath.get(currentPath);
+    if (sourceFile === undefined) {
+      continue;
+    }
+
+    seenSourceFiles.add(currentPath);
+    selectedSourceFiles.push(sourceFile);
+
+    for (const moduleImport of sourceProgram.moduleGraph.getImports(sourceFile)) {
+      const resolvedModule = moduleImport.resolvedModule;
+      if (resolvedModule === undefined) {
+        continue;
+      }
+      const resolvedPath = canonicalizeFilePath(resolvedModule.resolvedFileName);
+      if (
+        runtimeSourceFilesByPath.has(resolvedPath) &&
+        !seenSourceFiles.has(resolvedPath)
+      ) {
+        queue.push(resolvedPath);
+      }
+    }
+  }
+
+  return ok(selectedSourceFiles);
+};
+
+const collectTstsWorkspaceGraphEdges = (
+  sourceProgram: TstsSourceProgram
+): readonly WorkspaceGraphEdge[] => {
+  const edges = new Map<string, WorkspaceGraphEdge>();
+  for (const sourceModule of sourceProgram.moduleGraph.modules) {
+    for (const moduleImport of sourceModule.imports) {
+      const resolvedModule = moduleImport.resolvedModule;
+      if (resolvedModule === undefined) {
+        continue;
+      }
+      const from = canonicalizeFilePath(sourceModule.fileName);
+      const to = canonicalizeFilePath(resolvedModule.resolvedFileName);
+      const specifier = moduleImport.specifier;
+      edges.set(`${from}\0${to}\0${specifier}`, { from, to, specifier });
+    }
+  }
+
+  return Array.from(edges.values()).sort((left, right) => {
+    const leftKey = `${left.from}\0${left.to}\0${left.specifier}`;
+    const rightKey = `${right.from}\0${right.to}\0${right.specifier}`;
+    return leftKey.localeCompare(rightKey);
+  });
 };
 
 const discoverProgramInputsOrDiagnostic = (
@@ -290,30 +379,17 @@ export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
     return error(sourceDiagnostics);
   }
 
-  const sourceFilePaths = createSourceFilePathSet(
-    dedupeCanonicalFilePaths(discovery.emittableSourceFiles)
+  const runtimeSourceFilesResult = collectTstsRuntimeSourceFiles(
+    sourceProgram,
+    discovery.runtimeSeedFiles
   );
-  const seenSourceFilePaths = new Set<string>();
-  const sourceFiles = sourceProgram.sourceFiles.filter((sourceFile) => {
-    if (
-      sourceFile.IsDeclarationFile === true ||
-      !sourceFilePaths.has(canonicalizeFilePath(sourceFile.FileName()))
-    ) {
-      return false;
-    }
-
-    const canonicalFileName = canonicalizeFilePath(sourceFile.FileName());
-    if (seenSourceFilePaths.has(canonicalFileName)) {
-      return false;
-    }
-
-    seenSourceFilePaths.add(canonicalFileName);
-    return true;
-  });
+  if (!runtimeSourceFilesResult.ok) return runtimeSourceFilesResult;
+  const sourceFiles = runtimeSourceFilesResult.value;
 
   const declarationSourceFiles = sourceProgram.sourceFiles.filter(
     (sourceFile) => sourceFile.IsDeclarationFile === true
   );
+  const workspaceGraphEdges = collectTstsWorkspaceGraphEdges(sourceProgram);
 
   const firstTstsSourceFile = sourceFiles[0] ?? sourceProgram.sourceFiles[0];
   if (!firstTstsSourceFile) {
@@ -338,10 +414,12 @@ export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
     workspaceGraph: buildWorkspaceGraphSnapshot({
       projectRoot: options.projectRoot,
       sourceRoot: options.sourceRoot,
-      sourceFiles: discovery.allFiles,
+      sourceFiles: sourceProgram.sourceFiles.map((sourceFile) =>
+        sourceFile.FileName()
+      ),
       ambientFiles: discovery.ambientSupportFiles,
       typeRoots: discovery.typeRoots,
-      edges: discovery.dependencyEdges,
+      edges: workspaceGraphEdges,
       options,
       surfaceCapabilities,
     }),

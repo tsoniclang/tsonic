@@ -247,6 +247,7 @@ export type ProgramInputDiscovery = {
   readonly diagnostics: readonly Diagnostic[];
   readonly allFiles: readonly string[];
   readonly emittableSourceFiles: readonly string[];
+  readonly runtimeSeedFiles: readonly string[];
 };
 
 const isQueueableTsSourceDependency = (resolvedPath: string): boolean =>
@@ -848,6 +849,12 @@ export const discoverProgramInputs = (
       ...runtimeSourceClosure.files,
     ])
   );
+  const runtimeSeedFiles = Array.from(
+    new Set([
+      ...absolutePaths,
+      ...currentSourcePackageExportPaths,
+    ])
+  );
 
   const dependencyEdges = [
     ...runtimeSourceClosure.dependencyEdges,
@@ -874,5 +881,6 @@ export const discoverProgramInputs = (
     ],
     allFiles,
     emittableSourceFiles,
+    runtimeSeedFiles,
   };
 };
