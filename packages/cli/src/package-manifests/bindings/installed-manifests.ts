@@ -10,10 +10,7 @@ import {
   normalizeId,
   readJsonObject,
 } from "./shared.js";
-import {
-  resolveFromPackageManifest,
-  resolveFromBindingsManifest,
-} from "./manifest-parsing.js";
+import { resolveFromPackageManifest } from "./manifest-parsing.js";
 import type { NormalizedBindingsManifest } from "./types.js";
 
 const readInstalledPackageInfo = (
@@ -55,15 +52,7 @@ export const resolveInstalledPackageBindingsManifest = (
   const info = readInstalledPackageInfo(packageRoot);
   if (!info.ok) return info;
 
-  const packageManifest = resolveFromPackageManifest(
-    packageRoot,
-    info.value.name,
-    info.value.version
-  );
-  if (!packageManifest.ok) return packageManifest;
-  if (packageManifest.value) return packageManifest;
-
-  return resolveFromBindingsManifest(
+  return resolveFromPackageManifest(
     packageRoot,
     info.value.name,
     info.value.version

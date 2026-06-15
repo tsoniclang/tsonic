@@ -35,7 +35,6 @@ export const writeInstalledPackage = (
   packageName: string,
   version: string,
   opts: {
-    readonly bindingsManifest?: unknown;
     readonly packageManifest?: unknown;
     readonly surfaceManifest?: unknown;
     readonly dependencies?: Readonly<Record<string, string>>;
@@ -58,10 +57,6 @@ export const writeInstalledPackage = (
       ? { peerDependencies: opts.peerDependencies }
       : {}),
   });
-
-  if (opts.bindingsManifest !== undefined) {
-    writeJson(join(pkgRoot, "tsonic.bindings.json"), opts.bindingsManifest);
-  }
 
   if (opts.surfaceManifest !== undefined) {
     writeJson(join(pkgRoot, "tsonic.surface.json"), opts.surfaceManifest);

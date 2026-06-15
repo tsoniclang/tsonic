@@ -42,8 +42,6 @@ export type NormalizedNugetDependency = {
 };
 
 export type NormalizedBindingsManifest = {
-  readonly bindingVersion: 1;
-  readonly sourceManifest: "tsonic-package" | "tsonic-bindings";
   readonly packageName: string;
   readonly packageVersion: string;
   readonly surfaceMode: ManifestSurfaceMode;

@@ -133,8 +133,6 @@ const buildNormalizedManifest = (
   return {
     ok: true,
     value: {
-      bindingVersion: 1,
-      sourceManifest: "tsonic-package",
       packageName,
       packageVersion,
       surfaceMode: "core",
