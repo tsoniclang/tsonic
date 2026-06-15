@@ -4140,7 +4140,9 @@ const baseConstructorParameters = (
   context: LoweringBuildContext
 ): readonly LoweringParameterPlan[] => {
   if (node.Kind !== TstsSyntax.KindClassDeclaration) return [];
-  const heritage = runtimeHeritageTypeNodes(context, node)[0];
+  const runtimeHeritages = runtimeHeritageTypeNodes(context, node);
+  const heritage =
+    runtimeHeritages.length === 1 ? runtimeHeritages[0] : undefined;
   if (!heritage) return [];
   const checker = context.checkerForSourceFile(sourceFile);
   const heritageType = checker.getTypeFromTypeNode(heritage);
