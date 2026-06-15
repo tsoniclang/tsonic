@@ -54,18 +54,26 @@ export const compile = <Target extends BackendTargetId = BackendTargetId>(
   filePaths: readonly string[],
   options: CompilerOptions<Target>
 ): Result<CompileResult<Target>, DiagnosticsCollector> => {
-  const entryFile = filePaths[0];
-  if (entryFile === undefined || filePaths.length !== 1) {
+  if (filePaths.length !== 1) {
     return error(
       addDiagnostic(
         createDiagnosticsCollector(),
         createDiagnostic(
           "TSN1001",
           "error",
-          entryFile === undefined
+          filePaths.length === 0
             ? "No entry file was provided."
             : "compile() accepts exactly one runtime entry file. Additional source files must enter through the TSTS module graph."
         )
+      )
+    );
+  }
+  const [entryFile] = filePaths;
+  if (entryFile === undefined) {
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic("TSN1001", "error", "No entry file was provided.")
       )
     );
   }
