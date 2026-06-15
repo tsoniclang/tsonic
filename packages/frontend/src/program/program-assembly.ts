@@ -23,7 +23,10 @@ import {
   createTstsSourceProgram,
   type TstsSourceProgram,
 } from "../source-frontend/index.js";
-import { discoverProgramInputs } from "./program-input-discovery.js";
+import {
+  discoverProgramInputs,
+  type ProgramInputDiscovery,
+} from "./program-input-discovery.js";
 import type { CompilerOptions, TsonicProgram } from "./types.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
@@ -156,6 +159,28 @@ const collectTstsSourceDiagnostics = (
   return collector;
 };
 
+const discoverProgramInputsOrDiagnostic = (
+  filePaths: readonly string[],
+  options: CompilerOptions,
+  surfaceCapabilities: Parameters<typeof discoverProgramInputs>[2]
+): Result<ProgramInputDiscovery, DiagnosticsCollector> => {
+  try {
+    return ok(discoverProgramInputs(filePaths, options, surfaceCapabilities));
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1004",
+          "error",
+          `Program input discovery failed: ${message}`
+        )
+      )
+    );
+  }
+};
+
 export const createProgram = (
   filePaths: readonly string[],
   options: CompilerOptions
@@ -166,11 +191,13 @@ export const createProgram = (
     surface,
     initialSurfaceResolveOptions
   );
-  let discovery = discoverProgramInputs(
+  let discoveryResult = discoverProgramInputsOrDiagnostic(
     filePaths,
     options,
     surfaceCapabilities
   );
+  if (!discoveryResult.ok) return discoveryResult;
+  let discovery = discoveryResult.value;
   const resolveFinalSurfaceOptions = () => ({
     projectRoot: options.projectRoot,
     authoritativePackageRoots: discovery.authoritativeTsonicPackageRoots,
@@ -208,7 +235,13 @@ export const createProgram = (
 
   if (surfaceCapabilitiesChanged) {
     surfaceCapabilities = finalSurfaceCapabilities;
-    discovery = discoverProgramInputs(filePaths, options, surfaceCapabilities);
+    discoveryResult = discoverProgramInputsOrDiagnostic(
+      filePaths,
+      options,
+      surfaceCapabilities
+    );
+    if (!discoveryResult.ok) return discoveryResult;
+    discovery = discoveryResult.value;
   } else {
     surfaceCapabilities = finalSurfaceCapabilities;
   }

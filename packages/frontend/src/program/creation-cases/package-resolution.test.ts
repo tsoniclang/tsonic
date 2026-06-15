@@ -98,6 +98,59 @@ describe("Program Creation – package resolution", function () {
     }
   });
 
+  it("should reject invalid source-package metadata instead of falling through to package exports", () => {
+    const fixture = materializeFrontendFixture(
+      "program/creation/package-resolution/installed-source-subpath"
+    );
+
+    try {
+      const tempDir = fixture.path("app");
+      const srcDir = fixture.path("app/src");
+      const nodejsRoot = fixture.path("app/node_modules/@tsonic/nodejs");
+      const authoritativeJsRoot = fixture.path("type-roots/@tsonic/js");
+      const entryPath = fixture.path("app/src/index.ts");
+
+      fs.writeFileSync(
+        path.join(nodejsRoot, "tsonic.package.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            kind: "tsonic-source-package",
+            surfaces: ["@tsonic/js"],
+            source: {
+              namespace: "nodejs",
+            },
+          },
+          null,
+          2
+        ),
+        "utf-8"
+      );
+
+      const result = createProgram([entryPath], {
+        projectRoot: tempDir,
+        sourceRoot: srcDir,
+        rootNamespace: "Test",
+        surface: "@tsonic/js",
+        typeRoots: [authoritativeJsRoot, nodejsRoot],
+      });
+
+      expect(result.ok).to.equal(false);
+      if (result.ok) return;
+
+      expect(
+        result.error.diagnostics.map((diagnostic) => diagnostic.message)
+      ).to.deep.equal([
+        `Program input discovery failed: Invalid source package manifest at ${path.join(
+          nodejsRoot,
+          "tsonic.package.json"
+        )}: \`source.exports\` must be a non-empty object of string targets.`,
+      ]);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("should include tsconfig declaration roots for local module augmentation", () => {
     const fixture = materializeFrontendFixture(
       "program/creation/package-resolution/tsconfig-local-augmentation"
