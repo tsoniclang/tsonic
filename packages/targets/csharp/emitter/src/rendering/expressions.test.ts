@@ -5,7 +5,7 @@ import type {
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
-import { renderExpression } from "./expressions.js";
+import { renderExpression, renderFunctionExpressionType } from "./expressions.js";
 
 const dummySourceFile = {} as LoweringExpressionPlan["sourceFile"];
 const dummySourceNode = {} as LoweringExpressionPlan["sourceNode"];
@@ -263,5 +263,23 @@ describe("C# expression renderer", () => {
     expect(unsupportedFeatures).to.include("property member name");
     expect(unsupportedFeatures).to.include("number literal text");
     expect(unsupportedFeatures).to.include("Array.map callback");
+  });
+
+  it("reports missing function-expression return types instead of inventing void delegates", () => {
+    const unsupportedFeatures: string[] = [];
+    const context = createRenderContext(unsupportedFeatures);
+
+    const rendered = renderFunctionExpressionType(
+      expressionPlan({
+        expressionKind: "arrow-function",
+        parameters: [],
+        sourceKindName: "ArrowFunction",
+        sourceText: "() => value",
+      }),
+      context
+    );
+
+    expect(rendered).to.equal("global::System.Func<object?>");
+    expect(unsupportedFeatures).to.include("function return type");
   });
 });

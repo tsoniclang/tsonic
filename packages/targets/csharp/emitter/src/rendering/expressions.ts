@@ -19,6 +19,7 @@ import {
   nonNullishUnionTypes,
   renderCSharpRuntimeExpressionName,
   renderCSharpType,
+  renderFunctionReturnType,
   renderNullableCSharpType,
   renderRequiredCSharpType,
   renderRequiredNullableCSharpType,
@@ -553,13 +554,14 @@ export const renderFunctionExpressionType = (
           parameter.sourceText
         )
   );
-  const returnType = renderCSharpType(
-    plan.returnType ?? { kind: "intrinsic", name: "void" },
-    context
+  const returnType = renderFunctionReturnType(
+    plan.returnType,
+    plan.async ?? false,
+    context,
+    plan.sourceKindName,
+    plan.sourceText
   );
-  return isVoidLikeExpressionType(
-    plan.returnType ?? { kind: "intrinsic", name: "void" }
-  )
+  return isVoidLikeExpressionType(plan.returnType)
     ? parameterTypes.length === 0
       ? "global::System.Action"
       : `global::System.Action<${parameterTypes.join(", ")}>`
