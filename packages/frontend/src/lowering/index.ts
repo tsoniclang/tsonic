@@ -25,6 +25,3 @@ export type {
   LoweringUnaryOperator,
   LoweringVariablePlan,
 } from "./types.js";
-export { createLoweringInput } from "./input.js";
-export { createLoweringModulePlan } from "./module-plan.js";
-export { runLoweringPipeline } from "./pipeline.js";

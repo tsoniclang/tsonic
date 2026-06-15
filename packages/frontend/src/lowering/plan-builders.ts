@@ -2566,6 +2566,36 @@ const isSourcePrimitiveTypePlan = (
   type: LoweringTypeRefPlan | undefined
 ): boolean => type?.kind === "source-primitive";
 
+const isCharSourcePrimitiveTypePlan = (
+  type: LoweringTypeRefPlan | undefined
+): boolean => type?.kind === "source-primitive" && type.fact.kind === "char";
+
+const stringLiteralValueLength = (node: TstsNode): number | undefined => {
+  if (
+    node.Kind !== TstsSyntax.KindStringLiteral &&
+    node.Kind !== TstsSyntax.KindNoSubstitutionTemplateLiteral
+  ) {
+    return undefined;
+  }
+  return nodeLiteralText(node)?.length;
+};
+
+const expectedArgumentTypeForLiteralShape = (
+  argument: TstsNode | undefined,
+  expectedType: LoweringTypeRefPlan | undefined
+): LoweringTypeRefPlan | undefined => {
+  if (!argument) return expectedType;
+  const literalLength = stringLiteralValueLength(argument);
+  if (
+    literalLength !== undefined &&
+    literalLength !== 1 &&
+    isCharSourcePrimitiveTypePlan(expectedType)
+  ) {
+    return undefined;
+  }
+  return expectedType;
+};
+
 const binaryOperandExpectedType = (
   operator: LoweringBinaryOperator | undefined,
   operand: LoweringExpressionPlan | undefined
@@ -3384,7 +3414,10 @@ const expressionPlan = (
               sourceFile,
               argument,
               context,
-              expectedArgumentTypes[index]
+              expectedArgumentTypeForLiteralShape(
+                argument,
+                expectedArgumentTypes[index]
+              )
             )
           )
           .filter((item): item is LoweringExpressionPlan => item !== undefined),

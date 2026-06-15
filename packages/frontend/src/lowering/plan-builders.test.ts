@@ -220,6 +220,40 @@ describe("TSTS-backed lowering plan builders", () => {
     expectSourcePrimitive(arrayStringLiteral?.contextualTypePlan, "char");
   });
 
+  it("does not force multi-character string arguments through char-compatible overloads", () => {
+    const result = lowerProgram(`
+      import type { char } from "@tsonic/core/types.js";
+
+      declare function write(value: char): void;
+      declare function write(value: string | null): void;
+
+      export function run(): void {
+        write("WRITE");
+        write("A");
+      }
+    `);
+
+    const wordLiteral = firstExpression(
+      result,
+      (expression) =>
+        expression.expressionKind === "literal" &&
+        expression.literalKind === "string" &&
+        expression.literalText === "WRITE"
+    );
+    const charLiteral = firstExpression(
+      result,
+      (expression) =>
+        expression.expressionKind === "literal" &&
+        expression.literalKind === "string" &&
+        expression.literalText === "A"
+    );
+
+    expect(wordLiteral.contextualTypePlan?.kind).to.not.equal(
+      "source-primitive"
+    );
+    expectSourcePrimitive(charLiteral.contextualTypePlan, "char");
+  });
+
   it("uses TSTS contextual callable types for arrows inside aliased arrays", () => {
     const result = lowerProgram(`
       import type { int } from "@tsonic/core/types.js";

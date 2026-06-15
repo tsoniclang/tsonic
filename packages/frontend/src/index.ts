@@ -20,7 +20,6 @@ export * from "./types/result.js";
 
 export * from "./program.js";
 export * from "./validator.js";
-export * from "./dependency-graph.js";
 export * from "./surface/profiles.js";
 export * from "./source-frontend/index.js";
 export * from "./tsonic-extension/index.js";
@@ -30,9 +29,10 @@ export * from "./capabilities/backend-capabilities.js";
 import { createProgram, TsonicProgram, CompilerOptions } from "./program.js";
 import { validateProgram } from "./validator.js";
 import {
-  buildModuleDependencyGraph,
-  type ModuleDependencyGraphResult,
-} from "./dependency-graph.js";
+  createLoweringModuleGraph,
+  type LoweringModuleGraphResult,
+} from "./program/lowering-graph.js";
+import type { BackendTargetId } from "./lowering/index.js";
 import {
   addDiagnostic,
   createDiagnostic,
@@ -42,18 +42,18 @@ import {
 } from "./types/diagnostic.js";
 import { Result, ok, error } from "./types/result.js";
 
-export type CompileResult = {
-  readonly program: TsonicProgram;
-  readonly analysis: ModuleDependencyGraphResult;
+export type CompileResult<Target extends BackendTargetId = BackendTargetId> = {
+  readonly program: TsonicProgram<Target>;
+  readonly loweringGraph: LoweringModuleGraphResult<Target>;
 };
 
 /**
  * Main entry point for compiling source files
  */
-export const compile = (
+export const compile = <Target extends BackendTargetId = BackendTargetId>(
   filePaths: readonly string[],
-  options: CompilerOptions
-): Result<CompileResult, DiagnosticsCollector> => {
+  options: CompilerOptions<Target>
+): Result<CompileResult<Target>, DiagnosticsCollector> => {
   // Create Tsonic program through the TSTS source engine
   const programResult = createProgram(filePaths, options);
 
@@ -75,16 +75,16 @@ export const compile = (
   // Validate ESM rules and Tsonic source constraints
   const validationDiagnostics = validateProgram(program);
 
-  // Build dependency graph from the TSTS module graph.
-  const analysis = buildModuleDependencyGraph(entryFile, options);
-  if (!analysis.ok) {
+  // Build lowering plans from the already-created TSTS program.
+  const loweringGraph = createLoweringModuleGraph(program, entryFile);
+  if (!loweringGraph.ok) {
     return error({
-      diagnostics: analysis.error,
-      hasErrors: analysis.error.some(
+      diagnostics: loweringGraph.error,
+      hasErrors: loweringGraph.error.some(
         (diagnostic) =>
           diagnostic.severity === "error" || diagnostic.severity === "fatal"
       ),
-      hasFatalErrors: analysis.error.some(
+      hasFatalErrors: loweringGraph.error.some(
         (diagnostic) => diagnostic.severity === "fatal"
       ),
     });
@@ -102,6 +102,6 @@ export const compile = (
 
   return ok({
     program,
-    analysis: analysis.value,
+    loweringGraph: loweringGraph.value,
   });
 };

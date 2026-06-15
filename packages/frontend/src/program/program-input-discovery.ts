@@ -382,7 +382,7 @@ const toDiscoveryDiagnostics = (
     );
   });
 
-export const collectSourceImportClosure = (input: {
+const collectSourceImportClosure = (input: {
   readonly seedFiles: readonly string[];
   readonly sourceRoot: string;
   readonly projectRoot: string;
@@ -437,7 +437,7 @@ export const collectSourceImportClosure = (input: {
   };
 };
 
-export const collectDeclarationImportClosure = (input: {
+const collectDeclarationImportClosure = (input: {
   readonly files: readonly string[];
   readonly sourceRoot: string;
   readonly projectRoot: string;

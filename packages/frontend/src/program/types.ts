@@ -5,6 +5,7 @@
 import type { ExtensionTypeChecker, TstsSourceFile } from "@tsonic/tsts";
 import type { DeclarationModuleAlias } from "./declaration-module-aliases.js";
 import type { SurfaceCapabilities } from "../surface/profiles.js";
+import type { WorkspaceGraphSnapshot } from "./workspace-fingerprint.js";
 import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
 import type { BackendTargetId } from "../lowering/index.js";
 import type { TstsSourceProgram } from "../source-frontend/index.js";
@@ -31,7 +32,8 @@ export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
   readonly sourceProgram: TstsSourceProgram;
   readonly sourceChecker: ExtensionTypeChecker;
   readonly options: CompilerOptions<Target>;
-  readonly surfaceCapabilities?: SurfaceCapabilities;
+  readonly surfaceCapabilities: SurfaceCapabilities;
+  readonly workspaceGraph: WorkspaceGraphSnapshot;
   readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
   readonly declarationModuleAliases?: ReadonlyMap<
     string,

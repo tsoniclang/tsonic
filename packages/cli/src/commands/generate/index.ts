@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
-  buildModuleDependencyGraph,
+  compile,
   type CompilerOptions,
   type Diagnostic,
   type LoweringModulePlan,
@@ -130,12 +130,9 @@ export const generateCommand = (
       backendTargetId: CSHARP_BACKEND_TARGET_ID,
       programInputScope: config.programInputScope,
     };
-    const graphResult = buildModuleDependencyGraph(
-      absoluteEntryPoint,
-      compilerOptions
-    );
-    if (!graphResult.ok) {
-      const errorMessages = graphResult.error
+    const compileResult = compile([absoluteEntryPoint], compilerOptions);
+    if (!compileResult.ok) {
+      const errorMessages = compileResult.error.diagnostics
         .map((diagnostic: Diagnostic) => {
           const prefix = `${diagnostic.code} `;
           if (diagnostic.location) {
@@ -150,7 +147,7 @@ export const generateCommand = (
       };
     }
 
-    const { modules, entryModule } = graphResult.value;
+    const { modules, entryModule } = compileResult.value.loweringGraph;
     const dllModePackageIds = new Set(
       transitiveDllLocalPackageReferences.map((entry) => entry.id)
     );

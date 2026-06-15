@@ -12,7 +12,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { buildModuleDependencyGraph } from "@tsonic/frontend";
+import { compile } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../src/emitter.js";
 import { CSHARP_EMITTER_TARGET_ID } from "../src/target.js";
 import { CSHARP_TEST_CAPABILITIES } from "../src/test-backend-capabilities.js";
@@ -69,8 +69,8 @@ const generateAndWrite = (
     const rootNamespace = ["TestCases", ...namespaceParts].join(".");
     const sourceRoot = path.dirname(inputPath);
 
-    // Build the authoritative processed module graph.
-    const graphResult = buildModuleDependencyGraph(inputPath, {
+    // Build lowering plans from the authoritative TSTS source program.
+    const compileResult = compile([inputPath], {
       projectRoot: tsonicWorkspaceRoot,
       sourceRoot,
       rootNamespace,
@@ -79,18 +79,17 @@ const generateAndWrite = (
       backendTargetId: CSHARP_EMITTER_TARGET_ID,
     });
 
-    if (!graphResult.ok) {
+    if (!compileResult.ok) {
       console.error(`  ERROR: Compilation failed`);
-      for (const d of graphResult.error) {
+      for (const d of compileResult.error.diagnostics) {
         console.error(`    ${d.code}: ${d.message}`);
       }
       return false;
     }
 
-    // Emit C# from the authoritative dependency-graph modules.
-    const emitResult = emitCSharpFiles(graphResult.value.modules, {
+    // Emit C# from the authoritative lowering graph.
+    const emitResult = emitCSharpFiles(compileResult.value.loweringGraph.modules, {
       rootNamespace,
-      bindingRegistry: graphResult.value.bindingRegistry,
     });
 
     if (!emitResult.ok) {

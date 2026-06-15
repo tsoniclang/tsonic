@@ -27,7 +27,9 @@ import {
   discoverProgramInputs,
   type ProgramInputDiscovery,
 } from "./program-input-discovery.js";
+import { buildWorkspaceGraphSnapshot } from "./workspace-fingerprint.js";
 import type { CompilerOptions, TsonicProgram } from "./types.js";
+import type { BackendTargetId } from "../lowering/index.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -181,10 +183,10 @@ const discoverProgramInputsOrDiagnostic = (
   }
 };
 
-export const createProgram = (
+export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
   filePaths: readonly string[],
-  options: CompilerOptions
-): Result<TsonicProgram, DiagnosticsCollector> => {
+  options: CompilerOptions<Target>
+): Result<TsonicProgram<Target>, DiagnosticsCollector> => {
   const surface = options.surface ?? "core";
   const initialSurfaceResolveOptions = { projectRoot: options.projectRoot };
   let surfaceCapabilities = resolveSurfaceCapabilities(
@@ -333,6 +335,16 @@ export const createProgram = (
     sourceChecker,
     options,
     surfaceCapabilities,
+    workspaceGraph: buildWorkspaceGraphSnapshot({
+      projectRoot: options.projectRoot,
+      sourceRoot: options.sourceRoot,
+      sourceFiles: discovery.allFiles,
+      ambientFiles: discovery.ambientSupportFiles,
+      typeRoots: discovery.typeRoots,
+      edges: discovery.dependencyEdges,
+      options,
+      surfaceCapabilities,
+    }),
     authoritativeTsonicPackageRoots:
       discovery.authoritativeTsonicPackageRoots,
     declarationModuleAliases: discovery.declarationModuleAliases,

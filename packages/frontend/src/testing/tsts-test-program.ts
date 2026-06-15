@@ -4,6 +4,8 @@ import * as path from "node:path";
 import type { TstsSourceFile } from "@tsonic/tsts";
 import type { CompilerOptions, TsonicProgram } from "../program/types.js";
 import { createTstsSourceProgram } from "../source-frontend/index.js";
+import { resolveSurfaceCapabilities } from "../surface/profiles.js";
+import { buildWorkspaceGraphSnapshot } from "../program/workspace-fingerprint.js";
 
 export type TstsTestProgram = TsonicProgram & {
   readonly sourceFile: TstsSourceFile;
@@ -205,21 +207,36 @@ export const createTstsTestProgramFromFiles = (
   );
   const projectRoot = options.projectRoot ?? tempRoot;
   const sourceRoot = options.sourceRoot ?? tempRoot;
+  const surfaceCapabilities = resolveSurfaceCapabilities(options.surface, {
+    projectRoot,
+  });
+  const compilerOptions = {
+    projectRoot,
+    sourceRoot,
+    rootNamespace: options.rootNamespace ?? "TestApp",
+    strict: options.strict ?? true,
+    surface: options.surface,
+    typeRoots: options.typeRoots,
+    backendCapabilities: options.backendCapabilities,
+    backendTargetId: options.backendTargetId,
+    programInputScope: options.programInputScope,
+  };
 
   return {
-    options: {
-      projectRoot,
-      sourceRoot,
-      rootNamespace: options.rootNamespace ?? "TestApp",
-      strict: options.strict ?? true,
-      surface: options.surface,
-      typeRoots: options.typeRoots,
-      backendCapabilities: options.backendCapabilities,
-      backendTargetId: options.backendTargetId,
-      programInputScope: options.programInputScope,
-    },
+    options: compilerOptions,
     sourceProgram,
     sourceChecker,
+    surfaceCapabilities,
+    workspaceGraph: buildWorkspaceGraphSnapshot({
+      projectRoot,
+      sourceRoot,
+      sourceFiles: filePaths,
+      ambientFiles: [],
+      typeRoots: options.typeRoots ?? [],
+      edges: [],
+      options: compilerOptions,
+      surfaceCapabilities,
+    }),
     sourceFiles,
     declarationSourceFiles,
     sourceFile,
