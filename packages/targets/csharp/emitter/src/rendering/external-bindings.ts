@@ -23,7 +23,6 @@ type ExternalMemberMetadata = {
 
 type ExternalTypeMetadata = {
   readonly targetName: string;
-  readonly simpleName: string;
   readonly baseTypeName?: string;
   readonly interfaces: readonly string[];
   readonly members: readonly ExternalMemberMetadata[];
@@ -50,9 +49,6 @@ const stringValue = (value: unknown): string | undefined =>
 
 const numberValue = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
-
-const simpleTypeName = (qualifiedName: string): string =>
-  qualifiedName.split(".").at(-1) ?? qualifiedName;
 
 const normalizeRuntimeName = (name: string): string =>
   name
@@ -134,7 +130,6 @@ const parseType = (value: unknown): ExternalTypeMetadata | undefined => {
   if (!targetName) return undefined;
   return {
     targetName,
-    simpleName: simpleTypeName(targetName),
     baseTypeName: targetNameFromTypeRef(value.baseType),
     interfaces: Array.isArray(value.interfaces)
       ? value.interfaces
@@ -165,15 +160,14 @@ const parseBindingFile = (
 };
 
 const resolveHeritageOwnerNames = (
-  type: LoweringTypeRefPlan,
-  bySimpleName: ReadonlyMap<string, readonly string[]>
+  type: LoweringTypeRefPlan
 ): readonly string[] => {
   if (type.kind !== "named") return [];
   const sourceRuntimeName = sourceRuntimeNameKey(type.sourceRuntimeName);
   if (sourceRuntimeName) {
     return [normalizeRuntimeName(sourceRuntimeName)];
   }
-  return bySimpleName.get(type.name) ?? [];
+  return [];
 };
 
 const resolveCommonAccessibility = (
@@ -205,17 +199,12 @@ export const createExternalBindingMetadataIndex = (
 
   const diagnostics: Diagnostic[] = [];
   const byQualifiedName = new Map<string, ExternalTypeMetadata>();
-  const bySimpleName = new Map<string, string[]>();
 
   for (const root of roots) {
     for (const filePath of bindingFilesUnder(root)) {
       try {
         for (const type of parseBindingFile(filePath).types) {
           byQualifiedName.set(type.targetName, type);
-          const existing = bySimpleName.get(type.simpleName) ?? [];
-          if (!existing.includes(type.targetName)) {
-            bySimpleName.set(type.simpleName, [...existing, type.targetName]);
-          }
         }
       } catch (cause) {
         diagnostics.push({
@@ -267,10 +256,7 @@ export const createExternalBindingMetadataIndex = (
     resolveOverrideAccessibility: (heritageTypes, member) => {
       if (!member.override || member.accessibilityExplicit) return undefined;
       for (const heritageType of heritageTypes) {
-        for (const ownerName of resolveHeritageOwnerNames(
-          heritageType,
-          bySimpleName
-        )) {
+        for (const ownerName of resolveHeritageOwnerNames(heritageType)) {
           const accessibility = findMemberAccessibility(ownerName, member);
           if (accessibility) return accessibility;
         }

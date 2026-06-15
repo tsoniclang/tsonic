@@ -14,6 +14,7 @@ import {
   isOpaqueRuntimeTypePlan,
   isRecursiveRuntimeArrayArm,
   isStringLikeTypePlan,
+  isTaskLikeTypePlan,
   isVoidLikeTypePlan,
   nonNullishUnionTypes,
   renderCSharpRuntimeExpressionName,
@@ -473,16 +474,16 @@ const lambdaContextReturnType = (
 const isVoidLikeExpressionType = (type: LoweringTypeRefPlan | undefined): boolean =>
   (type?.kind === "intrinsic" &&
     (type.name === "void" || type.name === "undefined" || type.name === "never")) ||
-  (type?.kind === "named" &&
-    (type.name === "Promise" || type.name === "Task") &&
+  (isTaskLikeTypePlan(type) &&
+    type?.kind === "named" &&
     (type.typeArguments.length === 0 ||
       isVoidLikeExpressionType(type.typeArguments[0]))) ||
   (type?.kind === "union" &&
     nonNullishUnionTypes(type).every(
       (member) =>
         isVoidLikeExpressionType(member) ||
-        (member.kind === "named" &&
-          (member.name === "Promise" || member.name === "Task") &&
+        (isTaskLikeTypePlan(member) &&
+          member.kind === "named" &&
           (member.typeArguments.length === 0 ||
             isVoidLikeExpressionType(member.typeArguments[0])))
     ));
@@ -1159,7 +1160,7 @@ const arrayReceiverType = (
 const isTaskLikeUseSiteType = (
   type: LoweringTypeRefPlan | undefined
 ): boolean => {
-  if (type?.kind === "named" && (type.name === "Promise" || type.name === "Task")) {
+  if (isTaskLikeTypePlan(type)) {
     return true;
   }
   return type?.kind === "union"

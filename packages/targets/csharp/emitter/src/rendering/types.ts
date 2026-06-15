@@ -112,7 +112,6 @@ const renderNamedType = (
 ): string =>
   (isPrivateJsRuntimeName(sourceRuntimeName) ? knownNamedTypes.get(name) : undefined) ??
   renderCSharpRuntimeTypeName(sourceRuntimeName) ??
-  knownNamedTypes.get(name) ??
   sanitizeTypeName(name.replace(/\$/g, "_").replace(/\./g, "_"));
 
 const requiredTypeArgument = (
@@ -126,33 +125,6 @@ const requiredTypeArgument = (
   context.reportUnsupported(feature, "TypeReference", type.sourceText ?? type.name);
   return objectTypePlan;
 };
-
-const nonStructuralNamedTypes = new Set([
-  "Array",
-  "Date",
-  "Error",
-  "Generator",
-  "Iterable",
-  "IterableIterator",
-  "Iterator",
-  "Map",
-  "ReadonlyArray",
-  "ReadonlyMap",
-  "RegExp",
-  "Set",
-  "Uint8Array",
-  "Uint8ClampedArray",
-  "Int8Array",
-  "Uint16Array",
-  "Int16Array",
-  "Uint32Array",
-  "Int32Array",
-  "Float32Array",
-  "Float64Array",
-  "DataView",
-  "WeakMap",
-  "WeakSet",
-]);
 
 const stableHash = (value: string): string => {
   let hash = 2166136261;
@@ -246,8 +218,7 @@ export const shouldExpandNamedAliasTarget = (
 ): boolean =>
   type.kind === "named" &&
   type.sourceRuntimeName === undefined &&
-  type.aliasTarget?.kind !== "union" &&
-  !nonStructuralNamedTypes.has(type.name);
+  type.aliasTarget?.kind !== "union";
 
 export const isNullishType = (type: LoweringTypeRefPlan): boolean =>
   (type.kind === "intrinsic" &&
@@ -446,11 +417,12 @@ export const shouldEmitStructuralObjectType = (
 
 const isTaskType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "named" &&
-  (type.name === "Task" ||
-    sourceRuntimeNameKey(type.sourceRuntimeName) === "System.Threading.Tasks.Task");
+  sourceRuntimeNameKey(type.sourceRuntimeName) === "System.Threading.Tasks.Task";
 
 const isPromiseType = (type: LoweringTypeRefPlan | undefined): boolean =>
-  type?.kind === "named" && type.name === "Promise";
+  type?.kind === "named" &&
+  isPrivateJsRuntimeName(type.sourceRuntimeName) &&
+  type.name === "Promise";
 
 export const isTaskLikeTypePlan = (
   type: LoweringTypeRefPlan | undefined
@@ -512,6 +484,7 @@ export const arrayTypeFromTypePlan = (
   if (unwrapped.kind === "array") return unwrapped;
   if (
     unwrapped.kind === "named" &&
+    isPrivateJsRuntimeName(unwrapped.sourceRuntimeName) &&
     (unwrapped.name === "Array" || unwrapped.name === "ReadonlyArray")
   ) {
     const elementType = unwrapped.typeArguments[0];
@@ -670,7 +643,10 @@ const renderSpecialNamedType = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
   context: RenderContext
 ): string | undefined => {
-  switch (type.name) {
+  const privateJsRuntimeName = isPrivateJsRuntimeName(type.sourceRuntimeName)
+    ? type.name
+    : undefined;
+  switch (privateJsRuntimeName) {
     case "Array":
       return `global::System.Collections.Generic.List<${renderCSharpType(requiredTypeArgument(type, 0, context, "Array type argument"), context)}>`;
     case "ReadonlyArray":
@@ -730,12 +706,6 @@ export const renderCSharpType = (
     case "named": {
       const special = renderSpecialNamedType(type, context);
       if (special) return special;
-      if (knownNamedTypes.has(type.name)) {
-        const name = renderNamedType(type.name, type.sourceRuntimeName);
-        return type.typeArguments.length === 0
-          ? name
-          : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
-      }
       if (type.declarationKind === "type-alias" && !type.aliasTarget) {
         return "object?";
       }
