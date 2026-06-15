@@ -639,9 +639,11 @@ const typeDeclarationBindingForSymbol = (
 ): LoweringTypeDeclarationBinding | undefined => {
   if (!symbol) return undefined;
   const checker = context.checkerForSourceFile(sourceFile);
-  const declaration = checker
+  const declarations = checker
     .getSymbolDeclarations(symbol)
-    .find(isRuntimeTypeDeclaration);
+    .filter(isRuntimeTypeDeclaration);
+  const declaration =
+    declarations.length === 1 ? declarations[0] : undefined;
   return typeDeclarationBindingForDeclaration(declaration, sourceFile);
 };
 
@@ -782,14 +784,15 @@ const sourceRuntimeVisibilityForSymbol = (
 >["runtimeVisibility"] => {
   if (!symbol) return undefined;
   const checker = context.checkerForSourceFile(sourceFile);
+  const visibilities = new Set<NonNullable<ReturnType<typeof sourceRuntimeVisibilityForDeclaration>>>();
   for (const declaration of checker.getSymbolDeclarations(symbol)) {
     const visibility = sourceRuntimeVisibilityForDeclaration(
       context,
       declaration
     );
-    if (visibility) return visibility;
+    if (visibility) visibilities.add(visibility);
   }
-  return undefined;
+  return visibilities.size === 1 ? [...visibilities][0] : undefined;
 };
 
 const sourceRuntimeVisibilityForType = (
@@ -906,11 +909,7 @@ const sourceRuntimeNameForType = (
   if (!type) return undefined;
   const checker = context.checkerForSourceFile(sourceFile);
   const symbol = checker.getTypeAliasOrSymbol(type);
-  const declaration = symbol
-    ? checker.getSymbolDeclarations(symbol).find(
-        (candidate): candidate is TstsNode => candidate !== undefined
-      )
-    : undefined;
+  const declaration = symbolValueOrSingleDeclaration(context, sourceFile, symbol);
   return sourceRuntimeNameForDeclaration(context, declaration, name, "type");
 };
 
@@ -947,11 +946,7 @@ const namedDeclarationKindForType = (
   if (!type) return undefined;
   const checker = context.checkerForSourceFile(sourceFile);
   const symbol = checker.getTypeAliasOrSymbol(type);
-  const declaration = symbol
-    ? checker.getSymbolDeclarations(symbol).find(
-        (candidate): candidate is TstsNode => candidate !== undefined
-      )
-    : undefined;
+  const declaration = symbolValueOrSingleDeclaration(context, sourceFile, symbol);
   return namedDeclarationKindForDeclaration(declaration);
 };
 
@@ -962,12 +957,7 @@ const sourceRuntimeNameForSymbol = (
   exportedName: string
 ): LoweringSourceRuntimeNamePlan | undefined => {
   if (!symbol) return undefined;
-  const checker = context.checkerForSourceFile(sourceFile);
-  const declaration =
-    checker.getSymbolValueDeclaration(symbol) ??
-    checker
-      .getSymbolDeclarations(symbol)
-      .find((candidate): candidate is TstsNode => candidate !== undefined);
+  const declaration = symbolValueOrSingleDeclaration(context, sourceFile, symbol);
   return sourceRuntimeNameForDeclaration(
     context,
     declaration,
@@ -2789,9 +2779,11 @@ const classOrInterfaceDeclarationForType = (
   if (!type) return undefined;
   const checker = context.checkerForSourceFile(sourceFile);
   const symbol = checker.getTypeAliasOrSymbol(type);
-  return symbol
-    ? checker.getSymbolDeclarations(symbol).find(isClassOrInterfaceDeclaration)
-    : undefined;
+  if (!symbol) return undefined;
+  const declarations = checker
+    .getSymbolDeclarations(symbol)
+    .filter(isClassOrInterfaceDeclaration);
+  return declarations.length === 1 ? declarations[0] : undefined;
 };
 
 const typeSubstitutionsFromDeclarationToOwner = (
