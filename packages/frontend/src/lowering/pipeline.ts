@@ -1,6 +1,7 @@
 import { error, ok, type Result } from "../types/result.js";
 import type { Diagnostic } from "../types/diagnostic.js";
 import type { TsonicProgram } from "../program/types.js";
+import { getProgramRuntimeSourceFiles } from "../program/queries.js";
 import { createLoweringInput } from "./input.js";
 import { createLoweringModulePlan } from "./module-plan.js";
 import type {
@@ -33,7 +34,7 @@ export const runLoweringPipeline = <
     resolvingStorageSymbols: new Set<TstsSymbol>(),
   };
 
-  for (const sourceFile of program.sourceFiles) {
+  for (const sourceFile of getProgramRuntimeSourceFiles(program)) {
     const result = createLoweringModulePlan(sourceFile, context, options);
     if (result.ok) {
       modules.push(result.plan);

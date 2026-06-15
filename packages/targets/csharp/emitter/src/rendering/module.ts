@@ -28,7 +28,7 @@ import {
   structuralTypeName,
   structuralTypeParameterNames,
   externalBindingKey,
-  sourceRuntimeNameKey,
+  sourceQualifiedNameKey,
   typePlanKey,
 } from "./types.js";
 import { sanitizeIdentifier } from "./names.js";
@@ -96,7 +96,7 @@ const createStructuralTypeTraversalState = (): StructuralTypeTraversalState => (
 const structuralNamedTypeKey = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>
 ): string =>
-  `${sourceRuntimeNameKey(type.sourceRuntimeName) ?? externalBindingKey(type.externalBinding) ?? type.name}<${type.typeArguments.length}>`;
+  `${sourceQualifiedNameKey(type.sourceQualifiedName) ?? externalBindingKey(type.externalBinding) ?? type.name}<${type.typeArguments.length}>`;
 
 const withStructuralType = (
   state: StructuralTypeTraversalState,

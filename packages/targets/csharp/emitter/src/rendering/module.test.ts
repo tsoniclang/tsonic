@@ -52,7 +52,7 @@ const promiseType = (
   kind: "named",
   name: "Promise",
   sourceText,
-  sourceRuntimeName: { namespace: "js._", name: "Promise" },
+  sourceQualifiedName: { namespace: "js._", name: "Promise" },
   typeArguments,
 });
 
@@ -128,7 +128,7 @@ const attributeTypeExpression = (
   expressionPlan({
     expressionKind: "identifier",
     literalText: name,
-    sourceRuntimeName: { namespace, name },
+    sourceQualifiedName: { namespace, name },
   });
 
 const stringLiteralExpression = (value: string): LoweringExpressionPlan =>

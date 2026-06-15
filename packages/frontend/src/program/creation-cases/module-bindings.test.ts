@@ -12,6 +12,10 @@ import {
 } from "@tsonic/tsts";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 import { createProgram } from "../creation.js";
+import {
+  getProgramDeclarationSourceFiles,
+  getProgramRuntimeSourceFiles,
+} from "../queries.js";
 
 const hasSourceFile = (
   sourceFiles: readonly TstsSourceFile[],
@@ -75,7 +79,10 @@ describe("Program Creation – module bindings", function () {
       expect(
         hasSourceFile(result.value.sourceProgram.sourceFiles, packageEntry)
       ).to.equal(true);
-      const sourceFile = findSourceFile(result.value.sourceFiles, entryPath);
+      const sourceFile = findSourceFile(
+        getProgramRuntimeSourceFiles(result.value),
+        entryPath
+      );
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
@@ -221,7 +228,10 @@ describe("Program Creation – module bindings", function () {
       if (!result.ok) return;
 
       expect(
-        hasSourceFile(result.value.declarationSourceFiles, jsInternalIndex)
+        hasSourceFile(
+          getProgramDeclarationSourceFiles(result.value),
+          jsInternalIndex
+        )
       ).to.equal(true);
     } finally {
       fixture.cleanup();
@@ -251,7 +261,7 @@ describe("Program Creation – module bindings", function () {
 
       const expectedDts = path.resolve(path.join(surfaceRoot, "index.d.ts"));
       expect(
-        result.value.declarationSourceFiles.some(
+        getProgramDeclarationSourceFiles(result.value).some(
           (sourceFile) => path.resolve(sourceFile.FileName()) === expectedDts
         )
       ).to.equal(true);

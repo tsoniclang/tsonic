@@ -53,18 +53,18 @@ describe("TSTS source frontend", () => {
   it("creates a TSTS source program through the source frontend boundary", () => {
     withTempSource("export const answer: number = 42;\n", (filePath) => {
       const frontend = createTstsSourceFrontend();
-      const program = frontend.createProgram([filePath], {
+      const sourceProgram = frontend.createProgram([filePath], {
         projectRoot: path.dirname(filePath),
         moduleResolutionPaths: {},
         sourceDiagnosticFileNames: [filePath],
       });
 
-      expect(program.engine).to.equal("tsts");
-      expect(program.sourceFiles.map((file) => file.FileName())).to.include(
-        filePath
-      );
-      expect(program.compilerDiagnostics).to.deep.equal([]);
-      expect(program.diagnostics).to.deep.equal([]);
+      expect(sourceProgram.engine).to.equal("tsts");
+      expect(
+        sourceProgram.sourceFiles.map((file) => file.FileName())
+      ).to.include(filePath);
+      expect(sourceProgram.compilerDiagnostics).to.deep.equal([]);
+      expect(sourceProgram.diagnostics).to.deep.equal([]);
     });
   });
 
@@ -80,15 +80,18 @@ describe("TSTS source frontend", () => {
       `,
       (filePath) => {
         const frontend = createTstsSourceFrontend();
-        const program = frontend.createProgram([filePath], {
+        const sourceProgram = frontend.createProgram([filePath], {
           projectRoot: path.dirname(filePath),
           moduleResolutionPaths: {},
           sourceDiagnosticFileNames: [filePath],
         });
-        const sourceFile = must(program.sourceFiles[0], "source file missing");
+        const sourceFile = must(
+          sourceProgram.sourceFiles[0],
+          "source file missing"
+        );
         const valueUseTypes: string[] = [];
 
-        program.withTypeChecker(sourceFile, (checker) => {
+        sourceProgram.withTypeChecker(sourceFile, (checker) => {
           for (const statement of must(
             sourceFile.Statements,
             "source file statements missing"
@@ -106,8 +109,8 @@ describe("TSTS source frontend", () => {
           }
         });
 
-        expect(program.compilerDiagnostics).to.deep.equal([]);
-        expect(program.diagnostics).to.deep.equal([]);
+        expect(sourceProgram.compilerDiagnostics).to.deep.equal([]);
+        expect(sourceProgram.diagnostics).to.deep.equal([]);
         expect(valueUseTypes).to.include("string | number");
         expect(valueUseTypes).to.include("string");
         expect(valueUseTypes).to.include("number");

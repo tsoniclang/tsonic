@@ -38,7 +38,11 @@ export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
     string,
     DeclarationModuleAlias
   >;
-  readonly sourceFiles: readonly TstsSourceFile[];
-  /** Declaration files from typeRoots (globals, external surface types, etc.). */
-  readonly declarationSourceFiles: readonly TstsSourceFile[];
+  /**
+   * Runtime source closure selected from the TSTS module graph.
+   *
+   * This is intentionally distinct from `sourceProgram.sourceFiles`, which is
+   * the full semantic graph including declarations and support files.
+   */
+  readonly runtimeSourceFiles: readonly TstsSourceFile[];
 };

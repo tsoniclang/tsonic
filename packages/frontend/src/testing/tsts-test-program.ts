@@ -205,11 +205,8 @@ export const createTstsTestProgramFromFiles = (
     ),
   });
   const sourceFile = findSourceFile(sourceProgram.sourceFiles, entryPath);
-  const sourceFiles = sourceProgram.sourceFiles.filter(
+  const runtimeSourceFiles = sourceProgram.sourceFiles.filter(
     (candidate) => candidate.IsDeclarationFile !== true
-  );
-  const declarationSourceFiles = sourceProgram.sourceFiles.filter(
-    (candidate) => candidate.IsDeclarationFile === true
   );
   const projectRoot = options.projectRoot ?? tempRoot;
   const sourceRoot = options.sourceRoot ?? tempRoot;
@@ -244,8 +241,7 @@ export const createTstsTestProgramFromFiles = (
     }),
     authoritativeTsonicPackageRoots: new Map(),
     declarationModuleAliases: new Map(),
-    sourceFiles,
-    declarationSourceFiles,
+    runtimeSourceFiles,
     sourceFile,
     cleanup: () => releaseTempRoot(tempRoot),
   };

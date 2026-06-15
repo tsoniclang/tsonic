@@ -3,6 +3,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createProgram } from "./creation.js";
+import { getProgramRuntimeSourceFiles } from "./queries.js";
 import { materializeFrontendFixture } from "../testing/filesystem-fixtures.js";
 
 describe("Program Creation – entrypoint input scope", function () {
@@ -53,8 +54,8 @@ describe("Program Creation – entrypoint input scope", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const sourceFiles = result.value.sourceFiles.map((sourceFile) =>
-        path.resolve(sourceFile.FileName())
+      const sourceFiles = getProgramRuntimeSourceFiles(result.value).map(
+        (sourceFile) => path.resolve(sourceFile.FileName())
       );
       expect(sourceFiles).to.include(path.resolve(testEntryFile));
       expect(sourceFiles).to.include(path.resolve(smokeFile));

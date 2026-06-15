@@ -295,6 +295,7 @@ describe("source semantic boundary", () => {
     const bannedReads = [
       "program.sourceFiles",
       "program.declarationSourceFiles",
+      "program.runtimeSourceFiles",
     ] as const;
 
     const offenders = collectTypeScriptFiles(frontendSrcRoot)

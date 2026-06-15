@@ -8,6 +8,10 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createProgram } from "../creation.js";
+import {
+  getProgramDeclarationSourceFiles,
+  getProgramRuntimeSourceFiles,
+} from "../queries.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 import type { TstsSourceFile } from "@tsonic/tsts";
 
@@ -48,7 +52,7 @@ describe("Program Creation – package resolution", function () {
 
       expect(
         hasSourceFile(
-          result.value.sourceFiles,
+          getProgramRuntimeSourceFiles(result.value),
           path.join(nodejsRoot, "src", "path-module.ts")
         )
       ).to.equal(true);
@@ -82,7 +86,7 @@ describe("Program Creation – package resolution", function () {
       if (!result.ok) return;
 
       expect(
-        result.value.sourceFiles.filter((sourceFile) => {
+        getProgramRuntimeSourceFiles(result.value).filter((sourceFile) => {
           try {
             return (
               fs.realpathSync(sourceFile.FileName()) ===
@@ -198,7 +202,10 @@ describe("Program Creation – package resolution", function () {
 
       const expectedDts = path.resolve(path.join(fakePkgRoot, "index.d.ts"));
       expect(
-        hasSourceFile(result.value.declarationSourceFiles, expectedDts)
+        hasSourceFile(
+          getProgramDeclarationSourceFiles(result.value),
+          expectedDts
+        )
       ).to.equal(true);
     } finally {
       fixture.cleanup();

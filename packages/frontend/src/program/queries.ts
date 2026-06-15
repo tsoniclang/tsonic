@@ -10,13 +10,16 @@ import type { TsonicProgram } from "./types.js";
 const normalizePath = (filePath: string): string =>
   path.resolve(filePath).replace(/\\/g, "/");
 
-export const getProgramSourceFiles = (
+export const getProgramRuntimeSourceFiles = (
   program: TsonicProgram
-): readonly TstsSourceFile[] => program.sourceFiles;
+): readonly TstsSourceFile[] => program.runtimeSourceFiles;
 
 export const getProgramDeclarationSourceFiles = (
   program: TsonicProgram
-): readonly TstsSourceFile[] => program.declarationSourceFiles;
+): readonly TstsSourceFile[] =>
+  program.sourceProgram.sourceFiles.filter(
+    (sourceFile) => sourceFile.IsDeclarationFile === true
+  );
 
 export const getProgramSemanticSourceFiles = (
   program: TsonicProgram

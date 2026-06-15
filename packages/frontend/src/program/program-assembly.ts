@@ -384,9 +384,6 @@ export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
   if (!runtimeSourceFilesResult.ok) return runtimeSourceFilesResult;
   const sourceFiles = runtimeSourceFilesResult.value;
 
-  const declarationSourceFiles = sourceProgram.sourceFiles.filter(
-    (sourceFile) => sourceFile.IsDeclarationFile === true
-  );
   const workspaceGraphEdges = collectTstsWorkspaceGraphEdges(sourceProgram);
 
   if (sourceFiles.length === 0) {
@@ -421,7 +418,6 @@ export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
     authoritativeTsonicPackageRoots:
       discovery.authoritativeTsonicPackageRoots,
     declarationModuleAliases: discovery.declarationModuleAliases,
-    sourceFiles,
-    declarationSourceFiles,
+    runtimeSourceFiles: sourceFiles,
   });
 };

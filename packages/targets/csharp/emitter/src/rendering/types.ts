@@ -1,6 +1,6 @@
 import type {
   LoweringExternalBindingReferencePlan,
-  LoweringSourceRuntimeNamePlan,
+  LoweringSourceQualifiedNamePlan,
   LoweringTypeMemberPlan,
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
@@ -50,53 +50,53 @@ const privateJsRuntimeTypes: ReadonlyMap<string, string> = new Map([
   ["js._.DataView", "global::js.DataView"],
 ]);
 
-export const sourceRuntimeNameKey = (
-  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
+export const sourceQualifiedNameKey = (
+  sourceQualifiedName: LoweringSourceQualifiedNamePlan | undefined
 ): string | undefined =>
-  sourceRuntimeName
-    ? [sourceRuntimeName.namespace, sourceRuntimeName.container, sourceRuntimeName.name]
+  sourceQualifiedName
+    ? [sourceQualifiedName.namespace, sourceQualifiedName.container, sourceQualifiedName.name]
         .filter((part): part is string => part !== undefined && part.length > 0)
         .join(".")
     : undefined;
 
-const sourceRuntimeNameNamespaceSegments = (
-  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
+const sourceQualifiedNameNamespaceSegments = (
+  sourceQualifiedName: LoweringSourceQualifiedNamePlan | undefined
 ): readonly string[] =>
-  sourceRuntimeName?.namespace?.split(".").filter(Boolean) ?? [];
+  sourceQualifiedName?.namespace?.split(".").filter(Boolean) ?? [];
 
 export const isPrivateJsRuntimeName = (
-  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
+  sourceQualifiedName: LoweringSourceQualifiedNamePlan | undefined
 ): boolean => {
-  const [root, next] = sourceRuntimeNameNamespaceSegments(sourceRuntimeName);
+  const [root, next] = sourceQualifiedNameNamespaceSegments(sourceQualifiedName);
   return root === "js" && next === "_";
 };
 
 const renderRuntimeNameSegments = (
-  sourceRuntimeName: LoweringSourceRuntimeNamePlan,
+  sourceQualifiedName: LoweringSourceQualifiedNamePlan,
   finalSegment: (name: string | undefined) => string
 ): string =>
   [
-    ...sourceRuntimeNameNamespaceSegments(sourceRuntimeName).map(sanitizeIdentifier),
-    ...(sourceRuntimeName.container
-      ? [sanitizeTypeName(sourceRuntimeName.container)]
+    ...sourceQualifiedNameNamespaceSegments(sourceQualifiedName).map(sanitizeIdentifier),
+    ...(sourceQualifiedName.container
+      ? [sanitizeTypeName(sourceQualifiedName.container)]
       : []),
-    finalSegment(sourceRuntimeName.name),
+    finalSegment(sourceQualifiedName.name),
   ].join(".");
 
 export const renderCSharpRuntimeTypeName = (
-  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
+  sourceQualifiedName: LoweringSourceQualifiedNamePlan | undefined
 ): string | undefined =>
-  sourceRuntimeName
-    ? `global::${renderRuntimeNameSegments(sourceRuntimeName, (name) =>
+  sourceQualifiedName
+    ? `global::${renderRuntimeNameSegments(sourceQualifiedName, (name) =>
         sanitizeTypeName(name?.replace(/\$/g, "_").replace(/\./g, "_"))
       )}`
     : undefined;
 
 export const renderCSharpRuntimeExpressionName = (
-  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
+  sourceQualifiedName: LoweringSourceQualifiedNamePlan | undefined
 ): string | undefined =>
-  sourceRuntimeName
-    ? `global::${renderRuntimeNameSegments(sourceRuntimeName, sanitizeIdentifier)}`
+  sourceQualifiedName
+    ? `global::${renderRuntimeNameSegments(sourceQualifiedName, sanitizeIdentifier)}`
     : undefined;
 
 export const externalBindingKey = (
@@ -147,8 +147,8 @@ export const renderExternalTargetExpressionName = (
 const renderNamedType = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>
 ): string =>
-  privateJsRuntimeTypes.get(sourceRuntimeNameKey(type.sourceRuntimeName) ?? "") ??
-  renderCSharpRuntimeTypeName(type.sourceRuntimeName) ??
+  privateJsRuntimeTypes.get(sourceQualifiedNameKey(type.sourceQualifiedName) ?? "") ??
+  renderCSharpRuntimeTypeName(type.sourceQualifiedName) ??
   sanitizeTypeName(type.name.replace(/\$/g, "_").replace(/\./g, "_"));
 
 const renderNamedRuntimeType = (
@@ -174,7 +174,7 @@ const renderNamedRuntimeType = (
       ? externalName
       : `${externalName}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
   }
-  if (!type.sourceRuntimeName) return undefined;
+  if (!type.sourceQualifiedName) return undefined;
   const name = renderNamedType(type);
   return type.typeArguments.length === 0
     ? name
@@ -251,7 +251,7 @@ const typePlanKeyWithSeen = (
     case "source-primitive":
       return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
-      return `named:${type.runtimeVisibility ?? "public"}:${sourceRuntimeNameKey(type.sourceRuntimeName) ?? externalBindingKey(type.externalBinding) ?? type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
+      return `named:${type.runtimeVisibility ?? "public"}:${sourceQualifiedNameKey(type.sourceQualifiedName) ?? externalBindingKey(type.externalBinding) ?? type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
     case "record":
       return `record:${typePlanKeyWithSeen(type.keyType, nextSeen)}:${typePlanKeyWithSeen(type.valueType, nextSeen)}`;
     case "array":
@@ -300,7 +300,7 @@ const collectTypeParameterNames = (
       for (const argument of type.typeArguments) {
         collectTypeParameterNames(argument, names, nextSeen);
       }
-      if (type.sourceRuntimeName === undefined) {
+      if (type.sourceQualifiedName === undefined) {
         collectTypeParameterNames(type.aliasTarget, names, nextSeen);
       }
       break;
@@ -400,7 +400,7 @@ export const shouldExpandNamedAliasTarget = (
   type: LoweringTypeRefPlan
 ): boolean =>
   type.kind === "named" &&
-  type.sourceRuntimeName === undefined &&
+  type.sourceQualifiedName === undefined &&
   type.aliasTarget?.kind !== "union";
 
 export const isNullishType = (type: LoweringTypeRefPlan): boolean =>
@@ -565,7 +565,7 @@ const containsUnemittableStructuralMemberType = (
         type.typeArguments.some((argument) =>
           containsUnemittableStructuralMemberType(argument, nextSeen)
         ) ||
-        (type.sourceRuntimeName === undefined &&
+        (type.sourceQualifiedName === undefined &&
           containsUnemittableStructuralMemberType(type.aliasTarget, nextSeen))
       );
     case "record":
@@ -647,7 +647,7 @@ const isTaskType = (
 
 const isPromiseType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "named" &&
-  isPrivateJsRuntimeName(type.sourceRuntimeName) &&
+  isPrivateJsRuntimeName(type.sourceQualifiedName) &&
   type.name === "Promise";
 
 export const isTaskLikeTypePlan = (
@@ -712,7 +712,7 @@ export const arrayTypeFromTypePlan = (
   if (unwrapped.kind === "array") return unwrapped;
   if (
     unwrapped.kind === "named" &&
-    isPrivateJsRuntimeName(unwrapped.sourceRuntimeName) &&
+    isPrivateJsRuntimeName(unwrapped.sourceQualifiedName) &&
     (unwrapped.name === "Array" || unwrapped.name === "ReadonlyArray")
   ) {
     const elementType = unwrapped.typeArguments[0];
@@ -935,7 +935,7 @@ const renderSpecialNamedType = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
   context: RenderContext
 ): string | undefined => {
-  const privateJsRuntimeName = isPrivateJsRuntimeName(type.sourceRuntimeName)
+  const privateJsRuntimeName = isPrivateJsRuntimeName(type.sourceQualifiedName)
     ? type.name
     : undefined;
   switch (privateJsRuntimeName) {
@@ -1020,7 +1020,7 @@ export const renderCSharpType = (
       ) {
         return "object?";
       }
-      if (type.sourceRuntimeName || type.externalBinding) {
+      if (type.sourceQualifiedName || type.externalBinding) {
         return renderNamedRuntimeType(type, context) ?? "object?";
       }
       if (

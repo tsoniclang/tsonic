@@ -15,6 +15,7 @@ import {
   visitTstsSubtree,
 } from "@tsonic/tsts";
 import { createProgram } from "../creation.js";
+import { getProgramRuntimeSourceFiles } from "../queries.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 
 const findSourceFile = (
@@ -59,7 +60,8 @@ describe("Program Creation – authoritative type roots", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const sourceFile = findSourceFile(result.value.sourceFiles, entryPath);
+      const runtimeSourceFiles = getProgramRuntimeSourceFiles(result.value);
+      const sourceFile = findSourceFile(runtimeSourceFiles, entryPath);
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
@@ -88,7 +90,7 @@ describe("Program Creation – authoritative type roots", function () {
       expect(returnTypes.get("path.join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
 
-      const programFiles = sourceFilePaths(result.value.sourceFiles);
+      const programFiles = sourceFilePaths(runtimeSourceFiles);
       expect(programFiles).to.include(
         path.resolve(authoritativeRoot, "src/path-module.ts")
       );
@@ -127,7 +129,8 @@ describe("Program Creation – authoritative type roots", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const sourceFile = findSourceFile(result.value.sourceFiles, entryPath);
+      const runtimeSourceFiles = getProgramRuntimeSourceFiles(result.value);
+      const sourceFile = findSourceFile(runtimeSourceFiles, entryPath);
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
@@ -160,7 +163,7 @@ describe("Program Creation – authoritative type roots", function () {
       expect(returnTypes.get("join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
 
-      const programFiles = sourceFilePaths(result.value.sourceFiles);
+      const programFiles = sourceFilePaths(runtimeSourceFiles);
       expect(programFiles).to.include(
         path.resolve(authoritativeRoot, "src/index.ts")
       );
@@ -202,8 +205,8 @@ describe("Program Creation – authoritative type roots", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const programFiles = result.value.sourceFiles.map((sourceFile) =>
-        path.resolve(sourceFile.FileName())
+      const programFiles = getProgramRuntimeSourceFiles(result.value).map(
+        (sourceFile) => path.resolve(sourceFile.FileName())
       );
       expect(programFiles).to.include(pathEntry);
       expect(programFiles).to.not.include(unusedEntry);

@@ -14,7 +14,7 @@ export type {
   LoweringObjectPropertyPlan,
   LoweringParameterPlan,
   LoweringPlanBase,
-  LoweringSourceRuntimeNamePlan,
+  LoweringSourceQualifiedNamePlan,
   LoweringStatementPlan,
   LoweringTypeMemberPlan,
   LoweringTypePlan,

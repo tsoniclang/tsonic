@@ -36,6 +36,7 @@ import {
 import type { SourceBindingProjectedType } from "../source-frontend/source-facts.js";
 import { createTsonicSourceSemanticsExtension } from "./source-semantics.js";
 import { createTstsTestProgramFromFiles } from "../testing/tsts-test-program.js";
+import { getProgramRuntimeSourceFiles } from "../program/queries.js";
 
 const collectSemanticNodes = (sourceText: string) => {
   const sourceFile = parseTstsSourceFile(sourceText);
@@ -458,7 +459,7 @@ describe("Tsonic TSTS source semantics extension", () => {
     }
   });
 
-  it("attaches opaque runtime visibility as a source fact", () => {
+  it("does not attach opaque runtime visibility from source names", () => {
     const program = createTstsTestProgramFromFiles(
       {
         "_internal.ts": [
@@ -492,7 +493,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         }
       });
 
-      expect(visibilityFacts).to.include("KindIdentifier:opaque");
+      expect(visibilityFacts).to.not.include("KindIdentifier:opaque");
     } finally {
       program.cleanup();
     }
@@ -602,26 +603,28 @@ describe("Tsonic TSTS source semantics extension", () => {
       "src/index.ts"
     );
     try {
-      const recordReferences = program.sourceFiles.flatMap((sourceFile) => {
-        const references: {
-          readonly fileName: string;
-          readonly hasFact: boolean;
-        }[] = [];
-        visitTstsSubtree(sourceFile, (node) => {
-          if (!node) return;
-          const typeReference = getTstsTypeReferenceDetails(node);
-          if (typeReference?.name !== "Record") return;
-          const fileNameParts = sourceFile.FileName().split("/");
-          references.push({
-            fileName: fileNameParts[fileNameParts.length - 1] ?? "",
-            hasFact: program.sourceProgram.extensionHost.facts.has(
-              sourceDictionaryTypeFactKey,
-              node
-            ),
+      const recordReferences = getProgramRuntimeSourceFiles(program).flatMap(
+        (sourceFile) => {
+          const references: {
+            readonly fileName: string;
+            readonly hasFact: boolean;
+          }[] = [];
+          visitTstsSubtree(sourceFile, (node) => {
+            if (!node) return;
+            const typeReference = getTstsTypeReferenceDetails(node);
+            if (typeReference?.name !== "Record") return;
+            const fileNameParts = sourceFile.FileName().split("/");
+            references.push({
+              fileName: fileNameParts[fileNameParts.length - 1] ?? "",
+              hasFact: program.sourceProgram.extensionHost.facts.has(
+                sourceDictionaryTypeFactKey,
+                node
+              ),
+            });
           });
-        });
-        return references;
-      });
+          return references;
+        }
+      );
 
       expect(recordReferences).to.deep.include.members([
         { fileName: "index.ts", hasFact: true },

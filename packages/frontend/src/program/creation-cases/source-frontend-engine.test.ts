@@ -3,6 +3,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createProgram } from "../creation.js";
+import { getProgramRuntimeSourceFiles } from "../queries.js";
 import { installMinimalCoreGlobalsSurface } from "./test-package-helpers.js";
 import {
   getTstsTypeReferenceName,
@@ -141,7 +142,7 @@ describe("Program Creation – source frontend engine", () => {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const sourceFile = result.value.sourceFiles.find(
+      const sourceFile = getProgramRuntimeSourceFiles(result.value).find(
         (candidate) => candidate.FileName() === fixture.entryPath
       );
       expect(sourceFile).to.not.equal(undefined);

@@ -1167,7 +1167,7 @@ const callExpressionParameterTypes = (
   return callable?.parameters.map((parameter) => parameter.type) ?? [];
 };
 
-const renderSourceRuntimeName = (
+const renderSourceQualifiedName = (
   operation: SourceRuntimeOperation
 ): string => {
   switch (operation.owner) {
@@ -1204,7 +1204,7 @@ const renderSourceRuntimeName = (
 };
 
 const consoleMemberTarget = (member: string): string =>
-  `${renderSourceRuntimeName({
+  `${renderSourceQualifiedName({
     dispatch: "static-call",
     owner: "Console",
     member,
@@ -1774,7 +1774,7 @@ const renderSourceRuntimeCall = (
       return `(global::System.Convert.ToString(${receiver}) ?? "")`;
     }
     const renderedArgs = [receiver, ...args].join(", ");
-    const call = `${renderSourceRuntimeName(operation)}.${operation.member}(${renderedArgs})`;
+    const call = `${renderSourceQualifiedName(operation)}.${operation.member}(${renderedArgs})`;
     return operation.owner === "String" && operation.member === "split"
       ? `new global::System.Collections.Generic.List<string>(${call})`
       : call;
@@ -1800,7 +1800,7 @@ const renderSourceRuntimeCall = (
           const renderedArgs = plan.arguments
             .slice(1)
             .map((argument) => renderCallArgument(argument, context));
-          return `${renderSourceRuntimeName(operation)}.${operation.member}(${[
+          return `${renderSourceQualifiedName(operation)}.${operation.member}(${[
             renderedHandler,
             ...renderedArgs,
           ].join(", ")})`;
@@ -1828,12 +1828,12 @@ const renderSourceRuntimeCall = (
         break;
       case "Object":
         if (operation.member === "is") {
-          return `${renderSourceRuntimeName(operation)}.@is(${args.join(", ")})`;
+          return `${renderSourceQualifiedName(operation)}.@is(${args.join(", ")})`;
         }
         break;
       case "JSON":
         if (operation.member === "parse") {
-          return `${renderSourceRuntimeName(operation)}.parse<${renderRequiredCSharpType(plan.type, context, "JSON.parse result type", plan.sourceKindName, plan.sourceText)}>(${args.join(", ")})`;
+          return `${renderSourceQualifiedName(operation)}.parse<${renderRequiredCSharpType(plan.type, context, "JSON.parse result type", plan.sourceKindName, plan.sourceText)}>(${args.join(", ")})`;
         }
         break;
       case "Promise":
@@ -1851,7 +1851,7 @@ const renderSourceRuntimeCall = (
       default:
         break;
     }
-    return `${renderSourceRuntimeName(operation)}.${operation.member}(${args.join(", ")})`;
+    return `${renderSourceQualifiedName(operation)}.${operation.member}(${args.join(", ")})`;
   }
 
   return undefined;
@@ -1863,7 +1863,7 @@ const renderSourceRuntimeNew = (
 ): string | undefined => {
   const operation = plan.sourceOperation;
   if (operation?.dispatch !== "constructor") return undefined;
-  return `new ${renderSourceRuntimeName(operation)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
+  return `new ${renderSourceQualifiedName(operation)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
     .map((argument) => renderCallArgument(argument, context))
     .join(", ")})`;
 };
@@ -2000,19 +2000,19 @@ export const renderExpression = (
           "external binding target expression"
         );
       }
-      const sourceRuntimeName = renderCSharpRuntimeExpressionName(
-        plan.sourceRuntimeName
+      const sourceQualifiedName = renderCSharpRuntimeExpressionName(
+        plan.sourceQualifiedName
       );
-      if (sourceRuntimeName) {
-        return sourceRuntimeName;
+      if (sourceQualifiedName) {
+        return sourceQualifiedName;
       }
       if (plan.sourceOperation?.dispatch === "static-call") {
         return plan.sourceOperation.owner === "Console"
           ? consoleMemberTarget(plan.sourceOperation.member)
-          : `${renderSourceRuntimeName(plan.sourceOperation)}.${plan.sourceOperation.member}`;
+          : `${renderSourceQualifiedName(plan.sourceOperation)}.${plan.sourceOperation.member}`;
       }
       if (plan.sourceOperation?.dispatch === "constructor") {
-        return renderSourceRuntimeName(plan.sourceOperation);
+        return renderSourceQualifiedName(plan.sourceOperation);
       }
       const rawName = requiredPlanText(
         plan,
@@ -2200,7 +2200,7 @@ export const renderExpression = (
               operation.member === "length" &&
               isTypedArrayRuntimeOwner(operation.owner)
             ) {
-              return `${castExpression(renderExpression(plan.expression, context), renderSourceRuntimeName(operation))}.Count`;
+              return `${castExpression(renderExpression(plan.expression, context), renderSourceQualifiedName(operation))}.Count`;
             }
             break;
           }

@@ -82,7 +82,7 @@ describe("C# emitter architecture boundary", () => {
         'type.name === "_"',
         'type.name.includes("\\uFFFD")',
         'type.name.startsWith("_")',
-        'sourceRuntimeName?.name === "_"',
+        'sourceQualifiedName?.name === "_"',
         "bySimpleName",
         "simpleTypeName",
         "knownNamedTypes",

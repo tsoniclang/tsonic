@@ -11,7 +11,7 @@ import type {
   LoweringDeclarationPlan,
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
-import { sourceRuntimeNameKey } from "./types.js";
+import { sourceQualifiedNameKey } from "./types.js";
 
 export type ExternalMemberAccessibility = "public" | "protected" | "private";
 
@@ -212,9 +212,9 @@ const resolveHeritageOwnerNames = (
     const targetName = resolveTargetName(type.externalBinding);
     return targetName ? [normalizeRuntimeName(targetName)] : [];
   }
-  const sourceRuntimeName = sourceRuntimeNameKey(type.sourceRuntimeName);
-  if (sourceRuntimeName) {
-    return [normalizeRuntimeName(sourceRuntimeName)];
+  const sourceQualifiedName = sourceQualifiedNameKey(type.sourceQualifiedName);
+  if (sourceQualifiedName) {
+    return [normalizeRuntimeName(sourceQualifiedName)];
   }
   return [];
 };
