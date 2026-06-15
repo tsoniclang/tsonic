@@ -5,7 +5,7 @@ import type {
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
-import { sanitizeIdentifier } from "./names.js";
+import { requiredIdentifier, sanitizeIdentifier } from "./names.js";
 import { renderStatement } from "./statements.js";
 import {
   arrayTypeFromTypePlan,
@@ -435,18 +435,30 @@ const renderLambdaParameter = (
               parameter.type,
               context,
               "lambda parameter type",
-              "Parameter",
-              parameter.name
+              parameter.sourceKindName,
+              parameter.sourceText
             )
           : renderRequiredCSharpType(
               parameter.type,
               context,
               "lambda parameter type",
-              "Parameter",
-              parameter.name
+              parameter.sourceKindName,
+              parameter.sourceText
             )
-      } ${sanitizeIdentifier(parameter.name)}`
-    : sanitizeIdentifier(parameter.name);
+      } ${requiredIdentifier(
+        parameter.name,
+        context,
+        "lambda parameter name",
+        parameter.sourceKindName,
+        parameter.nameSourceText ?? parameter.sourceText
+      )}`
+    : requiredIdentifier(
+        parameter.name,
+        context,
+        "lambda parameter name",
+        parameter.sourceKindName,
+        parameter.nameSourceText ?? parameter.sourceText
+      );
 
 const lambdaContextReturnType = (
   plan: LoweringExpressionPlan
@@ -510,15 +522,15 @@ export const renderFunctionExpressionType = (
           parameter.type,
           context,
           "lambda parameter type",
-          "Parameter",
-          parameter.name
+          parameter.sourceKindName,
+          parameter.sourceText
         )
       : renderRequiredCSharpType(
           parameter.type,
           context,
           "lambda parameter type",
-          "Parameter",
-          parameter.name
+          parameter.sourceKindName,
+          parameter.sourceText
         )
   );
   const returnType = renderCSharpType(
@@ -951,6 +963,7 @@ const renderLambda = (
           .map((parameter, index) => ({
             ...parameter,
             name: `__unused${plan.parameters.length + index}`,
+            nameSourceText: `__unused${plan.parameters.length + index}`,
           }))
       : []),
   ]

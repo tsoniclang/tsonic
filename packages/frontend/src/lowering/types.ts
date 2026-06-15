@@ -202,6 +202,9 @@ export type LoweringTypeRefPlan =
 
 export type LoweringParameterPlan = {
   readonly name: string;
+  readonly sourceKindName: string;
+  readonly sourceText: string;
+  readonly nameSourceText?: string;
   readonly type?: LoweringTypeRefPlan;
   readonly initializer?: LoweringExpressionPlan;
   readonly optional: boolean;
@@ -239,6 +242,9 @@ export type LoweringBindingElementPlan = {
 
 export type LoweringEnumMemberPlan = {
   readonly name: string;
+  readonly sourceKindName: string;
+  readonly sourceText: string;
+  readonly nameSourceText?: string;
   readonly initializer?: LoweringExpressionPlan;
 };
 

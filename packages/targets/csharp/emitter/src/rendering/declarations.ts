@@ -6,7 +6,7 @@ import type {
   LoweringTypeMemberPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
-import { sanitizeIdentifier, sanitizeTypeName } from "./names.js";
+import { requiredIdentifier, sanitizeIdentifier, sanitizeTypeName } from "./names.js";
 import { renderExpression, renderExpressionWithUseSiteCast } from "./expressions.js";
 import {
   renderFunctionBody,
@@ -63,6 +63,13 @@ const renderParameter = (
   parameter: LoweringParameterPlan,
   context: RenderContext
 ): string => {
+  const parameterName = requiredIdentifier(
+    parameter.name,
+    context,
+    "parameter name",
+    parameter.sourceKindName,
+    parameter.nameSourceText ?? parameter.sourceText
+  );
   const initializer = parameter.initializer
     ? " = default"
     : parameter.optional
@@ -77,18 +84,18 @@ const renderParameter = (
           parameter.type,
           context,
           "parameter type",
-          "Parameter",
-          parameter.name
+          parameter.sourceKindName,
+          parameter.sourceText
         )
       : renderRequiredCSharpType(
           parameter.type,
           context,
           "parameter type",
-          "Parameter",
-          parameter.name
+          parameter.sourceKindName,
+          parameter.sourceText
         );
   const receiverModifier = parameter.extensionReceiver ? "this " : "";
-  return `${restModifier}${receiverModifier}${type} ${sanitizeIdentifier(parameter.name)}${initializer}`;
+  return `${restModifier}${receiverModifier}${type} ${parameterName}${initializer}`;
 };
 
 const renderTypeParameters = (
@@ -255,7 +262,17 @@ const renderSynthesizedConstructor = (
     .join(", ");
   const baseInitializer =
     parameters.length > 0
-      ? ` : base(${parameters.map((parameter) => sanitizeIdentifier(parameter.name)).join(", ")})`
+      ? ` : base(${parameters
+          .map((parameter) =>
+            requiredIdentifier(
+              parameter.name,
+              context,
+              "base constructor parameter name",
+              parameter.sourceKindName,
+              parameter.nameSourceText ?? parameter.sourceText
+            )
+          )
+          .join(", ")})`
       : "";
   const rendered = [
     `public ${sanitizeTypeName(className)}(${renderedParameters})${baseInitializer}`,
@@ -336,14 +353,31 @@ const renderIndexSignature = (
   includePublic: boolean
 ): string => {
   const [parameter] = parameters;
+  if (!parameter) {
+    context.reportUnsupported(
+      "index signature parameter",
+      "IndexSignature",
+      "index signature"
+    );
+  }
+  const parameterSourceKindName = parameter?.sourceKindName ?? "IndexSignature";
+  const parameterSourceText = parameter?.sourceText ?? "index signature";
+  const keyName = parameter
+    ? requiredIdentifier(
+        parameter.name,
+        context,
+        "index signature parameter name",
+        parameter.sourceKindName,
+        parameter.nameSourceText ?? parameter.sourceText
+      )
+    : "key";
   const keyType = renderRequiredCSharpType(
     parameter?.type,
     context,
     "index signature key type",
-    "IndexSignature",
-    parameter?.name ?? "key"
+    parameterSourceKindName,
+    parameterSourceText
   );
-  const keyName = sanitizeIdentifier(parameter?.name ?? "key");
   const type = renderRequiredCSharpType(
     valueType,
     context,
@@ -447,17 +481,20 @@ const renderClass = (
       (member) =>
         isPropertyLikeDeclaration(member) &&
         !member.static &&
-        member.initializer !== undefined &&
-        requireDeclarationName(member, context, "property") !== undefined
+        member.initializer !== undefined
     )
-    .map(
-      (member) =>
-        `this.${sanitizeIdentifier(member.name ?? "")} = ${renderExpressionWithUseSiteCast(
+    .flatMap((member) => {
+      const memberName = requireDeclarationName(member, context, "property");
+      return memberName
+        ? [
+            `this.${sanitizeIdentifier(memberName)} = ${renderExpressionWithUseSiteCast(
           member.initializer,
           context,
           member.returnType ?? member.declaredTypePlan
-        )};`
-    );
+        )};`,
+          ]
+        : [];
+    });
   const hasConstructor = members.some(
     (member) => member.declarationKind === "constructor"
   );
@@ -600,7 +637,14 @@ const renderEnum = (
       const initializer = member.initializer
         ? ` = ${renderExpression(member.initializer, context)}`
         : "";
-      return `    ${sanitizeIdentifier(member.name)}${initializer}${suffix}`;
+      const memberName = requiredIdentifier(
+        member.name,
+        context,
+        "enum member name",
+        member.sourceKindName,
+        member.nameSourceText ?? member.sourceText
+      );
+      return `    ${memberName}${initializer}${suffix}`;
     }),
     "}",
   ].join("\n");

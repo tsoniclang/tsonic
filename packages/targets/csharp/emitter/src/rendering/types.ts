@@ -4,7 +4,7 @@ import type {
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
-import { sanitizeIdentifier, sanitizeTypeName } from "./names.js";
+import { requiredIdentifier, sanitizeIdentifier, sanitizeTypeName } from "./names.js";
 
 const primitiveRuntimeTypes: ReadonlyMap<string, string> = new Map([
   ["bool", "bool"],
@@ -649,15 +649,15 @@ const renderFunctionType = (
           parameter.type,
           context,
           "function type parameter",
-          "FunctionType",
-          parameter.name
+          parameter.sourceKindName,
+          parameter.sourceText
         )
       : renderRequiredCSharpType(
           parameter.type,
           context,
           "function type parameter",
-          "FunctionType",
-          parameter.name
+          parameter.sourceKindName,
+          parameter.sourceText
         )
   );
   const returnType = renderFunctionReturnType(type.returnType, false, context);
@@ -879,7 +879,13 @@ export const renderTypeMember = (
       return `${renderRequiredCSharpType(member.returnType, context, "type member return type", "TypeMember", member.name)} ${sanitizeIdentifier(member.name)}${member.typeParameters.length > 0 ? `<${member.typeParameters.map((name) => sanitizeTypeName(name)).join(", ")}>` : ""}(${member.parameters
         .map(
           (parameter) =>
-            `${renderRequiredCSharpType(parameter.type, context, "type member parameter type", "TypeMember", parameter.name)} ${sanitizeIdentifier(parameter.name)}`
+            `${renderRequiredCSharpType(parameter.type, context, "type member parameter type", parameter.sourceKindName, parameter.sourceText)} ${requiredIdentifier(
+              parameter.name,
+              context,
+              "type member parameter name",
+              parameter.sourceKindName,
+              parameter.nameSourceText ?? parameter.sourceText
+            )}`
         )
         .join(", ")});`;
     case "index-signature":

@@ -1,3 +1,5 @@
+import type { RenderContext } from "../types.js";
+
 const reserved = new Set([
   "abstract",
   "as",
@@ -92,4 +94,17 @@ export const sanitizeIdentifier = (name: string | undefined): string => {
 export const sanitizeTypeName = (name: string | undefined): string => {
   const identifier = sanitizeIdentifier(name);
   return identifier.startsWith("@") ? identifier.slice(1) : identifier;
+};
+
+export const requiredIdentifier = (
+  name: string | undefined,
+  context: RenderContext,
+  feature: string,
+  sourceKindName: string,
+  sourceText: string
+): string => {
+  if (!name || name.length === 0) {
+    context.reportUnsupported(feature, sourceKindName, sourceText);
+  }
+  return sanitizeIdentifier(name);
 };

@@ -6,7 +6,7 @@ import type {
   LoweringVariablePlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
-import { sanitizeIdentifier, sanitizeTypeName } from "./names.js";
+import { requiredIdentifier, sanitizeIdentifier, sanitizeTypeName } from "./names.js";
 import {
   isCompileTimeOnlyExpression,
   renderConditionExpression,
@@ -193,6 +193,13 @@ const renderDelegateParameter = (
   parameter: LoweringParameterPlan,
   context: RenderContext
 ): string => {
+  const parameterName = requiredIdentifier(
+    parameter.name,
+    context,
+    "delegate parameter name",
+    parameter.sourceKindName,
+    parameter.nameSourceText ?? parameter.sourceText
+  );
   const type =
     parameter.rest && parameter.type?.kind === "array"
       ? `${renderCSharpType(parameter.type.elementType, context)}[]`
@@ -201,22 +208,22 @@ const renderDelegateParameter = (
             parameter.type,
             context,
             "delegate parameter type",
-            "Parameter",
-            parameter.name
+            parameter.sourceKindName,
+            parameter.sourceText
           )
         : renderRequiredCSharpType(
             parameter.type,
             context,
             "delegate parameter type",
-            "Parameter",
-            parameter.name
+            parameter.sourceKindName,
+            parameter.sourceText
           );
   const initializer = parameter.initializer
     ? ` = ${renderExpression(parameter.initializer, context)}`
     : parameter.optional
       ? " = null"
       : "";
-  return `${parameter.rest ? "params " : ""}${type} ${sanitizeIdentifier(parameter.name)}${initializer}`;
+  return `${parameter.rest ? "params " : ""}${type} ${parameterName}${initializer}`;
 };
 
 export const renderVariableFragment = (
@@ -663,10 +670,17 @@ export const renderFunctionBody = (
         )
       : undefined;
   const defaultedParameterPrologue = defaultedParameters.map((parameter) => {
+    const parameterName = requiredIdentifier(
+      parameter.name,
+      context,
+      "defaulted parameter name",
+      parameter.sourceKindName,
+      parameter.nameSourceText ?? parameter.sourceText
+    );
     const alias =
       defaultedParameterAliases?.get(parameter.name) ??
       defaultedParameterAlias(parameter.name);
-    return `${renderRequiredCSharpType(parameter.type, context, "defaulted parameter type", "Parameter", parameter.name)} ${alias} = ${sanitizeIdentifier(parameter.name)} ?? ${renderExpression(parameter.initializer, context)};`;
+    return `${renderRequiredCSharpType(parameter.type, context, "defaulted parameter type", parameter.sourceKindName, parameter.sourceText)} ${alias} = ${parameterName} ?? ${renderExpression(parameter.initializer, context)};`;
   });
   context.currentDefaultedParameters = defaultedParameterAliases;
   try {

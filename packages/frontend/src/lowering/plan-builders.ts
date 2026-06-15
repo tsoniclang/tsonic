@@ -147,6 +147,28 @@ const nodeName = (
   node: TstsNode | undefined
 ): string | undefined => nodeNameInfo(sourceFile, node).name;
 
+const parameterPlanSource = (
+  sourceFile: TstsSourceFile,
+  node: TstsNode
+): Pick<
+  LoweringParameterPlan,
+  "sourceKindName" | "sourceText" | "nameSourceText"
+> => {
+  const nameNode = TstsSyntax.Node_Name(node);
+  return {
+    sourceKindName: TstsSyntax.Node_KindString(node),
+    sourceText: nodeSourceText(sourceFile, node),
+    nameSourceText: nameNode ? nodeSourceText(sourceFile, nameNode) : undefined,
+  };
+};
+
+const symbolParameterPlanSource = (
+  name: string | undefined
+): Pick<LoweringParameterPlan, "sourceKindName" | "sourceText"> => ({
+  sourceKindName: "Parameter",
+  sourceText: name ?? "",
+});
+
 const propertyNameInfo = (
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined,
@@ -461,14 +483,21 @@ const checkerTypePlan = (
           sourceFile,
           parameter
         );
+        const declarationSourceFile = declaration
+          ? sourceFileForNode(declaration, sourceFile)
+          : sourceFile;
+        const name = checker.getSymbolName(parameter);
         const parameterType = declaration
           ? checker.getTypeOfSymbolAtLocation(parameter, declaration)
           : undefined;
         return {
-          name: checker.getSymbolName(parameter) || "arg",
+          name,
+          ...(declaration
+            ? parameterPlanSource(declarationSourceFile, declaration)
+            : symbolParameterPlanSource(name)),
           type:
-            declarationSourceTypePlan(context, sourceFile, declaration) ??
-            checkerTypePlan(context, sourceFile, parameterType, state),
+            declarationSourceTypePlan(context, declarationSourceFile, declaration) ??
+            checkerTypePlan(context, declarationSourceFile, parameterType, state),
           optional: false,
           rest: false,
         };
@@ -2313,11 +2342,14 @@ const nullableTypePlan = (
 
 const objectEntriesEntryArrayTypePlan = (
   valueType: LoweringTypeRefPlan | undefined
-): LoweringTypeRefPlan => ({
-  kind: "tuple",
-  readonly: false,
-  elements: [intrinsicTypePlan("string"), valueType ?? intrinsicTypePlan("object")],
-});
+): LoweringTypeRefPlan | undefined =>
+  valueType
+    ? {
+        kind: "tuple",
+        readonly: false,
+        elements: [intrinsicTypePlan("string"), valueType],
+      }
+    : undefined;
 
 const objectLiteralStorageTypePlan = (
   context: LoweringBuildContext,
@@ -2438,13 +2470,16 @@ const sourceRuntimeExpressionStorageTypePlan = (
             context.checkerForSourceFile(sourceFile).getNarrowedTypeAtLocation(argument)
           )
         : undefined;
-      return {
-        kind: "array",
-        readonly: false,
-        elementType: objectEntriesEntryArrayTypePlan(
-          loweringRecordValueType(argumentType)
-        ),
-      };
+      const entryType = objectEntriesEntryArrayTypePlan(
+        loweringRecordValueType(argumentType)
+      );
+      return entryType
+        ? {
+            kind: "array",
+            readonly: false,
+            elementType: entryType,
+          }
+        : undefined;
     }
     return expressionSourceTypePlan(sourceFile, node, context);
   }
@@ -4099,7 +4134,8 @@ const parameterPlans = (
           ? checker.getTypeAtLocation(nameNode ?? parameter)
           : undefined;
       return {
-        name: nodeName(sourceFile, parameter) ?? "arg",
+        name: nodeName(sourceFile, parameter) ?? "",
+        ...parameterPlanSource(sourceFile, parameter),
         type:
           typePlan(context, sourceFile, explicitType, inferredType, sourceTypeState) ??
           expectedParameterTypes[index],
@@ -4124,14 +4160,20 @@ const enumMembers = (
   context: LoweringBuildContext
 ): readonly LoweringEnumMemberPlan[] => {
   const declaration = TstsSyntax.AsEnumDeclaration(node);
-  return nodeListNodes(declaration?.Members).map((member) => ({
-    name: nodeName(sourceFile, member) ?? "Member",
-    initializer: expressionPlan(
-      sourceFile,
-      TstsSyntax.AsEnumMember(member)?.Initializer,
-      context
-    ),
-  }));
+  return nodeListNodes(declaration?.Members).map((member) => {
+    const nameNode = TstsSyntax.Node_Name(member);
+    return {
+      name: nodeName(sourceFile, member) ?? "",
+      sourceKindName: TstsSyntax.Node_KindString(member),
+      sourceText: nodeSourceText(sourceFile, member),
+      nameSourceText: nameNode ? nodeSourceText(sourceFile, nameNode) : undefined,
+      initializer: expressionPlan(
+        sourceFile,
+        TstsSyntax.AsEnumMember(member)?.Initializer,
+        context
+      ),
+    };
+  });
 };
 
 const baseConstructorParameters = (
@@ -4152,6 +4194,7 @@ const baseConstructorParameters = (
   const signature = signatures.length === 1 ? signatures[0] : undefined;
   if (signature) {
     return checker.getSignatureParameters(signature).map((parameter) => {
+      const name = checker.getSymbolName(parameter);
       const declaration = symbolValueOrSingleDeclaration(
         context,
         sourceFile,
@@ -4162,7 +4205,10 @@ const baseConstructorParameters = (
         declaration ?? heritage
       );
       return {
-        name: checker.getSymbolName(parameter) || "arg",
+        name,
+        ...(declaration
+          ? parameterPlanSource(sourceFileForNode(declaration, sourceFile), declaration)
+          : symbolParameterPlanSource(name)),
         type: checkerTypePlan(context, sourceFile, parameterType),
         optional: false,
         rest: false,

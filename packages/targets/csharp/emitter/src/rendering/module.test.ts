@@ -301,6 +301,9 @@ describe("C# module renderer", () => {
           parameters: [
             {
               name: "value",
+              sourceKindName: "Parameter",
+              sourceText: "value",
+              nameSourceText: "value",
               type: intType,
               optional: false,
               rest: false,
