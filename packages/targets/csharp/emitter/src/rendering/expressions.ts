@@ -581,9 +581,7 @@ const useSiteCastType = (
     case "unsupported":
       return undefined;
     case "named":
-      if (type.name === "_") return undefined;
-      if (type.name.includes("\uFFFD")) return undefined;
-      if (type.sourceRuntimeName?.name === "_") return undefined;
+      if (type.runtimeVisibility === "opaque") return undefined;
       return isOpaqueRuntimeTypePlan(type) ? undefined : renderCSharpType(type, context);
     case "literal":
       return undefined;
@@ -1824,23 +1822,6 @@ export const renderExpression = (
         }
       }
       const member = sanitizeIdentifier(rawMember);
-      if (
-        rawMember === "length" &&
-        (arrayTypeFromUseSite(plan.expression?.storageTypePlan) !== undefined ||
-          arrayTypeFromUseSite(plan.expression?.type) !== undefined ||
-          arrayTypeFromUseSite(plan.receiverTypePlan) !== undefined)
-      ) {
-        return renderArrayLength(plan.expression, context, plan.receiverTypePlan);
-      }
-      if (rawMember === "length") {
-        const receiverType = plan.receiverTypePlan;
-        const stringReceiver =
-          receiverType === undefined ||
-          isOpaqueRuntimeTypePlan(receiverType)
-            ? ({ kind: "intrinsic", name: "string" } as const)
-            : receiverType;
-        return `${renderExpressionWithUseSiteCast(plan.expression, context, stringReceiver)}.Length`;
-      }
       return `${renderExpressionWithUseSiteCast(
         plan.expression,
         context,
@@ -1872,15 +1853,6 @@ export const renderExpression = (
         plan.sourceOperation.member === "toStringTag"
       ) {
         return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.__tsonic_symbol_toStringTag`;
-      }
-      {
-        const rendered = renderArrayElementAccess(
-          plan.expression,
-          plan.arguments[0],
-          context,
-          plan.receiverTypePlan
-        );
-        if (rendered) return rendered;
       }
       return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}[${renderExpression(plan.arguments[0], context)}]`;
     case "call":

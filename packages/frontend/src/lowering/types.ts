@@ -78,6 +78,8 @@ export type LoweringSourceRuntimeNamePlan = {
   readonly name: string;
 };
 
+export type LoweringRuntimeVisibility = "opaque";
+
 export type LoweringTypeDeclarationBinding = {
   readonly sourceFile: TstsSourceFile;
   readonly sourceNode: TstsNode;
@@ -121,6 +123,7 @@ export type LoweringTypeRefPlan =
       readonly typeArguments: readonly LoweringTypeRefPlan[];
       readonly aliasTarget?: LoweringTypeRefPlan;
       readonly sourceRuntimeName?: LoweringSourceRuntimeNamePlan;
+      readonly runtimeVisibility?: LoweringRuntimeVisibility;
       readonly declaration?: LoweringTypeDeclarationBinding;
       readonly declarationKind?:
         | "class"

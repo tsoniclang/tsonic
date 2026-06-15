@@ -435,6 +435,12 @@ const checkerTypePlan = (
       ...checker.getAliasTypeArguments(type),
       ...checker.getReferenceTypeArguments(type),
     ];
+    const sourceRuntimeName = sourceRuntimeNameForType(
+      context,
+      sourceFile,
+      type,
+      name
+    );
     return {
       kind: "named",
       name,
@@ -443,12 +449,8 @@ const checkerTypePlan = (
         .filter(
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ),
-      sourceRuntimeName: sourceRuntimeNameForType(
-        context,
-        sourceFile,
-        type,
-        name
-      ),
+      sourceRuntimeName,
+      runtimeVisibility: runtimeVisibilityForNamedType(name, sourceRuntimeName),
       declaration: typeDeclarationBindingForType(context, sourceFile, type),
       declarationKind: namedDeclarationKindForType(context, sourceFile, type),
       aliasTarget: checkerTypeAliasTargetPlan(context, sourceFile, type),
@@ -634,6 +636,23 @@ const sourceRuntimeNameForSourceBindingNode = (
         context.input.facts.get(sourceBindingIdentityFactKey, node),
         target
       )
+    : undefined;
+
+const sourceRuntimeNameSegments = (
+  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
+): readonly string[] =>
+  sourceRuntimeName?.namespace?.split(".").filter(Boolean) ?? [];
+
+const runtimeVisibilityForNamedType = (
+  name: string,
+  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
+): Extract<LoweringTypeRefPlan, { readonly kind: "named" }>["runtimeVisibility"] =>
+  sourceRuntimeName?.name === "_" ||
+  sourceRuntimeNameSegments(sourceRuntimeName).includes("_") ||
+  name === "_" ||
+  name.includes("\uFFFD") ||
+  (!sourceRuntimeName && name.startsWith("_"))
+    ? "opaque"
     : undefined;
 
 const sourceRuntimeNameForDeclaration = (
@@ -1190,6 +1209,15 @@ const sourceTypeAliasDeclarationTargetPlan = (
     checker.getTypeAliasSymbolName(sourceType) ??
     checker.getTypeSymbolName(sourceType) ??
     typeReference.name;
+  const sourceRuntimeName =
+    sourceRuntimeNameForSourceBindingNode(context, node, "type") ??
+    sourceRuntimeNameForType(context, sourceFile, sourceType, typeName) ??
+    sourceRuntimeNameForSymbol(
+      context,
+      sourceFile,
+      resolvedTypeNodeSymbol,
+      typeName
+    );
   const state = createSourceTypePlanState();
   return {
     kind: "named",
@@ -1200,15 +1228,11 @@ const sourceTypeAliasDeclarationTargetPlan = (
         (argument): argument is LoweringTypeRefPlan => argument !== undefined
       ),
     aliasTarget: sourceTypeAliasTargetPlan(context, sourceFile, node, state),
-    sourceRuntimeName:
-      sourceRuntimeNameForSourceBindingNode(context, node, "type") ??
-      sourceRuntimeNameForType(context, sourceFile, sourceType, typeName) ??
-      sourceRuntimeNameForSymbol(
-        context,
-        sourceFile,
-        resolvedTypeNodeSymbol,
-        typeName
-      ),
+    sourceRuntimeName,
+    runtimeVisibility: runtimeVisibilityForNamedType(
+      typeName,
+      sourceRuntimeName
+    ),
     declaration: typeDeclarationBindingForNode(context, sourceFile, node),
     declarationKind: namedDeclarationKindForType(context, sourceFile, sourceType),
     sourceText: compactNodeSourceText(sourceFile, node),
@@ -1349,9 +1373,13 @@ const sourceTypePlan = (
         .map((argument) => sourceTypePlan(context, sourceFile, argument, state))
         .filter(
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
-        ),
+      ),
       aliasTarget,
       sourceRuntimeName,
+      runtimeVisibility: runtimeVisibilityForNamedType(
+        typeName,
+        sourceRuntimeName
+      ),
       declaration,
       declarationKind: namedDeclarationKindForType(
         context,
@@ -1441,27 +1469,31 @@ const sourceTypePlan = (
     }
     case TstsSyntax.KindExpressionWithTypeArguments: {
       const name = getTstsExpressionWithTypeArgumentsName(node);
-      return name
-        ? {
-            kind: "named",
-            name,
-            typeArguments: nodeArrayNodes(TstsSyntax.Node_TypeArguments(node))
-              .map((argument) =>
-                sourceTypePlan(context, sourceFile, argument, state)
-              )
-              .filter(
-                (argument): argument is LoweringTypeRefPlan =>
-                  argument !== undefined
-              ),
-            sourceRuntimeName: sourceRuntimeNameForSourceBindingNode(
-              context,
-              node,
-              "type"
-            ),
-            declaration: typeDeclarationBindingForNode(context, sourceFile, node),
-            sourceText,
-          }
-        : unsupportedTypePlan(sourceFile, node);
+      if (!name) return unsupportedTypePlan(sourceFile, node);
+      const sourceRuntimeName = sourceRuntimeNameForSourceBindingNode(
+        context,
+        node,
+        "type"
+      );
+      return {
+        kind: "named",
+        name,
+        typeArguments: nodeArrayNodes(TstsSyntax.Node_TypeArguments(node))
+          .map((argument) =>
+            sourceTypePlan(context, sourceFile, argument, state)
+          )
+          .filter(
+            (argument): argument is LoweringTypeRefPlan =>
+              argument !== undefined
+          ),
+        sourceRuntimeName,
+        runtimeVisibility: runtimeVisibilityForNamedType(
+          name,
+          sourceRuntimeName
+        ),
+        declaration: typeDeclarationBindingForNode(context, sourceFile, node),
+        sourceText,
+      };
     }
     case TstsSyntax.KindFunctionType:
     case TstsSyntax.KindConstructorType:

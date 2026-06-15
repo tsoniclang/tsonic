@@ -76,12 +76,6 @@ export const isPrivateJsRuntimeName = (
   return root === "js" && next === "_";
 };
 
-const isPrivateRuntimeName = (
-  sourceRuntimeName: LoweringSourceRuntimeNamePlan | undefined
-): boolean =>
-  sourceRuntimeName?.name === "_" ||
-  sourceRuntimeNameNamespaceSegments(sourceRuntimeName).includes("_");
-
 const renderRuntimeNameSegments = (
   sourceRuntimeName: LoweringSourceRuntimeNamePlan,
   finalSegment: (name: string | undefined) => string
@@ -186,7 +180,7 @@ const typePlanKeyWithSeen = (
     case "source-primitive":
       return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
-      return `named:${sourceRuntimeNameKey(type.sourceRuntimeName) ?? type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
+      return `named:${type.runtimeVisibility ?? "public"}:${sourceRuntimeNameKey(type.sourceRuntimeName) ?? type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
     case "array":
       return `array:${type.storage ?? (type.readonly ? "readonly" : "mutable")}:${typePlanKeyWithSeen(type.elementType, nextSeen)}`;
     case "tuple":
@@ -337,11 +331,7 @@ export const isOpaqueRuntimeTypePlan = (
   type.kind === "intersection" ||
   (type.kind === "object" && !shouldEmitStructuralObjectType(type)) ||
   (type.kind === "named" &&
-    (type.name === "JsValue" ||
-      type.name === "_" ||
-      type.name.includes("\uFFFD") ||
-      isPrivateRuntimeName(type.sourceRuntimeName) ||
-      (!type.sourceRuntimeName && type.name.startsWith("_"))));
+    (type.name === "JsValue" || type.runtimeVisibility === "opaque"));
 
 const isOpaqueNullableType = isOpaqueRuntimeTypePlan;
 
@@ -711,10 +701,7 @@ export const renderCSharpType = (
         return "object?";
       }
       if (
-        type.name === "_" ||
-        type.name.includes("\uFFFD") ||
-        isPrivateRuntimeName(type.sourceRuntimeName) ||
-        (!type.sourceRuntimeName && type.name.startsWith("_"))
+        type.runtimeVisibility === "opaque"
       ) {
         return "object?";
       }

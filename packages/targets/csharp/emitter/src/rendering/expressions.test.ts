@@ -39,6 +39,11 @@ const charType: LoweringTypeRefPlan = {
   },
 };
 
+const stringType: LoweringTypeRefPlan = {
+  kind: "intrinsic",
+  name: "string",
+};
+
 const expressionPlan = (
   overrides: Partial<LoweringExpressionPlan>
 ): LoweringExpressionPlan => ({
@@ -139,5 +144,43 @@ describe("C# expression renderer", () => {
     expect(rendered).to.equal(
       "new global::System.Collections.Generic.List<int>(global::System.Linq.Enumerable.Concat(global::System.Linq.Enumerable.Concat(new int[] { 1 }, items), new int[] { 2 }))"
     );
+  });
+
+  it("renders string length only from a TSTS-proven runtime operation", () => {
+    const context = createRenderContext();
+    const receiver = expressionPlan({
+      expressionKind: "identifier",
+      literalText: "value",
+      type: stringType,
+    });
+
+    expect(
+      renderExpression(
+        expressionPlan({
+          expressionKind: "property-access",
+          literalText: "length",
+          expression: receiver,
+          receiverTypePlan: stringType,
+        }),
+        context
+      )
+    ).to.equal("value.length");
+
+    expect(
+      renderExpression(
+        expressionPlan({
+          expressionKind: "property-access",
+          literalText: "length",
+          expression: receiver,
+          receiverTypePlan: stringType,
+          sourceOperation: {
+            owner: "String",
+            member: "length",
+            dispatch: "property",
+          },
+        }),
+        context
+      )
+    ).to.equal("value.Length");
   });
 });
