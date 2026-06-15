@@ -13,7 +13,7 @@ import {
 } from "./declaration-module-aliases.js";
 import { readPackageName } from "./module-resolution.js";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
-import { resolveImport } from "../resolver.js";
+import { resolveImport } from "../resolver/import-resolution.js";
 import { parsePackageSpecifier } from "../resolver/source-package-resolution.js";
 import { createDiagnostic, type Diagnostic } from "../types/diagnostic.js";
 import type { WorkspaceGraphEdge } from "./workspace-fingerprint.js";

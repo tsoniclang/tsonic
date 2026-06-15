@@ -19,7 +19,6 @@ export {
 export * from "./types/result.js";
 
 export * from "./program.js";
-export * from "./resolver.js";
 export * from "./validator.js";
 export * from "./dependency-graph.js";
 export * from "./surface/profiles.js";

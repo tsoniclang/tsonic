@@ -1,9 +1,0 @@
-/**
- * Module resolver - Public API
- */
-
-export type { ResolvedModule } from "./types.js";
-export { resolveImport, resolveLocalImport } from "./import-resolution.js";
-export { resolveModulePath } from "./path-resolution.js";
-export { getNamespaceFromPath } from "./namespace.js";
-export { getClassNameFromPath } from "./naming.js";
