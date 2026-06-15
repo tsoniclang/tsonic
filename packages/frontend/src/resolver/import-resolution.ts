@@ -184,8 +184,6 @@ export const resolveImport = (
       isLocal: false,
       resolutionKind: "phantomTypeOnly",
       originalSpecifier: importSpecifier,
-      externalQualifiedName: undefined,
-      externalOwnerIdentity: undefined,
     });
   }
 
