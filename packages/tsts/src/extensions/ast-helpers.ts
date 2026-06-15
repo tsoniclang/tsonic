@@ -298,7 +298,11 @@ export const getTstsParameters = (
   try {
     return nodeArray(Node_Parameters(node));
   } catch {
-    return nodeListNodes(Node_ParameterList(node));
+    try {
+      return nodeListNodes(Node_ParameterList(node));
+    } catch {
+      return [];
+    }
   }
 };
 
@@ -309,7 +313,11 @@ export const getTstsTypeParameterNodes = (
   try {
     return nodeArray(Node_TypeParameters(node));
   } catch {
-    return nodeListNodes(Node_TypeParameterList(node));
+    try {
+      return nodeListNodes(Node_TypeParameterList(node));
+    } catch {
+      return [];
+    }
   }
 };
 

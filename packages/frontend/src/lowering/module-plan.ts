@@ -63,7 +63,6 @@ export const createLoweringModulePlan = <
       exports: input.moduleGraph.getExports(sourceFile),
       declarations,
       topLevelStatements,
-      types: plans.types,
       statements: plans.statements,
       expressions: plans.expressions,
     },

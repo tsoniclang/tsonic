@@ -7,8 +7,6 @@ import type {
   ExtensionTypeChecker,
   TstsNode,
   TstsSourceFile,
-  TstsSymbol,
-  TstsType,
 } from "@tsonic/tsts";
 import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
 import type {
@@ -53,11 +51,6 @@ export type LoweringPlanBase<TKind extends string> = {
     | "symbol-iterator"
     | "symbol-async-iterator"
     | "symbol-to-string-tag";
-};
-
-export type LoweringTypePlan = LoweringPlanBase<"type"> & {
-  readonly sourceType: TstsType;
-  readonly sourceSymbol?: TstsSymbol;
 };
 
 export type LoweringIntrinsicTypeName =
@@ -277,8 +270,6 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
     | "type-alias"
     | "variable"
     | "unknown";
-  readonly symbol?: TstsSymbol;
-  readonly declaredType?: TstsType;
   readonly declaredTypePlan?: LoweringTypeRefPlan;
   readonly typeAliasTarget?: LoweringTypeRefPlan;
   readonly heritageTypes: readonly LoweringTypeRefPlan[];
@@ -418,9 +409,6 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly parameters: readonly LoweringParameterPlan[];
   readonly body?: LoweringStatementPlan;
   readonly async?: boolean;
-  readonly useSiteType?: TstsType;
-  readonly contextualType?: TstsType;
-  readonly symbol?: TstsSymbol;
 };
 
 export type LoweringObjectPropertyPlan = {
@@ -490,7 +478,6 @@ export type LoweringModulePlan<
   readonly exports: readonly ExtensionExportBinding[];
   readonly declarations: readonly LoweringDeclarationPlan[];
   readonly topLevelStatements: readonly LoweringStatementPlan[];
-  readonly types: readonly LoweringTypePlan[];
   readonly statements: readonly LoweringStatementPlan[];
   readonly expressions: readonly LoweringExpressionPlan[];
 };
@@ -518,6 +505,4 @@ export type LoweringBuildContext = {
     sourceFile: TstsSourceFile
   ) => ExtensionTypeChecker;
   readonly diagnostics: readonly Diagnostic[];
-  readonly symbolStorageTypes: Map<TstsSymbol, LoweringTypeRefPlan>;
-  readonly resolvingStorageSymbols: Set<TstsSymbol>;
 };

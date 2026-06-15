@@ -30,6 +30,7 @@ import {
   sourceBindingTypeProjectionFactKey,
   sourceDictionaryTypeFactKey,
   sourceAttributeApplicationsFactKey,
+  sourceExpressionTypeProjectionFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
   sourceOverloadCallImplementationFactKey,
@@ -87,6 +88,8 @@ const projectionSummary = (type: SourceBindingProjectedType): string => {
       return `${type.readonly ? "readonly " : ""}${projectionSummary(type.elementType)}[]`;
     case "tuple":
       return `[${type.elements.map(projectionSummary).join(", ")}]`;
+    case "object":
+      return `{ ${type.members.map((member) => `${member.name}: ${member.type ? projectionSummary(member.type) : "unknown"}`).join("; ")} }`;
     case "union":
       return type.types.map(projectionSummary).join(" | ");
     case "intersection":
@@ -647,6 +650,56 @@ describe("Tsonic TSTS source semantics extension", () => {
       });
 
       expect(summaries).to.deep.equal(["int", "int | string"]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("attaches expression type projections for storage lowering", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "index.ts": [
+          "import type { int } from '@tsonic/core/types.js';",
+          "type Box<T> = { value: T };",
+          "export function read(pair: [int, string], box: Box<int>, items: int[]): void {",
+          "  const first = pair[0];",
+          "  const value = box.value;",
+          "  const mapped = items.map((item: int): int => item);",
+          "  const object = { first, value };",
+          "  void mapped;",
+          "  void object;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        const text = getTstsNodeText(node)?.replace(/\s+/g, " ").trim();
+        if (
+          text !== "pair[0]" &&
+          text !== "box.value" &&
+          text !== "items.map((item: int): int => item)" &&
+          text !== "{ first, value }"
+        ) {
+          return;
+        }
+        const fact = program.sourceProgram.extensionHost.facts.get(
+          sourceExpressionTypeProjectionFactKey,
+          node
+        );
+        if (fact) summaries.push(`${text}: ${projectionSummary(fact.type)}`);
+      });
+
+      expect(summaries).to.deep.equal([
+        "pair[0]: int",
+        "box.value: int",
+        "items.map((item: int): int => item): int[]",
+        "{ first, value }: { first: int; value: int }",
+      ]);
     } finally {
       program.cleanup();
     }

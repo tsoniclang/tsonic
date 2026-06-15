@@ -121,7 +121,12 @@ export const getTstsParameters = (node) => {
         return nodeArray(Node_Parameters(node));
     }
     catch {
-        return nodeListNodes(Node_ParameterList(node));
+        try {
+            return nodeListNodes(Node_ParameterList(node));
+        }
+        catch {
+            return [];
+        }
     }
 };
 export const getTstsTypeParameterNodes = (node) => {
@@ -131,7 +136,12 @@ export const getTstsTypeParameterNodes = (node) => {
         return nodeArray(Node_TypeParameters(node));
     }
     catch {
-        return nodeListNodes(Node_TypeParameterList(node));
+        try {
+            return nodeListNodes(Node_TypeParameterList(node));
+        }
+        catch {
+            return [];
+        }
     }
 };
 export const getTstsMemberNodes = (node) => {

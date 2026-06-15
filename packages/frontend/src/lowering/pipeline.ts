@@ -8,9 +8,8 @@ import type {
   BackendTargetId,
   LoweringPipelineOptions,
   LoweringPipelineResult,
-  LoweringTypeRefPlan,
 } from "./types.js";
-import type { TstsSourceFile, TstsSymbol } from "@tsonic/tsts";
+import type { TstsSourceFile } from "@tsonic/tsts";
 
 export const runLoweringPipeline = <
   Target extends BackendTargetId = BackendTargetId,
@@ -30,8 +29,6 @@ export const runLoweringPipeline = <
     checkerForSourceFile: (sourceFile: TstsSourceFile) =>
       program.sourceProgram.withTypeChecker(sourceFile, (checker) => checker),
     diagnostics,
-    symbolStorageTypes: new Map<TstsSymbol, LoweringTypeRefPlan>(),
-    resolvingStorageSymbols: new Set<TstsSymbol>(),
   };
 
   for (const sourceFile of getProgramRuntimeSourceFiles(program)) {

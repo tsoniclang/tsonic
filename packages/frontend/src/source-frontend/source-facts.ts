@@ -180,6 +180,11 @@ export type SourceBindingProjectedType =
       readonly sourceNode?: TstsNode;
     }
   | {
+      readonly kind: "object";
+      readonly members: readonly SourceBindingProjectedObjectMember[];
+      readonly sourceNode?: TstsNode;
+    }
+  | {
       readonly kind: "union";
       readonly types: readonly SourceBindingProjectedType[];
       readonly sourceNode?: TstsNode;
@@ -190,8 +195,41 @@ export type SourceBindingProjectedType =
       readonly sourceNode?: TstsNode;
     };
 
+export type SourceBindingProjectedObjectMember = {
+  readonly name: string;
+  readonly type?: SourceBindingProjectedType;
+  readonly optional: boolean;
+};
+
 export type SourceBindingTypeProjectionFact = {
   readonly type: SourceBindingProjectedType;
+};
+
+export type SourceExpressionTypeProjectionFact = {
+  readonly type: SourceBindingProjectedType;
+  readonly contextualType?: SourceBindingProjectedType;
+};
+
+export type SourceCallArgumentTypesFact = {
+  readonly argumentTypes: readonly (SourceBindingProjectedType | undefined)[];
+  readonly targetType?: SourceBindingProjectedType;
+};
+
+export type SourceInitializerReferencesDeclarationFact = {
+  readonly referencesDeclaration: true;
+};
+
+export type SourceParameterTypeProjection = {
+  readonly name: string;
+  readonly type?: SourceBindingProjectedType;
+  readonly optional: boolean;
+  readonly rest: boolean;
+};
+
+export type SourceDeclarationTypeProjectionFact = {
+  readonly declaredType?: SourceBindingProjectedType;
+  readonly returnType?: SourceBindingProjectedType;
+  readonly baseConstructorParameters?: readonly SourceParameterTypeProjection[];
 };
 
 export type SourceAttributeTargetKind =
@@ -339,6 +377,30 @@ export const sourceBindingTypeProjectionFactKey =
     "Source-level type projected by TSTS for destructured binding elements."
   );
 
+export const sourceExpressionTypeProjectionFactKey =
+  defineSourceFactKey<SourceExpressionTypeProjectionFact>(
+    "tsonic:source:expression-type-projection",
+    "Source-level expression type projected by TSTS for storage lowering."
+  );
+
+export const sourceCallArgumentTypesFactKey =
+  defineSourceFactKey<SourceCallArgumentTypesFact>(
+    "tsonic:source:call-argument-types",
+    "Source-level call argument and target types selected by the TSTS checker."
+  );
+
+export const sourceInitializerReferencesDeclarationFactKey =
+  defineSourceFactKey<SourceInitializerReferencesDeclarationFact>(
+    "tsonic:source:initializer-references-declaration",
+    "Source-level self-referential initializer fact proven by TSTS binding."
+  );
+
+export const sourceDeclarationTypeProjectionFactKey =
+  defineSourceFactKey<SourceDeclarationTypeProjectionFact>(
+    "tsonic:source:declaration-type-projection",
+    "Source-level declaration type, return type, and base-constructor parameter projections selected by TSTS."
+  );
+
 export const sourceAttributeDescriptorFactKey =
   defineSourceFactKey<SourceAttributeDescriptorFact>(
     "tsonic:source:attribute-descriptor",
@@ -372,6 +434,10 @@ export const visitSourceSemanticFactKeys = (
   visit(sourceRuntimeVisibilityFactKey);
   visit(sourceDictionaryTypeFactKey);
   visit(sourceBindingTypeProjectionFactKey);
+  visit(sourceExpressionTypeProjectionFactKey);
+  visit(sourceCallArgumentTypesFactKey);
+  visit(sourceInitializerReferencesDeclarationFactKey);
+  visit(sourceDeclarationTypeProjectionFactKey);
   visit(sourceAttributeDescriptorFactKey);
   visit(sourceAttributeApplicationsFactKey);
 };

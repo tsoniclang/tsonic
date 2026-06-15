@@ -128,7 +128,7 @@ describe("discoverProgramInputs", () => {
     }
   });
 
-  it("includes transitive type-only imports from declaration files", () => {
+  it("leaves imported declaration-file closure expansion to TSTS", () => {
     const fixture = materializeFrontendFixture(
       "ir/external-identity/array-elements"
     );
@@ -155,8 +155,9 @@ describe("discoverProgramInputs", () => {
         }
       );
 
-      expect(discovery.allFiles).to.include(path.resolve(declarationEntry));
-      expect(discovery.allFiles).to.include(path.resolve(internalDeclaration));
+      expect(discovery.allFiles).to.include(fs.realpathSync(entryFile));
+      expect(discovery.allFiles).to.not.include(path.resolve(declarationEntry));
+      expect(discovery.allFiles).to.not.include(path.resolve(internalDeclaration));
     } finally {
       fixture.cleanup();
     }
@@ -189,8 +190,8 @@ describe("discoverProgramInputs", () => {
         }
       );
 
-      expect(discovery.allFiles).to.include(path.resolve(entryFile));
-      expect(discovery.allFiles).to.include(path.resolve(linkedPackageFile));
+      expect(discovery.allFiles).to.include(fs.realpathSync(entryFile));
+      expect(discovery.allFiles).to.include(fs.realpathSync(linkedPackageFile));
     } finally {
       fixture.cleanup();
     }
@@ -301,7 +302,7 @@ describe("discoverProgramInputs", () => {
       ).to.equal(linkedJsRoot);
       expect(discovery.typeRoots).to.include(linkedJsRoot);
       expect(discovery.typeRoots).to.include(fs.realpathSync(sourceNodejsRoot));
-      expect(discovery.allFiles).to.include(linkedJsAmbientFile);
+      expect(discovery.allFiles).to.include(fs.realpathSync(linkedJsAmbientFile));
     } finally {
       fixture.cleanup();
     }

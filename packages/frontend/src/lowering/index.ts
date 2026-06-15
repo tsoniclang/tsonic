@@ -17,7 +17,6 @@ export type {
   LoweringSourceQualifiedNamePlan,
   LoweringStatementPlan,
   LoweringTypeMemberPlan,
-  LoweringTypePlan,
   LoweringTypeRefPlan,
   LoweringUnaryOperator,
   LoweringVariablePlan,

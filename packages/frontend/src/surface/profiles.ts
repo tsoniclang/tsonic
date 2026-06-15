@@ -112,11 +112,30 @@ const sortVersionDirs = (dirs: readonly string[]): readonly string[] => {
   });
 };
 
+const findWorkspaceBoundary = (projectRoot: string): string | undefined => {
+  let current = resolve(projectRoot);
+  for (;;) {
+    if (existsSync(join(current, "tsonic.workspace.json"))) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+};
+
 const resolveSiblingSearchRoots = (projectRoot: string): readonly string[] => {
   const roots = new Set<string>();
-  for (const candidateRoot of findAncestorLookupRoots(projectRoot)) {
+  const workspaceBoundary = findWorkspaceBoundary(projectRoot);
+  const lookupRoots = findAncestorLookupRoots(projectRoot);
+  for (const candidateRoot of lookupRoots) {
     roots.add(resolve(candidateRoot));
-    roots.add(resolve(candidateRoot, ".."));
+    if (
+      workspaceBoundary === undefined ||
+      resolve(candidateRoot) !== resolve(workspaceBoundary)
+    ) {
+      roots.add(resolve(candidateRoot, ".."));
+    }
   }
   return Array.from(roots);
 };
@@ -173,6 +192,7 @@ const findAncestorLookupRoots = (projectRoot: string): readonly string[] => {
   const roots: string[] = [];
   let current = resolve(projectRoot);
   let encounteredPackageJson = false;
+  const workspaceBoundary = findWorkspaceBoundary(projectRoot);
 
   for (;;) {
     const hasPackageJson = existsSync(join(current, "package.json"));
@@ -181,6 +201,10 @@ const findAncestorLookupRoots = (projectRoot: string): readonly string[] => {
     }
     if (hasPackageJson) {
       encounteredPackageJson = true;
+    }
+
+    if (workspaceBoundary !== undefined && resolve(current) === workspaceBoundary) {
+      return roots;
     }
 
     const parent = dirname(current);

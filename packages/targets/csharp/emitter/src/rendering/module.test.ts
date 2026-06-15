@@ -180,7 +180,6 @@ describe("C# module renderer", () => {
           ],
         },
       ],
-      types: [],
       statements: [],
       expressions: [],
     };
@@ -226,7 +225,6 @@ describe("C# module renderer", () => {
           ],
         }),
       ],
-      types: [],
       statements: [],
       expressions: [],
     };
@@ -275,7 +273,6 @@ describe("C# module renderer", () => {
         }),
       ],
       topLevelStatements: [],
-      types: [],
       statements: [],
       expressions: [],
     };
@@ -332,7 +329,6 @@ describe("C# module renderer", () => {
         }),
       ],
       topLevelStatements: [],
-      types: [],
       statements: [],
       expressions: [],
     };
@@ -368,7 +364,6 @@ describe("C# module renderer", () => {
         }),
       ],
       topLevelStatements: [],
-      types: [],
       statements: [],
       expressions: [],
     };
@@ -402,7 +397,6 @@ describe("C# module renderer", () => {
         }),
       ],
       topLevelStatements: [],
-      types: [],
       statements: [],
       expressions: [],
     };
@@ -446,7 +440,6 @@ describe("C# module renderer", () => {
         }),
       ],
       topLevelStatements: [],
-      types: [],
       statements: [],
       expressions: [],
     };
@@ -497,7 +490,6 @@ describe("C# module renderer", () => {
           ],
         }),
       ],
-      types: [],
       statements: [],
       expressions: [],
     };
@@ -588,7 +580,6 @@ describe("C# module renderer", () => {
         }),
       ],
       topLevelStatements: [],
-      types: [],
       statements: [],
       expressions: [],
     };

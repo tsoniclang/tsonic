@@ -133,6 +133,10 @@ export const materializeFrontendFixture = (
     path.join(materializedFixtureRoot, "fixture-")
   );
   registerFixtureRoot(destinationRoot);
+  fs.writeFileSync(
+    path.join(destinationRoot, "tsonic.workspace.json"),
+    JSON.stringify({ packages: [] }, null, 2)
+  );
 
   for (const fixtureName of normalizedFixtureNames) {
     const sourceRoot = path.join(fixtureSourceRoot, fixtureName);
