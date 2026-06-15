@@ -27,34 +27,26 @@ const primitiveRuntimeTypes: ReadonlyMap<string, string> = new Map([
 const objectTypePlan: LoweringTypeRefPlan = { kind: "intrinsic", name: "object" };
 const voidTypePlan: LoweringTypeRefPlan = { kind: "intrinsic", name: "void" };
 
-const knownNamedTypes: ReadonlyMap<string, string> = new Map([
-  ["CancellationTokenSource", "global::System.Threading.CancellationTokenSource"],
-  ["ManualResetEventSlim", "global::System.Threading.ManualResetEventSlim"],
-  ["Thread", "global::System.Threading.Thread"],
-  ["Task", "global::System.Threading.Tasks.Task"],
-  ["DateTimeOffset", "global::System.DateTimeOffset"],
-  ["TimeSpan", "global::System.TimeSpan"],
-  ["CultureInfo", "global::System.Globalization.CultureInfo"],
-  ["DateTimeStyles", "global::System.Globalization.DateTimeStyles"],
-  ["Match$instance", "global::System.Text.RegularExpressions.Match"],
-  ["Match", "global::System.Text.RegularExpressions.Match"],
-  ["Group", "global::System.Text.RegularExpressions.Group"],
-  ["Regex", "global::System.Text.RegularExpressions.Regex"],
-  ["RegexOptions", "global::System.Text.RegularExpressions.RegexOptions"],
-  ["Error", "global::js.Error"],
-  ["RegExp", "global::js.RegExp"],
-  ["Map", "global::js.Map"],
-  ["ReadonlyMap", "global::js.Map"],
-  ["Uint8Array", "global::js.Uint8Array"],
-  ["Uint8ClampedArray", "global::js.Uint8ClampedArray"],
-  ["Int8Array", "global::js.Int8Array"],
-  ["Uint16Array", "global::js.Uint16Array"],
-  ["Int16Array", "global::js.Int16Array"],
-  ["Uint32Array", "global::js.Uint32Array"],
-  ["Int32Array", "global::js.Int32Array"],
-  ["Float32Array", "global::js.Float32Array"],
-  ["Float64Array", "global::js.Float64Array"],
-  ["DataView", "global::js.DataView"],
+const privateJsRuntimeTypes: ReadonlyMap<string, string> = new Map([
+  ["js._.Match$instance", "global::System.Text.RegularExpressions.Match"],
+  ["js._.Match", "global::System.Text.RegularExpressions.Match"],
+  ["js._.Group", "global::System.Text.RegularExpressions.Group"],
+  ["js._.Regex", "global::System.Text.RegularExpressions.Regex"],
+  ["js._.RegexOptions", "global::System.Text.RegularExpressions.RegexOptions"],
+  ["js._.Error", "global::js.Error"],
+  ["js._.RegExp", "global::js.RegExp"],
+  ["js._.Map", "global::js.Map"],
+  ["js._.ReadonlyMap", "global::js.Map"],
+  ["js._.Uint8Array", "global::js.Uint8Array"],
+  ["js._.Uint8ClampedArray", "global::js.Uint8ClampedArray"],
+  ["js._.Int8Array", "global::js.Int8Array"],
+  ["js._.Uint16Array", "global::js.Uint16Array"],
+  ["js._.Int16Array", "global::js.Int16Array"],
+  ["js._.Uint32Array", "global::js.Uint32Array"],
+  ["js._.Int32Array", "global::js.Int32Array"],
+  ["js._.Float32Array", "global::js.Float32Array"],
+  ["js._.Float64Array", "global::js.Float64Array"],
+  ["js._.DataView", "global::js.DataView"],
 ]);
 
 export const sourceRuntimeNameKey = (
@@ -110,7 +102,7 @@ const renderNamedType = (
   name: string,
   sourceRuntimeName?: LoweringSourceRuntimeNamePlan
 ): string =>
-  (isPrivateJsRuntimeName(sourceRuntimeName) ? knownNamedTypes.get(name) : undefined) ??
+  privateJsRuntimeTypes.get(sourceRuntimeNameKey(sourceRuntimeName) ?? "") ??
   renderCSharpRuntimeTypeName(sourceRuntimeName) ??
   sanitizeTypeName(name.replace(/\$/g, "_").replace(/\./g, "_"));
 

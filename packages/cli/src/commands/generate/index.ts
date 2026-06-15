@@ -143,7 +143,7 @@ export const generateCommand = (
         .join("\n");
       return {
         ok: false,
-        error: `TypeScript compilation failed:\n${errorMessages}`,
+        error: `Tsonic source analysis failed:\n${errorMessages}`,
       };
     }
 

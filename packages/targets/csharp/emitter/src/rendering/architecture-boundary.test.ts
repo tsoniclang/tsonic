@@ -85,6 +85,7 @@ describe("C# emitter architecture boundary", () => {
         'sourceRuntimeName?.name === "_"',
         "bySimpleName",
         "simpleTypeName",
+        "knownNamedTypes",
       ])
     ).to.deep.equal([]);
   });

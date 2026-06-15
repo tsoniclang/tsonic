@@ -175,7 +175,7 @@ export type TsonicWorkspaceConfig = {
   };
   readonly dotnet?: {
     /**
-     * Ambient type roots for TypeScript compilation (globals, etc).
+     * Ambient type roots for Tsonic source analysis (globals, etc).
      * Surface type roots are additive; compiler core roots are always injected.
      */
     readonly typeRoots?: readonly string[];
