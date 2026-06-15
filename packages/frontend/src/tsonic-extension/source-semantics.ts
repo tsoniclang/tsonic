@@ -1156,13 +1156,6 @@ const sourceRuntimeVisibilityFactForBinding = (
     ? { visibility: "opaque" }
     : undefined;
 
-const sourceRuntimeVisibilityFactForUnboundName = (
-  name: string | undefined
-): SourceRuntimeVisibilityFact | undefined =>
-  name === "_" || name?.startsWith("_") === true || name?.includes("\uFFFD")
-    ? { visibility: "opaque" }
-    : undefined;
-
 const setSourceRuntimeVisibilityFact = (
   context: CheckedContext,
   subject: TstsNode,
@@ -2054,16 +2047,7 @@ export const createTsonicSourceSemanticsExtension = (
 
       if (TstsSyntax.IsIdentifier(node)) {
         const symbol = symbolForName(context, node);
-        const bindingFact = setSourceBindingIdentityFact(context, node, symbol);
-        if (!bindingFact) {
-          setSourceRuntimeVisibilityFact(
-            context,
-            node,
-            sourceRuntimeVisibilityFactForUnboundName(
-              getTstsIdentifierText(node)
-            )
-          );
-        }
+        setSourceBindingIdentityFact(context, node, symbol);
         const targetSymbol = symbol ? genericAliasTargets.get(symbol) : undefined;
         if (targetSymbol) {
           context.facts.set(genericFunctionAliasFactKey, node, {
@@ -2079,21 +2063,11 @@ export const createTsonicSourceSemanticsExtension = (
         const symbol =
           context.checker.getSymbolAtLocation(node) ??
           symbolForName(context, TstsSyntax.Node_Name(node));
-        const bindingFact = setSourceBindingIdentityFact(
+        setSourceBindingIdentityFact(
           context,
           node,
           symbol ? context.checker.resolveAlias(symbol) : undefined
         );
-        if (!bindingFact) {
-          const typeReference = getTstsTypeReferenceDetails(node);
-          setSourceRuntimeVisibilityFact(
-            context,
-            node,
-            sourceRuntimeVisibilityFactForUnboundName(
-              typeReference?.name ?? getTstsExpressionWithTypeArgumentsName(node)
-            )
-          );
-        }
         if (isAmbientRecordTypeReference(context, node, sourceDiagnosticFileNames)) {
           context.facts.set(sourceDictionaryTypeFactKey, node, recordDictionaryFact);
         }
