@@ -1,5 +1,6 @@
 import type {
   LoweringBindingAccessPlan,
+  LoweringExpressionPlan,
   LoweringParameterPlan,
   LoweringStatementPlan,
   LoweringTypeRefPlan,
@@ -11,12 +12,19 @@ import {
   isCompileTimeOnlyExpression,
   renderConditionExpression,
   renderExpression,
+  renderExpressionWithUseSiteCast,
   renderFunctionExpressionType,
 } from "./expressions.js";
 import {
+  arrayTypeFromTypePlan,
+  isOpaqueRuntimeTypePlan,
+  isVoidLikeTypePlan,
   renderCSharpType,
   renderFunctionReturnType,
   renderNullableCSharpType,
+  runtimeUnionCarrierArms,
+  runtimeUnionTarget,
+  sameRuntimeTypePlan,
   shouldEmitStructuralObjectType,
 } from "./types.js";
 
@@ -87,7 +95,11 @@ const renderBindingInitializer = (
   context: RenderContext
 ): string => {
   const renderedType = type ? renderCSharpType(type, context) : undefined;
-  if (!renderedType || renderedType === "object?" || renderedType === "void") {
+  if (
+    !renderedType ||
+    isOpaqueRuntimeTypePlan(type) ||
+    isVoidLikeTypePlan(type)
+  ) {
     return expression;
   }
   return `((${renderedType})(${expression}))`;
@@ -134,7 +146,16 @@ const variableRenderType = (
   const storageType = shouldRenderVariableStorageType(declaration.storageType)
     ? renderCSharpType(declaration.storageType, context)
     : undefined;
-  return functionExpressionType && (!declaredType || declaredType === "object?")
+  if (
+    defaultType === "var" &&
+    declaration.initializer &&
+    !functionExpressionType &&
+    !declaredType
+  ) {
+    return "var";
+  }
+  return functionExpressionType &&
+    (!declaration.type || isOpaqueRuntimeTypePlan(declaration.type))
     ? functionExpressionType
     : declaredType ?? storageType ?? defaultType;
 };
@@ -193,7 +214,11 @@ export const renderVariableFragment = (
   }
   const type = variableRenderType(declaration, context, "var");
   const initializer = declaration.initializer
-    ? ` = ${renderExpression(declaration.initializer, context)}`
+    ? ` = ${renderExpressionWithUseSiteCast(
+        declaration.initializer,
+        context,
+        declaration.type ?? declaration.storageType
+      )}`
     : "";
   return `${type} ${sanitizeIdentifier(declaration.name)}${initializer}`;
 };
@@ -226,12 +251,20 @@ export const renderStaticField = (
     );
     return [
       `public delegate ${returnType} ${delegateName}(${parameters});`,
-      `public static ${delegateName} ${sanitizeIdentifier(declaration.name)} = ${renderExpression(declaration.initializer, context)};`,
+      `public static ${delegateName} ${sanitizeIdentifier(declaration.name)} = ${renderExpressionWithUseSiteCast(
+        declaration.initializer,
+        context,
+        declaration.type ?? declaration.storageType
+      )};`,
     ].join("\n");
   }
   const type = variableRenderType(declaration, context, "object?");
   const initializer = declaration.initializer
-    ? ` = ${renderExpression(declaration.initializer, context)}`
+    ? ` = ${renderExpressionWithUseSiteCast(
+        declaration.initializer,
+        context,
+        declaration.type ?? declaration.storageType
+      )}`
     : "";
   return `public static ${type} ${sanitizeIdentifier(declaration.name)}${initializer};`;
 };
@@ -316,7 +349,11 @@ const renderVariableStatement = (
           const type = variableRenderType(declaration, context, "object?");
           return [
             `${type} ${name} = default!;`,
-            `${name} = ${renderExpression(declaration.initializer, context)};`,
+            `${name} = ${renderExpressionWithUseSiteCast(
+              declaration.initializer,
+              context,
+              declaration.type ?? declaration.storageType
+            )};`,
           ];
         }
         return [`${renderVariableFragment(declaration, context)};`];
@@ -330,7 +367,13 @@ const renderVariableStatement = (
         return [];
       }
       const tempName = context.allocateTempName("binding");
-      const lines = [`var ${tempName} = ${renderExpression(declaration.initializer, context)};`];
+      const lines = [
+        `var ${tempName} = ${renderExpressionWithUseSiteCast(
+          declaration.initializer,
+          context,
+          declaration.type ?? declaration.storageType
+        )};`,
+      ];
       const rootType = declaration.storageType ?? declaration.initializer.type;
       for (const binding of declaration.bindingElements) {
         if (binding.initializer) {
@@ -373,6 +416,135 @@ const renderVoidExpressionStatement = (
   }
 };
 
+const namedTypeFromExpression = (
+  expression: LoweringExpressionPlan | undefined
+): LoweringTypeRefPlan | undefined =>
+  expression?.literalText
+    ? {
+        kind: "named",
+        name: expression.literalText,
+        typeArguments: [],
+        qualifiedRuntimeName: expression.qualifiedRuntimeName,
+      }
+    : undefined;
+
+const instanceofIdentifierNarrowing = (
+  condition: LoweringStatementPlan["condition"],
+  context: RenderContext
+):
+  | {
+      readonly name: string;
+      readonly type: LoweringTypeRefPlan;
+      readonly aliasName?: string;
+      readonly condition?: string;
+    }
+  | undefined =>
+  condition?.expressionKind === "binary" &&
+  condition.binaryOperator === "instanceof" &&
+  condition.left?.expressionKind === "identifier" &&
+  condition.left.literalText
+    ? (() => {
+        const narrowedType =
+          namedTypeFromExpression(condition.right) ??
+          condition.right?.type ?? { kind: "intrinsic", name: "object" };
+        const carrier =
+          runtimeUnionTarget(condition.left?.type)
+            ? condition.left?.type
+            : runtimeUnionTarget(condition.left?.storageTypePlan)
+              ? condition.left?.storageTypePlan
+              : undefined;
+        const arms = runtimeUnionCarrierArms(carrier, context);
+        const exactArmIndex = arms.findIndex(
+          (arm) => sameRuntimeTypePlan(arm, narrowedType)
+        );
+        const compatibleArmIndex =
+          exactArmIndex >= 0
+            ? exactArmIndex
+            : narrowedType.kind === "named"
+              ? arms.findIndex(
+                  (arm) =>
+                    arm.kind === "named" &&
+                    (arm.declarationKind === "class" ||
+                      arm.declarationKind === "interface")
+                )
+              : -1;
+        if (carrier && compatibleArmIndex >= 0) {
+          const narrowedRendered = renderCSharpType(narrowedType, context);
+          const name = condition.left.literalText;
+          const aliasName = `${sanitizeIdentifier(name)}__is_1`;
+          return {
+            name,
+            type: narrowedType,
+            aliasName,
+            condition: `(${renderExpression(condition.left, context)}.As${compatibleArmIndex + 1}()) is ${narrowedRendered} ${aliasName}`,
+          };
+        }
+        return {
+          name: condition.left.literalText,
+          type: narrowedType,
+        };
+      })()
+    : condition?.expressionKind === "call" &&
+        condition.expression?.sourceOperation?.dispatch === "static-call" &&
+        condition.expression.sourceOperation.owner === "Array" &&
+        condition.expression.sourceOperation.member === "isArray" &&
+        condition.arguments[0]?.expressionKind === "identifier" &&
+        condition.arguments[0].literalText
+      ? (() => {
+          const argument = condition.arguments[0];
+          if (
+            argument?.expressionKind !== "identifier" ||
+            !argument.literalText
+          ) {
+            return undefined;
+          }
+          const carrier =
+            runtimeUnionTarget(argument.storageTypePlan)
+              ? argument.storageTypePlan
+              : runtimeUnionTarget(argument.type)
+                ? argument.type
+                : undefined;
+          const arms = runtimeUnionCarrierArms(carrier, context);
+          const armIndex = arms.findIndex(
+            (arm) => arrayTypeFromTypePlan(arm) !== undefined
+          );
+          const arm = arms[armIndex];
+          if (!carrier || armIndex < 0 || !arm) return undefined;
+          const name = argument.literalText;
+          const aliasName = `${renderExpression(argument, context)}.As${armIndex + 1}()`;
+          return {
+            name,
+            type: arm,
+            aliasName,
+            condition: `${aliasName} != null`,
+          };
+        })()
+    : undefined;
+
+const renderWithIdentifierNarrowing = (
+  narrowing: ReturnType<typeof instanceofIdentifierNarrowing>,
+  context: RenderContext,
+  render: () => string
+): string => {
+  if (!narrowing) return render();
+  const previousTypes = context.currentNarrowedIdentifiers;
+  const previousNames = context.currentNarrowedIdentifierNames;
+  const nextTypes = new Map(previousTypes ?? []);
+  nextTypes.set(narrowing.name, narrowing.type);
+  context.currentNarrowedIdentifiers = nextTypes;
+  if (narrowing.aliasName) {
+    const nextNames = new Map(previousNames ?? []);
+    nextNames.set(narrowing.name, narrowing.aliasName);
+    context.currentNarrowedIdentifierNames = nextNames;
+  }
+  try {
+    return render();
+  } finally {
+    context.currentNarrowedIdentifiers = previousTypes;
+    context.currentNarrowedIdentifierNames = previousNames;
+  }
+};
+
 const isCSharpStatementExpression = (
   expression: LoweringStatementPlan["expression"]
 ): boolean => {
@@ -409,7 +581,7 @@ const isBroadExpressionType = (
 const needsReturnCast = (
   expectedType: LoweringTypeRefPlan,
   expression: LoweringStatementPlan["expression"],
-  context: RenderContext
+  _context: RenderContext
 ): boolean => {
   const actualType = expression?.type;
   if (
@@ -421,10 +593,17 @@ const needsReturnCast = (
     return true;
   }
   if (isBroadExpressionType(actualType)) return true;
+  if (
+    expectedType.kind === "named" &&
+    expectedType.aliasTarget?.kind === "function" &&
+    actualType?.kind === "function"
+  ) {
+    return true;
+  }
   return (
     expectedType.kind === "named" &&
     actualType?.kind === "named" &&
-    renderCSharpType(expectedType, context) !== renderCSharpType(actualType, context)
+    !sameRuntimeTypePlan(expectedType, actualType)
   );
 };
 
@@ -487,11 +666,14 @@ export const renderStatement = (
     case "variable":
       return renderVariableStatement(plan.declarations, context);
     case "if": {
-      const thenBody = renderStatement(plan.thenStatement, context);
+      const narrowing = instanceofIdentifierNarrowing(plan.condition, context);
+      const thenBody = renderWithIdentifierNarrowing(narrowing, context, () =>
+        renderStatement(plan.thenStatement, context)
+      );
       const elseBody = plan.elseStatement
         ? `\nelse ${renderStatement(plan.elseStatement, context)}`
         : "";
-      return `if (${renderConditionExpression(plan.condition, context)}) ${thenBody}${elseBody}`;
+      return `if (${narrowing?.condition ?? renderConditionExpression(plan.condition, context)}) ${thenBody}${elseBody}`;
     }
     case "while":
       return `while (${renderConditionExpression(plan.condition, context)}) ${renderStatement(plan.body, context)}`;

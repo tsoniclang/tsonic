@@ -82,6 +82,7 @@ export type SourceRuntimeOperationOwner =
   | "JSON"
   | "Map"
   | "Object"
+  | "Promise"
   | "RegExp"
   | "String"
   | "Uint16Array"

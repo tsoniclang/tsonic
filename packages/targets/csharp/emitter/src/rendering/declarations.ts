@@ -6,15 +6,17 @@ import type {
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
 import { sanitizeIdentifier, sanitizeTypeName } from "./names.js";
-import { renderExpression } from "./expressions.js";
+import { renderExpression, renderExpressionWithUseSiteCast } from "./expressions.js";
 import {
   renderFunctionBody,
   renderStaticField,
 } from "./statements.js";
 import {
+  isRecursiveRuntimeArrayArm,
   renderCSharpType,
   renderFunctionReturnType,
   renderNullableCSharpType,
+  runtimeUnionCarrierArms,
 } from "./types.js";
 
 const indent = (text: string, spaces: number): string => {
@@ -72,6 +74,10 @@ const withTypeParameterScope = <T>(
   }
 };
 
+const isBroadSourceType = (type: LoweringParameterPlan["type"]): boolean =>
+  type?.kind === "intrinsic" &&
+  (type.name === "any" || type.name === "unknown" || type.name === "object");
+
 const requireDeclarationName = (
   plan: LoweringDeclarationPlan,
   context: RenderContext,
@@ -119,7 +125,13 @@ const renderFunction = (
       plan.accessibility)
     : "public";
   const staticModifier = insideClass ? (plan.static ? "static " : "") : "static ";
-  const overrideModifier = insideClass && plan.override ? "override " : "";
+  const canRenderOverride =
+    insideClass &&
+    plan.override &&
+    !plan.parameters.some((parameter) => isBroadSourceType(parameter.type));
+  const overrideModifier = canRenderOverride ? "override " : "";
+  const virtualModifier =
+    insideClass && !plan.static && !canRenderOverride ? "virtual " : "";
   const effectiveReturnType =
     className &&
     plan.returnType?.kind === "intrinsic" &&
@@ -138,7 +150,7 @@ const renderFunction = (
       ? effectiveReturnType.typeArguments[0]
       : effectiveReturnType;
   return [
-    `${accessibility} ${staticModifier}${overrideModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
+    `${accessibility} ${staticModifier}${overrideModifier}${virtualModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
     renderFunctionBody(plan.body, context, bodyReturnType, plan.parameters),
   ].join("\n");
   });
@@ -231,7 +243,11 @@ const renderProperty = (
   if (!declarationName) return undefined;
   const type = renderCSharpType(plan.returnType ?? plan.declaredTypePlan, context);
   const initializer = plan.static && plan.initializer
-    ? ` = ${renderExpression(plan.initializer, context)}`
+    ? ` = ${renderExpressionWithUseSiteCast(
+        plan.initializer,
+        context,
+        plan.returnType ?? plan.declaredTypePlan
+      )}`
     : "";
   const staticModifier = plan.static ? "static " : "";
   const overrideModifier = plan.override ? "override " : "";
@@ -349,7 +365,11 @@ const renderClass = (
     )
     .map(
       (member) =>
-        `this.${sanitizeIdentifier(member.name ?? "")} = ${renderExpression(member.initializer, context)};`
+        `this.${sanitizeIdentifier(member.name ?? "")} = ${renderExpressionWithUseSiteCast(
+          member.initializer,
+          context,
+          member.returnType ?? member.declaredTypePlan
+        )};`
     );
   const hasConstructor = members.some(
     (member) => member.declarationKind === "constructor"
@@ -497,6 +517,77 @@ const renderTypeMemberAlias = (
   }
 };
 
+const renderRuntimeUnionCarrier = (
+  name: string,
+  typeParameters: readonly string[] | undefined,
+  target: LoweringDeclarationPlan["typeAliasTarget"],
+  context: RenderContext
+): string | undefined => {
+  if (!target) return undefined;
+  const carrierType = {
+    kind: "named",
+    name,
+    typeArguments: [],
+    aliasTarget: target,
+    declarationKind: "type-alias",
+  } as const;
+  const arms = runtimeUnionCarrierArms(carrierType, context);
+  if (arms.length === 0) return undefined;
+  const typeParameterList = renderTypeParameters(typeParameters);
+  const typeName = `${name}${typeParameterList}`;
+  return [
+    `public sealed class ${typeName}`,
+    "{",
+    "    private readonly object? value;",
+    `    private ${name}(object? value)`,
+    "    {",
+    "        this.value = value;",
+    "    }",
+    "",
+    "    public object? Value => this.value;",
+    "",
+    ...arms.flatMap((arm, index) => {
+      const armNumber = index + 1;
+      const armType = renderCSharpType(arm, context);
+      const nullableArmType = renderNullableCSharpType(arm, context);
+      const recursiveArrayArm = isRecursiveRuntimeArrayArm(arm, carrierType);
+      return [
+        `    public static ${typeName} From${armNumber}(${armType} value) => new ${name}(value);`,
+        ...(recursiveArrayArm
+          ? [
+              `    public static ${typeName} From${armNumber}(object?[] value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
+              `    public static ${typeName} From${armNumber}(global::System.Collections.Generic.List<object?> value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
+            ]
+          : []),
+        `    public ${nullableArmType} As${armNumber}() => this.value is ${armType} value ? value : default;`,
+        "",
+      ];
+    }),
+    `    public static ${typeName} FromNull() => new ${name}(null);`,
+    "    public static " + typeName + " FromValue(object? value)",
+    "    {",
+    "        if (value == null) return FromNull();",
+    ...arms.flatMap((arm, index) => {
+      const armNumber = index + 1;
+      const armType = renderCSharpType(arm, context);
+      const recursiveArrayArm = isRecursiveRuntimeArrayArm(arm, carrierType);
+      return [
+        ...(recursiveArrayArm
+          ? [
+              `        if (value is object?[] array${armNumber}) return From${armNumber}(array${armNumber});`,
+              `        if (value is global::System.Collections.Generic.List<object?> list${armNumber}) return From${armNumber}(list${armNumber});`,
+            ]
+          : []),
+        `        if (value is ${armType} value${armNumber}) return From${armNumber}(value${armNumber});`,
+      ];
+    }),
+    `        throw new global::System.InvalidCastException("Value cannot be converted to ${name}.");`,
+    "    }",
+    "    public bool IsNull => this.value == null;",
+    "}",
+  ].join("\n");
+};
+
 const renderTypeAlias = (
   plan: LoweringDeclarationPlan,
   context: RenderContext
@@ -505,12 +596,31 @@ const renderTypeAlias = (
   if (!declarationName) return undefined;
   const name = sanitizeTypeName(declarationName);
   const target = plan.typeAliasTarget;
-  if (target?.kind === "function") {
-    const parameters = target.parameters
+  const functionTarget =
+    target?.kind === "function"
+      ? target
+      : target?.kind === "named" && target.aliasTarget?.kind === "function"
+        ? target.aliasTarget
+        : undefined;
+  if (functionTarget) {
+    const parameters = functionTarget.parameters
       .map((parameter) => renderParameter(parameter, context))
       .join(", ");
-    return `public delegate ${renderCSharpType(target.returnType, context)} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
+    return `public delegate ${renderFunctionReturnType(functionTarget.returnType, false, context)} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters});`;
   }
+  const unionTarget =
+    target?.kind === "union"
+      ? target
+      : target?.kind === "named" && target.aliasTarget?.kind === "union"
+        ? target.aliasTarget
+        : undefined;
+  const unionCarrier = renderRuntimeUnionCarrier(
+    name,
+    plan.typeParameters,
+    unionTarget,
+    context
+  );
+  if (unionCarrier) return unionCarrier;
   if (target?.kind === "object") {
     const hasMethods = target.members.some((member) => member.kind === "method");
     if (hasMethods) {
@@ -560,7 +670,11 @@ const renderVariable = (
     );
     return [
       `public delegate ${returnType} ${delegateName}(${parameters});`,
-      `public static ${delegateName} ${sanitizeIdentifier(declarationName)} = ${renderExpression(initializer, context)};`,
+      `public static ${delegateName} ${sanitizeIdentifier(declarationName)} = ${renderExpressionWithUseSiteCast(
+        initializer,
+        context,
+        plan.returnType ?? plan.declaredTypePlan
+      )};`,
     ].join("\n");
   }
   return renderStaticField(

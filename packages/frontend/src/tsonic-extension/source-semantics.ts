@@ -460,6 +460,7 @@ const objectStaticRuntimeMembers = new Set([
 ]);
 
 const jsonStaticRuntimeMembers = new Set(["parse", "stringify"]);
+const promiseStaticRuntimeMembers = new Set(["resolve", "reject", "all", "race"]);
 const mapReceiverRuntimeMembers = new Set(["delete", "get", "has", "set"]);
 const typedArrayRuntimeConstructors = [
   "Uint8Array",
@@ -717,6 +718,18 @@ const sourceRuntimeOperation = (
     jsonStaticRuntimeMembers.has(memberName)
   ) {
     return { owner: "JSON", member: memberName, dispatch: "static-call" };
+  }
+
+  if (
+    isAmbientGlobalIdentifier(
+      context,
+      receiver,
+      "Promise",
+      sourceDiagnosticFileNames
+    ) &&
+    promiseStaticRuntimeMembers.has(memberName)
+  ) {
+    return { owner: "Promise", member: memberName, dispatch: "static-call" };
   }
 
   const receiverType =

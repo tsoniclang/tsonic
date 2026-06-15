@@ -14,9 +14,13 @@ import type {
 import { renderDeclaration, renderStaticContainerMember } from "./declarations.js";
 import { renderStaticField, renderTopLevelBody } from "./statements.js";
 import {
+  isRecursiveRuntimeArrayArm,
   renderCSharpType,
+  renderNullableCSharpType,
+  runtimeUnionCarrierArms,
   renderTypeMember,
   shouldEmitStructuralObjectType,
+  shouldEmitAnonymousRuntimeUnionCarrier,
   shouldExpandNamedAliasTarget,
   structuralTypeName,
   typePlanKey,
@@ -157,6 +161,13 @@ const collectStructuralType = (
       }
       break;
     case "union":
+      if (shouldEmitAnonymousRuntimeUnionCarrier(type)) {
+        types.set(typePlanKey(type), type);
+      }
+      for (const member of type.types) {
+        collectStructuralType(types, member, typeState);
+      }
+      break;
     case "intersection":
       for (const member of type.types) {
         collectStructuralType(types, member, typeState);
@@ -352,7 +363,12 @@ const collectStructuralTypesFromDeclaration = (
   const declarationState = withDeclarationPlan(state, declaration);
   if (!declarationState) return;
   collectStructuralType(types, declaration.declaredTypePlan);
-  collectStructuralType(types, declaration.typeAliasTarget);
+  if (
+    declaration.declarationKind !== "type-alias" ||
+    declaration.typeAliasTarget?.kind !== "union"
+  ) {
+    collectStructuralType(types, declaration.typeAliasTarget);
+  }
   collectStructuralType(types, declaration.returnType);
   for (const heritage of declaration.heritageTypes) {
     collectStructuralType(types, heritage);
@@ -400,6 +416,62 @@ const renderStructuralType = (
   type: LoweringTypeRefPlan,
   context: RenderContext
 ): string | undefined => {
+  if (type.kind === "union") {
+    const arms = runtimeUnionCarrierArms(type, context);
+    if (arms.length < 2) return undefined;
+    const name = context.getStructuralTypeName(type);
+    return [
+      `public sealed class ${name}`,
+      "{",
+      "    private readonly object? value;",
+      `    private ${name}(object? value)`,
+      "    {",
+      "        this.value = value;",
+      "    }",
+      "",
+      "    public object? Value => this.value;",
+      "",
+      ...arms.flatMap((arm, index) => {
+        const armNumber = index + 1;
+        const armType = renderCSharpType(arm, context);
+        const nullableArmType = renderNullableCSharpType(arm, context);
+        const recursiveArrayArm = isRecursiveRuntimeArrayArm(arm, type);
+        return [
+          `    public static ${name} From${armNumber}(${armType} value) => new ${name}(value);`,
+          ...(recursiveArrayArm
+            ? [
+                `    public static ${name} From${armNumber}(object?[] value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
+                `    public static ${name} From${armNumber}(global::System.Collections.Generic.List<object?> value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
+              ]
+            : []),
+          `    public ${nullableArmType} As${armNumber}() => this.value is ${armType} value ? value : default;`,
+          "",
+        ];
+      }),
+      `    public static ${name} FromNull() => new ${name}(null);`,
+      `    public static ${name} FromValue(object? value)`,
+      "    {",
+      "        if (value == null) return FromNull();",
+      ...arms.flatMap((arm, index) => {
+        const armNumber = index + 1;
+        const armType = renderCSharpType(arm, context);
+        const recursiveArrayArm = isRecursiveRuntimeArrayArm(arm, type);
+        return [
+          ...(recursiveArrayArm
+            ? [
+                `        if (value is object?[] array${armNumber}) return From${armNumber}(array${armNumber});`,
+                `        if (value is global::System.Collections.Generic.List<object?> list${armNumber}) return From${armNumber}(list${armNumber});`,
+              ]
+            : []),
+          `        if (value is ${armType} value${armNumber}) return From${armNumber}(value${armNumber});`,
+        ];
+      }),
+      `        throw new global::System.InvalidCastException("Value cannot be converted to ${name}.");`,
+      "    }",
+      "    public bool IsNull => this.value == null;",
+      "}",
+    ].join("\n");
+  }
   if (type.kind !== "object") return undefined;
   const name = context.getStructuralTypeName(type);
   const hasMethods = type.members.some((member) => member.kind === "method");
