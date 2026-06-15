@@ -9,6 +9,7 @@ import { sanitizeIdentifier } from "./names.js";
 import { renderStatement } from "./statements.js";
 import {
   arrayTypeFromTypePlan,
+  isPrivateJsRuntimeName,
   isBooleanLikeTypePlan,
   isDoubleRuntimeTypePlan,
   isOpaqueRuntimeTypePlan,
@@ -16,6 +17,7 @@ import {
   isStringLikeTypePlan,
   isVoidLikeTypePlan,
   nonNullishUnionTypes,
+  renderCSharpRuntimeExpressionName,
   renderCSharpType,
   renderNullableCSharpType,
   runtimeUnionCarrierArms,
@@ -487,8 +489,7 @@ const isUnboundGenericPlaceholderType = (
   context?: RenderContext
 ): boolean =>
   type?.kind === "named" &&
-  (type.qualifiedRuntimeName?.includes("::js._.") === true ||
-    !type.qualifiedRuntimeName) &&
+  (isPrivateJsRuntimeName(type.runtimeName) || !type.runtimeName) &&
   !type.aliasTarget &&
   type.typeArguments.length === 0 &&
   /^[A-Z]$/.test(type.name) &&
@@ -586,7 +587,7 @@ const useSiteCastType = (
     case "named":
       if (type.name === "_") return undefined;
       if (type.name.includes("\uFFFD")) return undefined;
-      if (type.qualifiedRuntimeName?.endsWith("._")) return undefined;
+      if (type.runtimeName?.name === "_") return undefined;
       return isOpaqueRuntimeTypePlan(type) ? undefined : renderCSharpType(type, context);
     case "literal":
       return undefined;
@@ -928,10 +929,7 @@ const renderCallArgument = (
         );
   if (
     targetDelegateType &&
-    !(
-      argument.type?.kind === "named" &&
-      argument.type.qualifiedRuntimeName === targetDelegateType.qualifiedRuntimeName
-    )
+    !sameRuntimeTypePlan(argument.type, targetDelegateType)
   ) {
     return `new ${renderCSharpType(targetDelegateType, context)}(${rendered}.Invoke)`;
   }
@@ -983,18 +981,6 @@ const renderSourceRuntimeName = (
   }
   return "global::System.Object";
 };
-
-const renderQualifiedRuntimeExpressionName = (qualifiedName: string): string =>
-  qualifiedName
-    .split(".")
-    .map((segment) => {
-      const globalPrefix = "global::";
-      if (segment.startsWith(globalPrefix)) {
-        return `${globalPrefix}${sanitizeIdentifier(segment.slice(globalPrefix.length))}`;
-      }
-      return sanitizeIdentifier(segment);
-    })
-    .join(".");
 
 const consoleMemberTarget = (member: string): string =>
   `${renderSourceRuntimeName({
@@ -1684,11 +1670,12 @@ export const renderExpression = (
   if (!plan) return "";
 
   switch (plan.expressionKind) {
-	    case "identifier": {
-	      const rawName = plan.literalText ?? plan.name ?? "value";
-	      if (plan.qualifiedRuntimeName) {
-	        return renderQualifiedRuntimeExpressionName(plan.qualifiedRuntimeName);
-	      }
+    case "identifier": {
+      const rawName = plan.literalText ?? plan.name ?? "value";
+      const runtimeName = renderCSharpRuntimeExpressionName(plan.runtimeName);
+      if (runtimeName) {
+        return runtimeName;
+      }
       if (plan.sourceOperation?.dispatch === "static-call") {
         return plan.sourceOperation.owner === "Console"
           ? consoleMemberTarget(plan.sourceOperation.member)

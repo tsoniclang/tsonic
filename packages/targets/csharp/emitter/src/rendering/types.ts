@@ -1,4 +1,5 @@
 import type {
+  LoweringRuntimeNamePlan,
   LoweringTypeMemberPlan,
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
@@ -54,14 +55,63 @@ const knownNamedTypes: ReadonlyMap<string, string> = new Map([
   ["JsValue", "object?"],
 ]);
 
+export const runtimeNameKey = (
+  runtimeName: LoweringRuntimeNamePlan | undefined
+): string | undefined =>
+  runtimeName
+    ? [runtimeName.namespace, runtimeName.container, runtimeName.name]
+        .filter((part): part is string => part !== undefined && part.length > 0)
+        .join(".")
+    : undefined;
+
+const runtimeNameNamespaceSegments = (
+  runtimeName: LoweringRuntimeNamePlan | undefined
+): readonly string[] => runtimeName?.namespace?.split(".").filter(Boolean) ?? [];
+
+export const isPrivateJsRuntimeName = (
+  runtimeName: LoweringRuntimeNamePlan | undefined
+): boolean => {
+  const [root, next] = runtimeNameNamespaceSegments(runtimeName);
+  return root === "js" && next === "_";
+};
+
+const isPrivateRuntimeName = (
+  runtimeName: LoweringRuntimeNamePlan | undefined
+): boolean =>
+  runtimeName?.name === "_" || runtimeNameNamespaceSegments(runtimeName).includes("_");
+
+const renderRuntimeNameSegments = (
+  runtimeName: LoweringRuntimeNamePlan,
+  finalSegment: (name: string | undefined) => string
+): string =>
+  [
+    ...runtimeNameNamespaceSegments(runtimeName).map(sanitizeIdentifier),
+    ...(runtimeName.container ? [sanitizeTypeName(runtimeName.container)] : []),
+    finalSegment(runtimeName.name),
+  ].join(".");
+
+export const renderCSharpRuntimeTypeName = (
+  runtimeName: LoweringRuntimeNamePlan | undefined
+): string | undefined =>
+  runtimeName
+    ? `global::${renderRuntimeNameSegments(runtimeName, (name) =>
+        sanitizeTypeName(name?.replace(/\$/g, "_").replace(/\./g, "_"))
+      )}`
+    : undefined;
+
+export const renderCSharpRuntimeExpressionName = (
+  runtimeName: LoweringRuntimeNamePlan | undefined
+): string | undefined =>
+  runtimeName
+    ? `global::${renderRuntimeNameSegments(runtimeName, sanitizeIdentifier)}`
+    : undefined;
+
 const renderNamedType = (
   name: string,
-  qualifiedRuntimeName?: string
+  runtimeName?: LoweringRuntimeNamePlan
 ): string =>
-  (qualifiedRuntimeName?.includes("::js._.")
-    ? knownNamedTypes.get(name)
-    : undefined) ??
-  qualifiedRuntimeName ??
+  (isPrivateJsRuntimeName(runtimeName) ? knownNamedTypes.get(name) : undefined) ??
+  renderCSharpRuntimeTypeName(runtimeName) ??
   knownNamedTypes.get(name) ??
   sanitizeTypeName(name.replace(/\$/g, "_").replace(/\./g, "_"));
 
@@ -132,7 +182,7 @@ const typePlanKeyWithSeen = (
     case "source-primitive":
       return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
-      return `named:${type.qualifiedRuntimeName ?? type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
+      return `named:${runtimeNameKey(type.runtimeName) ?? type.name}<${type.typeArguments.map((argument) => typePlanKeyWithSeen(argument, nextSeen)).join(",")}>`;
     case "array":
       return `array:${type.storage ?? (type.readonly ? "readonly" : "mutable")}:${typePlanKeyWithSeen(type.elementType, nextSeen)}`;
     case "tuple":
@@ -182,7 +232,7 @@ export const shouldExpandNamedAliasTarget = (
   type: LoweringTypeRefPlan
 ): boolean =>
   type.kind === "named" &&
-  type.qualifiedRuntimeName === undefined &&
+  type.runtimeName === undefined &&
   type.aliasTarget?.kind !== "union" &&
   !nonStructuralNamedTypes.has(type.name);
 
@@ -286,9 +336,8 @@ export const isOpaqueRuntimeTypePlan = (
     (type.name === "JsValue" ||
       type.name === "_" ||
       type.name.includes("\uFFFD") ||
-      type.qualifiedRuntimeName?.endsWith("._") === true ||
-      type.qualifiedRuntimeName?.includes("::js._.") === true ||
-      (!type.qualifiedRuntimeName && type.name.startsWith("_"))));
+      isPrivateRuntimeName(type.runtimeName) ||
+      (!type.runtimeName && type.name.startsWith("_"))));
 
 const isOpaqueNullableType = isOpaqueRuntimeTypePlan;
 
@@ -302,8 +351,7 @@ const isUnboundGenericPlaceholderType = (
   type: LoweringTypeRefPlan | undefined
 ): boolean =>
   type?.kind === "named" &&
-  (type.qualifiedRuntimeName?.includes("::js._.") === true ||
-    !type.qualifiedRuntimeName) &&
+  (isPrivateJsRuntimeName(type.runtimeName) || !type.runtimeName) &&
   !type.aliasTarget &&
   type.typeArguments.length === 0 &&
   /^[A-Z]$/.test(type.name);
@@ -325,7 +373,7 @@ const containsUnemittableStructuralMemberType = (
         type.typeArguments.some((argument) =>
           containsUnemittableStructuralMemberType(argument, nextSeen)
         ) ||
-        (type.qualifiedRuntimeName === undefined &&
+        (type.runtimeName === undefined &&
           containsUnemittableStructuralMemberType(type.aliasTarget, nextSeen))
       );
     case "array":
@@ -389,7 +437,7 @@ export const shouldEmitStructuralObjectType = (
 const isTaskType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "named" &&
   (type.name === "Task" ||
-    type.qualifiedRuntimeName === "global::System.Threading.Tasks.Task");
+    runtimeNameKey(type.runtimeName) === "System.Threading.Tasks.Task");
 
 const isPromiseType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "named" && type.name === "Promise";
@@ -654,7 +702,7 @@ export const renderCSharpType = (
       const special = renderSpecialNamedType(type, context);
       if (special) return special;
       if (knownNamedTypes.has(type.name)) {
-        const name = renderNamedType(type.name, type.qualifiedRuntimeName);
+        const name = renderNamedType(type.name, type.runtimeName);
         return type.typeArguments.length === 0
           ? name
           : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
@@ -665,14 +713,13 @@ export const renderCSharpType = (
       if (
         type.name === "_" ||
         type.name.includes("\uFFFD") ||
-        type.qualifiedRuntimeName?.endsWith("._") ||
-        type.qualifiedRuntimeName?.includes("::js._.") ||
-        (!type.qualifiedRuntimeName && type.name.startsWith("_"))
+        isPrivateRuntimeName(type.runtimeName) ||
+        (!type.runtimeName && type.name.startsWith("_"))
       ) {
         return "object?";
       }
-      if (type.qualifiedRuntimeName) {
-        const name = renderNamedType(type.name, type.qualifiedRuntimeName);
+      if (type.runtimeName) {
+        const name = renderNamedType(type.name, type.runtimeName);
         return type.typeArguments.length === 0
           ? name
           : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
@@ -683,7 +730,7 @@ export const renderCSharpType = (
         type.aliasTarget.kind !== "function"
       ) {
         if (type.aliasTarget.kind === "union") {
-          const name = renderNamedType(type.name, type.qualifiedRuntimeName);
+          const name = renderNamedType(type.name, type.runtimeName);
           return type.typeArguments.length === 0
             ? name
             : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
@@ -692,7 +739,7 @@ export const renderCSharpType = (
           ? "object?"
           : renderCSharpType(type.aliasTarget, context);
       }
-      const name = renderNamedType(type.name, type.qualifiedRuntimeName);
+      const name = renderNamedType(type.name, type.runtimeName);
       return type.typeArguments.length === 0
         ? name
         : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;

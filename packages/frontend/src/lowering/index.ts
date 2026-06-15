@@ -16,6 +16,7 @@ export type {
   LoweringPipelineOptions,
   LoweringPipelineResult,
   LoweringPlanBase,
+  LoweringRuntimeNamePlan,
   LoweringStatementPlan,
   LoweringTypeMemberPlan,
   LoweringTypePlan,

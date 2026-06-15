@@ -424,7 +424,7 @@ const namedTypeFromExpression = (
         kind: "named",
         name: expression.literalText,
         typeArguments: [],
-        qualifiedRuntimeName: expression.qualifiedRuntimeName,
+        runtimeName: expression.runtimeName,
       }
     : undefined;
 
