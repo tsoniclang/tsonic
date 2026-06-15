@@ -650,6 +650,41 @@ const sourceRuntimeOwnerFromResolvedMemberDeclaration = (
   return owners.size === 1 ? [...owners][0] : undefined;
 };
 
+const sourceRuntimeOperationFromResolvedMemberOwner = (
+  owner: SourceRuntimeOperationOwner | undefined,
+  memberName: string
+): SourceRuntimeOperationFact | undefined => {
+  if (!owner) return undefined;
+  if (owner === "String") {
+    if (memberName === "length") {
+      return { owner: "String", member: "length", dispatch: "property" };
+    }
+    return stringReceiverRuntimeMembers.has(memberName)
+      ? { owner: "String", member: memberName, dispatch: "receiver-call" }
+      : undefined;
+  }
+  if (owner === "Array") {
+    if (memberName === "length") {
+      return { owner: "Array", member: "length", dispatch: "property" };
+    }
+    return arrayReceiverRuntimeMembers.has(memberName)
+      ? { owner: "Array", member: memberName, dispatch: "receiver-call" }
+      : undefined;
+  }
+  if (owner === "Map") {
+    return mapReceiverRuntimeMembers.has(memberName)
+      ? { owner: "Map", member: memberName, dispatch: "receiver-call" }
+      : undefined;
+  }
+  if (owner === "Function" && memberName === "length") {
+    return { owner: "Function", member: "length", dispatch: "property" };
+  }
+  if (owner === "Error" && memberName === "message") {
+    return { owner: "Error", member: "message", dispatch: "property" };
+  }
+  return undefined;
+};
+
 const sourceRuntimeOperation = (
   context: CheckedContext,
   node: TstsNode,
@@ -809,6 +844,12 @@ const sourceRuntimeOperation = (
     return { owner: "Promise", member: memberName, dispatch: "static-call" };
   }
 
+  const resolvedMemberOperation = sourceRuntimeOperationFromResolvedMemberOwner(
+    sourceRuntimeOwnerFromResolvedMemberDeclaration(context, node),
+    memberName
+  );
+  if (resolvedMemberOperation) return resolvedMemberOperation;
+
   const receiverType =
     context.checker.getNarrowedTypeAtLocation(receiver) ??
     context.checker.getTypeAtLocation(receiver);
@@ -862,35 +903,6 @@ const sourceRuntimeOperation = (
     arrayReceiverRuntimeMembers.has(memberName)
   ) {
     return { owner: "Array", member: memberName, dispatch: "receiver-call" };
-  }
-
-  const resolvedMemberOwner = sourceRuntimeOwnerFromResolvedMemberDeclaration(
-    context,
-    node
-  );
-  if (
-    resolvedMemberOwner === "String" &&
-    stringReceiverRuntimeMembers.has(memberName)
-  ) {
-    return { owner: "String", member: memberName, dispatch: "receiver-call" };
-  }
-  if (
-    resolvedMemberOwner === "Array" &&
-    arrayReceiverRuntimeMembers.has(memberName)
-  ) {
-    return { owner: "Array", member: memberName, dispatch: "receiver-call" };
-  }
-  if (
-    resolvedMemberOwner === "Map" &&
-    mapReceiverRuntimeMembers.has(memberName)
-  ) {
-    return { owner: "Map", member: memberName, dispatch: "receiver-call" };
-  }
-  if (resolvedMemberOwner === "Function" && memberName === "length") {
-    return { owner: "Function", member: "length", dispatch: "property" };
-  }
-  if (resolvedMemberOwner === "Error" && memberName === "message") {
-    return { owner: "Error", member: "message", dispatch: "property" };
   }
 
   if (

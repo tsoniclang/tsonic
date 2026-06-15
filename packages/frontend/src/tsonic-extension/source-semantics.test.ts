@@ -870,6 +870,60 @@ describe("Tsonic TSTS source semantics extension", () => {
     }
   });
 
+  it("uses TSTS-resolved member owners for narrowed receiver operations", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "node_modules/@tsonic/js/package.json": JSON.stringify({
+          name: "@tsonic/js",
+          version: "0.0.0-test",
+          type: "module",
+        }),
+        "node_modules/@tsonic/js/index.d.ts": [
+          "declare global {",
+          "  interface ReadonlyArray<T> { join(separator?: string): string; }",
+          "  const Array: { isArray(value: unknown): value is readonly unknown[] };",
+          "}",
+          "export {};",
+          "",
+        ].join("\n"),
+        "src/test.ts": [
+          "export class SegmentList {",
+          "  value: readonly string[] | string;",
+          "  constructor(value: readonly string[] | string) { this.value = value; }",
+          "  render(): string {",
+          "    if (Array.isArray(this.value)) {",
+          "      return this.value.join('|');",
+          "    }",
+          "    return String(this.value);",
+          "  }",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "src/test.ts"
+    );
+    try {
+      const runtimeOperations: string[] = [];
+
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        const runtimeOperation = program.sourceProgram.extensionHost.facts.get(
+          sourceRuntimeOperationFactKey,
+          node
+        );
+        if (runtimeOperation) {
+          runtimeOperations.push(
+            `${runtimeOperation.owner}.${runtimeOperation.member}:${runtimeOperation.dispatch}`
+          );
+        }
+      });
+
+      expect(runtimeOperations).to.include("Array.join:receiver-call");
+    } finally {
+      program.cleanup();
+    }
+  });
+
   it("does not attach ambient expression facts to local shadowed names", () => {
     const program = createTstsTestProgramFromFiles(
       {
