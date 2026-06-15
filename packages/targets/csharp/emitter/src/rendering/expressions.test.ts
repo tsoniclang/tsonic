@@ -121,6 +121,40 @@ describe("C# expression renderer", () => {
     ).to.equal("'\\\\'");
   });
 
+  it("renders source-level byref passing modes on call arguments", () => {
+    const context = createRenderContext();
+
+    const rendered = renderExpression(
+      expressionPlan({
+        expressionKind: "call",
+        expression: expressionPlan({
+          expressionKind: "identifier",
+          literalText: "tryRead",
+        }),
+        arguments: [
+          expressionPlan({
+            expressionKind: "identifier",
+            literalText: "target",
+            passingMode: "byref-writeonly-must-init",
+          }),
+          expressionPlan({
+            expressionKind: "identifier",
+            literalText: "current",
+            passingMode: "byref-readwrite",
+          }),
+          expressionPlan({
+            expressionKind: "identifier",
+            literalText: "snapshot",
+            passingMode: "byref-readonly",
+          }),
+        ],
+      }),
+      context
+    );
+
+    expect(rendered).to.equal("tryRead(out target, ref current, in snapshot)");
+  });
+
   it("renders mutable array literal spread into the JS-mutable list carrier", () => {
     const context = createRenderContext();
     const arrayType: LoweringTypeRefPlan = {

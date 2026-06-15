@@ -39,6 +39,7 @@ current TSTS ownership cleanup 10: runtime-union carrier emission no longer pick
 current TSTS ownership cleanup 11: lowering no longer has a canonical `JsValue` source-name/package fallback for runtime opacity. `runtimeVisibility` is consumed only from `sourceRuntimeVisibilityFactKey`; the source extension remains the sole owner of canonical core `JsValue` recognition. Focused validation after this cleanup: frontend runtime-visibility/source-boundary subset `18 passing / 0 failing`; lowering search for the removed canonical fallback is clean.
 current TSTS ownership cleanup 12: source runtime operation classification now prefers TSTS-resolved member declaration owners before receiver-shape classification for ordinary property access. This makes calls such as `this.value.join("|")` follow the checker-selected `@tsonic/js` member declaration instead of depending on the receiver's declared union shape. Focused validation after this cleanup: `@tsonic/frontend` build green; source-semantics subset `15 passing / 0 failing`; source-semantic-boundary subset `16 passing / 0 failing`; frontend target-identity/prewalk-remnant sweep is clean.
 current TSTS ownership cleanup 13: the source semantic boundary now fails if old product analysis directories (`graph`, `ir`, or `symbol-table`) regain TypeScript files. Focused validation after this cleanup: source-semantic-boundary subset `17 passing / 0 failing`.
+current TSTS ownership cleanup 14: byref passing modes now have focused C# render proof. Source facts remain `byref-writeonly-must-init`, `byref-readwrite`, and `byref-readonly`; the C# emitter renders them as `out`, `ref`, and `in` only at the target boundary. Focused validation after this cleanup: `@tsonic/csharp-emitter` build green; byref/runtime-union/record renderer subset `3 passing / 0 failing`.
 not done: final run-all, downstreams, branch hygiene, final PR report
 ```
 
@@ -66,7 +67,7 @@ not done: final run-all, downstreams, branch hygiene, final PR report
 | 3.2 | Core imports | `@tsonic/core` imports resolve through extension identity | Done | Alias/shadow tests green |
 | 3.3 | Numeric primitives | Numeric primitive facts attach in source terms | Done | Emitted-output fixture proof |
 | 3.4 | Source package bindings | External bindings attach through canonical metadata | Expanded | Surface-profile target member semantics removed from manifests/resolvers; source package fixture/downstream proof still pending |
-| 3.5 | Passing mode | `out`/`ref`/`inref` source facts are backend-neutral | In progress | Passing-mode validation and emit proof |
+| 3.5 | Passing mode | `out`/`ref`/`inref` source facts are backend-neutral | Expanded | Source-extension fact tests and C# target-boundary render proof are green; full fixture/downstream proof pending |
 | 3.6 | Attributes | Attribute slots are source facts, not CLR facts | Expanded | TSTS source fact, lowering plan, and C# renderer focused tests green; full attribute fixture proof pending |
 | 3.7 | Native diagnostics | Tsonic source restrictions run through extension diagnostics | Expanded | Capability-dependent diagnostics carry `capabilityFeatureKey` metadata |
 | 3.8 | Fact tests | Every fact family has positive/negative tests | Expanded | Expression/computed-name facts green; marker projection, binding projection, and C# struct/field/extension receiver tests green |
