@@ -38,10 +38,10 @@ export const getSourceFile = (
   filePath: string
 ): TstsSourceFile | null => {
   const absolutePath = normalizePath(filePath);
-  const sourceFile = getProgramAllSourceFiles(program).find(
+  const sourceFiles = getProgramAllSourceFiles(program).filter(
     (candidate) =>
       normalizePath(getProgramSourceFileName(candidate)) === absolutePath
   );
 
-  return sourceFile ?? null;
+  return sourceFiles.length === 1 ? (sourceFiles[0] ?? null) : null;
 };

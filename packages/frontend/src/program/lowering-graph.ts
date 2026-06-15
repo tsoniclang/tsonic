@@ -49,9 +49,26 @@ export const createLoweringModuleGraph = <
 
   const modules = sortModulesBySourceIdentity(loweringResult.value.modules);
   const entryRelative = relative(sourceRootAbs, entryAbs).replace(/\\/g, "/");
-  const entryModule = modules.find(
+  const entryModules = modules.filter(
     (module) => module.identity.filePath === entryRelative
   );
+  if (entryModules.length > 1) {
+    return error([
+      createDiagnostic(
+        "TSN1001",
+        "fatal",
+        `TSTS lowering graph contained multiple entry modules for '${entryRelative}'.`,
+        {
+          file: entryAbs,
+          line: 1,
+          column: 1,
+          length: 1,
+        },
+        modules.map((module) => module.identity.filePath).join("\n")
+      ),
+    ]);
+  }
+  const entryModule = entryModules[0];
   if (entryModule === undefined) {
     return error([
       modules.length === 0

@@ -45,6 +45,17 @@ const stringType: LoweringTypeRefPlan = {
   name: "string",
 };
 
+const promiseType = (
+  typeArguments: readonly LoweringTypeRefPlan[],
+  sourceText = "Promise"
+): LoweringTypeRefPlan => ({
+  kind: "named",
+  name: "Promise",
+  sourceText,
+  sourceRuntimeName: { namespace: "js._", name: "Promise" },
+  typeArguments,
+});
+
 const declarationPlan = (
   overrides: Partial<LoweringDeclarationPlan>
 ): LoweringDeclarationPlan => ({
@@ -331,6 +342,137 @@ describe("C# module renderer", () => {
     expect(result.ok).to.equal(true);
     if (result.ok) {
       expect(result.code).to.contain("public static int inc(this int value)");
+    }
+  });
+
+  it("reports malformed async return plans instead of inventing awaited types", () => {
+    const missingAwaitedTypeModule: CSharpLoweringModulePlan = {
+      kind: "lowering-module",
+      backendTargetId: "csharp",
+      identity: {
+        filePath: "/src/index.ts",
+        className: "Index",
+        namespace: "Example",
+      },
+      sourceFile: dummySourceFile,
+      sourceModule: dummySourceModule,
+      imports: [],
+      exports: [],
+      declarations: [
+        declarationPlan({
+          declarationKind: "function",
+          name: "load",
+          async: true,
+          returnType: promiseType([]),
+          body: statementPlan({ statementKind: "block", statements: [] }),
+        }),
+      ],
+      topLevelStatements: [],
+      types: [],
+      statements: [],
+      expressions: [],
+    };
+
+    const unionAwaitedTypeModule: CSharpLoweringModulePlan = {
+      kind: "lowering-module",
+      backendTargetId: "csharp",
+      identity: {
+        filePath: "/src/index.ts",
+        className: "Index",
+        namespace: "Example",
+      },
+      sourceFile: dummySourceFile,
+      sourceModule: dummySourceModule,
+      imports: [],
+      exports: [],
+      declarations: [
+        declarationPlan({
+          declarationKind: "function",
+          name: "maybeLoad",
+          async: true,
+          returnType: {
+            kind: "union",
+            sourceText: "Promise<int> | unknown",
+            types: [
+              promiseType([intType], "Promise<int>"),
+              { kind: "intrinsic", name: "unknown" },
+            ],
+          },
+          body: statementPlan({ statementKind: "block", statements: [] }),
+        }),
+      ],
+      topLevelStatements: [],
+      types: [],
+      statements: [],
+      expressions: [],
+    };
+
+    const missingAwaitedType = emitModule(missingAwaitedTypeModule);
+    const unionAwaitedType = emitModule(unionAwaitedTypeModule);
+
+    expect(missingAwaitedType.ok).to.equal(false);
+    if (!missingAwaitedType.ok) {
+      expect(missingAwaitedType.errors.map((error) => error.message)).to.include(
+        "C# lowering does not yet support async return awaited type 'TypeReference'."
+      );
+    }
+
+    expect(unionAwaitedType.ok).to.equal(false);
+    if (!unionAwaitedType.ok) {
+      expect(unionAwaitedType.errors.map((error) => error.message)).to.include(
+        "C# lowering does not yet support async union return type 'UnionType'."
+      );
+    }
+  });
+
+  it("reports named intersection alias targets instead of emitting broad object placeholders", () => {
+    const module: CSharpLoweringModulePlan = {
+      kind: "lowering-module",
+      backendTargetId: "csharp",
+      identity: {
+        filePath: "/src/index.ts",
+        className: "Index",
+        namespace: "Example",
+      },
+      sourceFile: dummySourceFile,
+      sourceModule: dummySourceModule,
+      imports: [],
+      exports: [],
+      declarations: [],
+      topLevelStatements: [
+        statementPlan({
+          statementKind: "variable",
+          declarations: [
+            {
+              sourceNode: dummySourceNode,
+              name: "branded",
+              type: {
+                kind: "named",
+                name: "Branded",
+                typeArguments: [],
+                aliasTarget: {
+                  kind: "intersection",
+                  sourceText: "string & Brand",
+                  types: [stringType, { kind: "object", members: [] }],
+                },
+              },
+              bindingElements: [],
+            },
+          ],
+        }),
+      ],
+      types: [],
+      statements: [],
+      expressions: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result.ok).to.equal(false);
+    if (!result.ok) {
+      expect(result.errors.map((error) => error.message)).to.include(
+        "C# lowering does not yet support intersection type alias target 'IntersectionType'."
+      );
     }
   });
 

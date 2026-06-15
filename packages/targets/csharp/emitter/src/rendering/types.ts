@@ -539,30 +539,49 @@ const runtimeTypeIdentityKey = (type: LoweringTypeRefPlan): string => {
 };
 
 const promiseOrTaskAwaitedType = (
-  type: LoweringTypeRefPlan | undefined
-): LoweringTypeRefPlan | undefined =>
-  isTaskLikeTypePlan(type) && type?.kind === "named"
-    ? (type.typeArguments[0] ?? voidTypePlan)
-    : undefined;
+  type: LoweringTypeRefPlan | undefined,
+  context: RenderContext,
+  feature: string
+): LoweringTypeRefPlan | undefined => {
+  if (!isTaskLikeTypePlan(type) || type?.kind !== "named") return undefined;
+  const awaitedType = type.typeArguments[0];
+  if (awaitedType) return awaitedType;
+  if (isTaskType(type)) return voidTypePlan;
+  context.reportUnsupported(
+    `${feature} awaited type`,
+    "TypeReference",
+    type.sourceText ?? type.name
+  );
+  return objectTypePlan;
+};
 
 const asyncReturnAwaitedType = (
-  type: LoweringTypeRefPlan | undefined
+  type: LoweringTypeRefPlan | undefined,
+  context: RenderContext
 ): LoweringTypeRefPlan | undefined => {
-  const direct = promiseOrTaskAwaitedType(type);
+  const direct = promiseOrTaskAwaitedType(type, context, "async return");
   if (direct) return direct;
   if (type?.kind !== "union") return undefined;
   const nonNullish = type.types.filter((member) => !isNullishType(member));
   const asyncMembers = nonNullish.filter(isTaskLikeTypePlan);
   if (asyncMembers.length !== 1) return undefined;
-  const awaited =
-    promiseOrTaskAwaitedType(asyncMembers[0]) ??
-    ({ kind: "intrinsic", name: "object" } as const);
+  const awaited = promiseOrTaskAwaitedType(
+    asyncMembers[0],
+    context,
+    "async union return"
+  );
+  if (!awaited) return undefined;
   const synchronousMembers = nonNullish.filter(
     (member) => !isTaskLikeTypePlan(member) && !isVoidLikeTypePlan(member)
   );
   if (synchronousMembers.length === 0) return awaited;
   if (synchronousMembers.every(isBroadIntrinsicTypePlan)) {
-    return { kind: "intrinsic", name: "object" };
+    context.reportUnsupported(
+      "async union return type",
+      "UnionType",
+      type.sourceText ?? "union"
+    );
+    return objectTypePlan;
   }
   if (
     synchronousMembers.length === 1 &&
@@ -570,7 +589,12 @@ const asyncReturnAwaitedType = (
   ) {
     return awaited;
   }
-  return { kind: "intrinsic", name: "object" };
+  context.reportUnsupported(
+    "async union return type",
+    "UnionType",
+    type.sourceText ?? "union"
+  );
+  return objectTypePlan;
 };
 
 const renderTaskReturnType = (
@@ -746,9 +770,15 @@ export const renderCSharpType = (
             ? name
             : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
         }
-        return type.aliasTarget.kind === "intersection"
-          ? "object?"
-          : renderCSharpType(type.aliasTarget, context);
+        if (type.aliasTarget.kind === "intersection") {
+          context.reportUnsupported(
+            "intersection type alias target",
+            "IntersectionType",
+            type.aliasTarget.sourceText ?? type.sourceText ?? type.name
+          );
+          return "object?";
+        }
+        return renderCSharpType(type.aliasTarget, context);
       }
       const name = renderNamedType(type.name, type.sourceRuntimeName);
       return type.typeArguments.length === 0
@@ -846,7 +876,7 @@ export const renderFunctionReturnType = (
   isAsync: boolean,
   context: RenderContext
 ): string => {
-  const asyncAwaitedType = asyncReturnAwaitedType(returnType);
+  const asyncAwaitedType = asyncReturnAwaitedType(returnType, context);
   if (asyncAwaitedType) {
     return renderTaskReturnType(asyncAwaitedType, context);
   }
