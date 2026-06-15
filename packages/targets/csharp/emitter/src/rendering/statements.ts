@@ -19,7 +19,8 @@ import {
   isVoidLikeTypePlan,
   renderCSharpType,
   renderFunctionReturnType,
-  renderNullableCSharpType,
+  renderRequiredCSharpType,
+  renderRequiredNullableCSharpType,
   sameRuntimeTypePlan,
   shouldEmitStructuralObjectType,
 } from "./types.js";
@@ -140,7 +141,13 @@ const variableRenderType = (
   );
   const declaredType = variableDeclaredType(declaration, context);
   const storageType = shouldRenderVariableStorageType(declaration.storageType)
-    ? renderCSharpType(declaration.storageType, context)
+    ? renderRequiredCSharpType(
+        declaration.storageType,
+        context,
+        "variable storage type",
+        "Variable",
+        declaration.name
+      )
     : undefined;
   if (
     defaultType === "var" &&
@@ -190,8 +197,20 @@ const renderDelegateParameter = (
     parameter.rest && parameter.type?.kind === "array"
       ? `${renderCSharpType(parameter.type.elementType, context)}[]`
       : parameter.optional
-        ? renderNullableCSharpType(parameter.type, context)
-        : renderCSharpType(parameter.type, context);
+        ? renderRequiredNullableCSharpType(
+            parameter.type,
+            context,
+            "delegate parameter type",
+            "Parameter",
+            parameter.name
+          )
+        : renderRequiredCSharpType(
+            parameter.type,
+            context,
+            "delegate parameter type",
+            "Parameter",
+            parameter.name
+          );
   const initializer = parameter.initializer
     ? ` = ${renderExpression(parameter.initializer, context)}`
     : parameter.optional
@@ -647,7 +666,7 @@ export const renderFunctionBody = (
     const alias =
       defaultedParameterAliases?.get(parameter.name) ??
       defaultedParameterAlias(parameter.name);
-    return `${renderCSharpType(parameter.type, context)} ${alias} = ${sanitizeIdentifier(parameter.name)} ?? ${renderExpression(parameter.initializer, context)};`;
+    return `${renderRequiredCSharpType(parameter.type, context, "defaulted parameter type", "Parameter", parameter.name)} ${alias} = ${sanitizeIdentifier(parameter.name)} ?? ${renderExpression(parameter.initializer, context)};`;
   });
   context.currentDefaultedParameters = defaultedParameterAliases;
   try {

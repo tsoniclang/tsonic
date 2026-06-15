@@ -19,6 +19,8 @@ import {
   renderCSharpRuntimeExpressionName,
   renderCSharpType,
   renderNullableCSharpType,
+  renderRequiredCSharpType,
+  renderRequiredNullableCSharpType,
   runtimeUnionCarrierArms,
   runtimeUnionTarget,
   sameRuntimeTypePlan,
@@ -249,7 +251,13 @@ const renderDictionaryObjectProperty = (
     return undefined;
   }
   const rendered = renderExpression(property.expression, context);
-  const valueType = renderCSharpType(valueTypePlan, context);
+  const valueType = renderRequiredCSharpType(
+    valueTypePlan,
+    context,
+    "dictionary value type",
+    property.sourceKindName,
+    property.sourceText
+  );
   return `["${property.name}"] = ${
     isOpaqueRuntimeTypePlan(valueTypePlan) ? rendered : castExpression(rendered, valueType)
   }`;
@@ -318,7 +326,7 @@ const renderArrayLiteralElement = (
   elementTypePlan: LoweringTypeRefPlan | undefined,
   context: RenderContext
 ): string => {
-  const carrier = runtimeUnionCarrierType(elementTypePlan);
+  const carrier = runtimeUnionCarrierType(elementTypePlan, context);
   const nestedArray = arrayLiteralExpressionPlan(element);
   const arrayArmIndex = runtimeUnionArrayArmIndex(carrier, context);
   const arrayArm = arrayArmIndex
@@ -421,7 +429,23 @@ const renderLambdaParameter = (
   includeType: boolean
 ): string =>
   includeType
-    ? `${parameter.rest ? "params " : ""}${parameter.optional ? renderNullableCSharpType(parameter.type, context) : renderCSharpType(parameter.type, context)} ${sanitizeIdentifier(parameter.name)}`
+    ? `${parameter.rest ? "params " : ""}${
+        parameter.optional
+          ? renderRequiredNullableCSharpType(
+              parameter.type,
+              context,
+              "lambda parameter type",
+              "Parameter",
+              parameter.name
+            )
+          : renderRequiredCSharpType(
+              parameter.type,
+              context,
+              "lambda parameter type",
+              "Parameter",
+              parameter.name
+            )
+      } ${sanitizeIdentifier(parameter.name)}`
     : sanitizeIdentifier(parameter.name);
 
 const lambdaContextReturnType = (
@@ -482,8 +506,20 @@ export const renderFunctionExpressionType = (
   }
   const parameterTypes = plan.parameters.map((parameter) =>
     parameter.optional
-      ? renderNullableCSharpType(parameter.type, context)
-      : renderCSharpType(parameter.type, context)
+      ? renderRequiredNullableCSharpType(
+          parameter.type,
+          context,
+          "lambda parameter type",
+          "Parameter",
+          parameter.name
+        )
+      : renderRequiredCSharpType(
+          parameter.type,
+          context,
+          "lambda parameter type",
+          "Parameter",
+          parameter.name
+        )
   );
   const returnType = renderCSharpType(
     plan.returnType ?? { kind: "intrinsic", name: "void" },
@@ -673,8 +709,8 @@ export const renderExpressionWithUseSiteCast = (
     );
   }
   const sourceCarrier =
-    runtimeUnionCarrierType(plan?.storageTypePlan) ??
-    runtimeUnionCarrierType(plan?.type);
+    runtimeUnionCarrierType(plan?.storageTypePlan, context) ??
+    runtimeUnionCarrierType(plan?.type, context);
   const useSiteArrayType = arrayTypeFromUseSite(useSiteTypeOverride);
   if (sourceCarrier && useSiteArrayType) {
     const armIndex =
@@ -704,11 +740,12 @@ export const renderExpressionWithUseSiteCast = (
 };
 
 const runtimeUnionCarrierType = (
-  type: LoweringTypeRefPlan | undefined
+  type: LoweringTypeRefPlan | undefined,
+  context: RenderContext
 ): LoweringTypeRefPlan | undefined =>
   type?.kind === "named" && runtimeUnionTarget(type)
     ? type
-    : shouldEmitAnonymousRuntimeUnionCarrier(type)
+    : shouldEmitAnonymousRuntimeUnionCarrier(type, context)
     ? type
     : undefined;
 
@@ -845,7 +882,7 @@ const renderRuntimeUnionCarrierValue = (
   useSiteType: LoweringTypeRefPlan | undefined,
   context: RenderContext
 ): string | undefined => {
-  const carrier = runtimeUnionCarrierType(useSiteType);
+  const carrier = runtimeUnionCarrierType(useSiteType, context);
   if (!carrier) return undefined;
   if (
     (plan?.type &&
@@ -872,8 +909,8 @@ const renderRuntimeUnionCarrierValue = (
         ? renderArrayLiteral(carrierArrayLiteral, context, targetArmArray)
         : rendered;
     const sourceCarrier =
-      runtimeUnionCarrierType(plan?.storageTypePlan) ??
-      runtimeUnionCarrierType(plan?.type);
+      runtimeUnionCarrierType(plan?.storageTypePlan, context) ??
+      runtimeUnionCarrierType(plan?.type, context);
     const sourceArmValue = runtimeUnionSourceArmValue(
       armRendered,
       sourceCarrier,
@@ -1272,7 +1309,13 @@ const renderObjectEntriesCall = (
   if (!source) return undefined;
   const valuePlan =
     recordValueType(source.type) ?? recordValueType(source.contextualTypePlan);
-  const valueType = renderCSharpType(valuePlan, context);
+  const valueType = renderRequiredCSharpType(
+    valuePlan,
+    context,
+    "Object.entries value type",
+    plan.sourceKindName,
+    plan.sourceText
+  );
   const dictionaryType = `global::System.Collections.Generic.Dictionary<string, ${valueType}>`;
   const dictionary = castExpression(renderExpression(source, context), dictionaryType);
   return `new global::System.Collections.Generic.List<(string, ${valueType})>(global::System.Linq.Enumerable.Select(${dictionary}, entry => (entry.Key, entry.Value)))`;
@@ -1572,8 +1615,8 @@ const renderSourceRuntimeCall = (
           );
           if (!renderedArgument) return "";
           const sourceCarrier =
-            runtimeUnionCarrierType(argument?.storageTypePlan) ??
-            runtimeUnionCarrierType(argument?.type);
+            runtimeUnionCarrierType(argument?.storageTypePlan, context) ??
+            runtimeUnionCarrierType(argument?.type, context);
           const armIndex = runtimeUnionArrayArmIndex(sourceCarrier, context);
           if (argument && armIndex) {
             return `${renderExpression(argument, context)}.As${armIndex}() != null`;
@@ -1588,7 +1631,7 @@ const renderSourceRuntimeCall = (
         break;
       case "JSON":
         if (operation.member === "parse") {
-          return `${renderSourceRuntimeName(operation)}.parse<${renderCSharpType(plan.type, context)}>(${args.join(", ")})`;
+          return `${renderSourceRuntimeName(operation)}.parse<${renderRequiredCSharpType(plan.type, context, "JSON.parse result type", plan.sourceKindName, plan.sourceText)}>(${args.join(", ")})`;
         }
         break;
       case "Promise":
@@ -1860,8 +1903,8 @@ export const renderExpression = (
           plan.binaryOperator === "strict-equal" ||
           plan.binaryOperator === "not-equal" ||
           plan.binaryOperator === "strict-not-equal") &&
-        (runtimeUnionCarrierType(plan.left?.storageTypePlan) ||
-          runtimeUnionCarrierType(plan.left?.type)) &&
+        (runtimeUnionCarrierType(plan.left?.storageTypePlan, context) ||
+          runtimeUnionCarrierType(plan.left?.type, context)) &&
         (plan.right?.semantic === "undefined-value" ||
           plan.right?.literalKind === "null")
       ) {

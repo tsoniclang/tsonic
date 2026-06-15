@@ -17,6 +17,7 @@ import {
   isRecursiveRuntimeArrayArm,
   renderCSharpType,
   renderNullableCSharpType,
+  renderRequiredCSharpType,
   runtimeUnionCarrierArms,
   renderTypeMember,
   shouldEmitStructuralObjectType,
@@ -73,7 +74,7 @@ const renderExportAliasFields = (
     .map((binding) => {
       const variable = variables.get(binding.localName ?? "");
       if (!variable) return undefined;
-      return `    public static ${renderCSharpType(variable.storageType ?? variable.type, context)} ${sanitizeIdentifier(binding.exportedName)} => ${sanitizeIdentifier(binding.localName)};`;
+      return `    public static ${renderRequiredCSharpType(variable.storageType ?? variable.type, context, "export alias type", "Variable", variable.name)} ${sanitizeIdentifier(binding.exportedName)} => ${sanitizeIdentifier(binding.localName)};`;
     })
     .filter((rendered): rendered is string => rendered !== undefined);
 };

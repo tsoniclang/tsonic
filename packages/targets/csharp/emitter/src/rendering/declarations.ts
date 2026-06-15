@@ -17,6 +17,8 @@ import {
   renderCSharpType,
   renderFunctionReturnType,
   renderNullableCSharpType,
+  renderRequiredCSharpType,
+  renderRequiredNullableCSharpType,
   runtimeUnionCarrierArms,
 } from "./types.js";
 
@@ -71,8 +73,20 @@ const renderParameter = (
     parameter.rest && parameter.type?.kind === "array"
       ? `${renderCSharpType(parameter.type.elementType, context)}[]`
       : parameter.optional || parameter.initializer
-      ? renderNullableCSharpType(parameter.type, context)
-      : renderCSharpType(parameter.type, context);
+      ? renderRequiredNullableCSharpType(
+          parameter.type,
+          context,
+          "parameter type",
+          "Parameter",
+          parameter.name
+        )
+      : renderRequiredCSharpType(
+          parameter.type,
+          context,
+          "parameter type",
+          "Parameter",
+          parameter.name
+        );
   const receiverModifier = parameter.extensionReceiver ? "this " : "";
   return `${restModifier}${receiverModifier}${type} ${sanitizeIdentifier(parameter.name)}${initializer}`;
 };
@@ -280,7 +294,14 @@ const renderProperty = (
 ): string | undefined => {
   const declarationName = requireDeclarationName(plan, context, "property");
   if (!declarationName) return undefined;
-  const type = renderCSharpType(plan.returnType ?? plan.declaredTypePlan, context);
+  const declaredType = plan.returnType ?? plan.declaredTypePlan;
+  const type = renderRequiredCSharpType(
+    declaredType,
+    context,
+    "property type",
+    plan.sourceKindName,
+    plan.sourceText
+  );
   const initializer = plan.static && plan.initializer
     ? ` = ${renderExpressionWithUseSiteCast(
         plan.initializer,
@@ -315,9 +336,21 @@ const renderIndexSignature = (
   includePublic: boolean
 ): string => {
   const [parameter] = parameters;
-  const keyType = renderCSharpType(parameter?.type, context);
+  const keyType = renderRequiredCSharpType(
+    parameter?.type,
+    context,
+    "index signature key type",
+    "IndexSignature",
+    parameter?.name ?? "key"
+  );
   const keyName = sanitizeIdentifier(parameter?.name ?? "key");
-  const type = renderCSharpType(valueType, context);
+  const type = renderRequiredCSharpType(
+    valueType,
+    context,
+    "index signature value type",
+    "IndexSignature",
+    keyName
+  );
   return `${includePublic ? "public " : ""}${type} this[${keyType} ${keyName}] { get; set; }`;
 };
 
@@ -477,7 +510,7 @@ const renderInterfaceMember = (
         .join(", ");
       return withAttributes(
         plan.attributes,
-        `${renderCSharpType(plan.returnType, context)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
+        `${renderRequiredCSharpType(plan.returnType, context, "interface method return type", plan.sourceKindName, plan.sourceText)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
         context
       );
     }
@@ -488,7 +521,7 @@ const renderInterfaceMember = (
       if (!name) return undefined;
       return withAttributes(
         plan.attributes,
-        `${renderCSharpType(plan.returnType ?? plan.declaredTypePlan, context)} ${sanitizeIdentifier(name)} { get; set; }`,
+        `${renderRequiredCSharpType(plan.returnType ?? plan.declaredTypePlan, context, "interface property type", plan.sourceKindName, plan.sourceText)} ${sanitizeIdentifier(name)} { get; set; }`,
         context
       );
     }
@@ -525,7 +558,7 @@ const renderInterface = (
       .join(", ");
     return withAttributes(
       plan.attributes,
-      `public delegate ${renderCSharpType(callSignature.returnType, context)} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
+      `public delegate ${renderRequiredCSharpType(callSignature.returnType, context, "call signature return type", callSignature.sourceKindName, callSignature.sourceText)} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
       context
     );
   }
@@ -581,14 +614,26 @@ const renderTypeMemberAlias = (
 ): string => {
   switch (member.kind) {
     case "property":
-      return `${includePublic ? "public " : ""}${renderCSharpType(member.type, context)} ${sanitizeIdentifier(member.name)} { get; set; }`;
+      return `${includePublic ? "public " : ""}${renderRequiredCSharpType(member.type, context, "type member property type", "TypeMember", member.name)} ${sanitizeIdentifier(member.name)} { get; set; }`;
     case "method":
-      return `${renderCSharpType(member.returnType, context)} ${sanitizeIdentifier(member.name)}${renderTypeParameters(member.typeParameters)}(${member.parameters
+      return `${renderRequiredCSharpType(member.returnType, context, "type member return type", "TypeMember", member.name)} ${sanitizeIdentifier(member.name)}${renderTypeParameters(member.typeParameters)}(${member.parameters
         .map((parameter) => renderParameter(parameter, context))
         .join(", ")});`;
     case "index-signature": {
-      const keyType = renderCSharpType(member.keyType, context);
-      const valueType = renderCSharpType(member.valueType, context);
+      const keyType = renderRequiredCSharpType(
+        member.keyType,
+        context,
+        "type member index key type",
+        "TypeMember",
+        "index-signature"
+      );
+      const valueType = renderRequiredCSharpType(
+        member.valueType,
+        context,
+        "type member index value type",
+        "TypeMember",
+        "index-signature"
+      );
       return `${includePublic ? "public " : ""}${valueType} this[${keyType} key] { get; set; }`;
     }
   }

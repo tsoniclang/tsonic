@@ -24,6 +24,9 @@ const primitiveRuntimeTypes: ReadonlyMap<string, string> = new Map([
   ["decimal", "decimal"],
 ]);
 
+const objectTypePlan: LoweringTypeRefPlan = { kind: "intrinsic", name: "object" };
+const voidTypePlan: LoweringTypeRefPlan = { kind: "intrinsic", name: "void" };
+
 const knownNamedTypes: ReadonlyMap<string, string> = new Map([
   ["CancellationTokenSource", "global::System.Threading.CancellationTokenSource"],
   ["ManualResetEventSlim", "global::System.Threading.ManualResetEventSlim"],
@@ -112,6 +115,18 @@ const renderNamedType = (
   renderCSharpRuntimeTypeName(sourceRuntimeName) ??
   knownNamedTypes.get(name) ??
   sanitizeTypeName(name.replace(/\$/g, "_").replace(/\./g, "_"));
+
+const requiredTypeArgument = (
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
+  index: number,
+  context: RenderContext,
+  feature: string
+): LoweringTypeRefPlan => {
+  const argument = type.typeArguments[index];
+  if (argument) return argument;
+  context.reportUnsupported(feature, "TypeReference", type.sourceText ?? type.name);
+  return objectTypePlan;
+};
 
 const nonStructuralNamedTypes = new Set([
   "Array",
@@ -556,7 +571,7 @@ const promiseOrTaskAwaitedType = (
   type: LoweringTypeRefPlan | undefined
 ): LoweringTypeRefPlan | undefined =>
   isTaskLikeTypePlan(type) && type?.kind === "named"
-    ? (type.typeArguments[0] ?? { kind: "intrinsic", name: "void" })
+    ? (type.typeArguments[0] ?? voidTypePlan)
     : undefined;
 
 const asyncReturnAwaitedType = (
@@ -589,27 +604,35 @@ const asyncReturnAwaitedType = (
 
 const renderTaskReturnType = (
   awaitedType: LoweringTypeRefPlan | undefined,
-  context?: RenderContext
-): string =>
-  isVoidLikeTypePlan(awaitedType)
-    ? "global::System.Threading.Tasks.Task"
-    : `global::System.Threading.Tasks.Task<${renderCSharpType(awaitedType, context)}>`;
+  context: RenderContext
+): string => {
+  if (!awaitedType || isVoidLikeTypePlan(awaitedType)) {
+    return "global::System.Threading.Tasks.Task";
+  }
+  return `global::System.Threading.Tasks.Task<${renderCSharpType(awaitedType, context)}>`;
+};
 
 const renderUnionType = (
   type: LoweringTypeRefPlan,
-  context?: RenderContext
+  context: RenderContext
 ): string => {
   if (type.kind !== "union") return renderCSharpType(type, context);
   const nonNullish = type.types.filter((member) => !isNullishType(member));
   const voidLike = nonNullish.filter(isVoidLikeTypePlan);
   const taskLike = nonNullish.filter(isTaskLikeTypePlan);
   if (voidLike.length > 0 && taskLike.length === 1) {
-    return renderCSharpType(taskLike[0], context);
+    const taskType = taskLike[0];
+    if (taskType) return renderCSharpType(taskType, context);
+    context.reportUnsupported("union task type", "UnionType", type.sourceText ?? "union");
+    return "object?";
   }
   if (nonNullish.length === 1) {
-    return renderNullableCSharpType(nonNullish[0], context);
+    const member = nonNullish[0];
+    if (member) return renderNullableCSharpType(member, context);
+    context.reportUnsupported("union member type", "UnionType", type.sourceText ?? "union");
+    return "object?";
   }
-  if (context && shouldEmitAnonymousRuntimeUnionCarrier(type, context)) {
+  if (shouldEmitAnonymousRuntimeUnionCarrier(type, context)) {
     return context.getStructuralTypeName(type);
   }
   return "object?";
@@ -617,13 +640,25 @@ const renderUnionType = (
 
 const renderFunctionType = (
   type: LoweringTypeRefPlan,
-  context?: RenderContext
+  context: RenderContext
 ): string => {
   if (type.kind !== "function") return renderCSharpType(type, context);
   const parameters = type.parameters.map((parameter) =>
     parameter.optional
-      ? renderNullableCSharpType(parameter.type, context)
-      : renderCSharpType(parameter.type, context)
+      ? renderRequiredNullableCSharpType(
+          parameter.type,
+          context,
+          "function type parameter",
+          "FunctionType",
+          parameter.name
+        )
+      : renderRequiredCSharpType(
+          parameter.type,
+          context,
+          "function type parameter",
+          "FunctionType",
+          parameter.name
+        )
   );
   const returnType = renderFunctionReturnType(type.returnType, false, context);
   return isVoidLikeTypePlan(type.returnType)
@@ -635,20 +670,25 @@ const renderFunctionType = (
 
 const renderSpecialNamedType = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
-  context?: RenderContext
+  context: RenderContext
 ): string | undefined => {
   switch (type.name) {
     case "Array":
-      return `global::System.Collections.Generic.List<${renderCSharpType(type.typeArguments[0], context)}>`;
+      return `global::System.Collections.Generic.List<${renderCSharpType(requiredTypeArgument(type, 0, context, "Array type argument"), context)}>`;
     case "ReadonlyArray":
-      return `global::System.Collections.Generic.IReadOnlyList<${renderCSharpType(type.typeArguments[0], context)}>`;
+      return `global::System.Collections.Generic.IReadOnlyList<${renderCSharpType(requiredTypeArgument(type, 0, context, "ReadonlyArray type argument"), context)}>`;
     case "Iterable":
     case "IterableIterator":
     case "Iterator":
     case "Generator":
-      return `global::System.Collections.Generic.IEnumerable<${renderCSharpType(type.typeArguments[0], context)}>`;
+      return `global::System.Collections.Generic.IEnumerable<${renderCSharpType(requiredTypeArgument(type, 0, context, `${type.name} type argument`), context)}>`;
     case "Promise": {
-      const awaited = type.typeArguments[0];
+      const awaited = requiredTypeArgument(
+        type,
+        0,
+        context,
+        "Promise awaited type"
+      );
       return isVoidLikeTypePlan(awaited)
         ? "global::System.Threading.Tasks.Task"
         : `global::System.Threading.Tasks.Task<${renderCSharpType(awaited, context)}>`;
@@ -659,10 +699,9 @@ const renderSpecialNamedType = (
 };
 
 export const renderCSharpType = (
-  type: LoweringTypeRefPlan | undefined,
-  context?: RenderContext
+  type: LoweringTypeRefPlan,
+  context: RenderContext
 ): string => {
-  if (!type) return "object?";
   switch (type.kind) {
     case "intrinsic":
       switch (type.name) {
@@ -752,7 +791,7 @@ export const renderCSharpType = (
       return renderFunctionType(type, context);
     case "object":
       return shouldEmitStructuralObjectType(type)
-        ? (context?.getStructuralTypeName(type) ?? "object?")
+        ? context.getStructuralTypeName(type)
         : "object?";
     case "predicate":
       return "bool";
@@ -775,9 +814,21 @@ export const renderCSharpType = (
   }
 };
 
-export const renderNullableCSharpType = (
+export const renderRequiredCSharpType = (
   type: LoweringTypeRefPlan | undefined,
-  context?: RenderContext
+  context: RenderContext,
+  feature: string,
+  sourceKindName: string,
+  sourceText: string
+): string => {
+  if (type) return renderCSharpType(type, context);
+  context.reportUnsupported(feature, sourceKindName, sourceText);
+  return renderCSharpType(objectTypePlan, context);
+};
+
+export const renderNullableCSharpType = (
+  type: LoweringTypeRefPlan,
+  context: RenderContext
 ): string => {
   if (isOpaqueNullableType(type) || isVoidLikeTypePlan(type)) return "object?";
   if (type?.kind === "union") return renderUnionType(type, context);
@@ -785,21 +836,34 @@ export const renderNullableCSharpType = (
   return `${rendered}?`;
 };
 
+export const renderRequiredNullableCSharpType = (
+  type: LoweringTypeRefPlan | undefined,
+  context: RenderContext,
+  feature: string,
+  sourceKindName: string,
+  sourceText: string
+): string => {
+  if (type) return renderNullableCSharpType(type, context);
+  context.reportUnsupported(feature, sourceKindName, sourceText);
+  return renderNullableCSharpType(objectTypePlan, context);
+};
+
 export const renderFunctionReturnType = (
   returnType: LoweringTypeRefPlan | undefined,
   isAsync: boolean,
-  context?: RenderContext
+  context: RenderContext
 ): string => {
   const asyncAwaitedType = asyncReturnAwaitedType(returnType);
   if (asyncAwaitedType) {
     return renderTaskReturnType(asyncAwaitedType, context);
   }
-  const rendered = renderCSharpType(returnType, context);
+  const effectiveReturnType = returnType ?? voidTypePlan;
+  const rendered = renderCSharpType(effectiveReturnType, context);
   if (isTaskLikeTypePlan(returnType)) {
     return rendered;
   }
   if (!isAsync) return rendered;
-  return isVoidLikeTypePlan(returnType)
+  return isVoidLikeTypePlan(effectiveReturnType)
     ? "global::System.Threading.Tasks.Task"
     : `global::System.Threading.Tasks.Task<${rendered}>`;
 };
@@ -810,15 +874,15 @@ export const renderTypeMember = (
 ): string => {
   switch (member.kind) {
     case "property":
-      return `${renderCSharpType(member.type, context)} ${sanitizeIdentifier(member.name)} { get; set; }`;
+      return `${renderRequiredCSharpType(member.type, context, "type member property type", "TypeMember", member.name)} ${sanitizeIdentifier(member.name)} { get; set; }`;
     case "method":
-      return `${renderCSharpType(member.returnType, context)} ${sanitizeIdentifier(member.name)}${member.typeParameters.length > 0 ? `<${member.typeParameters.map((name) => sanitizeTypeName(name)).join(", ")}>` : ""}(${member.parameters
+      return `${renderRequiredCSharpType(member.returnType, context, "type member return type", "TypeMember", member.name)} ${sanitizeIdentifier(member.name)}${member.typeParameters.length > 0 ? `<${member.typeParameters.map((name) => sanitizeTypeName(name)).join(", ")}>` : ""}(${member.parameters
         .map(
           (parameter) =>
-            `${renderCSharpType(parameter.type, context)} ${sanitizeIdentifier(parameter.name)}`
+            `${renderRequiredCSharpType(parameter.type, context, "type member parameter type", "TypeMember", parameter.name)} ${sanitizeIdentifier(parameter.name)}`
         )
         .join(", ")});`;
     case "index-signature":
-      return `${renderCSharpType(member.valueType, context)} this[${renderCSharpType(member.keyType, context)} key] { get; set; }`;
+      return `${renderRequiredCSharpType(member.valueType, context, "type member index value type", "TypeMember", "index-signature")} this[${renderRequiredCSharpType(member.keyType, context, "type member index key type", "TypeMember", "index-signature")} key] { get; set; }`;
   }
 };
