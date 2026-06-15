@@ -648,7 +648,13 @@ const renderFunctionType = (
           parameter.sourceText
         )
   );
-  const returnType = renderFunctionReturnType(type.returnType, false, context);
+  const returnType = renderFunctionReturnType(
+    type.returnType,
+    false,
+    context,
+    "FunctionType",
+    type.sourceText ?? "function"
+  );
   return isVoidLikeTypePlan(type.returnType)
     ? parameters.length === 0
       ? "global::System.Action"
@@ -866,13 +872,18 @@ export const renderRequiredNullableCSharpType = (
 export const renderFunctionReturnType = (
   returnType: LoweringTypeRefPlan | undefined,
   isAsync: boolean,
-  context: RenderContext
+  context: RenderContext,
+  sourceKindName = "FunctionLike",
+  sourceText = "function"
 ): string => {
   const asyncAwaitedType = asyncReturnAwaitedType(returnType, context);
   if (asyncAwaitedType) {
     return renderTaskReturnType(asyncAwaitedType, context);
   }
-  const effectiveReturnType = returnType ?? voidTypePlan;
+  if (!returnType) {
+    context.reportUnsupported("function return type", sourceKindName, sourceText);
+  }
+  const effectiveReturnType = returnType ?? objectTypePlan;
   const rendered = renderCSharpType(effectiveReturnType, context);
   if (isTaskLikeTypePlan(returnType)) {
     return rendered;

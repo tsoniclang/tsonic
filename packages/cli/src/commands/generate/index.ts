@@ -205,15 +205,19 @@ export const generateCommand = (
         absoluteSourceRoot,
         absoluteEntryPoint
       ).replace(/\\/g, "/");
-      const foundEntryModule = emittedModules.find(
+      const foundEntryModules = emittedModules.filter(
         (module: CSharpPlan) => module.identity.filePath === entryRelative
       );
+      const foundEntryModule =
+        foundEntryModules.length === 1 ? foundEntryModules[0] : undefined;
       if (!foundEntryModule) {
         return {
           ok: false,
           error:
-            `Generated module set does not contain the runtime entry module '${entryRelative}'. ` +
-            "This indicates an invalid lowering/emission graph; the entry module must not be filtered or substituted.",
+            foundEntryModules.length > 1
+              ? `Generated module set contains multiple runtime entry modules for '${entryRelative}'. This indicates an invalid lowering/emission graph.`
+              : `Generated module set does not contain the runtime entry module '${entryRelative}'. ` +
+                "This indicates an invalid lowering/emission graph; the entry module must not be filtered or substituted.",
         };
       }
       const hasTopLevelCode =

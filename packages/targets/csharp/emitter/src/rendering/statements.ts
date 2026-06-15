@@ -270,7 +270,9 @@ export const renderStaticField = (
     const returnType = renderFunctionReturnType(
       declaration.initializer.returnType,
       declaration.initializer.async ?? false,
-      context
+      context,
+      declaration.initializer.sourceKindName,
+      declaration.initializer.sourceText
     );
     return [
       `public delegate ${returnType} ${delegateName}(${parameters});`,

@@ -194,7 +194,9 @@ const renderFunction = (
   const returnType = renderFunctionReturnType(
     effectiveReturnType,
     plan.async,
-    context
+    context,
+    plan.sourceKindName,
+    plan.sourceText
   );
   const bodyReturnType =
     plan.async &&
@@ -775,7 +777,7 @@ const renderTypeAlias = (
       .join(", ");
     return withAttributes(
       plan.attributes,
-      `public delegate ${renderFunctionReturnType(functionTarget.returnType, false, context)} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
+      `public delegate ${renderFunctionReturnType(functionTarget.returnType, false, context, plan.sourceKindName, plan.sourceText)} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
       context
     );
   }
@@ -839,7 +841,9 @@ const renderVariable = (
     const returnType = renderFunctionReturnType(
       initializer.returnType,
       initializer.async ?? false,
-      context
+      context,
+      initializer.sourceKindName,
+      initializer.sourceText
     );
     const rendered = [
       `public delegate ${returnType} ${delegateName}(${parameters});`,

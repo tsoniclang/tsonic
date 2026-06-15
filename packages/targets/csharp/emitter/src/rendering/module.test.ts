@@ -425,6 +425,42 @@ describe("C# module renderer", () => {
     }
   });
 
+  it("reports missing function return types instead of inventing void", () => {
+    const module: CSharpLoweringModulePlan = {
+      kind: "lowering-module",
+      backendTargetId: "csharp",
+      identity: {
+        filePath: "/src/index.ts",
+        className: "Index",
+        namespace: "Example",
+      },
+      sourceFile: dummySourceFile,
+      sourceModule: dummySourceModule,
+      imports: [],
+      exports: [],
+      declarations: [
+        declarationPlan({
+          declarationKind: "function",
+          name: "missingReturn",
+          body: statementPlan({ statementKind: "block", statements: [] }),
+        }),
+      ],
+      topLevelStatements: [],
+      types: [],
+      statements: [],
+      expressions: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result.ok).to.equal(false);
+    if (!result.ok) {
+      expect(result.errors.map((error) => error.message)).to.include(
+        "C# lowering does not yet support function return type 'Declaration'."
+      );
+    }
+  });
+
   it("reports named intersection alias targets instead of emitting broad object placeholders", () => {
     const module: CSharpLoweringModulePlan = {
       kind: "lowering-module",
