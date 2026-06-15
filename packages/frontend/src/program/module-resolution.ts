@@ -8,6 +8,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
+import type { SourcePackageMetadata } from "./source-package-metadata.js";
 
 export type ResolvedPackageModuleExtension =
   | ".d.ts"
@@ -196,39 +197,15 @@ export const createResolveModuleFromPackageRoot = (
     return undefined;
   };
 
-  const tryResolveFromSourceManifest = (
-    packageRoot: string,
+  const tryResolveFromSourcePackageMetadata = (
+    sourcePackageMetadata: SourcePackageMetadata,
     subpath: string | undefined
   ): ResolvedPackageModule | undefined => {
-    const manifestPath = path.join(packageRoot, "tsonic.package.json");
-    if (!fs.existsSync(manifestPath)) {
-      return undefined;
-    }
-
-    try {
-      const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
-        readonly source?: {
-          readonly exports?: Record<string, unknown>;
-        };
-      };
-      const exportsField = parsed.source?.exports;
-      if (
-        exportsField === null ||
-        typeof exportsField !== "object" ||
-        Array.isArray(exportsField)
-      ) {
-        return undefined;
-      }
-
-      const exportKey = subpath && subpath.length > 0 ? `./${subpath}` : ".";
-      return tryResolveExportTarget(packageRoot, exportsField[exportKey]);
-    } catch (error) {
-      throw new Error(
-        `Failed to read source package manifest '${manifestPath}': ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
+    const exportKey = subpath && subpath.length > 0 ? `./${subpath}` : ".";
+    return tryResolveExportTarget(
+      sourcePackageMetadata.packageRoot,
+      sourcePackageMetadata.exports[exportKey]
+    );
   };
 
   const resolveModuleFromPackageRoot = (
@@ -243,10 +220,8 @@ export const createResolveModuleFromPackageRoot = (
 
     const sourcePackageMetadata = readSourcePackageMetadata(packageRoot);
     const exportedResolution = sourcePackageMetadata
-      ? (tryResolveFromSourceManifest(packageRoot, subpath) ??
-        tryResolveFromPackageJsonExports(packageRoot, subpath))
-      : (tryResolveFromPackageJsonExports(packageRoot, subpath) ??
-        tryResolveFromSourceManifest(packageRoot, subpath));
+      ? tryResolveFromSourcePackageMetadata(sourcePackageMetadata, subpath)
+      : tryResolveFromPackageJsonExports(packageRoot, subpath);
     if (exportedResolution) {
       packageRootModuleResolutionCache.set(cacheKey, exportedResolution);
       return exportedResolution;
