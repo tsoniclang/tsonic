@@ -385,7 +385,7 @@ const checkerTypePlan = (
   state: CheckerTypePlanState = createCheckerTypePlanState()
 ): LoweringTypeRefPlan | undefined => {
   if (!type) return undefined;
-  if (state.types.has(type)) return intrinsicTypePlan("unknown");
+  if (state.types.has(type)) return undefined;
   state.types.add(type);
   try {
   const checker = context.checkerForSourceFile(sourceFile);
@@ -413,11 +413,16 @@ const checkerTypePlan = (
   }
   const arrayElement = checker.getElementTypeOfArrayType(type);
   if (arrayElement) {
+    const elementType = checkerTypePlan(
+      context,
+      sourceFile,
+      arrayElement,
+      state
+    );
+    if (!elementType) return undefined;
     return {
       kind: "array",
-      elementType:
-        checkerTypePlan(context, sourceFile, arrayElement, state) ??
-        intrinsicTypePlan("unknown"),
+      elementType,
       readonly: false,
     };
   }
@@ -537,7 +542,7 @@ const checkerTypePlan = (
     };
   }
 
-  return intrinsicTypePlan("unknown");
+  return undefined;
   } finally {
     state.types.delete(type);
   }
@@ -2344,8 +2349,7 @@ const objectLiteralStorageTypePlan = (
                 context,
                 checker.getNarrowedTypeAtLocation(valueNode)
               )
-            : undefined) ??
-          intrinsicTypePlan("unknown"),
+            : undefined),
       };
     }
   );
@@ -3590,7 +3594,8 @@ const typeAtBindingAccess = (
 ): LoweringTypeRefPlan | undefined => {
   let current = rootType;
   for (const access of accessPath) {
-    current = loweringNonNullishUnionTypes(current ?? intrinsicTypePlan("unknown"))[0];
+    if (!current) return undefined;
+    current = loweringNonNullishUnionTypes(current)[0];
     if (access.kind === "element") {
       if (current?.kind === "tuple") {
         current = current.elements[access.index];
