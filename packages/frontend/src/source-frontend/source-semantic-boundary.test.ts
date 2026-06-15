@@ -182,6 +182,7 @@ describe("source semantic boundary", () => {
     const bannedTerms = [
       "source" + "RuntimeName",
       "Source" + "RuntimeName",
+      "runtime" + "Named",
       "resolved" + "C" + "lr",
       "resolved" + "C" + "LR",
       "emitted" + "C" + "lr",

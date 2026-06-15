@@ -665,7 +665,7 @@ const namespaceTypeDeclarationKinds = new Set([
   TstsSyntax.KindTypeAliasDeclaration,
 ]);
 
-const runtimeNamedTypeDeclarationKinds = new Set([
+const sourceQualifiedTypeDeclarationKinds = new Set([
   TstsSyntax.KindClassDeclaration,
   TstsSyntax.KindEnumDeclaration,
   TstsSyntax.KindInterfaceDeclaration,
@@ -1007,7 +1007,7 @@ const sourceQualifiedNameForDeclaration = (
     context.options.rootNamespace
   );
   if (target === "type") {
-    if (!runtimeNamedTypeDeclarationKinds.has(declaration.Kind)) {
+    if (!sourceQualifiedTypeDeclarationKinds.has(declaration.Kind)) {
       return undefined;
     }
     return { namespace: identity.namespace, name: exportedName };
