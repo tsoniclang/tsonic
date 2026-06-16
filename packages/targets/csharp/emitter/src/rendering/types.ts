@@ -35,6 +35,8 @@ const objectTypePlan: LoweringTypeRefPlan = {
 };
 const voidTypePlan: LoweringTypeRefPlan = { kind: "intrinsic", name: "void" };
 
+export const runtimeUnionValueMemberName = "__tsonic_value";
+
 const privateJsRuntimeTypes: ReadonlyMap<string, string> = new Map([
   ["js._.Match$instance", "global::System.Text.RegularExpressions.Match"],
   ["js._.Match", "global::System.Text.RegularExpressions.Match"],

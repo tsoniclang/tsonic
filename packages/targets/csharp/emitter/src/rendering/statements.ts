@@ -100,6 +100,35 @@ const singleRuntimeUnionInstanceofArm = (
   return concreteMatches.length === 1 ? concreteMatches[0] : undefined;
 };
 
+const jsConstructorInstanceOwners = new Set([
+  "DataView",
+  "Error",
+  "Float32Array",
+  "Float64Array",
+  "Int16Array",
+  "Int32Array",
+  "Int8Array",
+  "Map",
+  "RegExp",
+  "Uint16Array",
+  "Uint32Array",
+  "Uint8Array",
+  "Uint8ClampedArray",
+]);
+
+const jsConstructorInstanceType = (
+  owner: string | undefined
+): LoweringTypeRefPlan | undefined =>
+  owner && jsConstructorInstanceOwners.has(owner)
+    ? {
+        kind: "named",
+        name: owner,
+        typeArguments: [],
+        sourceQualifiedName: { namespace: "js._", name: owner },
+        declarationKind: "class",
+      }
+    : undefined;
+
 const renderInstanceofNarrowingCondition = (
   condition: LoweringStatementPlan["condition"],
   context: RenderContext
@@ -128,12 +157,16 @@ const renderInstanceofNarrowingCondition = (
       ? condition.right.sourceOperation.owner
       : undefined
   );
-  if (!matchedArm) return undefined;
-  const narrowedType =
+  const runtimeConstructorType =
     condition.right?.sourceOperation?.dispatch === "constructor"
-      ? matchedArm.arm
-      : target ?? matchedArm.arm;
-  const aliasName = `${sanitizeIdentifier(sourceName)}__is_1`;
+      ? jsConstructorInstanceType(condition.right.sourceOperation.owner)
+      : undefined;
+  const narrowedType = matchedArm?.arm ?? runtimeConstructorType ?? target;
+  if (!narrowedType || isOpaqueRuntimeTypePlan(narrowedType)) {
+    return undefined;
+  }
+  const aliasPrefix = sanitizeIdentifier(sourceName).replace(/^@/u, "");
+  const aliasName = context.allocateTempName(`${aliasPrefix}__is`);
   const sourceQualifiedName =
     narrowedType.kind === "named" ? narrowedType.sourceQualifiedName : undefined;
   const patternType =
@@ -143,8 +176,12 @@ const renderInstanceofNarrowingCondition = (
     sourceQualifiedName.container === undefined
       ? sanitizeTypeName(narrowedType.name)
       : renderCSharpType(narrowedType, context);
+  const leftExpression = renderExpression(condition.left, context);
+  const conditionText = matchedArm
+    ? `(${leftExpression}.As${matchedArm.index}()) is ${patternType} ${aliasName}`
+    : `${leftExpression} is ${patternType} ${aliasName}`;
   return {
-    conditionText: `(${renderExpression(condition.left, context)}.As${matchedArm.index}()) is ${patternType} ${aliasName}`,
+    conditionText,
     sourceName,
     aliasName,
     aliasType: narrowedType,

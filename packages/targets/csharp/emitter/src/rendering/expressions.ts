@@ -28,6 +28,7 @@ import {
   renderRequiredCSharpType,
   renderRequiredNullableCSharpType,
   renderTypeParameters,
+  runtimeUnionValueMemberName,
   runtimeUnionCarrierArms,
   runtimeUnionTarget,
   sameRuntimeTypePlan,
@@ -1793,7 +1794,7 @@ const runtimeUnionSourceArmValue = (
     !sameRuntimeTypePlan(sourceArm, targetArm)
   ) {
     const extractedValue = runtimeUnionCarrierType(sourceArm, context)
-      ? `${extracted}.Value`
+      ? `${extracted}.${runtimeUnionValueMemberName}`
       : extracted;
     return `${renderCSharpType(targetCarrier, context)}.FromValue(${extractedValue})`;
   }
@@ -1883,7 +1884,7 @@ const renderRuntimeUnionCarrierValue = (
     (runtimeUnionTypeAssignableToUnion(plan?.type, targetUnion, context) ||
       runtimeUnionCarriersOverlap(sourceCarrier, carrier, context))
   ) {
-    return `${renderCSharpType(carrier, context)}.FromValue(${rendered}.Value)`;
+    return `${renderCSharpType(carrier, context)}.FromValue(${rendered}.${runtimeUnionValueMemberName})`;
   }
   if (plan?.semantic === "undefined-value" || plan?.literalKind === "null") {
     return `${renderCSharpType(carrier, context)}.FromNull()`;
@@ -2791,6 +2792,24 @@ const renderAssignmentValue = (
   return castExpression(rendered, renderedTargetType);
 };
 
+const renderAssignmentTarget = (
+  plan: LoweringExpressionPlan | undefined,
+  context: RenderContext
+): string => {
+  if (plan?.expressionKind !== "identifier") {
+    return renderExpression(plan, context);
+  }
+  const rawName = requiredPlanText(
+    plan,
+    context,
+    "assignment target name",
+    plan.literalText ?? plan.name
+  );
+  return rawName === undefined
+    ? ""
+    : sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
+};
+
 const renderArrayEnumerableReceiver = (
   receiver: string,
   receiverPlan: LoweringExpressionPlan | undefined,
@@ -3493,7 +3512,7 @@ export const renderExpression = (
           : `${renderExpression(plan.left, context)} ${operator} ${renderExpression(plan.right, context)}`;
       }
       if (plan.binaryOperator === "assign") {
-        return `${renderExpression(plan.left, context)} ${operator} ${renderAssignmentValue(plan.left, plan.right, context)}`;
+        return `${renderAssignmentTarget(plan.left, context)} ${operator} ${renderAssignmentValue(plan.left, plan.right, context)}`;
       }
       const booleanObjectEquality = renderBooleanObjectEquality(plan, context);
       if (booleanObjectEquality) return booleanObjectEquality;
@@ -3545,7 +3564,7 @@ export const renderExpression = (
         runtimeUnionCarrierType(plan.expression?.storageTypePlan, context) ??
         runtimeUnionCarrierType(plan.expression?.type, context);
       const rendered = sourceCarrier
-        ? `${renderExpression(plan.expression, context)}.Value`
+        ? `${renderExpression(plan.expression, context)}.${runtimeUnionValueMemberName}`
         : renderExpression(plan.expression, context);
       return `((object?)${rendered}) switch { null => "object", string => "string", char => "string", bool => "boolean", sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal => "number", global::System.Numerics.BigInteger => "bigint", global::System.Delegate => "function", _ => "object" }`;
     }
@@ -3854,7 +3873,7 @@ export const renderConditionExpression = (
     runtimeUnionCarrierType(plan.storageTypePlan, context) ??
     runtimeUnionCarrierType(type, context);
   if (carrier) {
-    return renderRuntimeTruthinessSwitch(`${rendered}.Value`);
+    return renderRuntimeTruthinessSwitch(`${rendered}.${runtimeUnionValueMemberName}`);
   }
   return needsNullishConditionCheck(type)
     ? `${rendered} != null`

@@ -372,7 +372,7 @@ nativeaot_preflight_check() {
 
     local ok=0
     if dotnet new console --framework net10.0 --use-program-main --name AotPreflight --output "$probe_dir" --no-restore --force >/dev/null 2>>"$probe_log"; then
-        if dotnet publish "$probe_dir/AotPreflight.csproj" -c Release -r "$rid" --self-contained true /p:PublishAot=true /p:PublishTrimmed=true /p:PublishSingleFile=true --nologo >"$probe_log" 2>&1; then
+        if dotnet publish "$probe_dir/AotPreflight.csproj" -c Release -r "$rid" --self-contained true /p:PublishAot=true /p:PublishTrimmed=true /p:PublishSingleFile=true --nologo --disable-build-servers >"$probe_log" 2>&1; then
             ok=1
         fi
     fi

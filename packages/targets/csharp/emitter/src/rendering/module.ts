@@ -437,6 +437,13 @@ const collectStructuralTypesFromDeclaration = (
     for (const member of declaration.typeAliasTarget.types) {
       collectStructuralType(types, member);
     }
+  } else if (declaration.declarationKind === "type-alias") {
+    if (
+      declaration.typeAliasTarget?.kind === "object" ||
+      declaration.typeAliasTarget?.kind === "function"
+    ) {
+      collectStructuralType(types, declaration.typeAliasTarget);
+    }
   } else {
     collectStructuralType(types, declaration.typeAliasTarget);
   }

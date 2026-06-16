@@ -79,6 +79,7 @@ export const publishNativeAot = (
     "-p:PublishAot=true",
     "-p:PublishSingleFile=true",
     "--self-contained",
+    "--disable-build-servers",
   ];
 
   const result = spawnSync("dotnet", args, {

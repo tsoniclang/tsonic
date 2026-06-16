@@ -7,6 +7,7 @@ import {
   renderStructuralTypeReference,
   renderTypeMember,
   renderTypeParameters,
+  runtimeUnionValueMemberName,
   runtimeUnionCarrierArms,
   structuralTypeName,
   structuralTypeParameterNames,
@@ -46,7 +47,7 @@ export const renderStructuralTypeDeclaration = (
       "        this.value = value;",
       "    }",
       "",
-      "    public object? Value => this.value;",
+      `    public object? ${runtimeUnionValueMemberName} => this.value;`,
       "",
       ...arms.flatMap((arm, index) => {
         const armNumber = index + 1;

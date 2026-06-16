@@ -133,7 +133,15 @@ ${deps}</Project>
   );
 
   // Pack to local feed (uses nuget.config in parent dirs).
-  run(projDir, "dotnet", ["pack", "-c", "Release", "-o", feedDir, "--nologo"]);
+  run(projDir, "dotnet", [
+    "pack",
+    "-c",
+    "Release",
+    "-o",
+    feedDir,
+    "--nologo",
+    "--disable-build-servers",
+  ]);
 };
 
 describe("add commands - dependency closure bindings", function () {
@@ -317,7 +325,13 @@ describe("add commands - dependency closure bindings", function () {
         "--output",
         libDir,
       ]);
-      run(libDir, "dotnet", ["build", "-c", "Release", "--nologo"]);
+      run(libDir, "dotnet", [
+        "build",
+        "-c",
+        "Release",
+        "--nologo",
+        "--disable-build-servers",
+      ]);
 
       const dll = join(
         libDir,
@@ -369,7 +383,13 @@ describe("add commands - dependency closure bindings", function () {
         "utf-8"
       );
 
-      run(libDir, "dotnet", ["build", "-c", "Release", "--nologo"]);
+      run(libDir, "dotnet", [
+        "build",
+        "-c",
+        "Release",
+        "--nologo",
+        "--disable-build-servers",
+      ]);
       const dll = join(
         libDir,
         "bin",

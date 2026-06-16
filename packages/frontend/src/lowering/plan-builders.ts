@@ -152,6 +152,18 @@ const nodeNameInfo = (
 const nodeName = (node: TstsNode | undefined): string | undefined =>
   nodeNameInfo(node).name;
 
+const isCompileTimeOnlyUtilityAliasDeclaration = (
+  node: TstsNode | undefined
+): boolean => {
+  if (node?.Kind !== TstsSyntax.KindTypeAliasDeclaration) return false;
+  if (nodeName(node) !== "NonNullable") return false;
+  const target = TstsSyntax.Node_Type(node);
+  return (
+    target?.Kind === TstsSyntax.KindConditionalType ||
+    target?.Kind === TstsSyntax.KindIntersectionType
+  );
+};
+
 const parameterPlanSource = (
   node: TstsNode
 ): Pick<
@@ -2317,7 +2329,8 @@ const sourceBindingProjectionTypePlan = (
       const declarationAliasTarget =
         aliasTarget === undefined &&
         type.declarationKind === "type-alias" &&
-        type.declaration
+        type.declaration &&
+        !isCompileTimeOnlyUtilityAliasDeclaration(type.declaration)
           ? sourceTypePlan(
               context,
               declarationSourceFile,

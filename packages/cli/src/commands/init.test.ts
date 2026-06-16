@@ -5,6 +5,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -12,8 +13,18 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { getTypePackageInfo, initWorkspace } from "./init.js";
+
+const repoRoot = resolve(
+  join(dirname(fileURLToPath(import.meta.url)), "../../../..")
+);
+const realSiblingJsRoot = resolve(repoRoot, "..", "js", "versions", "10");
+const expectedJsTypeRoot = (installedJsRoot: string): string =>
+  existsSync(join(realSiblingJsRoot, "tsonic.package.json"))
+    ? realSiblingJsRoot
+    : join(installedJsRoot, "types");
 
 describe("Init Command", () => {
   describe("getTypePackageInfo", () => {
@@ -127,7 +138,7 @@ describe("Init Command", () => {
         const packageNames = result.packages.map((p) => p.name);
         expect(packageNames).to.include("@acme/surface-node");
         expect(packageNames).to.include("@tsonic/js");
-        expect(result.typeRoots).to.include(join(jsRoot, "types"));
+        expect(result.typeRoots).to.include(expectedJsTypeRoot(jsRoot));
         expect(result.typeRoots).to.include(join(customRoot, "types"));
       } finally {
         rmSync(workspaceRoot, { recursive: true, force: true });
@@ -156,25 +167,30 @@ describe("Init Command", () => {
           )
         );
 
-        const jsRoot = join(workspaceRoot, "node_modules", "@tsonic", "js");
-        mkdirSync(jsRoot, { recursive: true });
+        const surfaceRoot = join(
+          workspaceRoot,
+          "node_modules",
+          "@acme",
+          "surface-web"
+        );
+        mkdirSync(surfaceRoot, { recursive: true });
         writeFileSync(
-          join(jsRoot, "package.json"),
+          join(surfaceRoot, "package.json"),
           JSON.stringify({
-            name: "@tsonic/js",
+            name: "@acme/surface-web",
             version: "1.0.0",
             type: "module",
           })
         );
         writeFileSync(
-          join(jsRoot, "tsonic.surface.json"),
+          join(surfaceRoot, "tsonic.surface.json"),
           JSON.stringify(
             {
               schemaVersion: 1,
-              id: "@tsonic/js",
+              id: "@acme/surface-web",
               extends: [],
               requiredTypeRoots: ["types"],
-              requiredNpmPackages: ["@tsonic/js", "@acme/runtime"],
+              requiredNpmPackages: ["@acme/surface-web", "@acme/runtime"],
             },
             null,
             2
@@ -182,12 +198,12 @@ describe("Init Command", () => {
         );
 
         const result = getTypePackageInfo({
-          surface: "@tsonic/js",
+          surface: "@acme/surface-web",
           workspaceRoot,
         });
         expect(result.packages).to.deep.include.members([
           { name: "tsonic", version: "file:../cli" },
-          { name: "@tsonic/js", version: "file:../js-next" },
+          { name: "@acme/surface-web", version: "latest" },
           { name: "@acme/runtime", version: "file:../runtime" },
         ]);
       } finally {
@@ -311,6 +327,7 @@ describe("Init Command", () => {
           (workspace.dotnet?.typeRoots ?? []).some(
             (root) =>
               root === "node_modules/@tsonic/js" ||
+              /[/\\]node_modules[/\\]@tsonic[/\\]js$/.test(root) ||
               /[/\\]js[/\\]versions[/\\]\d+$/.test(root)
           )
         ).to.equal(true);

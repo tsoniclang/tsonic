@@ -182,6 +182,15 @@ const collectTstsRuntimeSourceFiles = (
   const selectedSourceFiles: TstsSourceFile[] = [];
   const seenSourceFiles = new Set<string>();
   const queue = [...seedPaths];
+  const enqueueResolvedRuntimeModule = (resolvedFileName: string): void => {
+    const resolvedPath = canonicalizeFilePath(resolvedFileName);
+    if (
+      runtimeSourceFilesByPath.has(resolvedPath) &&
+      !seenSourceFiles.has(resolvedPath)
+    ) {
+      queue.push(resolvedPath);
+    }
+  };
 
   while (queue.length > 0) {
     const currentPath = queue.shift();
@@ -202,13 +211,15 @@ const collectTstsRuntimeSourceFiles = (
       if (resolvedModule === undefined) {
         continue;
       }
-      const resolvedPath = canonicalizeFilePath(resolvedModule.resolvedFileName);
-      if (
-        runtimeSourceFilesByPath.has(resolvedPath) &&
-        !seenSourceFiles.has(resolvedPath)
-      ) {
-        queue.push(resolvedPath);
+      enqueueResolvedRuntimeModule(resolvedModule.resolvedFileName);
+    }
+
+    for (const moduleExport of sourceProgram.moduleGraph.getExports(sourceFile)) {
+      const resolvedModule = moduleExport.resolvedModule;
+      if (resolvedModule === undefined) {
+        continue;
       }
+      enqueueResolvedRuntimeModule(resolvedModule.resolvedFileName);
     }
   }
 
@@ -220,14 +231,18 @@ const collectTstsWorkspaceGraphEdges = (
 ): readonly WorkspaceGraphEdge[] => {
   const edges = new Map<string, WorkspaceGraphEdge>();
   for (const sourceModule of sourceProgram.moduleGraph.modules) {
-    for (const moduleImport of sourceModule.imports) {
-      const resolvedModule = moduleImport.resolvedModule;
+    for (const moduleEdge of [...sourceModule.imports, ...sourceModule.exports]) {
+      const resolvedModule = moduleEdge.resolvedModule;
       if (resolvedModule === undefined) {
         continue;
       }
       const from = canonicalizeFilePath(sourceModule.fileName);
       const to = canonicalizeFilePath(resolvedModule.resolvedFileName);
-      const specifier = moduleImport.specifier;
+      const specifier =
+        "specifier" in moduleEdge ? moduleEdge.specifier : moduleEdge.sourceSpecifier;
+      if (specifier === undefined) {
+        continue;
+      }
       edges.set(`${from}\0${to}\0${specifier}`, { from, to, specifier });
     }
   }

@@ -544,6 +544,7 @@ describe("build command (library ref dirs)", function () {
         "-o",
         depOut,
         "--nologo",
+        "--disable-build-servers",
       ]);
       const depDll = join(depOut, "Dep.dll");
       expect(existsSync(depDll)).to.equal(true);

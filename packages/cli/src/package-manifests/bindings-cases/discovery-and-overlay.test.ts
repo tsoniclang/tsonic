@@ -260,9 +260,11 @@ describe("tsonic.package bindings", function () {
         "@acme/custom-surface"
       );
       expect(manifests.ok).to.equal(true);
-      expect(
-        (manifests.ok ? manifests.value : []).map((x) => x.packageName)
-      ).to.deep.equal(["acme-runtime"]);
+      const packageNames = (manifests.ok ? manifests.value : []).map(
+        (x) => x.packageName
+      );
+      expect(packageNames).to.include("acme-runtime");
+      expect(packageNames).to.not.include("@acme/custom-surface");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

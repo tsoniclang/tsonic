@@ -1438,8 +1438,11 @@ const combinedProjectedType = (
 };
 
 const isNullishProjection = (type: SourceBindingProjectedType): boolean =>
-  type.kind === "intrinsic" &&
-  (type.name === "null" || type.name === "undefined");
+  (type.kind === "intrinsic" &&
+    (type.name === "null" || type.name === "undefined")) ||
+  (type.kind === "type-node" &&
+    TstsSyntax.AsLiteralTypeNode(type.node)?.Literal?.Kind ===
+      TstsSyntax.KindNullKeyword);
 
 const nonNullishProjectedType = (
   type: SourceBindingProjectedType | undefined,
@@ -2297,6 +2300,20 @@ const isProjectedStructuralMemberDeclaration = (
   );
 };
 
+const isStandardNonNullableAliasDeclaration = (
+  declaration: TstsNode | undefined
+): boolean => {
+  if (declaration?.Kind !== TstsSyntax.KindTypeAliasDeclaration) return false;
+  if (getTstsIdentifierText(TstsSyntax.Node_Name(declaration)) !== "NonNullable") {
+    return false;
+  }
+  const target = TstsSyntax.Node_Type(declaration);
+  return (
+    target?.Kind === TstsSyntax.KindConditionalType ||
+    target?.Kind === TstsSyntax.KindIntersectionType
+  );
+};
+
 const projectedNamedTypeFromTypeReference = (
   context: CheckedContext,
   node: TstsNode,
@@ -2337,6 +2354,13 @@ const projectedNamedTypeFromTypeReference = (
   const resolved = symbol ? context.checker.resolveAlias(symbol) : undefined;
   const declaration = projectedTypeDeclarationForSymbol(context, resolved);
   const runtimeType = context.checker.getTypeFromTypeNode(node);
+  if (
+    typeReference.name === "NonNullable" &&
+    typeArguments.length === 1 &&
+    isStandardNonNullableAliasDeclaration(declaration)
+  ) {
+    return nonNullishProjectedType(typeArguments[0], node);
+  }
   const [recordKeyType, recordValueType] = typeArguments;
   if (
     declaration &&
@@ -2469,6 +2493,9 @@ const checkerTypeAliasTargetProjection = (
   if (declaration?.Kind !== TstsSyntax.KindTypeAliasDeclaration) {
     return undefined;
   }
+  if (isStandardNonNullableAliasDeclaration(declaration)) {
+    return nonNullishProjectedType(typeArguments[0], declaration);
+  }
   if (seen.has(declaration)) return undefined;
   const target = TstsSyntax.Node_Type(declaration);
   if (!target) return undefined;
@@ -2576,6 +2603,14 @@ const checkerTypeProjection = (
         );
 
       const [recordKeyType, recordValueType] = typeArguments;
+      if (
+        name === "NonNullable" &&
+        isStandardNonNullableAliasDeclaration(declaration)
+      ) {
+        return typeArguments.length === 1
+          ? nonNullishProjectedType(typeArguments[0], declaration)
+          : undefined;
+      }
       if (
         declaration &&
         context.facts.has(sourceDictionaryTypeFactKey, declaration) &&

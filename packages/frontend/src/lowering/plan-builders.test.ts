@@ -324,6 +324,22 @@ describe("TSTS-backed lowering plan builders", () => {
     }
   });
 
+  it("treats standard NonNullable as compile-time-only during type planning", () => {
+    const result = lowerProgram(`
+      export const text: NonNullable<string | null | undefined> = "x";
+    `);
+
+    const [module] = result.modules;
+    const [statement] = module?.topLevelStatements ?? [];
+    const [declaration] = statement?.declarations ?? [];
+    const type = declaration?.type;
+
+    expect(type?.kind).to.equal("intrinsic");
+    if (type?.kind === "intrinsic") {
+      expect(type.name).to.equal("string");
+    }
+  });
+
   it("uses TSTS alias bindings instead of source-file text scans", () => {
     const result = lowerFiles(
       {

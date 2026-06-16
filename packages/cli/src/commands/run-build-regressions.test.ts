@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCli } from "../cli.js";
+import { buildDotnetProcessEnv } from "../dotnet/nuget-config.js";
 import { getStableCliPath } from "../test-cli-bin.js";
 
 const repoRoot = resolve(
@@ -201,8 +202,13 @@ describe("CLI regressions (run/build)", function () {
           "-o",
           localFeedDir,
           "--nologo",
+          "--disable-build-servers",
         ],
-        { cwd: localPkgDir, encoding: "utf-8" }
+        {
+          cwd: localPkgDir,
+          encoding: "utf-8",
+          env: buildDotnetProcessEnv(localPkgDir),
+        }
       );
       expect(pack.status, pack.stderr || pack.stdout).to.equal(0);
 
