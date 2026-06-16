@@ -1,13 +1,13 @@
 import { SymbolName } from "../internal/ast/symbol.js";
 import { SymbolFlagsAlias } from "../internal/ast/symbolflags.js";
 import { CheckModeNormal, isTupleType, } from "../internal/checker/checker/state.js";
-import { Checker_isArrayType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
+import { Checker_isArrayType, Checker_GetTypeAtLocation, Checker_instantiateType, } from "../internal/checker/checker/types.js";
 import { Checker_GetAliasedSymbol, Checker_getFullyQualifiedName, Checker_getIndexTypeOfType, Checker_GetTypeOfSymbolAtLocation, Checker_GetSymbolAtLocation, } from "../internal/checker/checker/symbols.js";
 import { Checker_getReturnTypeOfSignature, Checker_getResolvedSignature, Checker_getSignatureFromDeclaration, Checker_getSignaturesOfType, Checker_getTypeOfParameter, Checker_getTypeArguments, } from "../internal/checker/checker/signatures.js";
 import { Checker_GetContextualType, Checker_GetElementTypeOfArrayType, Checker_GetExportSpecifierLocalTargetSymbol, Checker_GetExportsOfModule, Checker_GetShorthandAssignmentValueSymbol, Checker_GetSymbolsInScope, } from "../internal/checker/services.js";
-import { Checker_GetApparentType, Checker_GetPropertiesOfType, Checker_GetPropertyOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfSymbol, } from "../internal/checker/exports.js";
+import { Checker_GetApparentType, Checker_GetContextualTypeForArgumentAtIndex, Checker_GetPropertiesOfType, Checker_GetPropertyOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfSymbol, } from "../internal/checker/exports.js";
 import { Checker_SymbolToString, Checker_TypeToTypeNode, Checker_TypeToString, } from "../internal/checker/printer.js";
-import { Checker_getTypePredicateOfSignature, Checker_isTypeAssignableTo, Checker_isTypeIdenticalTo, } from "../internal/checker/relater.js";
+import { Checker_getTypePredicateOfSignature, Checker_getTypeAtPosition, Checker_isTypeAssignableTo, Checker_isTypeIdenticalTo, } from "../internal/checker/relater.js";
 import { ContextFlagsNone, ObjectFlagsReference, SignatureKindCall, SignatureKindConstruct, Signature_Declaration, Signature_Parameters, Signature_TypeParameters, TypeAlias_Symbol, TypeAlias_TypeArguments, Type_Flags, Type_ObjectFlags, Type_Symbol, Type_Types, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsString, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsTypeParameter, TypeFlagsUndefined, TypeFlagsUnknown, TypeFlagsUnion, TypeFlagsVoid, } from "../internal/checker/types.js";
 const hasTypeFlags = (type, flags) => type !== undefined && (Type_Flags(type) & flags) !== 0;
 const isReferenceType = (type) => type !== undefined &&
@@ -35,6 +35,7 @@ export const createExtensionTypeChecker = (checker) => ({
     getTypeFromTypeNode: (node) => Checker_GetTypeFromTypeNode(checker, node),
     getTypeOfSymbolAtLocation: (symbol, location) => Checker_GetTypeOfSymbolAtLocation(checker, symbol, location),
     getContextualType: (node, contextFlags = ContextFlagsNone) => Checker_GetContextualType(checker, node, contextFlags),
+    getContextualTypeForArgumentAtIndex: (node, argIndex) => Checker_GetContextualTypeForArgumentAtIndex(checker, node, argIndex),
     getTypeAliasOrSymbol: (type) => TypeAlias_Symbol(type?.alias) ?? Type_Symbol(type),
     getTypeSymbolName: (type) => {
         const symbol = Type_Symbol(type);
@@ -107,6 +108,12 @@ export const createExtensionTypeChecker = (checker) => ({
     getSignatureDeclaration: (signature) => Signature_Declaration(signature),
     getSignatureParameters: (signature) => Signature_Parameters(signature),
     getTypeOfSignatureParameter: (parameter) => Checker_getTypeOfParameter(checker, parameter),
+    getTypeAtSignaturePosition: (signature, position) => {
+        const type = Checker_getTypeAtPosition(checker, signature, position);
+        return signature?.mapper
+            ? Checker_instantiateType(checker, type, signature.mapper)
+            : type;
+    },
     signatureHasTypeParameters: (signature) => Signature_TypeParameters(signature).length > 0,
     getSignatureFromDeclaration: (node) => Checker_getSignatureFromDeclaration(checker, node),
     getReturnTypeOfSignature: (signature) => Checker_getReturnTypeOfSignature(checker, signature),

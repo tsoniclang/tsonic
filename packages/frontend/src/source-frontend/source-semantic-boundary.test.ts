@@ -380,6 +380,10 @@ describe("source semantic boundary", () => {
       "projectionIsAritySentinel",
       "projectedConditionalBranch",
       "projectedConditionalTypeFromSyntax",
+      "receiverTypeSubstitutionsForCall",
+      "explicitSignatureTypeSubstitutionsForCall",
+      "signatureTypeSubstitutionsForCall",
+      "findNamedProjectedTypeForDeclaration",
       "for storage lowering",
     ] as const;
 

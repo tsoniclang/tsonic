@@ -17,6 +17,7 @@ export type ExtensionTypeChecker = {
     getTypeFromTypeNode(node: GoPtr<Node>): GoPtr<Type>;
     getTypeOfSymbolAtLocation(symbol: GoPtr<Symbol>, location: GoPtr<Node>): GoPtr<Type>;
     getContextualType(node: GoPtr<Node>, contextFlags?: ContextFlags): GoPtr<Type>;
+    getContextualTypeForArgumentAtIndex(node: GoPtr<Node>, argIndex: number): GoPtr<Type>;
     getTypeAliasOrSymbol(type: GoPtr<Type>): GoPtr<Symbol>;
     getTypeSymbolName(type: GoPtr<Type>): string | undefined;
     getTypeAliasSymbolName(type: GoPtr<Type>): string | undefined;
@@ -67,6 +68,7 @@ export type ExtensionTypeChecker = {
     getSignatureDeclaration(signature: GoPtr<Signature>): GoPtr<Node>;
     getSignatureParameters(signature: GoPtr<Signature>): readonly GoPtr<Symbol>[];
     getTypeOfSignatureParameter(parameter: GoPtr<Symbol>): GoPtr<Type>;
+    getTypeAtSignaturePosition(signature: GoPtr<Signature>, position: number): GoPtr<Type>;
     signatureHasTypeParameters(signature: GoPtr<Signature>): boolean;
     getSignatureFromDeclaration(node: GoPtr<Node>): GoPtr<Signature>;
     getReturnTypeOfSignature(signature: GoPtr<Signature>): GoPtr<Type>;

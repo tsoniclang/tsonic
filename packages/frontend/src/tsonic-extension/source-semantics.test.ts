@@ -28,6 +28,7 @@ import {
   markerApiSemanticsFactKey,
   parameterPassingFactKey,
   sourceBindingTypeProjectionFactKey,
+  sourceCallArgumentTypesFactKey,
   sourceDictionaryTypeFactKey,
   sourceAttributeApplicationsFactKey,
   sourceExpressionTypeProjectionFactKey,
@@ -843,6 +844,71 @@ describe("Tsonic TSTS source semantics extension", () => {
         '"WRITE": none',
         '"C": char',
         '"x": char',
+      ]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("uses TSTS-instantiated generic call facts instead of source-local substitution", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "index.ts": [
+          "class Item {",
+          "  value: string;",
+          "  constructor(value: string) { this.value = value; }",
+          "}",
+          "type Box<T> = { value: T };",
+          "declare function unwrap<T>(box: Box<T>): T;",
+          "export function read(box: Box<Item>): void {",
+          "  const value = unwrap(box);",
+          "  const text = value.value;",
+          "  void text;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries = new Map<string, string>();
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        const text = getTstsNodeText(node)?.replace(/\s+/g, " ").trim();
+        if (
+          text !== "unwrap(box)" &&
+          text !== "value.value" &&
+          text !== "box"
+        ) {
+          return;
+        }
+        const expressionFact = program.sourceProgram.facts.get(
+          sourceExpressionTypeProjectionFactKey,
+          node
+        );
+        if (expressionFact && !summaries.has(text)) {
+          summaries.set(
+            text,
+            `${text}: ${projectionSummary(expressionFact.type)}`
+          );
+        }
+        const callFact = program.sourceProgram.facts.get(
+          sourceCallArgumentTypesFactKey,
+          node
+        );
+        if (callFact) {
+          summaries.set(
+            `${text} arg0`,
+            `${text} arg0: ${callFact.argumentTypes[0] ? projectionSummary(callFact.argumentTypes[0]) : "unknown"}`
+          );
+        }
+      });
+
+      expect([...summaries.values()]).to.deep.equal([
+        "unwrap(box): Item",
+        "unwrap(box) arg0: Box<Item>",
+        "box: Box<Item>",
+        "value.value: string",
       ]);
     } finally {
       program.cleanup();

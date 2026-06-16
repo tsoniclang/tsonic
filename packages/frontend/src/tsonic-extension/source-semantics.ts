@@ -2864,6 +2864,12 @@ const refineSourceProjectionByCheckerProjection = (
   if (checker.kind === "intrinsic") {
     if (checker.name === "any" || checker.name === "unknown") return source;
   }
+  if (
+    source.kind === "named" &&
+    source.declarationKind === "type-parameter"
+  ) {
+    return checker;
+  }
   if (source.kind === "union") {
     return combinedProjectedType(
       "union",
@@ -3305,7 +3311,7 @@ const identifierDeclarationProjection = (
 const signatureParameterProjection = (
   context: CheckedContext,
   parameter: TstsSymbol | undefined,
-  substitutions: SourceTypeSubstitutionMap = emptySourceTypeSubstitutions,
+  checkerProjection: SourceBindingProjectedType | undefined,
   checkerState: CheckerTypeProjectionState = createCheckerTypeProjectionState()
 ): SourceBindingProjectedType | undefined => {
   if (!parameter) return undefined;
@@ -3314,13 +3320,8 @@ const signatureParameterProjection = (
   const sourceProjection = projectedTypeFromTypeNode(
     context,
     declaredType,
-    substitutions,
+    emptySourceTypeSubstitutions,
     new Set(),
-    checkerState
-  );
-  const checkerProjection = checkerTypeProjection(
-    context,
-    context.checker.getTypeOfSignatureParameter(parameter),
     checkerState
   );
   return sourceProjection
@@ -3368,200 +3369,33 @@ const signatureTargetProjection = (
   return projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(declaration));
 };
 
-const findNamedProjectedTypeForDeclaration = (
-  type: SourceBindingProjectedType | undefined,
-  declaration: TstsNode | undefined,
-  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
-):
-  | Extract<SourceBindingProjectedType, { readonly kind: "named" }>
-  | undefined => {
-  if (!type || !declaration || seen.has(type)) return undefined;
-  const nextSeen = new Set(seen);
-  nextSeen.add(type);
-  switch (type.kind) {
-    case "named":
-      return type.declaration === declaration
-        ? type
-        : findNamedProjectedTypeForDeclaration(
-            type.aliasTarget,
-            declaration,
-            nextSeen
-          );
-    case "record":
-      return (
-        findNamedProjectedTypeForDeclaration(
-          type.keyType,
-          declaration,
-          nextSeen
-        ) ??
-        findNamedProjectedTypeForDeclaration(
-          type.valueType,
-          declaration,
-          nextSeen
-        )
-      );
-    case "function":
-      for (const parameter of type.parameters) {
-        const match = findNamedProjectedTypeForDeclaration(
-          parameter.type,
-          declaration,
-          nextSeen
-        );
-        if (match) return match;
-      }
-      return findNamedProjectedTypeForDeclaration(
-        type.returnType,
-        declaration,
-        nextSeen
-      );
-    case "array":
-      return findNamedProjectedTypeForDeclaration(
-        type.elementType,
-        declaration,
-        nextSeen
-      );
-    case "tuple":
-      for (const element of type.elements) {
-        const match = findNamedProjectedTypeForDeclaration(
-          element,
-          declaration,
-          nextSeen
-        );
-        if (match) return match;
-      }
-      return undefined;
-    case "object":
-      for (const member of type.members) {
-        const match = findNamedProjectedTypeForDeclaration(
-          member.type,
-          declaration,
-          nextSeen
-        );
-        if (match) return match;
-      }
-      return undefined;
-    case "union":
-    case "intersection":
-      for (const member of type.types) {
-        const match = findNamedProjectedTypeForDeclaration(
-          member,
-          declaration,
-          nextSeen
-        );
-        if (match) return match;
-      }
-      return undefined;
-    case "intrinsic":
-    case "source-primitive":
-    case "type-node":
-      return undefined;
-  }
-};
-
-const receiverTypeSubstitutionsForCall = (
-  context: CheckedContext,
-  call: TstsNode,
-  signatureDeclaration: TstsNode | undefined
-): SourceTypeSubstitutionMap => {
-  const owner = signatureDeclaration?.Parent;
-  if (!owner) return emptySourceTypeSubstitutions;
-  const parameters = sourceTypeParameterNames(owner);
-  if (parameters.length === 0) return emptySourceTypeSubstitutions;
-  const callee = TstsSyntax.Node_Expression(call);
-  const receiver =
-    callee?.Kind === TstsSyntax.KindPropertyAccessExpression
-      ? TstsSyntax.Node_Expression(callee)
-      : undefined;
-  const receiverType = receiver
-    ? checkerTypeProjection(
-        context,
-        context.checker.getTypeAtLocation(receiver)
-      )
-    : undefined;
-  const namedReceiver = findNamedProjectedTypeForDeclaration(
-    receiverType,
-    owner
-  );
-  if (!namedReceiver) return emptySourceTypeSubstitutions;
-  const substitutions = new Map<string, SourceBindingProjectedType>();
-  parameters.forEach((parameter, index) => {
-    const argument = namedReceiver.typeArguments[index];
-    if (argument) substitutions.set(parameter, argument);
-  });
-  return substitutions;
-};
-
-const explicitSignatureTypeSubstitutionsForCall = (
-  context: CheckedContext,
-  call: TstsNode,
-  signatureDeclaration: TstsNode | undefined,
-  substitutions: SourceTypeSubstitutionMap,
-  checkerState: CheckerTypeProjectionState
-): SourceTypeSubstitutionMap => {
-  if (!signatureDeclaration) return substitutions;
-  const parameters = sourceTypeParameterNames(signatureDeclaration);
-  const argumentsList = getTstsTypeArguments(call);
-  if (parameters.length === 0 || argumentsList.length === 0) {
-    return substitutions;
-  }
-  const merged = new Map(substitutions);
-  parameters.forEach((parameter, index) => {
-    const argument = argumentsList[index];
-    const projected = projectedTypeFromTypeNode(
-      context,
-      argument,
-      substitutions,
-      new Set(),
-      checkerState
-    );
-    if (projected) merged.set(parameter, projected);
-  });
-  return merged;
-};
-
-const signatureTypeSubstitutionsForCall = (
-  context: CheckedContext,
-  call: TstsNode,
-  signature: TstsSignature,
-  checkerState: CheckerTypeProjectionState
-): SourceTypeSubstitutionMap => {
-  const declaration = context.checker.getSignatureDeclaration(signature);
-  const receiverSubstitutions = receiverTypeSubstitutionsForCall(
-    context,
-    call,
-    declaration
-  );
-  return explicitSignatureTypeSubstitutionsForCall(
-    context,
-    call,
-    declaration,
-    receiverSubstitutions,
-    checkerState
-  );
-};
-
 const signatureReturnProjection = (
   context: CheckedContext,
   signature: TstsSignature,
-  substitutions: SourceTypeSubstitutionMap,
+  call: TstsNode,
   checkerState: CheckerTypeProjectionState
 ): SourceBindingProjectedType | undefined => {
   const declaration = context.checker.getSignatureDeclaration(signature);
   const declaredReturnType = TstsSyntax.Node_Type(declaration);
-  return (
-    projectedTypeFromTypeNode(
-      context,
-      declaredReturnType,
-      substitutions,
-      new Set(),
-      checkerState
-    ) ??
-    checkerTypeProjection(
-      context,
-      context.checker.getReturnTypeOfSignature(signature),
-      checkerState
-    )
+  const sourceProjection = projectedTypeFromTypeNode(
+    context,
+    declaredReturnType,
+    emptySourceTypeSubstitutions,
+    new Set(),
+    checkerState
   );
+  const checkerProjection = checkerTypeProjection(
+    context,
+    context.checker.getTypeAtLocation(call) ??
+      context.checker.getReturnTypeOfSignature(signature),
+    checkerState
+  );
+  return sourceProjection
+    ? (refineSourceProjectionByCheckerProjection(
+        sourceProjection,
+        checkerProjection
+      ) ?? checkerProjection ?? sourceProjection)
+    : checkerProjection;
 };
 
 const callArgumentTypesFact = (
@@ -3571,30 +3405,29 @@ const callArgumentTypesFact = (
   const signature = context.checker.getResolvedSignature(node);
   if (!signature) return undefined;
   const checkerState = createCheckerTypeProjectionState();
-  const substitutions = signatureTypeSubstitutionsForCall(
-    context,
-    node,
-    signature,
-    checkerState
-  );
+  const args = TstsSyntax.Node_Arguments(node) ?? [];
   return {
     argumentTypes: context.checker
       .getSignatureParameters(signature)
-      .map((parameter) =>
-        signatureParameterProjection(
+      .map((parameter, index) => {
+        const argument = args[index];
+        const checkerProjection = checkerTypeProjection(
+          context,
+          (argument ? context.checker.getTypeAtLocation(argument) : undefined) ??
+            context.checker.getTypeAtSignaturePosition(signature, index) ??
+            context.checker.getContextualTypeForArgumentAtIndex(node, index) ??
+            (argument ? context.checker.getContextualType(argument) : undefined),
+          checkerState
+        );
+        return signatureParameterProjection(
           context,
           parameter,
-          substitutions,
+          checkerProjection,
           checkerState
-        )
-      ),
+        );
+      }),
     targetType: signatureTargetProjection(context, signature, node),
-    returnType: signatureReturnProjection(
-      context,
-      signature,
-      substitutions,
-      checkerState
-    ),
+    returnType: signatureReturnProjection(context, signature, node, checkerState),
   };
 };
 

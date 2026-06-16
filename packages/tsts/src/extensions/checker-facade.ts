@@ -12,6 +12,7 @@ import {
 import {
   Checker_isArrayType,
   Checker_GetTypeAtLocation,
+  Checker_instantiateType,
 } from "../internal/checker/checker/types.js";
 import {
   Checker_GetAliasedSymbol,
@@ -38,6 +39,7 @@ import {
 } from "../internal/checker/services.js";
 import {
   Checker_GetApparentType,
+  Checker_GetContextualTypeForArgumentAtIndex,
   Checker_GetPropertiesOfType,
   Checker_GetPropertyOfType,
   Checker_GetTypeFromTypeNode,
@@ -50,6 +52,7 @@ import {
 } from "../internal/checker/printer.js";
 import {
   Checker_getTypePredicateOfSignature,
+  Checker_getTypeAtPosition,
   Checker_isTypeAssignableTo,
   Checker_isTypeIdenticalTo,
 } from "../internal/checker/relater.js";
@@ -112,6 +115,7 @@ export type ExtensionTypeChecker = {
   getTypeFromTypeNode(node: GoPtr<Node>): GoPtr<Type>;
   getTypeOfSymbolAtLocation(symbol: GoPtr<Symbol>, location: GoPtr<Node>): GoPtr<Type>;
   getContextualType(node: GoPtr<Node>, contextFlags?: ContextFlags): GoPtr<Type>;
+  getContextualTypeForArgumentAtIndex(node: GoPtr<Node>, argIndex: number): GoPtr<Type>;
   getTypeAliasOrSymbol(type: GoPtr<Type>): GoPtr<Symbol>;
   getTypeSymbolName(type: GoPtr<Type>): string | undefined;
   getTypeAliasSymbolName(type: GoPtr<Type>): string | undefined;
@@ -162,6 +166,7 @@ export type ExtensionTypeChecker = {
   getSignatureDeclaration(signature: GoPtr<Signature>): GoPtr<Node>;
   getSignatureParameters(signature: GoPtr<Signature>): readonly GoPtr<Symbol>[];
   getTypeOfSignatureParameter(parameter: GoPtr<Symbol>): GoPtr<Type>;
+  getTypeAtSignaturePosition(signature: GoPtr<Signature>, position: number): GoPtr<Type>;
   signatureHasTypeParameters(signature: GoPtr<Signature>): boolean;
   getSignatureFromDeclaration(node: GoPtr<Node>): GoPtr<Signature>;
   getReturnTypeOfSignature(signature: GoPtr<Signature>): GoPtr<Type>;
@@ -237,6 +242,11 @@ export const createExtensionTypeChecker = (
     contextFlags: ContextFlags = ContextFlagsNone,
   ): GoPtr<Type> =>
     Checker_GetContextualType(checker, node as GoPtr<Expression>, contextFlags),
+  getContextualTypeForArgumentAtIndex: (
+    node: GoPtr<Node>,
+    argIndex: number,
+  ): GoPtr<Type> =>
+    Checker_GetContextualTypeForArgumentAtIndex(checker, node, argIndex),
   getTypeAliasOrSymbol: (type: GoPtr<Type>): GoPtr<Symbol> =>
     TypeAlias_Symbol(type?.alias) ?? Type_Symbol(type),
   getTypeSymbolName: (type: GoPtr<Type>): string | undefined => {
@@ -379,6 +389,15 @@ export const createExtensionTypeChecker = (
     Signature_Parameters(signature),
   getTypeOfSignatureParameter: (parameter: GoPtr<Symbol>): GoPtr<Type> =>
     Checker_getTypeOfParameter(checker, parameter),
+  getTypeAtSignaturePosition: (
+    signature: GoPtr<Signature>,
+    position: number,
+  ): GoPtr<Type> => {
+    const type = Checker_getTypeAtPosition(checker, signature, position);
+    return signature?.mapper
+      ? Checker_instantiateType(checker, type, signature.mapper)
+      : type;
+  },
   signatureHasTypeParameters: (signature: GoPtr<Signature>): boolean =>
     Signature_TypeParameters(signature).length > 0,
   getSignatureFromDeclaration: (node: GoPtr<Node>): GoPtr<Signature> =>
