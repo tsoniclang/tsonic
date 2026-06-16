@@ -306,6 +306,47 @@ describe("TSTS-backed lowering plan builders", () => {
     }
   });
 
+  it("uses TSTS alias bindings instead of source-file text scans", () => {
+    const result = lowerFiles(
+      {
+        "lib.ts": `
+          import type { int } from "@tsonic/core/types.js";
+          export type Box = { actual: int };
+        `,
+        "index.ts": `
+          import type { Box } from "./lib.js";
+
+          export function read(value: Box): Box {
+            type Box = { wrong: string };
+            return value;
+          }
+        `,
+      },
+      "index.ts"
+    );
+
+    const read = result.modules.flatMap((module) => module.declarations).find(
+      (declaration) => declaration.name === "read"
+    );
+    const parameterType = read?.parameters[0]?.type;
+    const aliasTarget =
+      parameterType?.kind === "named" ? parameterType.aliasTarget : parameterType;
+    const members = aliasTarget?.kind === "object" ? aliasTarget.members : [];
+    const actualMember = members.find(
+      (member) => member.kind === "property" && member.name === "actual"
+    );
+    const wrongMember = members.find(
+      (member) => member.kind === "property" && member.name === "wrong"
+    );
+
+    expect(aliasTarget?.kind).to.equal("object");
+    expect(wrongMember).to.equal(undefined);
+    expect(actualMember?.kind).to.equal("property");
+    if (actualMember?.kind === "property") {
+      expectSourcePrimitive(actualMember.type, "int32");
+    }
+  });
+
   it("resolves source primitive return types across module signatures", () => {
     const result = lowerFiles(
       {

@@ -938,20 +938,6 @@ const interfaceCallSignatureTypePlan = (
   typeParameters: typeParameterNames(sourceFile, callSignature),
 });
 
-const localTypeAliasDeclaration = (
-  sourceFile: TstsSourceFile,
-  name: string
-): TstsNode | undefined => {
-  let match: TstsNode | undefined;
-  visitTstsNodes(sourceFile, (node) => {
-    if (match || node.Kind !== TstsSyntax.KindTypeAliasDeclaration) return;
-    if (nodeTokenText(TstsSyntax.Node_Name(node)) === name) {
-      match = node;
-    }
-  });
-  return match;
-};
-
 const sourceTypeAliasTargetPlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -959,49 +945,6 @@ const sourceTypeAliasTargetPlan = (
   state: SourceTypePlanState
 ): LoweringTypeRefPlan | undefined => {
   const typeReference = getTstsTypeReferenceDetails(node);
-  const localAlias = typeReference
-    ? localTypeAliasDeclaration(sourceFile, typeReference.name)
-    : undefined;
-  const localAliasTarget = localAlias
-    ? TstsSyntax.Node_Type(localAlias)
-    : undefined;
-  if (localAlias && localAliasTarget && localAliasTarget !== node) {
-    const aliasKey = sourceTypeAliasKey(sourceFile, localAlias);
-    if (state.aliasKeys.has(aliasKey)) {
-      return undefined;
-    }
-    state.aliasKeys.add(aliasKey);
-    try {
-      const projectedAliasTarget = sourceBindingProjectionTypePlan(
-        context,
-        sourceFileForNode(localAlias, sourceFile),
-        context.input.facts.get(
-          sourceDeclarationTypeProjectionFactKey,
-          localAlias
-        )?.returnType
-      );
-      if (projectedAliasTarget) {
-        return substituteTypePlan(
-          projectedAliasTarget,
-          aliasTypeSubstitutions(
-            typeParameterNames(
-              sourceFileForNode(localAlias, sourceFile),
-              localAlias
-            ),
-            sourceTypeArgumentPlans(context, sourceFile, node, state)
-          )
-        );
-      }
-      return sourceTypePlan(
-        context,
-        sourceFileForNode(localAliasTarget, sourceFile),
-        localAliasTarget,
-        state
-      );
-    } finally {
-      state.aliasKeys.delete(aliasKey);
-    }
-  }
   const resolvedDeclaration = typeReference
     ? typeDeclarationBindingForNode(context, sourceFile, node)
     : undefined;
