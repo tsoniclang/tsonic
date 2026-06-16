@@ -271,7 +271,6 @@ export type SourceCallArgumentTypesFact = {
   readonly argumentTypes: readonly (SourceBindingProjectedType | undefined)[];
   readonly targetType?: SourceBindingProjectedType;
   readonly returnType?: SourceBindingProjectedType;
-  readonly returnTypeNode?: TstsNode;
 };
 
 export type SourceInitializerReferencesDeclarationFact = {

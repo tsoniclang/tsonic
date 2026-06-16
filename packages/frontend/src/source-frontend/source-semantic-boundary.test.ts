@@ -430,6 +430,16 @@ describe("source semantic boundary", () => {
     expect(text).not.to.include("Map<string, unknown>");
   });
 
+  it("does not expose call-return AST bridges from source facts", () => {
+    const sourceFactsPath = path.join(
+      frontendSrcRoot,
+      "source-frontend/source-facts.ts"
+    );
+    const text = fs.readFileSync(sourceFactsPath, "utf8");
+
+    expect(text).not.to.include("returnTypeNode");
+  });
+
   it("does not keep semantic-view bridge modules", () => {
     expect(
       fs.existsSync(

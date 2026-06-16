@@ -3254,7 +3254,6 @@ const callArgumentTypesFact = (
 ): SourceCallArgumentTypesFact | undefined => {
   const signature = context.checker.getResolvedSignature(node);
   if (!signature) return undefined;
-  const declaration = context.checker.getSignatureDeclaration(signature);
   const checkerState = createCheckerTypeProjectionState();
   const substitutions = signatureTypeSubstitutionsForCall(
     context,
@@ -3280,7 +3279,6 @@ const callArgumentTypesFact = (
       substitutions,
       checkerState
     ),
-    returnTypeNode: TstsSyntax.Node_Type(declaration),
   };
 };
 

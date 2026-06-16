@@ -1470,47 +1470,13 @@ const loweringTypeIdentityKey = (type: LoweringTypeRefPlan): string => {
   }
 };
 
-const callSignatureReturnStorageTypePlan = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  node: TstsNode,
-  expressionType: LoweringTypeRefPlan | undefined
-): LoweringTypeRefPlan | undefined => {
-  if (
-    expressionType?.kind !== "array" ||
-    (node.Kind !== TstsSyntax.KindCallExpression &&
-      node.Kind !== TstsSyntax.KindNewExpression)
-  ) {
-    return undefined;
-  }
-  const returnTypeNode = context.input.facts.get(
-    sourceCallArgumentTypesFactKey,
-    node
-  )?.returnTypeNode;
-  return returnTypeNode &&
-    arrayStorageForSourceTypeNode(returnTypeNode, sourceFile) === "native-array"
-    ? { ...expressionType, storage: "native-array" }
-    : undefined;
-};
-
 const sourceExpressionProjectedStorageTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
   node: TstsNode | undefined
 ): LoweringTypeRefPlan | undefined => {
   if (!node) return undefined;
-  const expressionType = sourceExpressionProjectedTypePlan(
-    context,
-    sourceFile,
-    node
-  );
-  const signatureStorageType = callSignatureReturnStorageTypePlan(
-    context,
-    sourceFile,
-    node,
-    expressionType
-  );
-  return signatureStorageType ?? expressionType;
+  return sourceExpressionProjectedTypePlan(context, sourceFile, node);
 };
 
 const sourceExpressionProjectedTypePlan = (
@@ -2262,6 +2228,7 @@ const sourceBindingProjectionTypePlan = (
             kind: "array",
             elementType,
             readonly: type.readonly,
+            storage: arrayStorageForSourceTypeNode(type.sourceNode, sourceFile),
             sourceText: type.sourceNode
               ? compactNodeSourceText(type.sourceNode)
               : undefined,
