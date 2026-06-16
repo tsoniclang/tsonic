@@ -318,6 +318,7 @@ describe("source semantic boundary", () => {
     const text = fs.readFileSync(sourceProgramPath, "utf8");
 
     expect(text).not.to.include("readonly compilerProgram");
+    expect(text).not.to.include("readonly extensionHost");
   });
 
   it("keeps source-front TSTS integration on the public TSTS API", () => {

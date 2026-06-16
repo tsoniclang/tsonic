@@ -115,7 +115,7 @@ describe("Program Creation – authoritative type roots", function () {
 
       const returnTypes = expressionTypeFactsByCallExpression(
         sourceFile,
-        result.value.sourceProgram.extensionHost.facts,
+        result.value.sourceProgram.facts,
         new Set(["path.join", "process.cwd"])
       );
 
@@ -168,7 +168,7 @@ describe("Program Creation – authoritative type roots", function () {
 
       const returnTypes = expressionTypeFactsByCallExpression(
         sourceFile,
-        result.value.sourceProgram.extensionHost.facts,
+        result.value.sourceProgram.facts,
         new Set(["join", "process.cwd"])
       );
 

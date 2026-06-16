@@ -128,7 +128,7 @@ describe("TSTS source program", () => {
               return;
             }
 
-            const fact = sourceProgram.extensionHost.facts.get(
+            const fact = sourceProgram.facts.get(
               sourceExpressionTypeProjectionFactKey,
               node
             );

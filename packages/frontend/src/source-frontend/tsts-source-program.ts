@@ -1,7 +1,7 @@
 import type {
   CompilerExtension,
   ExtensionDiagnostic,
-  ExtensionHost,
+  ExtensionFacts,
   ExtensionModuleGraph,
   TstsDiagnostic,
   TstsSourceFile,
@@ -22,7 +22,7 @@ export type TstsSourceProgram = {
   readonly engine: "tsts";
   readonly sourceFiles: readonly TstsSourceFile[];
   readonly moduleGraph: ExtensionModuleGraph;
-  readonly extensionHost: ExtensionHost;
+  readonly facts: ExtensionFacts;
   readonly diagnostics: readonly ExtensionDiagnostic[];
   readonly compilerDiagnostics: readonly TstsDiagnostic[];
 };
@@ -94,7 +94,7 @@ export const createTstsSourceProgram = (
     engine: "tsts",
     sourceFiles: compiledSource.sourceFiles,
     moduleGraph: compiledSource.moduleGraph,
-    extensionHost: compiledSource.extensionHost,
+    facts: compiledSource.extensionHost.facts,
     diagnostics: compiledSource.extensionDiagnostics,
     compilerDiagnostics: compiledSource.diagnostics.filter((diagnostic) =>
       isScopedCompilerDiagnostic(diagnosticRoots, diagnostic)
@@ -111,7 +111,7 @@ export const createEmptyTstsSourceProgramForTests = (): TstsSourceProgram => {
     engine: "tsts",
     sourceFiles: [],
     moduleGraph: createExtensionModuleGraph(undefined, []),
-    extensionHost,
+    facts: extensionHost.facts,
     diagnostics: extensionHost.diagnostics.all(),
     compilerDiagnostics: [],
   };

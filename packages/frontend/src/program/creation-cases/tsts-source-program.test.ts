@@ -84,7 +84,7 @@ describe("Program Creation – TSTS source program", () => {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const facts = result.value.sourceProgram.extensionHost.facts;
+      const facts = result.value.sourceProgram.facts;
       const primitiveKinds: string[] = [];
       const entrySourceFile = result.value.sourceProgram.sourceFiles.find(
         (sourceFile) =>
@@ -145,7 +145,7 @@ describe("Program Creation – TSTS source program", () => {
       if (!sourceFile) return;
 
       const projected: string[] = [];
-      const facts = result.value.sourceProgram.extensionHost.facts;
+      const facts = result.value.sourceProgram.facts;
       visitTstsSubtree(sourceFile, (node) => {
         if (!node) return;
         const primitive = facts.get(numericPrimitiveFactKey, node);

@@ -8,6 +8,6 @@ export const createLoweringInput = (
 ): LoweringInput => ({
   sourceProgram,
   moduleGraph: sourceProgram.moduleGraph,
-  facts: sourceProgram.extensionHost.facts,
+  facts: sourceProgram.facts,
   capabilities,
 });

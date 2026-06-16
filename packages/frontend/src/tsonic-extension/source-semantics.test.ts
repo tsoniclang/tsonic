@@ -405,7 +405,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         ) {
           return;
         }
-        const implementation = program.sourceProgram.extensionHost.facts.get(
+        const implementation = program.sourceProgram.facts.get(
           sourceOverloadCallImplementationFactKey,
           node
         )?.implementation;
@@ -492,7 +492,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         }
       });
 
-      const facts = program.sourceProgram.extensionHost.facts;
+      const facts = program.sourceProgram.facts;
       const userAttributes = facts.get(
         sourceAttributeApplicationsFactKey,
         declarations.get("User") as TstsNode
@@ -560,7 +560,7 @@ describe("Tsonic TSTS source semantics extension", () => {
       const visibilityFacts: string[] = [];
       visitTstsSubtree(program.sourceFile, (node) => {
         if (!node) return;
-        const fact = program.sourceProgram.extensionHost.facts.get(
+        const fact = program.sourceProgram.facts.get(
           sourceRuntimeVisibilityFactKey,
           node
         );
@@ -595,7 +595,7 @@ describe("Tsonic TSTS source semantics extension", () => {
       for (const sourceFile of program.sourceProgram.sourceFiles) {
         visitTstsSubtree(sourceFile, (node) => {
           if (!node) return;
-          const fact = program.sourceProgram.extensionHost.facts.get(
+          const fact = program.sourceProgram.facts.get(
             sourceRuntimeVisibilityFactKey,
             node
           );
@@ -665,7 +665,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         ) {
           return;
         }
-        const fact = program.sourceProgram.extensionHost.facts.get(
+        const fact = program.sourceProgram.facts.get(
           sourceBindingTypeProjectionFactKey,
           node
         );
@@ -716,7 +716,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         ) {
           return;
         }
-        const fact = program.sourceProgram.extensionHost.facts.get(
+        const fact = program.sourceProgram.facts.get(
           sourceExpressionTypeProjectionFactKey,
           node
         );
@@ -765,7 +765,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         }
         const initializer = TstsSyntax.Node_Initializer(node);
         const fact = initializer
-          ? program.sourceProgram.extensionHost.facts.get(
+          ? program.sourceProgram.facts.get(
               sourceExpressionTypeProjectionFactKey,
               initializer
             )
@@ -822,7 +822,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         ) {
           return;
         }
-        const fact = program.sourceProgram.extensionHost.facts.get(
+        const fact = program.sourceProgram.facts.get(
           sourceExpressionTypeProjectionFactKey,
           node
         );
@@ -880,7 +880,7 @@ describe("Tsonic TSTS source semantics extension", () => {
             const fileNameParts = sourceFile.FileName().split("/");
             references.push({
               fileName: fileNameParts[fileNameParts.length - 1] ?? "",
-              hasFact: program.sourceProgram.extensionHost.facts.has(
+              hasFact: program.sourceProgram.facts.has(
                 sourceDictionaryTypeFactKey,
                 node
               ),
@@ -1022,12 +1022,12 @@ describe("Tsonic TSTS source semantics extension", () => {
 
       visitTstsSubtree(program.sourceFile, (node) => {
         if (!node) return;
-        const expressionFact = program.sourceProgram.extensionHost.facts.get(
+        const expressionFact = program.sourceProgram.facts.get(
           expressionSemanticsFactKey,
           node
         );
         if (expressionFact) expressionKinds.push(expressionFact.kind);
-        const runtimeOperation = program.sourceProgram.extensionHost.facts.get(
+        const runtimeOperation = program.sourceProgram.facts.get(
           sourceRuntimeOperationFactKey,
           node
         );
@@ -1036,7 +1036,7 @@ describe("Tsonic TSTS source semantics extension", () => {
             `${runtimeOperation.owner}.${runtimeOperation.member}:${runtimeOperation.dispatch}`
           );
         }
-        const computedFact = program.sourceProgram.extensionHost.facts.get(
+        const computedFact = program.sourceProgram.facts.get(
           wellKnownComputedNameFactKey,
           node
         );
@@ -1104,7 +1104,7 @@ describe("Tsonic TSTS source semantics extension", () => {
 
       visitTstsSubtree(program.sourceFile, (node) => {
         if (!node) return;
-        const runtimeOperation = program.sourceProgram.extensionHost.facts.get(
+        const runtimeOperation = program.sourceProgram.facts.get(
           sourceRuntimeOperationFactKey,
           node
         );
@@ -1152,12 +1152,12 @@ describe("Tsonic TSTS source semantics extension", () => {
 
       visitTstsSubtree(program.sourceFile, (node) => {
         if (!node) return;
-        const expressionFact = program.sourceProgram.extensionHost.facts.get(
+        const expressionFact = program.sourceProgram.facts.get(
           expressionSemanticsFactKey,
           node
         );
         if (expressionFact) expressionKinds.push(expressionFact.kind);
-        const computedFact = program.sourceProgram.extensionHost.facts.get(
+        const computedFact = program.sourceProgram.facts.get(
           wellKnownComputedNameFactKey,
           node
         );
