@@ -776,7 +776,9 @@ const isTaskType = (
   type: LoweringTypeRefPlan | undefined,
   context?: RenderContext
 ): boolean =>
-  isExternalTargetType(type, context, "System.Threading.Tasks.Task");
+  type?.kind === "intersection"
+    ? type.types.some((member) => isTaskType(member, context))
+    : isExternalTargetType(type, context, "System.Threading.Tasks.Task");
 
 const isPrivateJsPromiseConstructorAliasTarget = (
   type: LoweringTypeRefPlan | undefined
@@ -961,7 +963,7 @@ const promiseOrTaskAwaitedType = (
   return objectTypePlan;
 };
 
-const asyncReturnAwaitedType = (
+export const asyncReturnAwaitedType = (
   type: LoweringTypeRefPlan | undefined,
   context: RenderContext
 ): LoweringTypeRefPlan | undefined => {

@@ -34,6 +34,7 @@ import {
   sourceExpressionTypeProjectionFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
+  sourceTypeNodeProjectionFactKey,
   sourceOverloadCallImplementationFactKey,
   sourceTypeSemanticsFactKey,
 } from "../source-frontend/source-facts.js";
@@ -735,6 +736,109 @@ describe("Tsonic TSTS source semantics extension", () => {
     }
   });
 
+  it("marks globals Promise type references as task-like source runtime types", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "node_modules/@tsonic/globals/package.json": JSON.stringify({
+          name: "@tsonic/globals",
+          version: "0.0.0-test",
+          type: "module",
+        }),
+        "node_modules/@tsonic/globals/core-globals.d.ts": [
+          "declare global {",
+          "  interface Promise<T> {}",
+          "  interface PromiseLike<T> {}",
+          "}",
+          "export {};",
+          "",
+        ].join("\n"),
+        "index.ts": [
+          "export async function run(): Promise<void> {",
+          "}",
+          "export function like(value: PromiseLike<string>): void {",
+          "  void value;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node || node.Kind !== TstsSyntax.KindTypeReference) return;
+        const details = getTstsTypeReferenceDetails(node);
+        if (details?.name !== "Promise" && details?.name !== "PromiseLike") {
+          return;
+        }
+        const fact = program.sourceProgram.facts.get(
+          sourceTypeNodeProjectionFactKey,
+          node
+        );
+        if (fact?.type.kind === "named") {
+          summaries.push(
+            `${details.name}:${fact.type.runtimeTypeOwner ?? "none"}:${projectionSummary(fact.type)}`
+          );
+        }
+      });
+
+      expect(summaries).to.deep.equal([
+        "Promise:Promise:Promise<void>",
+        "PromiseLike:Promise:PromiseLike<string>",
+      ]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("projects await expressions to the source Promise awaited type", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "node_modules/@tsonic/globals/package.json": JSON.stringify({
+          name: "@tsonic/globals",
+          version: "0.0.0-test",
+          type: "module",
+        }),
+        "node_modules/@tsonic/globals/core-globals.d.ts": [
+          "declare global {",
+          "  interface Promise<T> {}",
+          "  interface PromiseLike<T> {}",
+          "}",
+          "export {};",
+          "",
+        ].join("\n"),
+        "index.ts": [
+          "async function read(): Promise<{ ok: true; value: number } | { ok: false; error: string }> {",
+          "  return { ok: true, value: 1 };",
+          "}",
+          "export async function run(): Promise<void> {",
+          "  const result = await read();",
+          "  void result;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node || node.Kind !== TstsSyntax.KindAwaitExpression) return;
+        const fact = program.sourceProgram.facts.get(
+          sourceExpressionTypeProjectionFactKey,
+          node
+        );
+        if (fact) summaries.push(projectionSummary(fact.type));
+      });
+
+      expect(summaries).to.deep.equal([
+        "{ ok: true; value: number } | { ok: false; error: string }",
+      ]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
   it("uses TSTS flow narrowing while preserving source primitive projections", () => {
     const program = createTstsTestProgramFromFiles(
       {
@@ -910,6 +1014,47 @@ describe("Tsonic TSTS source semantics extension", () => {
         "box: Box<Item>",
         "value.value: string",
       ]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("uses source argument projections for generic static call inference", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "index.ts": [
+          "import type { int } from '@tsonic/core/types.js';",
+          "interface Task<T> {}",
+          "declare const TaskValue: { FromResult<T>(value: T): Task<T> };",
+          "export function read(): Task<int> {",
+          "  return TaskValue.FromResult(41 as int);",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        const text = getTstsNodeText(node)?.replace(/\s+/g, " ").trim();
+        if (text !== "TaskValue.FromResult(41 as int)") return;
+        const callFact = program.sourceProgram.facts.get(
+          sourceCallArgumentTypesFactKey,
+          node
+        );
+        if (callFact) {
+          summaries.push(
+            `arg0: ${callFact.argumentTypes[0] ? projectionSummary(callFact.argumentTypes[0]) : "unknown"}`
+          );
+          summaries.push(
+            `return: ${callFact.returnType ? projectionSummary(callFact.returnType) : "unknown"}`
+          );
+        }
+      });
+
+      expect(summaries).to.deep.equal(["arg0: int", "return: Task<int>"]);
     } finally {
       program.cleanup();
     }

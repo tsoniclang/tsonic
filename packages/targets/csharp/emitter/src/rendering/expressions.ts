@@ -10,6 +10,7 @@ import { requiredIdentifier, sanitizeIdentifier } from "./names.js";
 import { renderStatement } from "./statements.js";
 import {
   arrayTypeFromTypePlan,
+  asyncReturnAwaitedType,
   isBooleanLikeTypePlan,
   isDoubleRuntimeTypePlan,
   isExternalBindingArrayType,
@@ -803,14 +804,30 @@ const renderLambdaParameter = (
         parameter.nameSourceText ?? parameter.sourceText
       );
 
-const lambdaContextReturnType = (
-  plan: LoweringExpressionPlan
+const lambdaDeclaredReturnType = (
+  plan: LoweringExpressionPlan,
+  contextualTypeOverride?: LoweringTypeRefPlan
 ): LoweringTypeRefPlan | undefined => {
+  const contextualFunction = functionTypeFromUseSite(
+    contextualTypeOverride ?? plan.contextualTypePlan
+  );
+  if (contextualFunction?.returnType) return contextualFunction.returnType;
   if (plan.returnType) return plan.returnType;
   if (plan.contextualTypePlan?.kind === "function") {
     return plan.contextualTypePlan.returnType;
   }
   return plan.type?.kind === "function" ? plan.type.returnType : undefined;
+};
+
+const lambdaBodyReturnType = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext,
+  contextualTypeOverride?: LoweringTypeRefPlan
+): LoweringTypeRefPlan | undefined => {
+  const declaredReturnType = lambdaDeclaredReturnType(plan, contextualTypeOverride);
+  return plan.async
+    ? (asyncReturnAwaitedType(declaredReturnType, context) ?? declaredReturnType)
+    : declaredReturnType;
 };
 
 const isVoidLikeExpressionType = (
@@ -947,9 +964,7 @@ export const renderFunctionExpressionMethodDeclaration = (
       plan.sourceKindName,
       plan.sourceText
     );
-    const bodyReturnType = plan.async
-      ? lambdaContextReturnType(plan)
-      : plan.returnType;
+    const bodyReturnType = lambdaBodyReturnType(plan, context);
     const body = plan.body
       ? renderLambdaStatementBody(plan, context)
       : isVoidLikeExpressionType(bodyReturnType, context)
@@ -985,10 +1000,15 @@ const lambdaBodyEndsControlFlow = (
 
 const renderLambdaStatementBody = (
   plan: LoweringExpressionPlan,
-  context: RenderContext
+  context: RenderContext,
+  contextualTypeOverride?: LoweringTypeRefPlan
 ): string => {
   const previousReturnType = context.currentReturnType;
-  context.currentReturnType = lambdaContextReturnType(plan);
+  context.currentReturnType = lambdaBodyReturnType(
+    plan,
+    context,
+    contextualTypeOverride
+  );
   const body = (() => {
     try {
       return renderStatement(plan.body, context);
@@ -998,7 +1018,10 @@ const renderLambdaStatementBody = (
   })();
   if (
     !plan.async ||
-    isVoidLikeExpressionType(lambdaContextReturnType(plan), context) ||
+    isVoidLikeExpressionType(
+      lambdaBodyReturnType(plan, context, contextualTypeOverride),
+      context
+    ) ||
     lambdaBodyEndsControlFlow(plan.body)
   ) {
     return body;
@@ -1200,6 +1223,23 @@ const renderStringLiteralAsUseSiteChar = (
     : escapeChar(literalText, context, plan);
 };
 
+const renderConditionalExpression = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext,
+  useSiteType?: LoweringTypeRefPlan
+): string => {
+  const branchUseSiteType = useSiteType ?? plan.contextualTypePlan ?? plan.type;
+  return `${renderConditionExpression(plan.condition, context)} ? ${renderExpressionWithUseSiteCast(
+    plan.whenTrue,
+    context,
+    branchUseSiteType
+  )} : ${renderExpressionWithUseSiteCast(
+    plan.whenFalse,
+    context,
+    branchUseSiteType
+  )}`;
+};
+
 const renderArrayUseSiteConversion = (
   rendered: string,
   sourceArray: Extract<LoweringTypeRefPlan, { readonly kind: "array" }>,
@@ -1281,6 +1321,50 @@ export const renderExpressionWithUseSiteCast = (
     useSiteTypeOverride
   );
   if (useSiteCharLiteral !== undefined) return useSiteCharLiteral;
+  if (plan?.expressionKind === "conditional" && useSiteTypeOverride) {
+    return renderConditionalExpression(plan, context, useSiteTypeOverride);
+  }
+  if (
+    (plan?.expressionKind === "arrow-function" ||
+      plan?.expressionKind === "function-expression") &&
+    useSiteTypeOverride
+  ) {
+    const targetDelegateType =
+      isNamedFunctionAlias(useSiteTypeOverride) ||
+      useSiteTypeOverride.kind === "function"
+        ? useSiteTypeOverride
+        : undefined;
+    const renderableTargetDelegateType =
+      targetDelegateType &&
+      !containsOutOfScopeTypeParameterTypePlan(targetDelegateType, context)
+        ? targetDelegateType
+        : undefined;
+    if (renderableTargetDelegateType) {
+      const renderedLambda = renderLambda(
+        plan,
+        context,
+        true,
+        true,
+        renderableTargetDelegateType
+      );
+      const runtimeUnionCarrier = renderRuntimeUnionCarrierValue(
+        renderedLambda,
+        plan,
+        renderableTargetDelegateType,
+        context
+      );
+      if (runtimeUnionCarrier) return runtimeUnionCarrier;
+      const castType = useSiteCastType(renderableTargetDelegateType, context);
+      return castType
+        ? renderUseSiteCast(
+            castType,
+            renderedLambda,
+            plan,
+            renderableTargetDelegateType
+          )
+        : renderedLambda;
+    }
+  }
   const rendered = renderExpression(plan, context);
   if (!isCastableUseSiteExpression(plan)) return rendered;
   if (
@@ -1956,11 +2040,19 @@ const renderLambda = (
   plan: LoweringExpressionPlan,
   context: RenderContext,
   includeParameterTypes = true,
-  includeContextualMissingParameters = true
+  includeContextualMissingParameters = true,
+  contextualTypeOverride?: LoweringTypeRefPlan
 ): string => {
-  const contextualFunction = functionTypeFromUseSite(plan.contextualTypePlan);
+  const contextualFunction = functionTypeFromUseSite(
+    contextualTypeOverride ?? plan.contextualTypePlan
+  );
   const parameters = [
-    ...plan.parameters,
+    ...plan.parameters.map((parameter, index) => {
+      const contextualParameter = contextualFunction?.parameters[index];
+      return contextualParameter?.type
+        ? { ...parameter, type: contextualParameter.type }
+        : parameter;
+    }),
     ...(includeContextualMissingParameters && contextualFunction
       ? contextualFunction.parameters
           .slice(plan.parameters.length)
@@ -1977,13 +2069,17 @@ const renderLambda = (
     .join(", ");
   const asyncModifier = plan.async ? "async " : "";
   const body = plan.body
-    ? renderLambdaStatementBody(plan, context)
-    : isVoidLikeExpressionType(lambdaContextReturnType(plan), context)
+    ? renderLambdaStatementBody(plan, context, contextualTypeOverride)
+    : isVoidLikeExpressionType(
+          lambdaBodyReturnType(plan, context, contextualTypeOverride),
+          context
+        )
       ? renderVoidLambdaExpressionBody(plan.expression, context)
       : renderExpressionWithUseSiteCast(
           plan.expression,
           context,
-          lambdaContextReturnType(plan) ?? plan.returnType
+          lambdaBodyReturnType(plan, context, contextualTypeOverride) ??
+            plan.returnType
         );
   return `${asyncModifier}(${parameters}) => ${body}`;
 };
@@ -2767,8 +2863,11 @@ const renderAssignmentValue = (
   value: LoweringExpressionPlan | undefined,
   context: RenderContext
 ): string => {
-  const rendered = renderExpression(value, context);
   const targetType = target?.storageTypePlan ?? target?.type;
+  const rendered = renderExpression(value, context);
+  const useSiteRendered = targetType
+    ? renderExpressionWithUseSiteCast(value, context, targetType)
+    : rendered;
   if (runtimeUnionCarrierType(targetType, context)) {
     return renderExpressionWithUseSiteCast(value, context, targetType);
   }
@@ -2781,7 +2880,7 @@ const renderAssignmentValue = (
     !targetType ||
     (!isBroadRuntimeType(sourceStorageType) && !shouldCastRuntimeSlot)
   ) {
-    return rendered;
+    return useSiteRendered;
   }
   if (
     isOpaqueRuntimeTypePlan(targetType) ||
@@ -2819,6 +2918,22 @@ const renderAssignmentTarget = (
   return rawName === undefined
     ? ""
     : sanitizeIdentifier(plan.resolvedAliasName ?? rawName);
+};
+
+const stringTypePlan: LoweringTypeRefPlan = {
+  kind: "intrinsic",
+  name: "string",
+};
+
+const renderStringConcatenationOperand = (
+  plan: LoweringExpressionPlan | undefined,
+  context: RenderContext
+): string => {
+  const type = plan?.storageTypePlan ?? plan?.type;
+  if (isStringLikeTypePlan(type)) {
+    return renderExpressionWithUseSiteCast(plan, context, stringTypePlan);
+  }
+  return `(global::System.Convert.ToString(${renderExpression(plan, context)}) ?? "")`;
 };
 
 const renderArrayEnumerableReceiver = (
@@ -3139,12 +3254,197 @@ const renderSourceRuntimeCall = (
   return undefined;
 };
 
+const taskLikeReceiverType = (
+  plan: LoweringExpressionPlan | undefined,
+  context: RenderContext
+): LoweringTypeRefPlan | undefined => {
+  const candidates = [plan?.storageTypePlan, plan?.type, plan?.receiverTypePlan];
+  return candidates.find((candidate) => isTaskLikeTypePlan(candidate, context));
+};
+
+const renderPromiseThenCall = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext
+): string | undefined => {
+  const callee = plan.expression;
+  if (
+    callee?.expressionKind !== "property-access" ||
+    (callee.literalText ?? callee.name) !== "then"
+  ) {
+    return undefined;
+  }
+  const receiver = callee.expression;
+  const receiverTaskType =
+    taskLikeReceiverType(receiver, context) ??
+    taskLikeReceiverType(callee, context);
+  if (!receiver || !receiverTaskType) return undefined;
+  const onFulfilled = plan.arguments[0];
+  if (!onFulfilled || onFulfilled.semantic === "undefined-value") {
+    return renderExpression(receiver, context);
+  }
+  const awaitedType =
+    asyncReturnAwaitedType(receiverTaskType, context) ?? voidTypePlan;
+  const resultType =
+    asyncReturnAwaitedType(plan.storageTypePlan ?? plan.type, context) ??
+    voidTypePlan;
+  const isVoidAwaited = isVoidLikeTypePlan(awaitedType);
+  const isVoidResult = isVoidLikeTypePlan(resultType);
+  const resultTaskType = isVoidResult
+    ? "global::System.Threading.Tasks.Task"
+    : `global::System.Threading.Tasks.Task<${renderCSharpType(resultType, context)}>`;
+  const callbackType =
+    functionTypeFromUseSite(onFulfilled.contextualTypePlan) ??
+    functionTypeFromUseSite(onFulfilled.type);
+  const renderedCallback = renderCallArgument(
+    onFulfilled,
+    context,
+    callbackType
+  );
+  const receiverExpression = renderExpression(receiver, context);
+  const awaitedValueName = context.allocateTempName("then_value");
+  const callbackInvocation = `${renderedCallback}(${isVoidAwaited ? "" : awaitedValueName})`;
+  const callbackReturnType = functionReturnType(onFulfilled);
+  const callbackReturnsTask = isTaskLikeTypePlan(callbackReturnType, context);
+  const lines = [
+    `((${`global::System.Func<${resultTaskType}>`})(async () => {`,
+    isVoidAwaited
+      ? `    await ${receiverExpression};`
+      : `    var ${awaitedValueName} = await ${receiverExpression};`,
+    isVoidResult
+      ? callbackReturnsTask
+        ? `    await ${callbackInvocation};`
+        : `    ${callbackInvocation};`
+      : callbackReturnsTask
+        ? `    return await ${callbackInvocation};`
+        : `    return ${callbackInvocation};`,
+    `}))()`,
+  ];
+  return lines.join("\n");
+};
+
+const objectTypePlan: LoweringTypeRefPlan = {
+  kind: "intrinsic",
+  name: "object",
+};
+const voidTypePlan: LoweringTypeRefPlan = { kind: "intrinsic", name: "void" };
+
+const promiseExecutorParameter = (
+  name: string,
+  type: LoweringTypeRefPlan
+): LoweringParameterPlan => ({
+  name,
+  nameSourceText: name,
+  sourceKindName: "PromiseExecutorParameter",
+  sourceText: name,
+  type,
+  optional: false,
+  rest: false,
+});
+
+const promiseExecutorFunctionType = (
+  awaitedType: LoweringTypeRefPlan
+): LoweringTypeRefPlan => {
+  const resolveType: LoweringTypeRefPlan = {
+    kind: "function",
+    parameters: isVoidLikeTypePlan(awaitedType)
+      ? []
+      : [promiseExecutorParameter("value", awaitedType)],
+    returnType: voidTypePlan,
+    typeParameters: [],
+  };
+  const rejectType: LoweringTypeRefPlan = {
+    kind: "function",
+    parameters: [
+      {
+        ...promiseExecutorParameter("reason", objectTypePlan),
+        optional: true,
+      },
+    ],
+    returnType: voidTypePlan,
+    typeParameters: [],
+  };
+  return {
+    kind: "function",
+    parameters: [
+      promiseExecutorParameter("resolve", resolveType),
+      promiseExecutorParameter("reject", rejectType),
+    ],
+    returnType: voidTypePlan,
+    typeParameters: [],
+  };
+};
+
+const renderPromiseConstructorNew = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext
+): string | undefined => {
+  const operation = plan.sourceOperation;
+  if (
+    operation?.dispatch !== "constructor" ||
+    operation.owner !== "Promise" ||
+    operation.member !== "constructor"
+  ) {
+    return undefined;
+  }
+  const executor = plan.arguments[0];
+  if (!executor) {
+    context.reportUnsupported(
+      "Promise constructor without executor",
+      plan.sourceKindName,
+      plan.sourceText
+    );
+    return "";
+  }
+  const awaitedType =
+    asyncReturnAwaitedType(plan.storageTypePlan ?? plan.type, context) ??
+    plan.typeArguments[0];
+  if (!awaitedType) {
+    context.reportUnsupported(
+      "Promise constructor awaited type",
+      plan.sourceKindName,
+      plan.sourceText
+    );
+    return "";
+  }
+  const isVoidPromise = isVoidLikeTypePlan(awaitedType);
+  const resultType = isVoidPromise ? objectTypePlan : awaitedType;
+  const renderedResultType = renderCSharpType(resultType, context);
+  const taskReturnType = isVoidPromise
+    ? "global::System.Threading.Tasks.Task"
+    : `global::System.Threading.Tasks.Task<${renderedResultType}>`;
+  const tcsName = context.allocateTempName("promise");
+  const resolveName = context.allocateTempName("resolve");
+  const rejectName = context.allocateTempName("reject");
+  const reasonName = context.allocateTempName("reason");
+  const exceptionName = context.allocateTempName("exception");
+  const valueName = context.allocateTempName("value");
+  const executorType = promiseExecutorFunctionType(awaitedType);
+  const renderedExecutor = renderCallArgument(executor, context, executorType);
+  const resolveType = isVoidPromise
+    ? "global::System.Action"
+    : `global::System.Action<${renderedResultType}>`;
+  const resolveInitializer = isVoidPromise
+    ? `() => ${tcsName}.SetResult(null)`
+    : `(${renderedResultType} ${valueName}) => ${tcsName}.SetResult(${valueName})`;
+  return [
+    `((${`global::System.Func<${taskReturnType}>`})(() => {`,
+    `    var ${tcsName} = new global::System.Threading.Tasks.TaskCompletionSource<${renderedResultType}>();`,
+    `    ${resolveType} ${resolveName} = ${resolveInitializer};`,
+    `    global::System.Action<object?> ${rejectName} = (${reasonName}) => ${tcsName}.SetException(${reasonName} is global::System.Exception ${exceptionName} ? ${exceptionName} : new global::System.Exception(global::System.Convert.ToString(${reasonName}) ?? ""));`,
+    `    ${renderedExecutor}(${resolveName}, ${rejectName});`,
+    `    return ${tcsName}.Task;`,
+    `}))()`,
+  ].join("\n");
+};
+
 const renderSourceRuntimeNew = (
   plan: LoweringExpressionPlan,
   context: RenderContext
 ): string | undefined => {
   const operation = plan.sourceOperation;
   if (operation?.dispatch !== "constructor") return undefined;
+  const promiseConstructor = renderPromiseConstructorNew(plan, context);
+  if (promiseConstructor !== undefined) return promiseConstructor;
   return `new ${renderSourceQualifiedName(operation)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
     .map((argument) => renderCallArgument(argument, context))
     .join(", ")})`;
@@ -3301,6 +3601,83 @@ const effectiveReceiverUseSiteType = (
     return receiverType;
   }
   return receiverTypePlan;
+};
+
+const objectPropertyMemberType = (
+  type: LoweringTypeRefPlan,
+  memberName: string
+): LoweringTypeRefPlan | undefined => {
+  const unwrapped = unwrapAliasTarget(type);
+  if (!unwrapped || unwrapped.kind !== "object") return undefined;
+  const member = unwrapped.members.find(
+    (candidate) =>
+      candidate.kind === "property" && candidate.name === memberName
+  );
+  return member?.kind === "property" ? member.type : undefined;
+};
+
+const runtimeUnionMemberTypeMatchesAccessType = (
+  memberType: LoweringTypeRefPlan | undefined,
+  accessType: LoweringTypeRefPlan | undefined,
+  context: RenderContext
+): boolean => {
+  if (!memberType || !accessType) return true;
+  if (accessType.kind === "union") {
+    return accessType.types
+      .filter((member) => !isNullishType(member))
+      .some((member) =>
+        runtimeUnionMemberTypeMatchesAccessType(memberType, member, context)
+      );
+  }
+  return (
+    sameRuntimeTypePlan(memberType, accessType) ||
+    runtimeTypePlanAssignableToTarget(memberType, accessType, context, new Set()) ||
+    runtimeTypePlanAssignableToTarget(accessType, memberType, context, new Set())
+  );
+};
+
+const renderRuntimeUnionPropertyAccess = (
+  plan: LoweringExpressionPlan,
+  rawMember: string,
+  renderedMember: string,
+  context: RenderContext
+): string | undefined => {
+  const sourceCarrier =
+    runtimeUnionCarrierType(plan.expression?.storageTypePlan, context) ??
+    runtimeUnionCarrierType(plan.expression?.type, context) ??
+    runtimeUnionCarrierType(plan.receiverTypePlan, context);
+  if (!sourceCarrier) return undefined;
+  const accessType = plan.storageTypePlan ?? plan.type;
+  const arms = runtimeUnionCarrierArms(sourceCarrier, context);
+  const candidates = arms
+    .map((arm, index) => ({
+      arm,
+      index: index + 1,
+      memberType: objectPropertyMemberType(arm, rawMember),
+    }))
+    .filter(
+      (candidate) =>
+        candidate.memberType !== undefined &&
+        runtimeUnionMemberTypeMatchesAccessType(
+          candidate.memberType,
+          accessType,
+          context
+        )
+    );
+  if (candidates.length === 0) return undefined;
+  const renderedReceiver = renderExpression(plan.expression, context);
+  if (candidates.length === 1) {
+    const [candidate] = candidates;
+    if (!candidate) return undefined;
+    const armAccess = `${renderedReceiver}.As${candidate.index}()`;
+    return `${armAccess}${plan.optionalAccess ? "?." : "!."}${renderedMember}`;
+  }
+  return `(${renderedReceiver}.${runtimeUnionValueMemberName} switch { ${candidates
+    .map(
+      (candidate, index) =>
+        `${renderCSharpType(candidate.arm, context)} __tsonic_arm_${index} => __tsonic_arm_${index}.${renderedMember}`
+    )
+    .join(", ")}, _ => throw new global::System.InvalidCastException("Runtime union value does not contain property '${rawMember}'.") })`;
 };
 
 export const isCompileTimeOnlyExpression = (
@@ -3535,8 +3912,10 @@ export const renderExpression = (
         )}`;
       }
       if (plan.binaryOperator === "add" && isStringLikeTypePlan(plan.type)) {
-        const stringType = { kind: "intrinsic", name: "string" } as const;
-        return `${renderExpressionWithUseSiteCast(plan.left, context, stringType)} ${operator} ${renderExpressionWithUseSiteCast(plan.right, context, stringType)}`;
+        return `${renderStringConcatenationOperand(
+          plan.left,
+          context
+        )} ${operator} ${renderStringConcatenationOperand(plan.right, context)}`;
       }
       if (
         (plan.binaryOperator === "add" ||
@@ -3641,6 +4020,13 @@ export const renderExpression = (
         }
       }
       const member = sanitizeIdentifier(plan.resolvedAliasName ?? rawMember);
+      const runtimeUnionPropertyAccess = renderRuntimeUnionPropertyAccess(
+        plan,
+        rawMember,
+        member,
+        context
+      );
+      if (runtimeUnionPropertyAccess) return runtimeUnionPropertyAccess;
       return `${renderExpressionWithUseSiteCast(
         plan.expression,
         context,
@@ -3743,6 +4129,10 @@ export const renderExpression = (
         if (sourceRuntimeCall !== undefined) return sourceRuntimeCall;
       }
       {
+        const promiseThenCall = renderPromiseThenCall(plan, context);
+        if (promiseThenCall !== undefined) return promiseThenCall;
+      }
+      {
         const parameterTypes = callExpressionParameterTypes(plan);
         return `${renderCallableExpression(plan.expression, plan.arguments.length, context, plan.callTargetTypePlan)}${renderTypeArguments(plan.typeArguments, context)}(${plan.arguments
           .map((argument, index) =>
@@ -3778,16 +4168,7 @@ export const renderExpression = (
     case "object-literal":
       return renderObjectLiteral(plan, context);
     case "conditional": {
-      const branchUseSiteType = plan.contextualTypePlan ?? plan.type;
-      return `${renderConditionExpression(plan.condition, context)} ? ${renderExpressionWithUseSiteCast(
-        plan.whenTrue,
-        context,
-        branchUseSiteType
-      )} : ${renderExpressionWithUseSiteCast(
-        plan.whenFalse,
-        context,
-        branchUseSiteType
-      )}`;
+      return renderConditionalExpression(plan, context);
     }
     case "unsupported":
       return unsupportedExpression(context, plan);

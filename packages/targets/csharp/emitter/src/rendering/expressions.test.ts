@@ -17,11 +17,13 @@ const dummySourceNode = {} as LoweringExpressionPlan["sourceNode"];
 const createRenderContext = (
   unsupportedFeatures: string[] = [],
   externalBindingTargetName: RenderContext["externalBindingTargetName"] = () =>
-    undefined
+    undefined,
+  getStructuralTypeName: RenderContext["getStructuralTypeName"] = () =>
+    "Structural0"
 ): RenderContext => ({
   diagnostics: [],
   allocateTempName: (prefix) => `${prefix}0`,
-  getStructuralTypeName: () => "Structural0",
+  getStructuralTypeName,
   externalBindingTargetName,
   overrideMemberAccessibility: () => undefined,
   reportUnsupported: (feature) => {
@@ -53,6 +55,11 @@ const charType: LoweringTypeRefPlan = {
 const stringType: LoweringTypeRefPlan = {
   kind: "intrinsic",
   name: "string",
+};
+
+const booleanType: LoweringTypeRefPlan = {
+  kind: "intrinsic",
+  name: "boolean",
 };
 
 const voidType: LoweringTypeRefPlan = {
@@ -128,6 +135,61 @@ describe("C# expression renderer", () => {
         context
       )
     ).to.equal("'\\\\'");
+  });
+
+  it("threads char use-site types through assignments and conditionals", () => {
+    const context = createRenderContext();
+
+    expect(
+      renderExpression(
+        expressionPlan({
+          expressionKind: "binary",
+          binaryOperator: "assign",
+          left: expressionPlan({
+            expressionKind: "identifier",
+            literalText: "c",
+            storageTypePlan: charType,
+            type: charType,
+          }),
+          right: expressionPlan({
+            expressionKind: "literal",
+            literalKind: "string",
+            literalText: "y",
+            type: stringType,
+          }),
+        }),
+        context
+      )
+    ).to.equal("c = 'y'");
+
+    expect(
+      renderExpressionWithUseSiteCast(
+        expressionPlan({
+          expressionKind: "conditional",
+          condition: expressionPlan({
+            expressionKind: "literal",
+            literalKind: "boolean",
+            literalText: "false",
+            type: booleanType,
+          }),
+          whenTrue: expressionPlan({
+            expressionKind: "literal",
+            literalKind: "string",
+            literalText: "m",
+            type: stringType,
+          }),
+          whenFalse: expressionPlan({
+            expressionKind: "literal",
+            literalKind: "string",
+            literalText: "n",
+            type: stringType,
+          }),
+          type: stringType,
+        }),
+        context,
+        charType
+      )
+    ).to.equal("false ? 'm' : 'n'");
   });
 
   it("renders source-level byref passing modes on call arguments", () => {
@@ -238,6 +300,101 @@ describe("C# expression renderer", () => {
     expect(rendered).to.contain(
       "new global::System.Collections.Generic.List<int>"
     );
+  });
+
+  it("renders runtime-union object property access through the selected arm", () => {
+    const successArm: LoweringTypeRefPlan = {
+      kind: "object",
+      sourceText: "SuccessShape",
+      members: [
+        { kind: "property", name: "success", optional: false, type: booleanType },
+        { kind: "property", name: "value", optional: false, type: intType },
+      ],
+    };
+    const failureArm: LoweringTypeRefPlan = {
+      kind: "object",
+      sourceText: "FailureShape",
+      members: [
+        { kind: "property", name: "success", optional: false, type: booleanType },
+        { kind: "property", name: "error", optional: false, type: stringType },
+      ],
+    };
+    const unionType: LoweringTypeRefPlan = {
+      kind: "union",
+      types: [successArm, failureArm],
+    };
+    const context = createRenderContext(
+      [],
+      () => undefined,
+      (type) => type.sourceText ?? "Structural0"
+    );
+
+    const rendered = renderExpression(
+      expressionPlan({
+        expressionKind: "property-access",
+        literalText: "error",
+        type: stringType,
+        storageTypePlan: stringType,
+        receiverTypePlan: unionType,
+        expression: expressionPlan({
+          expressionKind: "identifier",
+          literalText: "failure",
+          type: unionType,
+          storageTypePlan: unionType,
+        }),
+      }),
+      context
+    );
+
+    expect(rendered).to.equal("failure.As2()!.error");
+  });
+
+  it("renders shared runtime-union object property access as a carrier switch", () => {
+    const successArm: LoweringTypeRefPlan = {
+      kind: "object",
+      sourceText: "SuccessShape",
+      members: [
+        { kind: "property", name: "success", optional: false, type: booleanType },
+        { kind: "property", name: "error", optional: false, type: stringType },
+      ],
+    };
+    const failureArm: LoweringTypeRefPlan = {
+      kind: "object",
+      sourceText: "FailureShape",
+      members: [
+        { kind: "property", name: "success", optional: false, type: booleanType },
+      ],
+    };
+    const unionType: LoweringTypeRefPlan = {
+      kind: "union",
+      types: [successArm, failureArm],
+    };
+    const context = createRenderContext(
+      [],
+      () => undefined,
+      (type) => type.sourceText ?? "Structural0"
+    );
+
+    const rendered = renderExpression(
+      expressionPlan({
+        expressionKind: "property-access",
+        literalText: "success",
+        type: booleanType,
+        storageTypePlan: booleanType,
+        receiverTypePlan: unionType,
+        expression: expressionPlan({
+          expressionKind: "identifier",
+          literalText: "result",
+          type: unionType,
+          storageTypePlan: unionType,
+        }),
+      }),
+      context
+    );
+
+    expect(rendered).to.contain("result.__tsonic_value switch");
+    expect(rendered).to.contain("SuccessShape __tsonic_arm_0");
+    expect(rendered).to.contain("FailureShape __tsonic_arm_1");
   });
 
   it("selects a runtime-union array arm through a named alias target", () => {
@@ -718,6 +875,119 @@ describe("C# expression renderer", () => {
         context
       )
     ).to.equal("value.Length");
+  });
+
+  it("converts non-string operands for string concatenation", () => {
+    const context = createRenderContext();
+
+    const rendered = renderExpression(
+      expressionPlan({
+        expressionKind: "binary",
+        binaryOperator: "add",
+        type: stringType,
+        left: expressionPlan({
+          expressionKind: "literal",
+          literalKind: "string",
+          literalText: "COUNT:",
+          type: stringType,
+        }),
+        right: expressionPlan({
+          expressionKind: "property-access",
+          literalText: "Count",
+          type: intType,
+          storageTypePlan: intType,
+          expression: expressionPlan({
+            expressionKind: "identifier",
+            literalText: "items",
+          }),
+        }),
+      }),
+      context
+    );
+
+    expect(rendered).to.equal(
+      '"COUNT:" + (global::System.Convert.ToString(items.Count) ?? "")'
+    );
+  });
+
+  it("lowers Task-like then calls to closed async task continuations", () => {
+    const taskInstance: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "Task$instance",
+      typeArguments: [],
+      externalBinding: {
+        bindingFile: "System.Threading.Tasks/bindings.json",
+        sourceName: "Task$instance",
+      },
+    };
+    const taskIntersection: LoweringTypeRefPlan = {
+      kind: "intersection",
+      types: [taskInstance],
+    };
+    const promiseLikeVoid: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "PromiseLike",
+      typeArguments: [voidType],
+      sourceQualifiedName: { namespace: "js._", name: "Promise" },
+    };
+    const context = createRenderContext([], (binding) =>
+      binding.sourceName === "Task$instance"
+        ? "System.Threading.Tasks.Task"
+        : undefined
+    );
+
+    const rendered = renderExpression(
+      expressionPlan({
+        expressionKind: "call",
+        type: promiseLikeVoid,
+        storageTypePlan: promiseLikeVoid,
+        expression: expressionPlan({
+          expressionKind: "property-access",
+          literalText: "then",
+          receiverTypePlan: taskIntersection,
+          expression: expressionPlan({
+            expressionKind: "call",
+            sourceText: "Task.Delay(1)",
+            type: taskIntersection,
+            storageTypePlan: taskIntersection,
+            expression: expressionPlan({
+              expressionKind: "property-access",
+              literalText: "Delay",
+              expression: expressionPlan({
+                expressionKind: "identifier",
+                literalText: "Task",
+              }),
+            }),
+            arguments: [
+              expressionPlan({
+                expressionKind: "literal",
+                literalKind: "number",
+                literalText: "1",
+              }),
+            ],
+          }),
+        }),
+        arguments: [
+          expressionPlan({
+            expressionKind: "identifier",
+            literalText: "callback",
+            type: {
+              kind: "function",
+              parameters: [],
+              returnType: voidType,
+              typeParameters: [],
+            },
+          }),
+        ],
+      }),
+      context
+    );
+
+    expect(rendered).to.contain(
+      "global::System.Func<global::System.Threading.Tasks.Task>"
+    );
+    expect(rendered).to.contain("await Task.Delay(1);");
+    expect(rendered).to.contain("callback();");
   });
 
   it("renders Function.length only from a direct function-expression plan", () => {
