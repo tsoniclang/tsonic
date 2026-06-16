@@ -378,14 +378,14 @@ const sourceFileForNode = (
     ? (getTstsContainingSourceFile(node) ?? defaultSourceFile)
     : defaultSourceFile;
 
-const arrayStorageForSourceTypeNode = (
+const arraySourceOriginForSourceTypeNode = (
   node: TstsNode | undefined,
   defaultSourceFile: TstsSourceFile
-): "native-array" | undefined =>
+): "external-binding" | undefined =>
   isExternalBindingSourceFile(
     sourceFileForNode(node, defaultSourceFile).FileName()
   )
-    ? "native-array"
+    ? "external-binding"
     : undefined;
 
 const namespaceTypeDeclarationKinds = new Set([
@@ -969,7 +969,7 @@ const sourceTypePlan = (
             kind: "array",
             elementType: element,
             readonly: false,
-            storage: arrayStorageForSourceTypeNode(node, sourceFile),
+            sourceOrigin: arraySourceOriginForSourceTypeNode(node, sourceFile),
             sourceText,
           }
         : unsupportedTypePlan(node);
@@ -1396,7 +1396,7 @@ const loweringTypeIdentityKey = (type: LoweringTypeRefPlan): string => {
     case "record":
       return `record:${loweringTypeIdentityKey(type.keyType)}:${loweringTypeIdentityKey(type.valueType)}`;
     case "array":
-      return `array:${type.storage ?? (type.readonly ? "readonly" : "mutable")}:${loweringTypeIdentityKey(type.elementType)}`;
+      return `array:${type.sourceOrigin ?? (type.readonly ? "readonly" : "mutable")}:${loweringTypeIdentityKey(type.elementType)}`;
     case "tuple":
       return `tuple:${type.elements.map(loweringTypeIdentityKey).join(",")}`;
     case "union":
@@ -2166,7 +2166,10 @@ const sourceBindingProjectionTypePlan = (
             kind: "array",
             elementType,
             readonly: type.readonly,
-            storage: arrayStorageForSourceTypeNode(type.sourceNode, sourceFile),
+            sourceOrigin: arraySourceOriginForSourceTypeNode(
+              type.sourceNode,
+              sourceFile
+            ),
             sourceText: type.sourceNode
               ? compactNodeSourceText(type.sourceNode)
               : undefined,

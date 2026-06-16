@@ -434,6 +434,33 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("keeps backend array storage markers out of frontend", () => {
+    const bannedTerms = [
+      "native-" + "array",
+      "readonly storage" + "?:",
+      ".storage" + " ===",
+      ".storage" + " !==",
+    ] as const;
+    const offenders = collectTypeScriptFiles(frontendSrcRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("defines source-extension facts directly on TSTS fact primitives", () => {
     const sourceFactsPath = path.join(
       frontendSrcRoot,

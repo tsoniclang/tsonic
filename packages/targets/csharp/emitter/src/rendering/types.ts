@@ -281,7 +281,7 @@ const typePlanKeyWithSeen = (
     case "record":
       return `record:${typePlanKeyWithSeen(type.keyType, nextSeen)}:${typePlanKeyWithSeen(type.valueType, nextSeen)}`;
     case "array":
-      return `array:${type.storage ?? (type.readonly ? "readonly" : "mutable")}:${typePlanKeyWithSeen(type.elementType, nextSeen)}`;
+      return `array:${type.sourceOrigin ?? (type.readonly ? "readonly" : "mutable")}:${typePlanKeyWithSeen(type.elementType, nextSeen)}`;
     case "tuple":
       return `tuple:${type.readonly ? "readonly" : "mutable"}:${type.elements.map((element) => typePlanKeyWithSeen(element, nextSeen)).join(",")}`;
     case "union":
@@ -428,6 +428,10 @@ export const sameRuntimeTypePlan = (
   }
   return typePlanKey(left) === typePlanKey(right);
 };
+
+export const isExternalBindingArrayType = (
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "array" }> | undefined
+): boolean => type?.sourceOrigin === "external-binding";
 
 export const shouldExpandNamedAliasTarget = (
   type: LoweringTypeRefPlan
@@ -882,7 +886,7 @@ const runtimeTypeIdentityKey = (type: LoweringTypeRefPlan): string => {
     return typePlanKey({ ...type, aliasTarget: undefined });
   }
   if (type.kind === "array") {
-    return `array:${type.storage ?? (type.readonly ? "readonly" : "mutable")}:${runtimeTypeIdentityKey(type.elementType)}`;
+    return `array:${type.sourceOrigin ?? (type.readonly ? "readonly" : "mutable")}:${runtimeTypeIdentityKey(type.elementType)}`;
   }
   if (type.kind === "tuple") {
     return `tuple:${type.elements.map(runtimeTypeIdentityKey).join(",")}`;
@@ -1234,7 +1238,7 @@ export const renderCSharpType = (
     case "record":
       return `global::System.Collections.Generic.Dictionary<${renderCSharpType(type.keyType, context)}, ${renderCSharpType(type.valueType, context)}>`;
     case "array":
-      if (type.storage === "native-array") {
+      if (isExternalBindingArrayType(type)) {
         return `${renderCSharpType(type.elementType, context)}[]`;
       }
       return type.readonly

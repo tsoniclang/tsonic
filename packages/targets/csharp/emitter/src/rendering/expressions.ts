@@ -12,6 +12,7 @@ import {
   arrayTypeFromTypePlan,
   isBooleanLikeTypePlan,
   isDoubleRuntimeTypePlan,
+  isExternalBindingArrayType,
   isOpaqueRuntimeTypePlan,
   isRecursiveRuntimeArrayArm,
   isStringLikeTypePlan,
@@ -1057,11 +1058,11 @@ const renderArrayUseSiteConversion = (
     sourceArray.elementType,
     targetArray.elementType
   );
-  const needsNativeArray = targetArray.storage === "native-array";
+  const needsNativeArray = isExternalBindingArrayType(targetArray);
   const needsMutableList =
     !targetArray.readonly &&
-    targetArray.storage !== "native-array" &&
-    (sourceArray.readonly || sourceArray.storage === "native-array");
+    !isExternalBindingArrayType(targetArray) &&
+    (sourceArray.readonly || isExternalBindingArrayType(sourceArray));
   if (!needsElementConversion && !needsNativeArray && !needsMutableList) {
     return undefined;
   }
@@ -2004,10 +2005,11 @@ const renderArrayLength = (
   const receiverArrayType =
     arrayTypeFromUseSite(receiverPlan?.storageTypePlan) ??
     arrayTypeFromUseSite(useSiteTypeOverride);
-  if (receiverArrayType?.storage === "native-array") {
+  if (isExternalBindingArrayType(receiverArrayType)) {
     const receiver =
-      arrayTypeFromUseSite(receiverPlan?.storageTypePlan)?.storage ===
-      "native-array"
+      isExternalBindingArrayType(
+        arrayTypeFromUseSite(receiverPlan?.storageTypePlan)
+      )
         ? renderExpression(receiverPlan, context)
         : renderExpressionWithUseSiteCast(
             receiverPlan,
@@ -2069,10 +2071,11 @@ const renderArrayElementAccess = (
   const nativeArrayType =
     arrayTypeFromUseSite(receiverPlan?.storageTypePlan) ??
     arrayTypeFromUseSite(useSiteTypeOverride);
-  if (nativeArrayType?.storage === "native-array") {
+  if (isExternalBindingArrayType(nativeArrayType)) {
     const receiver =
-      arrayTypeFromUseSite(receiverPlan?.storageTypePlan)?.storage ===
-      "native-array"
+      isExternalBindingArrayType(
+        arrayTypeFromUseSite(receiverPlan?.storageTypePlan)
+      )
         ? renderExpression(receiverPlan, context)
         : renderExpressionWithUseSiteCast(
             receiverPlan,

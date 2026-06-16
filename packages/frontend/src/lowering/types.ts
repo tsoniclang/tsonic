@@ -138,7 +138,7 @@ export type LoweringTypeRefPlan =
       readonly kind: "array";
       readonly elementType: LoweringTypeRefPlan;
       readonly readonly: boolean;
-      readonly storage?: "native-array";
+      readonly sourceOrigin?: "external-binding";
       readonly sourceText?: string;
     }
   | {
