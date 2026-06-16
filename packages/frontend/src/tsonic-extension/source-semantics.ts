@@ -2219,13 +2219,20 @@ const projectedNamedTypeFromTypeReference = (
     typeArguments,
     declaration,
     declarationKind: sourceProjectedDeclarationKind(declaration),
-    aliasTarget: checkerTypeAliasTargetProjection(
-      context,
-      declaration,
-      typeArguments,
-      seen,
-      checkerState
-    ),
+    aliasTarget:
+      checkerTypeAliasTargetProjection(
+        context,
+        declaration,
+        typeArguments,
+        seen,
+        checkerState
+      ) ??
+      interfaceCallSignatureProjection(
+        context,
+        declaration,
+        runtimeType,
+        checkerState
+      ),
     runtimeTypeOwner: sourceRuntimeTypeOwnerFromTypeReference(
       context,
       node,
@@ -2290,6 +2297,27 @@ const checkerSignatureProjection = (
   })(),
   typeParameters: [],
 });
+
+const interfaceCallSignatureProjection = (
+  context: CheckedContext,
+  declaration: TstsNode | undefined,
+  runtimeType: TstsType | undefined,
+  state: CheckerTypeProjectionState
+): SourceBindingProjectedType | undefined => {
+  if (declaration?.Kind !== TstsSyntax.KindInterfaceDeclaration) {
+    return undefined;
+  }
+  const callSignatures = (TstsSyntax.Node_Members(declaration) ?? []).filter(
+    (member): member is TstsNode =>
+      member !== undefined && member.Kind === TstsSyntax.KindCallSignature
+  );
+  if (callSignatures.length !== 1) return undefined;
+  const signatures = context.checker.getCallSignatures(runtimeType);
+  const signature = signatures.length === 1 ? signatures[0] : undefined;
+  return signature
+    ? checkerSignatureProjection(context, signature, state)
+    : undefined;
+};
 
 const checkerTypeAliasTargetProjection = (
   context: CheckedContext,

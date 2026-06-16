@@ -899,36 +899,6 @@ const sourceTypeArgumentPlans = (
     );
 };
 
-const singleInterfaceCallSignature = (
-  declaration: TstsNode
-): TstsNode | undefined => {
-  if (declaration.Kind !== TstsSyntax.KindInterfaceDeclaration) {
-    return undefined;
-  }
-  const callSignatures = (TstsSyntax.Node_Members(declaration) ?? []).filter(
-    (member): member is TstsNode =>
-      member !== undefined && member.Kind === TstsSyntax.KindCallSignature
-  );
-  return callSignatures.length === 1 ? callSignatures[0] : undefined;
-};
-
-const interfaceCallSignatureTypePlan = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  callSignature: TstsNode,
-  state: SourceTypePlanState
-): LoweringTypeRefPlan => ({
-  kind: "function",
-  parameters: parameterPlans(sourceFile, callSignature, context, [], state),
-  returnType: sourceTypePlan(
-    context,
-    sourceFile,
-    TstsSyntax.Node_Type(callSignature),
-    state
-  ),
-  typeParameters: typeParameterNames(sourceFile, callSignature),
-});
-
 const sourceTypeAliasTargetPlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -952,9 +922,6 @@ const sourceTypeAliasTargetPlan = (
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ) ?? []
     );
-    const interfaceCallSignature = singleInterfaceCallSignature(
-      resolvedDeclaration.sourceNode
-    );
     if (state.aliasDeclarations.has(resolvedDeclaration.sourceNode)) {
       return undefined;
     }
@@ -970,20 +937,6 @@ const sourceTypeAliasTargetPlan = (
       );
       if (projectedAliasTarget) {
         return substituteTypePlan(projectedAliasTarget, substitutions);
-      }
-      if (interfaceCallSignature) {
-        return substituteTypePlan(
-          interfaceCallSignatureTypePlan(
-            context,
-            sourceFileForNode(
-              interfaceCallSignature,
-              resolvedDeclaration.sourceFile
-            ),
-            interfaceCallSignature,
-            state
-          ),
-          substitutions
-        );
       }
       return targetType
         ? substituteTypePlan(
@@ -1001,9 +954,6 @@ const sourceTypeAliasTargetPlan = (
     }
   }
   const declaration = sourceBindingFactForNode(context, node)?.declaration;
-  const interfaceCallSignature = declaration
-    ? singleInterfaceCallSignature(declaration)
-    : undefined;
   const declarationSourceFile = declaration
     ? sourceFileForNode(declaration, sourceFile)
     : sourceFile;
@@ -1013,25 +963,6 @@ const sourceTypeAliasTargetPlan = (
         sourceTypeArgumentPlans(context, sourceFile, node, state)
       )
     : new Map<string, LoweringTypeRefPlan>();
-  if (declaration && interfaceCallSignature) {
-    if (state.aliasDeclarations.has(declaration)) {
-      return undefined;
-    }
-    state.aliasDeclarations.add(declaration);
-    try {
-      return substituteTypePlan(
-        interfaceCallSignatureTypePlan(
-          context,
-          sourceFileForNode(interfaceCallSignature, sourceFile),
-          interfaceCallSignature,
-          state
-        ),
-        substitutions
-      );
-    } finally {
-      state.aliasDeclarations.delete(declaration);
-    }
-  }
   const targetType = declaration
     ? TstsSyntax.Node_Type(declaration)
     : undefined;

@@ -272,6 +272,24 @@ describe("TSTS-backed lowering plan builders", () => {
     expectSourcePrimitive(arrow.returnType, "int32");
   });
 
+  it("uses TSTS callable-interface projections for contextual arrows", () => {
+    const result = lowerProgram(`
+      import type { int } from "@tsonic/core/types.js";
+
+      interface Op { (value: int): int; }
+      export const ops: Op[] = [(value) => value];
+    `);
+
+    const arrow = firstExpression(
+      result,
+      (expression) => expression.expressionKind === "arrow-function"
+    );
+
+    expect(arrow.parameters).to.have.length(1);
+    expectSourcePrimitive(arrow.parameters[0]?.type, "int32");
+    expectSourcePrimitive(arrow.returnType, "int32");
+  });
+
   it("expands recursive aliases without recursively expanding the same target", () => {
     const result = lowerProgram(`
       type Node = { next?: Node };
