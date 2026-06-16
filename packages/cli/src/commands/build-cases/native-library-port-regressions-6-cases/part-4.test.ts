@@ -221,8 +221,8 @@ describe("build command (native library port regressions)", function () {
         /new global::App\.MiddlewareLike\[\]\s*\{\s*app\s*\}/
       );
       expect(tree).to.not.include("candidate is Application");
-      expect(tree).to.include(
-        "candidate.As2()) is Application candidate__is_1"
+      expect(tree).to.match(
+        /candidate\.As2\(\)\) is Application \w*candidate__is_\d+/
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

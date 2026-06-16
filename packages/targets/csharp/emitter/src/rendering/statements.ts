@@ -161,7 +161,7 @@ const renderInstanceofNarrowingCondition = (
     condition.right?.sourceOperation?.dispatch === "constructor"
       ? jsConstructorInstanceType(condition.right.sourceOperation.owner)
       : undefined;
-  const narrowedType = matchedArm?.arm ?? runtimeConstructorType ?? target;
+  const narrowedType = runtimeConstructorType ?? target ?? matchedArm?.arm;
   if (!narrowedType || isOpaqueRuntimeTypePlan(narrowedType)) {
     return undefined;
   }
