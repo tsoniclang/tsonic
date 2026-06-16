@@ -94,8 +94,20 @@ const nodeTokenText = (node: TstsNode | undefined): string | undefined => {
   return getTstsIdentifierText(node);
 };
 
-const nodeLiteralText = (node: TstsNode | undefined): string | undefined =>
-  node ? getTstsNodeText(node) : undefined;
+const nodeLiteralText = (node: TstsNode | undefined): string | undefined => {
+  switch (node?.Kind) {
+    case TstsSyntax.KindStringLiteral:
+      return TstsSyntax.AsStringLiteral(node)?.Text;
+    case TstsSyntax.KindNoSubstitutionTemplateLiteral:
+      return TstsSyntax.AsNoSubstitutionTemplateLiteral(node)?.Text;
+    case TstsSyntax.KindNumericLiteral:
+      return TstsSyntax.AsNumericLiteral(node)?.Text;
+    case TstsSyntax.KindBigIntLiteral:
+      return TstsSyntax.AsBigIntLiteral(node)?.Text;
+    default:
+      return undefined;
+  }
+};
 
 type NodeNameInfo = {
   readonly name?: string;
