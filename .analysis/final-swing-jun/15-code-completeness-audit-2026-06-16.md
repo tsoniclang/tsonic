@@ -107,3 +107,95 @@ rg -n "import-resolution|source-package-resolution|path-resolution|ResolvedModul
 | Final PR report | Not started after final gates |
 
 This audit signs off the code sweep phase. The next phase is full verification, then downstream verification, then branch hygiene and final report.
+
+## Post-Signoff Update: Callable Union Storage — 2026-06-16
+
+The first callable-union fixture pass after this signoff exposed one remaining backend storage/materialization gap, not a frontend semantic-analysis gap.
+
+User source:
+
+```ts
+type NextFunction = (value?: string | null | undefined) => void | Promise<void>;
+
+interface RequestHandler {
+  (req: Request, res: Response, next: NextFunction): void | Promise<void>;
+}
+
+interface ErrorRequestHandler {
+  (error: unknown, req: Request, res: Response, next: NextFunction): void | Promise<void>;
+}
+
+type MiddlewareHandler = RequestHandler | ErrorRequestHandler;
+
+function isMiddlewareHandler(handler: unknown): handler is MiddlewareHandler {
+  return typeof handler === "function";
+}
+
+async function invokeHandlers(handlers: readonly unknown[], request: Request, response: Response) {
+  for (const handler of handlers) {
+    if (!isMiddlewareHandler(handler)) continue;
+    await handler(request, response, async () => {});
+  }
+}
+```
+
+Required ownership split:
+
+| Step | Owner | Result |
+| --- | --- | --- |
+| Flow narrowing | TSTS checker | Inside the guarded branch, `handler` has a callable source type. |
+| Declared storage | Tsonic source extension | The loop variable still has declared storage from `readonly unknown[]`, so the C# value is `object?`. |
+| Runtime materialization | C# backend | Because storage is broad but TSTS proves the callable arm, the emitter casts the object to the selected named delegate before invocation. |
+
+Correct emitted shape:
+
+```cs
+foreach (var handler in handlers) {
+    if (!App.index.isMiddlewareHandler(handler)) {
+        continue;
+    }
+    await ((App.RequestHandler)(handler))(
+        request,
+        response,
+        ((App.NextFunction)(next))
+    );
+}
+```
+
+Related raw callable-storage case:
+
+```ts
+const next = async (value?: NextControl): Promise<void> => {};
+useNext(next);
+```
+
+When the source value is already callable storage such as `Func<string?, Task>`, the C# backend wraps it into the named delegate instead of casting:
+
+```cs
+new App.NextFunction(next.Invoke)
+```
+
+The fix keeps lowering/backend ownership intact:
+
+- TSTS still owns narrowing and call/generic facts.
+- The Tsonic extension now preserves declaration-site storage for unannotated declarations by asking TSTS for the non-flow declaration-site type.
+- The C# backend chooses the target materialization: cast broad object storage after TSTS narrowing, wrap raw callable storage into named delegates, and explicitly cast recursive runtime-union array arms to disambiguate generated carrier overloads.
+
+Focused validation after this update:
+
+| Command | Result |
+| --- | --- |
+| `npm test --workspace @tsonic/frontend -- --grep "Tsonic TSTS source semantics extension\|source semantic boundary"` | `43 passing / 0 failing` |
+| `npm run test:emitter -- --grep "named callable union arm\|broad storage\|array elements into a named runtime-union carrier\|runtime-union array arm\|tuple values\|object property"` | `7 passing / 0 failing` |
+| `node packages/cli/dist/index.js build --project .temp/callable-unions/packages/app --emit-only --verbose` | `Build succeeded` |
+| `npm test --workspace @tsonic/cli -- --grep "builds native-port callable unions\|builds Array push calls"` | `2 passing / 0 failing` |
+
+Updated remnant audit after this change:
+
+```sh
+rg -n "CSharp|csharp|CLR|Clr|clr|dotnet|System\.|sourceRuntimeName|runtimeNamed|targetQualifiedName|targetSurface|targetName|resolvedClr|resolvedCLR|emittedClr|emittedCLR|native-array|readonly storage\?:" packages/frontend/src -g '*.ts'
+rg -n "sourceProgram\.facts\.(set|delete)|readonly facts: ExtensionFacts|sourceProgram\.extensionHost|readonly extensionHost|withTypeChecker|getTypeAtLocation|getNarrowedTypeAtLocation|getContextualType|getResolvedSignature|getSignatureFromDeclaration|getTypeFromTypeNode|getCallSignatures|getConstructSignatures|getProperties|getTypeOfSymbolAtLocation|isTypeAssignableTo|isTypeIdenticalTo" packages/frontend/src packages/cli/src packages/targets/csharp/emitter/src -g '*.ts' -g '!packages/frontend/src/tsonic-extension/source-semantics.ts' -g '!**/*.test.ts'
+rg -n "\bIr[A-Z]|NormalizedIrModule|SoundnessValidatedIrModule|EmittableIrModule|SourceIr|source-ir|identifier-storage|selectUnionArm|SemanticType|StorageCarrier|TypeCarrier|resolvedClr|targetQualifiedName|resolvedCLR" packages/frontend/src packages/cli/src packages/targets/csharp/emitter/src -g '*.ts'
+```
+
+All three searches are clean for product violations. The only TypeScript API sweep hit outside vendored TSTS is Tsonic's own `createProgram(...)` function name in `packages/frontend/src/index.ts`, not a TypeScript compiler API call.
