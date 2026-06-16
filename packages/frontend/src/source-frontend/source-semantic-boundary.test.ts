@@ -284,6 +284,20 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("does not keep obsolete pre-TSTS import resolver entrypoints", () => {
+    const staleFiles = [
+      "resolver/import-resolution.ts",
+      "resolver/source-package-resolution.ts",
+      "resolver/path-resolution.ts",
+      "resolver/types.ts",
+    ] as const;
+    const offenders = staleFiles.filter((relativePath) =>
+      fs.existsSync(path.join(frontendSrcRoot, relativePath))
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("does not expose a TypeScript compiler program on TsonicProgram", () => {
     const programTypesPath = path.join(frontendSrcRoot, "program/types.ts");
     const text = fs.readFileSync(programTypesPath, "utf8");
