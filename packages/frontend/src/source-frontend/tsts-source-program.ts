@@ -1,7 +1,6 @@
 import type {
   CompilerExtension,
   ExtensionDiagnostic,
-  ExtensionFacts,
   ExtensionModuleGraph,
   TstsDiagnostic,
   TstsSourceFile,
@@ -17,12 +16,13 @@ import {
   createTsonicNumericPrimitiveExtension,
   createTsonicSourceSemanticsExtension,
 } from "../tsonic-extension/index.js";
+import type { SourceSemanticFacts } from "./source-facts.js";
 
 export type TstsSourceProgram = {
   readonly engine: "tsts";
   readonly sourceFiles: readonly TstsSourceFile[];
   readonly moduleGraph: ExtensionModuleGraph;
-  readonly facts: ExtensionFacts;
+  readonly facts: SourceSemanticFacts;
   readonly diagnostics: readonly ExtensionDiagnostic[];
   readonly compilerDiagnostics: readonly TstsDiagnostic[];
 };

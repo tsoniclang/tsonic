@@ -1,6 +1,5 @@
 import type {
   ExtensionExportBinding,
-  ExtensionFacts,
   ExtensionModuleGraph,
   ExtensionModuleImport,
   ExtensionSourceModule,
@@ -14,6 +13,7 @@ import type {
   NumericPrimitiveFact,
   ParameterPassingMode,
   SourceAttributeTargetSpecifier,
+  SourceSemanticFacts,
   SourceTypeSemanticsFact,
   SourceRuntimeOperationFact,
 } from "../source-frontend/source-facts.js";
@@ -25,7 +25,7 @@ export type BackendTargetId = string;
 export type LoweringInput = {
   readonly sourceProgram: TstsSourceProgram;
   readonly moduleGraph: ExtensionModuleGraph;
-  readonly facts: ExtensionFacts;
+  readonly facts: SourceSemanticFacts;
   readonly capabilities?: BackendCapabilityManifest;
 };
 

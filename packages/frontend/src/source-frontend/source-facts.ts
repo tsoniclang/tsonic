@@ -1,7 +1,16 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
-import type { ExtensionFactKeyLike, TstsNode } from "@tsonic/tsts";
+import type {
+  ExtensionFactKeyLike,
+  ExtensionFacts,
+  TstsNode,
+} from "@tsonic/tsts";
 
 export type SourceSemanticFactKey<T> = ExtensionFactKeyLike<T>;
+
+export type SourceSemanticFacts = Pick<
+  ExtensionFacts,
+  "get" | "has" | "snapshotFor"
+>;
 
 export type NumericPrimitiveKind =
   | "bool"

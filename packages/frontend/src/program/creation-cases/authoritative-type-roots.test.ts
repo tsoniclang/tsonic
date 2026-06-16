@@ -10,7 +10,6 @@ import { fileURLToPath } from "node:url";
 import {
   getTstsNodeText,
   TstsSyntax,
-  type ExtensionFacts,
   type TstsNode,
   type TstsSourceFile,
   visitTstsSubtree,
@@ -20,6 +19,7 @@ import { getProgramRuntimeSourceFiles } from "../queries.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
 import {
   sourceExpressionTypeProjectionFactKey,
+  type SourceSemanticFacts,
   type SourceBindingProjectedType,
 } from "../../source-frontend/source-facts.js";
 
@@ -55,7 +55,7 @@ const projectionSummary = (type: SourceBindingProjectedType): string => {
 
 const expressionTypeFactsByCallExpression = (
   sourceFile: TstsSourceFile,
-  facts: ExtensionFacts,
+  facts: SourceSemanticFacts,
   wantedCallees: ReadonlySet<string>
 ): ReadonlyMap<string, string> => {
   const returnTypes = new Map<string, string>();

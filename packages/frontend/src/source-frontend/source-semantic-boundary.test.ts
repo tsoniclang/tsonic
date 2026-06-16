@@ -333,6 +333,7 @@ describe("source semantic boundary", () => {
 
     expect(text).not.to.include("readonly compilerProgram");
     expect(text).not.to.include("readonly extensionHost");
+    expect(text).not.to.include("readonly facts: ExtensionFacts");
   });
 
   it("keeps source-front TSTS integration on the public TSTS API", () => {
