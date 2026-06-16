@@ -275,8 +275,9 @@ describe("build command (native library port regressions)", function () {
       expect(tree).to.not.include("localsOrCallback == null");
       expect(tree).to.not.include("callback.Match(");
       expect(tree).to.not.include("locals.Match(");
+      expect(tree).to.include("options?.sameSite");
       expect(tree).to.include(
-        "((global::Demo.RenderLike.CookieOptions)(options))?.sameSite"
+        "global::System.Object.Equals(options?.sameSite, true)"
       );
       expect(tree).to.match(/Add\(\$"SameSite=\{[^"\n]*options\.sameSite[^"\n]*\}"\)/);
       expect(tree).to.not.include('push($"SameSite={options?.sameSite}")');

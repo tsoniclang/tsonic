@@ -4,6 +4,7 @@ import type {
   LoweringParameterPlan,
   LoweringStatementPlan,
   LoweringTypeMemberPlan,
+  LoweringTypeRefPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
 import {
@@ -19,6 +20,7 @@ import {
   renderFunctionExpressionMethodDeclaration,
 } from "./expressions.js";
 import { renderFunctionBody, renderStaticField } from "./statements.js";
+import { renderStructuralTypeDeclaration } from "./structural-declarations.js";
 import {
   isTaskLikeTypePlan,
   renderCSharpType,
@@ -740,7 +742,36 @@ const renderTypeAlias = (
       : target?.kind === "named" && target.aliasTarget?.kind === "union"
         ? target.aliasTarget
         : undefined;
-  if (unionTarget) return undefined;
+  if (unionTarget) {
+    const aliasCarrier: LoweringTypeRefPlan = {
+      kind: "named",
+      name: declarationName,
+      typeArguments: (plan.typeParameters ?? []).map((typeParameter) => ({
+        kind: "named",
+        name: typeParameter,
+        typeArguments: [],
+        declarationKind: "type-parameter",
+      })),
+      typeParameters: plan.typeParameters ?? [],
+      declarationKind: "type-alias",
+      aliasTarget: unionTarget,
+      sourceText: plan.sourceText,
+    };
+    const renderedCarrier = renderStructuralTypeDeclaration(
+      aliasCarrier,
+      context,
+      {
+        declarationName: name,
+        typeReference: `${name}${renderTypeParameters(plan.typeParameters)}`,
+      }
+    );
+    if (!renderedCarrier) return undefined;
+    return withAttributes(
+      plan.attributes,
+      renderedCarrier,
+      context
+    );
+  }
   if (target?.kind === "object") {
     const hasMethods = target.members.some(
       (member) => member.kind === "method"

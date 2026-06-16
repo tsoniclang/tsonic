@@ -32,8 +32,10 @@ export type ModuleEmitResult =
 
 export type RenderContext = {
   readonly diagnostics: Diagnostic[];
+  currentNamespace?: string;
   currentReturnType?: LoweringTypeRefPlan;
   currentDefaultedParameters?: ReadonlyMap<string, string>;
+  currentIdentifierAliasTypes?: ReadonlyMap<string, LoweringTypeRefPlan>;
   currentTypeParameters?: ReadonlySet<string>;
   readonly allocateTempName: (prefix: string) => string;
   readonly getStructuralTypeName: (type: LoweringTypeRefPlan) => string;

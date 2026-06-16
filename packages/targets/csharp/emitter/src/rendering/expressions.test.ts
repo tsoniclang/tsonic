@@ -432,9 +432,7 @@ describe("C# expression renderer", () => {
       middlewareType
     );
 
-    expect(rendered).to.equal(
-      "Structural0.From1(((RequestHandler)(handler)))"
-    );
+    expect(rendered).to.equal("Structural0.From1((RequestHandler)handler)");
   });
 
   it("converts array elements into a named runtime-union carrier", () => {

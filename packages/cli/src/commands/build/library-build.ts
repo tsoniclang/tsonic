@@ -50,6 +50,7 @@ export const buildLibrary = (
         "-f",
         framework,
         "--nologo",
+        "--disable-build-servers",
         "--configfile",
         nugetConfigResult.value,
       ];
@@ -87,6 +88,7 @@ export const buildLibrary = (
       "Release",
       "--no-incremental",
       "--nologo",
+      "--disable-build-servers",
       "--configfile",
       nugetConfigResult.value,
     ];

@@ -423,6 +423,16 @@ export const renderStructuralTypeReference = (
     type.kind === "named" &&
     type.declarationKind === "type-alias" &&
     type.aliasTarget?.kind === "union" &&
+    type.sourceQualifiedName
+  ) {
+    return (
+      renderNamedRuntimeType(type, context) ?? context.getStructuralTypeName(type)
+    );
+  }
+  if (
+    type.kind === "named" &&
+    type.declarationKind === "type-alias" &&
+    type.aliasTarget?.kind === "union" &&
     (type.typeParameters?.length ?? 0) > 0 &&
     type.typeArguments.length > 0
   ) {

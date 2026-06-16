@@ -26,8 +26,10 @@ import {
   renderFunctionReturnType,
   renderRequiredCSharpType,
   renderRequiredNullableCSharpType,
+  runtimeUnionCarrierArms,
   sameRuntimeTypePlan,
   shouldEmitStructuralObjectType,
+  unwrapAliasTarget,
 } from "./types.js";
 
 const indent = (text: string, spaces: number): string => {
@@ -44,6 +46,134 @@ const unsupportedStatement = (
 ): string => {
   context.reportUnsupported("statement", plan.sourceKindName, plan.sourceText);
   return "";
+};
+
+const singleRuntimeUnionInstanceofArm = (
+  source: LoweringTypeRefPlan | undefined,
+  target: LoweringTypeRefPlan | undefined,
+  targetRuntimeOwner: string | undefined
+): { readonly index: number; readonly arm: LoweringTypeRefPlan } | undefined => {
+  if (!target && !targetRuntimeOwner) return undefined;
+  const arms = runtimeUnionCarrierArms(source);
+  const exactMatches = arms
+    .map((arm, index) =>
+      target && sameRuntimeTypePlan(arm, target)
+        ? { index: index + 1, arm }
+        : undefined
+    )
+    .filter(
+      (
+        match
+      ): match is { readonly index: number; readonly arm: LoweringTypeRefPlan } =>
+        match !== undefined
+    );
+  if (exactMatches.length === 1) return exactMatches[0];
+  const runtimeOwnerMatches: {
+    readonly index: number;
+    readonly arm: LoweringTypeRefPlan;
+  }[] = [];
+  arms.forEach((arm, index) => {
+    if (
+      targetRuntimeOwner &&
+      arm.kind === "named" &&
+      arm.sourceQualifiedName?.namespace === "js" &&
+      arm.sourceQualifiedName.name === targetRuntimeOwner
+    ) {
+      runtimeOwnerMatches.push({ index: index + 1, arm });
+    }
+  });
+  if (runtimeOwnerMatches.length === 1) return runtimeOwnerMatches[0];
+  if (target?.kind !== "named") return undefined;
+  const concreteMatches = arms
+    .map((arm, index) => ({ arm, index: index + 1 }))
+    .filter(({ arm }) => {
+      const unwrapped = unwrapAliasTarget(arm);
+      return (
+        arm.kind === "named" &&
+        unwrapped?.kind !== "function" &&
+        (arm.declarationKind === "class" ||
+          arm.declarationKind === "interface" ||
+          arm.sourceQualifiedName !== undefined ||
+        arm.externalBinding !== undefined)
+      );
+    });
+  return concreteMatches.length === 1 ? concreteMatches[0] : undefined;
+};
+
+const renderInstanceofNarrowingCondition = (
+  condition: LoweringStatementPlan["condition"],
+  context: RenderContext
+):
+  | {
+      readonly conditionText: string;
+      readonly sourceName: string;
+      readonly aliasName: string;
+      readonly aliasType: LoweringTypeRefPlan;
+    }
+  | undefined => {
+  if (
+    condition?.expressionKind !== "binary" ||
+    condition.binaryOperator !== "instanceof" ||
+    condition.left?.expressionKind !== "identifier"
+  ) {
+    return undefined;
+  }
+  const sourceName = condition.left.name ?? condition.left.literalText;
+  if (!sourceName) return undefined;
+  const target = condition.right?.storageTypePlan ?? condition.right?.type;
+  const matchedArm = singleRuntimeUnionInstanceofArm(
+    condition.left.storageTypePlan ?? condition.left.type,
+    target,
+    condition.right?.sourceOperation?.dispatch === "constructor"
+      ? condition.right.sourceOperation.owner
+      : undefined
+  );
+  if (!matchedArm) return undefined;
+  const narrowedType =
+    condition.right?.sourceOperation?.dispatch === "constructor"
+      ? matchedArm.arm
+      : target ?? matchedArm.arm;
+  const aliasName = `${sanitizeIdentifier(sourceName)}__is_1`;
+  const sourceQualifiedName =
+    narrowedType.kind === "named" ? narrowedType.sourceQualifiedName : undefined;
+  const patternType =
+    narrowedType.kind === "named" &&
+    sourceQualifiedName !== undefined &&
+    sourceQualifiedName?.namespace === context.currentNamespace &&
+    sourceQualifiedName.container === undefined
+      ? sanitizeTypeName(narrowedType.name)
+      : renderCSharpType(narrowedType, context);
+  return {
+    conditionText: `(${renderExpression(condition.left, context)}.As${matchedArm.index}()) is ${patternType} ${aliasName}`,
+    sourceName,
+    aliasName,
+    aliasType: narrowedType,
+  };
+};
+
+const renderWithIdentifierAlias = (
+  context: RenderContext,
+  sourceName: string,
+  aliasName: string,
+  aliasType: LoweringTypeRefPlan,
+  render: () => string
+): string => {
+  const previous = context.currentDefaultedParameters;
+  const previousAliasTypes = context.currentIdentifierAliasTypes;
+  context.currentDefaultedParameters = new Map([
+    ...(previous?.entries() ?? []),
+    [sourceName, aliasName],
+  ]);
+  context.currentIdentifierAliasTypes = new Map([
+    ...(previousAliasTypes?.entries() ?? []),
+    [sourceName, aliasType],
+  ]);
+  try {
+    return render();
+  } finally {
+    context.currentDefaultedParameters = previous;
+    context.currentIdentifierAliasTypes = previousAliasTypes;
+  }
 };
 
 const singleMatchingType = (
@@ -148,6 +278,21 @@ const variableDeclaredType = (
 ): string | undefined =>
   declaration.type ? renderCSharpType(declaration.type, context) : undefined;
 
+const isElementAccessInitializer = (
+  initializer: LoweringVariablePlan["initializer"]
+): boolean => {
+  switch (initializer?.expressionKind) {
+    case "element-access":
+      return true;
+    case "erased-wrapper":
+    case "non-null":
+    case "parenthesized":
+      return isElementAccessInitializer(initializer.expression);
+    default:
+      return false;
+  }
+};
+
 const variableRenderType = (
   declaration: LoweringVariablePlan,
   context: RenderContext,
@@ -172,7 +317,7 @@ const variableRenderType = (
     declaration.initializer &&
     !functionExpressionType &&
     !declaredType &&
-    !storageType
+    (!storageType || isElementAccessInitializer(declaration.initializer))
   ) {
     return "var";
   }
@@ -647,11 +792,23 @@ export const renderStatement = (
     case "variable":
       return renderVariableStatement(plan.declarations, context);
     case "if": {
-      const thenBody = renderStatement(plan.thenStatement, context);
+      const narrowing = renderInstanceofNarrowingCondition(
+        plan.condition,
+        context
+      );
+      const thenBody = narrowing
+        ? renderWithIdentifierAlias(
+            context,
+            narrowing.sourceName,
+            narrowing.aliasName,
+            narrowing.aliasType,
+            () => renderStatement(plan.thenStatement, context)
+          )
+        : renderStatement(plan.thenStatement, context);
       const elseBody = plan.elseStatement
         ? `\nelse ${renderStatement(plan.elseStatement, context)}`
         : "";
-      return `if (${renderConditionExpression(plan.condition, context)}) ${thenBody}${elseBody}`;
+      return `if (${narrowing?.conditionText ?? renderConditionExpression(plan.condition, context)}) ${thenBody}${elseBody}`;
     }
     case "while":
       return `while (${renderConditionExpression(plan.condition, context)}) ${renderStatement(plan.body, context)}`;
