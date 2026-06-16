@@ -713,6 +713,55 @@ describe("Tsonic TSTS source semantics extension", () => {
     }
   });
 
+  it("uses TSTS flow narrowing while preserving source primitive projections", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "index.ts": [
+          "import type { int } from '@tsonic/core/types.js';",
+          "export function read(value: int | string): void {",
+          "  const before = value;",
+          "  if (typeof value === 'string') {",
+          "    const text = value;",
+          "    void text;",
+          "  } else {",
+          "    const number = value;",
+          "    void number;",
+          "  }",
+          "  void before;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node || node.Kind !== TstsSyntax.KindVariableDeclaration) return;
+        const name = getTstsIdentifierText(TstsSyntax.Node_Name(node));
+        if (name !== "before" && name !== "text" && name !== "number") {
+          return;
+        }
+        const initializer = TstsSyntax.Node_Initializer(node);
+        const fact = initializer
+          ? program.sourceProgram.extensionHost.facts.get(
+              sourceExpressionTypeProjectionFactKey,
+              initializer
+            )
+          : undefined;
+        if (fact) summaries.push(`${name}: ${projectionSummary(fact.type)}`);
+      });
+
+      expect(summaries).to.deep.equal([
+        "before: int | string",
+        "text: string",
+        "number: int",
+      ]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
   it("attaches source contextual projections before plan builders consume expressions", () => {
     const program = createTstsTestProgramFromFiles(
       {

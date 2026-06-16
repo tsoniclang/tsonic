@@ -1021,7 +1021,8 @@ const declaredTypeNodeForExpression = (
     parent?.Kind === TstsSyntax.KindVariableDeclaration &&
     TstsSyntax.Node_Initializer(parent) === expression
   ) {
-    return getTstsDeclaredTypeNode(parent);
+    const declaredInitializerType = getTstsDeclaredTypeNode(parent);
+    if (declaredInitializerType) return declaredInitializerType;
   }
   if (TstsSyntax.IsIdentifier(expression)) {
     const shorthandValueSymbol =
@@ -2664,6 +2665,185 @@ const containsSourcePrimitiveProjection = (
   }
 };
 
+const sourcePrimitiveRuntimeIntrinsicName = (
+  type: SourceBindingProjectedType
+): SourceIntrinsicTypeName | undefined => {
+  if (type.kind !== "source-primitive") return undefined;
+  switch (type.fact.runtimeBase) {
+    case "boolean":
+      return "boolean";
+    case "string":
+      return "string";
+    case "number":
+    case "decimal":
+      return "number";
+    case "bigint":
+      return "bigint";
+  }
+};
+
+const projectionRuntimeIntrinsicNames = (
+  type: SourceBindingProjectedType | undefined,
+  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
+): ReadonlySet<SourceIntrinsicTypeName> => {
+  if (!type || seen.has(type)) return new Set();
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+  switch (type.kind) {
+    case "source-primitive": {
+      const intrinsic = sourcePrimitiveRuntimeIntrinsicName(type);
+      return intrinsic ? new Set([intrinsic]) : new Set();
+    }
+    case "intrinsic":
+      return new Set([type.name]);
+    case "named":
+      return projectionRuntimeIntrinsicNames(type.aliasTarget, nextSeen);
+    case "union":
+    case "intersection":
+      return new Set(
+        type.types.flatMap((member) =>
+          Array.from(projectionRuntimeIntrinsicNames(member, nextSeen))
+        )
+      );
+    case "record":
+    case "function":
+    case "array":
+    case "tuple":
+    case "object":
+    case "type-node":
+      return new Set();
+  }
+};
+
+const projectionsHaveIntersectingRuntimeIntrinsic = (
+  source: SourceBindingProjectedType,
+  checker: SourceBindingProjectedType
+): boolean => {
+  const sourceIntrinsics = projectionRuntimeIntrinsicNames(source);
+  const checkerIntrinsics = projectionRuntimeIntrinsicNames(checker);
+  if (checkerIntrinsics.has("any") || checkerIntrinsics.has("unknown")) {
+    return true;
+  }
+  for (const intrinsic of sourceIntrinsics) {
+    if (checkerIntrinsics.has(intrinsic)) return true;
+  }
+  return false;
+};
+
+const sameProjectedNamedType = (
+  source: Extract<SourceBindingProjectedType, { readonly kind: "named" }>,
+  checker: Extract<SourceBindingProjectedType, { readonly kind: "named" }>
+): boolean => {
+  if (source.declaration && checker.declaration) {
+    return source.declaration === checker.declaration;
+  }
+  return source.name === checker.name;
+};
+
+const projectedTypeSourceNode = (
+  type: SourceBindingProjectedType
+): TstsNode | undefined =>
+  type.kind === "type-node" ? type.node : type.sourceNode;
+
+const refineSourceProjectionByCheckerProjection = (
+  source: SourceBindingProjectedType,
+  checker: SourceBindingProjectedType | undefined
+): SourceBindingProjectedType | undefined => {
+  if (!checker) return source;
+  if (checker.kind === "intrinsic") {
+    if (checker.name === "any" || checker.name === "unknown") return source;
+  }
+  if (source.kind === "union") {
+    return combinedProjectedType(
+      "union",
+      source.types.map((member) =>
+        refineSourceProjectionByCheckerProjection(member, checker)
+      ),
+      projectedTypeSourceNode(source)
+    );
+  }
+  if (checker.kind === "union") {
+    return combinedProjectedType(
+      "union",
+      checker.types.map((member) =>
+        refineSourceProjectionByCheckerProjection(source, member)
+      ),
+      projectedTypeSourceNode(source)
+    );
+  }
+  if (
+    source.kind === "named" &&
+    checker.kind === "named" &&
+    sameProjectedNamedType(source, checker)
+  ) {
+    return {
+      ...source,
+      typeArguments: source.typeArguments.map(
+        (argument, index) =>
+          refineSourceProjectionByCheckerProjection(
+            argument,
+            checker.typeArguments[index]
+          ) ?? argument
+      ),
+    };
+  }
+  if (source.kind === "named" && source.aliasTarget) {
+    const refinedAliasTarget = refineSourceProjectionByCheckerProjection(
+      source.aliasTarget,
+      checker
+    );
+    if (!refinedAliasTarget) return undefined;
+    if (
+      refinedAliasTarget === source.aliasTarget &&
+      projectionsHaveIntersectingRuntimeIntrinsic(source, checker)
+    ) {
+      return source;
+    }
+    return refinedAliasTarget;
+  }
+  if (source.kind === "array" && checker.kind === "array") {
+    return {
+      ...source,
+      elementType:
+        refineSourceProjectionByCheckerProjection(
+          source.elementType,
+          checker.elementType
+        ) ?? source.elementType,
+    };
+  }
+  if (source.kind === "tuple" && checker.kind === "tuple") {
+    return {
+      ...source,
+      elements: source.elements.map(
+        (element, index) =>
+          refineSourceProjectionByCheckerProjection(
+            element,
+            checker.elements[index]
+          ) ?? element
+      ),
+    };
+  }
+  if (source.kind === "record" && checker.kind === "record") {
+    return {
+      ...source,
+      keyType:
+        refineSourceProjectionByCheckerProjection(
+          source.keyType,
+          checker.keyType
+        ) ?? source.keyType,
+      valueType:
+        refineSourceProjectionByCheckerProjection(
+          source.valueType,
+          checker.valueType
+        ) ?? source.valueType,
+    };
+  }
+  if (projectionsHaveIntersectingRuntimeIntrinsic(source, checker)) {
+    return source;
+  }
+  return undefined;
+};
+
 const isCharSourcePrimitiveProjection = (
   type: SourceBindingProjectedType | undefined
 ): boolean => type?.kind === "source-primitive" && type.fact.kind === "char";
@@ -3907,10 +4087,14 @@ const sourceExpressionTypeProjection = (
         cache,
         sourceDiagnosticRoots
       );
+      const checkerProjection = checkerExpressionProjection(context, node);
       return set(
-        containsSourcePrimitiveProjection(declared)
-          ? declared
-          : (checkerExpressionProjection(context, node) ?? declared)
+        declared && containsSourcePrimitiveProjection(declared)
+          ? (refineSourceProjectionByCheckerProjection(
+              declared,
+              checkerProjection
+            ) ?? checkerProjection)
+          : (checkerProjection ?? declared)
       );
     }
     case TstsSyntax.KindObjectLiteralExpression:
