@@ -3,7 +3,6 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  getTstsContainingSourceFileName,
   getTstsIdentifierText,
   TstsSyntax,
   type TstsNode,
@@ -100,27 +99,24 @@ describe("Program Creation – module bindings", function () {
       expect(importSpecifierName).to.not.equal(undefined);
       if (!importSpecifierName) return;
 
-      const declarationFiles = result.value.sourceProgram.withTypeChecker(
+      const importBinding = result.value.sourceProgram.moduleGraph.getImportBinding(
         sourceFile,
-        (checker) => {
-          const importSymbol = checker.getSymbolAtLocation(importSpecifierName);
-          expect(importSymbol).to.not.equal(undefined);
-          if (!importSymbol) return [];
-
-          const aliasedSymbol = checker.resolveAlias(importSymbol);
-          expect(aliasedSymbol).to.not.equal(undefined);
-          if (!aliasedSymbol) return [];
-
-          return checker
-            .getSymbolDeclarations(aliasedSymbol)
-            .map((declaration) =>
-              getTstsContainingSourceFileName(declaration)
-            )
-            .filter((fileName): fileName is string => fileName !== undefined)
-            .map((fileName) => path.resolve(fileName));
-        }
+        "readFileSync"
       );
-      expect(declarationFiles).to.include(path.resolve(packageEntry));
+      expect(importBinding).to.deep.include({
+        kind: "named",
+        localName: "readFileSync",
+        importedName: "readFileSync",
+      });
+
+      const resolvedImport =
+        result.value.sourceProgram.moduleGraph.getResolvedModule(
+          sourceFile,
+          "node:fs"
+        );
+      expect(resolvedImport?.resolvedFileName).to.equal(
+        path.resolve(packageEntry)
+      );
     } finally {
       fixture.cleanup();
     }

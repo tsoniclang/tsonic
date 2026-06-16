@@ -3,7 +3,6 @@ import type {
   ExtensionDiagnostic,
   ExtensionHost,
   ExtensionModuleGraph,
-  ExtensionTypeChecker,
   TstsDiagnostic,
   TstsSourceFile,
 } from "@tsonic/tsts";
@@ -26,10 +25,6 @@ export type TstsSourceProgram = {
   readonly extensionHost: ExtensionHost;
   readonly diagnostics: readonly ExtensionDiagnostic[];
   readonly compilerDiagnostics: readonly TstsDiagnostic[];
-  withTypeChecker<T>(
-    sourceFile: TstsSourceFile,
-    run: (checker: ExtensionTypeChecker) => T
-  ): T;
 };
 
 export type CreateTstsSourceProgramOptions = {
@@ -104,7 +99,6 @@ export const createTstsSourceProgram = (
     compilerDiagnostics: compiledSource.diagnostics.filter((diagnostic) =>
       isScopedCompilerDiagnostic(diagnosticRoots, diagnostic)
     ),
-    withTypeChecker: compiledSource.withTypeChecker,
   };
 };
 
@@ -120,8 +114,5 @@ export const createEmptyTstsSourceProgramForTests = (): TstsSourceProgram => {
     extensionHost,
     diagnostics: extensionHost.diagnostics.all(),
     compilerDiagnostics: [],
-    withTypeChecker: () => {
-      throw new Error("Empty TSTS source program has no type checker.");
-    },
   };
 };

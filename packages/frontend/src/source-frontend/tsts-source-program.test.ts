@@ -3,6 +3,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getTstsIdentifierText, visitTstsSubtree } from "@tsonic/tsts";
 import type { GoPtr, TstsNode } from "@tsonic/tsts";
+import type { SourceBindingProjectedType } from "./source-facts.js";
+import { sourceExpressionTypeProjectionFactKey } from "./source-facts.js";
 import { createTstsSourceProgram } from "./tsts-source-program.js";
 
 describe("TSTS source program", () => {
@@ -50,6 +52,17 @@ describe("TSTS source program", () => {
     return value;
   };
 
+  const summarizeProjection = (type: SourceBindingProjectedType): string => {
+    switch (type.kind) {
+      case "intrinsic":
+        return type.name;
+      case "union":
+        return type.types.map(summarizeProjection).join(" | ");
+      default:
+        return type.kind;
+    }
+  };
+
   const createProgram = (
     filePaths: readonly string[],
     options: {
@@ -82,14 +95,17 @@ describe("TSTS source program", () => {
     });
   });
 
-  it("exposes TSTS source semantic queries through the source program boundary", () => {
+  it("exposes TSTS source semantic facts through the source program boundary", () => {
     withTempSource(
       `
         export function read(value: string | number) {
+          const before = value;
           if (typeof value === "string") {
-            return value;
+            const text = value;
+            return text;
           }
-          return value;
+          const number = value;
+          return number;
         }
       `,
       (filePath) => {
@@ -103,23 +119,24 @@ describe("TSTS source program", () => {
         );
         const valueUseTypes: string[] = [];
 
-        sourceProgram.withTypeChecker(sourceFile, (checker) => {
-          for (const statement of must(
-            sourceFile.Statements,
-            "source file statements missing"
-          ).Nodes) {
-            visitTstsSubtree(statement, (node: GoPtr<TstsNode>) => {
-              if (getTstsIdentifierText(node) !== "value") {
-                return;
-              }
+        for (const statement of must(
+          sourceFile.Statements,
+          "source file statements missing"
+        ).Nodes) {
+          visitTstsSubtree(statement, (node: GoPtr<TstsNode>) => {
+            if (!node || getTstsIdentifierText(node) !== "value") {
+              return;
+            }
 
-              const type = checker.getTypeAtLocation(node);
-              if (type !== undefined) {
-                valueUseTypes.push(checker.typeToString(type));
-              }
-            });
-          }
-        });
+            const fact = sourceProgram.extensionHost.facts.get(
+              sourceExpressionTypeProjectionFactKey,
+              node
+            );
+            if (fact) {
+              valueUseTypes.push(summarizeProjection(fact.type));
+            }
+          });
+        }
 
         expect(sourceProgram.compilerDiagnostics).to.deep.equal([]);
         expect(sourceProgram.diagnostics).to.deep.equal([]);

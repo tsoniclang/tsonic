@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   getTstsNodeText,
   TstsSyntax,
+  type ExtensionFacts,
   type TstsNode,
   type TstsSourceFile,
   visitTstsSubtree,
@@ -17,6 +18,10 @@ import {
 import { createProgram } from "../creation.js";
 import { getProgramRuntimeSourceFiles } from "../queries.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
+import {
+  sourceExpressionTypeProjectionFactKey,
+  type SourceBindingProjectedType,
+} from "../../source-frontend/source-facts.js";
 
 const findSourceFile = (
   sourceFiles: readonly TstsSourceFile[],
@@ -32,6 +37,49 @@ const sourceFilePaths = (sourceFiles: readonly TstsSourceFile[]): string[] =>
 
 const expressionText = (node: TstsNode): string | undefined =>
   getTstsNodeText(node)?.trim();
+
+const projectionSummary = (type: SourceBindingProjectedType): string => {
+  switch (type.kind) {
+    case "intrinsic":
+      return type.name;
+    case "source-primitive":
+      return type.fact.sourceName;
+    case "named":
+      return type.name;
+    case "union":
+      return type.types.map(projectionSummary).join(" | ");
+    default:
+      return type.kind;
+  }
+};
+
+const expressionTypeFactsByCallExpression = (
+  sourceFile: TstsSourceFile,
+  facts: ExtensionFacts,
+  wantedCallees: ReadonlySet<string>
+): ReadonlyMap<string, string> => {
+  const returnTypes = new Map<string, string>();
+
+  visitTstsSubtree(sourceFile, (node) => {
+    if (!node || !TstsSyntax.IsCallExpression(node)) return;
+    const call = TstsSyntax.AsCallExpression(node);
+    const expression = call?.Expression;
+    if (
+      !expression ||
+      (!TstsSyntax.IsIdentifier(expression) &&
+        !TstsSyntax.IsPropertyAccessExpression(expression))
+    ) {
+      return;
+    }
+
+    const callee = expressionText(expression);
+    if (!callee || !wantedCallees.has(callee)) return;
+    const fact = facts.get(sourceExpressionTypeProjectionFactKey, node);
+    if (fact) returnTypes.set(callee, projectionSummary(fact.type));
+  });
+
+  return returnTypes;
+};
 
 describe("Program Creation – authoritative type roots", function () {
   this.timeout(90_000);
@@ -65,27 +113,11 @@ describe("Program Creation – authoritative type roots", function () {
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
-      const returnTypes = new Map<string, string>();
-
-      result.value.sourceProgram.withTypeChecker(sourceFile, (checker) => {
-        visitTstsSubtree(sourceFile, (node) => {
-          if (!node || !TstsSyntax.IsCallExpression(node)) return;
-          const call = TstsSyntax.AsCallExpression(node);
-          const expression = call?.Expression;
-          if (expression && TstsSyntax.IsPropertyAccessExpression(expression)) {
-            const callee = expressionText(expression);
-            if (callee === "path.join" || callee === "process.cwd") {
-              returnTypes.set(
-                callee,
-                checker.typeToString(
-                  checker.getNarrowedTypeAtLocation(node) ??
-                    checker.getTypeAtLocation(node)
-                )
-              );
-            }
-          }
-        });
-      });
+      const returnTypes = expressionTypeFactsByCallExpression(
+        sourceFile,
+        result.value.sourceProgram.extensionHost.facts,
+        new Set(["path.join", "process.cwd"])
+      );
 
       expect(returnTypes.get("path.join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
@@ -134,31 +166,11 @@ describe("Program Creation – authoritative type roots", function () {
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
-      const returnTypes = new Map<string, string>();
-
-      result.value.sourceProgram.withTypeChecker(sourceFile, (checker) => {
-        visitTstsSubtree(sourceFile, (node) => {
-          if (!node || !TstsSyntax.IsCallExpression(node)) return;
-          const call = TstsSyntax.AsCallExpression(node);
-          const expression = call?.Expression;
-          if (
-            expression &&
-            (TstsSyntax.IsIdentifier(expression) ||
-              TstsSyntax.IsPropertyAccessExpression(expression))
-          ) {
-            const callee = expressionText(expression);
-            if (callee === "join" || callee === "process.cwd") {
-              returnTypes.set(
-                callee,
-                checker.typeToString(
-                  checker.getNarrowedTypeAtLocation(node) ??
-                    checker.getTypeAtLocation(node)
-                )
-              );
-            }
-          }
-        });
-      });
+      const returnTypes = expressionTypeFactsByCallExpression(
+        sourceFile,
+        result.value.sourceProgram.extensionHost.facts,
+        new Set(["join", "process.cwd"])
+      );
 
       expect(returnTypes.get("join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
