@@ -386,6 +386,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
     | "undefined";
   readonly literalText?: string;
   readonly returnType?: LoweringTypeRefPlan;
+  readonly typeParameters?: readonly string[];
   readonly binaryOperator?: LoweringBinaryOperator;
   readonly unaryOperator?: LoweringUnaryOperator;
   readonly semantic?: LoweringExpressionSemantic;

@@ -26,6 +26,7 @@ import {
   renderNullableCSharpType,
   renderRequiredCSharpType,
   renderRequiredNullableCSharpType,
+  renderTypeParameters,
   runtimeUnionCarrierArms,
   runtimeUnionTarget,
   sameRuntimeTypePlan,
@@ -826,6 +827,9 @@ export const renderFunctionExpressionType = (
   ) {
     return undefined;
   }
+  if ((plan.typeParameters ?? []).length > 0) {
+    return undefined;
+  }
   const parameterTypes = plan.parameters.map((parameter) =>
     parameter.optional
       ? renderRequiredNullableCSharpType(
@@ -856,6 +860,74 @@ export const renderFunctionExpressionType = (
       : `global::System.Action<${parameterTypes.join(", ")}>`
     : `global::System.Func<${[...parameterTypes, returnType].join(", ")}>`;
 };
+
+const withTypeParameterScope = <T>(
+  context: RenderContext,
+  typeParameters: readonly string[],
+  render: () => T
+): T => {
+  if (typeParameters.length === 0) return render();
+  const previous = context.currentTypeParameters;
+  const next = new Set(previous ?? []);
+  for (const typeParameter of typeParameters) {
+    next.add(typeParameter);
+  }
+  context.currentTypeParameters = next;
+  try {
+    return render();
+  } finally {
+    context.currentTypeParameters = previous;
+  }
+};
+
+export const isFunctionExpressionPlan = (
+  plan: LoweringExpressionPlan | undefined
+): plan is LoweringExpressionPlan & {
+  readonly expressionKind: "arrow-function" | "function-expression";
+} =>
+  plan?.expressionKind === "arrow-function" ||
+  plan?.expressionKind === "function-expression";
+
+export const isGenericFunctionExpression = (
+  plan: LoweringExpressionPlan | undefined
+): boolean =>
+  isFunctionExpressionPlan(plan) && (plan.typeParameters ?? []).length > 0;
+
+export const renderFunctionExpressionMethodDeclaration = (
+  name: string,
+  plan: LoweringExpressionPlan,
+  context: RenderContext,
+  modifiers = ""
+): string =>
+  withTypeParameterScope(context, plan.typeParameters ?? [], () => {
+    const parameters = plan.parameters
+      .map((parameter) => renderLambdaParameter(parameter, context, true))
+      .join(", ");
+    const returnType = renderFunctionReturnType(
+      plan.returnType,
+      plan.async ?? false,
+      context,
+      plan.sourceKindName,
+      plan.sourceText
+    );
+    const bodyReturnType = plan.async
+      ? lambdaContextReturnType(plan)
+      : plan.returnType;
+    const body = plan.body
+      ? renderLambdaStatementBody(plan, context)
+      : isVoidLikeExpressionType(bodyReturnType, context)
+        ? renderVoidLambdaExpressionBody(plan.expression, context)
+        : [
+            "{",
+            `    return ${renderExpressionWithUseSiteCast(
+              plan.expression,
+              context,
+              bodyReturnType
+            )};`,
+            "}",
+          ].join("\n");
+    return `${modifiers}${returnType} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters ?? [])}(${parameters})\n${body}`;
+  });
 
 const lambdaBodyEndsControlFlow = (
   statement: LoweringStatementPlan | undefined
@@ -1307,9 +1379,11 @@ const runtimeUnionArmIndexForExpression = (
     return undefined;
   }
   if (arms.length === 1) return 1;
-  const expressionTypes = [plan.storageTypePlan, plan.type].filter(
-    (type): type is LoweringTypeRefPlan => type !== undefined
-  );
+  const expressionTypes = [
+    plan.contextualTypePlan,
+    plan.storageTypePlan,
+    plan.type,
+  ].filter((type): type is LoweringTypeRefPlan => type !== undefined);
   const exactIndex = singleRuntimeUnionArmIndex(arms, (arm) =>
     expressionTypes.some((type) => sameRuntimeTypePlan(type, arm))
   );
@@ -1342,6 +1416,24 @@ const runtimeUnionArmIndexForExpression = (
         (arm.kind === "literal" && arm.literalKind === "string")
     );
     if (stringIndex) return stringIndex;
+  }
+  if (
+    plan.literalKind === "number" ||
+    expressionTypes.some(
+      (type) =>
+        (type.kind === "intrinsic" && type.name === "number") ||
+        type.kind === "source-primitive" ||
+        (type.kind === "literal" && type.literalKind === "number")
+    )
+  ) {
+    const numberIndex = singleRuntimeUnionArmIndex(
+      arms,
+      (arm) =>
+        (arm.kind === "intrinsic" && arm.name === "number") ||
+        arm.kind === "source-primitive" ||
+        (arm.kind === "literal" && arm.literalKind === "number")
+    );
+    if (numberIndex) return numberIndex;
   }
   if (
     plan.expressionKind === "arrow-function" ||
@@ -2087,9 +2179,6 @@ const renderArrayLength = (
     useSiteTypeOverride ?? receiverPlan?.type,
     context
   );
-  if (receiverPlan?.expressionKind === "property-access") {
-    return `${renderExpression(receiverPlan, context)}.Count`;
-  }
   if (
     !elementTypePlan ||
     !receiverCastType ||
@@ -2097,7 +2186,7 @@ const renderArrayLength = (
   ) {
     return `global::System.Linq.Enumerable.Count(${enumerableObjectCast(renderExpression(receiverPlan, context))})`;
   }
-  return `${typedReceiver}.Count`;
+  return `global::System.Linq.Enumerable.Count(${typedReceiver})`;
 };
 
 const renderArrayElementAccess = (
@@ -2820,6 +2909,15 @@ const effectiveReceiverUseSiteType = (
   ) {
     return receiverType;
   }
+  if (
+    receiverPlan?.storageTypePlan &&
+    receiverType &&
+    !sameRuntimeTypePlan(receiverPlan.storageTypePlan, receiverType) &&
+    !runtimeUnionCarrierType(receiverPlan.storageTypePlan, context) &&
+    !runtimeUnionCarrierType(receiverType, context)
+  ) {
+    return receiverType;
+  }
   return receiverTypePlan;
 };
 
@@ -2849,8 +2947,15 @@ export const renderExpression = (
           "external binding target expression"
         );
       }
+      const sourceQualifiedNamePlan =
+        plan.resolvedAliasName && plan.sourceQualifiedName
+          ? {
+              ...plan.sourceQualifiedName,
+              name: plan.resolvedAliasName,
+            }
+          : plan.sourceQualifiedName;
       const sourceQualifiedName = renderCSharpRuntimeExpressionName(
-        plan.sourceQualifiedName
+        sourceQualifiedNamePlan
       );
       if (sourceQualifiedName) {
         return sourceQualifiedName;
@@ -2974,6 +3079,12 @@ export const renderExpression = (
           : left;
       }
       if (
+        plan.binaryOperator === "logical-and" ||
+        plan.binaryOperator === "logical-or"
+      ) {
+        return `${renderConditionExpression(plan.left, context)} ${operator} ${renderConditionExpression(plan.right, context)}`;
+      }
+      if (
         (plan.binaryOperator === "equal" ||
           plan.binaryOperator === "strict-equal" ||
           plan.binaryOperator === "not-equal" ||
@@ -3008,7 +3119,9 @@ export const renderExpression = (
         if (armIndex) {
           return `${renderExpression(plan.left, context)}.As${armIndex}() != null`;
         }
-        return `${renderExpression(plan.left, context)} ${operator} ${renderExpression(plan.right, context)}`;
+        return targetType
+          ? `${renderExpression(plan.left, context)} ${operator} ${renderCSharpType(targetType, context)}`
+          : `${renderExpression(plan.left, context)} ${operator} ${renderExpression(plan.right, context)}`;
       }
       if (plan.binaryOperator === "assign") {
         return `${renderExpression(plan.left, context)} ${operator} ${renderAssignmentValue(plan.left, plan.right, context)}`;
@@ -3050,12 +3163,8 @@ export const renderExpression = (
       return `${renderExpressionWithUseSiteCast(plan.left, context)} ${operator} ${renderExpressionWithUseSiteCast(plan.right, context)}`;
     }
     case "prefix-unary":
-      if (
-        plan.unaryOperator === "logical-not" &&
-        !isBooleanConditionType(plan.expression?.type) &&
-        needsNullishConditionCheck(plan.expression?.type)
-      ) {
-        return `${renderExpression(plan.expression, context)} == null`;
+      if (plan.unaryOperator === "logical-not") {
+        return `!(${renderConditionExpression(plan.expression, context)})`;
       }
       return `${renderUnaryOperator(plan.unaryOperator, context, plan)}${renderExpression(plan.expression, context)}`;
     case "postfix-unary":
@@ -3270,10 +3379,10 @@ export const renderExpression = (
 const isBooleanConditionType = (
   type: LoweringTypeRefPlan | undefined
 ): boolean =>
-  type === undefined ||
-  (type.kind === "intrinsic" && type.name === "boolean") ||
-  (type.kind === "source-primitive" && type.fact.kind === "bool") ||
-  (type.kind === "literal" && type.literalKind === "boolean");
+  type !== undefined &&
+  ((type.kind === "intrinsic" && type.name === "boolean") ||
+    (type.kind === "source-primitive" && type.fact.kind === "bool") ||
+    (type.kind === "literal" && type.literalKind === "boolean"));
 
 const needsNullishConditionCheck = (
   type: LoweringTypeRefPlan | undefined
@@ -3292,14 +3401,87 @@ const needsNullishConditionCheck = (
         type.name === "unknown" ||
         type.name === "object");
 
+const sourcePrimitiveUsesNumberTruthiness = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  type?.kind === "source-primitive" &&
+  (type.fact.runtimeBase === "number" || type.fact.runtimeBase === "decimal");
+
+const sourcePrimitiveUsesStringTruthiness = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  type?.kind === "source-primitive" && type.fact.runtimeBase === "string";
+
+const sourcePrimitiveUsesBigIntTruthiness = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  type?.kind === "source-primitive" && type.fact.runtimeBase === "bigint";
+
+const renderNumberTruthiness = (
+  rendered: string,
+  type: LoweringTypeRefPlan | undefined
+): string => {
+  if (
+    type?.kind === "source-primitive" &&
+    (type.fact.kind === "float32" || type.fact.kind === "float64")
+  ) {
+    const runtime = type.fact.kind === "float32" ? "float" : "double";
+    return `(${rendered}) != 0 && !${runtime}.IsNaN(${rendered})`;
+  }
+  if (type?.kind === "intrinsic" && type.name === "number") {
+    return `(${rendered}) != 0 && !double.IsNaN(${rendered})`;
+  }
+  return `(${rendered}) != 0`;
+};
+
+const renderRuntimeTruthinessSwitch = (rendered: string): string =>
+  `((object?)(${rendered})) switch { null => false, bool __truthy => __truthy, string __truthy => __truthy.Length != 0, char _ => true, sbyte __truthy => __truthy != 0, byte __truthy => __truthy != 0, short __truthy => __truthy != 0, ushort __truthy => __truthy != 0, int __truthy => __truthy != 0, uint __truthy => __truthy != 0, long __truthy => __truthy != 0, ulong __truthy => __truthy != 0, nint __truthy => __truthy != 0, nuint __truthy => __truthy != 0, float __truthy => __truthy != 0 && !float.IsNaN(__truthy), double __truthy => __truthy != 0 && !double.IsNaN(__truthy), decimal __truthy => __truthy != 0, global::System.Numerics.BigInteger __truthy => __truthy != global::System.Numerics.BigInteger.Zero, _ => true }`;
+
 export const renderConditionExpression = (
   plan: LoweringExpressionPlan | undefined,
   context: RenderContext
 ): string => {
   if (!plan) return "";
   const rendered = renderExpression(plan, context);
-  if (isBooleanConditionType(plan.type)) return rendered;
-  return needsNullishConditionCheck(plan.type)
+  const type = plan.storageTypePlan ?? plan.type;
+  if (isBooleanConditionType(type)) return rendered;
+  if (type?.kind === "literal") {
+    switch (type.literalKind) {
+      case "null":
+      case "undefined":
+        return "false";
+      case "string":
+        return `!global::System.String.IsNullOrEmpty(${rendered})`;
+      case "number":
+        return renderNumberTruthiness(rendered, type);
+      case "bigint":
+        return `(${rendered}) != global::System.Numerics.BigInteger.Zero`;
+      case "boolean":
+        return rendered;
+    }
+  }
+  if (isStringLikeTypePlan(type) || sourcePrimitiveUsesStringTruthiness(type)) {
+    return `!global::System.String.IsNullOrEmpty(${rendered})`;
+  }
+  if (
+    (type?.kind === "intrinsic" && type.name === "number") ||
+    sourcePrimitiveUsesNumberTruthiness(type)
+  ) {
+    return renderNumberTruthiness(rendered, type);
+  }
+  if (
+    (type?.kind === "intrinsic" && type.name === "bigint") ||
+    sourcePrimitiveUsesBigIntTruthiness(type)
+  ) {
+    return `(${rendered}) != global::System.Numerics.BigInteger.Zero`;
+  }
+  const carrier =
+    runtimeUnionCarrierType(plan.storageTypePlan, context) ??
+    runtimeUnionCarrierType(type, context);
+  if (carrier) {
+    return renderRuntimeTruthinessSwitch(`${rendered}.Value`);
+  }
+  return needsNullishConditionCheck(type)
     ? `${rendered} != null`
-    : rendered;
+    : renderRuntimeTruthinessSwitch(rendered);
 };

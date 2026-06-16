@@ -1531,6 +1531,7 @@ const unsupportedExpression = (
     ),
     arguments: [],
     typeArguments: [],
+    typeParameters: [],
     elements: [],
     properties: [],
     templateParts: [],
@@ -1610,6 +1611,7 @@ const expressionPlan = (
     intrinsicKind: context.input.facts.get(intrinsicSemanticsFactKey, node)
       ?.kind,
     passingMode: context.input.facts.get(parameterPassingFactKey, node)?.mode,
+    typeParameters: [] as readonly string[],
     arguments: [] as readonly LoweringExpressionPlan[],
     typeArguments: [] as readonly LoweringTypeRefPlan[],
     elements: [] as readonly LoweringExpressionPlan[],
@@ -1993,6 +1995,7 @@ const expressionPlan = (
           context,
           expectedFunction?.parameterTypes
         ),
+        typeParameters: typeParameterNames(sourceFile, node),
         async: nodeHasModifier(node, TstsSyntax.ModifierFlagsAsync),
         returnType,
         body: bodyIsStatement
@@ -2403,6 +2406,8 @@ const variablePlan = (
     genericFunctionAliasFactKey,
     node
   );
+  const genericAliasErasesVariable =
+    genericAlias !== undefined && declaredType === undefined;
   return {
     sourceNode: node,
     name: nodeName(node) ?? nodeSourceText(nameNode ?? node),
@@ -2411,7 +2416,7 @@ const variablePlan = (
     initializer: expressionPlan(sourceFile, initializerNode, context),
     bindingElements: bindingElementsFromName(sourceFile, nameNode, context),
     compileTimeOnly:
-      genericAlias !== undefined ||
+      genericAliasErasesVariable ||
       nodeOrAncestorHasModifier(node, TstsSyntax.ModifierFlagsAmbient),
     initializerReferencesDeclaration: context.input.facts.get(
       sourceInitializerReferencesDeclarationFactKey,

@@ -9,9 +9,12 @@ import type { RenderContext } from "../types.js";
 import { requiredIdentifier, sanitizeIdentifier, sanitizeTypeName } from "./names.js";
 import {
   isCompileTimeOnlyExpression,
+  isFunctionExpressionPlan,
+  isGenericFunctionExpression,
   renderConditionExpression,
   renderExpression,
   renderExpressionWithUseSiteCast,
+  renderFunctionExpressionMethodDeclaration,
   renderFunctionExpressionType,
 } from "./expressions.js";
 import {
@@ -263,6 +266,16 @@ export const renderVariableFragment = (
     context.reportUnsupported("variable fragment binding pattern", "BindingPattern", declaration.name);
     return "";
   }
+  if (
+    isFunctionExpressionPlan(declaration.initializer) &&
+    isGenericFunctionExpression(declaration.initializer)
+  ) {
+    return renderFunctionExpressionMethodDeclaration(
+      declaration.name,
+      declaration.initializer,
+      context
+    );
+  }
   const type = variableRenderType(declaration, context, "var");
   const initializer = declaration.initializer
     ? ` = ${renderExpressionWithUseSiteCast(
@@ -284,9 +297,19 @@ export const renderStaticField = (
     return "";
   }
   if (
+    isFunctionExpressionPlan(declaration.initializer) &&
+    isGenericFunctionExpression(declaration.initializer)
+  ) {
+    return renderFunctionExpressionMethodDeclaration(
+      declaration.name,
+      declaration.initializer,
+      context,
+      "public static "
+    );
+  }
+  if (
     declaration.initializer &&
-    (declaration.initializer.expressionKind === "arrow-function" ||
-      declaration.initializer.expressionKind === "function-expression") &&
+    isFunctionExpressionPlan(declaration.initializer) &&
     declaration.initializer.parameters.some(
       (parameter) => parameter.initializer !== undefined || parameter.optional
     )

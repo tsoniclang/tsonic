@@ -1041,12 +1041,11 @@ const renderUnionType = (
       (member) =>
         !isTaskLikeTypePlan(member, context) && !isVoidLikeTypePlan(member)
     );
-    if (synchronousMembers.every(isBroadIntrinsicTypePlan)) {
-      context.reportUnsupported(
-        "union task type",
-        "UnionType",
-        type.sourceText ?? "union"
-      );
+    if (
+      awaited &&
+      isBroadIntrinsicTypePlan(awaited) &&
+      synchronousMembers.every(isBroadIntrinsicTypePlan)
+    ) {
       return renderTaskReturnType(objectTypePlan, context);
     }
     if (

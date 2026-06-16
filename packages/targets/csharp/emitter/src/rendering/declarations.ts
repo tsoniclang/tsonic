@@ -12,8 +12,11 @@ import {
   sanitizeTypeName,
 } from "./names.js";
 import {
+  isFunctionExpressionPlan,
+  isGenericFunctionExpression,
   renderExpression,
   renderExpressionWithUseSiteCast,
+  renderFunctionExpressionMethodDeclaration,
 } from "./expressions.js";
 import { renderFunctionBody, renderStaticField } from "./statements.js";
 import {
@@ -773,10 +776,21 @@ const renderVariable = (
   const declarationName = requireDeclarationName(plan, context, "variable");
   if (!declarationName) return undefined;
   const initializer = plan.initializer;
+  if (isFunctionExpressionPlan(initializer) && isGenericFunctionExpression(initializer)) {
+    return withAttributes(
+      plan.attributes,
+      renderFunctionExpressionMethodDeclaration(
+        declarationName,
+        initializer,
+        context,
+        "public static "
+      ),
+      context
+    );
+  }
   if (
     initializer &&
-    (initializer.expressionKind === "arrow-function" ||
-      initializer.expressionKind === "function-expression") &&
+    isFunctionExpressionPlan(initializer) &&
     initializer.parameters.some(
       (parameter) => parameter.initializer !== undefined || parameter.optional
     )

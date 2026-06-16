@@ -297,8 +297,10 @@ const namedTypeAliasCarrierPlan = (
   return {
     kind: "named",
     name: declaration.name,
-    typeArguments: declaration.typeParameters.map(typeParameterTypePlan),
-    typeParameters: declaration.typeParameters,
+    typeArguments: (declaration.typeParameters ?? []).map(
+      typeParameterTypePlan
+    ),
+    typeParameters: declaration.typeParameters ?? [],
     aliasTarget: declaration.typeAliasTarget,
     sourceQualifiedName: {
       namespace,
