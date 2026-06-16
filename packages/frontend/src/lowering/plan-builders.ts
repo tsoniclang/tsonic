@@ -597,12 +597,11 @@ const recordTypePlanFromTypeArguments = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
   typeArguments: readonly (TstsNode | undefined)[],
-  state: SourceTypePlanState,
   sourceText?: string
 ): LoweringTypeRefPlan | undefined => {
   const [keyTypeNode, valueTypeNode] = typeArguments;
-  const keyType = sourceTypePlan(context, sourceFile, keyTypeNode, state);
-  const valueType = sourceTypePlan(context, sourceFile, valueTypeNode, state);
+  const keyType = sourceTypePlan(context, sourceFile, keyTypeNode);
+  const valueType = sourceTypePlan(context, sourceFile, valueTypeNode);
   return keyType && valueType
     ? recordTypePlan(keyType, valueType, sourceText)
     : undefined;
@@ -697,16 +696,6 @@ const namedDeclarationKindForDeclaration = (
       return undefined;
   }
 };
-
-type SourceTypePlanState = {
-  readonly aliasTargets: Set<TstsNode>;
-  readonly aliasDeclarations: Set<TstsNode>;
-};
-
-const createSourceTypePlanState = (): SourceTypePlanState => ({
-  aliasTargets: new Set<TstsNode>(),
-  aliasDeclarations: new Set<TstsNode>(),
-});
 
 type TypeSubstitutionMap = ReadonlyMap<string, LoweringTypeRefPlan>;
 
@@ -885,179 +874,10 @@ const selfTypeParameterSubstitutions = (
     typeParameters.map(typeParameterTypePlan)
   );
 
-const sourceTypeArgumentPlans = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  node: TstsNode,
-  state: SourceTypePlanState
-): readonly LoweringTypeRefPlan[] => {
-  const reference = getTstsTypeReferenceDetails(node);
-  return (reference?.typeArguments ?? [])
-    .map((argument) => sourceTypePlan(context, sourceFile, argument, state))
-    .filter(
-      (argument): argument is LoweringTypeRefPlan => argument !== undefined
-    );
-};
-
-const sourceTypeAliasTargetPlan = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  node: TstsNode,
-  state: SourceTypePlanState
-): LoweringTypeRefPlan | undefined => {
-  const typeReference = getTstsTypeReferenceDetails(node);
-  const resolvedDeclaration = typeReference
-    ? typeDeclarationBindingForNode(context, sourceFile, node)
-    : undefined;
-  if (resolvedDeclaration) {
-    const targetType = TstsSyntax.Node_Type(resolvedDeclaration.sourceNode);
-    const substitutions = aliasTypeSubstitutions(
-      typeParameterNames(
-        resolvedDeclaration.sourceFile,
-        resolvedDeclaration.sourceNode
-      ),
-      typeReference?.typeArguments
-        .map((argument) => sourceTypePlan(context, sourceFile, argument, state))
-        .filter(
-          (argument): argument is LoweringTypeRefPlan => argument !== undefined
-        ) ?? []
-    );
-    if (state.aliasDeclarations.has(resolvedDeclaration.sourceNode)) {
-      return undefined;
-    }
-    state.aliasDeclarations.add(resolvedDeclaration.sourceNode);
-    try {
-      const projectedAliasTarget = sourceBindingProjectionTypePlan(
-        context,
-        resolvedDeclaration.sourceFile,
-        context.input.facts.get(
-          sourceDeclarationTypeProjectionFactKey,
-          resolvedDeclaration.sourceNode
-        )?.returnType
-      );
-      if (projectedAliasTarget) {
-        return substituteTypePlan(projectedAliasTarget, substitutions);
-      }
-      return targetType
-        ? substituteTypePlan(
-            sourceTypePlan(
-              context,
-              sourceFileForNode(targetType, resolvedDeclaration.sourceFile),
-              targetType,
-              state
-            ),
-            substitutions
-          )
-        : undefined;
-    } finally {
-      state.aliasDeclarations.delete(resolvedDeclaration.sourceNode);
-    }
-  }
-  const declaration = sourceBindingFactForNode(context, node)?.declaration;
-  const declarationSourceFile = declaration
-    ? sourceFileForNode(declaration, sourceFile)
-    : sourceFile;
-  const substitutions = declaration
-    ? aliasTypeSubstitutions(
-        typeParameterNames(declarationSourceFile, declaration),
-        sourceTypeArgumentPlans(context, sourceFile, node, state)
-      )
-    : new Map<string, LoweringTypeRefPlan>();
-  const targetType = declaration
-    ? TstsSyntax.Node_Type(declaration)
-    : undefined;
-  if (
-    !declaration ||
-    !targetType ||
-    targetType === node ||
-    state.aliasTargets.has(targetType)
-  ) {
-    return undefined;
-  }
-  if (state.aliasDeclarations.has(declaration)) {
-    return undefined;
-  }
-  state.aliasTargets.add(targetType);
-  state.aliasDeclarations.add(declaration);
-  try {
-    return substituteTypePlan(
-      sourceTypePlan(
-        context,
-        sourceFileForNode(targetType, sourceFile),
-        targetType,
-        state
-      ),
-      substitutions
-    );
-  } finally {
-    state.aliasTargets.delete(targetType);
-    state.aliasDeclarations.delete(declaration);
-  }
-};
-
-const sourceTypeAliasDeclarationTargetPlan = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  node: TstsNode | undefined
-): LoweringTypeRefPlan | undefined => {
-  if (!node) return undefined;
-  const typeReference = getTstsTypeReferenceDetails(node);
-  if (!typeReference) return sourceTypePlan(context, sourceFile, node);
-  const typeName = typeReference.name;
-  const bindingFact = sourceBindingFactForNode(context, node);
-  const declaration = typeDeclarationBindingForDeclaration(
-    bindingFact?.declaration,
-    sourceFile
-  );
-  const sourceQualifiedName =
-    sourceQualifiedNameForSourceBindingNode(context, node, "type") ??
-    sourceQualifiedNameForDeclaration(
-      context,
-      bindingFact?.declaration,
-      typeName,
-      "type"
-    );
-  const state = createSourceTypePlanState();
-  if (hasSourceDictionaryFactForNode(context, node)) {
-    return (
-      recordTypePlanFromTypeArguments(
-        context,
-        sourceFile,
-        typeReference.typeArguments,
-        state,
-        compactNodeSourceText(node)
-      ) ?? unsupportedTypePlan(node)
-    );
-  }
-  return {
-    kind: "named",
-    name: typeName,
-    typeArguments: typeReference.typeArguments
-      .map((argument) => sourceTypePlan(context, sourceFile, argument))
-      .filter(
-        (argument): argument is LoweringTypeRefPlan => argument !== undefined
-      ),
-    aliasTarget: sourceTypeAliasTargetPlan(context, sourceFile, node, state),
-    sourceQualifiedName,
-    externalBinding:
-      externalBindingForSourceBindingNode(context, node) ??
-      externalBindingForDeclaration(bindingFact?.declaration, typeName),
-    runtimeVisibility:
-      sourceRuntimeVisibilityForNode(context, node) ??
-      sourceRuntimeVisibilityForDeclaration(context, bindingFact?.declaration),
-    declaration,
-    declarationKind: namedDeclarationKindForDeclaration(
-      bindingFact?.declaration
-    ),
-    sourceText: compactNodeSourceText(node),
-  };
-};
-
 const sourceTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
-  node: TstsNode | undefined,
-  state: SourceTypePlanState = createSourceTypePlanState()
+  node: TstsNode | undefined
 ): LoweringTypeRefPlan | undefined => {
   if (!node) return undefined;
   const sourceText = compactNodeSourceText(node);
@@ -1082,7 +902,6 @@ const sourceTypePlan = (
           context,
           sourceFile,
           typeReference.typeArguments,
-          state,
           sourceText
         ) ?? unsupportedTypePlan(node)
       );
@@ -1097,12 +916,6 @@ const sourceTypePlan = (
       projectedType
     );
     if (projectedPlan) return projectedPlan;
-    const aliasTarget = sourceTypeAliasTargetPlan(
-      context,
-      sourceFile,
-      node,
-      state
-    );
     const typeName = typeReference.name;
     const bindingFact = sourceBindingFactForNode(context, node);
     const sourceQualifiedName =
@@ -1121,11 +934,10 @@ const sourceTypePlan = (
       kind: "named",
       name: typeName,
       typeArguments: typeReference.typeArguments
-        .map((argument) => sourceTypePlan(context, sourceFile, argument, state))
+        .map((argument) => sourceTypePlan(context, sourceFile, argument))
         .filter(
           (argument): argument is LoweringTypeRefPlan => argument !== undefined
         ),
-      aliasTarget,
       sourceQualifiedName,
       externalBinding:
         externalBindingForSourceBindingNode(context, node) ??
@@ -1150,8 +962,7 @@ const sourceTypePlan = (
       const element = sourceTypePlan(
         context,
         sourceFile,
-        arrayType?.ElementType,
-        state
+        arrayType?.ElementType
       );
       return element
         ? {
@@ -1168,7 +979,7 @@ const sourceTypePlan = (
       return {
         kind: "tuple",
         elements: nodeListNodes(tupleType?.Elements)
-          .map((element) => sourceTypePlan(context, sourceFile, element, state))
+          .map((element) => sourceTypePlan(context, sourceFile, element))
           .filter(
             (element): element is LoweringTypeRefPlan => element !== undefined
           ),
@@ -1181,7 +992,7 @@ const sourceTypePlan = (
       return {
         kind: "union",
         types: nodeListNodes(unionType?.Types)
-          .map((part) => sourceTypePlan(context, sourceFile, part, state))
+          .map((part) => sourceTypePlan(context, sourceFile, part))
           .filter((part): part is LoweringTypeRefPlan => part !== undefined),
         sourceText,
       };
@@ -1191,7 +1002,7 @@ const sourceTypePlan = (
       return {
         kind: "intersection",
         types: nodeListNodes(intersectionType?.Types)
-          .map((part) => sourceTypePlan(context, sourceFile, part, state))
+          .map((part) => sourceTypePlan(context, sourceFile, part))
           .filter((part): part is LoweringTypeRefPlan => part !== undefined),
         sourceText,
       };
@@ -1199,7 +1010,7 @@ const sourceTypePlan = (
     case TstsSyntax.KindParenthesizedType: {
       const parenthesized = TstsSyntax.AsParenthesizedTypeNode(node);
       return (
-        sourceTypePlan(context, sourceFile, parenthesized?.Type, state) ??
+        sourceTypePlan(context, sourceFile, parenthesized?.Type) ??
         unsupportedTypePlan(node)
       );
     }
@@ -1208,8 +1019,7 @@ const sourceTypePlan = (
       const inner = sourceTypePlan(
         context,
         sourceFile,
-        typeOperator?.Type,
-        state
+        typeOperator?.Type
       );
       if (!inner) return unsupportedTypePlan(node);
       if (typeOperator?.Operator !== TstsSyntax.KindReadonlyKeyword)
@@ -1245,7 +1055,7 @@ const sourceTypePlan = (
         name,
         typeArguments: nodeArrayNodes(TstsSyntax.Node_TypeArguments(node))
           .map((argument) =>
-            sourceTypePlan(context, sourceFile, argument, state)
+            sourceTypePlan(context, sourceFile, argument)
           )
           .filter(
             (argument): argument is LoweringTypeRefPlan =>
@@ -1262,12 +1072,11 @@ const sourceTypePlan = (
     case TstsSyntax.KindConstructorType:
       return {
         kind: "function",
-        parameters: parameterPlans(sourceFile, node, context, [], state),
+        parameters: parameterPlans(sourceFile, node, context, []),
         returnType: sourceTypePlan(
           context,
           sourceFile,
-          TstsSyntax.Node_Type(node),
-          state
+          TstsSyntax.Node_Type(node)
         ),
         typeParameters: typeParameterNames(sourceFile, node),
         sourceText,
@@ -1277,7 +1086,7 @@ const sourceTypePlan = (
         kind: "object",
         members: (TstsSyntax.Node_Members(node) ?? [])
           .filter((member): member is TstsNode => member !== undefined)
-          .map((member) => typeMemberPlan(sourceFile, member, context, state))
+          .map((member) => typeMemberPlan(sourceFile, member, context))
           .filter(
             (member): member is LoweringTypeMemberPlan => member !== undefined
           ),
@@ -1289,8 +1098,7 @@ const sourceTypePlan = (
         assertedType: sourceTypePlan(
           context,
           sourceFile,
-          TstsSyntax.Node_Type(node),
-          state
+          TstsSyntax.Node_Type(node)
         ),
         sourceText,
       };
@@ -1389,19 +1197,17 @@ const sourceTypePlan = (
 const typeMemberPlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
-  context: LoweringBuildContext,
-  state: SourceTypePlanState = createSourceTypePlanState()
+  context: LoweringBuildContext
 ): LoweringTypeMemberPlan | undefined => {
   if (node.Kind === TstsSyntax.KindIndexSignature) {
-    const [parameter] = parameterPlans(sourceFile, node, context, [], state);
+    const [parameter] = parameterPlans(sourceFile, node, context, []);
     return {
       kind: "index-signature",
       keyType: parameter?.type,
       valueType: sourceTypePlan(
         context,
         sourceFile,
-        TstsSyntax.Node_Type(node),
-        state
+        TstsSyntax.Node_Type(node)
       ),
     };
   }
@@ -1418,8 +1224,7 @@ const typeMemberPlan = (
         type: sourceTypePlan(
           context,
           sourceFile,
-          TstsSyntax.Node_Type(node),
-          state
+          TstsSyntax.Node_Type(node)
         ),
       };
     case TstsSyntax.KindMethodSignature:
@@ -1428,12 +1233,11 @@ const typeMemberPlan = (
         kind: "method",
         name: name.name,
         optional: TstsSyntax.Node_QuestionToken(node) !== undefined,
-        parameters: parameterPlans(sourceFile, node, context, [], state),
+        parameters: parameterPlans(sourceFile, node, context, []),
         returnType: sourceTypePlan(
           context,
           sourceFile,
-          TstsSyntax.Node_Type(node),
-          state
+          TstsSyntax.Node_Type(node)
         ),
         typeParameters: typeParameterNames(sourceFile, node),
       };
@@ -2940,8 +2744,7 @@ const parameterPlans = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
   context: LoweringBuildContext,
-  expectedParameterTypes: readonly (LoweringTypeRefPlan | undefined)[] = [],
-  sourceTypeState: SourceTypePlanState = createSourceTypePlanState()
+  expectedParameterTypes: readonly (LoweringTypeRefPlan | undefined)[] = []
 ): readonly LoweringParameterPlan[] =>
   (TstsSyntax.Node_Parameters(node) ?? [])
     .filter((parameter): parameter is TstsNode => parameter !== undefined)
@@ -2954,8 +2757,7 @@ const parameterPlans = (
       const explicitTypePlan = sourceTypePlan(
         context,
         sourceFile,
-        explicitType,
-        sourceTypeState
+        explicitType
       );
       const declarationTypePlan = sourceBindingProjectionTypePlan(
         context,
@@ -3124,15 +2926,7 @@ const declarationPlan = (
       : undefined;
   const typeAliasTarget =
     kind === "type-alias"
-      ? substituteTypePlan(
-          projectedTypeAliasTarget ??
-            sourceTypeAliasDeclarationTargetPlan(
-              context,
-              sourceFile,
-              explicitReturnType
-            ),
-          ownTypeParameterSubstitutions
-        )
+      ? substituteTypePlan(projectedTypeAliasTarget, ownTypeParameterSubstitutions)
       : undefined;
   const projectedReturnType =
     sourceBindingProjectionTypePlan(
