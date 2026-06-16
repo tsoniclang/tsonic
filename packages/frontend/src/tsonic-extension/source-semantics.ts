@@ -16,7 +16,6 @@ import {
   getTstsHeritageTypeNodes,
   getTstsIdentifierText,
   getTstsNodeNameText,
-  getTstsNodeText,
   getTstsParameters,
   getTstsTypeParameterNodes,
   getTstsTypeArguments,
@@ -1250,6 +1249,18 @@ const bindingPatternPropertyName = (
   nameNode: TstsNode | undefined
 ): string | undefined => sourcePropertyNameText(propertyName ?? nameNode);
 
+const projectedNodeIds = new WeakMap<TstsNode, number>();
+let nextProjectedNodeId = 1;
+
+const projectedNodeKey = (node: TstsNode): string => {
+  const existing = projectedNodeIds.get(node);
+  if (existing !== undefined) return `node:${existing}`;
+  const id = nextProjectedNodeId;
+  nextProjectedNodeId += 1;
+  projectedNodeIds.set(node, id);
+  return `node:${id}`;
+};
+
 const projectedTypeKey = (
   type: SourceBindingProjectedType,
   seen: ReadonlySet<SourceBindingProjectedType> = new Set()
@@ -1259,7 +1270,7 @@ const projectedTypeKey = (
   nextSeen.add(type);
   switch (type.kind) {
     case "type-node":
-      return `node:${type.node.Kind}:${getTstsNodeText(type.node) ?? getTstsNodeNameText(type.node) ?? ""}`;
+      return projectedNodeKey(type.node);
     case "intrinsic":
       return `intrinsic:${type.name}`;
     case "source-primitive":
