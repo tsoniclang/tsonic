@@ -163,6 +163,61 @@ describe("discoverProgramInputs", () => {
     }
   });
 
+  it("rejects malformed active core declaration packages", () => {
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/rootdir-external"
+    );
+
+    try {
+      const projectRoot = fixture.path("app");
+      const sourceRoot = fixture.path("app/src");
+      const entryFile = fixture.path("app/src/index.ts");
+      const coreRoot = fixture.path("app/node_modules/@tsonic/core");
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.mkdirSync(coreRoot, { recursive: true });
+      fs.writeFileSync(entryFile, "export const app = true;\n");
+      fs.writeFileSync(
+        path.join(coreRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/core", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "App",
+        },
+        {
+          requiredTypeRoots: [],
+          resolvedModes: ["core"],
+        }
+      );
+
+      expect(
+        discovery.diagnostics.map((diagnostic) => diagnostic.message)
+      ).to.deep.equal([
+        "Active @tsonic/core package is missing required source declaration files.",
+      ]);
+      expect(discovery.diagnostics[0]?.severity).to.equal("fatal");
+      expect(discovery.diagnostics[0]?.hint).to.equal(
+        `Missing files:\n${path.join(coreRoot, "types.d.ts")}\n${path.join(
+          coreRoot,
+          "lang.d.ts"
+        )}`
+      );
+      expect(discovery.moduleResolutionPaths).to.not.have.property(
+        "@tsonic/core/types.js"
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("includes symlinked source package files directly", () => {
     const fixture = materializeFrontendFixture(
       "program/program-input-discovery/rootdir-symlink"

@@ -293,20 +293,63 @@ const addModuleResolutionPath = (
   }
 };
 
+const corePackageRootExists = (packageRoot: string): boolean =>
+  fs.existsSync(path.join(packageRoot, "package.json"));
+
+const activeCorePackageRoot = (
+  projectRoot: string,
+  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
+): string | undefined => {
+  const authoritativeRoot = authoritativeTsonicPackageRoots.get(
+    CORE_PACKAGE_NAME
+  );
+  if (authoritativeRoot !== undefined) return authoritativeRoot;
+
+  const projectCoreRoot = path.join(
+    projectRoot,
+    "node_modules",
+    "@tsonic",
+    "core"
+  );
+  return corePackageRootExists(projectCoreRoot) ? projectCoreRoot : undefined;
+};
+
+const addMissingCoreDeclarationDiagnostic = (
+  diagnostics: Diagnostic[],
+  coreRoot: string
+): boolean => {
+  const requiredFiles = [
+    path.join(coreRoot, coreDeclarationFileBaseName("types")),
+    path.join(coreRoot, coreDeclarationFileBaseName("lang")),
+  ];
+  const missingFiles = requiredFiles.filter((filePath) => !fs.existsSync(filePath));
+  if (missingFiles.length === 0) return false;
+  diagnostics.push(
+    createDiagnostic(
+      "TSN1004",
+      "fatal",
+      "Active @tsonic/core package is missing required source declaration files.",
+      undefined,
+      `Missing files:\n${missingFiles.join("\n")}`
+    )
+  );
+  return true;
+};
+
 const addCoreModuleResolutionPaths = (
   paths: Map<string, string>,
   diagnostics: Diagnostic[],
   projectRoot: string,
   authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
 ): void => {
-  const packageRoots = [
-    authoritativeTsonicPackageRoots.get(CORE_PACKAGE_NAME),
-    path.join(projectRoot, "node_modules", "@tsonic", "core"),
-  ].filter((root): root is string => root !== undefined);
-  const coreRoot = packageRoots.find((root) =>
-    fs.existsSync(path.join(root, coreDeclarationFileBaseName("types")))
+  const coreRoot = activeCorePackageRoot(
+    projectRoot,
+    authoritativeTsonicPackageRoots
   );
   if (!coreRoot) {
+    return;
+  }
+  if (addMissingCoreDeclarationDiagnostic(diagnostics, coreRoot)) {
     return;
   }
 

@@ -106,37 +106,64 @@ const findCaseMismatchPath = (
   return undefined;
 };
 
+const corePackageRootExists = (packageRoot: string): boolean =>
+  fs.existsSync(path.join(packageRoot, "package.json"));
+
+const activeCorePackageRootForImport = (
+  containingFile: string,
+  opts: ResolveImportOptions
+): string | undefined => {
+  const authoritativeRoot =
+    opts.authoritativeTsonicPackageRoots.get(CORE_PACKAGE_NAME);
+  if (authoritativeRoot !== undefined) return authoritativeRoot;
+
+  const projectCoreRoot = path.join(
+    opts.projectRoot,
+    "node_modules",
+    "@tsonic",
+    "core"
+  );
+  if (corePackageRootExists(projectCoreRoot)) return projectCoreRoot;
+
+  return findInstalledPackageRoot(CORE_PACKAGE_NAME, containingFile);
+};
+
 const resolveCoreDeclarationPath = (
   importSpecifier: string,
   containingFile: string,
   opts: ResolveImportOptions
-): string | undefined => {
+): Result<string | undefined, Diagnostic> => {
   const module = CORE_TYPES_MODULE_SPECIFIERS.has(importSpecifier)
     ? "types"
     : CORE_LANG_MODULE_SPECIFIERS.has(importSpecifier)
       ? "lang"
       : undefined;
   if (!module) {
-    return undefined;
+    return ok(undefined);
   }
 
-  const packageRoots = [
-    opts.authoritativeTsonicPackageRoots.get(CORE_PACKAGE_NAME),
-    path.join(opts.projectRoot, "node_modules", "@tsonic", "core"),
-    findInstalledPackageRoot(CORE_PACKAGE_NAME, containingFile),
-  ].filter((root): root is string => root !== undefined);
-
-  for (const packageRoot of packageRoots) {
-    const declarationPath = path.join(
-      packageRoot,
-      coreDeclarationFileBaseName(module)
-    );
-    if (fs.existsSync(declarationPath)) {
-      return declarationPath;
-    }
+  const packageRoot = activeCorePackageRootForImport(containingFile, opts);
+  if (packageRoot === undefined) {
+    return ok(undefined);
   }
 
-  return undefined;
+  const declarationPath = path.join(
+    packageRoot,
+    coreDeclarationFileBaseName(module)
+  );
+  if (fs.existsSync(declarationPath)) {
+    return ok(declarationPath);
+  }
+
+  return error(
+    createDiagnostic(
+      "TSN1004",
+      "error",
+      `Active @tsonic/core package is missing required source declaration for "${importSpecifier}".`,
+      undefined,
+      declarationPath
+    )
+  );
 };
 
 /**
@@ -168,11 +195,13 @@ export const resolveImport = (
     CORE_TYPES_MODULE_SPECIFIERS.has(importSpecifier) ||
     CORE_LANG_MODULE_SPECIFIERS.has(importSpecifier)
   ) {
-    const resolvedPath = resolveCoreDeclarationPath(
+    const resolvedCoreDeclaration = resolveCoreDeclarationPath(
       importSpecifier,
       containingFile,
       opts
     );
+    if (!resolvedCoreDeclaration.ok) return resolvedCoreDeclaration;
+    const resolvedPath = resolvedCoreDeclaration.value;
     if (resolvedPath === undefined) {
       return error(
         createDiagnostic(
