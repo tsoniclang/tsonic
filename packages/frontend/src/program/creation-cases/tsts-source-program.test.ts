@@ -29,7 +29,7 @@ const createTempProgram = (
   readonly globalsRoot: string;
   readonly cleanup: () => void;
 } => {
-  const tempRoot = path.join(process.cwd(), ".temp", "source-frontend-engine");
+  const tempRoot = path.join(process.cwd(), ".temp", "tsts-program-creation");
   fs.mkdirSync(tempRoot, { recursive: true });
   const projectRoot = fs.mkdtempSync(path.join(tempRoot, "case-"));
   const sourceRoot = path.join(projectRoot, "src");
@@ -46,8 +46,8 @@ const createTempProgram = (
   };
 };
 
-describe("Program Creation – source frontend engine", () => {
-  it("builds a TSTS source program by default", () => {
+describe("Program Creation – TSTS source program", () => {
+  it("builds a TSTS source program directly", () => {
     const fixture = createTempProgram();
     try {
       const result = createProgram([fixture.entryPath], {

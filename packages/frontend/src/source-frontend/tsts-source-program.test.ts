@@ -3,14 +3,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getTstsIdentifierText, visitTstsSubtree } from "@tsonic/tsts";
 import type { GoPtr, TstsNode } from "@tsonic/tsts";
-import { createTstsSourceFrontend } from "./tsts-source-frontend.js";
+import { createTstsSourceProgram } from "./tsts-source-program.js";
 
-describe("TSTS source frontend", () => {
+describe("TSTS source program", () => {
   const withTempSource = (
     sourceText: string,
     run: (filePath: string) => void
   ): void => {
-    const tempRoot = path.join(process.cwd(), ".temp", "tsts-source-frontend");
+    const tempRoot = path.join(process.cwd(), ".temp", "tsts-source-program");
     fs.mkdirSync(tempRoot, { recursive: true });
     const sourceRoot = fs.mkdtempSync(path.join(tempRoot, "case-"));
     const filePath = path.join(sourceRoot, "index.ts");
@@ -26,7 +26,7 @@ describe("TSTS source frontend", () => {
     files: Readonly<Record<string, string>>,
     run: (projectRoot: string, filePaths: Readonly<Record<string, string>>) => void
   ): void => {
-    const tempRoot = path.join(process.cwd(), ".temp", "tsts-source-frontend");
+    const tempRoot = path.join(process.cwd(), ".temp", "tsts-source-program");
     fs.mkdirSync(tempRoot, { recursive: true });
     const projectRoot = fs.mkdtempSync(path.join(tempRoot, "case-"));
     const filePaths: Record<string, string> = {};
@@ -50,12 +50,26 @@ describe("TSTS source frontend", () => {
     return value;
   };
 
-  it("creates a TSTS source program through the source frontend boundary", () => {
+  const createProgram = (
+    filePaths: readonly string[],
+    options: {
+      readonly projectRoot: string;
+      readonly moduleResolutionPaths?: Readonly<
+        Record<string, readonly string[]>
+      >;
+      readonly sourceDiagnosticRoots: readonly string[];
+    }
+  ) =>
+    createTstsSourceProgram(filePaths, {
+      projectRoot: options.projectRoot,
+      moduleResolutionPaths: options.moduleResolutionPaths ?? {},
+      sourceDiagnosticRoots: options.sourceDiagnosticRoots,
+    });
+
+  it("creates a TSTS source program through the only source boundary", () => {
     withTempSource("export const answer: number = 42;\n", (filePath) => {
-      const frontend = createTstsSourceFrontend();
-      const sourceProgram = frontend.createProgram([filePath], {
+      const sourceProgram = createProgram([filePath], {
         projectRoot: path.dirname(filePath),
-        moduleResolutionPaths: {},
         sourceDiagnosticRoots: [path.dirname(filePath)],
       });
 
@@ -79,10 +93,8 @@ describe("TSTS source frontend", () => {
         }
       `,
       (filePath) => {
-        const frontend = createTstsSourceFrontend();
-        const sourceProgram = frontend.createProgram([filePath], {
+        const sourceProgram = createProgram([filePath], {
           projectRoot: path.dirname(filePath),
-          moduleResolutionPaths: {},
           sourceDiagnosticRoots: [path.dirname(filePath)],
         });
         const sourceFile = must(
@@ -127,10 +139,8 @@ describe("TSTS source frontend", () => {
       (projectRoot, filePaths) => {
         const indexFile = must(filePaths["index.ts"], "index.ts missing");
         const depFile = must(filePaths["dep.ts"], "dep.ts missing");
-        const frontend = createTstsSourceFrontend();
-        const program = frontend.createProgram([indexFile, depFile], {
+        const program = createProgram([indexFile, depFile], {
           projectRoot,
-          moduleResolutionPaths: {},
           sourceDiagnosticRoots: [projectRoot],
         });
 
@@ -152,10 +162,8 @@ describe("TSTS source frontend", () => {
           filePaths["support/support.ts"],
           "support.ts missing"
         );
-        const frontend = createTstsSourceFrontend();
-        const program = frontend.createProgram([indexFile, supportFile], {
+        const program = createProgram([indexFile, supportFile], {
           projectRoot,
-          moduleResolutionPaths: {},
           sourceDiagnosticRoots: [path.join(projectRoot, "src")],
         });
 

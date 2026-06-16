@@ -1,8 +1,3 @@
-export type {
-  SourceFrontend,
-  SourceFrontendEngine,
-  SourceProgramBuildOptions,
-} from "./source-frontend.js";
 export {
   extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,
@@ -81,7 +76,6 @@ export type {
   SourceCallSitePassingModifier,
   SourceParameterPassingMode,
 } from "./source-fact-queries.js";
-export { createTstsSourceFrontend } from "./tsts-source-frontend.js";
 export {
   createEmptyTstsSourceProgramForTests,
   createTstsSourceProgram,
