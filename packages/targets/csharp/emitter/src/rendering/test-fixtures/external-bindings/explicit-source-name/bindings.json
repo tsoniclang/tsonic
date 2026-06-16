@@ -11,6 +11,19 @@
         "methods": [],
         "properties": [],
         "fields": []
+      },
+      {
+        "targetName": "Provider.Runtime.SourceNamedBase",
+        "sourceName": "ExternalSourceNamedBase",
+        "methods": [
+          {
+            "targetName": "Render",
+            "parameterCount": 1,
+            "visibility": "Family"
+          }
+        ],
+        "properties": [],
+        "fields": []
       }
     ]
   }

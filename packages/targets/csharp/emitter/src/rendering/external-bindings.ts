@@ -3,12 +3,18 @@ import { join, resolve } from "node:path";
 import type {
   Diagnostic,
   LoweringExternalBindingReferencePlan,
-  LoweringDeclarationPlan,
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
-import { sourceQualifiedNameKey } from "./types.js";
 
 export type ExternalMemberAccessibility = "public" | "protected" | "private";
+
+type ExternalOverrideMemberPlan = {
+  readonly declarationKind: "method" | "property" | string;
+  readonly name?: string;
+  readonly parameters: readonly unknown[];
+  readonly override: boolean;
+  readonly accessibilityExplicit: boolean;
+};
 
 type ExternalMemberMetadata = {
   readonly name: string;
@@ -33,7 +39,7 @@ export type ExternalBindingMetadataIndex = {
   ) => string | undefined;
   readonly resolveOverrideAccessibility: (
     heritageTypes: readonly LoweringTypeRefPlan[],
-    member: LoweringDeclarationPlan
+    member: ExternalOverrideMemberPlan
   ) => ExternalMemberAccessibility | undefined;
 };
 
@@ -189,10 +195,6 @@ const resolveHeritageOwnerNames = (
     const targetName = resolveTargetName(type.externalBinding);
     return targetName ? [normalizeRuntimeName(targetName)] : [];
   }
-  const sourceQualifiedName = sourceQualifiedNameKey(type.sourceQualifiedName);
-  if (sourceQualifiedName) {
-    return [normalizeRuntimeName(sourceQualifiedName)];
-  }
   return [];
 };
 
@@ -206,7 +208,7 @@ const resolveCommonAccessibility = (
 };
 
 const memberKind = (
-  member: LoweringDeclarationPlan
+  member: ExternalOverrideMemberPlan
 ): "method" | "property" | undefined => {
   switch (member.declarationKind) {
     case "method":
@@ -271,7 +273,7 @@ export const createExternalBindingMetadataIndex = (
 
   const findMemberAccessibility = (
     ownerQualifiedName: string,
-    member: LoweringDeclarationPlan,
+    member: ExternalOverrideMemberPlan,
     seen: ReadonlySet<string> = new Set()
   ): ExternalMemberAccessibility | undefined => {
     if (seen.has(ownerQualifiedName)) return undefined;
