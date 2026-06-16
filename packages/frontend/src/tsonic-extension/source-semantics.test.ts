@@ -626,6 +626,7 @@ describe("Tsonic TSTS source semantics extension", () => {
           "import type { int } from '@tsonic/core/types.js';",
           "type Same = { value: int } | { value: int };",
           "type Different = { value: int } | { value: string };",
+          "type LiteralKeys = { value: int; 0: string };",
           "export function readSame(input: Same): int {",
           "  const { value } = input;",
           "  return value;",
@@ -634,6 +635,12 @@ describe("Tsonic TSTS source semantics extension", () => {
           "  const { value } = input;",
           "  void value;",
           "}",
+          "export function readLiteral(input: LiteralKeys): void {",
+          "  const { 'value': literal, 0: zero, ['value']: computed } = input;",
+          "  void literal;",
+          "  void zero;",
+          "  void computed;",
+          "}",
           "",
         ].join("\n"),
       },
@@ -641,11 +648,19 @@ describe("Tsonic TSTS source semantics extension", () => {
     );
     try {
       const summaries: string[] = [];
+      const trackedNames = new Set([
+        "value",
+        "literal",
+        "zero",
+        "computed",
+      ]);
       visitTstsSubtree(program.sourceFile, (node) => {
+        const name = node ? getTstsIdentifierText(node) : undefined;
         if (
           !node ||
           node.Kind !== TstsSyntax.KindIdentifier ||
-          getTstsIdentifierText(node) !== "value" ||
+          !name ||
+          !trackedNames.has(name) ||
           node.Parent?.Kind !== TstsSyntax.KindBindingElement
         ) {
           return;
@@ -654,10 +669,16 @@ describe("Tsonic TSTS source semantics extension", () => {
           sourceBindingTypeProjectionFactKey,
           node
         );
-        if (fact) summaries.push(projectionSummary(fact.type));
+        if (fact) summaries.push(`${name}: ${projectionSummary(fact.type)}`);
       });
 
-      expect(summaries).to.deep.equal(["int", "int | string"]);
+      expect(summaries).to.deep.equal([
+        "value: int",
+        "value: int | string",
+        "literal: int",
+        "zero: string",
+        "computed: int",
+      ]);
     } finally {
       program.cleanup();
     }
@@ -768,11 +789,13 @@ describe("Tsonic TSTS source semantics extension", () => {
         "index.ts": [
           "import type { char } from '@tsonic/core/types.js';",
           "type Box = { letter: char };",
+          "type NumericBox = { 0: char; named: char };",
           "declare function write(value: char): void;",
           "declare function write(value: string | null): void;",
           "export function read(letter: char): char[] {",
           "  const same = letter === \"A\";",
           "  const boxed: Box = { letter: \"B\" };",
+          "  const keyed: NumericBox = { 0: \"D\", [\"named\"]: \"E\" };",
           "  write(\"WRITE\");",
           "  write(\"C\");",
           "  return [\"x\", letter];",
@@ -791,6 +814,8 @@ describe("Tsonic TSTS source semantics extension", () => {
         if (
           text !== "A" &&
           text !== "B" &&
+          text !== "D" &&
+          text !== "E" &&
           text !== "WRITE" &&
           text !== "C" &&
           text !== "x"
@@ -813,6 +838,8 @@ describe("Tsonic TSTS source semantics extension", () => {
       expect(contextualSummaries).to.deep.equal([
         '"A": char',
         '"B": char',
+        '"D": char',
+        '"E": char',
         '"WRITE": none',
         '"C": char',
         '"x": char',

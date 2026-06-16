@@ -1217,18 +1217,38 @@ type SourceTypeSubstitutionMap = ReadonlyMap<
 
 const emptySourceTypeSubstitutions: SourceTypeSubstitutionMap = new Map();
 
+const literalPropertyNameText = (node: TstsNode): string | undefined => {
+  switch (node.Kind) {
+    case TstsSyntax.KindStringLiteral:
+      return TstsSyntax.AsStringLiteral(node)?.Text;
+    case TstsSyntax.KindNoSubstitutionTemplateLiteral:
+      return TstsSyntax.AsNoSubstitutionTemplateLiteral(node)?.Text;
+    case TstsSyntax.KindNumericLiteral:
+      return TstsSyntax.AsNumericLiteral(node)?.Text;
+    default:
+      return undefined;
+  }
+};
+
+const sourcePropertyNameText = (
+  keyNode: TstsNode | undefined
+): string | undefined => {
+  if (!keyNode) return undefined;
+  if (keyNode.Kind === TstsSyntax.KindComputedPropertyName) {
+    const expression = TstsSyntax.Node_Expression(keyNode);
+    return expression ? literalPropertyNameText(expression) : undefined;
+  }
+  return (
+    getTstsIdentifierText(keyNode) ??
+    literalPropertyNameText(keyNode) ??
+    getTstsNodeNameText(keyNode)
+  );
+};
+
 const bindingPatternPropertyName = (
   propertyName: TstsNode | undefined,
-  nameNode: TstsNode | undefined,
-  index: number
-): string | undefined =>
-  propertyName
-    ? (getTstsIdentifierText(propertyName) ??
-      getTstsNodeNameText(propertyName) ??
-      getTstsNodeText(propertyName))
-    : (getTstsIdentifierText(nameNode) ??
-      getTstsNodeNameText(nameNode) ??
-      (nameNode === undefined ? `item${index}` : undefined));
+  nameNode: TstsNode | undefined
+): string | undefined => sourcePropertyNameText(propertyName ?? nameNode);
 
 const projectedTypeKey = (
   type: SourceBindingProjectedType,
@@ -1591,7 +1611,7 @@ const projectedTypeFromTypeNode = (
           members: (TstsSyntax.Node_Members(node) ?? [])
             .filter((member): member is TstsNode => member !== undefined)
             .map((member) => ({
-              name: getTstsNodeNameText(member) ?? "",
+              name: sourcePropertyNameText(TstsSyntax.Node_Name(member)) ?? "",
               optional: TstsSyntax.Node_QuestionToken(member) !== undefined,
               type: projectedTypeFromMemberDeclaration(
                 context,
@@ -1706,7 +1726,7 @@ const projectedMemberTypesFromOwner = (
   uniqueProjectedTypes(
     (TstsSyntax.Node_Members(owner) ?? [])
       .filter((member): member is TstsNode => member !== undefined)
-      .filter((member) => getTstsNodeNameText(member) === name)
+      .filter((member) => sourcePropertyNameText(TstsSyntax.Node_Name(member)) === name)
       .map((member) =>
         projectedTypeFromMemberDeclaration(
           context,
@@ -3107,10 +3127,7 @@ const sourceObjectLiteralProjection = (
       property.Kind === TstsSyntax.KindShorthandPropertyAssignment
         ? TstsSyntax.Node_Name(property)
         : TstsSyntax.Node_PropertyNameOrName(property);
-    const name =
-      getTstsIdentifierText(nameNode) ??
-      getTstsNodeNameText(nameNode) ??
-      getTstsNodeText(nameNode);
+    const name = sourcePropertyNameText(nameNode);
     if (!name) return undefined;
     const valueNode =
       property.Kind === TstsSyntax.KindShorthandPropertyAssignment
@@ -3648,10 +3665,7 @@ const sourceContextualProjectionForObjectMember = (
     parent.Kind === TstsSyntax.KindShorthandPropertyAssignment
       ? TstsSyntax.Node_Name(parent)
       : TstsSyntax.Node_PropertyNameOrName(parent);
-  const propertyName =
-    getTstsIdentifierText(nameNode) ??
-    getTstsNodeNameText(nameNode) ??
-    getTstsNodeText(nameNode);
+  const propertyName = sourcePropertyNameText(nameNode);
   return sourceObjectContextMemberProjection(objectContext, propertyName);
 };
 
@@ -4285,8 +4299,7 @@ const setBindingProjectionFactsForName = (
         : (() => {
             const name = bindingPatternPropertyName(
               propertyName,
-              nameNode,
-              index
+              nameNode
             );
             return name ? { kind: "property", name } : undefined;
           })();
