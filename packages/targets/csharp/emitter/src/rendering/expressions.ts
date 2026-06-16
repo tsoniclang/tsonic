@@ -229,33 +229,6 @@ const renderObjectProperty = (
     context,
     useSiteType ?? property.expression.contextualTypePlan
   );
-  const targetArray =
-    arrayTypeFromUseSite(useSiteType) ??
-    arrayTypeFromUseSite(property.expression.contextualTypePlan) ??
-    arrayTypeFromUseSite(property.expression.storageTypePlan);
-  const sourceArray =
-    arrayTypeFromUseSite(property.expression.storageTypePlan) ??
-    arrayTypeFromUseSite(property.expression.type);
-  if (
-    targetArray &&
-    sourceArray &&
-    property.expression.expressionKind !== "array-literal"
-  ) {
-    const targetElementType = renderCSharpType(
-      targetArray.elementType,
-      context
-    );
-    if (
-      !sameRuntimeTypePlan(targetArray.elementType, sourceArray.elementType)
-    ) {
-      return `${sanitizeIdentifier(property.name)} = new global::System.Collections.Generic.List<${targetElementType}>(${renderEnumerableElementConversion(
-        renderedExpression,
-        sourceArray.elementType,
-        targetArray.elementType,
-        context
-      )})`;
-    }
-  }
   return `${sanitizeIdentifier(property.name)} = ${renderedExpression}`;
 };
 
@@ -267,6 +240,21 @@ const renderEnumerableElementConversion = (
 ): string => {
   const sourceElementText = renderCSharpType(sourceElementType, context);
   const targetElementText = renderCSharpType(targetElementType, context);
+  const targetCarrier = runtimeUnionCarrierType(targetElementType, context);
+  const targetArmIndex =
+    runtimeUnionArmIndexForTargetType(
+      targetCarrier,
+      sourceElementType,
+      context
+    ) ??
+    runtimeUnionArmIndexAssignableToTargetType(
+      targetCarrier,
+      sourceElementType,
+      context
+    );
+  if (targetCarrier && targetArmIndex) {
+    return `global::System.Linq.Enumerable.Select<${sourceElementText}, ${targetElementText}>(${rendered}, (${sourceElementText} item) => ${targetElementText}.From${targetArmIndex}(item))`;
+  }
   if (
     isCallableStorageType(sourceElementType) &&
     isCallableStorageType(targetElementType)
@@ -554,7 +542,8 @@ const renderArrayLiteralElement = (
     ? runtimeUnionArrayArmType(arrayArm, carrier ?? arrayArm, context)
     : undefined;
   if (carrier && nestedArray && arrayArmIndex && arrayArmType) {
-    return `${renderCSharpType(carrier, context)}.From${arrayArmIndex}(${renderArrayLiteral(nestedArray, context, arrayArmType)})`;
+    const renderedArray = renderArrayLiteral(nestedArray, context, arrayArmType);
+    return `${renderCSharpType(carrier, context)}.From${arrayArmIndex}(${castExpression(renderedArray, renderCSharpType(arrayArmType, context))})`;
   }
   return renderExpressionWithUseSiteCast(
     element,
@@ -658,6 +647,17 @@ const renderArrayLiteral = (
     ? `new global::System.Collections.Generic.List<${segmentType}>(${concatenated})`
     : `global::System.Linq.Enumerable.ToArray(${concatenated})`;
 };
+
+const renderTupleLiteral = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext,
+  tuplePlan: Extract<LoweringTypeRefPlan, { readonly kind: "tuple" }>
+): string =>
+  `(${plan.elements
+    .map((element, index) =>
+      renderExpressionWithUseSiteCast(element, context, tuplePlan.elements[index])
+    )
+    .join(", ")})`;
 
 const objectLiteralTargetTypePlan = (
   plan: LoweringExpressionPlan,
@@ -1224,6 +1224,10 @@ export const renderExpressionWithUseSiteCast = (
   ) {
     return rendered;
   }
+  const useSiteTupleLiteral = arrayLiteralExpressionPlan(plan);
+  if (useSiteTypeOverride?.kind === "tuple" && useSiteTupleLiteral) {
+    return renderTupleLiteral(useSiteTupleLiteral, context, useSiteTypeOverride);
+  }
   const runtimeUnionCarrier = renderRuntimeUnionCarrierValue(
     rendered,
     plan,
@@ -1379,11 +1383,9 @@ const runtimeUnionArmIndexForExpression = (
     return undefined;
   }
   if (arms.length === 1) return 1;
-  const expressionTypes = [
-    plan.contextualTypePlan,
-    plan.storageTypePlan,
-    plan.type,
-  ].filter((type): type is LoweringTypeRefPlan => type !== undefined);
+  const expressionTypes = [plan.storageTypePlan, plan.type].filter(
+    (type): type is LoweringTypeRefPlan => type !== undefined
+  );
   const exactIndex = singleRuntimeUnionArmIndex(arms, (arm) =>
     expressionTypes.some((type) => sameRuntimeTypePlan(type, arm))
   );
@@ -1394,11 +1396,14 @@ const runtimeUnionArmIndexForExpression = (
     )
   );
   if (assignableIndex) return assignableIndex;
-  if (arrayLiteralExpressionPlan(plan) || plan.expressionKind === "spread") {
-    const arrayIndex = singleRuntimeUnionArmIndex(
-      arms,
-      (arm) => arm.kind === "array"
-    );
+  const arrayLiteral = arrayLiteralExpressionPlan(plan);
+  if (arrayLiteral || plan.expressionKind === "spread") {
+    const arrayIndex = arrayLiteral
+      ? runtimeUnionArrayArmIndexForArrayLiteral(arrayLiteral, carrier, context)
+      : singleRuntimeUnionArmIndex(
+          arms,
+          (arm) => arrayTypeFromTypePlan(arm, context) !== undefined
+        );
     if (arrayIndex) return arrayIndex;
   }
   if (
@@ -1472,6 +1477,64 @@ const runtimeUnionArmIndexForExpression = (
   return undefined;
 };
 
+const runtimeUnionArrayArmIndexForArrayLiteral = (
+  plan: LoweringExpressionPlan,
+  carrier: LoweringTypeRefPlan,
+  context: RenderContext
+): number | undefined => {
+  const candidates = runtimeUnionCarrierArms(carrier, context)
+    .map((arm, index) => ({
+      arm,
+      arrayType: arrayTypeFromTypePlan(arm, context),
+      index: index + 1,
+    }))
+    .filter(
+      (
+        candidate
+      ): candidate is {
+        readonly arm: LoweringTypeRefPlan;
+        readonly arrayType: Extract<
+          LoweringTypeRefPlan,
+          { readonly kind: "array" }
+        >;
+        readonly index: number;
+      } => candidate.arrayType !== undefined
+    );
+  const matches = candidates.filter((candidate) =>
+    plan.elements.every((element) => {
+      const elementTypes = [
+        element.storageTypePlan,
+        element.type,
+      ].filter((type): type is LoweringTypeRefPlan => type !== undefined);
+      return (
+        elementTypes.length === 0 ||
+        elementTypes.some((type) =>
+          runtimeTypePlanAssignableToTarget(
+            type,
+            candidate.arrayType.elementType,
+            context,
+            new Set()
+          )
+        )
+      );
+    })
+  );
+  if (matches.length === 1) return matches[0]?.index;
+  const narrowest = matches.filter((candidate) =>
+    matches.every(
+      (other) =>
+        other === candidate ||
+        runtimeTypePlanAssignableToTarget(
+          candidate.arrayType.elementType,
+          other.arrayType.elementType,
+          context,
+          new Set()
+        )
+    )
+  );
+  return narrowest.length === 1 ? narrowest[0]?.index : undefined;
+};
+
 const runtimeUnionArrayArmIndex = (
   carrier: LoweringTypeRefPlan | undefined,
   context: RenderContext
@@ -1543,6 +1606,10 @@ const runtimeTypePlanAssignableToTarget = (
 ): boolean => {
   if (!source || !target) return false;
   if (sameRuntimeTypePlan(source, target)) return true;
+  const key = `${typePlanKey(source)}=>${typePlanKey(target)}`;
+  if (seen.has(key)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(key);
   if (
     source.kind === "literal" &&
     target.kind === "intrinsic" &&
@@ -1553,14 +1620,31 @@ const runtimeTypePlanAssignableToTarget = (
   ) {
     return true;
   }
+  const sourceArray = arrayTypeFromTypePlan(source, context);
+  const targetArray = arrayTypeFromTypePlan(target, context);
+  if (sourceArray && targetArray) {
+    return runtimeTypePlanAssignableToTarget(
+      sourceArray.elementType,
+      targetArray.elementType,
+      context,
+      nextSeen
+    );
+  }
   const sourceAlias = source.kind === "named" ? source.aliasTarget : undefined;
   if (
     sourceAlias &&
-    runtimeTypePlanAssignableToTarget(sourceAlias, target, context, seen)
+    runtimeTypePlanAssignableToTarget(sourceAlias, target, context, nextSeen)
   ) {
     return true;
   }
-  return runtimeUnionTypeAssignableToUnion(source, target, context, seen);
+  const targetAlias = target.kind === "named" ? target.aliasTarget : undefined;
+  if (
+    targetAlias &&
+    runtimeTypePlanAssignableToTarget(source, targetAlias, context, nextSeen)
+  ) {
+    return true;
+  }
+  return runtimeUnionTypeAssignableToUnion(source, target, context, nextSeen);
 };
 
 const runtimeUnionArmIndexAssignableToTargetType = (
@@ -1711,6 +1795,7 @@ const renderRuntimeUnionCarrierValue = (
     );
     const targetArmRecord = recordValueType(targetArm);
     const targetArmObject = objectTypeFromArm(targetArm);
+    const targetArmCarrier = runtimeUnionCarrierType(targetArm, context);
     const carrierArrayLiteral = arrayLiteralExpressionPlan(plan);
     const carrierObjectLiteral = objectLiteralExpressionPlan(plan);
     const armRendered =
@@ -1718,16 +1803,24 @@ const renderRuntimeUnionCarrierValue = (
         ? renderArrayLiteral(carrierArrayLiteral, context, targetArmArray)
         : (targetArmRecord || targetArmObject) && carrierObjectLiteral
           ? renderObjectLiteral(carrierObjectLiteral, context, targetArm)
-          : rendered;
+          : isNamedFunctionAlias(targetArm) &&
+              isCallableStorageType(plan?.storageTypePlan) &&
+              !sameRuntimeTypePlan(plan?.storageTypePlan, targetArm)
+            ? `new ${renderCSharpType(targetArm, context)}(${renderExpressionWithUseSiteCast(plan, context, targetArm.aliasTarget)}.Invoke)`
+          : targetArmCarrier
+            ? rendered
+            : renderExpressionWithUseSiteCast(plan, context, targetArm);
     const sourceArmValue = runtimeUnionSourceArmValue(
       armRendered,
       sourceCarrier,
       targetArm,
       context
     );
-    const targetArmCarrier = runtimeUnionCarrierType(targetArm, context);
     const renderedArmValue =
       sourceArmValue ??
+      (targetArmArray
+        ? castExpression(armRendered, renderCSharpType(targetArmArray, context))
+        : undefined) ??
       (targetArmCarrier &&
       !sameRuntimeTypePlan(plan?.type, targetArm) &&
       !sameRuntimeTypePlan(plan?.storageTypePlan, targetArm)
@@ -1844,16 +1937,34 @@ const renderCallArgument = (
       ? `((${renderCSharpType(renderableTargetDelegateType, context)})(${renderedLambda}))`
       : renderedLambda;
   }
-  const rendered =
-    argument.expressionKind === "spread"
-      ? renderExpression(argument.expression, context)
-      : renderExpressionWithUseSiteCast(argument, context, contextualType);
   if (
     renderableTargetDelegateType &&
     !sameRuntimeTypePlan(argument.type, renderableTargetDelegateType)
   ) {
-    return `new ${renderCSharpType(renderableTargetDelegateType, context)}(${rendered}.Invoke)`;
+    if (
+      isCallableStorageType(argument.storageTypePlan) &&
+      !sameRuntimeTypePlan(argument.storageTypePlan, renderableTargetDelegateType)
+    ) {
+      const delegateSourceType =
+        renderableTargetDelegateType.kind === "named"
+          ? renderableTargetDelegateType.aliasTarget
+          : renderableTargetDelegateType;
+      const delegateSource =
+        argument.expressionKind === "spread"
+          ? renderExpression(argument.expression, context)
+          : renderExpressionWithUseSiteCast(argument, context, delegateSourceType);
+      return `new ${renderCSharpType(renderableTargetDelegateType, context)}(${delegateSource}.Invoke)`;
+    }
+    return renderExpressionWithUseSiteCast(
+      argument,
+      context,
+      renderableTargetDelegateType
+    );
   }
+  const rendered =
+    argument.expressionKind === "spread"
+      ? renderExpression(argument.expression, context)
+      : renderExpressionWithUseSiteCast(argument, context, contextualType);
   switch (argument.passingMode) {
     case "byref-writeonly-must-init":
       return `out ${rendered}`;

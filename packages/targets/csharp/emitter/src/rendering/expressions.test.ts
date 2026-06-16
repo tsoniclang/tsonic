@@ -53,6 +53,11 @@ const stringType: LoweringTypeRefPlan = {
   name: "string",
 };
 
+const voidType: LoweringTypeRefPlan = {
+  kind: "intrinsic",
+  name: "void",
+};
+
 const expressionPlan = (
   overrides: Partial<LoweringExpressionPlan>
 ): LoweringExpressionPlan => ({
@@ -230,6 +235,372 @@ describe("C# expression renderer", () => {
     expect(rendered).to.contain(".From2(");
     expect(rendered).to.contain(
       "new global::System.Collections.Generic.List<int>"
+    );
+  });
+
+  it("selects a runtime-union array arm through a named alias target", () => {
+    const context = createRenderContext();
+    const stringArrayType: LoweringTypeRefPlan = {
+      kind: "array",
+      elementType: stringType,
+      readonly: true,
+    };
+    const aliasType: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "PathItems",
+      declarationKind: "type-alias",
+      typeArguments: [],
+      aliasTarget: stringArrayType,
+    };
+    const unionType: LoweringTypeRefPlan = {
+      kind: "union",
+      types: [stringType, aliasType],
+    };
+
+    const rendered = renderExpressionWithUseSiteCast(
+      expressionPlan({
+        expressionKind: "array-literal",
+        elements: [
+          expressionPlan({
+            expressionKind: "literal",
+            literalKind: "string",
+            literalText: "users",
+          }),
+        ],
+      }),
+      context,
+      unionType
+    );
+
+    expect(rendered).to.contain(".From2(");
+    expect(rendered).to.contain('new string[] { ((string)("users")) }');
+  });
+
+  it("wraps raw callable storage when selecting a named callable union arm", () => {
+    const context = createRenderContext();
+    const requestHandlerFunction: LoweringTypeRefPlan = {
+      kind: "function",
+      parameters: [
+        {
+          name: "req",
+          sourceKindName: "Parameter",
+          sourceText: "req",
+          type: stringType,
+          optional: false,
+          rest: false,
+        },
+      ],
+      returnType: voidType,
+      typeParameters: [],
+    };
+    const errorHandlerFunction: LoweringTypeRefPlan = {
+      kind: "function",
+      parameters: [
+        {
+          name: "error",
+          sourceKindName: "Parameter",
+          sourceText: "error",
+          type: { kind: "intrinsic", name: "unknown" },
+          optional: false,
+          rest: false,
+        },
+        {
+          name: "req",
+          sourceKindName: "Parameter",
+          sourceText: "req",
+          type: stringType,
+          optional: false,
+          rest: false,
+        },
+      ],
+      returnType: voidType,
+      typeParameters: [],
+    };
+    const requestHandlerType: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "RequestHandler",
+      declarationKind: "interface",
+      typeArguments: [],
+      aliasTarget: requestHandlerFunction,
+    };
+    const errorHandlerType: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "ErrorRequestHandler",
+      declarationKind: "interface",
+      typeArguments: [],
+      aliasTarget: errorHandlerFunction,
+    };
+    const middlewareType: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "MiddlewareHandler",
+      declarationKind: "type-alias",
+      typeArguments: [],
+      aliasTarget: {
+        kind: "union",
+        types: [requestHandlerType, errorHandlerType],
+      },
+    };
+
+    const rendered = renderExpressionWithUseSiteCast(
+      expressionPlan({
+        expressionKind: "identifier",
+        literalText: "handler",
+        type: requestHandlerFunction,
+        storageTypePlan: requestHandlerFunction,
+      }),
+      context,
+      middlewareType
+    );
+
+    expect(rendered).to.equal(
+      "Structural0.From1(new RequestHandler(handler.Invoke))"
+    );
+  });
+
+  it("casts broad storage when TSTS narrows it to a named callable union arm", () => {
+    const context = createRenderContext();
+    const requestHandlerFunction: LoweringTypeRefPlan = {
+      kind: "function",
+      parameters: [
+        {
+          name: "req",
+          sourceKindName: "Parameter",
+          sourceText: "req",
+          type: stringType,
+          optional: false,
+          rest: false,
+        },
+      ],
+      returnType: voidType,
+      typeParameters: [],
+    };
+    const requestHandlerType: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "RequestHandler",
+      declarationKind: "interface",
+      typeArguments: [],
+      aliasTarget: requestHandlerFunction,
+    };
+    const errorHandlerType: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "ErrorRequestHandler",
+      declarationKind: "interface",
+      typeArguments: [],
+      aliasTarget: {
+        kind: "function",
+        parameters: [
+          {
+            name: "error",
+            sourceKindName: "Parameter",
+            sourceText: "error",
+            type: { kind: "intrinsic", name: "unknown" },
+            optional: false,
+            rest: false,
+          },
+          {
+            name: "req",
+            sourceKindName: "Parameter",
+            sourceText: "req",
+            type: stringType,
+            optional: false,
+            rest: false,
+          },
+        ],
+        returnType: voidType,
+        typeParameters: [],
+      },
+    };
+    const middlewareType: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "MiddlewareHandler",
+      declarationKind: "type-alias",
+      typeArguments: [],
+      aliasTarget: {
+        kind: "union",
+        types: [requestHandlerType, errorHandlerType],
+      },
+    };
+
+    const rendered = renderExpressionWithUseSiteCast(
+      expressionPlan({
+        expressionKind: "identifier",
+        literalText: "handler",
+        type: requestHandlerFunction,
+        storageTypePlan: { kind: "intrinsic", name: "unknown" },
+      }),
+      context,
+      middlewareType
+    );
+
+    expect(rendered).to.equal(
+      "Structural0.From1(((RequestHandler)(handler)))"
+    );
+  });
+
+  it("converts array elements into a named runtime-union carrier", () => {
+    const context = createRenderContext();
+    const requestHandlerType: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "RequestHandler",
+      declarationKind: "interface",
+      typeArguments: [],
+      aliasTarget: {
+        kind: "function",
+        parameters: [],
+        returnType: voidType,
+        typeParameters: [],
+      },
+    };
+    const middlewareType: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "MiddlewareHandler",
+      declarationKind: "type-alias",
+      typeArguments: [],
+      aliasTarget: {
+        kind: "union",
+        types: [
+          requestHandlerType,
+          {
+            kind: "named",
+            name: "Router",
+            declarationKind: "class",
+            typeArguments: [],
+          },
+        ],
+      },
+    };
+
+    const rendered = renderExpressionWithUseSiteCast(
+      expressionPlan({
+        expressionKind: "identifier",
+        literalText: "handlers",
+        type: {
+          kind: "array",
+          elementType: requestHandlerType,
+          readonly: true,
+        },
+        storageTypePlan: {
+          kind: "array",
+          elementType: requestHandlerType,
+          readonly: true,
+        },
+      }),
+      context,
+      {
+        kind: "array",
+        elementType: middlewareType,
+        readonly: false,
+      }
+    );
+
+    expect(rendered).to.contain(
+      "global::System.Linq.Enumerable.Select<RequestHandler, Structural0>"
+    );
+    expect(rendered).to.contain("Structural0.From1(item)");
+  });
+
+  it("selects the most specific matching runtime-union array arm", () => {
+    const context = createRenderContext();
+    const stringArrayType: LoweringTypeRefPlan = {
+      kind: "array",
+      elementType: stringType,
+      readonly: true,
+    };
+    const stringOrNumberArrayType: LoweringTypeRefPlan = {
+      kind: "array",
+      elementType: {
+        kind: "union",
+        types: [stringType, { kind: "intrinsic", name: "number" }],
+      },
+      readonly: true,
+    };
+    const unionType: LoweringTypeRefPlan = {
+      kind: "union",
+      types: [stringOrNumberArrayType, stringArrayType],
+    };
+
+    const rendered = renderExpressionWithUseSiteCast(
+      expressionPlan({
+        expressionKind: "array-literal",
+        elements: [
+          expressionPlan({
+            expressionKind: "literal",
+            literalKind: "string",
+            literalText: "users",
+            type: stringType,
+          }),
+        ],
+      }),
+      context,
+      unionType
+    );
+
+    expect(rendered).to.contain(".From2(");
+  });
+
+  it("keeps ambiguous runtime-union array literals unsupported", () => {
+    const unsupportedFeatures: string[] = [];
+    const context = createRenderContext(unsupportedFeatures);
+    const unionType: LoweringTypeRefPlan = {
+      kind: "union",
+      types: [
+        {
+          kind: "array",
+          elementType: stringType,
+          readonly: true,
+        },
+        {
+          kind: "array",
+          elementType: { kind: "intrinsic", name: "number" },
+          readonly: true,
+        },
+      ],
+    };
+
+    const rendered = renderExpressionWithUseSiteCast(
+      expressionPlan({
+        expressionKind: "array-literal",
+        elements: [],
+      }),
+      context,
+      unionType
+    );
+
+    expect(rendered).to.not.contain(".From1(");
+    expect(rendered).to.not.contain(".From2(");
+    expect(unsupportedFeatures).to.include("runtime union arm selection");
+  });
+
+  it("renders array literals as tuple values from the tuple use-site", () => {
+    const context = createRenderContext();
+    const tupleType: LoweringTypeRefPlan = {
+      kind: "tuple",
+      elements: [stringType, stringType],
+      readonly: false,
+    };
+
+    const rendered = renderExpressionWithUseSiteCast(
+      expressionPlan({
+        expressionKind: "array-literal",
+        elements: [
+          expressionPlan({
+            expressionKind: "literal",
+            literalKind: "string",
+            literalText: "name",
+          }),
+          expressionPlan({
+            expressionKind: "literal",
+            literalKind: "string",
+            literalText: "value",
+          }),
+        ],
+      }),
+      context,
+      tupleType
+    );
+
+    expect(rendered).to.equal(
+      '(((string)("name")), ((string)("value")))'
     );
   });
 

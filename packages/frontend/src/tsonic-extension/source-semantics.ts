@@ -2905,18 +2905,17 @@ const refineSourceProjectionByCheckerProjection = (
     };
   }
   if (source.kind === "named" && source.aliasTarget) {
+    if (!containsUnsubstitutedTypeParameterProjection(source.aliasTarget)) {
+      return source;
+    }
     const refinedAliasTarget = refineSourceProjectionByCheckerProjection(
       source.aliasTarget,
       checker
     );
     if (!refinedAliasTarget) return undefined;
-    if (
-      refinedAliasTarget === source.aliasTarget &&
-      projectionsHaveIntersectingRuntimeIntrinsic(source, checker)
-    ) {
-      return source;
-    }
-    return refinedAliasTarget;
+    return refinedAliasTarget === source.aliasTarget
+      ? source
+      : { ...source, aliasTarget: refinedAliasTarget };
   }
   if (source.kind === "array" && checker.kind === "array") {
     return {
@@ -3324,6 +3323,12 @@ const signatureParameterProjection = (
     new Set(),
     checkerState
   );
+  if (
+    sourceProjection &&
+    !containsUnsubstitutedTypeParameterProjection(sourceProjection)
+  ) {
+    return sourceProjection;
+  }
   return sourceProjection
     ? (refineSourceProjectionByCheckerProjection(
         sourceProjection,
@@ -4211,12 +4216,16 @@ const variableSourceProjectionRoot = (
 ): SourceBindingProjectedType | undefined => {
   const variable = TstsSyntax.AsVariableDeclaration(declaration);
   const declaredType = variable?.Type ?? TstsSyntax.Node_Type(declaration);
+  const name = TstsSyntax.Node_Name(declaration);
   return (
     projectedTypeFromTypeNode(context, declaredType) ??
     initializerSourceProjectionRoot(
       context,
       variable?.Initializer ?? TstsSyntax.Node_Initializer(declaration)
-    )
+    ) ??
+    (name
+      ? checkerTypeProjection(context, context.checker.getTypeAtLocation(name))
+      : undefined)
   );
 };
 

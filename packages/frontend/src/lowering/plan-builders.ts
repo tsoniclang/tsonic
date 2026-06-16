@@ -2067,6 +2067,57 @@ const expressionPlan = (
   }
 };
 
+const declarationObjectShapeTypePlan = (
+  context: LoweringBuildContext,
+  sourceFile: TstsSourceFile,
+  declaration: TstsNode
+): Extract<LoweringTypeRefPlan, { readonly kind: "object" }> | undefined => {
+  if (!context.input.sourceProgram.sourceFiles.includes(sourceFile)) {
+    return undefined;
+  }
+  if (
+    sourceFile.IsDeclarationFile ||
+    isExternalBindingSourceFile(sourceFile.FileName())
+  ) {
+    return undefined;
+  }
+  const members = (TstsSyntax.Node_Members(declaration) ?? [])
+    .filter((member): member is TstsNode => member !== undefined)
+    .map((member): LoweringTypeMemberPlan | undefined => {
+      if (
+        member.Kind !== TstsSyntax.KindPropertySignature &&
+        member.Kind !== TstsSyntax.KindPropertyDeclaration
+      ) {
+        return undefined;
+      }
+      const name = getTstsIdentifierText(TstsSyntax.Node_Name(member));
+      if (!name) return undefined;
+      const declarationTypeFact = context.input.facts.get(
+        sourceDeclarationTypeProjectionFactKey,
+        member
+      );
+      return {
+        kind: "property",
+        name,
+        optional: TstsSyntax.Node_QuestionToken(member) !== undefined,
+        type: sourceBindingProjectionTypePlan(
+          context,
+          sourceFile,
+          declarationTypeFact?.declaredType
+        ),
+      };
+    })
+    .filter(
+      (member): member is LoweringTypeMemberPlan => member !== undefined
+    );
+  return members.length > 0
+    ? {
+        kind: "object",
+        members,
+      }
+    : undefined;
+};
+
 const sourceBindingProjectionTypePlan = (
   context: LoweringBuildContext,
   sourceFile: TstsSourceFile,
@@ -2126,6 +2177,28 @@ const sourceBindingProjectionTypePlan = (
         type.aliasTarget,
         nextSeen
       );
+      const declarationAliasTarget =
+        aliasTarget === undefined &&
+        type.declarationKind === "type-alias" &&
+        type.declaration
+          ? sourceTypePlan(
+              context,
+              declarationSourceFile,
+              TstsSyntax.Node_Type(type.declaration)
+            )
+          : undefined;
+      const declarationShapeTarget =
+        aliasTarget === undefined &&
+        declarationAliasTarget === undefined &&
+        type.declaration !== undefined &&
+        (type.declarationKind === "interface" ||
+          type.declarationKind === "class")
+          ? declarationObjectShapeTypePlan(
+              context,
+              declarationSourceFile,
+              type.declaration
+            )
+          : undefined;
       const substitutions = type.declaration
         ? aliasTypeSubstitutions(
             typeParameterNames(declarationSourceFile, type.declaration),
@@ -2141,7 +2214,10 @@ const sourceBindingProjectionTypePlan = (
           (type.declaration
             ? typeParameterNames(declarationSourceFile, type.declaration)
             : undefined),
-        aliasTarget: substituteTypePlan(aliasTarget, substitutions),
+        aliasTarget: substituteTypePlan(
+          aliasTarget ?? declarationAliasTarget ?? declarationShapeTarget,
+          substitutions
+        ),
         sourceQualifiedName:
           sourceQualifiedNameForRuntimeTypeOwner(type.runtimeTypeOwner) ??
           sourceQualifiedNameForSourceBindingNode(
