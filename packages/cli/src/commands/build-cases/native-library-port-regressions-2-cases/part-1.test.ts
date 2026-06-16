@@ -202,7 +202,12 @@ describe("build command (native library port regressions)", function () {
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       expect(tree).to.not.include("sealed class PathSpec");
-      expect(tree).to.include("get(object? path");
+      expect(tree).to.match(
+        /get\(global::Tsonic\.Generated\.Structural\.__TsonicShape_[a-f0-9]{8} path/
+      );
+      expect(tree).to.match(
+        /get_route\(global::Tsonic\.Generated\.Structural\.__TsonicShape_[a-f0-9]{8}\.From1\("\/items"\),/
+      );
       expect(tree).to.not.match(
         /global::Tsonic\.Internal\.Union3_[A-F0-9]{8}<string\[\], global::js\.RegExp, string>/
       );

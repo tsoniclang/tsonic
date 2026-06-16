@@ -1,14 +1,13 @@
 {
   "schema": "tsonic.bindings",
   "provider": {
-    "namespace": "Acme.Core"
+    "namespace": "Provider.Runtime"
   },
   "targetSurface": {
     "types": [
       {
-        "targetName": "Acme.Core.Ok__Alias`1",
-        "sourceName": "Ok__Alias_1",
-        "ownerIdentity": "Acme.Core",
+        "targetName": "Provider.Runtime.InternalThing`1",
+        "sourceName": "PublicWidget_1",
         "methods": [],
         "properties": [],
         "fields": []

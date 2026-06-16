@@ -69,7 +69,7 @@ export type {
 export {
   callSitePassingModifierFromFact,
   isExtensionReceiverFact,
-  isFieldStorageFact,
+  isFieldSemanticsFact,
   isHeritageInterfaceErasure,
   isIntrinsicKind,
   isMarkerApiKind,

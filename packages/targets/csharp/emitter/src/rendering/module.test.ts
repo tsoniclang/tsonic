@@ -188,7 +188,9 @@ describe("C# module renderer", () => {
 
     expect(result.ok).to.equal(true);
     if (result.ok) {
-      expect(result.code).to.match(/public sealed class __TsonicShape_[a-f0-9]+/u);
+      expect(result.code).to.match(
+        /public sealed class __TsonicShape_[a-f0-9]+/u
+      );
       expect(result.code).to.contain("public string value { get; set; }");
       expect(result.code).to.contain("public static Alias item;");
     }
@@ -262,7 +264,7 @@ describe("C# module renderer", () => {
               declarationKind: "property",
               name: "x",
               returnType: intType,
-              storageSemantics: "field",
+              fieldSemantics: "field",
             }),
             declarationPlan({
               declarationKind: "property",
@@ -406,7 +408,9 @@ describe("C# module renderer", () => {
 
     expect(missingAwaitedType.ok).to.equal(false);
     if (!missingAwaitedType.ok) {
-      expect(missingAwaitedType.errors.map((error) => error.message)).to.include(
+      expect(
+        missingAwaitedType.errors.map((error) => error.message)
+      ).to.include(
         "C# lowering does not yet support async return awaited type 'TypeReference'."
       );
     }
@@ -589,7 +593,9 @@ describe("C# module renderer", () => {
     expect(result.ok).to.equal(true);
     if (result.ok) {
       expect(result.code).to.contain("[global::System.SerializableAttribute]");
-      expect(result.code).to.contain("[field: global::System.NonSerializedAttribute]");
+      expect(result.code).to.contain(
+        "[field: global::System.NonSerializedAttribute]"
+      );
       expect(result.code).to.contain(
         '[return: global::System.ObsoleteAttribute("method")]'
       );

@@ -1,9 +1,4 @@
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type {
   Diagnostic,
@@ -104,10 +99,13 @@ const parseMember = (
   const name = stringValue(value.targetName);
   const accessibility = mapVisibility(stringValue(value.visibility));
   if (!name || !accessibility) return undefined;
+  const parameterCount =
+    kind === "method" ? numberValue(value.parameterCount) : 0;
+  if (parameterCount === undefined) return undefined;
   return {
     name,
     kind,
-    parameterCount: numberValue(value.parameterCount) ?? 0,
+    parameterCount,
     accessibility,
   };
 };
@@ -119,35 +117,17 @@ const parseMembers = (
   Array.isArray(values)
     ? values
         .map((value) => parseMember(value, kind))
-        .filter((member): member is ExternalMemberMetadata => member !== undefined)
+        .filter(
+          (member): member is ExternalMemberMetadata => member !== undefined
+        )
     : [];
 
 const targetNameFromTypeRef = (value: unknown): string | undefined =>
   isObjectRecord(value) ? stringValue(value.targetName) : undefined;
 
-const sourceNameForTargetName = (targetName: string): string | undefined => {
-  const normalizedTargetName = targetName.replace(/\+/gu, ".");
-  const lastDot = normalizedTargetName.lastIndexOf(".");
-  const simpleName =
-    lastDot >= 0
-      ? normalizedTargetName.slice(lastDot + 1)
-      : normalizedTargetName;
-  const unqualifiedName = simpleName.replace(/`\d+$/u, "");
-  if (unqualifiedName.length === 0) return undefined;
-  const arity = targetName.match(/`(\d+)$/u)?.[1];
-  return arity ? `${unqualifiedName}_${arity}` : unqualifiedName;
-};
-
-const typeSourceNames = (value: Record<string, unknown>, targetName: string): readonly string[] => {
-  const names = new Set<string>();
-  const alias = stringValue(value.alias);
-  const derived = sourceNameForTargetName(targetName);
-  for (const sourceName of [alias, derived]) {
-    if (!sourceName) continue;
-    names.add(sourceName);
-    names.add(`${sourceName}$instance`);
-  }
-  return [...names];
+const typeSourceNames = (value: Record<string, unknown>): readonly string[] => {
+  const sourceName = stringValue(value.sourceName);
+  return sourceName ? [sourceName, `${sourceName}$instance`] : [];
 };
 
 const parseType = (
@@ -157,10 +137,12 @@ const parseType = (
   if (!isObjectRecord(value)) return undefined;
   const targetName = stringValue(value.targetName);
   if (!targetName) return undefined;
+  const sourceNames = typeSourceNames(value);
+  if (sourceNames.length === 0) return undefined;
   return {
     bindingFile,
     targetName,
-    sourceNames: typeSourceNames(value, targetName),
+    sourceNames,
     baseTypeName: targetNameFromTypeRef(value.baseType),
     interfaces: Array.isArray(value.interfaces)
       ? value.interfaces
@@ -180,7 +162,8 @@ const parseBindingFile = (
   const bindingFile = resolve(filePath);
   const json = JSON.parse(readFileSync(filePath, "utf-8")) as unknown;
   const types = isObjectRecord(json)
-    ? isObjectRecord(json.targetSurface) && Array.isArray(json.targetSurface.types)
+    ? isObjectRecord(json.targetSurface) &&
+      Array.isArray(json.targetSurface.types)
       ? json.targetSurface.types
       : []
     : [];

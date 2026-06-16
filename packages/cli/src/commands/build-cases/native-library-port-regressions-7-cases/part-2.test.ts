@@ -231,7 +231,7 @@ describe("build command (native library port regressions)", function () {
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       expect(tree).to.include(
-        "((global::Demo.Pkg.ProcessModule)(global::Demo.Pkg.index.process)).argv.Count"
+        "global::Demo.Pkg.index.process.argv.Count"
       );
       expect(tree).to.not.include("global::Demo.Pkg.index.process.argv.length");
       expect(tree).to.not.include(
@@ -540,8 +540,8 @@ describe("build command (native library port regressions)", function () {
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
       expect(tree).to.include("wait(int? delay = default)");
-      expect(tree).to.include("int __defaulted_delay = delay ?? 1;");
-      expect(tree).to.include("readDelay__Delegate(int delay = 0)");
+      expect(tree).to.include("int __defaulted_delay = delay ?? ((int)(1));");
+      expect(tree).to.include("readDelay__Delegate(int delay = ((int)(0)))");
       expect(tree).to.include("new global::Demo.Pkg.DelayBox().wait()");
       expect(tree).to.include("global::Demo.Pkg.index.readDelay()");
       expect(tree).not.to.include("readDelay(default(int?))");

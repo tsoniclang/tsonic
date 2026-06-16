@@ -5,7 +5,11 @@ import type {
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
-import { requiredIdentifier, sanitizeIdentifier, sanitizeTypeName } from "./names.js";
+import {
+  requiredIdentifier,
+  sanitizeIdentifier,
+  sanitizeTypeName,
+} from "./names.js";
 
 const primitiveRuntimeTypes: ReadonlyMap<string, string> = new Map([
   ["bool", "bool"],
@@ -25,7 +29,10 @@ const primitiveRuntimeTypes: ReadonlyMap<string, string> = new Map([
   ["decimal", "decimal"],
 ]);
 
-const objectTypePlan: LoweringTypeRefPlan = { kind: "intrinsic", name: "object" };
+const objectTypePlan: LoweringTypeRefPlan = {
+  kind: "intrinsic",
+  name: "object",
+};
 const voidTypePlan: LoweringTypeRefPlan = { kind: "intrinsic", name: "void" };
 
 const privateJsRuntimeTypes: ReadonlyMap<string, string> = new Map([
@@ -54,7 +61,11 @@ export const sourceQualifiedNameKey = (
   sourceQualifiedName: LoweringSourceQualifiedNamePlan | undefined
 ): string | undefined =>
   sourceQualifiedName
-    ? [sourceQualifiedName.namespace, sourceQualifiedName.container, sourceQualifiedName.name]
+    ? [
+        sourceQualifiedName.namespace,
+        sourceQualifiedName.container,
+        sourceQualifiedName.name,
+      ]
         .filter((part): part is string => part !== undefined && part.length > 0)
         .join(".")
     : undefined;
@@ -67,7 +78,8 @@ const sourceQualifiedNameNamespaceSegments = (
 export const isPrivateJsRuntimeName = (
   sourceQualifiedName: LoweringSourceQualifiedNamePlan | undefined
 ): boolean => {
-  const [root, next] = sourceQualifiedNameNamespaceSegments(sourceQualifiedName);
+  const [root, next] =
+    sourceQualifiedNameNamespaceSegments(sourceQualifiedName);
   return root === "js" && next === "_";
 };
 
@@ -76,7 +88,9 @@ const renderRuntimeNameSegments = (
   finalSegment: (name: string | undefined) => string
 ): string =>
   [
-    ...sourceQualifiedNameNamespaceSegments(sourceQualifiedName).map(sanitizeIdentifier),
+    ...sourceQualifiedNameNamespaceSegments(sourceQualifiedName).map(
+      sanitizeIdentifier
+    ),
     ...(sourceQualifiedName.container
       ? [sanitizeTypeName(sourceQualifiedName.container)]
       : []),
@@ -147,7 +161,9 @@ export const renderExternalTargetExpressionName = (
 const renderNamedType = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>
 ): string =>
-  privateJsRuntimeTypes.get(sourceQualifiedNameKey(type.sourceQualifiedName) ?? "") ??
+  privateJsRuntimeTypes.get(
+    sourceQualifiedNameKey(type.sourceQualifiedName) ?? ""
+  ) ??
   renderCSharpRuntimeTypeName(type.sourceQualifiedName) ??
   sanitizeTypeName(type.name.replace(/\$/g, "_").replace(/\./g, "_"));
 
@@ -161,7 +177,10 @@ const renderNamedRuntimeType = (
     return undefined;
   }
   if (type.externalBinding) {
-    const externalName = renderExternalTargetTypeName(type.externalBinding, context);
+    const externalName = renderExternalTargetTypeName(
+      type.externalBinding,
+      context
+    );
     if (!externalName) {
       context.reportUnsupported(
         "external binding target type",
@@ -208,7 +227,11 @@ const requiredTypeArgument = (
 ): LoweringTypeRefPlan => {
   const argument = type.typeArguments[index];
   if (argument) return argument;
-  context.reportUnsupported(feature, "TypeReference", type.sourceText ?? type.name);
+  context.reportUnsupported(
+    feature,
+    "TypeReference",
+    type.sourceText ?? type.name
+  );
   return objectTypePlan;
 };
 
@@ -230,7 +253,10 @@ const typeMemberKey = (
       return `property:${member.optional ? "?" : ""}${member.name}:${typePlanKeyWithSeen(member.type, seen)}`;
     case "method":
       return `method:${member.optional ? "?" : ""}${member.name}<${member.typeParameters.join(",")}>(${member.parameters
-        .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}:${typePlanKeyWithSeen(parameter.type, seen)}`)
+        .map(
+          (parameter) =>
+            `${parameter.rest ? "..." : ""}${parameter.name}:${typePlanKeyWithSeen(parameter.type, seen)}`
+        )
         .join(",")}):${typePlanKeyWithSeen(member.returnType, seen)}`;
     case "index-signature":
       return `index:${typePlanKeyWithSeen(member.keyType, seen)}:${typePlanKeyWithSeen(member.valueType, seen)}`;
@@ -264,7 +290,10 @@ const typePlanKeyWithSeen = (
       return `intersection:${type.types.map((member) => typePlanKeyWithSeen(member, nextSeen)).join("&")}`;
     case "function":
       return `function:<${type.typeParameters.join(",")}>(${type.parameters
-        .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.optional ? "?" : ""}${typePlanKeyWithSeen(parameter.type, nextSeen)}`)
+        .map(
+          (parameter) =>
+            `${parameter.rest ? "..." : ""}${parameter.optional ? "?" : ""}${typePlanKeyWithSeen(parameter.type, nextSeen)}`
+        )
         .join(",")}):${typePlanKeyWithSeen(type.returnType, nextSeen)}`;
     case "object":
       return `object:{${[...type.members.map((member) => typeMemberKey(member, nextSeen))].sort().join(";")}}`;
@@ -387,9 +416,13 @@ export const sameRuntimeTypePlan = (
 ): boolean => {
   if (!left || !right) return left === right;
   const leftNamedIdentity =
-    left.kind === "named" ? typePlanKey({ ...left, aliasTarget: undefined }) : undefined;
+    left.kind === "named"
+      ? typePlanKey({ ...left, aliasTarget: undefined })
+      : undefined;
   const rightNamedIdentity =
-    right.kind === "named" ? typePlanKey({ ...right, aliasTarget: undefined }) : undefined;
+    right.kind === "named"
+      ? typePlanKey({ ...right, aliasTarget: undefined })
+      : undefined;
   if (leftNamedIdentity && rightNamedIdentity) {
     return leftNamedIdentity === rightNamedIdentity;
   }
@@ -400,9 +433,12 @@ export const shouldExpandNamedAliasTarget = (
   type: LoweringTypeRefPlan
 ): boolean =>
   type.kind === "named" &&
-  type.sourceQualifiedName === undefined &&
-  type.externalBinding === undefined &&
-  type.aliasTarget?.kind !== "union";
+  type.aliasTarget !== undefined &&
+  ((type.declarationKind === "type-alias" &&
+    type.aliasTarget.kind === "union") ||
+    (type.sourceQualifiedName === undefined &&
+      type.externalBinding === undefined &&
+      type.aliasTarget.kind !== "union"));
 
 export const isNullishType = (type: LoweringTypeRefPlan): boolean =>
   (type.kind === "intrinsic" &&
@@ -413,7 +449,9 @@ export const isNullishType = (type: LoweringTypeRefPlan): boolean =>
 export const nonNullishUnionTypes = (
   type: LoweringTypeRefPlan
 ): readonly LoweringTypeRefPlan[] =>
-  type.kind === "union" ? type.types.filter((member) => !isNullishType(member)) : [type];
+  type.kind === "union"
+    ? type.types.filter((member) => !isNullishType(member))
+    : [type];
 
 export const namedUnionAliasTarget = (
   type: LoweringTypeRefPlan | undefined
@@ -462,7 +500,10 @@ const armNeedsRuntimeIdentity = (arm: LoweringTypeRefPlan): boolean => {
     case "record":
       return true;
     case "named":
+      if (isScalarRuntimeTypePlan(arm)) return false;
       return (
+        arm.sourceQualifiedName !== undefined ||
+        arm.externalBinding !== undefined ||
         arm.aliasTarget?.kind === "function" ||
         arm.aliasTarget?.kind === "object" ||
         arm.aliasTarget?.kind === "union" ||
@@ -561,7 +602,8 @@ const isOpaqueUnionTypePlan = (type: LoweringTypeRefPlan): boolean =>
   type.kind === "union" &&
   type.types.length > 0 &&
   type.types.every(
-    (member) => isScalarRuntimeTypePlan(member) || isOpaqueRuntimeTypePlan(member)
+    (member) =>
+      isScalarRuntimeTypePlan(member) || isOpaqueRuntimeTypePlan(member)
   );
 
 const isOpaqueNullableType = isOpaqueRuntimeTypePlan;
@@ -569,8 +611,7 @@ const isOpaqueNullableType = isOpaqueRuntimeTypePlan;
 export const isVoidLikeTypePlan = (
   type: LoweringTypeRefPlan | undefined
 ): boolean =>
-  type?.kind === "intrinsic" &&
-  (type.name === "void" || type.name === "never");
+  type?.kind === "intrinsic" && (type.name === "void" || type.name === "never");
 
 const containsUnemittableStructuralMemberType = (
   type: LoweringTypeRefPlan | undefined,
@@ -598,7 +639,10 @@ const containsUnemittableStructuralMemberType = (
         containsUnemittableStructuralMemberType(type.valueType, nextSeen)
       );
     case "array":
-      return containsUnemittableStructuralMemberType(type.elementType, nextSeen);
+      return containsUnemittableStructuralMemberType(
+        type.elementType,
+        nextSeen
+      );
     case "tuple":
       return type.elements.some((element) =>
         containsUnemittableStructuralMemberType(element, nextSeen)
@@ -609,10 +653,8 @@ const containsUnemittableStructuralMemberType = (
         containsUnemittableStructuralMemberType(member, nextSeen)
       );
     case "function":
-      return (
-        type.parameters.some((parameter) =>
-          containsUnemittableStructuralMemberType(parameter.type, nextSeen)
-        ) || containsUnemittableStructuralMemberType(type.returnType, nextSeen)
+      return type.parameters.some((parameter) =>
+        containsUnemittableStructuralMemberType(parameter.type, nextSeen)
       );
     case "object":
       return !shouldEmitStructuralObjectType(type);
@@ -634,11 +676,30 @@ export const shouldEmitStructuralObjectType = (
 ): boolean => {
   if (type.kind !== "object") return false;
   if (type.members.length === 0) return false;
+  const valueMemberNames = new Set<string>();
+  const methodSignatures = new Set<string>();
   return type.members.every((member) => {
     switch (member.kind) {
-      case "property":
+      case "property": {
+        const memberName = sanitizeIdentifier(member.name);
+        if (valueMemberNames.has(memberName)) return false;
+        valueMemberNames.add(memberName);
         return !containsUnemittableStructuralMemberType(member.type);
-      case "method":
+      }
+      case "method": {
+        const memberName = sanitizeIdentifier(member.name);
+        if (!member.returnType) {
+          return false;
+        }
+        const parameterTypeKeys: string[] = [];
+        for (const parameter of member.parameters) {
+          if (!parameter.type) return false;
+          parameterTypeKeys.push(typePlanKey(parameter.type));
+        }
+        const signature = `${memberName}<${member.typeParameters.length}>(${parameterTypeKeys.join(",")})`;
+        if (methodSignatures.has(signature)) return false;
+        methodSignatures.add(signature);
+        if (valueMemberNames.has(memberName)) return false;
         return (
           !containsUnemittableStructuralMemberType(member.returnType) &&
           member.parameters.every(
@@ -646,11 +707,17 @@ export const shouldEmitStructuralObjectType = (
               !containsUnemittableStructuralMemberType(parameter.type)
           )
         );
-      case "index-signature":
+      }
+      case "index-signature": {
+        if (!member.keyType || !member.valueType) return false;
+        const memberName = `index:${typePlanKey(member.keyType)}`;
+        if (valueMemberNames.has(memberName)) return false;
+        valueMemberNames.add(memberName);
         return (
           !containsUnemittableStructuralMemberType(member.keyType) &&
           !containsUnemittableStructuralMemberType(member.valueType)
         );
+      }
     }
   });
 };
@@ -667,7 +734,8 @@ const isExternalTargetType = (
 const isTaskType = (
   type: LoweringTypeRefPlan | undefined,
   context?: RenderContext
-): boolean => isExternalTargetType(type, context, "System.Threading.Tasks.Task");
+): boolean =>
+  isExternalTargetType(type, context, "System.Threading.Tasks.Task");
 
 const isPrivateJsPromiseConstructorAliasTarget = (
   type: LoweringTypeRefPlan | undefined
@@ -685,8 +753,7 @@ const isPromiseType = (type: LoweringTypeRefPlan | undefined): boolean =>
 export const isTaskLikeTypePlan = (
   type: LoweringTypeRefPlan | undefined,
   context?: RenderContext
-): boolean =>
-  isTaskType(type, context) || isPromiseType(type);
+): boolean => isTaskType(type, context) || isPromiseType(type);
 
 export const isBroadIntrinsicTypePlan = (
   type: LoweringTypeRefPlan | undefined
@@ -754,7 +821,7 @@ export const arrayTypeFromTypePlan = (
           elementType,
           readonly: unwrapped.name === "ReadonlyArray",
         }
-        : undefined;
+      : undefined;
   }
   const externalCollectionTarget =
     unwrapped.kind === "named" && unwrapped.externalBinding
@@ -800,7 +867,8 @@ export const isRecursiveRuntimeArrayArm = (
 ): boolean => {
   const arrayType = arrayTypeFromTypePlan(arm, context);
   return (
-    arrayType !== undefined && sameRuntimeTypePlan(arrayType.elementType, carrier)
+    arrayType !== undefined &&
+    sameRuntimeTypePlan(arrayType.elementType, carrier)
   );
 };
 
@@ -928,7 +996,11 @@ const renderUnionType = (
   if (voidLike.length > 0 && taskLike.length === 1) {
     const taskType = taskLike[0];
     if (taskType) return renderCSharpType(taskType, context);
-    context.reportUnsupported("union task type", "UnionType", type.sourceText ?? "union");
+    context.reportUnsupported(
+      "union task type",
+      "UnionType",
+      type.sourceText ?? "union"
+    );
     return "object?";
   }
   if (taskLike.length === 1) {
@@ -962,7 +1034,11 @@ const renderUnionType = (
   if (nonNullish.length === 1) {
     const member = nonNullish[0];
     if (member) return renderNullableCSharpType(member, context);
-    context.reportUnsupported("union member type", "UnionType", type.sourceText ?? "union");
+    context.reportUnsupported(
+      "union member type",
+      "UnionType",
+      type.sourceText ?? "union"
+    );
     return "object?";
   }
   if (shouldEmitAnonymousRuntimeUnionCarrier(type, context)) {
@@ -971,7 +1047,11 @@ const renderUnionType = (
   if (isOpaqueRuntimeTypePlan(type)) {
     return "object?";
   }
-  context.reportUnsupported("union type", "UnionType", type.sourceText ?? "union");
+  context.reportUnsupported(
+    "union type",
+    "UnionType",
+    type.sourceText ?? "union"
+  );
   return "object?";
 };
 
@@ -1073,17 +1153,16 @@ export const renderCSharpType = (
         case "symbol":
           return "object?";
       }
-    case "source-primitive":
-      {
-        const primitiveType = primitiveRuntimeTypes.get(type.fact.kind);
-        if (primitiveType) return primitiveType;
-        context.reportUnsupported(
-          "source primitive runtime type",
-          "TypeReference",
-          type.sourceText ?? type.fact.sourceName
-        );
-        return "object?";
-      }
+    case "source-primitive": {
+      const primitiveType = primitiveRuntimeTypes.get(type.fact.kind);
+      if (primitiveType) return primitiveType;
+      context.reportUnsupported(
+        "source primitive runtime type",
+        "TypeReference",
+        type.sourceText ?? type.fact.sourceName
+      );
+      return "object?";
+    }
     case "named": {
       const special = renderSpecialNamedType(type, context);
       if (special) return special;
@@ -1095,10 +1174,16 @@ export const renderCSharpType = (
         );
         return "object?";
       }
-      if (
-        type.runtimeVisibility === "opaque"
-      ) {
+      if (type.runtimeVisibility === "opaque") {
         return "object?";
+      }
+      if (
+        type.declarationKind === "type-alias" &&
+        type.aliasTarget?.kind === "union"
+      ) {
+        return shouldEmitAnonymousRuntimeUnionCarrier(type.aliasTarget, context)
+          ? renderStructuralTypeReference(type, context)
+          : renderUnionType(type.aliasTarget, context);
       }
       if (
         type.declarationKind === "type-alias" &&
@@ -1124,10 +1209,7 @@ export const renderCSharpType = (
         type.aliasTarget.kind !== "function"
       ) {
         if (type.aliasTarget.kind === "union") {
-          const name = renderNamedType(type);
-          return type.typeArguments.length === 0
-            ? name
-            : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
+          return renderUnionType(type.aliasTarget, context);
         }
         if (type.aliasTarget.kind === "intersection") {
           const runtimeType = renderIntersectionRuntimeType(
@@ -1162,17 +1244,16 @@ export const renderCSharpType = (
       return `(${type.elements.map((element) => renderCSharpType(element, context)).join(", ")})`;
     case "union":
       return renderUnionType(type, context);
-    case "intersection":
-      {
-        const runtimeType = renderIntersectionRuntimeType(type, context);
-        if (runtimeType) return runtimeType;
-        context.reportUnsupported(
-          "intersection type",
-          "IntersectionType",
-          type.sourceText ?? "intersection"
-        );
-        return "object?";
-      }
+    case "intersection": {
+      const runtimeType = renderIntersectionRuntimeType(type, context);
+      if (runtimeType) return runtimeType;
+      context.reportUnsupported(
+        "intersection type",
+        "IntersectionType",
+        type.sourceText ?? "intersection"
+      );
+      return "object?";
+    }
     case "function":
       return renderFunctionType(type, context);
     case "object":
@@ -1196,11 +1277,7 @@ export const renderCSharpType = (
           return "object?";
       }
     case "unsupported":
-      context.reportUnsupported(
-        "type",
-        type.sourceKindName,
-        type.sourceText
-      );
+      context.reportUnsupported("type", type.sourceKindName, type.sourceText);
       return "object?";
   }
 };
@@ -1224,6 +1301,7 @@ export const renderNullableCSharpType = (
   if (isOpaqueNullableType(type) || isVoidLikeTypePlan(type)) return "object?";
   if (type?.kind === "union") return renderUnionType(type, context);
   const rendered = renderCSharpType(type, context);
+  if (rendered.endsWith("?")) return rendered;
   return `${rendered}?`;
 };
 
@@ -1251,15 +1329,19 @@ export const renderFunctionReturnType = (
     return renderTaskReturnType(asyncAwaitedType, context);
   }
   if (!returnType) {
-    context.reportUnsupported("function return type", sourceKindName, sourceText);
+    context.reportUnsupported(
+      "function return type",
+      sourceKindName,
+      sourceText
+    );
+    return renderCSharpType(objectTypePlan, context);
   }
-  const effectiveReturnType = returnType ?? objectTypePlan;
-  const rendered = renderCSharpType(effectiveReturnType, context);
+  const rendered = renderCSharpType(returnType, context);
   if (isTaskLikeTypePlan(returnType, context)) {
     return rendered;
   }
   if (!isAsync) return rendered;
-  return isVoidLikeTypePlan(effectiveReturnType)
+  return isVoidLikeTypePlan(returnType)
     ? "global::System.Threading.Tasks.Task"
     : `global::System.Threading.Tasks.Task<${rendered}>`;
 };

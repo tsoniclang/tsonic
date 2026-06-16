@@ -304,10 +304,9 @@ export const renderStaticField = (
     );
     return [
       `public delegate ${returnType} ${delegateName}(${parameters});`,
-      `public static ${delegateName} ${sanitizeIdentifier(declaration.name)} = ${renderExpressionWithUseSiteCast(
+      `public static ${delegateName} ${sanitizeIdentifier(declaration.name)} = ${renderExpression(
         declaration.initializer,
-        context,
-        declaration.type ?? declaration.storageType
+        context
       )};`,
     ].join("\n");
   }

@@ -19,8 +19,10 @@ const normalizePathFragment = (fragment: string): string => {
   // and PascalCase the result.
   const parts = fragment.split(/[^a-zA-Z0-9]+/g).filter((p) => p.length > 0);
   const pascal = parts
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    .map((p) => (p.length === 0 ? "" : p[0]!.toUpperCase() + p.slice(1)))
+    .map((part) => {
+      const [first = "", ...rest] = [...part];
+      return `${first.toUpperCase()}${rest.join("")}`;
+    })
     .join("");
 
   if (pascal.length === 0) return "_";

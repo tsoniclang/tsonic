@@ -43,10 +43,10 @@ import type {
   SourceAttributeTargetKind,
   SourceAttributeTargetSpecifier,
   SourceBindingDeclarationKind,
-  SourceCallArgumentTypesFact,
   SourceDeclarationTypeProjectionFact,
-  SourceBindingProjectedObjectMember,
+  SourceCallArgumentTypesFact,
   SourceBindingIdentityFact,
+  SourceBindingProjectedObjectMember,
   SourceBindingProjectedType,
   SourceDictionaryTypeFact,
   SourceIntrinsicTypeName,
@@ -92,7 +92,7 @@ import {
   wellKnownComputedNameFactKey,
 } from "../source-frontend/source-facts.js";
 
-const fieldFact: FieldSemanticsFact = { storage: "field" };
+const fieldFact: FieldSemanticsFact = { kind: "field" };
 const extensionReceiverFact = { kind: "extension-receiver" } as const;
 const interfaceHeritageFact = { kind: "interface-erasure" } as const;
 const recordDictionaryFact: SourceDictionaryTypeFact = { kind: "record" };
@@ -106,44 +106,7 @@ type TsonicSourceDiagnosticCode =
   | "TSN7405"
   | "TSN7413"
   | "TSN7430"
-  | "TSN7432"
-  | "TSN7440";
-
-const coreSourceNames = new Set([
-  "bool",
-  "byte",
-  "sbyte",
-  "short",
-  "ushort",
-  "int",
-  "uint",
-  "long",
-  "ulong",
-  "nint",
-  "nuint",
-  "float",
-  "double",
-  "decimal",
-  "char",
-  "ptr",
-  "out",
-  "ref",
-  "inref",
-  "struct",
-  "thisarg",
-  "field",
-  "Interface",
-  "stackalloc",
-  "trycast",
-  "asinterface",
-  "istype",
-  "nameof",
-  "sizeof",
-  "defaultof",
-  "attributes",
-  "AttributeTargets",
-  "overloads",
-]);
+  | "TSN7432";
 
 const addSourceDiagnostic = (
   context: Pick<CheckedContext, "diagnostics" | "sourceFile">,
@@ -243,7 +206,7 @@ const typeWrapperPassingFact = (
     { readonly importedName: string }
   >
 ): ParameterPassingFact | undefined => {
-  const typeReference = getTstsTypeReferenceDetails(node);
+  const typeReference = sourceTypeReferenceDetails(node);
   if (!typeReference || typeReference.typeArguments.length !== 1) {
     return undefined;
   }
@@ -308,10 +271,8 @@ const nearestObjectLiteralMethodParent = (
         parent.Parent?.Kind === TstsSyntax.KindObjectLiteralExpression
     );
 
-const isIdentifierNamed = (
-  node: TstsNode | undefined,
-  name: string
-): boolean => getTstsIdentifierText(node) === name;
+const isIdentifierNamed = (node: TstsNode | undefined, name: string): boolean =>
+  getTstsIdentifierText(node) === name;
 
 const isExternalSupportDeclaration = (
   declaration: TstsNode | undefined,
@@ -484,10 +445,7 @@ const consoleRuntimeMembers = new Set([
   "warn",
 ]);
 
-const stringStaticRuntimeMembers = new Set([
-  "fromCharCode",
-  "fromCodePoint",
-]);
+const stringStaticRuntimeMembers = new Set(["fromCharCode", "fromCodePoint"]);
 
 const arrayStaticRuntimeMembers = new Set(["from", "isArray", "of"]);
 
@@ -500,7 +458,12 @@ const objectStaticRuntimeMembers = new Set([
 ]);
 
 const jsonStaticRuntimeMembers = new Set(["parse", "stringify"]);
-const promiseStaticRuntimeMembers = new Set(["resolve", "reject", "all", "race"]);
+const promiseStaticRuntimeMembers = new Set([
+  "resolve",
+  "reject",
+  "all",
+  "race",
+]);
 const mapReceiverRuntimeMembers = new Set(["delete", "get", "has", "set"]);
 const typedArrayRuntimeConstructors = [
   "Uint8Array",
@@ -549,13 +512,24 @@ const runtimeConstructorOperationForIdentifier = (
   if (!memberName) return undefined;
   const owner = ambientRuntimeConstructors.get(memberName);
   return owner &&
-    isAmbientGlobalIdentifier(
-      context,
-      node,
-      memberName,
-      sourceDiagnosticRoots
-    )
+    isAmbientGlobalIdentifier(context, node, memberName, sourceDiagnosticRoots)
     ? { owner, member: "constructor", dispatch: "constructor" }
+    : undefined;
+};
+
+const sourceTypeReferenceDetails = (
+  node: TstsNode | undefined
+): ReturnType<typeof getTstsTypeReferenceDetails> => {
+  const direct = getTstsTypeReferenceDetails(node);
+  if (direct || node?.Kind !== TstsSyntax.KindExpressionWithTypeArguments) {
+    return direct;
+  }
+  const name = getTstsExpressionWithTypeArgumentsName(node);
+  return name
+    ? {
+        name,
+        typeArguments: getTstsTypeArguments(node),
+      }
     : undefined;
 };
 
@@ -568,6 +542,21 @@ const typeRuntimeOwnerName = (
     context.checker.getTypeAliasSymbolName(type);
   return name && ambientRuntimeConstructors.has(name)
     ? ambientRuntimeConstructors.get(name)
+    : undefined;
+};
+
+const sourceRuntimeTypeOwner = (
+  context: CheckedContext,
+  type: TstsType | undefined,
+  declaration: TstsNode | undefined
+): SourceRuntimeOperationOwner | undefined => {
+  const owner = typeRuntimeOwnerName(context, type);
+  if (!owner) return undefined;
+  if (!declaration) return owner;
+  const sourceFile = getTstsContainingSourceFile(declaration);
+  return sourceFile &&
+    sourceFileBelongsToPackage(sourceFile.FileName(), "@tsonic/js")
+    ? owner
     : undefined;
 };
 
@@ -705,7 +694,8 @@ const sourceRuntimeOperation = (
 ): SourceRuntimeOperationFact | undefined => {
   if (node.Kind === TstsSyntax.KindElementAccessExpression) {
     const receiver = TstsSyntax.Node_Expression(node);
-    const argument = TstsSyntax.AsElementAccessExpression(node)?.ArgumentExpression;
+    const argument =
+      TstsSyntax.AsElementAccessExpression(node)?.ArgumentExpression;
     const computedName = isWellKnownSymbolName(
       context,
       argument,
@@ -757,12 +747,7 @@ const sourceRuntimeOperation = (
     if (!memberName) return undefined;
     if (
       memberName === "String" &&
-      isAmbientGlobalIdentifier(
-        context,
-        node,
-        "String",
-        sourceDiagnosticRoots
-      )
+      isAmbientGlobalIdentifier(context, node, "String", sourceDiagnosticRoots)
     ) {
       return { owner: "String", member: "coerce", dispatch: "static-call" };
     }
@@ -1059,7 +1044,8 @@ const hasDictionaryIndexShape = (
   type: TstsType | undefined
 ): boolean =>
   checker.getStringIndexType(type) !== undefined ||
-  (!checker.isArrayType(type) && checker.getNumberIndexType(type) !== undefined);
+  (!checker.isArrayType(type) &&
+    checker.getNumberIndexType(type) !== undefined);
 
 const isBroadJsonType = (
   checker: CheckedContext["checker"],
@@ -1070,7 +1056,10 @@ const isBroadJsonType = (
     { readonly importedName: string }
   >
 ): boolean => {
-  if (!type || isJsValueCarrier(checker, type, typeNode, coreTypesBindingByLocalName)) {
+  if (
+    !type ||
+    isJsValueCarrier(checker, type, typeNode, coreTypesBindingByLocalName)
+  ) {
     return false;
   }
   if (checker.getUnionMembers(type)?.length) return true;
@@ -1197,7 +1186,8 @@ const typeReferenceNameNode = (node: TstsNode): TstsNode | undefined =>
 const symbolForTypeReference = (
   context: CheckedContext,
   node: TstsNode
-): TstsSymbol | undefined => symbolForName(context, typeReferenceNameNode(node));
+): TstsSymbol | undefined =>
+  symbolForName(context, typeReferenceNameNode(node));
 
 const singleDeclaration = (
   declarations: readonly (TstsNode | undefined)[],
@@ -1219,7 +1209,10 @@ type SourceBindingAccessSegment =
       readonly name: string;
     };
 
-type SourceTypeSubstitutionMap = ReadonlyMap<string, SourceBindingProjectedType>;
+type SourceTypeSubstitutionMap = ReadonlyMap<
+  string,
+  SourceBindingProjectedType
+>;
 
 const emptySourceTypeSubstitutions: SourceTypeSubstitutionMap = new Map();
 
@@ -1229,12 +1222,12 @@ const bindingPatternPropertyName = (
   index: number
 ): string | undefined =>
   propertyName
-    ? getTstsIdentifierText(propertyName) ??
+    ? (getTstsIdentifierText(propertyName) ??
       getTstsNodeNameText(propertyName) ??
-      getTstsNodeText(propertyName)
-    : getTstsIdentifierText(nameNode) ??
+      getTstsNodeText(propertyName))
+    : (getTstsIdentifierText(nameNode) ??
       getTstsNodeNameText(nameNode) ??
-      (nameNode === undefined ? `item${index}` : undefined);
+      (nameNode === undefined ? `item${index}` : undefined));
 
 const projectedTypeKey = (
   type: SourceBindingProjectedType,
@@ -1251,7 +1244,7 @@ const projectedTypeKey = (
     case "source-primitive":
       return `source-primitive:${type.fact.kind}:${type.fact.sourceName}`;
     case "named":
-      return `named:${type.name}<${type.typeArguments.map((argument) => projectedTypeKey(argument, nextSeen)).join(",")}>:${type.declarationKind ?? ""}:${type.aliasTarget ? projectedTypeKey(type.aliasTarget, nextSeen) : ""}`;
+      return `named:${type.name}<${type.typeArguments.map((argument) => projectedTypeKey(argument, nextSeen)).join(",")}>:${type.declarationKind ?? ""}:${type.runtimeTypeOwner ?? ""}:${type.aliasTarget ? projectedTypeKey(type.aliasTarget, nextSeen) : ""}`;
     case "record":
       return `record:${projectedTypeKey(type.keyType, nextSeen)}:${projectedTypeKey(type.valueType, nextSeen)}`;
     case "function":
@@ -1269,9 +1262,15 @@ const projectedTypeKey = (
         .sort()
         .join(",")}`;
     case "union":
-      return `union:${type.types.map((member) => projectedTypeKey(member, nextSeen)).sort().join("|")}`;
+      return `union:${type.types
+        .map((member) => projectedTypeKey(member, nextSeen))
+        .sort()
+        .join("|")}`;
     case "intersection":
-      return `intersection:${type.types.map((member) => projectedTypeKey(member, nextSeen)).sort().join("&")}`;
+      return `intersection:${type.types
+        .map((member) => projectedTypeKey(member, nextSeen))
+        .sort()
+        .join("&")}`;
   }
 };
 
@@ -1299,9 +1298,7 @@ const uniqueProjectedTypes = (
         result[existingTargetIndex] = type;
         continue;
       }
-    } else if (
-      result.some((item) => namedAliasTargetKey(item) === key)
-    ) {
+    } else if (result.some((item) => namedAliasTargetKey(item) === key)) {
       continue;
     }
     result.push(type);
@@ -1326,171 +1323,6 @@ const combinedProjectedType = (
   return kind === "union"
     ? { kind: "union", types: unique, sourceNode }
     : { kind: "intersection", types: unique, sourceNode };
-};
-
-const isNullishProjection = (type: SourceBindingProjectedType): boolean =>
-  type.kind === "intrinsic" && (type.name === "null" || type.name === "undefined");
-
-const nonNullishProjection = (
-  type: SourceBindingProjectedType | undefined,
-  sourceNode?: TstsNode
-): SourceBindingProjectedType | undefined => {
-  if (!type) return undefined;
-  if (isNullishProjection(type)) return undefined;
-  if (type.kind !== "union") return type;
-  return combinedProjectedType(
-    "union",
-    type.types.filter((member) => !isNullishProjection(member)),
-    sourceNode
-  );
-};
-
-const projectionUnionMembers = (
-  type: SourceBindingProjectedType | undefined
-): readonly SourceBindingProjectedType[] => {
-  if (!type) return [];
-  if (type.kind === "union") return type.types.filter((member) => !isNullishProjection(member));
-  if (type.kind === "named" && type.aliasTarget?.kind === "union") {
-    return type.aliasTarget.types.filter((member) => !isNullishProjection(member));
-  }
-  return [type];
-};
-
-const projectionAssignableTo = (
-  source: SourceBindingProjectedType | undefined,
-  target: SourceBindingProjectedType | undefined,
-  seen: ReadonlySet<string> = new Set()
-): boolean => {
-  if (!source || !target) return false;
-  if (projectedTypeKey(source) === projectedTypeKey(target)) return true;
-  const key = `${projectedTypeKey(source)}=>${projectedTypeKey(target)}`;
-  if (seen.has(key)) return false;
-  const nextSeen = new Set(seen);
-  nextSeen.add(key);
-  const targetMembers = projectionUnionMembers(target);
-  if (targetMembers.length > 1) {
-    return targetMembers.some((member) =>
-      projectionAssignableTo(source, member, nextSeen)
-    );
-  }
-  if (
-    source.kind === "named" &&
-    source.aliasTarget &&
-    projectionAssignableTo(source.aliasTarget, target, nextSeen)
-  ) {
-    return true;
-  }
-  if (
-    target.kind === "named" &&
-    target.aliasTarget &&
-    projectionAssignableTo(source, target.aliasTarget, nextSeen)
-  ) {
-    return true;
-  }
-  return false;
-};
-
-const callableProjectionTarget = (
-  type: SourceBindingProjectedType | undefined
-): SourceBindingProjectedType | undefined => {
-  if (!type) return undefined;
-  if (type.kind === "function") return type;
-  return type.kind === "named" && type.aliasTarget?.kind === "function"
-    ? type.aliasTarget
-    : undefined;
-};
-
-const isCallableProjection = (
-  type: SourceBindingProjectedType | undefined
-): boolean => callableProjectionTarget(type) !== undefined;
-
-const isBroadProjection = (
-  type: SourceBindingProjectedType | undefined
-): boolean =>
-  type?.kind === "intrinsic" &&
-  (type.name === "any" || type.name === "unknown" || type.name === "object");
-
-const declaredArmForNarrowedProjection = (
-  declared: SourceBindingProjectedType | undefined,
-  narrowed: SourceBindingProjectedType | undefined
-): SourceBindingProjectedType | undefined => {
-  if (!declared || !narrowed) return narrowed ?? declared;
-  if (projectedTypeKey(declared) === projectedTypeKey(narrowed)) return declared;
-  if (isBroadProjection(narrowed)) return declared;
-  const arms = projectionUnionMembers(declared);
-  const matches = arms.filter((arm) => projectionAssignableTo(narrowed, arm));
-  if (matches.length === 1) return matches[0];
-  if (isCallableProjection(narrowed)) {
-    const callableArms = arms.filter(isCallableProjection);
-    if (callableArms.length === 1) return callableArms[0];
-  }
-  return projectionAssignableTo(narrowed, declared) ? declared : narrowed;
-};
-
-type TypeofFunctionGuard = {
-  readonly expression: TstsNode | undefined;
-  readonly trueBranchIsCallable: boolean;
-};
-
-const stringLiteralText = (node: TstsNode | undefined): string | undefined =>
-  node?.Kind === TstsSyntax.KindStringLiteral
-    ? TstsSyntax.AsStringLiteral(node)?.Text
-    : undefined;
-
-const typeofFunctionGuard = (
-  node: TstsNode | undefined
-): TypeofFunctionGuard | undefined => {
-  const binary = TstsSyntax.AsBinaryExpression(node);
-  if (!binary) return undefined;
-  const leftIsTypeof = binary.Left?.Kind === TstsSyntax.KindTypeOfExpression;
-  const rightIsTypeof = binary.Right?.Kind === TstsSyntax.KindTypeOfExpression;
-  const typeofNode = leftIsTypeof ? binary.Left : rightIsTypeof ? binary.Right : undefined;
-  const literal = leftIsTypeof
-    ? stringLiteralText(binary.Right)
-    : rightIsTypeof
-      ? stringLiteralText(binary.Left)
-      : undefined;
-  if (!typeofNode || literal !== "function") return undefined;
-  const operatorKind = binary.OperatorToken?.Kind;
-  if (
-    operatorKind !== TstsSyntax.KindEqualsEqualsEqualsToken &&
-    operatorKind !== TstsSyntax.KindEqualsEqualsToken &&
-    operatorKind !== TstsSyntax.KindExclamationEqualsEqualsToken &&
-    operatorKind !== TstsSyntax.KindExclamationEqualsToken
-  ) {
-    return undefined;
-  }
-  const trueBranchIsCallable =
-    operatorKind === TstsSyntax.KindEqualsEqualsEqualsToken ||
-    operatorKind === TstsSyntax.KindEqualsEqualsToken;
-  return {
-    expression: TstsSyntax.Node_Expression(typeofNode),
-    trueBranchIsCallable,
-  };
-};
-
-const sameResolvedSymbol = (
-  context: CheckedContext,
-  left: TstsNode | undefined,
-  right: TstsNode | undefined
-): boolean => {
-  if (!left || !right) return false;
-  const leftSymbol = context.checker.resolveAlias(
-    context.checker.getSymbolAtLocation(left)
-  );
-  const rightSymbol = context.checker.resolveAlias(
-    context.checker.getSymbolAtLocation(right)
-  );
-  return leftSymbol !== undefined && leftSymbol === rightSymbol;
-};
-
-const singleCallableArmForExpression = (
-  context: CheckedContext,
-  expression: TstsNode | undefined
-): SourceBindingProjectedType | undefined => {
-  const declared = declaredProjectionForExpression(context, expression);
-  const callableArms = projectionUnionMembers(declared).filter(isCallableProjection);
-  return callableArms.length === 1 ? callableArms[0] : undefined;
 };
 
 const sourceTypeParameterNames = (
@@ -1537,6 +1369,27 @@ const intrinsicProjectionFromTypeNode = (
   }
 };
 
+const typeParameterDefaultProjection = (
+  context: CheckedContext,
+  typeParameter: TstsNode | undefined,
+  substitutions: SourceTypeSubstitutionMap,
+  seen: Set<TstsNode>,
+  checkerState: CheckerTypeProjectionState
+): SourceBindingProjectedType | undefined => {
+  const defaultType = typeParameter
+    ? TstsSyntax.AsTypeParameterDeclaration(typeParameter)?.DefaultType
+    : undefined;
+  return defaultType
+    ? projectedTypeFromTypeNode(
+        context,
+        defaultType,
+        substitutions,
+        seen,
+        checkerState
+      )
+    : undefined;
+};
+
 const mergeTypeReferenceSubstitutions = (
   context: CheckedContext,
   typeReferenceNode: TstsNode,
@@ -1545,21 +1398,30 @@ const mergeTypeReferenceSubstitutions = (
   seen: Set<TstsNode>,
   checkerState: CheckerTypeProjectionState = createCheckerTypeProjectionState()
 ): SourceTypeSubstitutionMap => {
+  const typeParameters = getTstsTypeParameterNodes(declaration);
   const parameters = sourceTypeParameterNames(declaration);
   const argumentsList = getTstsTypeArguments(typeReferenceNode);
-  if (parameters.length === 0 || argumentsList.length === 0) {
+  if (parameters.length === 0) {
     return substitutions;
   }
   const merged = new Map(substitutions);
   parameters.forEach((parameter, index) => {
     const argument = argumentsList[index];
-    const projected = projectedTypeFromTypeNode(
-      context,
-      argument,
-      substitutions,
-      seen,
-      checkerState
-    );
+    const projected = argument
+      ? projectedTypeFromTypeNode(
+          context,
+          argument,
+          substitutions,
+          seen,
+          checkerState
+        )
+      : typeParameterDefaultProjection(
+          context,
+          typeParameters[index],
+          substitutions,
+          seen,
+          checkerState
+        );
     if (projected) merged.set(parameter, projected);
   });
   return merged;
@@ -1573,14 +1435,18 @@ const projectedTypeFromTypeNode = (
   checkerState: CheckerTypeProjectionState = createCheckerTypeProjectionState()
 ): SourceBindingProjectedType | undefined => {
   if (!node) return undefined;
-  const typeReference = getTstsTypeReferenceDetails(node);
+  const typeReference = sourceTypeReferenceDetails(node);
   if (typeReference && typeReference.typeArguments.length === 0) {
     const replacement = substitutions.get(typeReference.name);
     if (replacement) return replacement;
   }
   const numericPrimitive = context.facts.get(numericPrimitiveFactKey, node);
   if (numericPrimitive) {
-    return { kind: "source-primitive", fact: numericPrimitive, sourceNode: node };
+    return {
+      kind: "source-primitive",
+      fact: numericPrimitive,
+      sourceNode: node,
+    };
   }
   if (seen.has(node)) return undefined;
   seen.add(node);
@@ -1624,7 +1490,12 @@ const projectedTypeFromTypeNode = (
           checkerState
         );
         return elementType
-          ? { kind: "array", elementType, readonly: false, sourceNode: node }
+          ? {
+              kind: "array",
+              elementType,
+              readonly: false,
+              sourceNode: node,
+            }
           : undefined;
       }
       case TstsSyntax.KindTupleType: {
@@ -1696,7 +1567,9 @@ const projectedTypeFromTypeNode = (
         return {
           kind: "function",
           parameters: getTstsParameters(node)
-            .map((parameter) => sourceParameterTypeProjection(context, parameter))
+            .map((parameter) =>
+              sourceParameterTypeProjection(context, parameter)
+            )
             .filter(
               (parameter): parameter is SourceParameterTypeProjection =>
                 parameter !== undefined
@@ -1731,7 +1604,6 @@ const projectedTypeFromTypeNode = (
         };
       case TstsSyntax.KindIndexedAccessType:
       case TstsSyntax.KindTypeQuery:
-      case TstsSyntax.KindConditionalType:
       case TstsSyntax.KindMappedType:
       case TstsSyntax.KindImportType:
       case TstsSyntax.KindInferType:
@@ -1742,8 +1614,16 @@ const projectedTypeFromTypeNode = (
           context.checker.getTypeFromTypeNode(node),
           checkerState
         );
+      case TstsSyntax.KindConditionalType:
+        return checkerTypeProjection(
+          context,
+          context.checker.getTypeFromTypeNode(node),
+          checkerState
+        );
       default:
-        return intrinsicProjectionFromTypeNode(node) ?? { kind: "type-node", node };
+        return (
+          intrinsicProjectionFromTypeNode(node) ?? { kind: "type-node", node }
+        );
     }
   } finally {
     seen.delete(node);
@@ -1759,8 +1639,33 @@ const typeReferenceDeclarations = (
   return resolved
     ? context.checker
         .getSymbolDeclarations(resolved)
-        .filter((declaration): declaration is TstsNode => declaration !== undefined)
+        .filter(
+          (declaration): declaration is TstsNode => declaration !== undefined
+        )
     : [];
+};
+
+const sourceRuntimeTypeOwnerFromTypeReference = (
+  context: CheckedContext,
+  node: TstsNode,
+  typeReference: ReturnType<typeof getTstsTypeReferenceDetails>,
+  runtimeType: TstsType | undefined,
+  declaration: TstsNode | undefined
+): SourceRuntimeOperationOwner | undefined => {
+  const direct = sourceRuntimeTypeOwner(context, runtimeType, declaration);
+  if (direct || !typeReference) return direct;
+  const owner = ambientRuntimeConstructors.get(typeReference.name);
+  if (!owner) return undefined;
+  const declarations = typeReferenceDeclarations(context, node);
+  return declarations.some((candidate) => {
+    const sourceFile = getTstsContainingSourceFile(candidate);
+    return (
+      sourceFile !== undefined &&
+      sourceFileBelongsToPackage(sourceFile.FileName(), "@tsonic/js")
+    );
+  })
+    ? owner
+    : undefined;
 };
 
 const projectedTypeFromMemberDeclaration = (
@@ -1820,7 +1725,9 @@ const projectedTypesFromPropertySymbol = (
   if (!symbol) return [];
   const declarations = context.checker
     .getSymbolDeclarations(symbol)
-    .filter((declaration): declaration is TstsNode => declaration !== undefined);
+    .filter(
+      (declaration): declaration is TstsNode => declaration !== undefined
+    );
   const declared = uniqueProjectedTypes(
     declarations.map((declaration) =>
       projectedTypeFromMemberDeclaration(
@@ -1844,7 +1751,7 @@ const projectTypeNodeByBindingSegment = (
   substitutions: SourceTypeSubstitutionMap,
   seen: Set<TstsNode>
 ): readonly SourceBindingProjectedType[] => {
-  const typeReference = getTstsTypeReferenceDetails(node);
+  const typeReference = sourceTypeReferenceDetails(node);
   if (typeReference && typeReference.typeArguments.length === 0) {
     const replacement = substitutions.get(typeReference.name);
     if (replacement) {
@@ -1887,9 +1794,8 @@ const projectTypeNodeByBindingSegment = (
     }
     case TstsSyntax.KindTupleType: {
       if (segment.kind !== "element") return [];
-      const element = TstsSyntax.AsTupleTypeNode(node)?.Elements?.Nodes?.[
-        segment.index
-      ];
+      const element =
+        TstsSyntax.AsTupleTypeNode(node)?.Elements?.Nodes?.[segment.index];
       const projected = projectedTypeFromTypeNode(
         context,
         TstsSyntax.Node_Type(element) ?? element,
@@ -2099,12 +2005,7 @@ const sourceBindingTypeAtPath = (
     if (!current) return undefined;
     current = combinedProjectedType(
       "union",
-      projectSourceBindingTypeBySegment(
-        context,
-        current,
-        segment,
-        new Set()
-      )
+      projectSourceBindingTypeBySegment(context, current, segment, new Set())
     );
   }
   return current;
@@ -2136,6 +2037,7 @@ const sourceExpressionProjectionKinds = new Set([
   TstsSyntax.KindSatisfiesExpression,
   TstsSyntax.KindTypeAssertionExpression,
   TstsSyntax.KindNonNullExpression,
+  TstsSyntax.KindBinaryExpression,
   TstsSyntax.KindConditionalExpression,
   TstsSyntax.KindArrowFunction,
   TstsSyntax.KindFunctionExpression,
@@ -2184,6 +2086,7 @@ const isSourceExpressionProjectionNode = (node: TstsNode): boolean => {
 
 const sourceTypeProjectionKinds = new Set([
   TstsSyntax.KindConditionalType,
+  TstsSyntax.KindExpressionWithTypeArguments,
   TstsSyntax.KindImportType,
   TstsSyntax.KindIndexedAccessType,
   TstsSyntax.KindInferType,
@@ -2192,6 +2095,7 @@ const sourceTypeProjectionKinds = new Set([
   TstsSyntax.KindRestType,
   TstsSyntax.KindTypePredicate,
   TstsSyntax.KindTypeQuery,
+  TstsSyntax.KindTypeReference,
 ]);
 
 const isSourceTypeProjectionNode = (node: TstsNode): boolean =>
@@ -2238,8 +2142,9 @@ const projectedTypeDeclarationForSymbol = (
   symbol: TstsSymbol | undefined
 ): TstsNode | undefined => {
   if (!symbol) return undefined;
-  return singleDeclaration(context.checker.getSymbolDeclarations(symbol), (node) =>
-    sourceProjectedDeclarationKind(node) !== undefined
+  return singleDeclaration(
+    context.checker.getSymbolDeclarations(symbol),
+    (node) => sourceProjectedDeclarationKind(node) !== undefined
   );
 };
 
@@ -2256,9 +2161,7 @@ const isProjectedStructuralMemberDeclaration = (
 const projectedNamedTypeFromTypeReference = (
   context: CheckedContext,
   node: TstsNode,
-  typeReference:
-    | ReturnType<typeof getTstsTypeReferenceDetails>
-    | undefined,
+  typeReference: ReturnType<typeof getTstsTypeReferenceDetails> | undefined,
   substitutions: SourceTypeSubstitutionMap,
   seen: Set<TstsNode>,
   checkerState: CheckerTypeProjectionState = createCheckerTypeProjectionState()
@@ -2294,6 +2197,7 @@ const projectedNamedTypeFromTypeReference = (
   const symbol = symbolForTypeReference(context, node);
   const resolved = symbol ? context.checker.resolveAlias(symbol) : undefined;
   const declaration = projectedTypeDeclarationForSymbol(context, resolved);
+  const runtimeType = context.checker.getTypeFromTypeNode(node);
   const [recordKeyType, recordValueType] = typeArguments;
   if (
     declaration &&
@@ -2322,8 +2226,16 @@ const projectedNamedTypeFromTypeReference = (
       seen,
       checkerState
     ),
+    runtimeTypeOwner: sourceRuntimeTypeOwnerFromTypeReference(
+      context,
+      node,
+      typeReference,
+      runtimeType,
+      declaration
+    ),
     runtimeVisibility: declaration
-      ? context.facts.get(sourceRuntimeVisibilityFactKey, declaration)?.visibility
+      ? context.facts.get(sourceRuntimeVisibilityFactKey, declaration)
+          ?.visibility
       : undefined,
     sourceNode: node,
   };
@@ -2335,28 +2247,30 @@ const checkerSignatureProjection = (
   state: CheckerTypeProjectionState
 ): SourceBindingProjectedType => ({
   kind: "function",
-  parameters: context.checker.getSignatureParameters(signature).map((parameter) => {
-    const declaration = context.checker.getSymbolValueDeclaration(parameter);
-    const declaredType = TstsSyntax.Node_Type(declaration);
-    return {
-      name: context.checker.getSymbolName(parameter),
-      type:
-        projectedTypeFromTypeNode(
-          context,
-          declaredType,
-          emptySourceTypeSubstitutions,
-          new Set(),
-          state
-        ) ??
-        checkerTypeProjection(
-          context,
-          context.checker.getTypeOfSignatureParameter(parameter),
-          state
-        ),
-      optional: false,
-      rest: false,
-    };
-  }),
+  parameters: context.checker
+    .getSignatureParameters(signature)
+    .map((parameter) => {
+      const declaration = context.checker.getSymbolValueDeclaration(parameter);
+      const declaredType = TstsSyntax.Node_Type(declaration);
+      return {
+        name: context.checker.getSymbolName(parameter),
+        type:
+          projectedTypeFromTypeNode(
+            context,
+            declaredType,
+            emptySourceTypeSubstitutions,
+            new Set(),
+            state
+          ) ??
+          checkerTypeProjection(
+            context,
+            context.checker.getTypeOfSignatureParameter(parameter),
+            state
+          ),
+        optional: false,
+        rest: false,
+      };
+    }),
   returnType: (() => {
     const declaration = context.checker.getSignatureDeclaration(signature);
     return (
@@ -2393,9 +2307,21 @@ const checkerTypeAliasTargetProjection = (
   seen.add(declaration);
   try {
     const substitutions = new Map<string, SourceBindingProjectedType>();
+    const typeParameters = getTstsTypeParameterNodes(declaration);
     sourceTypeParameterNames(declaration).forEach((parameter, index) => {
       const argument = typeArguments[index];
-      if (argument) substitutions.set(parameter, argument);
+      if (argument) {
+        substitutions.set(parameter, argument);
+        return;
+      }
+      const defaultProjection = typeParameterDefaultProjection(
+        context,
+        typeParameters[index],
+        emptySourceTypeSubstitutions,
+        seen,
+        checkerState
+      );
+      if (defaultProjection) substitutions.set(parameter, defaultProjection);
     });
     return projectedTypeFromTypeNode(
       context,
@@ -2423,7 +2349,9 @@ const checkerTypeProjection = (
     if (unionMembers && unionMembers.length > 0) {
       return combinedProjectedType(
         "union",
-        unionMembers.map((member) => checkerTypeProjection(context, member, state))
+        unionMembers.map((member) =>
+          checkerTypeProjection(context, member, state)
+        )
       );
     }
 
@@ -2507,6 +2435,7 @@ const checkerTypeProjection = (
           state.aliasDeclarations,
           state
         ),
+        runtimeTypeOwner: sourceRuntimeTypeOwner(context, type, declaration),
         runtimeVisibility: declaration
           ? context.facts.get(sourceRuntimeVisibilityFactKey, declaration)
               ?.visibility
@@ -2515,11 +2444,13 @@ const checkerTypeProjection = (
       };
     }
 
-    const properties = checker.getProperties(type).filter((property) =>
-      isProjectedStructuralMemberDeclaration(
-        context.checker.getSymbolValueDeclaration(property)
-      )
-    );
+    const properties = checker
+      .getProperties(type)
+      .filter((property) =>
+        isProjectedStructuralMemberDeclaration(
+          context.checker.getSymbolValueDeclaration(property)
+        )
+      );
     if (properties.length > 0) {
       return {
         kind: "object",
@@ -2552,8 +2483,9 @@ const checkerTypeProjection = (
           })
           .filter(
             (member, index, members) =>
-              members.findIndex((candidate) => candidate.name === member.name) ===
-              index
+              members.findIndex(
+                (candidate) => candidate.name === member.name
+              ) === index
           ),
       };
     }
@@ -2602,7 +2534,7 @@ const containsArrayProjection = (type: SourceBindingProjectedType): boolean => {
   }
 };
 
-const containsTypeParameterProjection = (
+const containsUnsubstitutedTypeParameterProjection = (
   type: SourceBindingProjectedType | undefined,
   seen: ReadonlySet<SourceBindingProjectedType> = new Set()
 ): boolean => {
@@ -2614,37 +2546,40 @@ const containsTypeParameterProjection = (
       return (
         type.declarationKind === "type-parameter" ||
         type.typeArguments.some((argument) =>
-          containsTypeParameterProjection(argument, nextSeen)
+          containsUnsubstitutedTypeParameterProjection(argument, nextSeen)
         ) ||
-        containsTypeParameterProjection(type.aliasTarget, nextSeen)
+        containsUnsubstitutedTypeParameterProjection(type.aliasTarget, nextSeen)
       );
     case "record":
       return (
-        containsTypeParameterProjection(type.keyType, nextSeen) ||
-        containsTypeParameterProjection(type.valueType, nextSeen)
+        containsUnsubstitutedTypeParameterProjection(type.keyType, nextSeen) ||
+        containsUnsubstitutedTypeParameterProjection(type.valueType, nextSeen)
       );
     case "function":
       return (
         type.typeParameters.length > 0 ||
         type.parameters.some((parameter) =>
-          containsTypeParameterProjection(parameter.type, nextSeen)
+          containsUnsubstitutedTypeParameterProjection(parameter.type, nextSeen)
         ) ||
-        containsTypeParameterProjection(type.returnType, nextSeen)
+        containsUnsubstitutedTypeParameterProjection(type.returnType, nextSeen)
       );
     case "array":
-      return containsTypeParameterProjection(type.elementType, nextSeen);
+      return containsUnsubstitutedTypeParameterProjection(
+        type.elementType,
+        nextSeen
+      );
     case "tuple":
       return type.elements.some((element) =>
-        containsTypeParameterProjection(element, nextSeen)
+        containsUnsubstitutedTypeParameterProjection(element, nextSeen)
       );
     case "object":
       return type.members.some((member) =>
-        containsTypeParameterProjection(member.type, nextSeen)
+        containsUnsubstitutedTypeParameterProjection(member.type, nextSeen)
       );
     case "union":
     case "intersection":
       return type.types.some((member) =>
-        containsTypeParameterProjection(member, nextSeen)
+        containsUnsubstitutedTypeParameterProjection(member, nextSeen)
       );
     case "source-primitive":
     case "intrinsic":
@@ -2701,12 +2636,300 @@ const containsSourcePrimitiveProjection = (
   }
 };
 
+const isCharSourcePrimitiveProjection = (
+  type: SourceBindingProjectedType | undefined
+): boolean => type?.kind === "source-primitive" && type.fact.kind === "char";
+
+const stringLiteralValueLength = (node: TstsNode): number | undefined => {
+  if (
+    node.Kind !== TstsSyntax.KindStringLiteral &&
+    node.Kind !== TstsSyntax.KindNoSubstitutionTemplateLiteral
+  ) {
+    return undefined;
+  }
+  return TstsSyntax.AsStringLiteral(node)?.Text.length;
+};
+
+const contextualProjectionForExpression = (
+  node: TstsNode,
+  expressionProjection: SourceBindingProjectedType,
+  contextualProjection: SourceBindingProjectedType | undefined
+): SourceBindingProjectedType | undefined => {
+  if (!isCharSourcePrimitiveProjection(contextualProjection)) {
+    return contextualProjection;
+  }
+  const literalLength = stringLiteralValueLength(node);
+  if (literalLength !== undefined) {
+    return literalLength === 1 ? contextualProjection : undefined;
+  }
+  return isCharSourcePrimitiveProjection(expressionProjection)
+    ? contextualProjection
+    : undefined;
+};
+
+const callableSourceReturnProjection = (
+  context: CheckedContext,
+  node: TstsNode | undefined,
+  cache: SourceExpressionProjectionCache,
+  sourceDiagnosticRoots: readonly string[]
+): SourceBindingProjectedType | undefined => {
+  if (!node) return undefined;
+  const declaredReturnType = TstsSyntax.Node_Type(node);
+  if (declaredReturnType) {
+    return projectedTypeFromTypeNode(context, declaredReturnType);
+  }
+  const projected = sourceExpressionTypeProjection(
+    context,
+    node,
+    cache,
+    sourceDiagnosticRoots
+  );
+  if (projected?.kind === "function") {
+    return projected.returnType;
+  }
+  const type = context.checker.getTypeAtLocation(node);
+  const signatures = context.checker.getCallSignatures(type);
+  return signatures.length === 1
+    ? checkerTypeProjection(
+        context,
+        context.checker.getReturnTypeOfSignature(signatures[0])
+      )
+    : undefined;
+};
+
+const sourceArrayElementProjection = (
+  context: CheckedContext,
+  type: SourceBindingProjectedType | undefined,
+  index: number | undefined,
+  location: TstsNode
+): SourceBindingProjectedType | undefined => {
+  if (!type) return undefined;
+  if (index === undefined && containsTupleProjection(type)) return undefined;
+  const element = combinedProjectedType(
+    "union",
+    projectSourceBindingTypeBySegment(
+      context,
+      type,
+      { kind: "element", index: index ?? 0 },
+      new Set()
+    ),
+    location
+  );
+  return containsArrayProjection(type)
+    ? combinedProjectedType(
+        "union",
+        [element, intrinsicProjection("undefined")],
+        location
+      )
+    : element;
+};
+
+const sourceArrayContextElementProjection = (
+  context: CheckedContext,
+  type: SourceBindingProjectedType | undefined,
+  index: number,
+  location: TstsNode
+): SourceBindingProjectedType | undefined => {
+  if (!type) return undefined;
+  return combinedProjectedType(
+    "union",
+    projectSourceBindingTypeBySegment(
+      context,
+      type,
+      { kind: "element", index },
+      new Set()
+    ),
+    location
+  );
+};
+
+const sourceArrayContextSpreadProjection = (
+  type: SourceBindingProjectedType | undefined,
+  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
+): SourceBindingProjectedType | undefined => {
+  if (!type || seen.has(type)) return undefined;
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+  switch (type.kind) {
+    case "array":
+    case "tuple":
+      return type;
+    case "named":
+      return sourceArrayContextSpreadProjection(type.aliasTarget, nextSeen);
+    case "union":
+    case "intersection":
+      return combinedProjectedType(
+        type.kind,
+        type.types.map((member) =>
+          sourceArrayContextSpreadProjection(member, nextSeen)
+        )
+      );
+    default:
+      return undefined;
+  }
+};
+
+const sourceArrayProjection = (
+  elementType: SourceBindingProjectedType | undefined,
+  sourceNode: TstsNode
+): SourceBindingProjectedType | undefined =>
+  elementType
+    ? { kind: "array", elementType, readonly: false, sourceNode }
+    : undefined;
+
+const recordValueProjection = (
+  type: SourceBindingProjectedType | undefined,
+  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
+): SourceBindingProjectedType | undefined => {
+  if (!type || seen.has(type)) return undefined;
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+  switch (type.kind) {
+    case "record":
+      return type.valueType;
+    case "named":
+      return recordValueProjection(type.aliasTarget, nextSeen);
+    case "union":
+    case "intersection":
+      return combinedProjectedType(
+        type.kind,
+        type.types.map((member) => recordValueProjection(member, nextSeen))
+      );
+    default:
+      return undefined;
+  }
+};
+
+const sourceArrayCallTypeOverlay = (
+  context: CheckedContext,
+  call: TstsNode,
+  callee: TstsNode,
+  operation: SourceRuntimeOperationFact,
+  cache: SourceExpressionProjectionCache,
+  sourceDiagnosticRoots: readonly string[]
+): SourceBindingProjectedType | undefined => {
+  if (operation.dispatch !== "receiver-call" || operation.owner !== "Array") {
+    return undefined;
+  }
+  const receiver = TstsSyntax.Node_Expression(callee);
+  const receiverProjection = sourceExpressionTypeProjection(
+    context,
+    receiver,
+    cache,
+    sourceDiagnosticRoots
+  );
+  const elementType = sourceArrayElementProjection(
+    context,
+    receiverProjection,
+    0,
+    receiver ?? call
+  );
+  switch (operation.member) {
+    case "map": {
+      const callback = getTstsCallExpressionDetails(call)?.arguments[0];
+      return sourceArrayProjection(
+        callableSourceReturnProjection(
+          context,
+          callback,
+          cache,
+          sourceDiagnosticRoots
+        ) ?? elementType,
+        call
+      );
+    }
+    case "filter":
+    case "slice":
+      return sourceArrayProjection(elementType, call);
+    default:
+      return undefined;
+  }
+};
+
+const sourceObjectEntriesCallTypeOverlay = (
+  context: CheckedContext,
+  call: TstsNode,
+  operation: SourceRuntimeOperationFact,
+  cache: SourceExpressionProjectionCache,
+  sourceDiagnosticRoots: readonly string[]
+): SourceBindingProjectedType | undefined => {
+  if (
+    operation.dispatch !== "static-call" ||
+    operation.owner !== "Object" ||
+    operation.member !== "entries"
+  ) {
+    return undefined;
+  }
+  const [source] = TstsSyntax.Node_Arguments(call) ?? [];
+  const sourceProjection = sourceExpressionTypeProjection(
+    context,
+    source,
+    cache,
+    sourceDiagnosticRoots
+  );
+  const valueType = recordValueProjection(sourceProjection);
+  return valueType
+    ? sourceArrayProjection(
+        {
+          kind: "tuple",
+          elements: [intrinsicProjection("string"), valueType],
+          readonly: false,
+          sourceNode: call,
+        },
+        call
+      )
+    : undefined;
+};
+
+const sourceObjectLiteralProjection = (
+  context: CheckedContext,
+  node: TstsNode,
+  cache: SourceExpressionProjectionCache,
+  sourceDiagnosticRoots: readonly string[]
+): SourceBindingProjectedType | undefined => {
+  const members: SourceBindingProjectedObjectMember[] = [];
+  for (const property of TstsSyntax.Node_Properties(node) ?? []) {
+    if (!property) return undefined;
+    if (
+      property.Kind !== TstsSyntax.KindPropertyAssignment &&
+      property.Kind !== TstsSyntax.KindShorthandPropertyAssignment
+    ) {
+      return undefined;
+    }
+    const nameNode =
+      property.Kind === TstsSyntax.KindShorthandPropertyAssignment
+        ? TstsSyntax.Node_Name(property)
+        : TstsSyntax.Node_PropertyNameOrName(property);
+    const name =
+      getTstsIdentifierText(nameNode) ??
+      getTstsNodeNameText(nameNode) ??
+      getTstsNodeText(nameNode);
+    if (!name) return undefined;
+    const valueNode =
+      property.Kind === TstsSyntax.KindShorthandPropertyAssignment
+        ? TstsSyntax.Node_Name(property)
+        : TstsSyntax.Node_Initializer(property);
+    members.push({
+      name,
+      optional: false,
+      type: sourceExpressionTypeProjection(
+        context,
+        valueNode,
+        cache,
+        sourceDiagnosticRoots
+      ),
+    });
+  }
+  return { kind: "object", members, sourceNode: node };
+};
+
 const declaredProjectionForExpression = (
   context: CheckedContext,
   expression: TstsNode | undefined
 ): SourceBindingProjectedType | undefined => {
   const declaredType = declaredTypeNodeForExpression(context, expression);
-  return declaredType ? projectedTypeFromTypeNode(context, declaredType) : undefined;
+  return declaredType
+    ? projectedTypeFromTypeNode(context, declaredType)
+    : undefined;
 };
 
 const identifierDeclarationProjection = (
@@ -2721,12 +2944,14 @@ const identifierDeclarationProjection = (
     node.Parent?.Kind === TstsSyntax.KindShorthandPropertyAssignment
       ? context.checker.getShorthandAssignmentValueSymbol(node.Parent)
       : undefined;
-  const symbol = shorthandValueSymbol ?? context.checker.getSymbolAtLocation(node);
+  const symbol =
+    shorthandValueSymbol ?? context.checker.getSymbolAtLocation(node);
   const resolved = symbol ? context.checker.resolveAlias(symbol) : undefined;
   const declaration = resolved
     ? context.checker.getSymbolValueDeclaration(resolved)
     : undefined;
-  const initializer = TstsSyntax.AsVariableDeclaration(declaration)?.Initializer;
+  const initializer =
+    TstsSyntax.AsVariableDeclaration(declaration)?.Initializer;
   return initializer && initializer !== node
     ? sourceExpressionTypeProjection(
         context,
@@ -2735,95 +2960,6 @@ const identifierDeclarationProjection = (
         sourceDiagnosticRoots
       )
     : undefined;
-};
-
-const sourceExpressionStorageProjection = (
-  context: CheckedContext,
-  node: TstsNode | undefined,
-  cache: SourceExpressionProjectionCache,
-  sourceDiagnosticRoots: readonly string[]
-): SourceBindingProjectedType | undefined => {
-  if (!node) return undefined;
-  if (TstsSyntax.IsIdentifier(node)) {
-    return declaredProjectionForExpression(context, node);
-  }
-  switch (node.Kind) {
-    case TstsSyntax.KindPropertyAccessExpression: {
-      const receiverStorage = sourceExpressionStorageProjection(
-        context,
-        TstsSyntax.Node_Expression(node),
-        cache,
-        sourceDiagnosticRoots
-      );
-      const name = getTstsIdentifierText(TstsSyntax.Node_Name(node));
-      if (!receiverStorage || !name) return declaredProjectionForExpression(context, node);
-      return combinedProjectedType(
-        "union",
-        projectSourceBindingTypeBySegment(
-          context,
-          receiverStorage,
-          { kind: "property", name },
-          new Set()
-        ),
-        node
-      );
-    }
-    case TstsSyntax.KindElementAccessExpression: {
-      const element = TstsSyntax.AsElementAccessExpression(node);
-      const receiverStorage = sourceExpressionStorageProjection(
-        context,
-        element?.Expression,
-        cache,
-        sourceDiagnosticRoots
-      );
-      return arrayElementProjection(
-        context,
-        receiverStorage,
-        staticElementAccessIndex(element?.ArgumentExpression),
-        node
-      );
-    }
-    case TstsSyntax.KindNonNullExpression:
-      return nonNullishProjection(
-        sourceExpressionStorageProjection(
-          context,
-          TstsSyntax.Node_Expression(node),
-          cache,
-          sourceDiagnosticRoots
-        ),
-        node
-      );
-    case TstsSyntax.KindAsExpression:
-    case TstsSyntax.KindTypeAssertionExpression:
-    case TstsSyntax.KindSatisfiesExpression:
-      return (
-        projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(node)) ??
-        sourceExpressionStorageProjection(
-          context,
-          TstsSyntax.Node_Expression(node),
-          cache,
-          sourceDiagnosticRoots
-        )
-      );
-    default:
-      return undefined;
-  }
-};
-
-const resolvedSignatureReturnProjection = (
-  context: CheckedContext,
-  call: TstsNode
-): SourceBindingProjectedType | undefined => {
-  const signature = context.checker.getResolvedSignature(call);
-  const declaration = context.checker.getSignatureDeclaration(signature);
-  const declarationReturnType = TstsSyntax.Node_Type(declaration);
-  return (
-    projectedTypeFromTypeNode(context, declarationReturnType) ??
-    checkerTypeProjection(
-      context,
-      context.checker.getReturnTypeOfSignature(signature)
-    )
-  );
 };
 
 const signatureParameterProjection = (
@@ -2863,7 +2999,10 @@ const signatureTargetProjection = (
       ? TstsSyntax.Node_Expression(callee)
       : undefined;
   const receiverType = receiver
-    ? checkerTypeProjection(context, context.checker.getTypeAtLocation(receiver))
+    ? checkerTypeProjection(
+        context,
+        context.checker.getTypeAtLocation(receiver)
+      )
     : undefined;
   if (receiverType) return receiverType;
   const declaration = context.checker.getSignatureDeclaration(signature);
@@ -2889,7 +3028,9 @@ const findNamedProjectedTypeForDeclaration = (
   type: SourceBindingProjectedType | undefined,
   declaration: TstsNode | undefined,
   seen: ReadonlySet<SourceBindingProjectedType> = new Set()
-): Extract<SourceBindingProjectedType, { readonly kind: "named" }> | undefined => {
+):
+  | Extract<SourceBindingProjectedType, { readonly kind: "named" }>
+  | undefined => {
   if (!type || !declaration || seen.has(type)) return undefined;
   const nextSeen = new Set(seen);
   nextSeen.add(type);
@@ -2904,8 +3045,16 @@ const findNamedProjectedTypeForDeclaration = (
           );
     case "record":
       return (
-        findNamedProjectedTypeForDeclaration(type.keyType, declaration, nextSeen) ??
-        findNamedProjectedTypeForDeclaration(type.valueType, declaration, nextSeen)
+        findNamedProjectedTypeForDeclaration(
+          type.keyType,
+          declaration,
+          nextSeen
+        ) ??
+        findNamedProjectedTypeForDeclaration(
+          type.valueType,
+          declaration,
+          nextSeen
+        )
       );
     case "function":
       for (const parameter of type.parameters) {
@@ -2980,9 +3129,15 @@ const receiverTypeSubstitutionsForCall = (
       ? TstsSyntax.Node_Expression(callee)
       : undefined;
   const receiverType = receiver
-    ? checkerTypeProjection(context, context.checker.getTypeAtLocation(receiver))
+    ? checkerTypeProjection(
+        context,
+        context.checker.getTypeAtLocation(receiver)
+      )
     : undefined;
-  const namedReceiver = findNamedProjectedTypeForDeclaration(receiverType, owner);
+  const namedReceiver = findNamedProjectedTypeForDeclaration(
+    receiverType,
+    owner
+  );
   if (!namedReceiver) return emptySourceTypeSubstitutions;
   const substitutions = new Map<string, SourceBindingProjectedType>();
   parameters.forEach((parameter, index) => {
@@ -3041,12 +3196,37 @@ const signatureTypeSubstitutionsForCall = (
   );
 };
 
+const signatureReturnProjection = (
+  context: CheckedContext,
+  signature: TstsSignature,
+  substitutions: SourceTypeSubstitutionMap,
+  checkerState: CheckerTypeProjectionState
+): SourceBindingProjectedType | undefined => {
+  const declaration = context.checker.getSignatureDeclaration(signature);
+  const declaredReturnType = TstsSyntax.Node_Type(declaration);
+  return (
+    projectedTypeFromTypeNode(
+      context,
+      declaredReturnType,
+      substitutions,
+      new Set(),
+      checkerState
+    ) ??
+    checkerTypeProjection(
+      context,
+      context.checker.getReturnTypeOfSignature(signature),
+      checkerState
+    )
+  );
+};
+
 const callArgumentTypesFact = (
   context: CheckedContext,
   node: TstsNode
 ): SourceCallArgumentTypesFact | undefined => {
   const signature = context.checker.getResolvedSignature(node);
   if (!signature) return undefined;
+  const declaration = context.checker.getSignatureDeclaration(signature);
   const checkerState = createCheckerTypeProjectionState();
   const substitutions = signatureTypeSubstitutionsForCall(
     context,
@@ -3066,30 +3246,52 @@ const callArgumentTypesFact = (
         )
       ),
     targetType: signatureTargetProjection(context, signature, node),
+    returnType: signatureReturnProjection(
+      context,
+      signature,
+      substitutions,
+      checkerState
+    ),
+    returnTypeNode: TstsSyntax.Node_Type(declaration),
   };
 };
 
 const sourceParameterTypeProjection = (
   context: CheckedContext,
-  parameter: TstsSymbol | TstsNode | undefined
+  parameter: TstsSymbol | TstsNode | undefined,
+  substitutions: SourceTypeSubstitutionMap = emptySourceTypeSubstitutions,
+  checkerState: CheckerTypeProjectionState = createCheckerTypeProjectionState()
 ): SourceParameterTypeProjection | undefined => {
   const declaration =
-    typeof parameter === "object" && parameter !== undefined && "Kind" in parameter
+    typeof parameter === "object" &&
+    parameter !== undefined &&
+    "Kind" in parameter
       ? parameter
       : context.checker.getSymbolValueDeclaration(parameter);
   const name =
     getTstsNodeNameText(declaration) ??
     getTstsIdentifierText(TstsSyntax.Node_Name(declaration)) ??
-    (typeof parameter === "object" && parameter !== undefined && !("Kind" in parameter)
+    (typeof parameter === "object" &&
+    parameter !== undefined &&
+    !("Kind" in parameter)
       ? context.checker.getSymbolName(parameter)
       : undefined);
   if (!name) return undefined;
   const type =
-    projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(declaration)) ??
-    (typeof parameter === "object" && parameter !== undefined && !("Kind" in parameter)
+    projectedTypeFromTypeNode(
+      context,
+      TstsSyntax.Node_Type(declaration),
+      substitutions,
+      new Set(),
+      checkerState
+    ) ??
+    (typeof parameter === "object" &&
+    parameter !== undefined &&
+    !("Kind" in parameter)
       ? checkerTypeProjection(
           context,
-          context.checker.getTypeOfSignatureParameter(parameter)
+          context.checker.getTypeOfSignatureParameter(parameter),
+          checkerState
         )
       : undefined);
   return {
@@ -3115,12 +3317,353 @@ const sourceFunctionLikeDeclaration = (node: TstsNode): boolean =>
   node.Kind === TstsSyntax.KindCallSignature ||
   node.Kind === TstsSyntax.KindConstructSignature;
 
+const nearestFunctionLikeNodeParent = (
+  node: TstsNode | undefined
+): TstsNode | undefined => {
+  for (
+    let current = node?.Parent;
+    current !== undefined;
+    current = current.Parent
+  ) {
+    if (sourceFunctionLikeDeclaration(current)) return current;
+  }
+  return undefined;
+};
+
+const sourceObjectContextMemberProjection = (
+  type: SourceBindingProjectedType | undefined,
+  propertyName: string | undefined,
+  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
+): SourceBindingProjectedType | undefined => {
+  if (!type || !propertyName || seen.has(type)) return undefined;
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+  switch (type.kind) {
+    case "named":
+      return sourceObjectContextMemberProjection(
+        type.aliasTarget,
+        propertyName,
+        nextSeen
+      );
+    case "record":
+      return type.valueType;
+    case "object": {
+      const members = type.members.filter(
+        (member) => member.name === propertyName
+      );
+      const [member] = members;
+      return members.length === 1 ? member?.type : undefined;
+    }
+    case "union":
+    case "intersection":
+      return combinedProjectedType(
+        type.kind,
+        type.types.map((member) =>
+          sourceObjectContextMemberProjection(
+            member,
+            propertyName,
+            nextSeen
+          )
+        )
+      );
+    default:
+      return undefined;
+  }
+};
+
+const sourceContextualProjectionForCallArgument = (
+  context: CheckedContext,
+  node: TstsNode,
+  parent: TstsNode
+): SourceBindingProjectedType | undefined => {
+  if (
+    parent.Kind !== TstsSyntax.KindCallExpression &&
+    parent.Kind !== TstsSyntax.KindNewExpression
+  ) {
+    return undefined;
+  }
+  const args = TstsSyntax.Node_Arguments(parent) ?? [];
+  const index = args.indexOf(node);
+  if (index < 0) return undefined;
+  return (
+    context.facts.get(sourceCallArgumentTypesFactKey, parent) ??
+    callArgumentTypesFact(context, parent)
+  )?.argumentTypes[index];
+};
+
+const sourceContextualProjectionForReturnExpression = (
+  context: CheckedContext,
+  node: TstsNode,
+  parent: TstsNode
+): SourceBindingProjectedType | undefined => {
+  if (
+    parent.Kind !== TstsSyntax.KindReturnStatement ||
+    TstsSyntax.Node_Expression(parent) !== node
+  ) {
+    return undefined;
+  }
+  const functionLike = nearestFunctionLikeNodeParent(parent);
+  if (!functionLike) return undefined;
+  const signature = context.checker.getSignatureFromDeclaration(functionLike);
+  return (
+    projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(functionLike)) ??
+    checkerTypeProjection(
+      context,
+      signature ? context.checker.getReturnTypeOfSignature(signature) : undefined
+    )
+  );
+};
+
+const sourceContextualProjectionForObjectMember = (
+  context: CheckedContext,
+  node: TstsNode,
+  parent: TstsNode
+): SourceBindingProjectedType | undefined => {
+  if (
+    parent.Kind !== TstsSyntax.KindPropertyAssignment &&
+    parent.Kind !== TstsSyntax.KindShorthandPropertyAssignment
+  ) {
+    return undefined;
+  }
+  const valueNode =
+    parent.Kind === TstsSyntax.KindShorthandPropertyAssignment
+      ? TstsSyntax.Node_Name(parent)
+      : TstsSyntax.Node_Initializer(parent);
+  if (valueNode !== node) return undefined;
+  const objectLiteral = parent.Parent;
+  if (objectLiteral?.Kind !== TstsSyntax.KindObjectLiteralExpression) {
+    return undefined;
+  }
+  const objectContext = sourceExpressionContextualProjectionFact(
+    context,
+    objectLiteral
+  );
+  const nameNode =
+    parent.Kind === TstsSyntax.KindShorthandPropertyAssignment
+      ? TstsSyntax.Node_Name(parent)
+      : TstsSyntax.Node_PropertyNameOrName(parent);
+  const propertyName =
+    getTstsIdentifierText(nameNode) ??
+    getTstsNodeNameText(nameNode) ??
+    getTstsNodeText(nameNode);
+  return sourceObjectContextMemberProjection(objectContext, propertyName);
+};
+
+const sourceExpressionContextualProjectionFact = (
+  context: CheckedContext,
+  node: TstsNode | undefined
+): SourceBindingProjectedType | undefined =>
+  node
+    ? context.facts.get(sourceExpressionTypeProjectionFactKey, node)
+        ?.contextualType
+    : undefined;
+
+const sourceContextualProjectionForArrayElement = (
+  context: CheckedContext,
+  node: TstsNode,
+  parent: TstsNode
+): SourceBindingProjectedType | undefined => {
+  if (parent.Kind !== TstsSyntax.KindArrayLiteralExpression) {
+    return undefined;
+  }
+  const elements = TstsSyntax.Node_Elements(parent) ?? [];
+  const index = elements.indexOf(node);
+  if (index < 0) return undefined;
+  return sourceArrayContextElementProjection(
+    context,
+    sourceExpressionContextualProjectionFact(context, parent),
+    index,
+    node
+  );
+};
+
+const sourceContextualProjectionForSpreadExpression = (
+  context: CheckedContext,
+  node: TstsNode,
+  parent: TstsNode
+): SourceBindingProjectedType | undefined => {
+  if (
+    parent.Kind !== TstsSyntax.KindSpreadElement ||
+    TstsSyntax.Node_Expression(parent) !== node
+  ) {
+    return undefined;
+  }
+  const container = parent.Parent;
+  if (container?.Kind !== TstsSyntax.KindArrayLiteralExpression) {
+    return undefined;
+  }
+  return sourceArrayContextSpreadProjection(
+    sourceExpressionContextualProjectionFact(context, container)
+  );
+};
+
+const sourceContextualProjectionForVariableInitializer = (
+  context: CheckedContext,
+  node: TstsNode,
+  parent: TstsNode
+): SourceBindingProjectedType | undefined => {
+  if (
+    parent.Kind !== TstsSyntax.KindVariableDeclaration ||
+    TstsSyntax.Node_Initializer(parent) !== node
+  ) {
+    return undefined;
+  }
+  return projectedTypeFromTypeNode(context, getTstsDeclaredTypeNode(parent));
+};
+
+const binaryContextualOperators = new Set([
+  TstsSyntax.KindEqualsEqualsToken,
+  TstsSyntax.KindEqualsEqualsEqualsToken,
+  TstsSyntax.KindExclamationEqualsToken,
+  TstsSyntax.KindExclamationEqualsEqualsToken,
+]);
+
+const sourceContextualProjectionForBinaryOperand = (
+  context: CheckedContext,
+  node: TstsNode,
+  parent: TstsNode,
+  cache: SourceExpressionProjectionCache,
+  sourceDiagnosticRoots: readonly string[]
+): SourceBindingProjectedType | undefined => {
+  if (parent.Kind !== TstsSyntax.KindBinaryExpression) return undefined;
+  const binary = TstsSyntax.AsBinaryExpression(parent);
+  const operatorKind = binary?.OperatorToken?.Kind;
+  if (
+    operatorKind === undefined ||
+    !binaryContextualOperators.has(operatorKind)
+  ) {
+    return undefined;
+  }
+  const other =
+    binary?.Left === node
+      ? binary.Right
+      : binary?.Right === node
+        ? binary.Left
+        : undefined;
+  const otherProjection = sourceExpressionTypeProjection(
+    context,
+    other,
+    cache,
+    sourceDiagnosticRoots
+  );
+  return containsSourcePrimitiveProjection(otherProjection)
+    ? otherProjection
+    : undefined;
+};
+
+const sourceContextualProjectionForConditionalBranch = (
+  context: CheckedContext,
+  node: TstsNode,
+  parent: TstsNode
+): SourceBindingProjectedType | undefined => {
+  if (parent.Kind !== TstsSyntax.KindConditionalExpression) {
+    return undefined;
+  }
+  const conditional = TstsSyntax.AsConditionalExpression(parent);
+  return conditional?.WhenTrue === node || conditional?.WhenFalse === node
+    ? sourceExpressionContextualProjectionFact(context, parent)
+    : undefined;
+};
+
+const sourceContextualProjectionForParenthesizedExpression = (
+  context: CheckedContext,
+  node: TstsNode,
+  parent: TstsNode
+): SourceBindingProjectedType | undefined =>
+  parent.Kind === TstsSyntax.KindParenthesizedExpression &&
+  TstsSyntax.Node_Expression(parent) === node
+    ? sourceExpressionContextualProjectionFact(context, parent)
+    : undefined;
+
+const functionReturnProjection = (
+  type: SourceBindingProjectedType | undefined
+): SourceBindingProjectedType | undefined => {
+  if (!type) return undefined;
+  if (type.kind === "function") return type.returnType;
+  if (type.kind === "named") return functionReturnProjection(type.aliasTarget);
+  return undefined;
+};
+
+const sourceContextualProjectionForArrowBody = (
+  context: CheckedContext,
+  node: TstsNode,
+  parent: TstsNode
+): SourceBindingProjectedType | undefined => {
+  if (
+    parent.Kind !== TstsSyntax.KindArrowFunction ||
+    TstsSyntax.Node_Body(parent) !== node
+  ) {
+    return undefined;
+  }
+  return (
+    projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(parent)) ??
+    functionReturnProjection(
+      sourceExpressionContextualProjectionFact(context, parent)
+    )
+  );
+};
+
+const sourceDerivedContextualProjectionForExpression = (
+  context: CheckedContext,
+  node: TstsNode,
+  cache: SourceExpressionProjectionCache,
+  sourceDiagnosticRoots: readonly string[]
+): SourceBindingProjectedType | undefined => {
+  const parent = node.Parent;
+  if (!parent) return undefined;
+  return (
+    sourceContextualProjectionForVariableInitializer(context, node, parent) ??
+    sourceContextualProjectionForReturnExpression(context, node, parent) ??
+    sourceContextualProjectionForCallArgument(context, node, parent) ??
+    sourceContextualProjectionForArrayElement(context, node, parent) ??
+    sourceContextualProjectionForSpreadExpression(context, node, parent) ??
+    sourceContextualProjectionForObjectMember(context, node, parent) ??
+    sourceContextualProjectionForBinaryOperand(
+      context,
+      node,
+      parent,
+      cache,
+      sourceDiagnosticRoots
+    ) ??
+    sourceContextualProjectionForConditionalBranch(context, node, parent) ??
+    sourceContextualProjectionForParenthesizedExpression(context, node, parent) ??
+    sourceContextualProjectionForArrowBody(context, node, parent)
+  );
+};
+
+const sourceContextualProjectionForExpression = (
+  context: CheckedContext,
+  node: TstsNode,
+  expressionProjection: SourceBindingProjectedType,
+  cache: SourceExpressionProjectionCache,
+  sourceDiagnosticRoots: readonly string[]
+): SourceBindingProjectedType | undefined =>
+  contextualProjectionForExpression(
+    node,
+    expressionProjection,
+    sourceDerivedContextualProjectionForExpression(
+      context,
+      node,
+      cache,
+      sourceDiagnosticRoots
+    ) ??
+      checkerTypeProjection(context, context.checker.getContextualType(node))
+  );
+
 const isTstsDeclarationLikeNode = (node: TstsNode): boolean =>
   sourceFunctionLikeDeclaration(node) ||
   node.Kind === TstsSyntax.KindClassDeclaration ||
   node.Kind === TstsSyntax.KindInterfaceDeclaration ||
   node.Kind === TstsSyntax.KindEnumDeclaration ||
   node.Kind === TstsSyntax.KindTypeAliasDeclaration ||
+  node.Kind === TstsSyntax.KindVariableDeclaration ||
+  node.Kind === TstsSyntax.KindParameter ||
+  node.Kind === TstsSyntax.KindPropertyDeclaration ||
+  node.Kind === TstsSyntax.KindPropertySignature ||
+  node.Kind === TstsSyntax.KindIndexSignature ||
+  node.Kind === TstsSyntax.KindEnumMember;
+
+const sourceValueLikeDeclaration = (node: TstsNode): boolean =>
   node.Kind === TstsSyntax.KindVariableDeclaration ||
   node.Kind === TstsSyntax.KindParameter ||
   node.Kind === TstsSyntax.KindPropertyDeclaration ||
@@ -3146,23 +3689,63 @@ const baseConstructorParameterProjections = (
   node: TstsNode
 ): readonly SourceParameterTypeProjection[] | undefined => {
   if (node.Kind !== TstsSyntax.KindClassDeclaration) return undefined;
-  const runtimeHeritages = runtimeHeritageTypeNodesForSourceFacts(context, node);
-  const heritage = runtimeHeritages.length === 1 ? runtimeHeritages[0] : undefined;
+  const runtimeHeritages = runtimeHeritageTypeNodesForSourceFacts(
+    context,
+    node
+  );
+  const heritage =
+    runtimeHeritages.length === 1 ? runtimeHeritages[0] : undefined;
   if (!heritage) return undefined;
   const heritageType = context.checker.getTypeFromTypeNode(heritage);
   const signatures = heritageType
     ? context.checker.getConstructSignatures(heritageType)
     : [];
   const signature = signatures.length === 1 ? signatures[0] : undefined;
-  if (!signature) return undefined;
-  const parameters = context.checker
-    .getSignatureParameters(signature)
-    .map((parameter) => sourceParameterTypeProjection(context, parameter))
+  if (signature) {
+    const parameters = context.checker
+      .getSignatureParameters(signature)
+      .map((parameter) => sourceParameterTypeProjection(context, parameter))
+      .filter(
+        (parameter): parameter is SourceParameterTypeProjection =>
+          parameter !== undefined
+      );
+    if (parameters.length > 0) return parameters;
+  }
+
+  const declarations = typeReferenceDeclarations(context, heritage).filter(
+    (declaration) => declaration.Kind === TstsSyntax.KindClassDeclaration
+  );
+  const [baseDeclaration] = declarations;
+  if (!baseDeclaration || declarations.length !== 1) return undefined;
+  const constructors = (TstsSyntax.Node_Members(baseDeclaration) ?? []).filter(
+    (member): member is TstsNode =>
+      member !== undefined && member.Kind === TstsSyntax.KindConstructor
+  );
+  const [constructor] = constructors;
+  if (!constructor || constructors.length !== 1) return undefined;
+  const checkerState = createCheckerTypeProjectionState();
+  const substitutions = mergeTypeReferenceSubstitutions(
+    context,
+    heritage,
+    baseDeclaration,
+    emptySourceTypeSubstitutions,
+    new Set(),
+    checkerState
+  );
+  const constructorParameters = getTstsParameters(constructor)
+    .map((parameter) =>
+      sourceParameterTypeProjection(
+        context,
+        parameter,
+        substitutions,
+        checkerState
+      )
+    )
     .filter(
       (parameter): parameter is SourceParameterTypeProjection =>
         parameter !== undefined
     );
-  return parameters.length > 0 ? parameters : undefined;
+  return constructorParameters.length > 0 ? constructorParameters : undefined;
 };
 
 const declarationTypeProjectionFact = (
@@ -3173,6 +3756,9 @@ const declarationTypeProjectionFact = (
     ? context.checker.getSignatureFromDeclaration(node)
     : undefined;
   const fact: SourceDeclarationTypeProjectionFact = {
+    declaredType: sourceValueLikeDeclaration(node)
+      ? variableSourceProjectionRoot(context, node)
+      : undefined,
     returnType:
       projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(node)) ??
       checkerTypeProjection(
@@ -3181,11 +3767,12 @@ const declarationTypeProjectionFact = (
           ? context.checker.getReturnTypeOfSignature(signature)
           : undefined
       ),
-    baseConstructorParameters: baseConstructorParameterProjections(context, node),
+    baseConstructorParameters: baseConstructorParameterProjections(
+      context,
+      node
+    ),
   };
-  return fact.returnType || fact.baseConstructorParameters
-    ? fact
-    : undefined;
+  return fact.returnType || fact.baseConstructorParameters ? fact : undefined;
 };
 
 const sameSourceSymbol = (
@@ -3240,208 +3827,6 @@ const setInitializerReferencesDeclarationFact = (
   });
 };
 
-const callableReturnProjection = (
-  context: CheckedContext,
-  node: TstsNode | undefined,
-  cache: SourceExpressionProjectionCache,
-  sourceDiagnosticRoots: readonly string[]
-): SourceBindingProjectedType | undefined => {
-  if (!node) return undefined;
-  const declaredReturnType = TstsSyntax.Node_Type(node);
-  if (declaredReturnType) {
-    return projectedTypeFromTypeNode(context, declaredReturnType);
-  }
-  const projected = sourceExpressionTypeProjection(
-    context,
-    node,
-    cache,
-    sourceDiagnosticRoots
-  );
-  if (projected?.kind === "function") {
-    return projected.returnType;
-  }
-  const type = context.checker.getTypeAtLocation(node);
-  const signatures = context.checker.getCallSignatures(type);
-  return signatures.length === 1
-    ? checkerTypeProjection(
-        context,
-        context.checker.getReturnTypeOfSignature(signatures[0])
-      )
-    : undefined;
-};
-
-const arrayElementProjection = (
-  context: CheckedContext,
-  type: SourceBindingProjectedType | undefined,
-  index: number | undefined,
-  location: TstsNode
-): SourceBindingProjectedType | undefined => {
-  if (!type) return undefined;
-  if (index === undefined && containsTupleProjection(type)) return undefined;
-  const element = combinedProjectedType(
-    "union",
-    projectSourceBindingTypeBySegment(
-      context,
-      type,
-      { kind: "element", index: index ?? 0 },
-      new Set()
-    ),
-    location
-  );
-  return containsArrayProjection(type)
-    ? combinedProjectedType("union", [element, intrinsicProjection("undefined")], location)
-    : element;
-};
-
-const arrayProjection = (
-  elementType: SourceBindingProjectedType | undefined,
-  sourceNode: TstsNode
-): SourceBindingProjectedType | undefined =>
-  elementType
-    ? { kind: "array", elementType, readonly: false, sourceNode }
-    : undefined;
-
-const recordValueProjection = (
-  type: SourceBindingProjectedType | undefined,
-  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
-): SourceBindingProjectedType | undefined => {
-  if (!type || seen.has(type)) return undefined;
-  const nextSeen = new Set(seen);
-  nextSeen.add(type);
-  switch (type.kind) {
-    case "record":
-      return type.valueType;
-    case "named":
-      return recordValueProjection(type.aliasTarget, nextSeen);
-    case "union":
-    case "intersection":
-      return combinedProjectedType(
-        type.kind,
-        type.types.map((member) => recordValueProjection(member, nextSeen))
-      );
-    default:
-      return undefined;
-  }
-};
-
-const sourceRuntimeArrayCallProjection = (
-  context: CheckedContext,
-  call: TstsNode,
-  callee: TstsNode,
-  operation: SourceRuntimeOperationFact,
-  cache: SourceExpressionProjectionCache,
-  sourceDiagnosticRoots: readonly string[]
-): SourceBindingProjectedType | undefined => {
-  if (operation.dispatch !== "receiver-call" || operation.owner !== "Array") {
-    return undefined;
-  }
-  const receiver = TstsSyntax.Node_Expression(callee);
-  const receiverProjection = sourceExpressionTypeProjection(
-    context,
-    receiver,
-    cache,
-    sourceDiagnosticRoots
-  );
-  const elementType = arrayElementProjection(
-    context,
-    receiverProjection,
-    0,
-    receiver ?? call
-  );
-  switch (operation.member) {
-    case "map": {
-      const callback = getTstsCallExpressionDetails(call)?.arguments[0];
-      return arrayProjection(
-        callableReturnProjection(context, callback, cache, sourceDiagnosticRoots) ??
-          elementType,
-        call
-      );
-    }
-    case "filter":
-    case "slice":
-      return arrayProjection(elementType, call);
-    default:
-      return undefined;
-  }
-};
-
-const sourceRuntimeObjectCallProjection = (
-  context: CheckedContext,
-  call: TstsNode,
-  operation: SourceRuntimeOperationFact,
-  cache: SourceExpressionProjectionCache,
-  sourceDiagnosticRoots: readonly string[]
-): SourceBindingProjectedType | undefined => {
-  if (
-    operation.dispatch !== "static-call" ||
-    operation.owner !== "Object" ||
-    operation.member !== "entries"
-  ) {
-    return undefined;
-  }
-  const [source] = TstsSyntax.Node_Arguments(call) ?? [];
-  const sourceProjection = sourceExpressionTypeProjection(
-    context,
-    source,
-    cache,
-    sourceDiagnosticRoots
-  );
-  const valueType = recordValueProjection(sourceProjection);
-  return valueType
-    ? arrayProjection(
-        {
-          kind: "tuple",
-          elements: [intrinsicProjection("string"), valueType],
-          readonly: false,
-          sourceNode: call,
-        },
-        call
-      )
-    : undefined;
-};
-
-const sourceObjectLiteralProjection = (
-  context: CheckedContext,
-  node: TstsNode,
-  cache: SourceExpressionProjectionCache,
-  sourceDiagnosticRoots: readonly string[]
-): SourceBindingProjectedType | undefined => {
-  const members: SourceBindingProjectedObjectMember[] = [];
-  for (const property of TstsSyntax.Node_Properties(node) ?? []) {
-    if (!property) return undefined;
-    if (
-      property.Kind !== TstsSyntax.KindPropertyAssignment &&
-      property.Kind !== TstsSyntax.KindShorthandPropertyAssignment
-    ) {
-      return undefined;
-    }
-    const nameNode =
-      property.Kind === TstsSyntax.KindShorthandPropertyAssignment
-        ? TstsSyntax.Node_Name(property)
-        : TstsSyntax.Node_PropertyNameOrName(property);
-    const name =
-      getTstsIdentifierText(nameNode) ??
-      getTstsNodeNameText(nameNode) ??
-      getTstsNodeText(nameNode);
-    if (!name) return undefined;
-    const valueNode =
-      property.Kind === TstsSyntax.KindShorthandPropertyAssignment
-        ? TstsSyntax.Node_Name(property)
-        : TstsSyntax.Node_Initializer(property);
-    members.push({
-      name,
-      optional: false,
-      type: sourceExpressionTypeProjection(
-        context,
-        valueNode,
-        cache,
-        sourceDiagnosticRoots
-      ),
-    });
-  }
-  return { kind: "object", members, sourceNode: node };
-};
-
 const sourceFunctionExpressionProjection = (
   context: CheckedContext,
   node: TstsNode
@@ -3459,6 +3844,16 @@ const sourceFunctionExpressionProjection = (
           context.checker.getTypeAtLocation(node)
       );
 };
+
+const checkerExpressionProjection = (
+  context: CheckedContext,
+  node: TstsNode
+): SourceBindingProjectedType | undefined =>
+  checkerTypeProjection(
+    context,
+    context.checker.getNarrowedTypeAtLocation(node) ??
+      context.checker.getTypeAtLocation(node)
+  );
 
 const sourceExpressionTypeProjection = (
   context: CheckedContext,
@@ -3486,14 +3881,10 @@ const sourceExpressionTypeProjection = (
         cache,
         sourceDiagnosticRoots
       );
-      const narrowed = checkerTypeProjection(
-        context,
-        context.checker.getNarrowedTypeAtLocation(node)
-      );
       return set(
         containsSourcePrimitiveProjection(declared)
           ? declared
-          : declaredArmForNarrowedProjection(declared, narrowed) ?? declared
+          : (checkerExpressionProjection(context, node) ?? declared)
       );
     }
     case TstsSyntax.KindObjectLiteralExpression:
@@ -3533,11 +3924,7 @@ const sourceExpressionTypeProjection = (
       return set(
         projectedFromReceiver ??
           declaredProjectionForExpression(context, node) ??
-          checkerTypeProjection(
-            context,
-            context.checker.getNarrowedTypeAtLocation(node) ??
-              context.checker.getTypeAtLocation(node)
-          )
+          checkerExpressionProjection(context, node)
       );
     }
     case TstsSyntax.KindElementAccessExpression: {
@@ -3549,31 +3936,29 @@ const sourceExpressionTypeProjection = (
         sourceDiagnosticRoots
       );
       return set(
-        arrayElementProjection(
+        sourceArrayElementProjection(
           context,
           receiverProjection,
           staticElementAccessIndex(element?.ArgumentExpression),
           node
-        ) ??
-          checkerTypeProjection(
-            context,
-            context.checker.getNarrowedTypeAtLocation(node) ??
-              context.checker.getTypeAtLocation(node)
-          )
+        ) ?? checkerExpressionProjection(context, node)
       );
     }
     case TstsSyntax.KindAsExpression:
     case TstsSyntax.KindSatisfiesExpression:
     case TstsSyntax.KindTypeAssertionExpression:
-    case TstsSyntax.KindNonNullExpression:
       return set(
         projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(node)) ??
-          sourceExpressionTypeProjection(
-            context,
-            TstsSyntax.Node_Expression(node),
-            cache,
-            sourceDiagnosticRoots
-          )
+          checkerExpressionProjection(context, node)
+      );
+    case TstsSyntax.KindNonNullExpression:
+      return set(
+        sourceExpressionTypeProjection(
+          context,
+          TstsSyntax.Node_Expression(node),
+          cache,
+          sourceDiagnosticRoots
+        ) ?? checkerExpressionProjection(context, node)
       );
     case TstsSyntax.KindCallExpression:
     case TstsSyntax.KindNewExpression: {
@@ -3581,18 +3966,17 @@ const sourceExpressionTypeProjection = (
       const operation = callee
         ? sourceRuntimeOperation(context, callee, sourceDiagnosticRoots)
         : undefined;
-      const signatureReturnProjection = resolvedSignatureReturnProjection(
-        context,
-        node
-      );
-      const checkerReturnProjection = checkerTypeProjection(
-        context,
-        context.checker.getNarrowedTypeAtLocation(node) ??
-          context.checker.getTypeAtLocation(node)
-      );
+      const signatureReturnProjection =
+        context.facts.get(sourceCallArgumentTypesFactKey, node)?.returnType ??
+        callArgumentTypesFact(context, node)?.returnType;
+      const concreteSignatureReturnProjection =
+        signatureReturnProjection &&
+        !containsUnsubstitutedTypeParameterProjection(signatureReturnProjection)
+          ? signatureReturnProjection
+          : undefined;
       return set(
         (callee && operation
-          ? sourceRuntimeArrayCallProjection(
+          ? (sourceArrayCallTypeOverlay(
               context,
               node,
               callee,
@@ -3600,62 +3984,20 @@ const sourceExpressionTypeProjection = (
               cache,
               sourceDiagnosticRoots
             ) ??
-            sourceRuntimeObjectCallProjection(
+            sourceObjectEntriesCallTypeOverlay(
               context,
               node,
               operation,
               cache,
               sourceDiagnosticRoots
-            )
+            ))
           : undefined) ??
-          (signatureReturnProjection &&
-          !containsTypeParameterProjection(signatureReturnProjection)
-            ? signatureReturnProjection
-            : checkerReturnProjection) ??
-          signatureReturnProjection
+          concreteSignatureReturnProjection ??
+          checkerExpressionProjection(context, node)
       );
-    }
-    case TstsSyntax.KindConditionalExpression: {
-      const conditional = TstsSyntax.AsConditionalExpression(node);
-      let whenTrue = sourceExpressionTypeProjection(
-        context,
-        conditional?.WhenTrue,
-        cache,
-        sourceDiagnosticRoots
-      );
-      let whenFalse = sourceExpressionTypeProjection(
-        context,
-        conditional?.WhenFalse,
-        cache,
-        sourceDiagnosticRoots
-      );
-      const guard = typeofFunctionGuard(conditional?.Condition);
-      const callableArm = guard
-        ? singleCallableArmForExpression(context, guard.expression)
-        : undefined;
-      if (guard && callableArm) {
-        if (
-          guard.trueBranchIsCallable &&
-          sameResolvedSymbol(context, guard.expression, conditional?.WhenTrue)
-        ) {
-          whenTrue = callableArm;
-        } else if (
-          !guard.trueBranchIsCallable &&
-          sameResolvedSymbol(context, guard.expression, conditional?.WhenFalse)
-        ) {
-          whenFalse = callableArm;
-        }
-      }
-      return set(combinedProjectedType("union", [whenTrue, whenFalse], node));
     }
     default:
-      return set(
-        checkerTypeProjection(
-          context,
-          context.checker.getNarrowedTypeAtLocation(node) ??
-            context.checker.getTypeAtLocation(node)
-        )
-      );
+      return set(checkerExpressionProjection(context, node));
   }
 };
 
@@ -3731,16 +4073,18 @@ const setBindingProjectionFactsForName = (
       node.Kind === TstsSyntax.KindArrayBindingPattern
         ? { kind: "element", index }
         : (() => {
-            const name = bindingPatternPropertyName(propertyName, nameNode, index);
+            const name = bindingPatternPropertyName(
+              propertyName,
+              nameNode,
+              index
+            );
             return name ? { kind: "property", name } : undefined;
           })();
     if (!segment) return;
-    setBindingProjectionFactsForName(
-      context,
-      nameNode,
-      rootType,
-      [...accessPath, segment]
-    );
+    setBindingProjectionFactsForName(context, nameNode, rootType, [
+      ...accessPath,
+      segment,
+    ]);
   });
 };
 
@@ -3938,7 +4282,10 @@ const genericTargetSymbolForIdentifier = (
   if (!node || !TstsSyntax.IsIdentifier(node)) return undefined;
   const symbol = symbolForName(context, node);
   if (!symbol) return undefined;
-  return genericAliasTargets.get(symbol) ?? (genericSymbols.has(symbol) ? symbol : undefined);
+  return (
+    genericAliasTargets.get(symbol) ??
+    (genericSymbols.has(symbol) ? symbol : undefined)
+  );
 };
 
 const isMonomorphicCallableType = (
@@ -4132,7 +4479,9 @@ const attributeTypeTargetDeclaration = (
   if (!typeNode) return undefined;
   const directSymbol = context.checker.getSymbolAtLocation(typeNode);
   const type = context.checker.getTypeFromTypeNode(typeNode);
-  const typeSymbol = type ? context.checker.getTypeAliasOrSymbol(type) : undefined;
+  const typeSymbol = type
+    ? context.checker.getTypeAliasOrSymbol(type)
+    : undefined;
   const symbol = directSymbol
     ? context.checker.resolveAlias(directSymbol)
     : typeSymbol;
@@ -4158,50 +4507,52 @@ const constructorDeclarationForType = (
     (member) => member.Kind === TstsSyntax.KindConstructor
   );
 
-const memberDeclarationByName = (
-  owner: TstsNode,
-  name: string,
+const memberDeclarationMatchesTargetKind = (
+  declaration: TstsNode,
   targetKind: Extract<SourceAttributeTargetKind, "method" | "property">
-): TstsNode | undefined =>
-  singleDeclaration(TstsSyntax.Node_Members(owner) ?? [], (member) => {
-    if (getTstsNodeNameText(member) !== name) return false;
-    return targetKind === "method"
-      ? member.Kind === TstsSyntax.KindMethodDeclaration
-      : [
-          TstsSyntax.KindPropertyDeclaration,
-          TstsSyntax.KindGetAccessor,
-          TstsSyntax.KindSetAccessor,
-        ].includes(member.Kind);
-  });
+): boolean =>
+  targetKind === "method"
+    ? declaration.Kind === TstsSyntax.KindMethodDeclaration
+    : [
+        TstsSyntax.KindPropertyDeclaration,
+        TstsSyntax.KindGetAccessor,
+        TstsSyntax.KindSetAccessor,
+      ].includes(declaration.Kind);
+
+const selectedMemberDeclarations = (
+  context: CheckedContext,
+  owner: TstsNode,
+  selector: TstsNode | undefined,
+  targetKind: Extract<SourceAttributeTargetKind, "method" | "property">
+): readonly TstsNode[] => {
+  if (!selector || selector.Kind !== TstsSyntax.KindArrowFunction) {
+    return [];
+  }
+  const body = unwrapParenthesizedExpression(TstsSyntax.Node_Body(selector));
+  if (body?.Kind !== TstsSyntax.KindPropertyAccessExpression) return [];
+  const name = TstsSyntax.Node_Name(body);
+  const symbol = symbolForName(context, name);
+  if (!symbol) return [];
+  return context.checker
+    .getSymbolDeclarations(symbol)
+    .filter(
+      (declaration): declaration is TstsNode =>
+        declaration !== undefined &&
+        declaration.Parent === owner &&
+        memberDeclarationMatchesTargetKind(declaration, targetKind)
+    );
+};
 
 const selectedMemberDeclaration = (
   context: CheckedContext,
   owner: TstsNode,
   selector: TstsNode | undefined,
   targetKind: Extract<SourceAttributeTargetKind, "method" | "property">
-): TstsNode | undefined => {
-  if (!selector || selector.Kind !== TstsSyntax.KindArrowFunction) {
-    return undefined;
-  }
-  const body = unwrapParenthesizedExpression(TstsSyntax.Node_Body(selector));
-  if (body?.Kind !== TstsSyntax.KindPropertyAccessExpression) return undefined;
-  const name = TstsSyntax.Node_Name(body);
-  const symbol = symbolForName(context, name);
-  const declaration = symbol
-    ? singleDeclaration(
-        context.checker.getSymbolDeclarations(symbol),
-        () => true
-      )
-    : undefined;
-  return (
-    declaration ??
-    memberDeclarationByName(
-      owner,
-      getTstsIdentifierText(name) ?? "",
-      targetKind
-    )
+): TstsNode | undefined =>
+  singleDeclaration(
+    selectedMemberDeclarations(context, owner, selector, targetKind),
+    (declaration) => memberDeclarationMatchesTargetKind(declaration, targetKind)
   );
-};
 
 const attributeTargetSpecifier = (
   context: CheckedContext,
@@ -4265,7 +4616,8 @@ const parseAttributeBuilderTarget = (
     if (memberName === "ctor" && base) {
       return {
         targetKind: "constructor",
-        declaration: constructorDeclarationForType(base.declaration) ?? base.declaration,
+        declaration:
+          constructorDeclarationForType(base.declaration) ?? base.declaration,
         targetSpecifier: base.targetSpecifier,
       };
     }
@@ -4339,7 +4691,9 @@ const attributeDescriptorForExpression = (
   const direct = context.facts.get(sourceAttributeDescriptorFactKey, node);
   if (direct) return direct;
   const symbol = symbolForName(context, node);
-  const declarations = symbol ? context.checker.getSymbolDeclarations(symbol) : [];
+  const declarations = symbol
+    ? context.checker.getSymbolDeclarations(symbol)
+    : [];
   for (const declaration of declarations) {
     if (!declaration) continue;
     const declared = context.facts.get(
@@ -4385,7 +4739,9 @@ const collectAttributeDescriptorFacts = (
     if (!attributeType) return;
     const descriptor: SourceAttributeDescriptorFact = {
       attributeType,
-      arguments: args.slice(1).filter((arg): arg is TstsNode => arg !== undefined),
+      arguments: args
+        .slice(1)
+        .filter((arg): arg is TstsNode => arg !== undefined),
     };
     context.facts.set(sourceAttributeDescriptorFactKey, node, descriptor);
     if (
@@ -4430,7 +4786,9 @@ const collectAttributeApplicationFacts = (
     if (!firstArg) return;
     const descriptor = attributeDescriptorForExpression(context, firstArg) ?? {
       attributeType: firstArg,
-      arguments: args.slice(1).filter((arg): arg is TstsNode => arg !== undefined),
+      arguments: args
+        .slice(1)
+        .filter((arg): arg is TstsNode => arg !== undefined),
     };
     appendAttributeApplicationFact(context, target.declaration, {
       ...descriptor,
@@ -4455,27 +4813,6 @@ const isOverloadsRootCall = (
       "overloads"
   );
 };
-
-const selectedMemberName = (selector: TstsNode | undefined): string | undefined => {
-  if (!selector || selector.Kind !== TstsSyntax.KindArrowFunction) {
-    return undefined;
-  }
-  const body = unwrapParenthesizedExpression(TstsSyntax.Node_Body(selector));
-  return body?.Kind === TstsSyntax.KindPropertyAccessExpression
-    ? getTstsIdentifierText(TstsSyntax.Node_Name(body))
-    : undefined;
-};
-
-const memberDeclarationsByName = (
-  owner: TstsNode,
-  name: string
-): readonly TstsNode[] =>
-  (TstsSyntax.Node_Members(owner) ?? []).filter(
-    (member): member is TstsNode =>
-      member !== undefined &&
-      getTstsNodeNameText(member) === name &&
-      member.Kind === TstsSyntax.KindMethodDeclaration
-  );
 
 type OverloadBuilderTarget = {
   readonly owner: TstsNode;
@@ -4541,16 +4878,15 @@ const overloadFamilyImplementationMatchesDeclaration = (
   declaration: TstsNode,
   implementation: TstsNode
 ): boolean => {
-  const declarationSignature = context.checker.getSignatureFromDeclaration(
-    declaration
-  );
-  const implementationSignature = context.checker.getSignatureFromDeclaration(
-    implementation
-  );
+  const declarationSignature =
+    context.checker.getSignatureFromDeclaration(declaration);
+  const implementationSignature =
+    context.checker.getSignatureFromDeclaration(implementation);
   const declarationParameters =
     context.checker.getSignatureParameters(declarationSignature);
-  const implementationParameters =
-    context.checker.getSignatureParameters(implementationSignature);
+  const implementationParameters = context.checker.getSignatureParameters(
+    implementationSignature
+  );
   if (declarationParameters.length !== implementationParameters.length) {
     return false;
   }
@@ -4559,11 +4895,15 @@ const overloadFamilyImplementationMatchesDeclaration = (
     if (!implementationParameter) return false;
     const declarationType =
       context.checker.getTypeOfSignatureParameter(declarationParameter);
-    const implementationType =
-      context.checker.getTypeOfSignatureParameter(implementationParameter);
+    const implementationType = context.checker.getTypeOfSignatureParameter(
+      implementationParameter
+    );
     return (
       context.checker.isTypeIdenticalTo(declarationType, implementationType) ||
-      (context.checker.isTypeAssignableTo(declarationType, implementationType) &&
+      (context.checker.isTypeAssignableTo(
+        declarationType,
+        implementationType
+      ) &&
         context.checker.isTypeAssignableTo(implementationType, declarationType))
     );
   });
@@ -4589,9 +4929,13 @@ const collectOverloadFamilyFacts = (
       coreLangBindingByLocalName
     );
     if (!base?.implementation) return;
-    const familyName = selectedMemberName((TstsSyntax.Node_Arguments(node) ?? [])[0]);
-    if (!familyName) return;
-    for (const declaration of memberDeclarationsByName(base.owner, familyName)) {
+    const familyDeclarations = selectedMemberDeclarations(
+      context,
+      base.owner,
+      (TstsSyntax.Node_Arguments(node) ?? [])[0],
+      "method"
+    );
+    for (const declaration of familyDeclarations) {
       if (
         overloadFamilyImplementationMatchesDeclaration(
           context,
@@ -4614,7 +4958,9 @@ const selectedOverloadCallImplementationFact = (
   if (!declaration) return undefined;
   const family = context.facts.get(sourceOverloadFamilyFactKey, declaration);
   const implementation =
-    family?.implementations.length === 1 ? family.implementations[0] : undefined;
+    family?.implementations.length === 1
+      ? family.implementations[0]
+      : undefined;
   return implementation ? { implementation } : undefined;
 };
 
@@ -4651,887 +4997,932 @@ export const createTsonicSourceSemanticsExtension = (
     id: "tsonic.source-semantics",
     runsAfter: ["tsonic.numeric-primitives"],
     afterParseSourceFile: (context): void => {
-    const coreTypesBindingByLocalName = collectImportedNamesByLocalName(
-      context.imports,
-      coreTypesModules
-    );
-    const coreLangBindingByLocalName = collectImportedNamesByLocalName(
-      context.imports,
-      coreLangModules
-    );
+      const coreTypesBindingByLocalName = collectImportedNamesByLocalName(
+        context.imports,
+        coreTypesModules
+      );
+      const coreLangBindingByLocalName = collectImportedNamesByLocalName(
+        context.imports,
+        coreLangModules
+      );
 
-    visitTstsSubtree(context.sourceFile, (node): void => {
-      if (!node) return;
-      if (isAmbientRecordDeclaration(node, sourceDiagnosticRoots)) {
-        context.facts.set(sourceDictionaryTypeFactKey, node, recordDictionaryFact);
-      }
+      visitTstsSubtree(context.sourceFile, (node): void => {
+        if (!node) return;
+        if (isAmbientRecordDeclaration(node, sourceDiagnosticRoots)) {
+          context.facts.set(
+            sourceDictionaryTypeFactKey,
+            node,
+            recordDictionaryFact
+          );
+        }
 
-      const identifierText = getTstsIdentifierText(node);
-      const importedIdentifierName = identifierText
-        ? coreLangBindingByLocalName.get(identifierText)?.importedName
-        : undefined;
-      const markerApiKind = importedIdentifierName
-        ? markerApiKindsBySourceName.get(importedIdentifierName)
-        : undefined;
-      if (markerApiKind) {
-        context.facts.set(markerApiSemanticsFactKey, node, {
-          kind: markerApiKind,
-        });
-      }
+        const identifierText = getTstsIdentifierText(node);
+        const importedIdentifierName = identifierText
+          ? coreLangBindingByLocalName.get(identifierText)?.importedName
+          : undefined;
+        const markerApiKind = importedIdentifierName
+          ? markerApiKindsBySourceName.get(importedIdentifierName)
+          : undefined;
+        if (markerApiKind) {
+          context.facts.set(markerApiSemanticsFactKey, node, {
+            kind: markerApiKind,
+          });
+        }
 
-      if (isTstsClassDeclaration(node)) {
-        const structMarkers = structHeritageTypes(
+        if (isTstsClassDeclaration(node)) {
+          const structMarkers = structHeritageTypes(
+            node,
+            coreTypesBindingByLocalName
+          );
+          context.facts.set(
+            sourceTypeSemanticsFactKey,
+            node,
+            sourceTypeFact(structMarkers.length > 0 ? "struct" : "class")
+          );
+          for (const marker of structMarkers) {
+            context.facts.set(
+              sourceTypeSemanticsFactKey,
+              marker,
+              sourceTypeFact("struct")
+            );
+          }
+          for (const heritageType of getTstsHeritageTypeNodes(node)) {
+            if (
+              heritageType &&
+              isInterfaceHeritageWrapper(
+                heritageType,
+                coreLangBindingByLocalName
+              )
+            ) {
+              context.facts.set(
+                heritageWrapperSemanticsFactKey,
+                heritageType,
+                interfaceHeritageFact
+              );
+            }
+          }
+          return;
+        }
+
+        if (isTstsInterfaceDeclaration(node)) {
+          const structMarkers = structHeritageTypes(
+            node,
+            coreTypesBindingByLocalName
+          );
+          context.facts.set(
+            sourceTypeSemanticsFactKey,
+            node,
+            sourceTypeFact(structMarkers.length > 0 ? "struct" : "interface")
+          );
+          for (const marker of structMarkers) {
+            context.facts.set(
+              sourceTypeSemanticsFactKey,
+              marker,
+              sourceTypeFact("struct")
+            );
+          }
+          for (const heritageType of getTstsHeritageTypeNodes(node)) {
+            if (
+              heritageType &&
+              isInterfaceHeritageWrapper(
+                heritageType,
+                coreLangBindingByLocalName
+              )
+            ) {
+              context.facts.set(
+                heritageWrapperSemanticsFactKey,
+                heritageType,
+                interfaceHeritageFact
+              );
+            }
+          }
+          return;
+        }
+
+        const declaredType = getTstsDeclaredTypeNode(node);
+        const declarationPassingFact = typeWrapperPassingFact(
+          declaredType,
+          coreTypesBindingByLocalName
+        );
+        if (declarationPassingFact && isTstsParameterDeclaration(node)) {
+          context.facts.set(
+            parameterPassingFactKey,
+            node,
+            declarationPassingFact
+          );
+        }
+        if (declarationPassingFact && declaredType) {
+          context.facts.set(
+            parameterPassingFactKey,
+            declaredType,
+            declarationPassingFact
+          );
+        }
+
+        if (
+          declaredType &&
+          isTstsParameterDeclaration(node) &&
+          isExtensionReceiverWrapper(declaredType, coreLangBindingByLocalName)
+        ) {
+          context.facts.set(
+            extensionReceiverSemanticsFactKey,
+            node,
+            extensionReceiverFact
+          );
+          context.facts.set(
+            extensionReceiverSemanticsFactKey,
+            declaredType,
+            extensionReceiverFact
+          );
+        }
+
+        if (
+          declaredType &&
+          isTstsPropertyDeclarationLike(node) &&
+          isFieldWrapper(declaredType, coreLangBindingByLocalName)
+        ) {
+          context.facts.set(fieldSemanticsFactKey, node, fieldFact);
+          context.facts.set(fieldSemanticsFactKey, declaredType, fieldFact);
+        }
+
+        const typeReferencePassingFact = typeWrapperPassingFact(
           node,
           coreTypesBindingByLocalName
         );
-        context.facts.set(
-          sourceTypeSemanticsFactKey,
-          node,
-          sourceTypeFact(structMarkers.length > 0 ? "struct" : "class")
-        );
-        for (const marker of structMarkers) {
+        if (typeReferencePassingFact) {
           context.facts.set(
-            sourceTypeSemanticsFactKey,
-            marker,
-            sourceTypeFact("struct")
+            parameterPassingFactKey,
+            node,
+            typeReferencePassingFact
           );
         }
-        for (const heritageType of getTstsHeritageTypeNodes(node)) {
-          if (
-            heritageType &&
-            isInterfaceHeritageWrapper(heritageType, coreLangBindingByLocalName)
-          ) {
-            context.facts.set(
-              heritageWrapperSemanticsFactKey,
-              heritageType,
-              interfaceHeritageFact
-            );
-          }
-        }
-        return;
-      }
 
-      if (isTstsInterfaceDeclaration(node)) {
-        const structMarkers = structHeritageTypes(
-          node,
-          coreTypesBindingByLocalName
-        );
-        context.facts.set(
-          sourceTypeSemanticsFactKey,
-          node,
-          sourceTypeFact(structMarkers.length > 0 ? "struct" : "interface")
-        );
-        for (const marker of structMarkers) {
+        if (isFieldWrapper(node, coreLangBindingByLocalName)) {
+          context.facts.set(fieldSemanticsFactKey, node, fieldFact);
+        }
+
+        if (isExtensionReceiverWrapper(node, coreLangBindingByLocalName)) {
           context.facts.set(
-            sourceTypeSemanticsFactKey,
-            marker,
-            sourceTypeFact("struct")
+            extensionReceiverSemanticsFactKey,
+            node,
+            extensionReceiverFact
           );
         }
-        for (const heritageType of getTstsHeritageTypeNodes(node)) {
-          if (
-            heritageType &&
-            isInterfaceHeritageWrapper(heritageType, coreLangBindingByLocalName)
-          ) {
-            context.facts.set(
-              heritageWrapperSemanticsFactKey,
-              heritageType,
-              interfaceHeritageFact
-            );
-          }
+
+        const call = getTstsCallExpressionDetails(node);
+        if (!call?.calleeName) return;
+        const importedCallName = coreLangBindingByLocalName.get(
+          call.calleeName
+        )?.importedName;
+        if (!importedCallName) return;
+
+        const callPassingMode = callMarkerPassingModes.get(importedCallName);
+        if (
+          callPassingMode &&
+          call.arguments.length === 1 &&
+          call.typeArguments.length === 0
+        ) {
+          context.facts.set(
+            parameterPassingFactKey,
+            node,
+            passingFact(callPassingMode)
+          );
         }
-        return;
-      }
 
-      const declaredType = getTstsDeclaredTypeNode(node);
-      const declarationPassingFact = typeWrapperPassingFact(
-        declaredType,
-        coreTypesBindingByLocalName
-      );
-      if (declarationPassingFact && isTstsParameterDeclaration(node)) {
-        context.facts.set(
-          parameterPassingFactKey,
-          node,
-          declarationPassingFact
-        );
-      }
-      if (declarationPassingFact && declaredType) {
-        context.facts.set(
-          parameterPassingFactKey,
-          declaredType,
-          declarationPassingFact
-        );
-      }
-
-      if (
-        declaredType &&
-        isTstsParameterDeclaration(node) &&
-        isExtensionReceiverWrapper(declaredType, coreLangBindingByLocalName)
-      ) {
-        context.facts.set(
-          extensionReceiverSemanticsFactKey,
-          node,
-          extensionReceiverFact
-        );
-        context.facts.set(
-          extensionReceiverSemanticsFactKey,
-          declaredType,
-          extensionReceiverFact
-        );
-      }
-
-      if (
-        declaredType &&
-        isTstsPropertyDeclarationLike(node) &&
-        isFieldWrapper(declaredType, coreLangBindingByLocalName)
-      ) {
-        context.facts.set(fieldSemanticsFactKey, node, fieldFact);
-        context.facts.set(fieldSemanticsFactKey, declaredType, fieldFact);
-      }
-
-      const typeReferencePassingFact = typeWrapperPassingFact(
-        node,
-        coreTypesBindingByLocalName
-      );
-      if (typeReferencePassingFact) {
-        context.facts.set(
-          parameterPassingFactKey,
-          node,
-          typeReferencePassingFact
-        );
-      }
-
-      if (isFieldWrapper(node, coreLangBindingByLocalName)) {
-        context.facts.set(fieldSemanticsFactKey, node, fieldFact);
-      }
-
-      if (isExtensionReceiverWrapper(node, coreLangBindingByLocalName)) {
-        context.facts.set(
-          extensionReceiverSemanticsFactKey,
-          node,
-          extensionReceiverFact
-        );
-      }
-
-      const call = getTstsCallExpressionDetails(node);
-      if (!call?.calleeName) return;
-      const importedCallName = coreLangBindingByLocalName.get(
-        call.calleeName
-      )?.importedName;
-      if (!importedCallName) return;
-
-      const callPassingMode = callMarkerPassingModes.get(importedCallName);
-      if (
-        callPassingMode &&
-        call.arguments.length === 1 &&
-        call.typeArguments.length === 0
-      ) {
-        context.facts.set(
-          parameterPassingFactKey,
-          node,
-          passingFact(callPassingMode)
-        );
-      }
-
-      const intrinsicKind = intrinsicKindsBySourceName.get(importedCallName);
-      if (intrinsicKind) {
-        context.facts.set(intrinsicSemanticsFactKey, node, {
-          kind: intrinsicKind,
-        });
-      }
-    });
+        const intrinsicKind = intrinsicKindsBySourceName.get(importedCallName);
+        if (intrinsicKind) {
+          context.facts.set(intrinsicSemanticsFactKey, node, {
+            kind: intrinsicKind,
+          });
+        }
+      });
     },
     afterCheckSourceFile: (context): void => {
-    if (!context.sourceFile) return;
-    const sourceFileName = context.sourceFile.FileName();
-    const isCoreSourceFile = isCorePackageSourceFile(sourceFileName);
-    const shouldProjectSourceTypes =
-      context.sourceFile.IsDeclarationFile !== true && !isCoreSourceFile;
-    const shouldValidateSourceDiagnostics =
-      shouldProjectSourceTypes &&
-      isSourceDiagnosticFile(sourceFileName, sourceDiagnosticRoots);
-    const coreTypesBindingByLocalName = collectImportedNamesByLocalName(
-      context.imports,
-      coreTypesModules
-    );
-    const coreLangBindingByLocalName = collectImportedNamesByLocalName(
-      context.imports,
-      coreLangModules
-    );
-    const functionDeclarationCounts = new Map<string, number>();
-    visitTstsSubtree(context.sourceFile, (node): void => {
-      if (!node || node.Kind !== TstsSyntax.KindFunctionDeclaration) return;
-      const name = getTstsNodeNameText(node);
-      if (!name) return;
-      functionDeclarationCounts.set(
-        name,
-        (functionDeclarationCounts.get(name) ?? 0) + 1
+      if (!context.sourceFile) return;
+      const sourceFileName = context.sourceFile.FileName();
+      const isCoreSourceFile = isCorePackageSourceFile(sourceFileName);
+      const shouldProjectSourceTypes =
+        context.sourceFile.IsDeclarationFile !== true && !isCoreSourceFile;
+      const shouldValidateSourceDiagnostics =
+        shouldProjectSourceTypes &&
+        isSourceDiagnosticFile(sourceFileName, sourceDiagnosticRoots);
+      const coreTypesBindingByLocalName = collectImportedNamesByLocalName(
+        context.imports,
+        coreTypesModules
       );
-    });
+      const coreLangBindingByLocalName = collectImportedNamesByLocalName(
+        context.imports,
+        coreLangModules
+      );
+      const functionDeclarationCounts = new Map<string, number>();
+      visitTstsSubtree(context.sourceFile, (node): void => {
+        if (!node || node.Kind !== TstsSyntax.KindFunctionDeclaration) return;
+        const name = getTstsNodeNameText(node);
+        if (!name) return;
+        functionDeclarationCounts.set(
+          name,
+          (functionDeclarationCounts.get(name) ?? 0) + 1
+        );
+      });
 
-    const variableDeclarations: TstsNode[] = [];
-    const genericSymbols = new Set<TstsSymbol>();
-    const genericAliasTargets = new Map<TstsSymbol, TstsSymbol>();
-    visitTstsSubtree(context.sourceFile, (node): void => {
-      if (!node) return;
-      if (TstsSyntax.IsFunctionDeclaration(node) && isGenericFunctionNode(node)) {
-        const symbol = symbolForName(context, TstsSyntax.Node_Name(node));
-        if (symbol) genericSymbols.add(symbol);
-      }
-      if (TstsSyntax.IsVariableDeclaration(node)) {
-        variableDeclarations.push(node);
-        const initializer = TstsSyntax.Node_Initializer(node);
-        if (isGenericFunctionNode(initializer)) {
+      const variableDeclarations: TstsNode[] = [];
+      const genericSymbols = new Set<TstsSymbol>();
+      const genericAliasTargets = new Map<TstsSymbol, TstsSymbol>();
+      visitTstsSubtree(context.sourceFile, (node): void => {
+        if (!node) return;
+        if (
+          TstsSyntax.IsFunctionDeclaration(node) &&
+          isGenericFunctionNode(node)
+        ) {
           const symbol = symbolForName(context, TstsSyntax.Node_Name(node));
           if (symbol) genericSymbols.add(symbol);
         }
-      }
-    });
-
-    let addedGenericAlias = true;
-    while (addedGenericAlias) {
-      addedGenericAlias = false;
-      for (const declaration of variableDeclarations) {
-        const initializer = TstsSyntax.Node_Initializer(declaration);
-        const targetSymbol = genericTargetSymbolForIdentifier(
-          context,
-          initializer,
-          genericSymbols,
-          genericAliasTargets
-        );
-        if (!targetSymbol) {
-          continue;
+        if (TstsSyntax.IsVariableDeclaration(node)) {
+          variableDeclarations.push(node);
+          const initializer = TstsSyntax.Node_Initializer(node);
+          if (isGenericFunctionNode(initializer)) {
+            const symbol = symbolForName(context, TstsSyntax.Node_Name(node));
+            if (symbol) genericSymbols.add(symbol);
+          }
         }
-        const symbol = symbolForName(context, TstsSyntax.Node_Name(declaration));
-        if (symbol && !genericSymbols.has(symbol)) {
-          genericSymbols.add(symbol);
-          genericAliasTargets.set(symbol, targetSymbol);
-          addedGenericAlias = true;
-        }
-      }
-    }
-
-    for (const declaration of variableDeclarations) {
-      const symbol = symbolForName(context, TstsSyntax.Node_Name(declaration));
-      const targetSymbol = symbol ? genericAliasTargets.get(symbol) : undefined;
-      if (!targetSymbol) continue;
-      context.facts.set(genericFunctionAliasFactKey, declaration, {
-        resolvedName: context.checker.getSymbolName(targetSymbol),
       });
-    }
 
-    collectAttributeDescriptorFacts(context, coreLangBindingByLocalName);
-    collectAttributeApplicationFacts(context, coreLangBindingByLocalName);
-    collectOverloadFamilyFacts(context, coreLangBindingByLocalName);
-    collectOverloadCallImplementationFacts(context);
-    collectBindingTypeProjectionFacts(context);
-    const expressionProjectionCache: SourceExpressionProjectionCache =
-      new WeakMap();
-
-    visitTstsSubtree(context.sourceFile, (node): void => {
-      if (!node) return;
-
-      setDeclarationBindingFacts(context, node);
-      if (isAmbientRecordDeclaration(node, sourceDiagnosticRoots)) {
-        context.facts.set(sourceDictionaryTypeFactKey, node, recordDictionaryFact);
-      }
-
-      if (TstsSyntax.IsIdentifier(node)) {
-        const symbol = symbolForName(context, node);
-        setSourceBindingIdentityFact(context, node, symbol);
-        const targetSymbol = symbol ? genericAliasTargets.get(symbol) : undefined;
-        if (targetSymbol) {
-          context.facts.set(genericFunctionAliasFactKey, node, {
-            resolvedName: context.checker.getSymbolName(targetSymbol),
-          });
+      let addedGenericAlias = true;
+      while (addedGenericAlias) {
+        addedGenericAlias = false;
+        for (const declaration of variableDeclarations) {
+          const initializer = TstsSyntax.Node_Initializer(declaration);
+          const targetSymbol = genericTargetSymbolForIdentifier(
+            context,
+            initializer,
+            genericSymbols,
+            genericAliasTargets
+          );
+          if (!targetSymbol) {
+            continue;
+          }
+          const symbol = symbolForName(
+            context,
+            TstsSyntax.Node_Name(declaration)
+          );
+          if (symbol && !genericSymbols.has(symbol)) {
+            genericSymbols.add(symbol);
+            genericAliasTargets.set(symbol, targetSymbol);
+            addedGenericAlias = true;
+          }
         }
       }
 
-      if (shouldProjectSourceTypes && isTstsDeclarationLikeNode(node)) {
-        const declarationProjection = declarationTypeProjectionFact(context, node);
-        if (declarationProjection) {
+      for (const declaration of variableDeclarations) {
+        const symbol = symbolForName(
+          context,
+          TstsSyntax.Node_Name(declaration)
+        );
+        const targetSymbol = symbol
+          ? genericAliasTargets.get(symbol)
+          : undefined;
+        if (!targetSymbol) continue;
+        context.facts.set(genericFunctionAliasFactKey, declaration, {
+          resolvedName: context.checker.getSymbolName(targetSymbol),
+        });
+      }
+
+      collectAttributeDescriptorFacts(context, coreLangBindingByLocalName);
+      collectAttributeApplicationFacts(context, coreLangBindingByLocalName);
+      collectOverloadFamilyFacts(context, coreLangBindingByLocalName);
+      collectOverloadCallImplementationFacts(context);
+      collectBindingTypeProjectionFacts(context);
+      const expressionProjectionCache: SourceExpressionProjectionCache =
+        new WeakMap();
+
+      visitTstsSubtree(context.sourceFile, (node): void => {
+        if (!node) return;
+
+        setDeclarationBindingFacts(context, node);
+        if (isAmbientRecordDeclaration(node, sourceDiagnosticRoots)) {
           context.facts.set(
-            sourceDeclarationTypeProjectionFactKey,
+            sourceDictionaryTypeFactKey,
             node,
-            declarationProjection
+            recordDictionaryFact
           );
         }
-      }
 
-      if (
-        node.Kind === TstsSyntax.KindTypeReference ||
-        node.Kind === TstsSyntax.KindExpressionWithTypeArguments
-      ) {
-        const symbol = symbolForTypeReference(context, node);
-        setSourceBindingIdentityFact(
-          context,
-          node,
-          symbol ? context.checker.resolveAlias(symbol) : undefined
-        );
-        if (isAmbientRecordTypeReference(context, node, sourceDiagnosticRoots)) {
-          context.facts.set(sourceDictionaryTypeFactKey, node, recordDictionaryFact);
+        if (TstsSyntax.IsIdentifier(node)) {
+          const symbol = symbolForName(context, node);
+          setSourceBindingIdentityFact(context, node, symbol);
+          const targetSymbol = symbol
+            ? genericAliasTargets.get(symbol)
+            : undefined;
+          if (targetSymbol) {
+            context.facts.set(genericFunctionAliasFactKey, node, {
+              resolvedName: context.checker.getSymbolName(targetSymbol),
+            });
+          }
         }
-      }
 
-      if (shouldProjectSourceTypes && isSourceTypeProjectionNode(node)) {
-        const typeProjection = projectedTypeFromTypeNode(context, node);
-        if (typeProjection && typeProjection.kind !== "type-node") {
-          context.facts.set(sourceTypeNodeProjectionFactKey, node, {
-            type: typeProjection,
+        if (shouldProjectSourceTypes && isTstsDeclarationLikeNode(node)) {
+          const declarationProjection = declarationTypeProjectionFact(
+            context,
+            node
+          );
+          if (declarationProjection) {
+            context.facts.set(
+              sourceDeclarationTypeProjectionFactKey,
+              node,
+              declarationProjection
+            );
+          }
+        }
+
+        if (
+          node.Kind === TstsSyntax.KindTypeReference ||
+          node.Kind === TstsSyntax.KindExpressionWithTypeArguments
+        ) {
+          const symbol = symbolForTypeReference(context, node);
+          setSourceBindingIdentityFact(
+            context,
+            node,
+            symbol ? context.checker.resolveAlias(symbol) : undefined
+          );
+          if (
+            isAmbientRecordTypeReference(context, node, sourceDiagnosticRoots)
+          ) {
+            context.facts.set(
+              sourceDictionaryTypeFactKey,
+              node,
+              recordDictionaryFact
+            );
+          }
+        }
+
+        if (shouldProjectSourceTypes && isSourceTypeProjectionNode(node)) {
+          const typeProjection = projectedTypeFromTypeNode(context, node);
+          if (typeProjection && typeProjection.kind !== "type-node") {
+            context.facts.set(sourceTypeNodeProjectionFactKey, node, {
+              type: typeProjection,
+            });
+          }
+        }
+
+        const computedName =
+          node.Kind === TstsSyntax.KindComputedPropertyName
+            ? isWellKnownSymbolName(context, node, sourceDiagnosticRoots)
+            : undefined;
+        if (computedName) {
+          context.facts.set(wellKnownComputedNameFactKey, node, {
+            kind: computedName,
           });
         }
-      }
 
-      const computedName =
-        node.Kind === TstsSyntax.KindComputedPropertyName
-          ? isWellKnownSymbolName(context, node, sourceDiagnosticRoots)
-          : undefined;
-      if (computedName) {
-        context.facts.set(wellKnownComputedNameFactKey, node, {
-          kind: computedName,
-        });
-      }
-
-      const expressionKind = expressionSemanticsKind(
-        context,
-        node,
-        sourceDiagnosticRoots
-      );
-      if (expressionKind) {
-        context.facts.set(expressionSemanticsFactKey, node, {
-          kind: expressionKind,
-        });
-      }
-
-      const runtimeOperation = sourceRuntimeOperation(
-        context,
-        node,
-        sourceDiagnosticRoots
-      );
-      if (runtimeOperation) {
-        context.facts.set(sourceRuntimeOperationFactKey, node, runtimeOperation);
-      }
-
-      if (
-        shouldProjectSourceTypes &&
-        (node.Kind === TstsSyntax.KindCallExpression ||
-          node.Kind === TstsSyntax.KindNewExpression)
-      ) {
-        const argumentTypes = callArgumentTypesFact(context, node);
-        if (argumentTypes) {
-          context.facts.set(sourceCallArgumentTypesFactKey, node, argumentTypes);
-        }
-      }
-
-      setInitializerReferencesDeclarationFact(context, node);
-
-      if (shouldProjectSourceTypes && isSourceExpressionProjectionNode(node)) {
-        const expressionProjection = sourceExpressionTypeProjection(
+        const expressionKind = expressionSemanticsKind(
           context,
           node,
-          expressionProjectionCache,
           sourceDiagnosticRoots
         );
-        if (expressionProjection) {
-          const contextualProjection = checkerTypeProjection(
-            context,
-            context.checker.getContextualType(node)
+        if (expressionKind) {
+          context.facts.set(expressionSemanticsFactKey, node, {
+            kind: expressionKind,
+          });
+        }
+
+        const runtimeOperation = sourceRuntimeOperation(
+          context,
+          node,
+          sourceDiagnosticRoots
+        );
+        if (runtimeOperation) {
+          context.facts.set(
+            sourceRuntimeOperationFactKey,
+            node,
+            runtimeOperation
           );
-          const storageProjection = sourceExpressionStorageProjection(
+        }
+
+        if (
+          shouldProjectSourceTypes &&
+          (node.Kind === TstsSyntax.KindCallExpression ||
+            node.Kind === TstsSyntax.KindNewExpression)
+        ) {
+          const argumentTypes = callArgumentTypesFact(context, node);
+          if (argumentTypes) {
+            context.facts.set(
+              sourceCallArgumentTypesFactKey,
+              node,
+              argumentTypes
+            );
+          }
+        }
+
+        setInitializerReferencesDeclarationFact(context, node);
+
+        if (
+          shouldProjectSourceTypes &&
+          isSourceExpressionProjectionNode(node)
+        ) {
+          const expressionProjection = sourceExpressionTypeProjection(
             context,
             node,
             expressionProjectionCache,
             sourceDiagnosticRoots
           );
-          context.facts.set(sourceExpressionTypeProjectionFactKey, node, {
-            type: expressionProjection,
-            ...(storageProjection ? { storageType: storageProjection } : {}),
-            ...(contextualProjection
-              ? { contextualType: contextualProjection }
-              : {}),
-          });
-        }
-      }
-    });
-
-    if (shouldValidateSourceDiagnostics) {
-      visitTstsSubtreeWithParents(context.sourceFile, (node, parents): void => {
-      const directParent = parents[parents.length - 1];
-      const declaredType = getTstsDeclaredTypeNode(node);
-
-      if (
-        declaredType &&
-        isTstsParameterDeclaration(node) &&
-        containsImportedTypeReference(
-          declaredType,
-          coreLangBindingByLocalName,
-          "thisarg"
-        )
-      ) {
-        const parentParameters = directParent
-          ? getTstsParameters(directParent)
-          : [];
-        const parameterIndex = parentParameters.findIndex(
-          (parameter) => parameter === node
-        );
-        if (directParent?.Kind !== TstsSyntax.KindFunctionDeclaration) {
-          addSourceDiagnostic(
-            context,
-            "TSN7106",
-            node,
-            "thisarg<T> is only valid on top-level function declarations."
-          );
-        } else if (parameterIndex !== 0) {
-          addSourceDiagnostic(
-            context,
-            "TSN7106",
-            node,
-            "thisarg<T> must be the first parameter."
-          );
-        }
-      }
-
-      if (
-        declaredType &&
-        isTstsParameterDeclaration(node) &&
-        typeWrapperPassingFact(
-          declaredType,
-          coreTypesBindingByLocalName
-        )?.mode === "byref-writeonly-must-init" &&
-        containsImportedTypeReference(
-          declaredType,
-          coreLangBindingByLocalName,
-          "thisarg"
-        )
-      ) {
-        addSourceDiagnostic(
-          context,
-          "TSN7106",
-          node,
-          "thisarg<T> extension receivers cannot be `out` parameters."
-        );
-      }
-
-      if (
-        !isCoreSourceFile &&
-        [
-          TstsSyntax.KindTypeAliasDeclaration,
-          TstsSyntax.KindInterfaceDeclaration,
-          TstsSyntax.KindClassDeclaration,
-          TstsSyntax.KindFunctionDeclaration,
-        ].includes(node.Kind)
-      ) {
-        const name = getTstsNodeNameText(node);
-        if (name && coreSourceNames.has(name)) {
-          addSourceDiagnostic(
-            context,
-            "TSN7440",
-            node,
-            `Core intrinsic '${name}' must resolve to @tsonic/core.`
-          );
-        }
-      }
-
-      if (node.Kind === TstsSyntax.KindAnyKeyword) {
-        const functionParent = nearestFunctionLikeParent(parents);
-        if (
-          !functionParent ||
-          overloadCountForFunctionLike(functionParent, functionDeclarationCounts) <=
-            1
-        ) {
-          addSourceDiagnostic(
-            context,
-            "TSN7401",
-            node,
-            "'any' type assertion is not supported; 'any' type is not supported."
-          );
-        }
-      }
-
-	      if (node.Kind === TstsSyntax.KindParameter) {
-	        const parameterType = getTstsDeclaredTypeNode(node);
-	        const functionParent = nearestFunctionLikeParent(parents);
-	        const inCompileTimeMarkerExpression = parents.some((parent) =>
-	          isCompileTimeMarkerApiExpression(parent, context)
-	        );
-	        if (
-	          !parameterType &&
-	          !inCompileTimeMarkerExpression
-	        ) {
-	          const contextualType = functionParent
-	            ? context.checker.getContextualType(functionParent)
-	            : undefined;
-	          if (
-	            !contextualType &&
-	            !parameterHasCheckerProvenType(context, node) &&
-	            !parameterHasContextualSignatureType(context, node)
-	          ) {
-	            addSourceDiagnostic(
-	              context,
-	              "TSN7405",
-	              node,
-	              "Function parameters require explicit type annotations unless contextual typing proves them."
-	            );
-	          }
-	        }
-	      }
-
-      if (node.Kind === TstsSyntax.KindWithStatement) {
-        addSourceDiagnostic(
-          context,
-          "TSN2001",
-          node,
-          "The JavaScript 'with' statement is not supported."
-        );
-      }
-
-      if (node.Kind === TstsSyntax.KindMetaProperty) {
-        addSourceDiagnostic(
-          context,
-          "TSN2001",
-          node,
-          "import.meta is not supported in deterministic native source."
-        );
-      }
-
-      const call = getTstsCallExpressionDetails(node);
-      if (
-        node.Kind === TstsSyntax.KindCallExpression ||
-        node.Kind === TstsSyntax.KindNewExpression
-      ) {
-        const callee = TstsSyntax.Node_Expression(node);
-        if (callee?.Kind === TstsSyntax.KindImportKeyword) {
-          addSourceDiagnostic(
-            context,
-            "TSN2001",
-            node,
-            "Dynamic import is not supported."
-          );
-        }
-        if (
-          isAmbientGlobalIdentifier(
-            context,
-            callee,
-            "Array",
-            sourceDiagnosticRoots
-          )
-        ) {
-          addSourceDiagnostic(
-            context,
-            "TSN2001",
-            node,
-            "Array constructor inference is not supported; use an array literal or explicit collection type."
-          );
-        }
-        if (
-          isAmbientGlobalPropertyAccess(
-            context,
-            callee,
-            "Array",
-            "isArray",
-            sourceDiagnosticRoots
-          )
-        ) {
-          const [argument] = call?.arguments ?? [];
-          const argumentType = context.checker.getTypeAtLocation(argument);
-          const argumentDeclaredType = declaredTypeNodeForExpression(
-            context,
-            argument
-          );
-          if (
-            argumentType &&
-            context.checker.isUnknownType(argumentType) &&
-            !isJsValueCarrier(
-              context.checker,
-              argumentType,
-              argumentDeclaredType,
-              coreTypesBindingByLocalName
-            ) &&
-            nodeHasAncestorKind(parents, TstsSyntax.KindIfStatement)
-          ) {
-            addSourceDiagnostic(
-              context,
-              "TSN5001",
-              node,
-              "Array.isArray cannot narrow a broad runtime value.",
-              { capabilityFeatureKey: "broad-array-narrowing" }
-            );
+          if (expressionProjection) {
+            const expressionContextualProjection =
+              sourceContextualProjectionForExpression(
+                context,
+                node,
+                expressionProjection,
+                expressionProjectionCache,
+                sourceDiagnosticRoots
+              );
+            context.facts.set(sourceExpressionTypeProjectionFactKey, node, {
+              type: expressionProjection,
+              ...(expressionContextualProjection
+                ? { contextualType: expressionContextualProjection }
+                : {}),
+            });
           }
         }
-        if (
-          isAmbientGlobalPropertyAccess(
-            context,
-            callee,
-            "JSON",
-            "parse",
-            sourceDiagnosticRoots
-          )
-        ) {
-          const explicitTypeArguments = getTstsTypeArguments(node);
-          const resultContext = context.checker.getContextualType(node);
-          const resultType =
-            explicitTypeArguments.length > 0
-              ? context.checker.getTypeFromTypeNode(explicitTypeArguments[0])
-              : resultContext;
-          const resultTypeNode =
-            explicitTypeArguments[0] ??
-            declaredTypeNodeForExpression(context, node);
-          if (
-            isBroadJsonType(
-              context.checker,
-              resultType,
-              resultTypeNode,
-              coreTypesBindingByLocalName
-            )
-          ) {
-            addSourceDiagnostic(
-              context,
-              "TSN5001",
-              node,
-              "JSON.parse target must be a concrete DTO or JsValue carrier.",
-              { capabilityFeatureKey: "broad-json-targets" }
-            );
-          }
-        }
-        if (
-          isAmbientGlobalPropertyAccess(
-            context,
-            callee,
-            "JSON",
-            "stringify",
-            sourceDiagnosticRoots
-          )
-        ) {
-          const [argument] = call?.arguments ?? [];
-          const argumentType = context.checker.getTypeAtLocation(argument);
-          if (
-            isBroadJsonType(
-              context.checker,
-              argumentType,
-              declaredTypeNodeForExpression(context, argument),
-              coreTypesBindingByLocalName
-            )
-          ) {
-            addSourceDiagnostic(
-              context,
-              "TSN5001",
-              node,
-              "JSON.stringify source must be a concrete DTO, closed object literal, or JsValue carrier.",
-              { capabilityFeatureKey: "broad-json-stringify-source" }
-            );
-          }
-        }
-      }
-
-      if (node.Kind === TstsSyntax.KindBinaryExpression) {
-        const binary = TstsSyntax.AsBinaryExpression(node);
-        if (binary?.OperatorToken?.Kind === TstsSyntax.KindInKeyword) {
-          const rightType = context.checker.getTypeAtLocation(binary.Right);
-          if (!isClosedStructuralUnionType(context.checker, rightType)) {
-            addSourceDiagnostic(
-              context,
-              "TSN2001",
-              node,
-              "The JavaScript 'in' operator is only supported for closed structural unions."
-            );
-          }
-        }
-      }
-
-      if (
-        node.Kind === TstsSyntax.KindTypeReference &&
-        context.facts.has(sourceDictionaryTypeFactKey, node)
-      ) {
-        const [keyType] = getTstsTypeArguments(node);
-        if (!isAllowedDictionaryKeyTypeNode(keyType)) {
-          addSourceDiagnostic(
-            context,
-            "TSN7413",
-            node,
-            "Dictionary key type must be string or number."
-          );
-        }
-      }
-
-      if (node.Kind === TstsSyntax.KindIndexSignature) {
-        const [parameter] = getTstsParameters(node);
-        const keyType = getTstsDeclaredTypeNode(parameter);
-        if (!isAllowedDictionaryKeyTypeNode(keyType)) {
-          addSourceDiagnostic(
-            context,
-            "TSN7413",
-            node,
-            "Dictionary key type must be string or number."
-          );
-        }
-      }
-
-	      if (node.Kind === TstsSyntax.KindArrowFunction) {
-	        const parameters = getTstsParameters(node);
-	        const hasExplicitParameterTypes = parameters.every((parameter) =>
-	          Boolean(getTstsDeclaredTypeNode(parameter))
-	        );
-	        const hasExplicitReturnType = Boolean(getTstsDeclaredTypeNode(node));
-	        if (
-	          !hasExplicitParameterTypes ||
-	          !hasExplicitReturnType
-	        ) {
-	          const contextualType = context.checker.getContextualType(node);
-	          if (!contextualType) {
-	            addSourceDiagnostic(
-	              context,
-	              "TSN7430",
-	              node,
-	              "Arrow functions without contextual typing require explicit parameter and return types."
-	            );
-	          }
-	        }
-	      }
-
-      if (node.Kind === TstsSyntax.KindObjectLiteralExpression) {
-        const parentType = directParent
-          ? getTstsDeclaredTypeNode(directParent)
-          : undefined;
-        if (parentType?.Kind === TstsSyntax.KindObjectKeyword) {
-          addSourceDiagnostic(
-            context,
-            "TSN7403",
-            node,
-            "Object literals assigned to broad runtime object type require a concrete structural type."
-          );
-        }
-      }
-
-      if (TstsSyntax.IsVariableDeclaration(node)) {
-        const name = TstsSyntax.Node_Name(node);
-        const symbol = symbolForName(context, name);
-        if (symbol && genericSymbols.has(symbol)) {
-          const declarationKind = variableDeclarationKind(node);
-          const initializer = TstsSyntax.Node_Initializer(node);
-          if (
-            declarationKind === "var" ||
-            (declarationKind === "let" &&
-              !isGenericFunctionNode(initializer) &&
-              !isIdentifierGenericSymbol(context, initializer, genericSymbols))
-          ) {
-            addSourceDiagnostic(
-              context,
-              "TSN7432",
-              node,
-              "Generic function values may only flow through deterministic const or unreassigned let call-only bindings."
-            );
-          }
-        }
-      }
-
-      if (
-        TstsSyntax.IsBinaryExpression(node) &&
-        TstsSyntax.AsBinaryExpression(node)?.OperatorToken?.Kind ===
-          TstsSyntax.KindEqualsToken
-      ) {
-        const target = TstsSyntax.AsBinaryExpression(node)?.Left;
-        if (isIdentifierGenericSymbol(context, target, genericSymbols)) {
-          addSourceDiagnostic(
-            context,
-            "TSN7432",
-            node,
-            "Generic function values cannot be reassigned."
-          );
-        }
-      }
-
-      if (node.Kind === TstsSyntax.KindShorthandPropertyAssignment) {
-        const valueSymbol = context.checker.resolveAlias(
-          context.checker.getShorthandAssignmentValueSymbol(node)
-        );
-        if (
-          valueSymbol &&
-          genericSymbols.has(valueSymbol) &&
-          !hasMonomorphicCallableContext(context, TstsSyntax.Node_Name(node))
-        ) {
-          addSourceDiagnostic(
-            context,
-            "TSN7432",
-            node,
-            "Generic function values cannot be used as runtime object properties outside monomorphic callable contexts."
-          );
-        }
-      }
-
-      if (TstsSyntax.IsIdentifier(node) && isIdentifierGenericSymbol(context, node, genericSymbols)) {
-        if (
-          directParent &&
-          TstsSyntax.IsCallExpression(directParent) &&
-          TstsSyntax.AsCallExpression(directParent)?.Expression === node
-        ) {
-          return;
-        }
-        if (
-          directParent?.Kind === TstsSyntax.KindTypeQuery ||
-          directParent?.Kind === TstsSyntax.KindImportSpecifier ||
-          directParent?.Kind === TstsSyntax.KindExportSpecifier ||
-          directParent?.Kind === TstsSyntax.KindExportAssignment ||
-          directParent?.Kind === TstsSyntax.KindVariableDeclaration ||
-          directParent?.Kind === TstsSyntax.KindFunctionDeclaration
-        ) {
-          return;
-        }
-
-        if (hasMonomorphicCallableContext(context, node)) {
-          return;
-        }
-
-        addSourceDiagnostic(
-          context,
-          "TSN7432",
-          node,
-          "Generic function values cannot be used as runtime values outside direct calls or monomorphic callable contexts."
-        );
-      }
-
-      if (
-        node.Kind === TstsSyntax.KindElementAccessExpression &&
-        isIdentifierNamed(TstsSyntax.Node_Expression(node), "arguments") &&
-        !parents.some((parent) => isCompileTimeMarkerApiExpression(parent, context))
-      ) {
-        const methodParent = nearestObjectLiteralMethodParent(parents);
-        if (methodParent) {
-          const parameters = getTstsParameters(methodParent);
-          const parametersAreFixedIdentifiers = parameters.every(
-            (parameter) =>
-              parameter !== undefined &&
-              getTstsIdentifierText(TstsSyntax.Node_Name(parameter)) !==
-                undefined &&
-              TstsSyntax.Node_QuestionToken(parameter) === undefined &&
-              TstsSyntax.AsParameterDeclaration(parameter)?.DotDotDotToken ===
-                undefined
-          );
-          if (!parametersAreFixedIdentifiers) {
-            addSourceDiagnostic(
-              context,
-              "TSN7403",
-              node,
-              "Object literal method shorthand cannot use unsupported arguments patterns."
-            );
-          }
-        }
-      }
-
-      if (
-        node.Kind === TstsSyntax.KindSuperKeyword &&
-        nearestObjectLiteralMethodParent(parents) &&
-        !parents.some((parent) => isCompileTimeMarkerApiExpression(parent, context))
-      ) {
-        addSourceDiagnostic(
-          context,
-          "TSN7403",
-          node,
-          "Object literal method shorthand cannot use super."
-        );
-      }
       });
-    }
 
+      if (shouldValidateSourceDiagnostics) {
+        visitTstsSubtreeWithParents(
+          context.sourceFile,
+          (node, parents): void => {
+            const directParent = parents[parents.length - 1];
+            const declaredType = getTstsDeclaredTypeNode(node);
+
+            if (
+              declaredType &&
+              isTstsParameterDeclaration(node) &&
+              containsImportedTypeReference(
+                declaredType,
+                coreLangBindingByLocalName,
+                "thisarg"
+              )
+            ) {
+              const parentParameters = directParent
+                ? getTstsParameters(directParent)
+                : [];
+              const parameterIndex = parentParameters.findIndex(
+                (parameter) => parameter === node
+              );
+              if (directParent?.Kind !== TstsSyntax.KindFunctionDeclaration) {
+                addSourceDiagnostic(
+                  context,
+                  "TSN7106",
+                  node,
+                  "thisarg<T> is only valid on top-level function declarations."
+                );
+              } else if (parameterIndex !== 0) {
+                addSourceDiagnostic(
+                  context,
+                  "TSN7106",
+                  node,
+                  "thisarg<T> must be the first parameter."
+                );
+              }
+            }
+
+            if (
+              declaredType &&
+              isTstsParameterDeclaration(node) &&
+              typeWrapperPassingFact(declaredType, coreTypesBindingByLocalName)
+                ?.mode === "byref-writeonly-must-init" &&
+              containsImportedTypeReference(
+                declaredType,
+                coreLangBindingByLocalName,
+                "thisarg"
+              )
+            ) {
+              addSourceDiagnostic(
+                context,
+                "TSN7106",
+                node,
+                "thisarg<T> extension receivers cannot be `out` parameters."
+              );
+            }
+
+            if (node.Kind === TstsSyntax.KindAnyKeyword) {
+              const functionParent = nearestFunctionLikeParent(parents);
+              if (
+                !functionParent ||
+                overloadCountForFunctionLike(
+                  functionParent,
+                  functionDeclarationCounts
+                ) <= 1
+              ) {
+                addSourceDiagnostic(
+                  context,
+                  "TSN7401",
+                  node,
+                  "'any' type assertion is not supported; 'any' type is not supported."
+                );
+              }
+            }
+
+            if (node.Kind === TstsSyntax.KindParameter) {
+              const parameterType = getTstsDeclaredTypeNode(node);
+              const functionParent = nearestFunctionLikeParent(parents);
+              const inCompileTimeMarkerExpression = parents.some((parent) =>
+                isCompileTimeMarkerApiExpression(parent, context)
+              );
+              if (!parameterType && !inCompileTimeMarkerExpression) {
+                const contextualType = functionParent
+                  ? context.checker.getContextualType(functionParent)
+                  : undefined;
+                if (
+                  !contextualType &&
+                  !parameterHasCheckerProvenType(context, node) &&
+                  !parameterHasContextualSignatureType(context, node)
+                ) {
+                  addSourceDiagnostic(
+                    context,
+                    "TSN7405",
+                    node,
+                    "Function parameters require explicit type annotations unless contextual typing proves them."
+                  );
+                }
+              }
+            }
+
+            if (node.Kind === TstsSyntax.KindWithStatement) {
+              addSourceDiagnostic(
+                context,
+                "TSN2001",
+                node,
+                "The JavaScript 'with' statement is not supported."
+              );
+            }
+
+            if (node.Kind === TstsSyntax.KindMetaProperty) {
+              addSourceDiagnostic(
+                context,
+                "TSN2001",
+                node,
+                "import.meta is not supported in deterministic native source."
+              );
+            }
+
+            const call = getTstsCallExpressionDetails(node);
+            if (
+              node.Kind === TstsSyntax.KindCallExpression ||
+              node.Kind === TstsSyntax.KindNewExpression
+            ) {
+              const callee = TstsSyntax.Node_Expression(node);
+              if (callee?.Kind === TstsSyntax.KindImportKeyword) {
+                addSourceDiagnostic(
+                  context,
+                  "TSN2001",
+                  node,
+                  "Dynamic import is not supported."
+                );
+              }
+              if (
+                isAmbientGlobalIdentifier(
+                  context,
+                  callee,
+                  "Array",
+                  sourceDiagnosticRoots
+                )
+              ) {
+                addSourceDiagnostic(
+                  context,
+                  "TSN2001",
+                  node,
+                  "Array constructor inference is not supported; use an array literal or explicit collection type."
+                );
+              }
+              if (
+                isAmbientGlobalPropertyAccess(
+                  context,
+                  callee,
+                  "Array",
+                  "isArray",
+                  sourceDiagnosticRoots
+                )
+              ) {
+                const [argument] = call?.arguments ?? [];
+                const argumentType =
+                  context.checker.getTypeAtLocation(argument);
+                const argumentDeclaredType = declaredTypeNodeForExpression(
+                  context,
+                  argument
+                );
+                if (
+                  argumentType &&
+                  context.checker.isUnknownType(argumentType) &&
+                  !isJsValueCarrier(
+                    context.checker,
+                    argumentType,
+                    argumentDeclaredType,
+                    coreTypesBindingByLocalName
+                  ) &&
+                  nodeHasAncestorKind(parents, TstsSyntax.KindIfStatement)
+                ) {
+                  addSourceDiagnostic(
+                    context,
+                    "TSN5001",
+                    node,
+                    "Array.isArray cannot narrow a broad runtime value.",
+                    { capabilityFeatureKey: "broad-array-narrowing" }
+                  );
+                }
+              }
+              if (
+                isAmbientGlobalPropertyAccess(
+                  context,
+                  callee,
+                  "JSON",
+                  "parse",
+                  sourceDiagnosticRoots
+                )
+              ) {
+                const explicitTypeArguments = getTstsTypeArguments(node);
+                const resultContext = context.checker.getContextualType(node);
+                const resultType =
+                  explicitTypeArguments.length > 0
+                    ? context.checker.getTypeFromTypeNode(
+                        explicitTypeArguments[0]
+                      )
+                    : resultContext;
+                const resultTypeNode =
+                  explicitTypeArguments[0] ??
+                  declaredTypeNodeForExpression(context, node);
+                if (
+                  isBroadJsonType(
+                    context.checker,
+                    resultType,
+                    resultTypeNode,
+                    coreTypesBindingByLocalName
+                  )
+                ) {
+                  addSourceDiagnostic(
+                    context,
+                    "TSN5001",
+                    node,
+                    "JSON.parse target must be a concrete DTO or JsValue carrier.",
+                    { capabilityFeatureKey: "broad-json-targets" }
+                  );
+                }
+              }
+              if (
+                isAmbientGlobalPropertyAccess(
+                  context,
+                  callee,
+                  "JSON",
+                  "stringify",
+                  sourceDiagnosticRoots
+                )
+              ) {
+                const [argument] = call?.arguments ?? [];
+                const argumentType =
+                  context.checker.getTypeAtLocation(argument);
+                if (
+                  isBroadJsonType(
+                    context.checker,
+                    argumentType,
+                    declaredTypeNodeForExpression(context, argument),
+                    coreTypesBindingByLocalName
+                  )
+                ) {
+                  addSourceDiagnostic(
+                    context,
+                    "TSN5001",
+                    node,
+                    "JSON.stringify source must be a concrete DTO, closed object literal, or JsValue carrier.",
+                    { capabilityFeatureKey: "broad-json-stringify-source" }
+                  );
+                }
+              }
+            }
+
+            if (node.Kind === TstsSyntax.KindBinaryExpression) {
+              const binary = TstsSyntax.AsBinaryExpression(node);
+              if (binary?.OperatorToken?.Kind === TstsSyntax.KindInKeyword) {
+                const rightType = context.checker.getTypeAtLocation(
+                  binary.Right
+                );
+                if (!isClosedStructuralUnionType(context.checker, rightType)) {
+                  addSourceDiagnostic(
+                    context,
+                    "TSN2001",
+                    node,
+                    "The JavaScript 'in' operator is only supported for closed structural unions."
+                  );
+                }
+              }
+            }
+
+            if (
+              node.Kind === TstsSyntax.KindTypeReference &&
+              context.facts.has(sourceDictionaryTypeFactKey, node)
+            ) {
+              const [keyType] = getTstsTypeArguments(node);
+              if (!isAllowedDictionaryKeyTypeNode(keyType)) {
+                addSourceDiagnostic(
+                  context,
+                  "TSN7413",
+                  node,
+                  "Dictionary key type must be string or number."
+                );
+              }
+            }
+
+            if (node.Kind === TstsSyntax.KindIndexSignature) {
+              const [parameter] = getTstsParameters(node);
+              const keyType = getTstsDeclaredTypeNode(parameter);
+              if (!isAllowedDictionaryKeyTypeNode(keyType)) {
+                addSourceDiagnostic(
+                  context,
+                  "TSN7413",
+                  node,
+                  "Dictionary key type must be string or number."
+                );
+              }
+            }
+
+            if (node.Kind === TstsSyntax.KindArrowFunction) {
+              const parameters = getTstsParameters(node);
+              const hasExplicitParameterTypes = parameters.every((parameter) =>
+                Boolean(getTstsDeclaredTypeNode(parameter))
+              );
+              const hasExplicitReturnType = Boolean(
+                getTstsDeclaredTypeNode(node)
+              );
+              if (!hasExplicitParameterTypes || !hasExplicitReturnType) {
+                const contextualType = context.checker.getContextualType(node);
+                if (!contextualType) {
+                  addSourceDiagnostic(
+                    context,
+                    "TSN7430",
+                    node,
+                    "Arrow functions without contextual typing require explicit parameter and return types."
+                  );
+                }
+              }
+            }
+
+            if (node.Kind === TstsSyntax.KindObjectLiteralExpression) {
+              const parentType = directParent
+                ? getTstsDeclaredTypeNode(directParent)
+                : undefined;
+              if (parentType?.Kind === TstsSyntax.KindObjectKeyword) {
+                addSourceDiagnostic(
+                  context,
+                  "TSN7403",
+                  node,
+                  "Object literals assigned to broad runtime object type require a concrete structural type."
+                );
+              }
+            }
+
+            if (TstsSyntax.IsVariableDeclaration(node)) {
+              const name = TstsSyntax.Node_Name(node);
+              const symbol = symbolForName(context, name);
+              if (symbol && genericSymbols.has(symbol)) {
+                const declarationKind = variableDeclarationKind(node);
+                const initializer = TstsSyntax.Node_Initializer(node);
+                if (
+                  declarationKind === "var" ||
+                  (declarationKind === "let" &&
+                    !isGenericFunctionNode(initializer) &&
+                    !isIdentifierGenericSymbol(
+                      context,
+                      initializer,
+                      genericSymbols
+                    ))
+                ) {
+                  addSourceDiagnostic(
+                    context,
+                    "TSN7432",
+                    node,
+                    "Generic function values may only flow through deterministic const or unreassigned let call-only bindings."
+                  );
+                }
+              }
+            }
+
+            if (
+              TstsSyntax.IsBinaryExpression(node) &&
+              TstsSyntax.AsBinaryExpression(node)?.OperatorToken?.Kind ===
+                TstsSyntax.KindEqualsToken
+            ) {
+              const target = TstsSyntax.AsBinaryExpression(node)?.Left;
+              if (isIdentifierGenericSymbol(context, target, genericSymbols)) {
+                addSourceDiagnostic(
+                  context,
+                  "TSN7432",
+                  node,
+                  "Generic function values cannot be reassigned."
+                );
+              }
+            }
+
+            if (node.Kind === TstsSyntax.KindShorthandPropertyAssignment) {
+              const valueSymbol = context.checker.resolveAlias(
+                context.checker.getShorthandAssignmentValueSymbol(node)
+              );
+              if (
+                valueSymbol &&
+                genericSymbols.has(valueSymbol) &&
+                !hasMonomorphicCallableContext(
+                  context,
+                  TstsSyntax.Node_Name(node)
+                )
+              ) {
+                addSourceDiagnostic(
+                  context,
+                  "TSN7432",
+                  node,
+                  "Generic function values cannot be used as runtime object properties outside monomorphic callable contexts."
+                );
+              }
+            }
+
+            if (
+              TstsSyntax.IsIdentifier(node) &&
+              isIdentifierGenericSymbol(context, node, genericSymbols)
+            ) {
+              if (
+                directParent &&
+                TstsSyntax.IsCallExpression(directParent) &&
+                TstsSyntax.AsCallExpression(directParent)?.Expression === node
+              ) {
+                return;
+              }
+              if (
+                directParent?.Kind === TstsSyntax.KindTypeQuery ||
+                directParent?.Kind === TstsSyntax.KindImportSpecifier ||
+                directParent?.Kind === TstsSyntax.KindExportSpecifier ||
+                directParent?.Kind === TstsSyntax.KindExportAssignment ||
+                directParent?.Kind === TstsSyntax.KindVariableDeclaration ||
+                directParent?.Kind === TstsSyntax.KindFunctionDeclaration
+              ) {
+                return;
+              }
+
+              if (hasMonomorphicCallableContext(context, node)) {
+                return;
+              }
+
+              addSourceDiagnostic(
+                context,
+                "TSN7432",
+                node,
+                "Generic function values cannot be used as runtime values outside direct calls or monomorphic callable contexts."
+              );
+            }
+
+            if (
+              node.Kind === TstsSyntax.KindElementAccessExpression &&
+              isIdentifierNamed(
+                TstsSyntax.Node_Expression(node),
+                "arguments"
+              ) &&
+              !parents.some((parent) =>
+                isCompileTimeMarkerApiExpression(parent, context)
+              )
+            ) {
+              const methodParent = nearestObjectLiteralMethodParent(parents);
+              if (methodParent) {
+                const parameters = getTstsParameters(methodParent);
+                const parametersAreFixedIdentifiers = parameters.every(
+                  (parameter) =>
+                    parameter !== undefined &&
+                    getTstsIdentifierText(TstsSyntax.Node_Name(parameter)) !==
+                      undefined &&
+                    TstsSyntax.Node_QuestionToken(parameter) === undefined &&
+                    TstsSyntax.AsParameterDeclaration(parameter)
+                      ?.DotDotDotToken === undefined
+                );
+                if (!parametersAreFixedIdentifiers) {
+                  addSourceDiagnostic(
+                    context,
+                    "TSN7403",
+                    node,
+                    "Object literal method shorthand cannot use unsupported arguments patterns."
+                  );
+                }
+              }
+            }
+
+            if (
+              node.Kind === TstsSyntax.KindSuperKeyword &&
+              nearestObjectLiteralMethodParent(parents) &&
+              !parents.some((parent) =>
+                isCompileTimeMarkerApiExpression(parent, context)
+              )
+            ) {
+              addSourceDiagnostic(
+                context,
+                "TSN7403",
+                node,
+                "Object literal method shorthand cannot use super."
+              );
+            }
+          }
+        );
+      }
     },
   };
 };

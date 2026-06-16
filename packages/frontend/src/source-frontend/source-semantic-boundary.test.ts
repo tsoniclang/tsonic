@@ -202,7 +202,9 @@ describe("source semantic boundary", () => {
         const text = fs.readFileSync(filePath, "utf8");
         const lines = text.split(/\r?\n/);
         return lines.flatMap((line, index) => {
-          const term = bannedTerms.find((candidate) => line.includes(candidate));
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
           return term
             ? [
                 `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
@@ -251,7 +253,9 @@ describe("source semantic boundary", () => {
         const text = fs.readFileSync(filePath, "utf8");
         const lines = text.split(/\r?\n/);
         return lines.flatMap((line, index) => {
-          const term = bannedTerms.find((candidate) => line.includes(candidate));
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
           return term
             ? [
                 `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
@@ -268,11 +272,13 @@ describe("source semantic boundary", () => {
     const staleDirectories = ["graph", "ir", "symbol-table"] as const;
     const offenders = staleDirectories.flatMap((directory) => {
       const directoryPath = path.join(frontendSrcRoot, directory);
-      return fs.existsSync(directoryPath)
-        ? collectTypeScriptFiles(directoryPath).map((filePath) =>
+      if (!fs.existsSync(directoryPath)) return [];
+      const files = collectTypeScriptFiles(directoryPath);
+      return files.length > 0
+        ? files.map((filePath) =>
             normalizePath(path.relative(repoRoot, filePath))
           )
-        : [];
+        : [normalizePath(path.relative(repoRoot, directoryPath))];
     });
 
     expect(offenders).to.deep.equal([]);
@@ -343,6 +349,72 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("keeps lowering and storage decisions out of the TSTS source extension", () => {
+    const extensionRoot = path.join(frontendSrcRoot, "tsonic-extension");
+    const bannedTerms = [
+      "native-" + "array",
+      "storage",
+      "storageType",
+      "sourceExpressionStorageProjection",
+      "sourceRuntimeArrayCallProjection",
+      "sourceRuntimeObjectCallProjection",
+      "projectionAssignableTo",
+      "declaredArmForNarrowedProjection",
+      "nonNullishProjection",
+      "projectionIsAritySentinel",
+      "projectedConditionalBranch",
+      "projectedConditionalTypeFromSyntax",
+      "for storage lowering",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(extensionRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps TSTS checker calls out of lowering", () => {
+    const loweringRoot = path.join(frontendSrcRoot, "lowering");
+    const bannedTerms = [
+      ".withTypeChecker(",
+      "checker.get",
+      "checker.is",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(loweringRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("defines source-extension facts directly on TSTS fact primitives", () => {
     const sourceFactsPath = path.join(
       frontendSrcRoot,
@@ -360,7 +432,9 @@ describe("source semantic boundary", () => {
 
   it("does not keep semantic-view bridge modules", () => {
     expect(
-      fs.existsSync(path.join(frontendSrcRoot, "source-frontend/semantic-view.ts"))
+      fs.existsSync(
+        path.join(frontendSrcRoot, "source-frontend/semantic-view.ts")
+      )
     ).to.equal(false);
     expect(
       fs.existsSync(
@@ -412,8 +486,37 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("does not keep frontend bridge casts or non-null suppression comments", () => {
+    const bannedTerms = [
+      "as unknown as",
+      "undefined!",
+      "eslint-disable-next-line @typescript-eslint/no-non-null-assertion",
+    ] as const;
+    const offenders = collectTypeScriptFiles(frontendSrcRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("keeps product reads of raw program fields behind program queries", () => {
-    const allowedFiles = new Set(["program/queries.ts", "lowering/pipeline.ts"]);
+    const allowedFiles = new Set([
+      "program/queries.ts",
+      "lowering/pipeline.ts",
+    ]);
     const bannedReads = [
       "program.sourceFiles",
       "program.declarationSourceFiles",

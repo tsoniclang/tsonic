@@ -51,3 +51,6 @@ export const hasExternalBindingDeclaration = (
 ): boolean =>
   externalBindingSourceIdentityForDeclaration(fileName, sourceName) !==
   undefined;
+
+export const isExternalBindingSourceFile = (fileName: string): boolean =>
+  findBindingPathForSourceFile(fileName) !== undefined;

@@ -134,10 +134,10 @@ describe("Tsonic TSTS source semantics extension", () => {
   it("attaches field and declaration-site passing facts from imported wrappers", () => {
     const fixture = collectSemanticNodes(`
       import type { out, ref as mutable, inref } from "@tsonic/core/types.js";
-      import type { field as storage } from "@tsonic/core/lang.js";
+      import type { field as fieldMarker } from "@tsonic/core/lang.js";
 
       export class User {
-        email: storage<string> = "";
+        email: fieldMarker<string> = "";
       }
 
       export function update(
@@ -160,7 +160,7 @@ describe("Tsonic TSTS source semantics extension", () => {
       if (!name) continue;
       declarationFacts.set(
         name,
-        fixture.host.facts.get(fieldSemanticsFactKey, node)?.storage ??
+        fixture.host.facts.get(fieldSemanticsFactKey, node)?.kind ??
           fixture.host.facts.get(parameterPassingFactKey, node)?.mode
       );
     }
@@ -172,7 +172,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         if (!typeReference) return undefined;
         return {
           name: typeReference.name,
-          field: fixture.host.facts.get(fieldSemanticsFactKey, node)?.storage,
+          field: fixture.host.facts.get(fieldSemanticsFactKey, node)?.kind,
           passing: fixture.host.facts.get(parameterPassingFactKey, node)?.mode,
         };
       })
@@ -187,7 +187,7 @@ describe("Tsonic TSTS source semantics extension", () => {
       snapshot: "byref-readonly",
     });
     expect(wrapperFacts).to.deep.include.members([
-      { name: "storage", field: "field", passing: undefined },
+      { name: "fieldMarker", field: "field", passing: undefined },
       {
         name: "out",
         field: undefined,
@@ -241,8 +241,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         ): entry is {
           readonly name: string | undefined;
           readonly heritage: "interface-erasure";
-        } =>
-          entry !== undefined && entry.heritage !== undefined
+        } => entry !== undefined && entry.heritage !== undefined
       );
 
     expect(typeReferenceFacts).to.deep.include({
@@ -337,8 +336,10 @@ describe("Tsonic TSTS source semantics extension", () => {
       .map((node) => {
         if (!node) return undefined;
         const name = getTstsIdentifierText(node);
-        const marker = fixture.host.facts.get(markerApiSemanticsFactKey, node)
-          ?.kind;
+        const marker = fixture.host.facts.get(
+          markerApiSemanticsFactKey,
+          node
+        )?.kind;
         return name && marker ? { name, marker } : undefined;
       })
       .filter(
@@ -347,8 +348,7 @@ describe("Tsonic TSTS source semantics extension", () => {
         ): entry is {
           readonly name: string;
           readonly marker: "attributes" | "attribute-targets" | "overloads";
-        } =>
-          entry !== undefined
+        } => entry !== undefined
       );
 
     expect(markerFacts).to.deep.include.members([
@@ -517,15 +517,15 @@ describe("Tsonic TSTS source semantics extension", () => {
       expect(userAttributes?.map((fact) => fact.targetKind)).to.deep.equal([
         "type",
       ]);
-      expect(constructorAttributes?.map((fact) => fact.targetKind)).to.deep.equal([
-        "constructor",
-      ]);
-      expect(methodAttributes?.map((fact) => fact.targetSpecifier)).to.deep.equal([
-        "return",
-      ]);
-      expect(propertyAttributes?.map((fact) => fact.targetSpecifier)).to.deep.equal([
-        "field",
-      ]);
+      expect(
+        constructorAttributes?.map((fact) => fact.targetKind)
+      ).to.deep.equal(["constructor"]);
+      expect(
+        methodAttributes?.map((fact) => fact.targetSpecifier)
+      ).to.deep.equal(["return"]);
+      expect(
+        propertyAttributes?.map((fact) => fact.targetSpecifier)
+      ).to.deep.equal(["field"]);
       expect(
         syntheticConstructorAttributes?.map((fact) => fact.targetKind)
       ).to.deep.equal(["constructor"]);
@@ -663,7 +663,7 @@ describe("Tsonic TSTS source semantics extension", () => {
     }
   });
 
-  it("attaches expression type projections for storage lowering", () => {
+  it("attaches expression type projections from TSTS checker facts", () => {
     const program = createTstsTestProgramFromFiles(
       {
         "index.ts": [
@@ -707,6 +707,66 @@ describe("Tsonic TSTS source semantics extension", () => {
         "box.value: int",
         "items.map((item: int): int => item): int[]",
         "{ first, value }: { first: int; value: int }",
+      ]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("attaches source contextual projections before plan builders consume expressions", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "index.ts": [
+          "import type { char } from '@tsonic/core/types.js';",
+          "type Box = { letter: char };",
+          "declare function write(value: char): void;",
+          "declare function write(value: string | null): void;",
+          "export function read(letter: char): char[] {",
+          "  const same = letter === \"A\";",
+          "  const boxed: Box = { letter: \"B\" };",
+          "  write(\"WRITE\");",
+          "  write(\"C\");",
+          "  return [\"x\", letter];",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const contextualSummaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        if (node.Kind !== TstsSyntax.KindStringLiteral) return;
+        const text = TstsSyntax.AsStringLiteral(node)?.Text;
+        if (
+          text !== "A" &&
+          text !== "B" &&
+          text !== "WRITE" &&
+          text !== "C" &&
+          text !== "x"
+        ) {
+          return;
+        }
+        const fact = program.sourceProgram.extensionHost.facts.get(
+          sourceExpressionTypeProjectionFactKey,
+          node
+        );
+        contextualSummaries.push(
+          `"${text}": ${
+            fact?.contextualType
+              ? projectionSummary(fact.contextualType)
+              : "none"
+          }`
+        );
+      });
+
+      expect(contextualSummaries).to.deep.equal([
+        '"A": char',
+        '"B": char',
+        '"WRITE": none',
+        '"C": char',
+        '"x": char',
       ]);
     } finally {
       program.cleanup();

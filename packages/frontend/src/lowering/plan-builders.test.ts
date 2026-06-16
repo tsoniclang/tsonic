@@ -284,13 +284,14 @@ describe("TSTS-backed lowering plan builders", () => {
     const type = declaration?.type;
 
     expect(type?.kind).to.equal("named");
-    expect(type?.kind === "named" ? type.aliasTarget?.kind : undefined).to.equal(
-      "object"
-    );
+    expect(
+      type?.kind === "named" ? type.aliasTarget?.kind : undefined
+    ).to.equal("object");
     const nextMember =
       type?.kind === "named" && type.aliasTarget?.kind === "object"
         ? type.aliasTarget.members.find(
-            (member) => member.kind !== "index-signature" && member.name === "next"
+            (member) =>
+              member.kind !== "index-signature" && member.name === "next"
           )
         : undefined;
 
@@ -380,8 +381,7 @@ describe("TSTS-backed lowering plan builders", () => {
     const localModule = result.modules.find((module) =>
       module.sourceFile.FileName().endsWith("/local.ts")
     );
-    const tableType =
-      indexModule?.topLevelStatements[0]?.declarations[0]?.type;
+    const tableType = indexModule?.topLevelStatements[0]?.declarations[0]?.type;
     const localTableType =
       localModule?.topLevelStatements[0]?.declarations[0]?.type;
 
@@ -503,10 +503,10 @@ describe("TSTS-backed lowering plan builders", () => {
     expect(point?.sourceTypeKind).to.equal("struct");
     expect(point?.heritageTypes).to.deep.equal([]);
     expect(
-      point?.members.find((member) => member.name === "x")?.storageSemantics
+      point?.members.find((member) => member.name === "x")?.fieldSemantics
     ).to.equal("field");
     expect(
-      point?.members.find((member) => member.name === "y")?.storageSemantics
+      point?.members.find((member) => member.name === "y")?.fieldSemantics
     ).to.equal(undefined);
     expect(service?.heritageTypes).to.deep.equal([]);
     expect(inc?.parameters[0]?.extensionReceiver).to.equal(true);
@@ -589,8 +589,8 @@ describe("TSTS-backed lowering plan builders", () => {
     expect(method?.attributes[0]?.arguments[0]?.literalText).to.equal("method");
     expect(property?.attributes[0]?.targetSpecifier).to.equal("field");
     expect(property?.attributes[0]?.arguments[0]?.literalText).to.equal("prop");
-    expect(noCtor?.constructorAttributes[0]?.arguments[0]?.literalText).to.equal(
-      "implicit"
-    );
+    expect(
+      noCtor?.constructorAttributes[0]?.arguments[0]?.literalText
+    ).to.equal("implicit");
   });
 });

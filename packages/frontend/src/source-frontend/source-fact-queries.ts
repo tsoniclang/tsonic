@@ -40,9 +40,9 @@ export const isSourceTypeKind = (
   kind: SourceTypeSemanticsFact["kind"]
 ): boolean => fact?.kind === kind;
 
-export const isFieldStorageFact = (
+export const isFieldSemanticsFact = (
   fact: FieldSemanticsFact | undefined
-): boolean => fact?.storage === "field";
+): boolean => fact?.kind === "field";
 
 export const isExtensionReceiverFact = (
   fact: ExtensionReceiverSemanticsFact | undefined

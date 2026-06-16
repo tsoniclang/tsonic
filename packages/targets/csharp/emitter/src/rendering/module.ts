@@ -152,6 +152,16 @@ const collectStructuralType = (
     case "named": {
       const namedState = withStructuralNamedType(typeState, type);
       if (!namedState) return;
+      if (
+        type.aliasTarget?.kind === "union" &&
+        shouldEmitAnonymousRuntimeUnionCarrier(type.aliasTarget)
+      ) {
+        types.set(typePlanKey(type), type);
+        for (const member of type.aliasTarget.types) {
+          collectStructuralType(types, member, namedState);
+        }
+        break;
+      }
       if (shouldExpandNamedAliasTarget(type)) {
         collectStructuralType(types, type.aliasTarget, namedState);
       }
@@ -430,7 +440,13 @@ const renderStructuralType = (
   type: LoweringTypeRefPlan,
   context: RenderContext
 ): string | undefined => {
-  if (type.kind === "union") {
+  const unionTarget =
+    type.kind === "union"
+      ? type
+      : type.kind === "named" && type.aliasTarget?.kind === "union"
+        ? type.aliasTarget
+        : undefined;
+  if (unionTarget) {
     const arms = runtimeUnionCarrierArms(type, context);
     if (arms.length < 2) return undefined;
     const name = structuralTypeName(type);
@@ -451,19 +467,29 @@ const renderStructuralType = (
       "",
       ...arms.flatMap((arm, index) => {
         const armNumber = index + 1;
-        const armType = renderCSharpType(arm, context);
-        const nullableArmType = renderNullableCSharpType(arm, context);
         const recursiveArrayArm = isRecursiveRuntimeArrayArm(
           arm,
           type,
           context
         );
+        const runtimeArm = recursiveArrayArm
+          ? ({
+              kind: "array",
+              elementType: type,
+              readonly: true,
+            } satisfies LoweringTypeRefPlan)
+          : arm;
+        const armType = renderCSharpType(runtimeArm, context);
+        const nullableArmType = renderNullableCSharpType(runtimeArm, context);
+        const recursiveArrayValue = recursiveArrayArm
+          ? `global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue))`
+          : undefined;
         return [
           `    public static ${typeReference} From${armNumber}(${armType} value) => new ${typeReference}(value);`,
           ...(recursiveArrayArm
             ? [
-                `    public static ${typeReference} From${armNumber}(object?[] value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
-                `    public static ${typeReference} From${armNumber}(global::System.Collections.Generic.List<object?> value) => From${armNumber}(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(value, FromValue)));`,
+                `    public static ${typeReference} From${armNumber}(object?[] value) => From${armNumber}((${armType})${recursiveArrayValue});`,
+                `    public static ${typeReference} From${armNumber}(global::System.Collections.Generic.List<object?> value) => From${armNumber}((${armType})${recursiveArrayValue});`,
               ]
             : []),
           `    public ${nullableArmType} As${armNumber}() => this.value is ${armType} value ? value : default;`,
@@ -476,12 +502,19 @@ const renderStructuralType = (
       "        if (value == null) return FromNull();",
       ...arms.flatMap((arm, index) => {
         const armNumber = index + 1;
-        const armType = renderCSharpType(arm, context);
         const recursiveArrayArm = isRecursiveRuntimeArrayArm(
           arm,
           type,
           context
         );
+        const runtimeArm = recursiveArrayArm
+          ? ({
+              kind: "array",
+              elementType: type,
+              readonly: true,
+            } satisfies LoweringTypeRefPlan)
+          : arm;
+        const armType = renderCSharpType(runtimeArm, context);
         return [
           ...(recursiveArrayArm
             ? [

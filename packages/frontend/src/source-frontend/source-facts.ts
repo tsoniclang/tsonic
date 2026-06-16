@@ -40,7 +40,7 @@ export type SourceTypeSemanticsFact = {
 };
 
 export type FieldSemanticsFact = {
-  readonly storage: "field";
+  readonly kind: "field";
 };
 
 export type ParameterPassingMode =
@@ -203,6 +203,7 @@ export type SourceBindingProjectedType =
       readonly declaration?: TstsNode;
       readonly declarationKind?: SourceProjectedDeclarationKind;
       readonly aliasTarget?: SourceBindingProjectedType;
+      readonly runtimeTypeOwner?: SourceRuntimeOperationOwner;
       readonly runtimeVisibility?: "opaque";
       readonly sourceNode?: TstsNode;
     }
@@ -263,13 +264,14 @@ export type SourceTypeNodeProjectionFact = {
 
 export type SourceExpressionTypeProjectionFact = {
   readonly type: SourceBindingProjectedType;
-  readonly storageType?: SourceBindingProjectedType;
   readonly contextualType?: SourceBindingProjectedType;
 };
 
 export type SourceCallArgumentTypesFact = {
   readonly argumentTypes: readonly (SourceBindingProjectedType | undefined)[];
   readonly targetType?: SourceBindingProjectedType;
+  readonly returnType?: SourceBindingProjectedType;
+  readonly returnTypeNode?: TstsNode;
 };
 
 export type SourceInitializerReferencesDeclarationFact = {
@@ -311,11 +313,10 @@ export type SourceAttributeDescriptorFact = {
   readonly arguments: readonly TstsNode[];
 };
 
-export type SourceAttributeApplicationFact =
-  SourceAttributeDescriptorFact & {
-    readonly targetKind: SourceAttributeTargetKind;
-    readonly targetSpecifier?: SourceAttributeTargetSpecifier;
-  };
+export type SourceAttributeApplicationFact = SourceAttributeDescriptorFact & {
+  readonly targetKind: SourceAttributeTargetKind;
+  readonly targetSpecifier?: SourceAttributeTargetSpecifier;
+};
 
 export type SourceAttributeApplicationsFact = {
   readonly applications: readonly SourceAttributeApplicationFact[];
@@ -437,13 +438,13 @@ export const sourceBindingTypeProjectionFactKey =
 export const sourceTypeNodeProjectionFactKey =
   defineSourceFactKey<SourceTypeNodeProjectionFact>(
     "tsonic:source:type-node-projection",
-    "Source-level type-node projection selected by TSTS for lowering."
+    "Source-level type-node projection selected by TSTS."
   );
 
 export const sourceExpressionTypeProjectionFactKey =
   defineSourceFactKey<SourceExpressionTypeProjectionFact>(
     "tsonic:source:expression-type-projection",
-    "Source-level expression type projected by TSTS for storage lowering."
+    "Source-level expression type projected by TSTS."
   );
 
 export const sourceCallArgumentTypesFactKey =

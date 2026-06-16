@@ -4,7 +4,6 @@
 
 import * as path from "node:path";
 import type { TstsSourceFile } from "@tsonic/tsts";
-import { getTstsSourceFileName } from "@tsonic/tsts";
 import type { TsonicProgram } from "./types.js";
 
 const normalizePath = (filePath: string): string =>
@@ -25,9 +24,8 @@ export const getProgramSemanticSourceFiles = (
   program: TsonicProgram
 ): readonly TstsSourceFile[] => program.sourceProgram.sourceFiles;
 
-export const getProgramSourceFileName = (
-  sourceFile: TstsSourceFile
-): string => getTstsSourceFileName(sourceFile) ?? "";
+export const getProgramSourceFileName = (sourceFile: TstsSourceFile): string =>
+  sourceFile.FileName();
 
 export const getProgramAllSourceFiles = (
   program: TsonicProgram
@@ -41,10 +39,13 @@ export const getSourceFile = (
   filePath: string
 ): TstsSourceFile | null => {
   const absolutePath = normalizePath(filePath);
-  const sourceFiles = getProgramAllSourceFiles(program).filter(
-    (candidate) =>
-      normalizePath(getProgramSourceFileName(candidate)) === absolutePath
-  );
-
-  return sourceFiles.length === 1 ? (sourceFiles[0] ?? null) : null;
+  let sourceFile: TstsSourceFile | null = null;
+  for (const candidate of getProgramAllSourceFiles(program)) {
+    if (normalizePath(getProgramSourceFileName(candidate)) !== absolutePath) {
+      continue;
+    }
+    if (sourceFile !== null) return null;
+    sourceFile = candidate;
+  }
+  return sourceFile;
 };

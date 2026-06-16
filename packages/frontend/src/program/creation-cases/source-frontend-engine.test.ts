@@ -5,10 +5,7 @@ import * as path from "node:path";
 import { createProgram } from "../creation.js";
 import { getProgramRuntimeSourceFiles } from "../queries.js";
 import { installMinimalCoreGlobalsSurface } from "./test-package-helpers.js";
-import {
-  getTstsTypeReferenceName,
-  visitTstsSubtree,
-} from "@tsonic/tsts";
+import { getTstsTypeReferenceName, visitTstsSubtree } from "@tsonic/tsts";
 import {
   extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,
@@ -34,9 +31,7 @@ const createTempProgram = (
 } => {
   const tempRoot = path.join(process.cwd(), ".temp", "source-frontend-engine");
   fs.mkdirSync(tempRoot, { recursive: true });
-  const projectRoot = fs.mkdtempSync(
-    path.join(tempRoot, "case-")
-  );
+  const projectRoot = fs.mkdtempSync(path.join(tempRoot, "case-"));
   const sourceRoot = path.join(projectRoot, "src");
   const entryPath = path.join(sourceRoot, "index.ts");
   fs.mkdirSync(sourceRoot, { recursive: true });
@@ -93,7 +88,8 @@ describe("Program Creation – source frontend engine", () => {
       const primitiveKinds: string[] = [];
       const entrySourceFile = result.value.sourceProgram.sourceFiles.find(
         (sourceFile) =>
-          path.resolve(sourceFile.FileName()) === path.resolve(fixture.entryPath)
+          path.resolve(sourceFile.FileName()) ===
+          path.resolve(fixture.entryPath)
       );
       expect(entrySourceFile).to.not.equal(undefined);
       if (!entrySourceFile) return;
@@ -159,7 +155,7 @@ describe("Program Creation – source frontend engine", () => {
         if (typeSemantics) projected.push(`type:${typeSemantics.kind}`);
 
         const field = facts.get(fieldSemanticsFactKey, node);
-        if (field) projected.push(`field:${field.storage}`);
+        if (field) projected.push(`field:${field.kind}`);
 
         const passing = facts.get(parameterPassingFactKey, node);
         if (passing) projected.push(`passing:${passing.mode}`);
@@ -167,7 +163,10 @@ describe("Program Creation – source frontend engine", () => {
         const receiver = facts.get(extensionReceiverSemanticsFactKey, node);
         if (receiver) projected.push(`receiver:${receiver.kind}`);
 
-        const heritageWrapper = facts.get(heritageWrapperSemanticsFactKey, node);
+        const heritageWrapper = facts.get(
+          heritageWrapperSemanticsFactKey,
+          node
+        );
         if (heritageWrapper) {
           projected.push(`heritage:${heritageWrapper.kind}`);
         }

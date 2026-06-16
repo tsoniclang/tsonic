@@ -14,7 +14,9 @@ import {
 const dummySourceFile = {} as LoweringExpressionPlan["sourceFile"];
 const dummySourceNode = {} as LoweringExpressionPlan["sourceNode"];
 
-const createRenderContext = (unsupportedFeatures: string[] = []): RenderContext => ({
+const createRenderContext = (
+  unsupportedFeatures: string[] = []
+): RenderContext => ({
   diagnostics: [],
   allocateTempName: (prefix) => `${prefix}0`,
   getStructuralTypeName: () => "Structural0",
@@ -301,6 +303,75 @@ describe("C# expression renderer", () => {
         context
       )
     ).to.equal("value.Length");
+  });
+
+  it("renders Function.length only from a direct function-expression plan", () => {
+    const context = createRenderContext();
+    const lengthOperation = {
+      owner: "Function" as const,
+      member: "length",
+      dispatch: "property" as const,
+    };
+
+    expect(
+      renderExpression(
+        expressionPlan({
+          expressionKind: "property-access",
+          literalText: "length",
+          sourceOperation: lengthOperation,
+          expression: expressionPlan({
+            expressionKind: "function-expression",
+            parameters: [
+              {
+                name: "first",
+                sourceKindName: "Parameter",
+                sourceText: "first",
+                optional: false,
+                rest: false,
+              },
+              {
+                name: "second",
+                sourceKindName: "Parameter",
+                sourceText: "second = 1",
+                optional: false,
+                rest: false,
+                initializer: expressionPlan({
+                  expressionKind: "literal",
+                  literalKind: "number",
+                  literalText: "1",
+                }),
+              },
+            ],
+          }),
+        }),
+        context
+      )
+    ).to.equal("1");
+  });
+
+  it("reports unsupported Function.length for non-direct function receivers", () => {
+    const unsupportedFeatures: string[] = [];
+    const context = createRenderContext(unsupportedFeatures);
+
+    expect(
+      renderExpression(
+        expressionPlan({
+          expressionKind: "property-access",
+          literalText: "length",
+          sourceOperation: {
+            owner: "Function",
+            member: "length",
+            dispatch: "property",
+          },
+          expression: expressionPlan({
+            expressionKind: "identifier",
+            literalText: "fn",
+          }),
+        }),
+        context
+      )
+    ).to.equal("0");
+    expect(unsupportedFeatures).to.include("Function.length receiver");
   });
 
   it("reports missing required plan data instead of inventing renderer defaults", () => {

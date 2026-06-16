@@ -273,7 +273,7 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
   readonly typeAliasTarget?: LoweringTypeRefPlan;
   readonly heritageTypes: readonly LoweringTypeRefPlan[];
   readonly sourceTypeKind?: SourceTypeSemanticsFact["kind"];
-  readonly storageSemantics?: FieldSemanticsFact["storage"];
+  readonly fieldSemantics?: FieldSemanticsFact["kind"];
   readonly attributes: readonly LoweringAttributePlan[];
   readonly constructorAttributes: readonly LoweringAttributePlan[];
   readonly baseConstructorParameters: readonly LoweringParameterPlan[];
@@ -368,6 +368,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
     | "yield"
     | "spread"
     | "erased-wrapper"
+    | "non-null"
     | "unsupported";
   readonly type?: LoweringTypeRefPlan;
   readonly contextualTypePlan?: LoweringTypeRefPlan;
