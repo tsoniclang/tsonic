@@ -63,6 +63,7 @@ import {
   coreLangModules,
   coreTypesModules,
 } from "./core-imports.js";
+import { getSourcePrimitiveFact } from "../source-frontend/source-primitive-taxonomy.js";
 import {
   expressionSemanticsFactKey,
   fieldSemanticsFactKey,
@@ -104,6 +105,7 @@ type TsonicSourceDiagnosticCode =
   | "TSN7403"
   | "TSN7405"
   | "TSN7413"
+  | "TSN7440"
   | "TSN7430"
   | "TSN7432";
 
@@ -197,6 +199,77 @@ const markerApiKindsBySourceName: ReadonlyMap<
   ["AttributeTargets", "attribute-targets"],
   ["overloads", "overloads"],
 ]);
+
+const coreTypeIntrinsicNames = new Set<string>([
+  ...typeWrapperPassingModes.keys(),
+  "struct",
+]);
+
+const coreLangTypeIntrinsicNames = new Set<string>([
+  "field",
+  "Interface",
+  "thisarg",
+]);
+
+const coreLangCallIntrinsicNames = new Set<string>([
+  ...callMarkerPassingModes.keys(),
+  ...intrinsicKindsBySourceName.keys(),
+  ...markerApiKindsBySourceName.keys(),
+]);
+
+const isCoreTypesIntrinsicName = (name: string): boolean =>
+  getSourcePrimitiveFact(name) !== undefined || coreTypeIntrinsicNames.has(name);
+
+const localCoreTypesIntrinsicName = (
+  localName: string | undefined,
+  coreTypesBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): string | undefined =>
+  localName !== undefined &&
+  isCoreTypesIntrinsicName(localName) &&
+  !coreTypesBindingByLocalName.has(localName)
+    ? localName
+    : undefined;
+
+const localCoreLangTypeIntrinsicName = (
+  localName: string | undefined,
+  coreLangBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): string | undefined =>
+  localName !== undefined &&
+  coreLangTypeIntrinsicNames.has(localName) &&
+  !coreLangBindingByLocalName.has(localName)
+    ? localName
+    : undefined;
+
+const localCoreLangCallIntrinsicName = (
+  localName: string | undefined,
+  coreLangBindingByLocalName: ReadonlyMap<
+    string,
+    { readonly importedName: string }
+  >
+): string | undefined =>
+  localName !== undefined &&
+  coreLangCallIntrinsicNames.has(localName) &&
+  !coreLangBindingByLocalName.has(localName)
+    ? localName
+    : undefined;
+
+const addCoreIntrinsicProvenanceDiagnostic = (
+  context: CheckedContext,
+  node: TstsNode,
+  sourceName: string
+): void =>
+  addSourceDiagnostic(
+    context,
+    "TSN7440",
+    node,
+    `Core intrinsic '${sourceName}' must resolve to @tsonic/core; local declarations with that name are not compiler intrinsics.`
+  );
 
 const typeWrapperPassingFact = (
   node: TstsNode | undefined,
@@ -1600,7 +1673,12 @@ const projectedTypeFromTypeNode = (
           kind: "function",
           parameters: getTstsParameters(node)
             .map((parameter) =>
-              sourceParameterTypeProjection(context, parameter)
+              sourceParameterTypeProjection(
+                context,
+                parameter,
+                substitutions,
+                checkerState
+              )
             )
             .filter(
               (parameter): parameter is SourceParameterTypeProjection =>
@@ -2249,6 +2327,7 @@ const projectedNamedTypeFromTypeReference = (
     kind: "named",
     name: typeReference.name,
     typeArguments,
+    typeParameters: sourceTypeParameterNames(declaration),
     declaration,
     declarationKind: sourceProjectedDeclarationKind(declaration),
     aliasTarget:
@@ -2486,6 +2565,7 @@ const checkerTypeProjection = (
         kind: "named",
         name,
         typeArguments,
+        typeParameters: sourceTypeParameterNames(declaration),
         declaration,
         declarationKind: sourceProjectedDeclarationKind(declaration),
         aliasTarget: checkerTypeAliasTargetProjection(
@@ -2842,6 +2922,22 @@ const refineSourceProjectionByCheckerProjection = (
         ) ?? source.elementType,
     };
   }
+  if (source.kind === "function" && checker.kind === "function") {
+    return {
+      ...source,
+      parameters: source.parameters.map((parameter, index) => ({
+        ...parameter,
+        type: refineOptionalSourceProjectionByCheckerProjection(
+          parameter.type,
+          checker.parameters[index]?.type
+        ),
+      })),
+      returnType: refineOptionalSourceProjectionByCheckerProjection(
+        source.returnType,
+        checker.returnType
+      ),
+    };
+  }
   if (source.kind === "tuple" && checker.kind === "tuple") {
     return {
       ...source,
@@ -2874,6 +2970,14 @@ const refineSourceProjectionByCheckerProjection = (
   }
   return undefined;
 };
+
+const refineOptionalSourceProjectionByCheckerProjection = (
+  source: SourceBindingProjectedType | undefined,
+  checker: SourceBindingProjectedType | undefined
+): SourceBindingProjectedType | undefined =>
+  source
+    ? (refineSourceProjectionByCheckerProjection(source, checker) ?? source)
+    : checker;
 
 const isCharSourcePrimitiveProjection = (
   type: SourceBindingProjectedType | undefined
@@ -3207,20 +3311,24 @@ const signatureParameterProjection = (
   if (!parameter) return undefined;
   const declaration = context.checker.getSymbolValueDeclaration(parameter);
   const declaredType = TstsSyntax.Node_Type(declaration);
-  return (
-    projectedTypeFromTypeNode(
-      context,
-      declaredType,
-      substitutions,
-      new Set(),
-      checkerState
-    ) ??
-    checkerTypeProjection(
-      context,
-      context.checker.getTypeOfSignatureParameter(parameter),
-      checkerState
-    )
+  const sourceProjection = projectedTypeFromTypeNode(
+    context,
+    declaredType,
+    substitutions,
+    new Set(),
+    checkerState
   );
+  const checkerProjection = checkerTypeProjection(
+    context,
+    context.checker.getTypeOfSignatureParameter(parameter),
+    checkerState
+  );
+  return sourceProjection
+    ? (refineSourceProjectionByCheckerProjection(
+        sourceProjection,
+        checkerProjection
+      ) ?? checkerProjection ?? sourceProjection)
+    : checkerProjection;
 };
 
 const signatureTargetProjection = (
@@ -4003,7 +4111,9 @@ const declarationTypeProjectionFact = (
       node
     ),
   };
-  return fact.returnType || fact.baseConstructorParameters ? fact : undefined;
+  return fact.declaredType || fact.returnType || fact.baseConstructorParameters
+    ? fact
+    : undefined;
 };
 
 const sameSourceSymbol = (
@@ -4361,6 +4471,8 @@ const sourceBindingDeclarationKind = (
       return "function";
     case TstsSyntax.KindInterfaceDeclaration:
       return "interface";
+    case TstsSyntax.KindParameter:
+      return "parameter";
     case TstsSyntax.KindTypeAliasDeclaration:
       return "type-alias";
     case TstsSyntax.KindVariableDeclaration:
@@ -5962,6 +6074,46 @@ export const createTsonicSourceSemanticsExtension = (
               }
             }
 
+            if (node.Kind === TstsSyntax.KindTypeReference) {
+              const typeReference = getTstsTypeReferenceDetails(node);
+              const localIntrinsic =
+                localCoreTypesIntrinsicName(
+                  typeReference?.name,
+                  coreTypesBindingByLocalName
+                ) ??
+                localCoreLangTypeIntrinsicName(
+                  typeReference?.name,
+                  coreLangBindingByLocalName
+                );
+              if (localIntrinsic) {
+                addCoreIntrinsicProvenanceDiagnostic(
+                  context,
+                  node,
+                  localIntrinsic
+                );
+              }
+            }
+
+            if (node.Kind === TstsSyntax.KindExpressionWithTypeArguments) {
+              const heritageName = getTstsExpressionWithTypeArgumentsName(node);
+              const localIntrinsic =
+                localCoreTypesIntrinsicName(
+                  heritageName,
+                  coreTypesBindingByLocalName
+                ) ??
+                localCoreLangTypeIntrinsicName(
+                  heritageName,
+                  coreLangBindingByLocalName
+                );
+              if (localIntrinsic) {
+                addCoreIntrinsicProvenanceDiagnostic(
+                  context,
+                  node,
+                  localIntrinsic
+                );
+              }
+            }
+
             if (node.Kind === TstsSyntax.KindIndexSignature) {
               const [parameter] = getTstsParameters(node);
               const keyType = getTstsDeclaredTypeNode(parameter);
@@ -5971,6 +6123,23 @@ export const createTsonicSourceSemanticsExtension = (
                   "TSN7413",
                   node,
                   "Dictionary key type must be string or number."
+                );
+              }
+            }
+
+            if (
+              node.Kind === TstsSyntax.KindCallExpression ||
+              node.Kind === TstsSyntax.KindNewExpression
+            ) {
+              const localIntrinsic = localCoreLangCallIntrinsicName(
+                call?.calleeName,
+                coreLangBindingByLocalName
+              );
+              if (localIntrinsic) {
+                addCoreIntrinsicProvenanceDiagnostic(
+                  context,
+                  node,
+                  localIntrinsic
                 );
               }
             }

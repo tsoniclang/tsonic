@@ -117,7 +117,7 @@ export const externalBindingKey = (
   externalBinding: LoweringExternalBindingReferencePlan | undefined
 ): string | undefined =>
   externalBinding
-    ? `${externalBinding.bindingFile}#${externalBinding.sourceName}`
+    ? `${externalBinding.bindingFile}#${externalBinding.sourceName}/${externalBinding.arity ?? "*"}`
     : undefined;
 
 const renderExternalTargetTypeName = (
@@ -310,8 +310,21 @@ export function typePlanKey(type: LoweringTypeRefPlan | undefined): string {
   return typePlanKeyWithSeen(type, new Set<LoweringTypeRefPlan>());
 }
 
+const namedGenericUnionAliasStructuralKey = (
+  type: LoweringTypeRefPlan
+): string | undefined =>
+  type.kind === "named" &&
+  type.declarationKind === "type-alias" &&
+  type.aliasTarget?.kind === "union" &&
+  (type.typeParameters?.length ?? 0) > 0
+    ? `named-union-alias:${type.runtimeVisibility ?? "public"}:${sourceQualifiedNameKey(type.sourceQualifiedName) ?? externalBindingKey(type.externalBinding) ?? type.name}<${type.typeParameters?.length ?? 0}>`
+    : undefined;
+
+export const structuralTypeKey = (type: LoweringTypeRefPlan): string =>
+  namedGenericUnionAliasStructuralKey(type) ?? typePlanKey(type);
+
 export const structuralTypeName = (type: LoweringTypeRefPlan): string =>
-  `__TsonicShape_${stableHash(typePlanKey(type))}`;
+  `__TsonicShape_${stableHash(structuralTypeKey(type))}`;
 
 const collectTypeParameterNames = (
   type: LoweringTypeRefPlan | undefined,
@@ -405,10 +418,22 @@ export const renderTypeParameters = (
 export const renderStructuralTypeReference = (
   type: LoweringTypeRefPlan,
   context: RenderContext
-): string =>
-  `${context.getStructuralTypeName(type)}${renderTypeParameters(
+): string => {
+  if (
+    type.kind === "named" &&
+    type.declarationKind === "type-alias" &&
+    type.aliasTarget?.kind === "union" &&
+    (type.typeParameters?.length ?? 0) > 0 &&
+    type.typeArguments.length > 0
+  ) {
+    return `${context.getStructuralTypeName(type)}<${type.typeArguments
+      .map((argument) => renderCSharpType(argument, context))
+      .join(", ")}>`;
+  }
+  return `${context.getStructuralTypeName(type)}${renderTypeParameters(
     structuralTypeParameterNames(type)
   )}`;
+};
 
 export const sameRuntimeTypePlan = (
   left: LoweringTypeRefPlan | undefined,
@@ -935,17 +960,15 @@ const asyncReturnAwaitedType = (
       !isTaskLikeTypePlan(member, context) && !isVoidLikeTypePlan(member)
   );
   if (synchronousMembers.length === 0) return awaited;
-  if (synchronousMembers.every(isBroadIntrinsicTypePlan)) {
-    context.reportUnsupported(
-      "async union return type",
-      "UnionType",
-      type.sourceText ?? "union"
-    );
-    return objectTypePlan;
-  }
   if (
     synchronousMembers.length === 1 &&
     typePlanKey(synchronousMembers[0]) === typePlanKey(awaited)
+  ) {
+    return awaited;
+  }
+  if (
+    isBroadIntrinsicTypePlan(awaited) &&
+    synchronousMembers.every(isBroadIntrinsicTypePlan)
   ) {
     return awaited;
   }
@@ -1170,6 +1193,9 @@ export const renderCSharpType = (
     case "named": {
       const special = renderSpecialNamedType(type, context);
       if (special) return special;
+      if (type.externalBinding) {
+        return renderNamedRuntimeType(type, context) ?? renderNamedType(type);
+      }
       if (type.declarationKind === "type-alias" && !type.aliasTarget) {
         context.reportUnsupported(
           "type alias target",
@@ -1203,9 +1229,6 @@ export const renderCSharpType = (
         type.aliasTarget.kind !== "function"
       ) {
         return renderCSharpType(type.aliasTarget, context);
-      }
-      if (type.sourceQualifiedName || type.externalBinding) {
-        return renderNamedRuntimeType(type, context) ?? renderNamedType(type);
       }
       if (
         type.aliasTarget &&

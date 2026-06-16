@@ -13,12 +13,17 @@ describe("C# external binding metadata", () => {
     const index = createExternalBindingMetadataIndex([root]);
 
     expect(
-      index.resolveTargetName({ bindingFile, sourceName: "PublicWidget_1" })
+      index.resolveTargetName({
+        bindingFile,
+        sourceName: "PublicWidget_1",
+        arity: 1,
+      })
     ).to.equal("Provider.Runtime.InternalThing`1");
     expect(
       index.resolveTargetName({
         bindingFile,
         sourceName: "PublicWidget_1$instance",
+        arity: 1,
       })
     ).to.equal("Provider.Runtime.InternalThing`1");
     expect(
@@ -46,6 +51,7 @@ describe("C# external binding metadata", () => {
       externalBinding: {
         bindingFile,
         sourceName: "ExternalSourceNamedBase",
+        arity: 0,
       },
     } satisfies LoweringTypeRefPlan;
     const sourceQualifiedHeritage = {

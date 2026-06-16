@@ -429,6 +429,22 @@ const requiredArrayLiteralElementType = (
 const isCharType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "source-primitive" && type.fact.kind === "char";
 
+const isArithmeticRuntimeType = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  type?.kind === "source-primitive"
+    ? type.fact.kind !== "bool" && type.fact.kind !== "char"
+    : type?.kind === "intrinsic" &&
+      (type.name === "number" || type.name === "bigint");
+
+const arithmeticResultType = (
+  plan: LoweringExpressionPlan
+): LoweringTypeRefPlan | undefined => {
+  const contextualType = plan.contextualTypePlan;
+  if (isArithmeticRuntimeType(contextualType)) return contextualType;
+  return isArithmeticRuntimeType(plan.type) ? plan.type : undefined;
+};
+
 const charRuntimeType = (
   plan: LoweringExpressionPlan | undefined,
   seen: ReadonlySet<LoweringExpressionPlan> = new Set()
@@ -454,13 +470,39 @@ const charRuntimeType = (
   return undefined;
 };
 
+const actualCharRuntimeType = (
+  plan: LoweringExpressionPlan | undefined,
+  seen: ReadonlySet<LoweringExpressionPlan> = new Set()
+): LoweringTypeRefPlan | undefined => {
+  if (!plan || seen.has(plan)) return undefined;
+  const direct =
+    (isCharType(plan.storageTypePlan) ? plan.storageTypePlan : undefined) ??
+    (isCharType(plan.type) ? plan.type : undefined) ??
+    (isCharType(arrayElementAccessElementType(plan))
+      ? arrayElementAccessElementType(plan)
+      : undefined);
+  if (direct) return direct;
+  if (
+    plan.expressionKind === "erased-wrapper" ||
+    plan.expressionKind === "non-null" ||
+    plan.expressionKind === "parenthesized"
+  ) {
+    const nextSeen = new Set(seen);
+    nextSeen.add(plan);
+    return actualCharRuntimeType(plan.expression, nextSeen);
+  }
+  return undefined;
+};
+
 const hasCharRuntimeType = (
   plan: LoweringExpressionPlan | undefined
 ): boolean => charRuntimeType(plan) !== undefined;
 
 const shouldRenderStringLiteralAsChar = (
   plan: LoweringExpressionPlan
-): boolean => isCharType(plan.contextualTypePlan) || isCharType(plan.type);
+): boolean =>
+  plan.literalText?.length === 1 &&
+  (isCharType(plan.contextualTypePlan) || isCharType(plan.type));
 
 const shouldConvertSequenceElementsByProjection = (
   sourceElementType: LoweringTypeRefPlan,
@@ -1033,7 +1075,8 @@ const renderStringLiteralAsUseSiteChar = (
   if (
     plan?.expressionKind !== "literal" ||
     plan.literalKind !== "string" ||
-    !isCharType(useSiteType)
+    !isCharType(useSiteType) ||
+    plan.literalText?.length !== 1
   ) {
     return undefined;
   }
@@ -1184,6 +1227,9 @@ export const renderExpressionWithUseSiteCast = (
         context
       );
     if (armIndex) return `${rendered}.As${armIndex}()`;
+  }
+  if (isCharType(useSiteTypeOverride) && !actualCharRuntimeType(plan)) {
+    return rendered;
   }
   const castType = useSiteCastType(useSiteTypeOverride ?? plan?.type, context);
   return castType ? `((${castType})(${rendered}))` : rendered;
@@ -1643,7 +1689,11 @@ const renderLambda = (
     ? renderLambdaStatementBody(plan, context)
     : isVoidLikeExpressionType(lambdaContextReturnType(plan), context)
       ? renderVoidLambdaExpressionBody(plan.expression, context)
-      : renderExpression(plan.expression, context);
+      : renderExpressionWithUseSiteCast(
+          plan.expression,
+          context,
+          lambdaContextReturnType(plan) ?? plan.returnType
+        );
   return `${asyncModifier}(${parameters}) => ${body}`;
 };
 
@@ -1802,11 +1852,18 @@ const functionRuntimeLength = (
     : firstRuntimeLengthBoundary;
 };
 
+const functionTypeRuntimeLength = (
+  type: LoweringTypeRefPlan | undefined
+): number | undefined => functionTypeFromUseSite(type)?.parameters.length;
+
 const renderFunctionLength = (
   plan: LoweringExpressionPlan,
   context: RenderContext
 ): string => {
-  const length = functionRuntimeLength(plan.expression);
+  const length =
+    functionRuntimeLength(plan.expression) ??
+    functionTypeRuntimeLength(plan.expression?.storageTypePlan) ??
+    functionTypeRuntimeLength(plan.expression?.type);
   if (length !== undefined) return String(length);
   context.reportUnsupported(
     "Function.length receiver",
@@ -2268,6 +2325,9 @@ const renderAssignmentValue = (
 ): string => {
   const rendered = renderExpression(value, context);
   const targetType = target?.storageTypePlan ?? target?.type;
+  if (runtimeUnionCarrierType(targetType, context)) {
+    return renderExpressionWithUseSiteCast(value, context, targetType);
+  }
   const sourceStorageType = value?.storageTypePlan ?? value?.type;
   const shouldCastRuntimeSlot =
     value?.expressionKind === "identifier" ||
@@ -2473,6 +2533,32 @@ const renderArrayReceiverCall = (
   }
 };
 
+const sourceRuntimeIntArgumentIndexes = (
+  operation: SourceRuntimeOperation
+): ReadonlySet<number> => {
+  if (operation.owner !== "String") return new Set();
+  switch (operation.member) {
+    case "charAt":
+    case "substring":
+    case "slice":
+      return new Set([0, 1]);
+    default:
+      return new Set();
+  }
+};
+
+const renderSourceRuntimeArgument = (
+  argument: LoweringExpressionPlan,
+  index: number,
+  operation: SourceRuntimeOperation,
+  context: RenderContext
+): string => {
+  const rendered = renderExpression(argument, context);
+  return sourceRuntimeIntArgumentIndexes(operation).has(index)
+    ? `global::System.Convert.ToInt32(${rendered})`
+    : rendered;
+};
+
 const renderSourceRuntimeCall = (
   plan: LoweringExpressionPlan,
   context: RenderContext
@@ -2480,8 +2566,8 @@ const renderSourceRuntimeCall = (
   const callee = plan.expression;
   const operation = callee?.sourceOperation;
   if (!operation) return undefined;
-  const args = plan.arguments.map((argument) =>
-    renderExpression(argument, context)
+  const args = plan.arguments.map((argument, index) =>
+    renderSourceRuntimeArgument(argument, index, operation, context)
   );
 
   if (operation.dispatch === "receiver-call") {
@@ -2712,6 +2798,31 @@ const renderIntrinsicCall = (
   }
 };
 
+const effectiveReceiverUseSiteType = (
+  receiverPlan: LoweringExpressionPlan | undefined,
+  receiverTypePlan: LoweringTypeRefPlan | undefined,
+  context: RenderContext
+): LoweringTypeRefPlan | undefined => {
+  const sourceCarrier =
+    runtimeUnionCarrierType(receiverPlan?.storageTypePlan, context) ??
+    runtimeUnionCarrierType(receiverTypePlan, context);
+  const receiverType = receiverPlan?.type;
+  if (
+    sourceCarrier &&
+    receiverType &&
+    !runtimeUnionCarrierType(receiverType, context) &&
+    (runtimeUnionArmIndexForTargetType(sourceCarrier, receiverType, context) ||
+      runtimeUnionArmIndexAssignableToTargetType(
+        sourceCarrier,
+        receiverType,
+        context
+      ))
+  ) {
+    return receiverType;
+  }
+  return receiverTypePlan;
+};
+
 export const isCompileTimeOnlyExpression = (
   plan: LoweringExpressionPlan | undefined
 ): boolean => plan?.semantic === "compile-time-marker-call";
@@ -2914,6 +3025,18 @@ export const renderExpression = (
         return `${renderExpressionWithUseSiteCast(plan.left, context, stringType)} ${operator} ${renderExpressionWithUseSiteCast(plan.right, context, stringType)}`;
       }
       if (
+        (plan.binaryOperator === "add" ||
+          plan.binaryOperator === "subtract" ||
+          plan.binaryOperator === "multiply" ||
+          plan.binaryOperator === "divide" ||
+          plan.binaryOperator === "remainder")
+      ) {
+        const resultType = arithmeticResultType(plan);
+        if (resultType) {
+          return `${renderExpressionWithUseSiteCast(plan.left, context, resultType)} ${operator} ${renderExpressionWithUseSiteCast(plan.right, context, resultType)}`;
+        }
+      }
+      if (
         (plan.binaryOperator === "equal" ||
           plan.binaryOperator === "strict-equal" ||
           plan.binaryOperator === "not-equal" ||
@@ -2950,6 +3073,11 @@ export const renderExpression = (
       return renderExpression(plan.expression, context);
     case "property-access": {
       const operation = plan.sourceOperation;
+      const receiverUseSiteType = effectiveReceiverUseSiteType(
+        plan.expression,
+        plan.receiverTypePlan,
+        context
+      );
       if (operation?.dispatch === "property") {
         switch (operation.owner) {
           case "String":
@@ -2958,13 +3086,13 @@ export const renderExpression = (
             return renderArrayLength(
               plan.expression,
               context,
-              plan.receiverTypePlan
+              receiverUseSiteType
             );
           case "Function":
             return renderFunctionLength(plan, context);
           case "Error":
             if (operation.member === "message") {
-              return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.Message`;
+              return `${renderExpressionWithUseSiteCast(plan.expression, context, receiverUseSiteType)}.Message`;
             }
             break;
           case "Object":
@@ -2993,7 +3121,7 @@ export const renderExpression = (
       return `${renderExpressionWithUseSiteCast(
         plan.expression,
         context,
-        plan.receiverTypePlan
+        receiverUseSiteType
       )}${plan.optionalAccess ? "?." : "."}${member}`;
     }
     case "element-access":
@@ -3008,7 +3136,7 @@ export const renderExpression = (
           "string index expression"
         );
         if (!index) return "";
-        return `global::js.String.charAt(${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}, global::System.Convert.ToInt32(${index}))`;
+        return `global::js.String.charAt(${renderExpressionWithUseSiteCast(plan.expression, context, effectiveReceiverUseSiteType(plan.expression, plan.receiverTypePlan, context))}, global::System.Convert.ToInt32(${index}))`;
       }
       if (
         plan.sourceOperation?.dispatch === "index" &&
@@ -3018,7 +3146,7 @@ export const renderExpression = (
           plan.expression,
           plan,
           context,
-          plan.receiverTypePlan
+          effectiveReceiverUseSiteType(plan.expression, plan.receiverTypePlan, context)
         );
         if (rendered) return rendered;
       }
@@ -3027,7 +3155,7 @@ export const renderExpression = (
         plan.sourceOperation.owner === "Object" &&
         plan.sourceOperation.member === "toStringTag"
       ) {
-        return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}.__tsonic_symbol_toStringTag`;
+        return `${renderExpressionWithUseSiteCast(plan.expression, context, effectiveReceiverUseSiteType(plan.expression, plan.receiverTypePlan, context))}.__tsonic_symbol_toStringTag`;
       }
       const index = requiredRenderedCallArgument(
         plan,
@@ -3045,7 +3173,7 @@ export const renderExpression = (
           plan.expression,
           plan,
           context,
-          plan.receiverTypePlan
+          effectiveReceiverUseSiteType(plan.expression, plan.receiverTypePlan, context)
         );
         if (rendered) return rendered;
       }
@@ -3069,10 +3197,13 @@ export const renderExpression = (
       const renderedIndex =
         arrayTypeFromUseSite(plan.receiverTypePlan) ||
         arrayTypeFromUseSite(plan.expression?.storageTypePlan) ||
-        arrayTypeFromUseSite(plan.expression?.type)
+        arrayTypeFromUseSite(plan.expression?.type) ||
+        isStringLikeTypePlan(plan.receiverTypePlan) ||
+        isStringLikeTypePlan(plan.expression?.storageTypePlan) ||
+        isStringLikeTypePlan(plan.expression?.type)
           ? `global::System.Convert.ToInt32(${index})`
           : index;
-      return `${renderExpressionWithUseSiteCast(plan.expression, context, plan.receiverTypePlan)}${plan.optionalAccess ? "?" : ""}[${renderedIndex}]`;
+      return `${renderExpressionWithUseSiteCast(plan.expression, context, effectiveReceiverUseSiteType(plan.expression, plan.receiverTypePlan, context))}${plan.optionalAccess ? "?" : ""}[${renderedIndex}]`;
     case "call":
       {
         const intrinsic = renderIntrinsicCall(plan, context);

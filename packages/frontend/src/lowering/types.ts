@@ -76,6 +76,7 @@ export type LoweringSourceQualifiedNamePlan = {
 export type LoweringExternalBindingReferencePlan = {
   readonly bindingFile: string;
   readonly sourceName: string;
+  readonly arity?: number;
 };
 
 export type LoweringRuntimeVisibility = "opaque";
@@ -121,6 +122,7 @@ export type LoweringTypeRefPlan =
       readonly kind: "named";
       readonly name: string;
       readonly typeArguments: readonly LoweringTypeRefPlan[];
+      readonly typeParameters?: readonly string[];
       readonly aliasTarget?: LoweringTypeRefPlan;
       readonly sourceQualifiedName?: LoweringSourceQualifiedNamePlan;
       readonly externalBinding?: LoweringExternalBindingReferencePlan;

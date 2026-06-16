@@ -5,6 +5,7 @@ import { readSourcePackageMetadata } from "./source-package-metadata.js";
 export type ExternalBindingSourceIdentity = {
   readonly bindingFile: string;
   readonly sourceName: string;
+  readonly arity?: number;
 };
 
 const sourceFileBindingPathCache = new Map<string, string | undefined>();
@@ -15,6 +16,18 @@ const findBindingPathForSourceFile = (
   const normalized = path.resolve(fileName);
   const cached = sourceFileBindingPathCache.get(normalized);
   if (sourceFileBindingPathCache.has(normalized)) return cached;
+
+  if (normalized.endsWith(".d.ts")) {
+    const facadeBindingPath = path.join(
+      path.dirname(normalized),
+      path.basename(normalized, ".d.ts"),
+      "bindings.json"
+    );
+    if (existsSync(facadeBindingPath)) {
+      sourceFileBindingPathCache.set(normalized, facadeBindingPath);
+      return facadeBindingPath;
+    }
+  }
 
   let current = path.dirname(normalized);
   for (;;) {
@@ -38,11 +51,12 @@ const findBindingPathForSourceFile = (
 
 export const externalBindingSourceIdentityForDeclaration = (
   fileName: string,
-  sourceName: string
+  sourceName: string,
+  arity?: number
 ): ExternalBindingSourceIdentity | undefined => {
   const bindingsPath = findBindingPathForSourceFile(fileName);
   if (!bindingsPath) return undefined;
-  return { bindingFile: bindingsPath, sourceName };
+  return { bindingFile: bindingsPath, sourceName, arity };
 };
 
 export const hasExternalBindingDeclaration = (

@@ -8,6 +8,7 @@
       {
         "targetName": "Provider.Runtime.InternalThing`1",
         "sourceName": "PublicWidget_1",
+        "arity": 1,
         "methods": [],
         "properties": [],
         "fields": []

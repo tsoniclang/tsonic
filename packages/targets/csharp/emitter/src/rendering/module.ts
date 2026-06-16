@@ -26,10 +26,10 @@ import {
   shouldEmitAnonymousRuntimeUnionCarrier,
   shouldExpandNamedAliasTarget,
   structuralTypeName,
+  structuralTypeKey,
   structuralTypeParameterNames,
   externalBindingKey,
   sourceQualifiedNameKey,
-  typePlanKey,
 } from "./types.js";
 import { sanitizeIdentifier } from "./names.js";
 
@@ -121,6 +121,16 @@ const withStructuralNamedType = (
   return { types: state.types, namedTypes };
 };
 
+const setStructuralType = (
+  types: Map<string, LoweringTypeRefPlan>,
+  type: LoweringTypeRefPlan
+): void => {
+  const key = structuralTypeKey(type);
+  if (!types.has(key)) {
+    types.set(key, type);
+  }
+};
+
 const collectStructuralType = (
   types: Map<string, LoweringTypeRefPlan>,
   type: LoweringTypeRefPlan | undefined,
@@ -134,7 +144,7 @@ const collectStructuralType = (
       if (!shouldEmitStructuralObjectType(type)) {
         break;
       }
-      types.set(typePlanKey(type), type);
+      setStructuralType(types, type);
       for (const member of type.members) {
         switch (member.kind) {
           case "property":
@@ -156,7 +166,7 @@ const collectStructuralType = (
         type.aliasTarget?.kind === "union" &&
         shouldEmitAnonymousRuntimeUnionCarrier(type.aliasTarget)
       ) {
-        types.set(typePlanKey(type), type);
+        setStructuralType(types, type);
         for (const member of type.aliasTarget.types) {
           collectStructuralType(types, member, namedState);
         }
@@ -184,7 +194,7 @@ const collectStructuralType = (
       break;
     case "union":
       if (shouldEmitAnonymousRuntimeUnionCarrier(type)) {
-        types.set(typePlanKey(type), type);
+        setStructuralType(types, type);
       }
       for (const member of type.types) {
         collectStructuralType(types, member, typeState);
@@ -264,6 +274,39 @@ const withVariablePlan = (
   const variables = new Set(state.variables);
   variables.add(declaration);
   return { ...state, variables };
+};
+
+const typeParameterTypePlan = (name: string): LoweringTypeRefPlan => ({
+  kind: "named",
+  name,
+  typeArguments: [],
+  declarationKind: "type-parameter",
+});
+
+const namedTypeAliasCarrierPlan = (
+  declaration: LoweringDeclarationPlan,
+  namespace: string
+): LoweringTypeRefPlan | undefined => {
+  if (
+    declaration.declarationKind !== "type-alias" ||
+    declaration.typeAliasTarget?.kind !== "union" ||
+    !declaration.name
+  ) {
+    return undefined;
+  }
+  return {
+    kind: "named",
+    name: declaration.name,
+    typeArguments: declaration.typeParameters.map(typeParameterTypePlan),
+    typeParameters: declaration.typeParameters,
+    aliasTarget: declaration.typeAliasTarget,
+    sourceQualifiedName: {
+      namespace,
+      name: declaration.name,
+    },
+    declarationKind: "type-alias",
+    sourceText: declaration.sourceText,
+  };
 };
 
 const collectStructuralTypesFromExpression = (
@@ -381,12 +424,16 @@ const collectStructuralTypesFromStatement = (
 const collectStructuralTypesFromDeclaration = (
   types: Map<string, LoweringTypeRefPlan>,
   declaration: LoweringDeclarationPlan,
+  namespace: string,
   state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
 ): void => {
   const declarationState = withDeclarationPlan(state, declaration);
   if (!declarationState) return;
   collectStructuralType(types, declaration.declaredTypePlan);
-  if (
+  const aliasCarrier = namedTypeAliasCarrierPlan(declaration, namespace);
+  if (aliasCarrier) {
+    collectStructuralType(types, aliasCarrier);
+  } else if (
     declaration.declarationKind === "type-alias" &&
     declaration.typeAliasTarget?.kind === "union"
   ) {
@@ -415,7 +462,12 @@ const collectStructuralTypesFromDeclaration = (
   );
   collectStructuralTypesFromStatement(types, declaration.body, declarationState);
   for (const member of declaration.members) {
-    collectStructuralTypesFromDeclaration(types, member, declarationState);
+    collectStructuralTypesFromDeclaration(
+      types,
+      member,
+      namespace,
+      declarationState
+    );
   }
 };
 
@@ -425,7 +477,12 @@ export const collectModuleStructuralTypes = (
   const types = new Map<string, LoweringTypeRefPlan>();
   const state = createStructuralPlanTraversalState();
   for (const declaration of module.declarations) {
-    collectStructuralTypesFromDeclaration(types, declaration, state);
+    collectStructuralTypesFromDeclaration(
+      types,
+      declaration,
+      module.identity.namespace,
+      state
+    );
   }
   for (const statement of module.statements) {
     collectStructuralTypesFromStatement(types, statement, state);
@@ -613,7 +670,7 @@ export const emitStructuralTypesModule = (
 ): ModuleEmitResult => {
   const context = createRenderContext(options);
   const structuralDeclarations = [
-    ...new Map(types.map((type) => [typePlanKey(type), type])).values(),
+    ...new Map(types.map((type) => [structuralTypeKey(type), type])).values(),
   ]
     .map((type) => renderStructuralType(type, context))
     .filter((rendered): rendered is string => rendered !== undefined);

@@ -149,6 +149,7 @@ export type SourceBindingDeclarationKind =
   | "enum"
   | "function"
   | "interface"
+  | "parameter"
   | "type-alias"
   | "variable";
 
@@ -209,6 +210,7 @@ export type SourceBindingProjectedType =
       readonly kind: "named";
       readonly name: string;
       readonly typeArguments: readonly SourceBindingProjectedType[];
+      readonly typeParameters?: readonly string[];
       readonly declaration?: TstsNode;
       readonly declarationKind?: SourceProjectedDeclarationKind;
       readonly aliasTarget?: SourceBindingProjectedType;

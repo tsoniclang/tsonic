@@ -26,10 +26,15 @@ type ExternalMemberMetadata = {
 type ExternalTypeMetadata = {
   readonly bindingFile: string;
   readonly targetName: string;
-  readonly sourceNames: readonly string[];
+  readonly sourceBindings: readonly ExternalSourceBindingMetadata[];
   readonly baseTypeName?: string;
   readonly interfaces: readonly string[];
   readonly members: readonly ExternalMemberMetadata[];
+};
+
+type ExternalSourceBindingMetadata = {
+  readonly sourceName: string;
+  readonly arity: number;
 };
 
 export type ExternalBindingMetadataIndex = {
@@ -131,9 +136,44 @@ const parseMembers = (
 const targetNameFromTypeRef = (value: unknown): string | undefined =>
   isObjectRecord(value) ? stringValue(value.targetName) : undefined;
 
-const typeSourceNames = (value: Record<string, unknown>): readonly string[] => {
-  const sourceName = stringValue(value.sourceName);
-  return sourceName ? [sourceName, `${sourceName}$instance`] : [];
+const targetSimpleName = (targetName: string): string | undefined => {
+  const simpleName = normalizeRuntimeName(targetName)
+    .split(".")
+    .filter(Boolean)
+    .at(-1);
+  return simpleName?.replace(/`\d+$/u, "");
+};
+
+const addSourceBinding = (
+  bindings: Map<string, ExternalSourceBindingMetadata>,
+  sourceName: string | undefined,
+  arity: number
+): void => {
+  if (!sourceName) return;
+  bindings.set(`${sourceName}/${arity}`, { sourceName, arity });
+};
+
+const instanceSourceName = (sourceName: string | undefined): string | undefined =>
+  sourceName ? `${sourceName}$instance` : undefined;
+
+const typeSourceBindings = (
+  value: Record<string, unknown>,
+  targetName: string
+): readonly ExternalSourceBindingMetadata[] => {
+  const arity = numberValue(value.arity) ?? 0;
+  const bindings = new Map<string, ExternalSourceBindingMetadata>();
+  const explicitSourceName = stringValue(value.sourceName);
+  const simpleName = targetSimpleName(targetName);
+  const generatedName =
+    simpleName && arity > 0 ? `${simpleName}_${arity}` : simpleName;
+
+  addSourceBinding(bindings, explicitSourceName, arity);
+  addSourceBinding(bindings, generatedName, arity);
+  addSourceBinding(bindings, simpleName, arity);
+  addSourceBinding(bindings, instanceSourceName(explicitSourceName), arity);
+  addSourceBinding(bindings, instanceSourceName(generatedName), arity);
+  addSourceBinding(bindings, instanceSourceName(simpleName), arity);
+  return [...bindings.values()];
 };
 
 const parseType = (
@@ -143,12 +183,12 @@ const parseType = (
   if (!isObjectRecord(value)) return undefined;
   const targetName = stringValue(value.targetName);
   if (!targetName) return undefined;
-  const sourceNames = typeSourceNames(value);
-  if (sourceNames.length === 0) return undefined;
+  const sourceBindings = typeSourceBindings(value, targetName);
+  if (sourceBindings.length === 0) return undefined;
   return {
     bindingFile,
     targetName,
-    sourceNames,
+    sourceBindings,
     baseTypeName: targetNameFromTypeRef(value.baseType),
     interfaces: Array.isArray(value.interfaces)
       ? value.interfaces
@@ -182,7 +222,8 @@ const parseBindingFile = (
 
 const externalBindingKey = (
   binding: LoweringExternalBindingReferencePlan
-): string => `${resolve(binding.bindingFile)}#${binding.sourceName}`;
+): string =>
+  `${resolve(binding.bindingFile)}#${binding.sourceName}/${binding.arity ?? "*"}`;
 
 const resolveHeritageOwnerNames = (
   resolveTargetName: (
@@ -229,10 +270,11 @@ export const createExternalBindingMetadataIndex = (
   const loadedBindingFiles = new Set<string>();
 
   const addSourceBinding = (type: ExternalTypeMetadata): void => {
-    for (const sourceName of type.sourceNames) {
+    for (const sourceBinding of type.sourceBindings) {
       const key = externalBindingKey({
         bindingFile: type.bindingFile,
-        sourceName,
+        sourceName: sourceBinding.sourceName,
+        arity: sourceBinding.arity,
       });
       const existing = bySourceBinding.get(key);
       if (!existing) {

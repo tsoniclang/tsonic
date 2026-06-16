@@ -4,6 +4,7 @@ import {
   getTstsIdentifierText,
   getTstsContainingSourceFile,
   getTstsNodeText,
+  getTstsTypeParameterNodes,
   getTstsTypeReferenceDetails,
   TstsSyntax,
 } from "@tsonic/tsts";
@@ -500,6 +501,8 @@ const sourceQualifiedNameForSourceBindingFact = (
     case "type-alias":
       if (target !== "type") return undefined;
       return { namespace: identity.namespace, name: fact.name };
+    case "parameter":
+      return undefined;
     case "function":
     case "variable":
       return target === "value" && fact.topLevelStaticValue
@@ -512,13 +515,18 @@ const sourceQualifiedNameForSourceBindingFact = (
   }
 };
 
+const declarationArity = (declaration: TstsNode | undefined): number =>
+  getTstsTypeParameterNodes(declaration).length;
+
 const externalBindingForSourceBindingFact = (
-  fact: SourceBindingIdentityFact | undefined
+  fact: SourceBindingIdentityFact | undefined,
+  arity?: number
 ): LoweringExternalBindingReferencePlan | undefined =>
   fact
     ? externalBindingSourceIdentityForDeclaration(
         fact.sourceFileName,
-        fact.name
+        fact.name,
+        arity ?? declarationArity(fact.declaration)
       )
     : undefined;
 
@@ -535,9 +543,13 @@ const sourceQualifiedNameForSourceBindingNode = (
 
 const externalBindingForSourceBindingNode = (
   context: LoweringBuildContext,
-  node: TstsNode | undefined
+  node: TstsNode | undefined,
+  arity?: number
 ): LoweringExternalBindingReferencePlan | undefined =>
-  externalBindingForSourceBindingFact(sourceBindingFactForNode(context, node));
+  externalBindingForSourceBindingFact(
+    sourceBindingFactForNode(context, node),
+    arity
+  );
 
 const isCompileTimeHeritageMarker = (
   context: LoweringBuildContext,
@@ -673,7 +685,8 @@ const sourceQualifiedNameForRuntimeTypeOwner = (
 
 const externalBindingForDeclaration = (
   declaration: TstsNode | undefined,
-  exportedName: string
+  exportedName: string,
+  arity?: number
 ): LoweringExternalBindingReferencePlan | undefined => {
   if (!declaration || declaration.Kind === TstsSyntax.KindTypeParameter) {
     return undefined;
@@ -682,7 +695,8 @@ const externalBindingForDeclaration = (
   return declarationSourceFile?.IsDeclarationFile === true
     ? externalBindingSourceIdentityForDeclaration(
         declarationSourceFile.FileName(),
-        exportedName
+        exportedName,
+        arity ?? declarationArity(declaration)
       )
     : undefined;
 };
@@ -908,6 +922,20 @@ const sourceTypePlan = (
 
   const typeReference = getTstsTypeReferenceDetails(node);
   if (typeReference) {
+    const typeName = typeReference.name;
+    const bindingFact = sourceBindingFactForNode(context, node);
+    const typeArguments = typeReference.typeArguments
+      .map((argument) => sourceTypePlan(context, sourceFile, argument))
+      .filter(
+        (argument): argument is LoweringTypeRefPlan => argument !== undefined
+      );
+    const externalBinding =
+      externalBindingForSourceBindingNode(context, node, typeArguments.length) ??
+      externalBindingForDeclaration(
+        bindingFact?.declaration,
+        typeName,
+        typeArguments.length
+      );
     if (hasSourceDictionaryFactForNode(context, node)) {
       return (
         recordTypePlanFromTypeArguments(
@@ -927,9 +955,7 @@ const sourceTypePlan = (
       sourceFile,
       projectedType
     );
-    if (projectedPlan) return projectedPlan;
-    const typeName = typeReference.name;
-    const bindingFact = sourceBindingFactForNode(context, node);
+    if (projectedPlan && !externalBinding) return projectedPlan;
     const sourceQualifiedName =
       sourceQualifiedNameForSourceBindingNode(context, node, "type") ??
       sourceQualifiedNameForDeclaration(
@@ -945,15 +971,12 @@ const sourceTypePlan = (
     return {
       kind: "named",
       name: typeName,
-      typeArguments: typeReference.typeArguments
-        .map((argument) => sourceTypePlan(context, sourceFile, argument))
-        .filter(
-          (argument): argument is LoweringTypeRefPlan => argument !== undefined
-        ),
+      typeArguments,
+      typeParameters: bindingFact?.declaration
+        ? typeParameterNames(sourceFile, bindingFact.declaration)
+        : undefined,
       sourceQualifiedName,
-      externalBinding:
-        externalBindingForSourceBindingNode(context, node) ??
-        externalBindingForDeclaration(bindingFact?.declaration, typeName),
+      externalBinding,
       runtimeVisibility:
         sourceRuntimeVisibilityForNode(context, node) ??
         sourceRuntimeVisibilityForDeclaration(
@@ -1057,24 +1080,30 @@ const sourceTypePlan = (
       if (projectedPlan) return projectedPlan;
       const name = getTstsExpressionWithTypeArgumentsName(node);
       if (!name) return unsupportedTypePlan(node);
+      const typeArguments = nodeArrayNodes(TstsSyntax.Node_TypeArguments(node))
+        .map((argument) => sourceTypePlan(context, sourceFile, argument))
+        .filter(
+          (argument): argument is LoweringTypeRefPlan => argument !== undefined
+        );
       const sourceQualifiedName = sourceQualifiedNameForSourceBindingNode(
         context,
         node,
         "type"
       );
+      const bindingFact = sourceBindingFactForNode(context, node);
       return {
         kind: "named",
         name,
-        typeArguments: nodeArrayNodes(TstsSyntax.Node_TypeArguments(node))
-          .map((argument) =>
-            sourceTypePlan(context, sourceFile, argument)
-          )
-          .filter(
-            (argument): argument is LoweringTypeRefPlan =>
-              argument !== undefined
-          ),
+        typeArguments,
+        typeParameters: bindingFact?.declaration
+          ? typeParameterNames(sourceFile, bindingFact.declaration)
+          : undefined,
         sourceQualifiedName,
-        externalBinding: externalBindingForSourceBindingNode(context, node),
+        externalBinding: externalBindingForSourceBindingNode(
+          context,
+          node,
+          typeArguments.length
+        ),
         runtimeVisibility: sourceRuntimeVisibilityForNode(context, node),
         declaration: typeDeclarationBindingForNode(context, sourceFile, node),
         sourceText,
@@ -1394,7 +1423,7 @@ const externalBindingKey = (
   externalBinding: LoweringExternalBindingReferencePlan | undefined
 ): string | undefined =>
   externalBinding
-    ? `${externalBinding.bindingFile}#${externalBinding.sourceName}`
+    ? `${externalBinding.bindingFile}#${externalBinding.sourceName}/${externalBinding.arity ?? "*"}`
     : undefined;
 
 const loweringTypeIdentityKey = (type: LoweringTypeRefPlan): string => {
@@ -1426,7 +1455,15 @@ const sourceExpressionProjectedStorageTypePlan = (
   node: TstsNode | undefined
 ): LoweringTypeRefPlan | undefined => {
   if (!node) return undefined;
-  return sourceExpressionProjectedTypePlan(context, sourceFile, node);
+  const declaration = sourceBindingFactForNode(context, node)?.declaration;
+  const declaredProjection = declaration
+    ? context.input.facts.get(sourceDeclarationTypeProjectionFactKey, declaration)
+        ?.declaredType
+    : undefined;
+  return (
+    sourceBindingProjectionTypePlan(context, sourceFile, declaredProjection) ??
+    sourceExpressionProjectedTypePlan(context, sourceFile, node)
+  );
 };
 
 const sourceExpressionProjectedTypePlan = (
@@ -2096,6 +2133,11 @@ const sourceBindingProjectionTypePlan = (
         kind: "named",
         name: type.name,
         typeArguments,
+        typeParameters:
+          type.typeParameters ??
+          (type.declaration
+            ? typeParameterNames(declarationSourceFile, type.declaration)
+            : undefined),
         aliasTarget: substituteTypePlan(aliasTarget, substitutions),
         sourceQualifiedName:
           sourceQualifiedNameForRuntimeTypeOwner(type.runtimeTypeOwner) ??
@@ -2111,8 +2153,16 @@ const sourceBindingProjectionTypePlan = (
             "type"
           ),
         externalBinding:
-          externalBindingForSourceBindingNode(context, type.declaration) ??
-          externalBindingForDeclaration(type.declaration, type.name),
+          externalBindingForSourceBindingNode(
+            context,
+            type.declaration,
+            typeArguments.length
+          ) ??
+          externalBindingForDeclaration(
+            type.declaration,
+            type.name,
+            typeArguments.length
+          ),
         runtimeVisibility:
           type.runtimeVisibility ??
           sourceRuntimeVisibilityForDeclaration(context, type.declaration),
