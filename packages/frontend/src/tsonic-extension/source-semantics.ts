@@ -2549,7 +2549,7 @@ const staticElementAccessIndex = (
   indexExpression: TstsNode | undefined
 ): number | undefined => {
   if (indexExpression?.Kind !== TstsSyntax.KindNumericLiteral) return undefined;
-  const text = getTstsNodeText(indexExpression);
+  const text = TstsSyntax.AsNumericLiteral(indexExpression)?.Text;
   if (!text || !/^(?:0|[1-9]\d*)$/u.test(text)) return undefined;
   const value = Number(text);
   return Number.isSafeInteger(value) ? value : undefined;
