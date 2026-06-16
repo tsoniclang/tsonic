@@ -415,6 +415,25 @@ describe("source semantic boundary", () => {
     expect(offenders).to.deep.equal([]);
   });
 
+  it("keeps expression type classification out of lowering", () => {
+    const loweringPlanBuilders = fs.readFileSync(
+      path.join(frontendSrcRoot, "lowering/plan-builders.ts"),
+      "utf8"
+    );
+    const bannedTerms = [
+      "expressionSourceTypePlan",
+      "declarationSourceTypePlan",
+      "sourceOperation.owner",
+      "sourceOperation.member",
+    ] as const;
+
+    const offenders = bannedTerms.filter((term) =>
+      loweringPlanBuilders.includes(term)
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
   it("defines source-extension facts directly on TSTS fact primitives", () => {
     const sourceFactsPath = path.join(
       frontendSrcRoot,

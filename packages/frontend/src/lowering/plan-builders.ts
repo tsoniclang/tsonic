@@ -1358,74 +1358,12 @@ const sourceProjectedParameterPlan = (
   rest: parameter.rest,
 });
 
-const declarationSourceTypePlan = (
-  context: LoweringBuildContext,
-  sourceFile: TstsSourceFile,
-  declaration: TstsNode | undefined
-): LoweringTypeRefPlan | undefined => {
-  const typeNode = declaration ? TstsSyntax.Node_Type(declaration) : undefined;
-  return typeNode
-    ? sourceTypePlan(context, sourceFileForNode(typeNode, sourceFile), typeNode)
-    : undefined;
-};
-
-const expressionSourceTypePlan = (
-  sourceFile: TstsSourceFile,
-  node: TstsNode,
-  context: LoweringBuildContext
-): LoweringTypeRefPlan | undefined => {
-  const sourceOperation = context.input.facts.get(
-    sourceRuntimeOperationFactKey,
-    node
-  );
-  if (sourceOperation?.dispatch === "property") {
-    if (
-      (sourceOperation.owner === "Array" ||
-        sourceOperation.owner === "Function" ||
-        sourceOperation.owner === "Uint8Array" ||
-        sourceOperation.owner === "Uint8ClampedArray" ||
-        sourceOperation.owner === "Int8Array" ||
-        sourceOperation.owner === "Uint16Array" ||
-        sourceOperation.owner === "Int16Array" ||
-        sourceOperation.owner === "Uint32Array" ||
-        sourceOperation.owner === "Int32Array" ||
-        sourceOperation.owner === "Float32Array" ||
-        sourceOperation.owner === "Float64Array") &&
-      sourceOperation.member === "length"
-    ) {
-      return intrinsicTypePlan("number");
-    }
-    if (
-      sourceOperation.owner === "String" &&
-      sourceOperation.member === "length"
-    ) {
-      return intrinsicTypePlan("number");
-    }
-    if (
-      sourceOperation.owner === "Object" &&
-      sourceOperation.member === "length"
-    ) {
-      return intrinsicTypePlan("number");
-    }
-    if (
-      sourceOperation.owner === "Error" &&
-      sourceOperation.member === "message"
-    ) {
-      return intrinsicTypePlan("string");
-    }
-  }
-
-  const explicitType = declarationSourceTypePlan(context, sourceFile, node);
-  if (explicitType) return explicitType;
-  return sourceExpressionProjectedTypePlan(context, sourceFile, node);
-};
-
 const expressionTypePlan = (
   sourceFile: TstsSourceFile,
   node: TstsNode,
   context: LoweringBuildContext
 ): LoweringTypeRefPlan | undefined =>
-  expressionSourceTypePlan(sourceFile, node, context);
+  sourceExpressionProjectedTypePlan(context, sourceFile, node);
 
 const sourceQualifiedNameKey = (
   sourceQualifiedName: LoweringSourceQualifiedNamePlan | undefined
@@ -2395,10 +2333,7 @@ const variablePlan = (
     sourceFile,
     initializerNode
   );
-  const initializerSourceType = initializerNode
-    ? expressionSourceTypePlan(sourceFile, initializerNode, context)
-    : undefined;
-  const storageType = type ?? initializerStorage ?? initializerSourceType;
+  const storageType = type ?? initializerStorage;
   const genericAlias = context.input.facts.get(
     genericFunctionAliasFactKey,
     node
@@ -2877,9 +2812,6 @@ const declarationPlan = (
     node
   );
   const initializerNode = TstsSyntax.Node_Initializer(node);
-  const initializerSourceType = initializerNode
-    ? expressionSourceTypePlan(sourceFile, initializerNode, context)
-    : undefined;
   const typeParameters = typeParameterNames(sourceFile, node);
   const ownTypeParameterSubstitutions =
     selfTypeParameterSubstitutions(typeParameters);
@@ -2906,9 +2838,7 @@ const declarationPlan = (
       context,
       sourceFile,
       declarationTypeFact?.declaredType
-    ) ??
-    sourceTypePlan(context, sourceFile, TstsSyntax.Node_Type(node)) ??
-    initializerSourceType;
+    ) ?? sourceTypePlan(context, sourceFile, TstsSyntax.Node_Type(node));
   const returnType =
     kind === "type-alias"
       ? undefined
