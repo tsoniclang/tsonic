@@ -915,6 +915,66 @@ describe("Tsonic TSTS source semantics extension", () => {
     }
   });
 
+  it("substitutes generic receiver arguments through public facade aliases", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "node_modules/@fixture/dotnet/package.json": JSON.stringify({
+          name: "@fixture/dotnet",
+          type: "module",
+          exports: {
+            "./collections.js": {
+              types: "./collections.d.ts",
+              default: "./collections.js",
+            },
+          },
+        }),
+        "node_modules/@fixture/dotnet/collections.js": "export {};\n",
+        "node_modules/@fixture/dotnet/collections.d.ts": [
+          "export interface List_1$instance<T> {",
+          "  Add(item: T): void;",
+          "}",
+          "export interface __List_1$views<T> {}",
+          "export const List: {",
+          "  new<T>(): List<T>;",
+          "};",
+          "export type List<T> = List_1$instance<T> & __List_1$views<T>;",
+          "",
+        ].join("\n"),
+        "index.ts": [
+          "import { List } from '@fixture/dotnet/collections.js';",
+          "import type { int } from '@tsonic/core/types.js';",
+          "export function run(transform: (value: int) => int): void {",
+          "  const result = new List<int>();",
+          "  result.Add(transform(1));",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        const text = getTstsNodeText(node)?.replace(/\s+/g, " ").trim();
+        if (text !== "result.Add(transform(1))") return;
+        const callFact = program.sourceProgram.facts.get(
+          sourceCallArgumentTypesFactKey,
+          node
+        );
+        summaries.push(
+          callFact?.argumentTypes[0]
+            ? projectionSummary(callFact.argumentTypes[0])
+            : "unknown"
+        );
+      });
+
+      expect(summaries).to.deep.equal(["int"]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
   it("attaches dictionary facts only to the ambient Record utility type", () => {
     const program = createTstsTestProgramFromFiles(
       {

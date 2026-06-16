@@ -2412,6 +2412,57 @@ const projectedNamedTypeFromTypeReference = (
   };
 };
 
+const projectedConstructorTargetFromNewExpression = (
+  context: CheckedContext,
+  node: TstsNode,
+  checkerState: CheckerTypeProjectionState = createCheckerTypeProjectionState()
+): SourceBindingProjectedType | undefined => {
+  if (node.Kind !== TstsSyntax.KindNewExpression) return undefined;
+  const callee = TstsSyntax.Node_Expression(node);
+  const name =
+    getTstsIdentifierText(callee) ?? getTstsNodeNameText(callee) ?? undefined;
+  if (!name) return undefined;
+  const typeArguments = getTstsTypeArguments(node)
+    .map((argument) =>
+      projectedTypeFromTypeNode(
+        context,
+        argument,
+        emptySourceTypeSubstitutions,
+        new Set(),
+        checkerState
+      )
+    )
+    .filter(
+      (argument): argument is SourceBindingProjectedType =>
+        argument !== undefined
+    );
+  const symbol = callee ? context.checker.getSymbolAtLocation(callee) : undefined;
+  const resolved = symbol ? context.checker.resolveAlias(symbol) : undefined;
+  const declaration = projectedTypeDeclarationForSymbol(context, resolved);
+  const runtimeType = context.checker.getTypeAtLocation(node);
+  return {
+    kind: "named",
+    name,
+    typeArguments,
+    typeParameters: sourceTypeParameterNames(declaration),
+    declaration,
+    declarationKind: sourceProjectedDeclarationKind(declaration),
+    aliasTarget: checkerTypeAliasTargetProjection(
+      context,
+      declaration,
+      typeArguments,
+      new Set(),
+      checkerState
+    ),
+    runtimeTypeOwner: sourceRuntimeTypeOwner(context, runtimeType, declaration),
+    runtimeVisibility: declaration
+      ? context.facts.get(sourceRuntimeVisibilityFactKey, declaration)
+          ?.visibility
+      : undefined,
+    sourceNode: node,
+  };
+};
+
 const checkerSignatureProjection = (
   context: CheckedContext,
   signature: TstsSignature,
@@ -3443,14 +3494,29 @@ const signatureTypeParameterSubstitutions = (
   context: CheckedContext,
   declaration: TstsNode | undefined,
   call: TstsNode,
-  checkerState: CheckerTypeProjectionState
+  checkerState: CheckerTypeProjectionState,
+  sourceDiagnosticRoots: readonly string[]
 ): SourceTypeSubstitutionMap => {
+  const substitutions = new Map<string, SourceBindingProjectedType>();
+  const owner = genericOwnerDeclaration(declaration);
+  const ownerParameterNames = sourceTypeParameterNames(owner);
+  if (owner && ownerParameterNames.length > 0) {
+    const ownerArguments = receiverTypeArgumentsForOwner(
+      context,
+      call,
+      owner,
+      ownerParameterNames.length,
+      sourceDiagnosticRoots
+    );
+    ownerParameterNames.forEach((parameterName, index) => {
+      const argument = ownerArguments[index];
+      if (argument) substitutions.set(parameterName, argument);
+    });
+  }
+
   const typeParameters = getTstsTypeParameterNodes(declaration);
   const parameterNames = sourceTypeParameterNames(declaration);
-  if (parameterNames.length === 0) return emptySourceTypeSubstitutions;
   const typeArguments = getTstsTypeArguments(call);
-  if (typeArguments.length === 0) return emptySourceTypeSubstitutions;
-  const substitutions = new Map<string, SourceBindingProjectedType>();
   parameterNames.forEach((parameterName, index) => {
     const typeArgument = typeArguments[index];
     const projected = typeArgument
@@ -3473,11 +3539,109 @@ const signatureTypeParameterSubstitutions = (
   return substitutions;
 };
 
+const genericOwnerDeclaration = (
+  declaration: TstsNode | undefined
+): TstsNode | undefined => {
+  for (
+    let owner = declaration?.Parent;
+    owner !== undefined;
+    owner = owner.Parent
+  ) {
+    if (
+      owner.Kind === TstsSyntax.KindClassDeclaration ||
+      owner.Kind === TstsSyntax.KindInterfaceDeclaration ||
+      owner.Kind === TstsSyntax.KindTypeAliasDeclaration
+    ) {
+      return sourceTypeParameterNames(owner).length > 0 ? owner : undefined;
+    }
+  }
+  return undefined;
+};
+
+const callReceiverExpression = (call: TstsNode): TstsNode | undefined => {
+  const callee = TstsSyntax.Node_Expression(call);
+  return callee?.Kind === TstsSyntax.KindPropertyAccessExpression ||
+    callee?.Kind === TstsSyntax.KindElementAccessExpression
+    ? TstsSyntax.Node_Expression(callee)
+    : undefined;
+};
+
+const receiverTypeArgumentsForOwner = (
+  context: CheckedContext,
+  call: TstsNode,
+  owner: TstsNode,
+  parameterCount: number,
+  sourceDiagnosticRoots: readonly string[]
+): readonly SourceBindingProjectedType[] => {
+  const receiver = callReceiverExpression(call);
+  const receiverProjection =
+    sourceExpressionValueProjection(
+      context,
+      receiver,
+      new Map(),
+      new Map(),
+      sourceDiagnosticRoots
+    ) ??
+    sourceExpressionTypeProjection(
+      context,
+      receiver,
+      new Map(),
+      sourceDiagnosticRoots
+    );
+  const ownerName = getTstsNodeNameText(owner);
+  const ownerProjection = namedProjectionForGenericOwner(
+    receiverProjection,
+    ownerName,
+    parameterCount
+  );
+  return ownerProjection?.typeArguments ?? [];
+};
+
+const namedProjectionForGenericOwner = (
+  projection: SourceBindingProjectedType | undefined,
+  ownerName: string | undefined,
+  parameterCount: number,
+  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
+):
+  | Extract<SourceBindingProjectedType, { readonly kind: "named" }>
+  | undefined => {
+  if (!projection) return undefined;
+  if (seen.has(projection)) return undefined;
+  const nextSeen = new Set(seen);
+  nextSeen.add(projection);
+  if (
+    projection.kind === "named" &&
+    projection.typeArguments.length === parameterCount &&
+    (ownerName === undefined || projection.name === ownerName)
+  ) {
+    return projection;
+  }
+  if (projection.kind === "named") {
+    return namedProjectionForGenericOwner(
+      projection.aliasTarget,
+      ownerName,
+      parameterCount,
+      nextSeen
+    );
+  }
+  if (projection.kind !== "intersection") return undefined;
+  const candidates = projection.types.filter(
+    (
+      type
+    ): type is Extract<SourceBindingProjectedType, { readonly kind: "named" }> =>
+      type.kind === "named" &&
+      type.typeArguments.length === parameterCount &&
+      (ownerName === undefined || type.name === ownerName)
+  );
+  return candidates.length === 1 ? candidates[0] : undefined;
+};
+
 const signatureReturnProjection = (
   context: CheckedContext,
   signature: TstsSignature,
   call: TstsNode,
-  checkerState: CheckerTypeProjectionState
+  checkerState: CheckerTypeProjectionState,
+  sourceDiagnosticRoots: readonly string[]
 ): SourceBindingProjectedType | undefined => {
   const declaration = context.checker.getSignatureDeclaration(signature);
   const declaredReturnType = TstsSyntax.Node_Type(declaration);
@@ -3485,7 +3649,8 @@ const signatureReturnProjection = (
     context,
     declaration,
     call,
-    checkerState
+    checkerState,
+    sourceDiagnosticRoots
   );
   const sourceProjection = projectedTypeFromTypeNode(
     context,
@@ -3510,7 +3675,8 @@ const signatureReturnProjection = (
 
 const callArgumentTypesFact = (
   context: CheckedContext,
-  node: TstsNode
+  node: TstsNode,
+  sourceDiagnosticRoots: readonly string[]
 ): SourceCallArgumentTypesFact | undefined => {
   const signature = context.checker.getResolvedSignature(node);
   if (!signature) return undefined;
@@ -3520,7 +3686,8 @@ const callArgumentTypesFact = (
     context,
     declaration,
     node,
-    checkerState
+    checkerState,
+    sourceDiagnosticRoots
   );
   const args = TstsSyntax.Node_Arguments(node) ?? [];
   return {
@@ -3545,7 +3712,13 @@ const callArgumentTypesFact = (
         );
       }),
     targetType: signatureTargetProjection(context, signature, node),
-    returnType: signatureReturnProjection(context, signature, node, checkerState),
+    returnType: signatureReturnProjection(
+      context,
+      signature,
+      node,
+      checkerState,
+      sourceDiagnosticRoots
+    ),
   };
 };
 
@@ -3667,7 +3840,8 @@ const sourceObjectContextMemberProjection = (
 const sourceContextualProjectionForCallArgument = (
   context: CheckedContext,
   node: TstsNode,
-  parent: TstsNode
+  parent: TstsNode,
+  sourceDiagnosticRoots: readonly string[]
 ): SourceBindingProjectedType | undefined => {
   if (
     parent.Kind !== TstsSyntax.KindCallExpression &&
@@ -3680,7 +3854,7 @@ const sourceContextualProjectionForCallArgument = (
   if (index < 0) return undefined;
   return (
     context.facts.get(sourceCallArgumentTypesFactKey, parent) ??
-    callArgumentTypesFact(context, parent)
+    callArgumentTypesFact(context, parent, sourceDiagnosticRoots)
   )?.argumentTypes[index];
 };
 
@@ -3904,7 +4078,12 @@ const sourceDerivedContextualProjectionForExpression = (
   return (
     sourceContextualProjectionForVariableInitializer(context, node, parent) ??
     sourceContextualProjectionForReturnExpression(context, node, parent) ??
-    sourceContextualProjectionForCallArgument(context, node, parent) ??
+    sourceContextualProjectionForCallArgument(
+      context,
+      node,
+      parent,
+      sourceDiagnosticRoots
+    ) ??
     sourceContextualProjectionForArrayElement(context, node, parent) ??
     sourceContextualProjectionForSpreadExpression(context, node, parent) ??
     sourceContextualProjectionForObjectMember(context, node, parent) ??
@@ -4271,9 +4450,13 @@ const sourceExpressionTypeProjection = (
       const operation = callee
         ? sourceRuntimeOperation(context, callee, sourceDiagnosticRoots)
         : undefined;
+      const constructorTargetProjection =
+        node.Kind === TstsSyntax.KindNewExpression
+          ? projectedConstructorTargetFromNewExpression(context, node)
+          : undefined;
       const signatureReturnProjection =
         context.facts.get(sourceCallArgumentTypesFactKey, node)?.returnType ??
-        callArgumentTypesFact(context, node)?.returnType;
+        callArgumentTypesFact(context, node, sourceDiagnosticRoots)?.returnType;
       const concreteSignatureReturnProjection =
         signatureReturnProjection &&
         !containsUnsubstitutedTypeParameterProjection(signatureReturnProjection)
@@ -4297,6 +4480,7 @@ const sourceExpressionTypeProjection = (
               sourceDiagnosticRoots
             ))
           : undefined) ??
+          constructorTargetProjection ??
           concreteSignatureReturnProjection ??
           checkerExpressionProjection(context, node)
       );
@@ -4465,6 +4649,11 @@ const initializerSourceProjectionRoot = (
   initializer: TstsNode | undefined
 ): SourceBindingProjectedType | undefined => {
   if (!initializer) return undefined;
+  const constructorTarget = projectedConstructorTargetFromNewExpression(
+    context,
+    initializer
+  );
+  if (constructorTarget) return constructorTarget;
   if (
     initializer.Kind === TstsSyntax.KindArrowFunction ||
     initializer.Kind === TstsSyntax.KindFunctionExpression
@@ -5869,7 +6058,11 @@ export const createTsonicSourceSemanticsExtension = (
           (node.Kind === TstsSyntax.KindCallExpression ||
             node.Kind === TstsSyntax.KindNewExpression)
         ) {
-          const argumentTypes = callArgumentTypesFact(context, node);
+          const argumentTypes = callArgumentTypesFact(
+            context,
+            node,
+            sourceDiagnosticRoots
+          );
           if (argumentTypes) {
             context.facts.set(
               sourceCallArgumentTypesFactKey,

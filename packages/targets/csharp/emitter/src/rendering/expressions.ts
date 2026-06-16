@@ -405,9 +405,9 @@ const arrayLiteralElementType = (
   context: RenderContext
 ): string | undefined => {
   const arrayPlan =
-    arrayTypeFromUseSite(plan.contextualTypePlan) ??
-    arrayTypeFromUseSite(plan.storageTypePlan) ??
-    arrayTypeFromUseSite(plan.type);
+    arrayTypeFromUseSite(plan.contextualTypePlan, context) ??
+    arrayTypeFromUseSite(plan.storageTypePlan, context) ??
+    arrayTypeFromUseSite(plan.type, context);
   if (arrayPlan) {
     const rendered = renderCSharpType(arrayPlan.elementType, context);
     return isVoidLikeTypePlan(arrayPlan.elementType) ? "object?" : rendered;
@@ -431,11 +431,12 @@ const arrayLiteralElementType = (
 };
 
 const arrayLiteralTypePlan = (
-  plan: LoweringExpressionPlan
+  plan: LoweringExpressionPlan,
+  context: RenderContext
 ): Extract<LoweringTypeRefPlan, { readonly kind: "array" }> | undefined =>
-  arrayTypeFromUseSite(plan.contextualTypePlan) ??
-  arrayTypeFromUseSite(plan.storageTypePlan) ??
-  arrayTypeFromUseSite(plan.type);
+  arrayTypeFromUseSite(plan.contextualTypePlan, context) ??
+  arrayTypeFromUseSite(plan.storageTypePlan, context) ??
+  arrayTypeFromUseSite(plan.type, context);
 
 const requiredArrayLiteralElementType = (
   plan: LoweringExpressionPlan,
@@ -604,7 +605,7 @@ const renderArrayLiteral = (
       .map((element) => renderExpression(element, context))
       .join(", ")})`;
   }
-  const arrayPlan = useSiteArrayPlan ?? arrayLiteralTypePlan(plan);
+  const arrayPlan = useSiteArrayPlan ?? arrayLiteralTypePlan(plan, context);
   const elementType = useSiteArrayPlan
     ? renderCSharpType(useSiteArrayPlan.elementType, context)
     : arrayLiteralElementType(plan, context);
@@ -651,9 +652,9 @@ const renderArrayLiteral = (
       const spreadExpression = element.expression;
       const renderedSpread = renderExpression(spreadExpression, context);
       const spreadArray =
-        arrayTypeFromUseSite(spreadExpression?.storageTypePlan) ??
-        arrayTypeFromUseSite(spreadExpression?.contextualTypePlan) ??
-        arrayTypeFromUseSite(spreadExpression?.type);
+        arrayTypeFromUseSite(spreadExpression?.storageTypePlan, context) ??
+        arrayTypeFromUseSite(spreadExpression?.contextualTypePlan, context) ??
+        arrayTypeFromUseSite(spreadExpression?.type, context);
       segments.push(
         segmentTypePlan &&
           spreadArray &&
@@ -1345,17 +1346,17 @@ export const renderExpressionWithUseSiteCast = (
     return rendered;
   }
   const useSiteArrayLiteral = arrayLiteralExpressionPlan(plan);
-  if (arrayTypeFromUseSite(useSiteTypeOverride) && useSiteArrayLiteral) {
+  if (arrayTypeFromUseSite(useSiteTypeOverride, context) && useSiteArrayLiteral) {
     return renderArrayLiteral(
       useSiteArrayLiteral,
       context,
-      arrayTypeFromUseSite(useSiteTypeOverride)
+      arrayTypeFromUseSite(useSiteTypeOverride, context)
     );
   }
-  const useSiteArrayType = arrayTypeFromUseSite(useSiteTypeOverride);
+  const useSiteArrayType = arrayTypeFromUseSite(useSiteTypeOverride, context);
   const sourceArrayType =
-    arrayTypeFromUseSite(storageTypePlan) ??
-    arrayTypeFromUseSite(expressionTypePlan);
+    arrayTypeFromUseSite(storageTypePlan, context) ??
+    arrayTypeFromUseSite(expressionTypePlan, context);
   if (useSiteArrayType && sourceArrayType) {
     const converted = renderArrayUseSiteConversion(
       rendered,
@@ -1635,7 +1636,7 @@ const runtimeUnionArrayArmIndex = (
   const arms = runtimeUnionCarrierArms(carrier, context);
   return singleRuntimeUnionArmIndex(
     arms,
-    (arm) => arrayTypeFromUseSite(arm) !== undefined
+    (arm) => arrayTypeFromUseSite(arm, context) !== undefined
   );
 };
 
@@ -2344,7 +2345,11 @@ const renderDelegateUseSiteAdapter = (
   );
 };
 
-const arrayTypeFromUseSite = arrayTypeFromTypePlan;
+const arrayTypeFromUseSite = (
+  type: LoweringTypeRefPlan | undefined,
+  context: RenderContext
+): Extract<LoweringTypeRefPlan, { readonly kind: "array" }> | undefined =>
+  arrayTypeFromTypePlan(type, context);
 
 const functionTypeFromUseSite = (
   type: LoweringTypeRefPlan | undefined
@@ -2354,11 +2359,12 @@ const functionTypeFromUseSite = (
 };
 
 const arrayReceiverType = (
-  plan: LoweringExpressionPlan | undefined
+  plan: LoweringExpressionPlan | undefined,
+  context?: RenderContext
 ): Extract<LoweringTypeRefPlan, { readonly kind: "array" }> | undefined =>
-  arrayTypeFromUseSite(plan?.storageTypePlan) ??
-  arrayTypeFromUseSite(plan?.type) ??
-  arrayTypeFromUseSite(plan?.contextualTypePlan);
+  arrayTypeFromTypePlan(plan?.storageTypePlan, context) ??
+  arrayTypeFromTypePlan(plan?.type, context) ??
+  arrayTypeFromTypePlan(plan?.contextualTypePlan, context);
 
 const isTaskLikeUseSiteType = (
   type: LoweringTypeRefPlan | undefined,
@@ -2415,9 +2421,11 @@ const arrayOperationResultElementType = (
 };
 
 const arrayReceiverElementType = (
-  plan: LoweringExpressionPlan | undefined
+  plan: LoweringExpressionPlan | undefined,
+  context?: RenderContext
 ): LoweringTypeRefPlan | undefined =>
-  arrayOperationResultElementType(plan) ?? arrayReceiverType(plan)?.elementType;
+  arrayOperationResultElementType(plan) ??
+  arrayReceiverType(plan, context)?.elementType;
 
 const enumerableObjectCast = (receiver: string): string =>
   `global::System.Linq.Enumerable.Cast<object?>((global::System.Collections.IEnumerable)(${receiver}))`;
@@ -2448,8 +2456,8 @@ const renderRuntimeUnionArrayReceiver = (
     runtimeUnionCarrierType(useSiteTypeOverride, context);
   if (!sourceCarrier) return undefined;
   const targetArrayType =
-    arrayTypeFromUseSite(useSiteTypeOverride) ??
-    arrayReceiverType(receiverPlan);
+    arrayTypeFromUseSite(useSiteTypeOverride, context) ??
+    arrayReceiverType(receiverPlan, context);
   const armIndex =
     runtimeUnionArmIndexForTargetType(
       sourceCarrier,
@@ -2473,12 +2481,12 @@ const renderArrayLength = (
   );
   if (runtimeUnionArrayReceiver) return `${runtimeUnionArrayReceiver}.Count`;
   const receiverArrayType =
-    arrayTypeFromUseSite(receiverPlan?.storageTypePlan) ??
-    arrayTypeFromUseSite(useSiteTypeOverride);
+    arrayTypeFromUseSite(receiverPlan?.storageTypePlan, context) ??
+    arrayTypeFromUseSite(useSiteTypeOverride, context);
   if (isExternalBindingArrayType(receiverArrayType)) {
     const receiver =
       isExternalBindingArrayType(
-        arrayTypeFromUseSite(receiverPlan?.storageTypePlan)
+        arrayTypeFromUseSite(receiverPlan?.storageTypePlan, context)
       )
         ? renderExpression(receiverPlan, context)
         : renderExpressionWithUseSiteCast(
@@ -2493,7 +2501,7 @@ const renderArrayLength = (
   }
   const elementTypePlan =
     arrayReceiverElementType(receiverPlan) ??
-    arrayTypeFromUseSite(useSiteTypeOverride)?.elementType;
+    arrayTypeFromUseSite(useSiteTypeOverride, context)?.elementType;
   const typedReceiver = renderExpressionWithUseSiteCast(
     receiverPlan,
     context,
@@ -2536,15 +2544,15 @@ const renderArrayElementAccess = (
     return `${runtimeUnionArrayReceiver}[${renderedIndex}]`;
   }
   const elementTypePlan =
-    arrayTypeFromUseSite(useSiteTypeOverride)?.elementType ??
-    arrayReceiverElementType(receiverPlan);
+    arrayTypeFromUseSite(useSiteTypeOverride, context)?.elementType ??
+    arrayReceiverElementType(receiverPlan, context);
   const nativeArrayType =
-    arrayTypeFromUseSite(receiverPlan?.storageTypePlan) ??
-    arrayTypeFromUseSite(useSiteTypeOverride);
+    arrayTypeFromUseSite(receiverPlan?.storageTypePlan, context) ??
+    arrayTypeFromUseSite(useSiteTypeOverride, context);
   if (isExternalBindingArrayType(nativeArrayType)) {
     const receiver =
       isExternalBindingArrayType(
-        arrayTypeFromUseSite(receiverPlan?.storageTypePlan)
+        arrayTypeFromUseSite(receiverPlan?.storageTypePlan, context)
       )
         ? renderExpression(receiverPlan, context)
         : renderExpressionWithUseSiteCast(
@@ -2595,19 +2603,22 @@ const renderArrayIndexExpression = (
 ): string => {
   const rendered = renderExpression(indexPlan, context);
   const indexType = indexPlan.storageTypePlan ?? indexPlan.type;
-  return isIntegerNumberLiteral(indexPlan) || isCSharpIntIndexType(indexType)
-    ? rendered
+  return isIntegerNumberLiteral(indexPlan)
+    ? (indexPlan.literalText ?? rendered)
+    : isCSharpIntIndexType(indexType)
+      ? rendered
     : `global::System.Convert.ToInt32(${rendered})`;
 };
 
 const arrayElementAccessElementType = (
-  plan: LoweringExpressionPlan | undefined
+  plan: LoweringExpressionPlan | undefined,
+  context?: RenderContext
 ): LoweringTypeRefPlan | undefined =>
   plan?.expressionKind === "element-access" &&
   plan.sourceOperation?.dispatch === "index" &&
   plan.sourceOperation.owner === "Array"
-    ? (arrayTypeFromUseSite(plan.receiverTypePlan)?.elementType ??
-      arrayReceiverElementType(plan.expression))
+    ? (arrayTypeFromTypePlan(plan.receiverTypePlan, context)?.elementType ??
+      arrayReceiverElementType(plan.expression, context))
     : undefined;
 
 const renderObjectEntriesCall = (
@@ -2815,7 +2826,7 @@ const renderArrayEnumerableReceiver = (
   receiverPlan: LoweringExpressionPlan | undefined,
   context: RenderContext
 ): string => {
-  const elementTypePlan = arrayReceiverElementType(receiverPlan);
+  const elementTypePlan = arrayReceiverElementType(receiverPlan, context);
   if (!elementTypePlan) return receiver;
   const targetArrayType: LoweringTypeRefPlan = {
     kind: "array",
@@ -2844,7 +2855,7 @@ const renderArrayListReceiver = (
   receiverPlan: LoweringExpressionPlan | undefined,
   context: RenderContext
 ): string => {
-  const elementTypePlan = arrayReceiverElementType(receiverPlan);
+  const elementTypePlan = arrayReceiverElementType(receiverPlan, context);
   if (!elementTypePlan) return receiver;
   const targetArrayType: LoweringTypeRefPlan = {
     kind: "array",
@@ -2877,7 +2888,7 @@ const renderArrayElementArgument = (
 ): string | undefined => {
   const argument = requiredCallArgument(plan, argumentIndex, context, feature);
   if (!argument) return undefined;
-  const elementType = arrayReceiverElementType(receiverPlan);
+  const elementType = arrayReceiverElementType(receiverPlan, context);
   if (!elementType) return renderCallArgument(argument, context);
   return renderExpressionWithUseSiteCast(argument, context, elementType);
 };
@@ -2891,7 +2902,7 @@ const renderArrayCallbackArgument = (
 ): string | undefined => {
   const argument = requiredCallArgument(plan, argumentIndex, context, feature);
   if (!argument) return undefined;
-  const elementType = arrayReceiverElementType(receiverPlan);
+  const elementType = arrayReceiverElementType(receiverPlan, context);
   if (
     !elementType ||
     (argument.expressionKind !== "arrow-function" &&
@@ -3616,6 +3627,19 @@ export const renderExpression = (
         plan.literalText
       );
       if (rawMember === undefined) return "";
+      if (rawMember === "Length") {
+        const receiverArrayType =
+          arrayTypeFromUseSite(plan.receiverTypePlan, context) ??
+          arrayTypeFromUseSite(plan.expression?.storageTypePlan, context) ??
+          arrayTypeFromUseSite(plan.expression?.type, context);
+        if (receiverArrayType && !isExternalBindingArrayType(receiverArrayType)) {
+          return `${renderExpressionWithUseSiteCast(
+            plan.expression,
+            context,
+            receiverUseSiteType
+          )}.Count`;
+        }
+      }
       const member = sanitizeIdentifier(plan.resolvedAliasName ?? rawMember);
       return `${renderExpressionWithUseSiteCast(
         plan.expression,
@@ -3677,11 +3701,11 @@ export const renderExpression = (
         if (rendered) return rendered;
       }
       const arrayReceiverTypeOverride =
-        arrayTypeFromUseSite(plan.receiverTypePlan) !== undefined
+        arrayTypeFromUseSite(plan.receiverTypePlan, context) !== undefined
           ? plan.receiverTypePlan
-          : arrayTypeFromUseSite(plan.expression?.storageTypePlan) !== undefined
+          : arrayTypeFromUseSite(plan.expression?.storageTypePlan, context) !== undefined
             ? plan.expression?.storageTypePlan
-            : arrayTypeFromUseSite(plan.expression?.type) !== undefined
+            : arrayTypeFromUseSite(plan.expression?.type, context) !== undefined
               ? plan.expression?.type
               : undefined;
       if (arrayReceiverTypeOverride) {
@@ -3694,9 +3718,9 @@ export const renderExpression = (
         if (rendered) return rendered;
       }
       const renderedIndex =
-        arrayTypeFromUseSite(plan.receiverTypePlan) ||
-        arrayTypeFromUseSite(plan.expression?.storageTypePlan) ||
-        arrayTypeFromUseSite(plan.expression?.type) ||
+        arrayTypeFromUseSite(plan.receiverTypePlan, context) ||
+        arrayTypeFromUseSite(plan.expression?.storageTypePlan, context) ||
+        arrayTypeFromUseSite(plan.expression?.type, context) ||
         isStringLikeTypePlan(plan.receiverTypePlan) ||
         isStringLikeTypePlan(plan.expression?.storageTypePlan) ||
         isStringLikeTypePlan(plan.expression?.type)

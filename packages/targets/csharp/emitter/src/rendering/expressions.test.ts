@@ -15,12 +15,14 @@ const dummySourceFile = {} as LoweringExpressionPlan["sourceFile"];
 const dummySourceNode = {} as LoweringExpressionPlan["sourceNode"];
 
 const createRenderContext = (
-  unsupportedFeatures: string[] = []
+  unsupportedFeatures: string[] = [],
+  externalBindingTargetName: RenderContext["externalBindingTargetName"] = () =>
+    undefined
 ): RenderContext => ({
   diagnostics: [],
   allocateTempName: (prefix) => `${prefix}0`,
   getStructuralTypeName: () => "Structural0",
-  externalBindingTargetName: () => undefined,
+  externalBindingTargetName,
   overrideMemberAccessibility: () => undefined,
   reportUnsupported: (feature) => {
     unsupportedFeatures.push(feature);
@@ -274,6 +276,50 @@ describe("C# expression renderer", () => {
 
     expect(rendered).to.contain(".From2(");
     expect(rendered).to.contain('new string[] { ((string)("users")) }');
+  });
+
+  it("renders external collection element access through named alias targets", () => {
+    const context = createRenderContext([], (binding) =>
+      binding.sourceName === "List_1"
+        ? "System.Collections.Generic.List`1"
+        : undefined
+    );
+    const listType: LoweringTypeRefPlan = {
+      kind: "named",
+      name: "List_1",
+      externalBinding: {
+        bindingFile: "/bindings/System.Collections.Generic/bindings.json",
+        sourceName: "List_1",
+        arity: 1,
+      },
+      typeArguments: [intType],
+      aliasTarget: {
+        kind: "intersection",
+        types: [],
+      },
+    };
+
+    const rendered = renderExpression(
+      expressionPlan({
+        expressionKind: "element-access",
+        expression: expressionPlan({
+          expressionKind: "identifier",
+          literalText: "numbers",
+          storageTypePlan: listType,
+        }),
+        receiverTypePlan: listType,
+        arguments: [
+          expressionPlan({
+            expressionKind: "literal",
+            literalKind: "number",
+            literalText: "0",
+          }),
+        ],
+      }),
+      context
+    );
+
+    expect(rendered).to.equal("numbers[0]");
   });
 
   it("wraps raw callable storage when selecting a named callable union arm", () => {

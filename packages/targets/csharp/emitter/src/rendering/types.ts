@@ -840,12 +840,40 @@ export const unwrapAliasTarget = (
     ? unwrapAliasTarget(type.aliasTarget)
     : type;
 
+const externalCollectionArrayType = (
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
+  context?: RenderContext
+): Extract<LoweringTypeRefPlan, { readonly kind: "array" }> | undefined => {
+  const targetName = type.externalBinding
+    ? context?.externalBindingTargetName(type.externalBinding)
+    : undefined;
+  const readonly =
+    targetName === "System.Collections.Generic.IEnumerable`1" ||
+    targetName === "System.Collections.Generic.IReadOnlyList`1";
+  const mutable =
+    targetName === "System.Collections.Generic.IList`1" ||
+    targetName === "System.Collections.Generic.List`1";
+  if (!readonly && !mutable) return undefined;
+  const elementType = type.typeArguments[0];
+  return elementType
+    ? {
+        kind: "array",
+        elementType,
+        readonly,
+      }
+    : undefined;
+};
+
 export const arrayTypeFromTypePlan = (
   type: LoweringTypeRefPlan | undefined,
   context?: RenderContext
 ): Extract<LoweringTypeRefPlan, { readonly kind: "array" }> | undefined => {
   if (type?.kind === "named" && type.aliasTarget?.kind === "union") {
     return undefined;
+  }
+  if (type?.kind === "named") {
+    const externalCollection = externalCollectionArrayType(type, context);
+    if (externalCollection) return externalCollection;
   }
   const unwrapped = unwrapAliasTarget(type);
   if (!unwrapped) return undefined;
@@ -864,28 +892,12 @@ export const arrayTypeFromTypePlan = (
         }
       : undefined;
   }
-  const externalCollectionTarget =
-    unwrapped.kind === "named" && unwrapped.externalBinding
-      ? context?.externalBindingTargetName(unwrapped.externalBinding)
-      : undefined;
-  const externalCollectionReadonly =
-    externalCollectionTarget === "System.Collections.Generic.IEnumerable`1" ||
-    externalCollectionTarget === "System.Collections.Generic.IReadOnlyList`1";
-  const externalCollectionMutable =
-    externalCollectionTarget === "System.Collections.Generic.IList`1" ||
-    externalCollectionTarget === "System.Collections.Generic.List`1";
-  if (
-    unwrapped.kind === "named" &&
-    (externalCollectionReadonly || externalCollectionMutable)
-  ) {
-    const elementType = unwrapped.typeArguments[0];
-    return elementType
-      ? {
-          kind: "array",
-          elementType,
-          readonly: externalCollectionReadonly,
-        }
-      : undefined;
+  if (unwrapped.kind === "named") {
+    const externalCollection = externalCollectionArrayType(
+      unwrapped,
+      context
+    );
+    if (externalCollection) return externalCollection;
   }
   if (unwrapped.kind === "union") {
     const arrays = nonNullishUnionTypes(unwrapped)
