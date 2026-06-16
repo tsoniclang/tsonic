@@ -700,12 +700,12 @@ const namedDeclarationKindForDeclaration = (
 
 type SourceTypePlanState = {
   readonly aliasTargets: Set<TstsNode>;
-  readonly aliasKeys: Set<string>;
+  readonly aliasDeclarations: Set<TstsNode>;
 };
 
 const createSourceTypePlanState = (): SourceTypePlanState => ({
   aliasTargets: new Set<TstsNode>(),
-  aliasKeys: new Set<string>(),
+  aliasDeclarations: new Set<TstsNode>(),
 });
 
 type TypeSubstitutionMap = ReadonlyMap<string, LoweringTypeRefPlan>;
@@ -899,15 +899,6 @@ const sourceTypeArgumentPlans = (
     );
 };
 
-const sourceTypeAliasKey = (
-  sourceFile: TstsSourceFile,
-  declaration: TstsNode
-): string => {
-  const declarationSourceFile = sourceFileForNode(declaration, sourceFile);
-  const name = nodeName(declaration) ?? TstsSyntax.Node_KindString(declaration);
-  return `${declarationSourceFile.FileName()}\0${name}`;
-};
-
 const singleInterfaceCallSignature = (
   declaration: TstsNode
 ): TstsNode | undefined => {
@@ -964,14 +955,10 @@ const sourceTypeAliasTargetPlan = (
     const interfaceCallSignature = singleInterfaceCallSignature(
       resolvedDeclaration.sourceNode
     );
-    const aliasKey = sourceTypeAliasKey(
-      resolvedDeclaration.sourceFile,
-      resolvedDeclaration.sourceNode
-    );
-    if (state.aliasKeys.has(aliasKey)) {
+    if (state.aliasDeclarations.has(resolvedDeclaration.sourceNode)) {
       return undefined;
     }
-    state.aliasKeys.add(aliasKey);
+    state.aliasDeclarations.add(resolvedDeclaration.sourceNode);
     try {
       const projectedAliasTarget = sourceBindingProjectionTypePlan(
         context,
@@ -1010,7 +997,7 @@ const sourceTypeAliasTargetPlan = (
           )
         : undefined;
     } finally {
-      state.aliasKeys.delete(aliasKey);
+      state.aliasDeclarations.delete(resolvedDeclaration.sourceNode);
     }
   }
   const declaration = sourceBindingFactForNode(context, node)?.declaration;
@@ -1027,11 +1014,10 @@ const sourceTypeAliasTargetPlan = (
       )
     : new Map<string, LoweringTypeRefPlan>();
   if (declaration && interfaceCallSignature) {
-    const aliasKey = sourceTypeAliasKey(sourceFile, declaration);
-    if (state.aliasKeys.has(aliasKey)) {
+    if (state.aliasDeclarations.has(declaration)) {
       return undefined;
     }
-    state.aliasKeys.add(aliasKey);
+    state.aliasDeclarations.add(declaration);
     try {
       return substituteTypePlan(
         interfaceCallSignatureTypePlan(
@@ -1043,7 +1029,7 @@ const sourceTypeAliasTargetPlan = (
         substitutions
       );
     } finally {
-      state.aliasKeys.delete(aliasKey);
+      state.aliasDeclarations.delete(declaration);
     }
   }
   const targetType = declaration
@@ -1057,12 +1043,11 @@ const sourceTypeAliasTargetPlan = (
   ) {
     return undefined;
   }
-  const aliasKey = sourceTypeAliasKey(sourceFile, declaration);
-  if (state.aliasKeys.has(aliasKey)) {
+  if (state.aliasDeclarations.has(declaration)) {
     return undefined;
   }
   state.aliasTargets.add(targetType);
-  state.aliasKeys.add(aliasKey);
+  state.aliasDeclarations.add(declaration);
   try {
     return substituteTypePlan(
       sourceTypePlan(
@@ -1075,7 +1060,7 @@ const sourceTypeAliasTargetPlan = (
     );
   } finally {
     state.aliasTargets.delete(targetType);
-    state.aliasKeys.delete(aliasKey);
+    state.aliasDeclarations.delete(declaration);
   }
 };
 
