@@ -64,7 +64,6 @@ export type {
   SourceTypeSemanticsFact,
 } from "./source-facts.js";
 export {
-  callSitePassingModifierFromFact,
   isExtensionReceiverFact,
   isFieldSemanticsFact,
   isHeritageInterfaceErasure,
@@ -72,11 +71,6 @@ export {
   isMarkerApiKind,
   isSourceTypeKind,
   markerApiKindFromFact,
-  parameterPassingModeFromFact,
-} from "./source-fact-queries.js";
-export type {
-  SourceCallSitePassingModifier,
-  SourceParameterPassingMode,
 } from "./source-fact-queries.js";
 export {
   createEmptyTstsSourceProgramForTests,
