@@ -1253,6 +1253,18 @@ const renderLambdaParameter = (
         parameter.nameSourceText ?? parameter.sourceText
       );
 
+const renderLambdaParameterName = (
+  parameter: LoweringParameterPlan,
+  context: RenderContext
+): string =>
+  requiredIdentifier(
+    parameter.name,
+    context,
+    "lambda parameter name",
+    parameter.sourceKindName,
+    parameter.nameSourceText ?? parameter.sourceText
+  );
+
 const lambdaDeclaredReturnType = (
   plan: LoweringExpressionPlan,
   contextualTypeOverride?: LoweringTypeRefPlan
@@ -1749,8 +1761,28 @@ const identifierAliasType = (
   context: RenderContext
 ): LoweringTypeRefPlan | undefined => {
   if (plan?.expressionKind !== "identifier") return undefined;
+  if (plan.bindingId) {
+    const bindingAliasType = context.currentIdentifierBindingAliasTypes?.get(
+      plan.bindingId
+    );
+    if (bindingAliasType) return bindingAliasType;
+  }
   const rawName = plan.literalText ?? plan.name;
   return rawName ? context.currentIdentifierAliasTypes?.get(rawName) : undefined;
+};
+
+const identifierReadName = (
+  plan: LoweringExpressionPlan,
+  rawName: string,
+  context: RenderContext
+): string | undefined => {
+  if (plan.bindingId) {
+    const bindingAlias = context.currentIdentifierReadBindingNames?.get(
+      plan.bindingId
+    );
+    if (bindingAlias) return bindingAlias;
+  }
+  return context.currentIdentifierReadNames?.get(rawName);
 };
 
 const arithmeticUseSiteResultType = (
@@ -2549,6 +2581,20 @@ const firstRenderedTypeArgument = (
   return renderCSharpType(first, context);
 };
 
+const withArgumentsParameterNames = <T>(
+  context: RenderContext,
+  parameterNames: readonly string[],
+  render: () => T
+): T => {
+  const previous = context.currentArgumentsParameterNames;
+  context.currentArgumentsParameterNames = parameterNames;
+  try {
+    return render();
+  } finally {
+    context.currentArgumentsParameterNames = previous;
+  }
+};
+
 const renderLambda = (
   plan: LoweringExpressionPlan,
   context: RenderContext,
@@ -2559,7 +2605,7 @@ const renderLambda = (
   const contextualFunction = functionTypeFromUseSite(
     contextualTypeOverride ?? plan.contextualTypePlan
   );
-  const parameters = [
+  const parameterPlans = [
     ...plan.parameters.map((parameter, index) => {
       const contextualParameter = contextualFunction?.parameters[index];
       return contextualParameter?.type
@@ -2575,25 +2621,34 @@ const renderLambda = (
             nameSourceText: `__unused${plan.parameters.length + index}`,
           }))
       : []),
-  ]
+  ];
+  const parameters = parameterPlans
     .map((parameter) =>
       renderLambdaParameter(parameter, context, includeParameterTypes)
     )
     .join(", ");
+  const argumentsParameterNames = plan.parameters.map((parameter) =>
+    renderLambdaParameterName(parameter, context)
+  );
   const asyncModifier = plan.async ? "async " : "";
-  const body = plan.body
-    ? renderLambdaStatementBody(plan, context, contextualTypeOverride)
-    : isVoidLikeExpressionType(
-          lambdaBodyReturnType(plan, context, contextualTypeOverride),
-          context
-        )
-      ? renderVoidLambdaExpressionBody(plan.expression, context)
-      : renderExpressionWithUseSiteCast(
-          plan.expression,
-          context,
-          lambdaBodyReturnType(plan, context, contextualTypeOverride) ??
-            plan.returnType
-        );
+  const body = withArgumentsParameterNames(
+    context,
+    argumentsParameterNames,
+    () =>
+      plan.body
+        ? renderLambdaStatementBody(plan, context, contextualTypeOverride)
+        : isVoidLikeExpressionType(
+              lambdaBodyReturnType(plan, context, contextualTypeOverride),
+              context
+            )
+          ? renderVoidLambdaExpressionBody(plan.expression, context)
+          : renderExpressionWithUseSiteCast(
+              plan.expression,
+              context,
+              lambdaBodyReturnType(plan, context, contextualTypeOverride) ??
+                plan.returnType
+            )
+  );
   return `${asyncModifier}(${parameters}) => ${body}`;
 };
 
@@ -2752,6 +2807,8 @@ const renderSourceQualifiedName = (
   operation: SourceRuntimeOperation
 ): string => {
   switch (operation.owner) {
+    case "Arguments":
+      return "global::js.Arguments";
     case "Console":
       return "global::js.ConsoleModule";
     case "Array":
@@ -3178,14 +3235,23 @@ const renderRuntimeUnionArrayReceiver = (
   context: RenderContext,
   useSiteTypeOverride?: LoweringTypeRefPlan
 ): string | undefined => {
+  const targetArrayType =
+    arrayTypeFromUseSite(useSiteTypeOverride, context) ??
+    arrayReceiverType(receiverPlan, context);
+  if (
+    targetArrayType &&
+    useSiteTypeOverride &&
+    !runtimeUnionCarrierType(useSiteTypeOverride, context) &&
+    (sameRuntimeTypePlan(receiverPlan?.type, targetArrayType) ||
+      sameRuntimeTypePlan(receiverPlan?.storageTypePlan, targetArrayType))
+  ) {
+    return undefined;
+  }
   const sourceCarrier =
     runtimeUnionCarrierType(receiverPlan?.storageTypePlan, context) ??
     runtimeUnionCarrierType(receiverPlan?.type, context) ??
     runtimeUnionCarrierType(useSiteTypeOverride, context);
   if (!sourceCarrier) return undefined;
-  const targetArrayType =
-    arrayTypeFromUseSite(useSiteTypeOverride, context) ??
-    arrayReceiverType(receiverPlan, context);
   const armIndex =
     runtimeUnionArmIndexForTargetType(
       sourceCarrier,
@@ -3336,6 +3402,31 @@ const renderArrayIndexExpression = (
     : isCSharpIntIndexType(indexType)
       ? rendered
     : `global::System.Convert.ToInt32(${rendered})`;
+};
+
+const staticArgumentsIndex = (
+  plan: LoweringExpressionPlan | undefined
+): number | undefined =>
+  plan && isIntegerNumberLiteral(plan) && plan.literalText !== undefined
+    ? Number(plan.literalText)
+    : undefined;
+
+const renderArgumentsElementAccess = (
+  plan: LoweringExpressionPlan,
+  context: RenderContext
+): string | undefined => {
+  const index = staticArgumentsIndex(plan.arguments[0]);
+  const parameterName =
+    index !== undefined ? context.currentArgumentsParameterNames?.[index] : undefined;
+  if (index === undefined || !parameterName) {
+    context.reportUnsupported(
+      "arguments index access",
+      plan.sourceKindName,
+      plan.sourceText
+    );
+    return undefined;
+  }
+  return parameterName;
 };
 
 const arrayElementAccessElementType = (
@@ -4429,8 +4520,16 @@ const renderRuntimeUnionPropertyAccess = (
   plan: LoweringExpressionPlan,
   rawMember: string,
   renderedMember: string,
-  context: RenderContext
+  context: RenderContext,
+  receiverUseSiteType?: LoweringTypeRefPlan
 ): string | undefined => {
+  if (
+    receiverUseSiteType &&
+    !runtimeUnionCarrierType(receiverUseSiteType, context) &&
+    objectPropertyMemberType(receiverUseSiteType, rawMember)
+  ) {
+    return undefined;
+  }
   const sourceCarrier =
     runtimeUnionCarrierType(plan.expression?.storageTypePlan, context) ??
     runtimeUnionCarrierType(plan.expression?.type, context) ??
@@ -4523,6 +4622,8 @@ export const renderExpression = (
         plan.literalText ?? plan.name
       );
       if (rawName === undefined) return "";
+      const readName = identifierReadName(plan, rawName, context);
+      if (readName) return readName;
       const bindingName = plan.bindingId
         ? context.currentBindingNames?.get(plan.bindingId)
         : undefined;
@@ -4762,6 +4863,11 @@ export const renderExpression = (
       );
       if (operation?.dispatch === "property") {
         switch (operation.owner) {
+          case "Arguments":
+            if (operation.member === "length") {
+              return String(context.currentArgumentsParameterNames?.length ?? 0);
+            }
+            break;
           case "String":
             return `${renderExpressionWithUseSiteCast(plan.expression, context, { kind: "intrinsic", name: "string" })}.Length`;
           case "Array":
@@ -4823,7 +4929,8 @@ export const renderExpression = (
         plan,
         rawMember,
         member,
-        context
+        context,
+        receiverUseSiteType
       );
       if (runtimeUnionPropertyAccess) return runtimeUnionPropertyAccess;
       return `${renderExpressionWithUseSiteCast(
@@ -4833,6 +4940,12 @@ export const renderExpression = (
       )}${plan.optionalAccess ? "?." : "."}${member}`;
     }
     case "element-access":
+      if (
+        plan.sourceOperation?.dispatch === "index" &&
+        plan.sourceOperation.owner === "Arguments"
+      ) {
+        return renderArgumentsElementAccess(plan, context) ?? "";
+      }
       if (
         plan.sourceOperation?.dispatch === "index" &&
         plan.sourceOperation.owner === "String"

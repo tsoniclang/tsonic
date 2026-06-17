@@ -216,4 +216,48 @@ describe("C# statement renderer", () => {
     expect(rendered).not.to.contain("binding_1[0]");
     expect(rendered).not.to.contain("binding_1[1]");
   });
+
+  it("destructures object-rest bindings through the dictionary storage carrier", () => {
+    const dictionaryType: LoweringTypeRefPlan = {
+      kind: "record",
+      keyType: { kind: "intrinsic", name: "string" },
+      valueType: { kind: "intrinsic", name: "object" },
+    };
+    const rendered = renderStatement(
+      statementPlan({
+        statementKind: "variable",
+        declarations: [
+          {
+            sourceNode: dummySourceNode,
+            name: "entry",
+            storageType: dictionaryType,
+            initializer: expressionPlan({
+              expressionKind: "identifier",
+              name: "source",
+              type: dictionaryType,
+              storageTypePlan: dictionaryType,
+              literalText: "source",
+            }),
+            bindingElements: [
+              {
+                name: "restAddress",
+                accessPath: [{ kind: "property", name: "address" }],
+                storageType: dictionaryType,
+                restExcludes: ["city"],
+              },
+            ],
+          },
+        ],
+      }),
+      createRenderContext()
+    );
+
+    expect(rendered).to.contain(
+      '((global::System.Collections.Generic.Dictionary<string, object?>)(binding_1["address"]))'
+    );
+    expect(rendered).to.contain('__tsonic_kvp.Key != "city"');
+    expect(rendered).to.contain(
+      "global::System.Linq.Enumerable.ToDictionary"
+    );
+  });
 });

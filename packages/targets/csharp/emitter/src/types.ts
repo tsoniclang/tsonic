@@ -37,7 +37,12 @@ export type RenderContext = {
   currentDefaultedParameters?: ReadonlyMap<string, string>;
   currentDefaultedParameterBindings?: ReadonlyMap<string, string>;
   currentBindingNames?: ReadonlyMap<string, string>;
+  currentIdentifierReadNames?: ReadonlyMap<string, string>;
+  currentIdentifierReadBindingNames?: ReadonlyMap<string, string>;
   currentIdentifierAliasTypes?: ReadonlyMap<string, LoweringTypeRefPlan>;
+  currentIdentifierBindingAliasTypes?: ReadonlyMap<string, LoweringTypeRefPlan>;
+  currentArgumentsParameterNames?: readonly string[];
+  currentTopLevelBody?: boolean;
   currentThisExpression?: string;
   currentTypeParameters?: ReadonlySet<string>;
   currentGenerator?: {

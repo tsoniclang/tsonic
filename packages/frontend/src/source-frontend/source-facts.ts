@@ -79,6 +79,7 @@ export type ExpressionSemanticsFact = {
 };
 
 export type SourceRuntimeOperationOwner =
+  | "Arguments"
   | "Array"
   | "Console"
   | "DataView"
@@ -435,7 +436,7 @@ export const genericFunctionAliasFactKey =
 export const genericFunctionUseSiteFactKey =
   defineSourceFactKey<GenericFunctionUseSiteFact>(
     "tsonic:source:generic-function-use-site",
-    "Source-level generic function use-site type arguments proven by the TSTS source extension."
+    "Source-level generic function use-site type arguments selected by the TSTS checker."
   );
 
 export const sourceOverloadFamilyFactKey =

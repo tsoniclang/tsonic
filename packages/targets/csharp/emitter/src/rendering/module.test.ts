@@ -196,7 +196,76 @@ describe("C# module renderer", () => {
         "get => this.__tsonic_get_value != null"
       );
       expect(result.code).to.contain("this.__tsonic_property_value = value;");
-      expect(result.code).to.contain("public static Alias item;");
+      expect(result.code).to.contain("public static Alias item = default!;");
+    }
+  });
+
+  it("emits top-level variables as fields assigned in source-order top-level code", () => {
+    const module: CSharpLoweringModulePlan = {
+      kind: "lowering-module",
+      backendTargetId: "csharp",
+      identity: {
+        filePath: "/src/index.ts",
+        className: "Index",
+        namespace: "Example",
+      },
+      sourceFile: dummySourceFile,
+      sourceModule: dummySourceModule,
+      imports: [],
+      exports: [],
+      declarations: [],
+      topLevelStatements: [
+        statementPlan({
+          statementKind: "variable",
+          declarations: [
+            {
+              sourceNode: dummySourceNode,
+              name: "city",
+              type: stringType,
+              initializer: expressionPlan({
+                expressionKind: "literal",
+                literalKind: "string",
+                literalText: "Paris",
+                type: stringType,
+              }),
+              bindingElements: [],
+            },
+          ],
+        }),
+        statementPlan({
+          statementKind: "variable",
+          declarations: [
+            {
+              sourceNode: dummySourceNode,
+              name: "alias",
+              type: stringType,
+              initializer: expressionPlan({
+                expressionKind: "identifier",
+                name: "city",
+                literalText: "city",
+                type: stringType,
+              }),
+              bindingElements: [],
+            },
+          ],
+        }),
+      ],
+      statements: [],
+      expressions: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result.ok).to.equal(true);
+    if (result.ok) {
+      expect(result.code).to.contain("public static string city = default!;");
+      expect(result.code).to.contain("public static string alias = default!;");
+      expect(result.code).to.contain("public static void __TopLevel()");
+      expect(result.code).to.contain('city = "Paris";');
+      expect(result.code).to.contain("alias = city;");
+      expect(result.code).not.to.contain(
+        'public static string city = "Paris";'
+      );
     }
   });
 
@@ -254,7 +323,7 @@ describe("C# module renderer", () => {
       expect(result.code).not.to.match(
         /public sealed class __TsonicShape_[a-f0-9]+/u
       );
-      expect(result.code).to.contain("public static Application app;");
+      expect(result.code).to.contain("public static Application app = default!;");
     }
   });
 
@@ -321,7 +390,7 @@ describe("C# module renderer", () => {
       expect(result.code).not.to.match(
         /public sealed class __TsonicShape_[a-f0-9]+/u
       );
-      expect(result.code).to.contain("public static TupleLike tupleLike;");
+      expect(result.code).to.contain("public static TupleLike tupleLike = default!;");
     }
   });
 
@@ -578,7 +647,7 @@ describe("C# module renderer", () => {
     expect(result.ok).to.equal(true);
     if (result.ok) {
       expect(result.code).to.contain(
-        "public static global::System.Collections.Generic.Dictionary<string, int> table;"
+        "public static global::System.Collections.Generic.Dictionary<string, int> table = default!;"
       );
     }
   });
@@ -984,7 +1053,7 @@ describe("C# module renderer", () => {
     expect(result.ok).to.equal(true);
     if (result.ok) {
       expect(result.code).to.include(
-        "public static global::System.Threading.Tasks.Task task;"
+        "public static global::System.Threading.Tasks.Task task = default!;"
       );
     }
   });

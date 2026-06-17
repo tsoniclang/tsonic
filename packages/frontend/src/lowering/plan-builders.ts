@@ -1020,12 +1020,8 @@ const sourceTypePlan = (
         (argument): argument is LoweringTypeRefPlan => argument !== undefined
       );
     const externalBinding =
-      externalBindingForSourceBindingNode(context, node, typeArguments.length) ??
-      externalBindingForDeclaration(
-        bindingFact?.declaration,
-        typeName,
-        typeArguments.length
-      );
+      externalBindingForSourceBindingNode(context, node) ??
+      externalBindingForDeclaration(bindingFact?.declaration, typeName);
     if (hasSourceDictionaryFactForNode(context, node)) {
       return (
         recordTypePlanFromTypeArguments(
@@ -1272,11 +1268,7 @@ const sourceTypePlan = (
           ? typeParameterNames(sourceFile, bindingFact.declaration)
           : undefined,
         sourceQualifiedName,
-        externalBinding: externalBindingForSourceBindingNode(
-          context,
-          node,
-          typeArguments.length
-        ),
+        externalBinding: externalBindingForSourceBindingNode(context, node),
         runtimeVisibility: sourceRuntimeVisibilityForNode(context, node),
         declaration: typeDeclarationBindingForNode(context, sourceFile, node),
         sourceText,
@@ -2626,16 +2618,8 @@ const shallowProjectionTypePlan = (
             "type"
           ),
         externalBinding:
-          externalBindingForSourceBindingNode(
-            context,
-            type.declaration,
-            type.typeArguments.length
-          ) ??
-          externalBindingForDeclaration(
-            type.declaration,
-          type.name,
-          type.typeArguments.length
-        ),
+          externalBindingForSourceBindingNode(context, type.declaration) ??
+          externalBindingForDeclaration(type.declaration, type.name),
         runtimeVisibility: type.runtimeVisibility,
       };
     }
@@ -2771,16 +2755,8 @@ const sourceBindingProjectionTypePlan = (
           "type"
         ),
       externalBinding:
-        externalBindingForSourceBindingNode(
-          context,
-          type.declaration,
-          type.typeArguments.length
-        ) ??
-        externalBindingForDeclaration(
-          type.declaration,
-          type.name,
-          type.typeArguments.length
-        ),
+        externalBindingForSourceBindingNode(context, type.declaration) ??
+        externalBindingForDeclaration(type.declaration, type.name),
       runtimeVisibility: type.runtimeVisibility,
       sourceText: type.sourceNode
         ? compactNodeSourceText(type.sourceNode)
@@ -2844,16 +2820,8 @@ const sourceBindingProjectionTypePlan = (
           "type"
         );
       const externalBinding =
-        externalBindingForSourceBindingNode(
-          context,
-          type.declaration,
-          typeArguments.length
-        ) ??
-        externalBindingForDeclaration(
-          type.declaration,
-          type.name,
-          typeArguments.length
-        );
+        externalBindingForSourceBindingNode(context, type.declaration) ??
+        externalBindingForDeclaration(type.declaration, type.name);
       const runtimeVisibility =
         type.runtimeVisibility ??
         sourceRuntimeVisibilityForDeclaration(context, type.declaration);
@@ -2923,15 +2891,19 @@ const sourceBindingProjectionTypePlan = (
         kind: "named",
         name: type.name,
         typeArguments,
-      typeParameters:
-        type.typeParameters ??
-        (type.declaration
-          ? typeParameterNames(declarationSourceFile, type.declaration)
-          : undefined),
-      typeParameterConstraints: type.declaration
-        ? typeParameterConstraintPlans(declarationSourceFile, type.declaration, context)
-        : undefined,
-      aliasTarget: substitutedAliasTarget,
+        typeParameters:
+          type.typeParameters ??
+          (type.declaration
+            ? typeParameterNames(declarationSourceFile, type.declaration)
+            : undefined),
+        typeParameterConstraints: type.declaration
+          ? typeParameterConstraintPlans(
+              declarationSourceFile,
+              type.declaration,
+              context
+            )
+          : undefined,
+        aliasTarget: substitutedAliasTarget,
         sourceQualifiedName,
         externalBinding,
         runtimeVisibility,
@@ -3122,10 +3094,58 @@ const bindingElementsFromName = (
   }
   const bindingPattern = TstsSyntax.AsBindingPattern(node);
   if (!bindingPattern?.Elements) return [];
-  return nodeListNodes(bindingPattern.Elements).flatMap(
+  const elements = nodeListNodes(bindingPattern.Elements);
+  const objectBindingExcludedProperties = (
+    restIndex: number
+  ): readonly string[] =>
+    elements
+      .slice(0, restIndex)
+      .map((elementNode, index) => {
+        const bindingElement = TstsSyntax.AsBindingElement(elementNode);
+        if (bindingElement?.DotDotDotToken !== undefined) return undefined;
+        const nameNode = TstsSyntax.Node_Name(elementNode);
+        const propertyName =
+          bindingElement?.PropertyName ??
+          TstsSyntax.Node_PropertyNameOrName(elementNode);
+        return (
+          (propertyName ? nodeTokenText(propertyName) : undefined) ??
+          nodeTokenText(nameNode) ??
+          `item${index}`
+        );
+      })
+      .filter((name): name is string => name !== undefined);
+  return elements.flatMap(
     (elementNode, index) => {
       const bindingElement = TstsSyntax.AsBindingElement(elementNode);
       const nameNode = TstsSyntax.Node_Name(elementNode);
+      if (
+        bindingElement?.DotDotDotToken !== undefined &&
+        node.Kind === TstsSyntax.KindObjectBindingPattern
+      ) {
+        const name = nodeTokenText(nameNode);
+        if (!name || !nameNode) return [];
+        const fact = context.input.facts.get(
+          sourceBindingTypeProjectionFactKey,
+          nameNode
+        );
+        return [
+          {
+            bindingId: sourceBindingKey(sourceBindingFactForNode(context, nameNode)),
+            name,
+            type: sourceBindingProjectionTypePlan(
+              context,
+              sourceFile,
+              fact?.type
+            ),
+            storageType: recordTypePlan(
+              intrinsicTypePlan("string"),
+              intrinsicTypePlan("object")
+            ),
+            accessPath,
+            restExcludes: objectBindingExcludedProperties(index),
+          },
+        ];
+      }
       const propertyName =
         bindingElement?.PropertyName ??
         TstsSyntax.Node_PropertyNameOrName(elementNode);

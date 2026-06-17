@@ -12,7 +12,10 @@ import type {
   RenderContext,
 } from "../types.js";
 import { renderDeclaration, renderStaticContainerMember } from "./declarations.js";
-import { renderStaticField, renderTopLevelBody } from "./statements.js";
+import {
+  renderStaticFieldDeclaration,
+  renderTopLevelBody,
+} from "./statements.js";
 import {
   renderCSharpTypeofOperand,
   renderRequiredCSharpType,
@@ -40,20 +43,81 @@ const hasNamespaceDeclarationShape = (
   declaration.declarationKind === "interface" ||
   declaration.declarationKind === "type-alias";
 
-const isStaticTopLevelVariableStatement = (
-  statement: CSharpLoweringModulePlan["topLevelStatements"][number]
-): boolean =>
-  statement.statementKind === "variable" &&
-  statement.declarations.every(
-    (declaration) => declaration.bindingElements.length === 0
-  );
-
 const topLevelVariableDeclarations = (
   module: CSharpLoweringModulePlan
 ): readonly LoweringVariablePlan[] =>
   module.topLevelStatements
-    .filter(isStaticTopLevelVariableStatement)
+    .filter((statement) => statement.statementKind === "variable")
     .flatMap((statement) => statement.declarations);
+
+const canonicalSourceFileName = (fileName: string): string =>
+  fileName.split("\\").join("/");
+
+const sourceModuleFileName = (
+  module: CSharpLoweringModulePlan
+): string | undefined => {
+  const sourceModule = module.sourceModule as { readonly fileName?: string };
+  return sourceModule.fileName;
+};
+
+const namespaceImportReadNames = (
+  module: CSharpLoweringModulePlan,
+  referenceModules: readonly CSharpLoweringModulePlan[] | undefined
+): ReadonlyMap<string, string> => {
+  if (!referenceModules || referenceModules.length === 0) return new Map();
+  const moduleBySourceFile = new Map(
+    referenceModules
+      .map((referenceModule) => {
+        const fileName = sourceModuleFileName(referenceModule);
+        return fileName
+          ? [canonicalSourceFileName(fileName), referenceModule] as const
+          : undefined;
+      })
+      .filter(
+        (
+          entry
+        ): entry is readonly [string, CSharpLoweringModulePlan] =>
+          entry !== undefined
+      )
+  );
+  const aliases = new Map<string, string>();
+  for (const importEdge of module.imports) {
+    if (importEdge.resolvedModule?.isExternalLibraryImport) continue;
+    const resolvedFileName = importEdge.resolvedModule?.resolvedFileName;
+    if (!resolvedFileName) continue;
+    const targetModule = moduleBySourceFile.get(
+      canonicalSourceFileName(resolvedFileName)
+    );
+    if (!targetModule) continue;
+    for (const binding of importEdge.bindings) {
+      if (binding.kind !== "namespace") continue;
+      aliases.set(
+        binding.localName,
+        `global::${targetModule.identity.namespace}.${targetModule.identity.className}`
+      );
+    }
+  }
+  return aliases;
+};
+
+const topLevelFieldDeclarations = (
+  module: CSharpLoweringModulePlan
+): readonly LoweringVariablePlan[] =>
+  topLevelVariableDeclarations(module).flatMap((declaration) =>
+    declaration.bindingElements.length === 0
+      ? [declaration]
+      : declaration.bindingElements.map(
+          (binding): LoweringVariablePlan => ({
+            sourceNode: declaration.sourceNode,
+            bindingId: binding.bindingId,
+            name: binding.name,
+            type: binding.storageType ?? binding.type,
+            storageType: binding.storageType ?? binding.type,
+            bindingElements: [],
+            compileTimeOnly: declaration.compileTimeOnly,
+          })
+        )
+  );
 
 const renderExportAliasFields = (
   module: CSharpLoweringModulePlan,
@@ -851,6 +915,18 @@ export const emitModule = (
 ): ModuleEmitResult => {
   const context = createRenderContext(options);
   context.currentNamespace = module.identity.namespace;
+  const previousIdentifierReadNames = context.currentIdentifierReadNames;
+  const namespaceAliases = namespaceImportReadNames(
+    module,
+    options.referenceModules
+  );
+  context.currentIdentifierReadNames =
+    namespaceAliases.size > 0
+      ? new Map([
+          ...(previousIdentifierReadNames?.entries() ?? []),
+          ...namespaceAliases.entries(),
+        ])
+      : previousIdentifierReadNames;
   const namespaceDeclarations = module.declarations
     .filter(
       (declaration) =>
@@ -865,11 +941,9 @@ export const emitModule = (
     )
     .map((declaration) => renderStaticContainerMember(declaration, context))
     .filter((rendered): rendered is string => rendered !== undefined);
-  const topLevelFields = module.topLevelStatements
-    .filter(isStaticTopLevelVariableStatement)
-    .flatMap((statement) => statement.declarations)
+  const topLevelFields = topLevelFieldDeclarations(module)
     .filter((declaration) => !declaration.compileTimeOnly)
-    .map((declaration) => renderStaticField(declaration, context))
+    .map((declaration) => renderStaticFieldDeclaration(declaration, context))
     .filter((rendered) => rendered.length > 0)
     .map((rendered) => `    ${rendered}`);
   const exportAliasFields = renderExportAliasFields(module, context);
@@ -882,7 +956,7 @@ export const emitModule = (
   const executableTopLevelStatements = module.topLevelStatements.filter(
     (statement) =>
       statement.statementKind !== "declaration" &&
-      !isStaticTopLevelVariableStatement(statement)
+      statement.statementKind !== "empty"
   );
   const topLevelMethod =
     executableTopLevelStatements.length > 0
@@ -932,7 +1006,9 @@ export const emitModule = (
   }
 
   if (context.diagnostics.length > 0) {
+    context.currentIdentifierReadNames = previousIdentifierReadNames;
     return { ok: false, errors: context.diagnostics };
   }
+  context.currentIdentifierReadNames = previousIdentifierReadNames;
   return { ok: true, code: `${lines.join("\n")}\n` };
 };

@@ -141,6 +141,7 @@ export const emitCSharpFiles = (
       ...options,
       externalBindingMetadata,
       includeStructuralDeclarations: false,
+      referenceModules: modules,
     });
     if (!moduleResult.ok) {
       return { ok: false, errors: moduleResult.errors };

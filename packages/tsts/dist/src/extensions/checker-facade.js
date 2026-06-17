@@ -1,14 +1,15 @@
 import { SymbolName } from "../internal/ast/symbol.js";
 import { SymbolFlagsAlias } from "../internal/ast/symbolflags.js";
 import { CheckModeNormal, isTupleType, } from "../internal/checker/checker/state.js";
-import { Checker_isArrayType, Checker_GetTypeAtLocation, Checker_instantiateType, } from "../internal/checker/checker/types.js";
+import { Checker_isArrayType, Checker_getApparentTypeOfContextualType, Checker_GetNonNullableType, Checker_GetTypeAtLocation, Checker_instantiateType, } from "../internal/checker/checker/types.js";
 import { Checker_GetAliasedSymbol, Checker_getFullyQualifiedName, Checker_getIndexTypeOfType, Checker_GetTypeOfSymbolAtLocation, Checker_GetSymbolAtLocation, } from "../internal/checker/checker/symbols.js";
-import { Checker_getReturnTypeOfSignature, Checker_getResolvedSignature, Checker_getSignatureFromDeclaration, Checker_getSignaturesOfType, Checker_getTypeOfParameter, Checker_getTypeArguments, } from "../internal/checker/checker/signatures.js";
+import { Checker_getReturnTypeOfSignature, Checker_getResolvedSignature, Checker_getSignatureFromDeclaration, Checker_getSingleSignature, Checker_getSignaturesOfType, Checker_getTypeOfParameter, Checker_getTypeArguments, Checker_instantiateSignatureInContextOf, } from "../internal/checker/checker/signatures.js";
+import { Checker_getInferenceContext } from "../internal/checker/checker/inference.js";
 import { Checker_GetContextualType, Checker_GetElementTypeOfArrayType, Checker_GetExportSpecifierLocalTargetSymbol, Checker_GetExportsOfModule, Checker_GetShorthandAssignmentValueSymbol, Checker_GetSymbolsInScope, } from "../internal/checker/services.js";
 import { Checker_GetApparentType, Checker_GetContextualTypeForArgumentAtIndex, Checker_GetPropertiesOfType, Checker_GetPropertyOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfSymbol, } from "../internal/checker/exports.js";
 import { Checker_SymbolToString, Checker_TypeToTypeNode, Checker_TypeToString, } from "../internal/checker/printer.js";
 import { Checker_getTypePredicateOfSignature, Checker_getTypeAtPosition, Checker_isTypeAssignableTo, Checker_isTypeIdenticalTo, } from "../internal/checker/relater.js";
-import { ContextFlagsNone, ObjectFlagsReference, SignatureKindCall, SignatureKindConstruct, Signature_Declaration, Signature_Parameters, Signature_TypeParameters, TypeAlias_Symbol, TypeAlias_TypeArguments, Type_Flags, Type_ObjectFlags, Type_Symbol, Type_Types, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsString, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsTypeParameter, TypeFlagsUndefined, TypeFlagsUnknown, TypeFlagsUnion, TypeFlagsVoid, } from "../internal/checker/types.js";
+import { ContextFlagsNone, ContextFlagsNoConstraints, ObjectFlagsReference, SignatureKindCall, SignatureKindConstruct, Signature_Declaration, Signature_Parameters, Signature_Target, Signature_TypeParameters, TypeAlias_Symbol, TypeAlias_TypeArguments, Type_Flags, Type_ObjectFlags, Type_Symbol, Type_Types, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsString, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsTypeParameter, TypeFlagsUndefined, TypeFlagsUnknown, TypeFlagsUnion, TypeFlagsVoid, } from "../internal/checker/types.js";
 const hasTypeFlags = (type, flags) => type !== undefined && (Type_Flags(type) & flags) !== 0;
 const isReferenceType = (type) => type !== undefined &&
     hasTypeFlags(type, TypeFlagsObject) &&
@@ -113,6 +114,39 @@ export const createExtensionTypeChecker = (checker) => ({
         return signature?.mapper
             ? Checker_instantiateType(checker, type, signature.mapper)
             : type;
+    },
+    getSignatureTypeArguments: (signature) => {
+        const target = Signature_Target(signature) ?? signature;
+        const typeParameters = Signature_TypeParameters(target);
+        return signature?.mapper
+            ? typeParameters.map((typeParameter) => Checker_instantiateType(checker, typeParameter, signature.mapper))
+            : [];
+    },
+    getContextualGenericFunctionTypeArguments: (node) => {
+        const sourceType = Checker_GetTypeAtLocation(checker, node);
+        if (sourceType === undefined) {
+            return [];
+        }
+        const sourceSignature = Checker_getSingleSignature(checker, sourceType, SignatureKindCall, true);
+        if (sourceSignature === undefined ||
+            Signature_TypeParameters(sourceSignature).length === 0) {
+            return [];
+        }
+        const contextualType = Checker_getApparentTypeOfContextualType(checker, node, ContextFlagsNoConstraints);
+        if (contextualType === undefined) {
+            return [];
+        }
+        const contextualSignature = Checker_getSingleSignature(checker, Checker_GetNonNullableType(checker, contextualType), SignatureKindCall, false);
+        if (contextualSignature === undefined ||
+            Signature_TypeParameters(contextualSignature).length !== 0) {
+            return [];
+        }
+        const instantiatedSignature = Checker_instantiateSignatureInContextOf(checker, sourceSignature, contextualSignature, Checker_getInferenceContext(checker, node), undefined);
+        const target = Signature_Target(instantiatedSignature) ?? instantiatedSignature;
+        const typeParameters = Signature_TypeParameters(target);
+        return instantiatedSignature?.mapper
+            ? typeParameters.map((typeParameter) => Checker_instantiateType(checker, typeParameter, instantiatedSignature.mapper))
+            : [];
     },
     signatureHasTypeParameters: (signature) => Signature_TypeParameters(signature).length > 0,
     getSignatureFromDeclaration: (node) => Checker_getSignatureFromDeclaration(checker, node),

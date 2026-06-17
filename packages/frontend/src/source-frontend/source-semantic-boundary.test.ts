@@ -96,10 +96,40 @@ describe("source semantic boundary", () => {
       "overloadFamilyImplementationsForCallee",
       "comparableTypePlan",
       "literalBaseTypePlan",
+      "signatureTypeParameterSubstitutions",
+      "receiverTypeArgumentsForOwner",
+      "namedProjectionForGenericOwner",
     ] as const;
 
     const offenders = bannedLoweringMatchers.filter((matcher) =>
       loweringPlanBuilders.includes(matcher)
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("does not export shadow projected-type facts from the source frontend boundary", () => {
+    const sourceFrontendIndex = fs.readFileSync(
+      path.join(frontendSrcRoot, "source-frontend/index.ts"),
+      "utf8"
+    );
+    const bannedPublicProjectionNames = [
+      "SourceBindingProjectedType",
+      "SourceBindingProjectedObjectMember",
+      "SourceBindingTypeProjectionFact",
+      "SourceTypeProjectionFact",
+      "SourceExpressionTypeProjectionFact",
+      "SourceCallArgumentTypesFact",
+      "SourceDeclarationTypeProjectionFact",
+      "sourceBindingTypeProjectionFactKey",
+      "sourceTypeProjectionFactKey",
+      "sourceExpressionTypeProjectionFactKey",
+      "sourceCallArgumentTypesFactKey",
+      "sourceDeclarationTypeProjectionFactKey",
+    ] as const;
+
+    const offenders = bannedPublicProjectionNames.filter((name) =>
+      sourceFrontendIndex.includes(name)
     );
 
     expect(offenders).to.deep.equal([]);
@@ -383,6 +413,14 @@ describe("source semantic boundary", () => {
       "receiverTypeSubstitutionsForCall",
       "explicitSignatureTypeSubstitutionsForCall",
       "signatureTypeSubstitutionsForCall",
+      "signatureTypeParameterSubstitutions",
+      "receiverTypeArgumentsForOwner",
+      "namedProjectionForGenericOwner",
+      "inferTypeParameterSubstitutionsFromProjection",
+      "inferConditionalPatternSubstitutions",
+      "conditionalTypeProjection",
+      "mappedTypeProjection",
+      "mappedMemberTypeProjection",
       "findNamedProjectedTypeForDeclaration",
       "for storage lowering",
     ] as const;

@@ -240,7 +240,9 @@ export type LoweringBindingElementPlan = {
   readonly bindingId?: string;
   readonly name: string;
   readonly type?: LoweringTypeRefPlan;
+  readonly storageType?: LoweringTypeRefPlan;
   readonly accessPath: readonly LoweringBindingAccessPlan[];
+  readonly restExcludes?: readonly string[];
   readonly initializer?: LoweringExpressionPlan;
 };
 

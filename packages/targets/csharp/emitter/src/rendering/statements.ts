@@ -129,6 +129,9 @@ const jsConstructorInstanceType = (
       }
     : undefined;
 
+const hasRuntimeUnionCarrier = (type: LoweringTypeRefPlan | undefined): boolean =>
+  runtimeUnionCarrierArms(type).length > 1;
+
 const renderInstanceofNarrowingCondition = (
   condition: LoweringStatementPlan["condition"],
   context: RenderContext
@@ -151,8 +154,15 @@ const renderInstanceofNarrowingCondition = (
   const sourceName = condition.left.name ?? condition.left.literalText;
   if (!sourceName) return undefined;
   const target = condition.right?.storageTypePlan ?? condition.right?.type;
+  const leftAliasType =
+    (condition.left.bindingId
+      ? context.currentIdentifierBindingAliasTypes?.get(condition.left.bindingId)
+      : undefined) ?? context.currentIdentifierAliasTypes?.get(sourceName);
+  const leftCarrier = leftAliasType
+    ? hasRuntimeUnionCarrier(leftAliasType)
+    : hasRuntimeUnionCarrier(condition.left.storageTypePlan ?? condition.left.type);
   const matchedArm = singleRuntimeUnionInstanceofArm(
-    condition.left.storageTypePlan ?? condition.left.type,
+    leftAliasType ?? condition.left.storageTypePlan ?? condition.left.type,
     target,
     condition.right?.sourceOperation?.dispatch === "constructor"
       ? condition.right.sourceOperation.owner
@@ -178,7 +188,7 @@ const renderInstanceofNarrowingCondition = (
       ? sanitizeTypeName(narrowedType.name)
       : renderCSharpType(narrowedType, context);
   const leftExpression = renderExpression(condition.left, context);
-  const conditionText = matchedArm
+  const conditionText = matchedArm && leftCarrier
     ? `(${leftExpression}.As${matchedArm.index}()) is ${patternType} ${aliasName}`
     : `${leftExpression} is ${patternType} ${aliasName}`;
     return {
@@ -206,26 +216,37 @@ const renderWithIdentifierAlias = (
   aliasType: LoweringTypeRefPlan,
   render: () => string
 ): string => {
-  const previous = context.currentDefaultedParameters;
-  const previousBindingNames = context.currentBindingNames;
+  const previousReadNames = context.currentIdentifierReadNames;
+  const previousReadBindingNames = context.currentIdentifierReadBindingNames;
   const previousAliasTypes = context.currentIdentifierAliasTypes;
-  context.currentDefaultedParameters = new Map([
-    ...(previous?.entries() ?? []),
+  const previousBindingAliasTypes = context.currentIdentifierBindingAliasTypes;
+  context.currentIdentifierReadNames = new Map([
+    ...(previousReadNames?.entries() ?? []),
     [sourceName, aliasName],
   ]);
-  context.currentBindingNames = sourceBindingId
-    ? new Map([...(previousBindingNames?.entries() ?? []), [sourceBindingId, aliasName]])
-    : previousBindingNames;
+  context.currentIdentifierReadBindingNames = sourceBindingId
+    ? new Map([
+        ...(previousReadBindingNames?.entries() ?? []),
+        [sourceBindingId, aliasName],
+      ])
+    : previousReadBindingNames;
   context.currentIdentifierAliasTypes = new Map([
     ...(previousAliasTypes?.entries() ?? []),
     [sourceName, aliasType],
   ]);
+  context.currentIdentifierBindingAliasTypes = sourceBindingId
+    ? new Map([
+        ...(previousBindingAliasTypes?.entries() ?? []),
+        [sourceBindingId, aliasType],
+      ])
+    : previousBindingAliasTypes;
   try {
     return render();
   } finally {
-    context.currentDefaultedParameters = previous;
-    context.currentBindingNames = previousBindingNames;
+    context.currentIdentifierReadNames = previousReadNames;
+    context.currentIdentifierReadBindingNames = previousReadBindingNames;
     context.currentIdentifierAliasTypes = previousAliasTypes;
+    context.currentIdentifierBindingAliasTypes = previousBindingAliasTypes;
   }
 };
 
@@ -260,9 +281,23 @@ const tupleBindingType = (
 const renderBindingAccess = (
   rootName: string,
   accessPath: readonly LoweringBindingAccessPlan[],
+  rootStorageType?: LoweringTypeRefPlan,
   rootType?: LoweringTypeRefPlan
 ): string => {
-  let currentType = rootType;
+  let currentStorageType = rootStorageType;
+  let currentType = rootType ?? rootStorageType;
+  let currentDictionaryCarrier =
+    unwrapAliasTarget(rootStorageType)?.kind === "record";
+  const dictionaryValueAccess = (
+    current: string,
+    key: string,
+    direct: boolean
+  ): string => {
+    const escapedKey = key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return direct
+      ? `${current}["${escapedKey}"]`
+      : `((global::System.Collections.Generic.Dictionary<string, object?>)(${current}))["${escapedKey}"]`;
+  };
   return accessPath.reduce((current, access) => {
     switch (access.kind) {
       case "element": {
@@ -270,18 +305,30 @@ const renderBindingAccess = (
         if (tuple?.type.kind === "tuple") {
           const nextType = tuple.type.elements[access.index];
           currentType = nextType;
+          currentStorageType = nextType;
+          currentDictionaryCarrier = false;
           return `${current}${tuple.nullable ? ".Value" : ""}.Item${access.index + 1}`;
         }
-        const unwrapped = currentType ? unwrapAliasTarget(currentType) : undefined;
+        const unwrapped = currentStorageType
+          ? unwrapAliasTarget(currentStorageType)
+          : currentType
+            ? unwrapAliasTarget(currentType)
+            : undefined;
         if (unwrapped?.kind === "array") {
+          currentStorageType = unwrapped.elementType;
           currentType = unwrapped.elementType;
         } else {
+          currentStorageType = undefined;
           currentType = undefined;
         }
+        currentDictionaryCarrier = false;
         return `${current}[${access.index}]`;
       }
       case "property": {
         const unwrapped = currentType ? unwrapAliasTarget(currentType) : undefined;
+        const unwrappedStorage = currentStorageType
+          ? unwrapAliasTarget(currentStorageType)
+          : undefined;
         const matchingMembers =
           unwrapped?.kind === "object"
             ? unwrapped.members.filter(
@@ -292,13 +339,64 @@ const renderBindingAccess = (
         const member =
           matchingMembers.length === 1 ? matchingMembers[0] : undefined;
         currentType = member?.kind === "property" ? member.type : undefined;
-        return `${current}.${sanitizeIdentifier(access.name)}`;
+        const dictionaryCarrier =
+          currentDictionaryCarrier || unwrappedStorage?.kind === "record";
+        currentStorageType =
+          unwrappedStorage?.kind === "record"
+            ? unwrappedStorage.valueType
+            : currentType;
+        currentDictionaryCarrier =
+          dictionaryCarrier &&
+          (unwrapAliasTarget(currentType)?.kind === "object" ||
+            unwrapAliasTarget(currentType)?.kind === "record");
+        return dictionaryCarrier
+          ? dictionaryValueAccess(
+              current,
+              access.name,
+              unwrappedStorage?.kind === "record"
+            )
+          : `${current}.${sanitizeIdentifier(access.name)}`;
       }
       default:
+        currentStorageType = undefined;
         currentType = undefined;
+        currentDictionaryCarrier = false;
         return current;
     }
   }, rootName);
+};
+
+const stringTypePlan: LoweringTypeRefPlan = {
+  kind: "intrinsic",
+  name: "string",
+};
+
+const objectTypePlan: LoweringTypeRefPlan = {
+  kind: "intrinsic",
+  name: "object",
+};
+
+const dictionaryStorageTypePlan = (): LoweringTypeRefPlan => ({
+  kind: "record",
+  keyType: stringTypePlan,
+  valueType: objectTypePlan,
+});
+
+const renderObjectRestBinding = (
+  access: string,
+  excludeProperties: readonly string[]
+): string => {
+  const dictionary = `((global::System.Collections.Generic.Dictionary<string, object?>)(${access}))`;
+  if (excludeProperties.length === 0) {
+    return `new global::System.Collections.Generic.Dictionary<string, object?>(${dictionary})`;
+  }
+  const predicate = excludeProperties
+    .map(
+      (name) =>
+        `__tsonic_kvp.Key != "${name.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+    )
+    .join(" && ");
+  return `global::System.Linq.Enumerable.ToDictionary(global::System.Linq.Enumerable.Where(${dictionary}, __tsonic_kvp => ${predicate}), __tsonic_kvp => __tsonic_kvp.Key, __tsonic_kvp => __tsonic_kvp.Value)`;
 };
 
 const renderBindingInitializer = (
@@ -320,17 +418,36 @@ const renderBindingInitializer = (
 const renderBindingElementDeclaration = (
   binding: LoweringVariablePlan["bindingElements"][number],
   rootName: string,
+  rootStorageType: LoweringTypeRefPlan | undefined,
   rootType: LoweringTypeRefPlan | undefined,
-  context: RenderContext
+  context: RenderContext,
+  declare = true
 ): string => {
-  const bindingType = binding.type
-    ? renderCSharpType(binding.type, context)
+  const bindingStorageType = binding.storageType ?? binding.type;
+  const bindingType = bindingStorageType
+    ? renderCSharpType(bindingStorageType, context)
     : "var";
-  return `${bindingType} ${renderBindingName(binding.name, binding.bindingId, context)} = ${renderBindingInitializer(
-    renderBindingAccess(rootName, binding.accessPath, rootType),
-    binding.type,
-    context
-  )};`;
+  const access = renderBindingAccess(
+    rootName,
+    binding.accessPath,
+    rootStorageType,
+    rootType
+  );
+  const restValue =
+    binding.restExcludes !== undefined
+      ? renderObjectRestBinding(access, binding.restExcludes)
+      : undefined;
+  const value = restValue
+    ? renderBindingInitializer(restValue, bindingStorageType, context)
+    : binding.initializer
+    ? `((object?)(${access}) == null ? ${renderExpressionWithUseSiteCast(
+        binding.initializer,
+        context,
+        bindingStorageType
+      )} : ${renderBindingInitializer(access, bindingStorageType, context)})`
+    : renderBindingInitializer(access, bindingStorageType, context);
+  const name = renderBindingName(binding.name, binding.bindingId, context);
+  return declare ? `${bindingType} ${name} = ${value};` : `${name} = ${value};`;
 };
 
 const variableFunctionExpressionType = (
@@ -556,6 +673,47 @@ export const renderStaticField = (
   return `public static ${type} ${sanitizeIdentifier(declaration.name)}${initializer};`;
 };
 
+export const renderStaticFieldDeclaration = (
+  declaration: LoweringVariablePlan,
+  context: RenderContext
+): string => {
+  if (declaration.compileTimeOnly) return "";
+  if (
+    isFunctionExpressionPlan(declaration.initializer) &&
+    isGenericFunctionExpression(declaration.initializer)
+  ) {
+    return renderFunctionExpressionMethodDeclaration(
+      declaration.name,
+      declaration.initializer,
+      context,
+      "public static "
+    );
+  }
+  const type = variableRenderType(
+    {
+      ...declaration,
+      initializer: undefined,
+      bindingElements: [],
+      type: declaration.storageType ?? declaration.type,
+    },
+    context,
+    "object?"
+  );
+  return `public static ${type} ${sanitizeIdentifier(declaration.name)} = default!;`;
+};
+
+const bindingRootStorageType = (
+  declaration: LoweringVariablePlan
+): LoweringTypeRefPlan | undefined => {
+  if (declaration.initializer?.expressionKind !== "object-literal") {
+    return undefined;
+  }
+  const bindingTarget = declaration.type ?? declaration.storageType;
+  return isOpaqueRuntimeTypePlan(bindingTarget)
+    ? dictionaryStorageTypePlan()
+    : undefined;
+};
+
 const renderBlockLike = (
   statements: readonly LoweringStatementPlan[],
   context: RenderContext
@@ -756,6 +914,13 @@ const renderVariableStatement = (
         return [];
       }
       if (declaration.bindingElements.length === 0) {
+        if (
+          context.currentTopLevelBody &&
+          isFunctionExpressionPlan(declaration.initializer) &&
+          isGenericFunctionExpression(declaration.initializer)
+        ) {
+          return [];
+        }
         const yieldInitializer = generatorYieldExpression(
           declaration.initializer
         );
@@ -787,6 +952,24 @@ const renderVariableStatement = (
             )};`,
           ];
         }
+        if (context.currentTopLevelBody) {
+          const name = renderBindingName(
+            declaration.name,
+            declaration.bindingId,
+            context
+          );
+          return [
+            `${name} = ${
+              declaration.initializer
+                ? renderExpressionWithUseSiteCast(
+                    declaration.initializer,
+                    context,
+                    declaration.type ?? declaration.storageType
+                  )
+                : "default!"
+            };`,
+          ];
+        }
         return [`${renderVariableFragment(declaration, context)};`];
       }
       if (!declaration.initializer) {
@@ -806,24 +989,21 @@ const renderVariableStatement = (
         )};`,
       ];
       const rootType =
+        declaration.type ?? declaration.initializer.type ?? declaration.storageType;
+      const rootStorageType =
+        bindingRootStorageType(declaration) ??
         declaration.initializer.storageTypePlan ??
         declaration.storageType ??
         declaration.initializer.type;
       for (const binding of declaration.bindingElements) {
-        if (binding.initializer) {
-          context.reportUnsupported(
-            "binding pattern default initializer",
-            "BindingElement",
-            binding.name
-          );
-          continue;
-        }
         lines.push(
           renderBindingElementDeclaration(
             binding,
             tempName,
+            rootStorageType,
             rootType,
-            context
+            context,
+            context.currentTopLevelBody !== true
           )
         );
       }
@@ -1078,11 +1258,13 @@ export const renderStatement = (
       if (!declaration) return unsupportedStatement(context, plan);
       if (declaration.bindingElements.length > 0) {
         const tempName = context.allocateTempName("binding");
-        const rootType = declaration.storageType ?? declaration.type;
+        const rootType = declaration.type ?? declaration.storageType;
+        const rootStorageType = declaration.storageType ?? declaration.type;
         const bindingLines = declaration.bindingElements.map((binding) =>
           renderBindingElementDeclaration(
             binding,
             tempName,
+            rootStorageType,
             rootType,
             context
           )
@@ -1223,8 +1405,15 @@ export const renderFunctionBody = (
 export const renderTopLevelBody = (
   statements: readonly LoweringStatementPlan[],
   context: RenderContext
-): string =>
-  renderBlockLike(
-    statements.filter((statement) => statement.statementKind !== "declaration"),
-    context
-  );
+): string => {
+  const previousTopLevelBody = context.currentTopLevelBody;
+  context.currentTopLevelBody = true;
+  try {
+    return renderBlockLike(
+      statements.filter((statement) => statement.statementKind !== "declaration"),
+      context
+    );
+  } finally {
+    context.currentTopLevelBody = previousTopLevelBody;
+  }
+};

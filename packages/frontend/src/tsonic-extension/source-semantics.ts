@@ -942,6 +942,9 @@ const sourceRuntimeOperation = (
     if (computedName === "symbol-to-string-tag") {
       return { owner: "Object", member: "toStringTag", dispatch: "property" };
     }
+    if (isIdentifierNamed(receiver, "arguments")) {
+      return { owner: "Arguments", member: "element", dispatch: "index" };
+    }
     const receiverType =
       context.checker.getNarrowedTypeAtLocation(receiver) ??
       context.checker.getTypeAtLocation(receiver);
@@ -1007,6 +1010,10 @@ const sourceRuntimeOperation = (
   const receiver = TstsSyntax.Node_Expression(node);
   const memberName = getTstsIdentifierText(TstsSyntax.Node_Name(node));
   if (!memberName) return undefined;
+
+  if (memberName === "length" && isIdentifierNamed(receiver, "arguments")) {
+    return { owner: "Arguments", member: "length", dispatch: "property" };
+  }
 
   if (
     isAmbientGlobalIdentifier(
@@ -1865,380 +1872,6 @@ const functionLikeReturnTypeNode = (
   );
 };
 
-const objectMembersFromProjectedType = (
-  context: CheckedContext,
-  type: SourceBindingProjectedType | undefined,
-  seen: Set<TstsNode>,
-  checkerState: CheckerTypeProjectionState
-): readonly SourceBindingProjectedObjectMember[] => {
-  if (type?.kind === "object") return type.members;
-  if (type?.kind === "named" && type.aliasTarget?.kind === "object") {
-    return type.aliasTarget.members;
-  }
-  if (
-    type?.kind === "named" &&
-    (type.declarationKind === "interface" || type.declarationKind === "class") &&
-    type.declaration
-  ) {
-    const substitutions = new Map<string, SourceBindingProjectedType>();
-    sourceTypeParameterNames(type.declaration).forEach((parameter, index) => {
-      const argument = type.typeArguments[index];
-      if (argument) substitutions.set(parameter, argument);
-    });
-    return (TstsSyntax.Node_Members(type.declaration) ?? [])
-      .filter((member): member is TstsNode => member !== undefined)
-      .map((member) => ({
-        name: sourcePropertyNameText(TstsSyntax.Node_Name(member)) ?? "",
-        optional: TstsSyntax.Node_QuestionToken(member) !== undefined,
-        type: projectedTypeFromMemberDeclaration(
-          context,
-          member,
-          substitutions,
-          seen,
-          checkerState
-        ),
-      }))
-      .filter((member) => member.name.length > 0);
-  }
-  return [];
-};
-
-const mappedTypeKeyofSourceName = (
-  mapped: ReturnType<typeof TstsSyntax.AsMappedTypeNode>
-): string | undefined => {
-  const typeParameter = mapped?.TypeParameter;
-  const constraint = TstsSyntax.AsTypeOperatorNode(
-    TstsSyntax.AsTypeParameterDeclaration(typeParameter)?.Constraint
-  );
-  if (constraint?.Operator !== TstsSyntax.KindKeyOfKeyword) return undefined;
-  return (
-    sourceTypeReferenceDetails(constraint.Type)?.name ??
-    getTstsIdentifierText(constraint.Type)
-  );
-};
-
-const mappedIndexedAccessMemberType = (
-  typeNode: TstsNode | undefined,
-  sourceTypeName: string,
-  keyTypeName: string,
-  member: SourceBindingProjectedObjectMember
-): SourceBindingProjectedType | undefined => {
-  const indexed = TstsSyntax.AsIndexedAccessTypeNode(typeNode);
-  if (!indexed) return undefined;
-  const objectReference = sourceTypeReferenceDetails(indexed.ObjectType);
-  const indexReference = sourceTypeReferenceDetails(indexed.IndexType);
-  const objectName =
-    objectReference?.name ?? getTstsIdentifierText(indexed.ObjectType);
-  const indexName =
-    indexReference?.name ?? getTstsIdentifierText(indexed.IndexType);
-  return objectName === sourceTypeName && indexName === keyTypeName
-    ? member.type
-    : undefined;
-};
-
-const mappedMemberTypeProjection = (
-  context: CheckedContext,
-  typeNode: TstsNode | undefined,
-  sourceTypeName: string,
-  keyTypeName: string,
-  member: SourceBindingProjectedObjectMember,
-  substitutions: SourceTypeSubstitutionMap,
-  seen: Set<TstsNode>,
-  checkerState: CheckerTypeProjectionState
-): SourceBindingProjectedType | undefined => {
-  const direct = mappedIndexedAccessMemberType(
-    typeNode,
-    sourceTypeName,
-    keyTypeName,
-    member
-  );
-  if (direct) return direct;
-  if (typeNode?.Kind === TstsSyntax.KindUnionType) {
-    const union = TstsSyntax.AsUnionTypeNode(typeNode);
-    return combinedProjectedType(
-      "union",
-      (union?.Types?.Nodes ?? []).map((part) =>
-        mappedMemberTypeProjection(
-          context,
-          part,
-          sourceTypeName,
-          keyTypeName,
-          member,
-          substitutions,
-          seen,
-          checkerState
-        )
-      ),
-      typeNode
-    );
-  }
-  return projectedTypeFromTypeNode(
-    context,
-    typeNode,
-    substitutions,
-    seen,
-    checkerState
-  );
-};
-
-const mappedTypeProjection = (
-  context: CheckedContext,
-  node: TstsNode,
-  substitutions: SourceTypeSubstitutionMap,
-  seen: Set<TstsNode>,
-  checkerState: CheckerTypeProjectionState
-): SourceBindingProjectedType | undefined => {
-  const mapped = TstsSyntax.AsMappedTypeNode(node);
-  if (!mapped) return undefined;
-  const sourceTypeName = mappedTypeKeyofSourceName(mapped);
-  const keyTypeName = getTstsNodeNameText(mapped.TypeParameter);
-  if (!sourceTypeName || !keyTypeName) return undefined;
-  const sourceMembers = objectMembersFromProjectedType(
-    context,
-    substitutions.get(sourceTypeName),
-    seen,
-    checkerState
-  );
-  if (sourceMembers.length === 0) return undefined;
-  return {
-    kind: "object",
-    members: sourceMembers.map((member) => ({
-      name: member.name,
-      optional:
-        mapped.QuestionToken !== undefined ||
-        (mapped.QuestionToken === undefined && member.optional),
-      type: mappedMemberTypeProjection(
-        context,
-        mapped.Type,
-        sourceTypeName,
-        keyTypeName,
-        member,
-        substitutions,
-        seen,
-        checkerState
-      ),
-    })),
-    sourceNode: node,
-  };
-};
-
-const projectionKeysMatch = (
-  left: SourceBindingProjectedType | undefined,
-  right: SourceBindingProjectedType | undefined
-): boolean =>
-  left !== undefined &&
-  right !== undefined &&
-  projectedTypeKey(left) === projectedTypeKey(right);
-
-const typeNodeContainsInfer = (node: TstsNode | undefined): boolean => {
-  if (!node) return false;
-  if (node.Kind === TstsSyntax.KindInferType) return true;
-  let found = false;
-  visitTstsSubtree(node, (current) => {
-    if (current?.Kind === TstsSyntax.KindInferType) {
-      found = true;
-    }
-  });
-  return found;
-};
-
-const mergeInferredConditionalProjection = (
-  substitutions: Map<string, SourceBindingProjectedType>,
-  name: string,
-  type: SourceBindingProjectedType
-): boolean => {
-  const existing = substitutions.get(name);
-  if (existing && !projectionKeysMatch(existing, type)) return false;
-  substitutions.set(name, type);
-  return true;
-};
-
-const inferConditionalPatternSubstitutions = (
-  context: CheckedContext,
-  pattern: TstsNode | undefined,
-  actual: SourceBindingProjectedType | undefined,
-  substitutions: Map<string, SourceBindingProjectedType>,
-  seen: Set<TstsNode>,
-  checkerState: CheckerTypeProjectionState
-): boolean => {
-  if (!pattern || !actual) return false;
-  if (pattern.Kind === TstsSyntax.KindParenthesizedType) {
-    return inferConditionalPatternSubstitutions(
-      context,
-      TstsSyntax.AsParenthesizedTypeNode(pattern)?.Type,
-      actual,
-      substitutions,
-      seen,
-      checkerState
-    );
-  }
-  if (pattern.Kind === TstsSyntax.KindInferType) {
-    const typeParameter = TstsSyntax.AsInferTypeNode(pattern)?.TypeParameter;
-    const name = getTstsIdentifierText(TstsSyntax.Node_Name(typeParameter));
-    return name
-      ? mergeInferredConditionalProjection(substitutions, name, actual)
-      : false;
-  }
-  if (pattern.Kind === TstsSyntax.KindArrayType) {
-    const elementType =
-      actual.kind === "array" || actual.kind === "tuple"
-        ? actual.kind === "array"
-          ? actual.elementType
-          : actual.elements[0]
-        : undefined;
-    return inferConditionalPatternSubstitutions(
-      context,
-      TstsSyntax.AsArrayTypeNode(pattern)?.ElementType,
-      elementType,
-      substitutions,
-      seen,
-      checkerState
-    );
-  }
-  if (pattern.Kind === TstsSyntax.KindTupleType) {
-    if (actual.kind !== "tuple") return false;
-    const patternElements = TstsSyntax.AsTupleTypeNode(pattern)?.Elements?.Nodes ?? [];
-    if (patternElements.length !== actual.elements.length) return false;
-    return patternElements.every((element, index) =>
-      inferConditionalPatternSubstitutions(
-        context,
-        TstsSyntax.Node_Type(element) ?? element,
-        actual.elements[index],
-        substitutions,
-        seen,
-        checkerState
-      )
-    );
-  }
-  const typeReference = sourceTypeReferenceDetails(pattern);
-  if (typeReference) {
-    if (
-      (typeReference.name === "Array" || typeReference.name === "ReadonlyArray") &&
-      typeReference.typeArguments.length === 1 &&
-      actual.kind === "array"
-    ) {
-      return inferConditionalPatternSubstitutions(
-        context,
-        typeReference.typeArguments[0],
-        actual.elementType,
-        substitutions,
-        seen,
-        checkerState
-      );
-    }
-    const actualNamed = actual.kind === "named" ? actual : undefined;
-    if (actualNamed?.name !== typeReference.name) {
-      return actualNamed?.aliasTarget
-        ? inferConditionalPatternSubstitutions(
-            context,
-            pattern,
-            actualNamed.aliasTarget,
-            substitutions,
-            seen,
-            checkerState
-          )
-        : false;
-    }
-    if (typeReference.typeArguments.length !== actualNamed.typeArguments.length) {
-      return false;
-    }
-    return typeReference.typeArguments.every((argument, index) =>
-      inferConditionalPatternSubstitutions(
-        context,
-        argument,
-        actualNamed.typeArguments[index],
-        substitutions,
-        seen,
-        checkerState
-      )
-    );
-  }
-  if (typeNodeContainsInfer(pattern)) return false;
-  return projectionKeysMatch(
-    projectedTypeFromTypeNode(
-      context,
-      pattern,
-      substitutions,
-      seen,
-      checkerState
-    ),
-    actual
-  );
-};
-
-const conditionalTypeProjection = (
-  context: CheckedContext,
-  node: TstsNode,
-  substitutions: SourceTypeSubstitutionMap,
-  seen: Set<TstsNode>,
-  checkerState: CheckerTypeProjectionState
-): SourceBindingProjectedType | undefined => {
-  const conditional = TstsSyntax.AsConditionalTypeNode(node);
-  if (!conditional) return undefined;
-  const checkProjection = projectedTypeFromTypeNode(
-    context,
-    conditional.CheckType,
-    substitutions,
-    seen,
-    checkerState
-  );
-  if (!checkProjection) {
-    return checkerTypeProjection(
-      context,
-      context.checker.getTypeFromTypeNode(node),
-      checkerState
-    );
-  }
-  const trueSubstitutions = new Map(substitutions);
-  const matched = inferConditionalPatternSubstitutions(
-    context,
-    conditional.ExtendsType,
-    checkProjection,
-    trueSubstitutions,
-    seen,
-    checkerState
-  );
-  if (matched) {
-    return projectedTypeFromTypeNode(
-      context,
-      conditional.TrueType,
-      trueSubstitutions,
-      seen,
-      checkerState
-    );
-  }
-  if (!typeNodeContainsInfer(conditional.ExtendsType)) {
-    const extendsProjection = projectedTypeFromTypeNode(
-      context,
-      conditional.ExtendsType,
-      substitutions,
-      seen,
-      checkerState
-    );
-    if (projectionKeysMatch(checkProjection, extendsProjection)) {
-      return projectedTypeFromTypeNode(
-        context,
-        conditional.TrueType,
-        substitutions,
-        seen,
-        checkerState
-      );
-    }
-    return projectedTypeFromTypeNode(
-      context,
-      conditional.FalseType,
-      substitutions,
-      seen,
-      checkerState
-    );
-  }
-  return checkerTypeProjection(
-    context,
-    context.checker.getTypeFromTypeNode(node),
-    checkerState
-  );
-};
-
 const projectedTypeFromTypeNode = (
   context: CheckedContext,
   node: TstsNode | undefined,
@@ -2435,13 +2068,6 @@ const projectedTypeFromTypeNode = (
         };
       case TstsSyntax.KindMappedType:
         return (
-          mappedTypeProjection(
-            context,
-            node,
-            substitutions,
-            seen,
-            checkerState
-          ) ??
           checkerObjectProjection(
             context,
             context.checker.getTypeFromTypeNode(node),
@@ -2465,11 +2091,9 @@ const projectedTypeFromTypeNode = (
           checkerState
         );
       case TstsSyntax.KindConditionalType:
-        return conditionalTypeProjection(
+        return checkerTypeProjection(
           context,
-          node,
-          substitutions,
-          seen,
+          context.checker.getTypeFromTypeNode(node),
           checkerState
         );
       default:
@@ -3131,7 +2755,6 @@ const projectedNamedTypeFromTypeReference = (
         context,
         declaration,
         runtimeType,
-        typeArguments,
         checkerState
       ) ??
       checkerTypeAliasTargetProjection(
@@ -3355,7 +2978,6 @@ const mappedTypeAliasTargetProjection = (
   context: CheckedContext,
   declaration: TstsNode | undefined,
   runtimeType: TstsType | undefined,
-  typeArguments: readonly SourceBindingProjectedType[],
   state: CheckerTypeProjectionState
 ): SourceBindingProjectedType | undefined => {
   if (declaration?.Kind !== TstsSyntax.KindTypeAliasDeclaration) {
@@ -3363,15 +2985,7 @@ const mappedTypeAliasTargetProjection = (
   }
   const target = TstsSyntax.Node_Type(declaration);
   if (target?.Kind !== TstsSyntax.KindMappedType) return undefined;
-  const substitutions = new Map<string, SourceBindingProjectedType>();
-  sourceTypeParameterNames(declaration).forEach((parameter, index) => {
-    const argument = typeArguments[index];
-    if (argument) substitutions.set(parameter, argument);
-  });
-  return (
-    mappedTypeProjection(context, target, substitutions, new Set(), state) ??
-    checkerObjectProjection(context, runtimeType, state)
-  );
+  return checkerObjectProjection(context, runtimeType, state);
 };
 
 const checkerObjectProjection = (
@@ -3483,6 +3097,20 @@ const checkerTypeProjection = (
         : undefined;
     }
 
+    const symbol = checker.getTypeAliasOrSymbol(type);
+    const declaration = projectedTypeDeclarationForSymbol(context, symbol);
+    const aliasName = checker.getTypeAliasSymbolName(type);
+    const sourcePrimitiveFact = aliasName
+      ? getSourcePrimitiveFact(aliasName)
+      : undefined;
+    if (sourcePrimitiveFact) {
+      return {
+        kind: "source-primitive",
+        fact: sourcePrimitiveFact,
+        sourceNode: declaration,
+      };
+    }
+
     if (checker.isAnyType(type)) return intrinsicProjection("any");
     if (checker.isUnknownType(type)) return intrinsicProjection("unknown");
     if (checker.isVoidType(type)) return intrinsicProjection("void");
@@ -3500,10 +3128,8 @@ const checkerTypeProjection = (
       return checkerSignatureProjection(context, signature, state);
     }
 
-    const symbol = checker.getTypeAliasOrSymbol(type);
-    const declaration = projectedTypeDeclarationForSymbol(context, symbol);
     const name =
-      checker.getTypeAliasSymbolName(type) ??
+      aliasName ??
       checker.getTypeSymbolName(type) ??
       (symbol ? checker.getSymbolName(symbol) : undefined);
     if (name) {
@@ -3552,7 +3178,6 @@ const checkerTypeProjection = (
             context,
             declaration,
             type,
-            typeArguments,
             state
           ) ??
           checkerTypeAliasTargetProjection(
@@ -3670,213 +3295,6 @@ const containsUnsubstitutedTypeParameterProjection = (
     case "intrinsic":
       return false;
   }
-};
-
-const setInferredTypeParameterSubstitution = (
-  substitutions: Map<string, SourceBindingProjectedType>,
-  parameterNames: ReadonlySet<string>,
-  parameterName: string,
-  actual: SourceBindingProjectedType
-): void => {
-  if (!parameterNames.has(parameterName)) return;
-  const existing = substitutions.get(parameterName);
-  if (existing && projectedTypeKey(existing) !== projectedTypeKey(actual)) return;
-  substitutions.set(parameterName, actual);
-};
-
-const projectedNamedTypesMatchForInference = (
-  declared: Extract<SourceBindingProjectedType, { readonly kind: "named" }>,
-  actual: Extract<SourceBindingProjectedType, { readonly kind: "named" }>
-): boolean =>
-  declared.name === actual.name ||
-  (declared.runtimeTypeOwner !== undefined &&
-    declared.runtimeTypeOwner === actual.runtimeTypeOwner) ||
-  (declared.declaration !== undefined && declared.declaration === actual.declaration);
-
-const inferTypeParameterSubstitutionsFromProjection = (
-  substitutions: Map<string, SourceBindingProjectedType>,
-  parameterNames: ReadonlySet<string>,
-  declared: SourceBindingProjectedType | undefined,
-  actual: SourceBindingProjectedType | undefined,
-  seen: ReadonlySet<string> = new Set()
-): void => {
-  if (!declared || !actual) return;
-  const key = `${projectedTypeKey(declared)}=>${projectedTypeKey(actual)}`;
-  if (seen.has(key)) return;
-  const nextSeen = new Set(seen);
-  nextSeen.add(key);
-  if (declared.kind === "named" && declared.declarationKind === "type-parameter") {
-    setInferredTypeParameterSubstitution(
-      substitutions,
-      parameterNames,
-      declared.name,
-      actual
-    );
-    return;
-  }
-  switch (declared.kind) {
-    case "named":
-      if (actual.kind === "named") {
-        if (projectedNamedTypesMatchForInference(declared, actual)) {
-          declared.typeArguments.forEach((declaredArgument, index) =>
-            inferTypeParameterSubstitutionsFromProjection(
-              substitutions,
-              parameterNames,
-              declaredArgument,
-              actual.typeArguments[index],
-              nextSeen
-            )
-          );
-        }
-        inferTypeParameterSubstitutionsFromProjection(
-          substitutions,
-          parameterNames,
-          declared.aliasTarget,
-          actual.aliasTarget,
-          nextSeen
-        );
-      }
-      break;
-    case "array":
-      if (actual.kind === "array") {
-        inferTypeParameterSubstitutionsFromProjection(
-          substitutions,
-          parameterNames,
-          declared.elementType,
-          actual.elementType,
-          nextSeen
-        );
-      }
-      break;
-    case "tuple":
-      if (actual.kind === "tuple") {
-        declared.elements.forEach((declaredElement, index) =>
-          inferTypeParameterSubstitutionsFromProjection(
-            substitutions,
-            parameterNames,
-            declaredElement,
-            actual.elements[index],
-            nextSeen
-          )
-        );
-      }
-      break;
-    case "record":
-      if (actual.kind === "record") {
-        inferTypeParameterSubstitutionsFromProjection(
-          substitutions,
-          parameterNames,
-          declared.keyType,
-          actual.keyType,
-          nextSeen
-        );
-        inferTypeParameterSubstitutionsFromProjection(
-          substitutions,
-          parameterNames,
-          declared.valueType,
-          actual.valueType,
-          nextSeen
-        );
-      }
-      break;
-    case "function":
-      if (actual.kind === "function") {
-        declared.parameters.forEach((declaredParameter, index) =>
-          inferTypeParameterSubstitutionsFromProjection(
-            substitutions,
-            parameterNames,
-            declaredParameter.type,
-            actual.parameters[index]?.type,
-            nextSeen
-          )
-        );
-        inferTypeParameterSubstitutionsFromProjection(
-          substitutions,
-          parameterNames,
-          declared.returnType,
-          actual.returnType,
-          nextSeen
-        );
-      }
-      break;
-    case "union":
-    case "intersection":
-      if (actual.kind === declared.kind && actual.types.length === declared.types.length) {
-        declared.types.forEach((declaredMember, index) =>
-          inferTypeParameterSubstitutionsFromProjection(
-            substitutions,
-            parameterNames,
-            declaredMember,
-            actual.types[index],
-            nextSeen
-          )
-        );
-      }
-      break;
-    case "object":
-      if (actual.kind === "object") {
-        for (const declaredMember of declared.members) {
-          const actualMember = actual.members.find(
-            (member) => member.name === declaredMember.name
-          );
-          inferTypeParameterSubstitutionsFromProjection(
-            substitutions,
-            parameterNames,
-            declaredMember.type,
-            actualMember?.type,
-            nextSeen
-          );
-        }
-      }
-      break;
-    case "source-primitive":
-    case "intrinsic":
-      break;
-  }
-};
-
-const functionProjectionFromType = (
-  type: SourceBindingProjectedType | undefined,
-  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
-): Extract<SourceBindingProjectedType, { readonly kind: "function" }> | undefined => {
-  if (!type || seen.has(type)) return undefined;
-  if (type.kind === "function") return type;
-  if (type.kind !== "named") return undefined;
-  const nextSeen = new Set(seen);
-  nextSeen.add(type);
-  return functionProjectionFromType(type.aliasTarget, nextSeen);
-};
-
-const genericFunctionUseSiteTypeArguments = (
-  sourceType: SourceBindingProjectedType | undefined,
-  targetType: SourceBindingProjectedType | undefined
-): readonly SourceBindingProjectedType[] | undefined => {
-  const sourceFunction = functionProjectionFromType(sourceType);
-  const targetFunction = functionProjectionFromType(targetType);
-  if (
-    !sourceFunction ||
-    !targetFunction ||
-    sourceFunction.typeParameters.length === 0 ||
-    targetFunction.typeParameters.length > 0
-  ) {
-    return undefined;
-  }
-  const substitutions = new Map<string, SourceBindingProjectedType>();
-  inferTypeParameterSubstitutionsFromProjection(
-    substitutions,
-    new Set(sourceFunction.typeParameters),
-    sourceFunction,
-    targetFunction
-  );
-  const typeArguments = sourceFunction.typeParameters.map((name) =>
-    substitutions.get(name)
-  );
-  return typeArguments.every(
-    (typeArgument): typeArgument is SourceBindingProjectedType =>
-      typeArgument !== undefined
-  )
-    ? typeArguments
-    : undefined;
 };
 
 const containsSourcePrimitiveProjection = (
@@ -4619,242 +4037,18 @@ const signatureTargetProjection = (
   return projectedTypeFromTypeNode(context, TstsSyntax.Node_Type(declaration));
 };
 
-const signatureTypeParameterSubstitutions = (
-  context: CheckedContext,
-  declaration: TstsNode | undefined,
-  call: TstsNode,
-  checkerState: CheckerTypeProjectionState,
-  sourceDiagnosticRoots: readonly string[]
-): SourceTypeSubstitutionMap => {
-  const substitutions = new Map<string, SourceBindingProjectedType>();
-  const owner = genericOwnerDeclaration(declaration);
-  const ownerParameterNames = sourceTypeParameterNames(owner);
-  if (owner && ownerParameterNames.length > 0) {
-    const ownerArguments = receiverTypeArgumentsForOwner(
-      context,
-      call,
-      owner,
-      ownerParameterNames.length,
-      sourceDiagnosticRoots
-    );
-    ownerParameterNames.forEach((parameterName, index) => {
-      const argument = ownerArguments[index];
-      if (argument) substitutions.set(parameterName, argument);
-    });
-  }
-
-  const typeParameters = getTstsTypeParameterNodes(declaration);
-  const parameterNames = sourceTypeParameterNames(declaration);
-  const typeArguments = getTstsTypeArguments(call);
-  parameterNames.forEach((parameterName, index) => {
-    const typeArgument = typeArguments[index];
-    const projected = typeArgument
-      ? projectedTypeFromTypeNode(
-          context,
-          typeArgument,
-          emptySourceTypeSubstitutions,
-          new Set(),
-          checkerState
-        )
-      : typeParameterDefaultProjection(
-          context,
-          typeParameters[index],
-          emptySourceTypeSubstitutions,
-          new Set(),
-          checkerState
-        );
-    if (projected) substitutions.set(parameterName, projected);
-  });
-  if (parameterNames.length > 0) {
-    const declaredReturnProjection = projectedTypeFromTypeNode(
-      context,
-      TstsSyntax.Node_Type(declaration),
-      emptySourceTypeSubstitutions,
-      new Set(),
-      checkerState
-    );
-    if (typeArguments.length === 0) {
-      const parent = call.Parent;
-      const contextualReturnProjection = parent
-        ? (sourceContextualProjectionForVariableInitializer(
-            context,
-            call,
-            parent
-          ) ??
-          sourceContextualProjectionForReturnExpression(context, call, parent) ??
-          sourceContextualProjectionForArrowBody(context, call, parent) ??
-          checkerTypeProjection(
-            context,
-            context.checker.getContextualType(call),
-            checkerState
-          ))
-        : checkerTypeProjection(
-            context,
-            context.checker.getContextualType(call),
-            checkerState
-          );
-      inferTypeParameterSubstitutionsFromProjection(
-        substitutions,
-        new Set(parameterNames),
-        declaredReturnProjection,
-        contextualReturnProjection
-      );
-    }
-    const argumentsByIndex = TstsSyntax.Node_Arguments(call) ?? [];
-    getTstsParameters(declaration).forEach((parameter, index) => {
-      const argument = argumentsByIndex[index];
-      const declaredParameterProjection = projectedTypeFromTypeNode(
-        context,
-        getTstsDeclaredTypeNode(parameter),
-        emptySourceTypeSubstitutions,
-        new Set(),
-        checkerState
-      );
-      const actualArgumentProjection = sourceExpressionTypeProjection(
-        context,
-        argument,
-        new Map(),
-        sourceDiagnosticRoots
-      );
-      inferTypeParameterSubstitutionsFromProjection(
-        substitutions,
-        new Set(parameterNames),
-        declaredParameterProjection,
-        actualArgumentProjection
-      );
-    });
-    const actualReturnProjection = checkerTypeProjection(
-      context,
-      context.checker.getTypeAtLocation(call),
-      checkerState
-    );
-    inferTypeParameterSubstitutionsFromProjection(
-      substitutions,
-      new Set(parameterNames),
-      declaredReturnProjection,
-      actualReturnProjection
-    );
-  }
-  return substitutions;
-};
-
-const genericOwnerDeclaration = (
-  declaration: TstsNode | undefined
-): TstsNode | undefined => {
-  for (
-    let owner = declaration?.Parent;
-    owner !== undefined;
-    owner = owner.Parent
-  ) {
-    if (
-      owner.Kind === TstsSyntax.KindClassDeclaration ||
-      owner.Kind === TstsSyntax.KindInterfaceDeclaration ||
-      owner.Kind === TstsSyntax.KindTypeAliasDeclaration
-    ) {
-      return sourceTypeParameterNames(owner).length > 0 ? owner : undefined;
-    }
-  }
-  return undefined;
-};
-
-const callReceiverExpression = (call: TstsNode): TstsNode | undefined => {
-  const callee = TstsSyntax.Node_Expression(call);
-  return callee?.Kind === TstsSyntax.KindPropertyAccessExpression ||
-    callee?.Kind === TstsSyntax.KindElementAccessExpression
-    ? TstsSyntax.Node_Expression(callee)
-    : undefined;
-};
-
-const receiverTypeArgumentsForOwner = (
-  context: CheckedContext,
-  call: TstsNode,
-  owner: TstsNode,
-  parameterCount: number,
-  sourceDiagnosticRoots: readonly string[]
-): readonly SourceBindingProjectedType[] => {
-  const receiver = callReceiverExpression(call);
-  const receiverProjection =
-    sourceExpressionValueProjection(
-      context,
-      receiver,
-      new Map(),
-      new Map(),
-      sourceDiagnosticRoots
-    ) ??
-    sourceExpressionTypeProjection(
-      context,
-      receiver,
-      new Map(),
-      sourceDiagnosticRoots
-    );
-  const ownerName = getTstsNodeNameText(owner);
-  const ownerProjection = namedProjectionForGenericOwner(
-    receiverProjection,
-    ownerName,
-    parameterCount
-  );
-  return ownerProjection?.typeArguments ?? [];
-};
-
-const namedProjectionForGenericOwner = (
-  projection: SourceBindingProjectedType | undefined,
-  ownerName: string | undefined,
-  parameterCount: number,
-  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
-):
-  | Extract<SourceBindingProjectedType, { readonly kind: "named" }>
-  | undefined => {
-  if (!projection) return undefined;
-  if (seen.has(projection)) return undefined;
-  const nextSeen = new Set(seen);
-  nextSeen.add(projection);
-  if (
-    projection.kind === "named" &&
-    projection.typeArguments.length === parameterCount &&
-    (ownerName === undefined || projection.name === ownerName)
-  ) {
-    return projection;
-  }
-  if (projection.kind === "named") {
-    return namedProjectionForGenericOwner(
-      projection.aliasTarget,
-      ownerName,
-      parameterCount,
-      nextSeen
-    );
-  }
-  if (projection.kind !== "intersection") return undefined;
-  const candidates = projection.types.filter(
-    (
-      type
-    ): type is Extract<SourceBindingProjectedType, { readonly kind: "named" }> =>
-      type.kind === "named" &&
-      type.typeArguments.length === parameterCount &&
-      (ownerName === undefined || type.name === ownerName)
-  );
-  return candidates.length === 1 ? candidates[0] : undefined;
-};
-
 const signatureReturnProjection = (
   context: CheckedContext,
   signature: TstsSignature,
   call: TstsNode,
-  checkerState: CheckerTypeProjectionState,
-  sourceDiagnosticRoots: readonly string[]
+  checkerState: CheckerTypeProjectionState
 ): SourceBindingProjectedType | undefined => {
   const declaration = context.checker.getSignatureDeclaration(signature);
   const declaredReturnType = TstsSyntax.Node_Type(declaration);
-  const substitutions = signatureTypeParameterSubstitutions(
-    context,
-    declaration,
-    call,
-    checkerState,
-    sourceDiagnosticRoots
-  );
   const sourceProjection = projectedTypeFromTypeNode(
     context,
     declaredReturnType,
-    substitutions,
+    emptySourceTypeSubstitutions,
     new Set(),
     checkerState
   );
@@ -4872,6 +4066,16 @@ const signatureReturnProjection = (
     : checkerProjection;
 };
 
+const signatureTypeArgumentProjections = (
+  context: CheckedContext,
+  signature: TstsSignature,
+  checkerState: CheckerTypeProjectionState
+): readonly SourceBindingProjectedType[] =>
+  context.checker
+    .getSignatureTypeArguments(signature)
+    .map((type) => checkerTypeProjection(context, type, checkerState))
+    .filter((type): type is SourceBindingProjectedType => type !== undefined);
+
 const callArgumentTypesFact = (
   context: CheckedContext,
   node: TstsNode,
@@ -4880,16 +4084,11 @@ const callArgumentTypesFact = (
   const signature = context.checker.getResolvedSignature(node);
   if (!signature) return undefined;
   const checkerState = createCheckerTypeProjectionState();
-  const declaration = context.checker.getSignatureDeclaration(signature);
-  const substitutions = signatureTypeParameterSubstitutions(
+  const typeArguments = signatureTypeArgumentProjections(
     context,
-    declaration,
-    node,
-    checkerState,
-    sourceDiagnosticRoots
+    signature,
+    checkerState
   );
-  const typeArgumentNames = sourceTypeParameterNames(declaration);
-  const typeArguments = typeArgumentNames.map((name) => substitutions.get(name));
   const args = TstsSyntax.Node_Arguments(node) ?? [];
   return {
     argumentTypes: context.checker
@@ -4917,23 +4116,16 @@ const callArgumentTypesFact = (
           parameter,
           argumentSourceProjection ?? checkerProjection,
           checkerState,
-          substitutions
+          emptySourceTypeSubstitutions
         );
       }),
-    ...(typeArguments.length > 0 &&
-    typeArguments.every(
-      (typeArgument): typeArgument is SourceBindingProjectedType =>
-        typeArgument !== undefined
-    )
-      ? { typeArguments }
-      : {}),
+    ...(typeArguments.length > 0 ? { typeArguments } : {}),
     targetType: signatureTargetProjection(context, signature, node),
     returnType: signatureReturnProjection(
       context,
       signature,
       node,
-      checkerState,
-      sourceDiagnosticRoots
+      checkerState
     ),
   };
 };
@@ -5010,6 +4202,268 @@ const nearestFunctionLikeNodeParent = (
     if (sourceFunctionLikeDeclaration(current)) return current;
   }
   return undefined;
+};
+
+const sourceFunctionDeclarationProjectionFromSyntax = (
+  context: CheckedContext,
+  declaration: TstsNode | undefined,
+  checkerState: CheckerTypeProjectionState = createCheckerTypeProjectionState()
+): SourceBindingProjectedType | undefined => {
+  if (!declaration || !sourceFunctionLikeDeclaration(declaration)) {
+    return undefined;
+  }
+  const signature = context.checker.getSignatureFromDeclaration(declaration);
+  return {
+    kind: "function",
+    parameters: getTstsParameters(declaration)
+      .map((parameter) =>
+        sourceParameterTypeProjection(
+          context,
+          parameter,
+          emptySourceTypeSubstitutions,
+          checkerState
+        )
+      )
+      .filter(
+        (parameter): parameter is SourceParameterTypeProjection =>
+          parameter !== undefined
+      ),
+    returnType:
+      projectedTypeFromTypeNode(
+        context,
+        functionLikeReturnTypeNode(declaration),
+        emptySourceTypeSubstitutions,
+        new Set(),
+        checkerState
+      ) ??
+      (signature
+        ? checkerTypeProjection(
+            context,
+            context.checker.getReturnTypeOfSignature(signature),
+            checkerState
+          )
+        : undefined),
+    typeParameters: sourceTypeParameterNames(declaration),
+    sourceNode: declaration,
+  };
+};
+
+const sourceFunctionDeclarationProjectionForExpression = (
+  context: CheckedContext,
+  expression: TstsNode
+): SourceBindingProjectedType | undefined => {
+  const symbol =
+    expression.Parent?.Kind === TstsSyntax.KindShorthandPropertyAssignment
+      ? context.checker.getShorthandAssignmentValueSymbol(expression.Parent)
+      : context.checker.getSymbolAtLocation(expression);
+  const resolved = symbol ? context.checker.resolveAlias(symbol) : undefined;
+  return sourceFunctionDeclarationProjectionFromSyntax(
+    context,
+    resolved ? context.checker.getSymbolValueDeclaration(resolved) : undefined
+  );
+};
+
+const collectContextualTypeParameterCandidates = (
+  generic: SourceBindingProjectedType | undefined,
+  contextual: SourceBindingProjectedType | undefined,
+  activeTypeParameters: ReadonlySet<string>,
+  candidatesByTypeParameter: Map<string, SourceBindingProjectedType[]>,
+  seen: ReadonlySet<SourceBindingProjectedType> = new Set()
+): void => {
+  if (!generic || !contextual || seen.has(generic)) return;
+  const nextSeen = new Set(seen);
+  nextSeen.add(generic);
+
+  if (
+    generic.kind === "named" &&
+    generic.declarationKind === "type-parameter" &&
+    activeTypeParameters.has(generic.name)
+  ) {
+    const candidates = candidatesByTypeParameter.get(generic.name) ?? [];
+    candidates.push(contextual);
+    candidatesByTypeParameter.set(generic.name, candidates);
+    return;
+  }
+
+  if (generic.kind === "named") {
+    if (generic.aliasTarget) {
+      collectContextualTypeParameterCandidates(
+        generic.aliasTarget,
+        contextual,
+        activeTypeParameters,
+        candidatesByTypeParameter,
+        nextSeen
+      );
+    }
+    const contextualArguments =
+      contextual.kind === "named" ? contextual.typeArguments : [];
+    generic.typeArguments.forEach((argument, index) =>
+      collectContextualTypeParameterCandidates(
+        argument,
+        contextualArguments[index],
+        activeTypeParameters,
+        candidatesByTypeParameter,
+        nextSeen
+      )
+    );
+    return;
+  }
+
+  if (generic.kind === "function" && contextual.kind === "function") {
+    const nestedTypeParameters = new Set(generic.typeParameters);
+    const nextActiveTypeParameters = new Set(
+      [...activeTypeParameters].filter(
+        (typeParameter) => !nestedTypeParameters.has(typeParameter)
+      )
+    );
+    generic.parameters.forEach((parameter, index) =>
+      collectContextualTypeParameterCandidates(
+        parameter.type,
+        contextual.parameters[index]?.type,
+        nextActiveTypeParameters,
+        candidatesByTypeParameter,
+        nextSeen
+      )
+    );
+    collectContextualTypeParameterCandidates(
+      generic.returnType,
+      contextual.returnType,
+      nextActiveTypeParameters,
+      candidatesByTypeParameter,
+      nextSeen
+    );
+    return;
+  }
+
+  if (generic.kind === "array" && contextual.kind === "array") {
+    collectContextualTypeParameterCandidates(
+      generic.elementType,
+      contextual.elementType,
+      activeTypeParameters,
+      candidatesByTypeParameter,
+      nextSeen
+    );
+    return;
+  }
+
+  if (generic.kind === "tuple" && contextual.kind === "tuple") {
+    generic.elements.forEach((element, index) =>
+      collectContextualTypeParameterCandidates(
+        element,
+        contextual.elements[index],
+        activeTypeParameters,
+        candidatesByTypeParameter,
+        nextSeen
+      )
+    );
+    return;
+  }
+
+  if (generic.kind === "record" && contextual.kind === "record") {
+    collectContextualTypeParameterCandidates(
+      generic.keyType,
+      contextual.keyType,
+      activeTypeParameters,
+      candidatesByTypeParameter,
+      nextSeen
+    );
+    collectContextualTypeParameterCandidates(
+      generic.valueType,
+      contextual.valueType,
+      activeTypeParameters,
+      candidatesByTypeParameter,
+      nextSeen
+    );
+    return;
+  }
+
+  if (generic.kind === "object" && contextual.kind === "object") {
+    for (const member of generic.members) {
+      const contextualMember = contextual.members.find(
+        (candidate) => candidate.name === member.name
+      );
+      collectContextualTypeParameterCandidates(
+        member.type,
+        contextualMember?.type,
+        activeTypeParameters,
+        candidatesByTypeParameter,
+        nextSeen
+      );
+    }
+  }
+};
+
+const sourceAliasOverlayForCheckerTypeArgument = (
+  checkerArgument: SourceBindingProjectedType,
+  candidates: readonly SourceBindingProjectedType[]
+): SourceBindingProjectedType | undefined => {
+  const refinedCandidates = uniqueProjectedTypes(
+    candidates
+      .map((candidate) =>
+        refineSourceProjectionByCheckerProjection(candidate, checkerArgument)
+      )
+      .filter(
+        (candidate): candidate is SourceBindingProjectedType =>
+          candidate !== undefined && containsSourcePrimitiveProjection(candidate)
+      )
+  );
+  return refinedCandidates.length === 1 ? refinedCandidates[0] : undefined;
+};
+
+const genericUseSiteTypeArgumentsWithSourceAliases = (
+  context: CheckedContext,
+  node: TstsNode,
+  checkerArguments: readonly SourceBindingProjectedType[],
+  contextualProjection: SourceBindingProjectedType | undefined
+): readonly SourceBindingProjectedType[] => {
+  if (checkerArguments.length === 0 || !contextualProjection) {
+    return checkerArguments;
+  }
+  const genericProjection = sourceFunctionDeclarationProjectionForExpression(
+    context,
+    node
+  );
+  if (
+    genericProjection?.kind !== "function" ||
+    genericProjection.typeParameters.length !== checkerArguments.length
+  ) {
+    return checkerArguments;
+  }
+
+  const candidatesByTypeParameter = new Map<
+    string,
+    SourceBindingProjectedType[]
+  >();
+  const activeTypeParameters = new Set(genericProjection.typeParameters);
+  genericProjection.parameters.forEach((parameter, index) =>
+    collectContextualTypeParameterCandidates(
+      parameter.type,
+      contextualProjection.kind === "function"
+        ? contextualProjection.parameters[index]?.type
+        : undefined,
+      activeTypeParameters,
+      candidatesByTypeParameter
+    )
+  );
+  collectContextualTypeParameterCandidates(
+    genericProjection.returnType,
+    contextualProjection.kind === "function"
+      ? contextualProjection.returnType
+      : undefined,
+    activeTypeParameters,
+    candidatesByTypeParameter
+  );
+
+  return checkerArguments.map((checkerArgument, index) => {
+    const typeParameter = genericProjection.typeParameters[index];
+    if (!typeParameter) return checkerArgument;
+    return (
+      sourceAliasOverlayForCheckerTypeArgument(
+        checkerArgument,
+        candidatesByTypeParameter.get(typeParameter) ?? []
+      ) ?? checkerArgument
+    );
+  });
 };
 
 const sourceObjectContextMemberProjection = (
@@ -5979,12 +5433,22 @@ const setBindingProjectionFactsForName = (
   context: CheckedContext,
   node: TstsNode | undefined,
   rootType: SourceBindingProjectedType,
-  accessPath: readonly SourceBindingAccessSegment[] = []
+  accessPath: readonly SourceBindingAccessSegment[] = [],
+  preferCheckerProjection = false
 ): void => {
   if (!node) return;
   if (node.Kind === TstsSyntax.KindIdentifier) {
-    if (accessPath.length === 0) return;
-    const projected = sourceBindingTypeAtPath(context, rootType, accessPath);
+    const checkerProjected = checkerTypeProjection(
+      context,
+      context.checker.getTypeAtLocation(node)
+    );
+    const pathProjected =
+      accessPath.length > 0
+        ? sourceBindingTypeAtPath(context, rootType, accessPath)
+        : undefined;
+    const projected = preferCheckerProjection
+      ? checkerProjected ?? pathProjected
+      : pathProjected ?? checkerProjected;
     if (projected) {
       context.facts.set(sourceBindingTypeProjectionFactKey, node, {
         type: projected,
@@ -5999,6 +5463,16 @@ const setBindingProjectionFactsForName = (
     if (!elementNode) return;
     const bindingElement = TstsSyntax.AsBindingElement(elementNode);
     const nameNode = TstsSyntax.Node_Name(elementNode);
+    if (bindingElement?.DotDotDotToken !== undefined) {
+      setBindingProjectionFactsForName(
+        context,
+        nameNode,
+        rootType,
+        accessPath,
+        true
+      );
+      return;
+    }
     const propertyName =
       bindingElement?.PropertyName ??
       TstsSyntax.Node_PropertyNameOrName(elementNode);
@@ -6085,14 +5559,44 @@ const isTopLevelStaticValueDeclaration = (declaration: TstsNode): boolean => {
   );
 };
 
+const isTypeBindingDeclaration = (declaration: TstsNode | undefined): boolean => {
+  switch (declaration?.Kind) {
+    case TstsSyntax.KindClassDeclaration:
+    case TstsSyntax.KindEnumDeclaration:
+    case TstsSyntax.KindInterfaceDeclaration:
+    case TstsSyntax.KindTypeAliasDeclaration:
+      return true;
+    default:
+      return false;
+  }
+};
+
+const sourceBindingPreferredDeclaration = (
+  subject: TstsNode | undefined,
+  declarations: readonly (TstsNode | undefined)[]
+): TstsNode | undefined => {
+  if (subject && sourceBindingDeclarationKind(subject) !== undefined) {
+    return subject;
+  }
+  if (
+    subject?.Kind === TstsSyntax.KindTypeReference ||
+    subject?.Kind === TstsSyntax.KindExpressionWithTypeArguments
+  ) {
+    return singleDeclaration(declarations, isTypeBindingDeclaration);
+  }
+  return undefined;
+};
+
 const sourceBindingIdentityFact = (
   context: CheckedContext,
-  symbol: TstsSymbol | undefined
+  symbol: TstsSymbol | undefined,
+  subject: TstsNode | undefined
 ): SourceBindingIdentityFact | undefined => {
   if (!symbol) return undefined;
   const valueDeclaration = context.checker.getSymbolValueDeclaration(symbol);
   const declarations = context.checker.getSymbolDeclarations(symbol);
   const declaration =
+    sourceBindingPreferredDeclaration(subject, declarations) ??
     valueDeclaration ??
     singleDeclaration(
       declarations,
@@ -6145,7 +5649,7 @@ const setSourceBindingIdentityFact = (
   subject: TstsNode,
   symbol: TstsSymbol | undefined
 ): SourceBindingIdentityFact | undefined => {
-  const fact = sourceBindingIdentityFact(context, symbol);
+  const fact = sourceBindingIdentityFact(context, symbol, subject);
   if (fact) {
     context.facts.set(sourceBindingIdentityFactKey, subject, fact);
     setSourceRuntimeVisibilityFact(
@@ -6241,24 +5745,6 @@ const genericTargetDeclarationForSymbol = (
       declaration.Kind === TstsSyntax.KindFunctionDeclaration ||
       (declaration.Kind === TstsSyntax.KindVariableDeclaration &&
         isGenericFunctionNode(TstsSyntax.Node_Initializer(declaration)))
-  );
-};
-
-const genericFunctionSourceProjectionForExpression = (
-  context: CheckedContext,
-  node: TstsNode
-): SourceBindingProjectedType | undefined => {
-  if (!TstsSyntax.IsIdentifier(node)) return undefined;
-  const symbol = symbolForName(context, node);
-  if (!symbol) return undefined;
-  const declaration = genericTargetDeclarationForSymbol(context, symbol);
-  if (!declaration) return undefined;
-  const initializer = TstsSyntax.AsVariableDeclaration(declaration)?.Initializer;
-  return sourceFunctionExpressionProjection(
-    context,
-    initializer && isGenericFunctionNode(initializer)
-      ? initializer
-      : declaration
   );
 };
 
@@ -7429,16 +6915,27 @@ export const createTsonicSourceSemanticsExtension = (
                 expressionProjectionCache,
                 sourceDiagnosticRoots
               );
-            const genericFunctionUseSiteTypeArgumentsResult =
-              genericFunctionUseSiteTypeArguments(
-                genericFunctionSourceProjectionForExpression(context, node) ??
-                  expressionValueProjection ??
-                  expressionProjection,
-                expressionContextualProjection
+            const genericFunctionUseSiteTypeArgumentsResult = context.checker
+              .getContextualGenericFunctionTypeArguments(node)
+              .map((type) =>
+                checkerTypeProjection(
+                  context,
+                  type,
+                  createCheckerTypeProjectionState()
+                )
+              )
+              .filter(
+                (type): type is SourceBindingProjectedType =>
+                  type !== undefined
               );
-            if (genericFunctionUseSiteTypeArgumentsResult) {
+            if (genericFunctionUseSiteTypeArgumentsResult.length > 0) {
               context.facts.set(genericFunctionUseSiteFactKey, node, {
-                typeArguments: genericFunctionUseSiteTypeArgumentsResult,
+                typeArguments: genericUseSiteTypeArgumentsWithSourceAliases(
+                  context,
+                  node,
+                  genericFunctionUseSiteTypeArgumentsResult,
+                  expressionContextualProjection
+                ),
               });
             }
             context.facts.set(sourceExpressionTypeProjectionFactKey, node, {

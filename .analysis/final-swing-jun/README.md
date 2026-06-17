@@ -32,6 +32,7 @@ Read these in order:
 10. `10-exhaustive-ownership-contract.md` — comprehensive owner table for every semantic domain.
 11. `11-public-tsts-api-contract.md` — exact public TSTS APIs Tsonic may consume.
 12. `12-deletion-and-enforcement-ledger.md` — deletion ledger, migration gates, and forbidden dual-path checks.
+13. `16-old-lowering-removal-audit-2026-06-17.md` — fresh audit of old type-projection/lowering/emitter semantic paths that must be removed.
 
 ## Execution Shape
 

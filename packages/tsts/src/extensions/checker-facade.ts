@@ -11,6 +11,8 @@ import {
 } from "../internal/checker/checker/state.js";
 import {
   Checker_isArrayType,
+  Checker_getApparentTypeOfContextualType,
+  Checker_GetNonNullableType,
   Checker_GetTypeAtLocation,
   Checker_instantiateType,
 } from "../internal/checker/checker/types.js";
@@ -25,10 +27,13 @@ import {
   Checker_getReturnTypeOfSignature,
   Checker_getResolvedSignature,
   Checker_getSignatureFromDeclaration,
+  Checker_getSingleSignature,
   Checker_getSignaturesOfType,
   Checker_getTypeOfParameter,
   Checker_getTypeArguments,
+  Checker_instantiateSignatureInContextOf,
 } from "../internal/checker/checker/signatures.js";
+import { Checker_getInferenceContext } from "../internal/checker/checker/inference.js";
 import {
   Checker_GetContextualType,
   Checker_GetElementTypeOfArrayType,
@@ -64,11 +69,13 @@ import type {
 } from "../internal/checker/types.js";
 import {
   ContextFlagsNone,
+  ContextFlagsNoConstraints,
   ObjectFlagsReference,
   SignatureKindCall,
   SignatureKindConstruct,
   Signature_Declaration,
   Signature_Parameters,
+  Signature_Target,
   Signature_TypeParameters,
   TypeAlias_Symbol,
   TypeAlias_TypeArguments,
@@ -167,6 +174,8 @@ export type ExtensionTypeChecker = {
   getSignatureParameters(signature: GoPtr<Signature>): readonly GoPtr<Symbol>[];
   getTypeOfSignatureParameter(parameter: GoPtr<Symbol>): GoPtr<Type>;
   getTypeAtSignaturePosition(signature: GoPtr<Signature>, position: number): GoPtr<Type>;
+  getSignatureTypeArguments(signature: GoPtr<Signature>): readonly GoPtr<Type>[];
+  getContextualGenericFunctionTypeArguments(node: GoPtr<Node>): readonly GoPtr<Type>[];
   signatureHasTypeParameters(signature: GoPtr<Signature>): boolean;
   getSignatureFromDeclaration(node: GoPtr<Node>): GoPtr<Signature>;
   getReturnTypeOfSignature(signature: GoPtr<Signature>): GoPtr<Type>;
@@ -397,6 +406,75 @@ export const createExtensionTypeChecker = (
     return signature?.mapper
       ? Checker_instantiateType(checker, type, signature.mapper)
       : type;
+  },
+  getSignatureTypeArguments: (
+    signature: GoPtr<Signature>,
+  ): readonly GoPtr<Type>[] => {
+    const target = Signature_Target(signature) ?? signature;
+    const typeParameters = Signature_TypeParameters(target);
+    return signature?.mapper
+      ? typeParameters.map((typeParameter) =>
+          Checker_instantiateType(checker, typeParameter, signature.mapper),
+        )
+      : [];
+  },
+  getContextualGenericFunctionTypeArguments: (
+    node: GoPtr<Node>,
+  ): readonly GoPtr<Type>[] => {
+    const sourceType = Checker_GetTypeAtLocation(checker, node);
+    if (sourceType === undefined) {
+      return [];
+    }
+    const sourceSignature = Checker_getSingleSignature(
+      checker,
+      sourceType,
+      SignatureKindCall,
+      true,
+    );
+    if (
+      sourceSignature === undefined ||
+      Signature_TypeParameters(sourceSignature).length === 0
+    ) {
+      return [];
+    }
+    const contextualType = Checker_getApparentTypeOfContextualType(
+      checker,
+      node,
+      ContextFlagsNoConstraints,
+    );
+    if (contextualType === undefined) {
+      return [];
+    }
+    const contextualSignature = Checker_getSingleSignature(
+      checker,
+      Checker_GetNonNullableType(checker, contextualType),
+      SignatureKindCall,
+      false,
+    );
+    if (
+      contextualSignature === undefined ||
+      Signature_TypeParameters(contextualSignature).length !== 0
+    ) {
+      return [];
+    }
+    const instantiatedSignature = Checker_instantiateSignatureInContextOf(
+      checker,
+      sourceSignature,
+      contextualSignature,
+      Checker_getInferenceContext(checker, node),
+      undefined,
+    );
+    const target = Signature_Target(instantiatedSignature) ?? instantiatedSignature;
+    const typeParameters = Signature_TypeParameters(target);
+    return instantiatedSignature?.mapper
+      ? typeParameters.map((typeParameter) =>
+          Checker_instantiateType(
+            checker,
+            typeParameter,
+            instantiatedSignature.mapper,
+          ),
+        )
+      : [];
   },
   signatureHasTypeParameters: (signature: GoPtr<Signature>): boolean =>
     Signature_TypeParameters(signature).length > 0,

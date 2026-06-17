@@ -172,6 +172,16 @@ const renderNamedType = (
   renderCSharpRuntimeTypeName(type.sourceQualifiedName) ??
   sanitizeTypeName(type.name.replace(/\$/g, "_").replace(/\./g, "_"));
 
+const renderNamedTypeReference = (
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
+  context: RenderContext
+): string => {
+  const name = renderNamedType(type);
+  return type.typeArguments.length === 0
+    ? name
+    : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
+};
+
 const renderNamedRuntimeType = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
   context: RenderContext,
@@ -201,10 +211,7 @@ const renderNamedRuntimeType = (
       : `${externalName}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
   }
   if (!type.sourceQualifiedName) return undefined;
-  const name = renderNamedType(type);
-  return type.typeArguments.length === 0
-    ? name
-    : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
+  return renderNamedTypeReference(type, context);
 };
 
 const renderIntersectionRuntimeType = (
@@ -1294,14 +1301,14 @@ export const renderCSharpType = (
         type.declarationKind === "type-alias" &&
         type.aliasTarget?.kind === "function"
       ) {
-        return renderNamedRuntimeType(type, context) ?? renderNamedType(type);
+        return renderNamedRuntimeType(type, context) ?? renderNamedTypeReference(type, context);
       }
       if (
         type.declarationKind === "type-alias" &&
         type.aliasTarget?.kind === "object"
       ) {
         return shouldEmitStructuralObjectType(type.aliasTarget)
-          ? renderNamedRuntimeType(type, context) ?? renderNamedType(type)
+          ? renderNamedRuntimeType(type, context) ?? renderNamedTypeReference(type, context)
           : "object?";
       }
       if (
@@ -1342,10 +1349,7 @@ export const renderCSharpType = (
         }
         return renderCSharpType(type.aliasTarget, context);
       }
-      const name = renderNamedType(type);
-      return type.typeArguments.length === 0
-        ? name
-        : `${name}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
+      return renderNamedTypeReference(type, context);
     }
     case "record":
       return `global::System.Collections.Generic.Dictionary<${renderCSharpType(type.keyType, context)}, ${renderCSharpType(type.valueType, context)}>`;
