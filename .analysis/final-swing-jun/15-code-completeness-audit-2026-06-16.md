@@ -199,3 +199,84 @@ rg -n "\bIr[A-Z]|NormalizedIrModule|SoundnessValidatedIrModule|EmittableIrModule
 ```
 
 All three searches are clean for product violations. The only TypeScript API sweep hit outside vendored TSTS is Tsonic's own `createProgram(...)` function name in `packages/frontend/src/index.ts`, not a TypeScript compiler API call.
+
+## Post-Signoff Update: Unique Source Projections and Abstract Passing Facts — 2026-06-17
+
+Two additional remnant cleanups were completed after the focused generic-call/use-site sweep.
+
+### Object member projection exactness
+
+The TSTS source extension had one remaining first-choice projection path while projecting checker object members:
+
+```ts
+const declaration = getSymbolValueDeclaration(property) ?? declarations[0];
+const memberProjection = uniqueProjectedTypes(memberTypes)[0];
+```
+
+That shape was not acceptable because multiple declarations or multiple projected member types could silently select the first entry. The source extension now requires a structurally valid value declaration or exactly one projected structural declaration, and it uses a single-projection helper that returns no type when the projection is not unique.
+
+Source example:
+
+```ts
+type A = { value: string };
+type B = { value: number };
+declare const input: A & B;
+input.value;
+```
+
+The old shape could choose one `value` member projection by array position. The current shape does not invent a winner; ambiguous source projection remains unproven and must be handled by the checker/fact contract.
+
+Focused proof:
+
+| Command | Result |
+| --- | --- |
+| `npm run build --workspace @tsonic/frontend` | green |
+| `npm run test:frontend -- --grep "Tsonic TSTS source semantics extension\|source semantic boundary\|TSTS-backed lowering plan builders"` | `70 passing / 0 failing` |
+
+### Abstract passing mode API
+
+The frontend still exported convenience conversions from source facts to `"ref"`, `"out"`, and `"in"` strings. Lowering and C# rendering already used the abstract source modes:
+
+```ts
+"byref-writeonly-must-init"
+"byref-readwrite"
+"byref-readonly"
+```
+
+The string conversion API was unused and has been deleted. The frontend public contract now exposes only `ParameterPassingMode` and `ParameterPassingFact`; target spelling such as C# `out`, `ref`, and `in` remains in the C# emitter.
+
+Source example:
+
+```ts
+import { out } from "@tsonic/core/lang.js";
+
+declare function read(value: out<int>): void;
+read(out(result));
+```
+
+Current ownership:
+
+| Step | Owner | Result |
+| --- | --- | --- |
+| Marker recognition | Tsonic TSTS extension | `ParameterPassingFact { mode: "byref-writeonly-must-init" }` |
+| Lowering | Tsonic frontend lowering | Carries abstract `passingMode` only |
+| Rendering | C# emitter | Renders the target spelling `out result` |
+
+Focused proof:
+
+| Command | Result |
+| --- | --- |
+| `rg -n "SourceParameterPassingMode\|SourceCallSitePassingModifier\|parameterPassingModeFromFact\|callSitePassingModifierFromFact" packages/frontend/src packages/targets/csharp/emitter/src packages/cli/src -g '*.ts'` | clean |
+| `npm run build --workspace @tsonic/frontend` | green |
+| `npm run test:frontend -- --grep "source semantic boundary\|TSTS-backed lowering plan builders"` | `43 passing / 0 failing` |
+
+Updated deletion-gate sweep:
+
+| Gate | Result |
+| --- | --- |
+| Product TypeScript compiler API search | clean except an ESLint rule-name comment in a CLI test helper |
+| Frontend target leakage search | clean |
+| Direct checker access outside `tsonic-extension/source-semantics.ts` | clean |
+| Old `Ir*` / source-IR naming search | clean |
+| Obsolete semantic-view/import resolver search | clean except boundary-test banned strings |
+| Fallback/legacy/heuristic search | clean for frontend product paths; remaining hits are CLI package compatibility diagnostics and current schema URLs |
