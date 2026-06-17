@@ -32,9 +32,10 @@ import {
   sourceDictionaryTypeFactKey,
   sourceAttributeApplicationsFactKey,
   sourceExpressionTypeProjectionFactKey,
+  genericFunctionUseSiteFactKey,
   sourceRuntimeVisibilityFactKey,
   sourceRuntimeOperationFactKey,
-  sourceTypeNodeProjectionFactKey,
+  sourceTypeProjectionFactKey,
   sourceOverloadCallImplementationFactKey,
   sourceTypeSemanticsFactKey,
 } from "../source-frontend/source-facts.js";
@@ -82,12 +83,12 @@ const collectDeclarationFactsByName = (sourceText: string) => {
 
 const projectionSummary = (type: SourceBindingProjectedType): string => {
   switch (type.kind) {
-    case "type-node":
-      return getTstsNodeText(type.node)?.replace(/\s+/g, " ").trim() ?? "";
     case "intrinsic":
       return type.name;
     case "source-primitive":
       return type.fact.sourceName;
+    case "literal":
+      return type.valueText;
     case "named":
       return `${type.name}${type.typeArguments.length > 0 ? `<${type.typeArguments.map(projectionSummary).join(", ")}>` : ""}`;
     case "record":
@@ -772,7 +773,7 @@ describe("Tsonic TSTS source semantics extension", () => {
           return;
         }
         const fact = program.sourceProgram.facts.get(
-          sourceTypeNodeProjectionFactKey,
+          sourceTypeProjectionFactKey,
           node
         );
         if (fact?.type.kind === "named") {
@@ -785,6 +786,200 @@ describe("Tsonic TSTS source semantics extension", () => {
       expect(summaries).to.deep.equal([
         "Promise:Promise:Promise<void>",
         "PromiseLike:Promise:PromiseLike<string>",
+      ]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("marks globals generator type references as source runtime types", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "node_modules/@tsonic/globals/package.json": JSON.stringify({
+          name: "@tsonic/globals",
+          version: "0.0.0-test",
+          type: "module",
+        }),
+        "node_modules/@tsonic/globals/core-globals.d.ts": [
+          "declare global {",
+          "  interface Generator<T, TReturn, TNext> {}",
+          "  interface AsyncGenerator<T, TReturn, TNext> {}",
+          "}",
+          "export {};",
+          "",
+        ].join("\n"),
+        "index.ts": [
+          "export function* gen(): Generator<number, number, number> {",
+          "  return yield 1;",
+          "}",
+          "export async function* agen(): AsyncGenerator<string, void, unknown> {",
+          "  yield \"x\";",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node || node.Kind !== TstsSyntax.KindTypeReference) return;
+        const details = getTstsTypeReferenceDetails(node);
+        if (
+          details?.name !== "Generator" &&
+          details?.name !== "AsyncGenerator"
+        ) {
+          return;
+        }
+        const fact = program.sourceProgram.facts.get(
+          sourceTypeProjectionFactKey,
+          node
+        );
+        if (fact?.type.kind === "named") {
+          summaries.push(
+            `${details.name}:${fact.type.runtimeTypeOwner ?? "none"}:${projectionSummary(fact.type)}`
+          );
+        }
+      });
+
+      expect(summaries).to.deep.equal([
+        "Generator:Generator:Generator<number, number, number>",
+        "AsyncGenerator:AsyncGenerator:AsyncGenerator<string, void, unknown>",
+      ]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("marks source-runtime iterator type references as opaque runtime types", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "node_modules/@tsonic/js/package.json": JSON.stringify({
+          name: "@tsonic/js",
+          version: "0.0.0-test",
+          type: "module",
+        }),
+        "node_modules/@tsonic/js/tsonic.package.json": JSON.stringify({
+          kind: "tsonic-source-package",
+          source: {
+            namespace: "js",
+            exports: {
+              "./iter.js": "./iter.ts",
+            },
+          },
+        }),
+        "node_modules/@tsonic/js/iter.ts": [
+          "export interface Iterator<T> {",
+          "  next(): IteratorResult<T>;",
+          "}",
+          "export interface IteratorResult<T> {",
+          "  value: T;",
+          "  done: boolean;",
+          "}",
+          "export interface IterableIterator<T> extends Iterator<T> {",
+          "  self(): IterableIterator<T>;",
+          "}",
+          "",
+        ].join("\n"),
+        "index.ts": [
+          'import type { IterableIterator } from "@tsonic/js/iter.js";',
+          "export function read(value: IterableIterator<string>): IterableIterator<string> {",
+          "  return value;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node || node.Kind !== TstsSyntax.KindTypeReference) return;
+        const details = getTstsTypeReferenceDetails(node);
+        if (details?.name !== "IterableIterator") return;
+        const fact = program.sourceProgram.facts.get(
+          sourceTypeProjectionFactKey,
+          node
+        );
+        if (fact?.type.kind === "named") {
+          summaries.push(
+            `${fact.type.runtimeTypeOwner ?? "none"}:${fact.type.runtimeVisibility ?? "public"}:${projectionSummary(fact.type)}`
+          );
+        }
+      });
+
+      expect(summaries).to.deep.equal([
+        "IterableIterator:opaque:IterableIterator<string>",
+        "IterableIterator:opaque:IterableIterator<string>",
+      ]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
+  it("marks source-runtime implementation classes as opaque runtime owners", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "node_modules/@tsonic/js/package.json": JSON.stringify({
+          name: "@tsonic/js",
+          version: "0.0.0-test",
+          type: "module",
+        }),
+        "node_modules/@tsonic/js/tsonic.package.json": JSON.stringify({
+          kind: "tsonic-source-package",
+          source: {
+            namespace: "js",
+            exports: {
+              "./runtime.js": "./runtime.ts",
+            },
+          },
+        }),
+        "node_modules/@tsonic/js/runtime.ts": [
+          "export class JSON {",
+          "  static parse<T>(text: string): T { throw new Error(text); }",
+          "}",
+          "export class Math {",
+          "  static round(value: number): number { return value; }",
+          "}",
+          "class ConsoleModule {",
+          "  static log(value: string): void { void value; }",
+          "}",
+          "export { ConsoleModule as console };",
+          "",
+        ].join("\n"),
+        "index.ts": [
+          'import { JSON, Math, console } from "@tsonic/js/runtime.js";',
+          "export function read(): void {",
+          '  JSON.parse<{ value: number }>("{}");',
+          "  Math.round(1.2);",
+          '  console.log("ok");',
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node || node.Kind !== TstsSyntax.KindIdentifier) return;
+        const text = getTstsIdentifierText(node);
+        if (text !== "JSON" && text !== "Math" && text !== "console") return;
+        const fact = program.sourceProgram.facts.get(
+          sourceExpressionTypeProjectionFactKey,
+          node
+        );
+        if (fact?.type.kind === "named") {
+          summaries.push(
+            `${text}:${fact.type.name}:${fact.type.runtimeTypeOwner ?? "none"}:${fact.type.runtimeVisibility ?? "public"}`
+          );
+        }
+      });
+
+      expect(summaries).to.include.members([
+        "JSON:JSON:JSON:opaque",
+        "Math:Math:Math:opaque",
+        "console:ConsoleModule:Console:opaque",
       ]);
     } finally {
       program.cleanup();
@@ -1060,11 +1255,45 @@ describe("Tsonic TSTS source semantics extension", () => {
     }
   });
 
+  it("uses TSTS contextual function types for generic function value adapters", () => {
+    const program = createTstsTestProgramFromFiles(
+      {
+        "index.ts": [
+          "import type { int } from '@tsonic/core/types.js';",
+          "function id<T>(value: T): T { return value; }",
+          "const monomorphic: (value: int) => int = id;",
+          "void monomorphic;",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+    try {
+      const summaries: string[] = [];
+      visitTstsSubtree(program.sourceFile, (node) => {
+        if (!node) return;
+        const text = getTstsNodeText(node)?.replace(/\s+/g, " ").trim();
+        if (text !== "id") return;
+        const fact = program.sourceProgram.facts.get(
+          genericFunctionUseSiteFactKey,
+          node
+        );
+        if (fact) {
+          summaries.push(fact.typeArguments.map(projectionSummary).join(", "));
+        }
+      });
+
+      expect(summaries).to.deep.equal(["int"]);
+    } finally {
+      program.cleanup();
+    }
+  });
+
   it("substitutes generic receiver arguments through public facade aliases", () => {
     const program = createTstsTestProgramFromFiles(
       {
-        "node_modules/@fixture/dotnet/package.json": JSON.stringify({
-          name: "@fixture/dotnet",
+        "node_modules/@fixture/runtime/package.json": JSON.stringify({
+          name: "@fixture/runtime",
           type: "module",
           exports: {
             "./collections.js": {
@@ -1073,8 +1302,8 @@ describe("Tsonic TSTS source semantics extension", () => {
             },
           },
         }),
-        "node_modules/@fixture/dotnet/collections.js": "export {};\n",
-        "node_modules/@fixture/dotnet/collections.d.ts": [
+        "node_modules/@fixture/runtime/collections.js": "export {};\n",
+        "node_modules/@fixture/runtime/collections.d.ts": [
           "export interface List_1$instance<T> {",
           "  Add(item: T): void;",
           "}",
@@ -1086,7 +1315,7 @@ describe("Tsonic TSTS source semantics extension", () => {
           "",
         ].join("\n"),
         "index.ts": [
-          "import { List } from '@fixture/dotnet/collections.js';",
+          "import { List } from '@fixture/runtime/collections.js';",
           "import type { int } from '@tsonic/core/types.js';",
           "export function run(transform: (value: int) => int): void {",
           "  const result = new List<int>();",

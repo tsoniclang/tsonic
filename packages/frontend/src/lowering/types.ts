@@ -123,6 +123,7 @@ export type LoweringTypeRefPlan =
       readonly name: string;
       readonly typeArguments: readonly LoweringTypeRefPlan[];
       readonly typeParameters?: readonly string[];
+      readonly typeParameterConstraints?: readonly LoweringTypeParameterConstraintPlan[];
       readonly aliasTarget?: LoweringTypeRefPlan;
       readonly sourceQualifiedName?: LoweringSourceQualifiedNamePlan;
       readonly externalBinding?: LoweringExternalBindingReferencePlan;
@@ -201,6 +202,7 @@ export type LoweringTypeRefPlan =
     };
 
 export type LoweringParameterPlan = {
+  readonly bindingId?: string;
   readonly name: string;
   readonly sourceKindName: string;
   readonly sourceText: string;
@@ -214,6 +216,7 @@ export type LoweringParameterPlan = {
 
 export type LoweringVariablePlan = {
   readonly sourceNode: TstsNode;
+  readonly bindingId?: string;
   readonly name: string;
   readonly type?: LoweringTypeRefPlan;
   readonly storageType?: LoweringTypeRefPlan;
@@ -234,6 +237,7 @@ export type LoweringBindingAccessPlan =
     };
 
 export type LoweringBindingElementPlan = {
+  readonly bindingId?: string;
   readonly name: string;
   readonly type?: LoweringTypeRefPlan;
   readonly accessPath: readonly LoweringBindingAccessPlan[];
@@ -252,6 +256,11 @@ export type LoweringAttributePlan = {
   readonly targetSpecifier: SourceAttributeTargetSpecifier | undefined;
   readonly attributeType: LoweringExpressionPlan;
   readonly arguments: readonly LoweringExpressionPlan[];
+};
+
+export type LoweringTypeParameterConstraintPlan = {
+  readonly name: string;
+  readonly constraint?: LoweringTypeRefPlan;
 };
 
 export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
@@ -281,12 +290,14 @@ export type LoweringDeclarationPlan = LoweringPlanBase<"declaration"> & {
   readonly baseConstructorParameters: readonly LoweringParameterPlan[];
   readonly parameters: readonly LoweringParameterPlan[];
   readonly typeParameters: readonly string[];
+  readonly typeParameterConstraints?: readonly LoweringTypeParameterConstraintPlan[];
   readonly returnType?: LoweringTypeRefPlan;
   readonly body?: LoweringStatementPlan;
   readonly initializer?: LoweringExpressionPlan;
   readonly members: readonly LoweringDeclarationPlan[];
   readonly enumMembers: readonly LoweringEnumMemberPlan[];
   readonly compileTimeOnly?: boolean;
+  readonly generator?: boolean;
   readonly exported: boolean;
   readonly async: boolean;
   readonly static: boolean;
@@ -365,6 +376,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
     | "object-literal"
     | "conditional"
     | "template"
+    | "regular-expression-literal"
     | "parenthesized"
     | "await"
     | "yield"
@@ -391,6 +403,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly unaryOperator?: LoweringUnaryOperator;
   readonly semantic?: LoweringExpressionSemantic;
   readonly sourceOperation?: SourceRuntimeOperationFact;
+  readonly bindingId?: string;
   readonly resolvedAliasName?: string;
   readonly sourceQualifiedName?: LoweringSourceQualifiedNamePlan;
   readonly externalBinding?: LoweringExternalBindingReferencePlan;
@@ -407,6 +420,7 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
   readonly arguments: readonly LoweringExpressionPlan[];
   readonly argumentUseSiteTypes?: readonly (LoweringTypeRefPlan | undefined)[];
   readonly typeArguments: readonly LoweringTypeRefPlan[];
+  readonly genericFunctionUseSiteTypeArguments?: readonly LoweringTypeRefPlan[];
   readonly elements: readonly LoweringExpressionPlan[];
   readonly properties: readonly LoweringObjectPropertyPlan[];
   readonly templateParts: readonly LoweringTemplatePartPlan[];
@@ -417,6 +431,11 @@ export type LoweringExpressionPlan = LoweringPlanBase<"expression"> & {
 
 export type LoweringObjectPropertyPlan = {
   readonly name?: string;
+  readonly propertyKind:
+    | "property"
+    | "method"
+    | "get-accessor"
+    | "set-accessor";
   readonly sourceKindName: string;
   readonly sourceText: string;
   readonly computed: boolean;

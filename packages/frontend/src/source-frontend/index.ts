@@ -13,8 +13,9 @@ export {
   sourceCallArgumentTypesFactKey,
   sourceDeclarationTypeProjectionFactKey,
   sourceExpressionTypeProjectionFactKey,
+  genericFunctionUseSiteFactKey,
   sourceInitializerReferencesDeclarationFactKey,
-  sourceTypeNodeProjectionFactKey,
+  sourceTypeProjectionFactKey,
   sourceTypeSemanticsFactKey,
   visitSourceSemanticFactKeys,
 } from "./source-facts.js";
@@ -54,11 +55,12 @@ export type {
   SourceBindingDeclarationKind,
   SourceBindingIdentityFact,
   SourceCallArgumentTypesFact,
+  GenericFunctionUseSiteFact,
   SourceDeclarationTypeProjectionFact,
   SourceExpressionTypeProjectionFact,
   SourceInitializerReferencesDeclarationFact,
   SourceParameterTypeProjection,
-  SourceTypeNodeProjectionFact,
+  SourceTypeProjectionFact,
   SourceTypeSemanticsFact,
 } from "./source-facts.js";
 export {

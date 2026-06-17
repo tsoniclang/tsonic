@@ -2,13 +2,16 @@ import { relative } from "node:path";
 import type { Diagnostic, LoweringTypeRefPlan } from "@tsonic/frontend";
 import { createExternalBindingMetadataIndex } from "./rendering/external-bindings.js";
 import {
+  collectModuleJsonTypes,
   collectModuleStructuralTypes,
+  emitJsonContextModule,
   emitModule,
   emitStructuralTypesModule,
+  JSON_CONTEXT_NAMESPACE,
   SHARED_STRUCTURAL_NAMESPACE,
 } from "./rendering/module.js";
 import { csharpRuntimeSupportFiles } from "./rendering/runtime-support.js";
-import { typePlanKey } from "./rendering/types.js";
+import { structuralTypeKey, typePlanKey } from "./rendering/types.js";
 import type {
   CSharpLoweringModulePlan,
   EmitResult,
@@ -74,15 +77,32 @@ const structuralTypesForModules = (
   const structuralTypes = new Map<string, LoweringTypeRefPlan>();
   for (const module of modules) {
     for (const type of collectModuleStructuralTypes(module)) {
-      structuralTypes.set(typePlanKey(type), type);
+      structuralTypes.set(structuralTypeKey(type), type);
     }
   }
   return structuralTypes;
 };
 
+const jsonTypesForModules = (
+  modules: readonly CSharpLoweringModulePlan[]
+): ReadonlyMap<string, LoweringTypeRefPlan> => {
+  const jsonTypes = new Map<string, LoweringTypeRefPlan>();
+  for (const module of modules) {
+    for (const type of collectModuleJsonTypes(module)) {
+      jsonTypes.set(typePlanKey(type), type);
+    }
+  }
+  return jsonTypes;
+};
+
 const structuralTypesOutputPath = (): string =>
   `__tsonic_structural/${
     SHARED_STRUCTURAL_NAMESPACE.split(".").filter(Boolean).join("/")
+  }.cs`;
+
+const jsonContextOutputPath = (): string =>
+  `__tsonic_json/${
+    JSON_CONTEXT_NAMESPACE.split(".").filter(Boolean).join("/")
   }.cs`;
 
 export const emitCSharpFile = (
@@ -114,6 +134,7 @@ export const emitCSharpFiles = (
       options.bindingMetadataRoots ?? options.libraries
     );
   const structuralTypes = structuralTypesForModules(modules);
+  const jsonTypes = jsonTypesForModules(modules);
   const files = new Map<string, string>();
   for (const module of modules) {
     const moduleResult = emitCSharpFile(module, {
@@ -139,6 +160,20 @@ export const emitCSharpFiles = (
       return { ok: false, errors: structuralResult.errors };
     }
     files.set(structuralTypesOutputPath(), structuralResult.code);
+  }
+  if (jsonTypes.size > 0) {
+    const jsonContextResult = emitJsonContextModule(
+      JSON_CONTEXT_NAMESPACE,
+      [...jsonTypes.values()],
+      {
+        ...options,
+        externalBindingMetadata,
+      }
+    );
+    if (!jsonContextResult.ok) {
+      return { ok: false, errors: jsonContextResult.errors };
+    }
+    files.set(jsonContextOutputPath(), jsonContextResult.code);
   }
   for (const [filePath, code] of csharpRuntimeSupportFiles(files)) {
     files.set(filePath, code);

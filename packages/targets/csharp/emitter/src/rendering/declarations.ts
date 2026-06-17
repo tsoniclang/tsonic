@@ -4,6 +4,7 @@ import type {
   LoweringParameterPlan,
   LoweringStatementPlan,
   LoweringTypeMemberPlan,
+  LoweringTypeParameterConstraintPlan,
   LoweringTypeRefPlan,
 } from "@tsonic/frontend";
 import type { RenderContext } from "../types.js";
@@ -22,7 +23,9 @@ import {
 import { renderFunctionBody, renderStaticField } from "./statements.js";
 import { renderStructuralTypeDeclaration } from "./structural-declarations.js";
 import {
+  isPrivateJsRuntimeName,
   isTaskLikeTypePlan,
+  isVoidLikeTypePlan,
   renderCSharpType,
   renderFunctionReturnType,
   renderRequiredCSharpType,
@@ -57,6 +60,130 @@ const renderAttributes = (
   context: RenderContext
 ): string =>
   attributes.map((attribute) => renderAttribute(attribute, context)).join("\n");
+
+const objectTypePlan: LoweringTypeRefPlan = {
+  kind: "intrinsic",
+  name: "object",
+};
+
+type GeneratorRuntimeDetails = {
+  readonly async: boolean;
+  readonly yieldType: LoweringTypeRefPlan;
+  readonly returnType?: LoweringTypeRefPlan;
+  readonly nextType: LoweringTypeRefPlan;
+};
+
+const generatorRuntimeDetails = (
+  returnType: LoweringTypeRefPlan | undefined
+): GeneratorRuntimeDetails | undefined => {
+  if (
+    returnType?.kind !== "named" ||
+    !isPrivateJsRuntimeName(returnType.sourceQualifiedName) ||
+    (returnType.name !== "Generator" && returnType.name !== "AsyncGenerator")
+  ) {
+    return undefined;
+  }
+  const [yieldType, returnTypeArgument, nextType] = returnType.typeArguments;
+  return {
+    async: returnType.name === "AsyncGenerator",
+    yieldType: yieldType ?? objectTypePlan,
+    returnType:
+      returnTypeArgument && !isVoidLikeTypePlan(returnTypeArgument)
+        ? returnTypeArgument
+        : undefined,
+    nextType:
+      nextType && !isVoidLikeTypePlan(nextType) ? nextType : objectTypePlan,
+  };
+};
+
+const renderGeneratorFunction = (
+  plan: LoweringDeclarationPlan,
+  context: RenderContext,
+  name: string,
+  insideClass: boolean,
+  heritageTypes: readonly LoweringDeclarationPlan["heritageTypes"][number][]
+): string | undefined => {
+  const details = generatorRuntimeDetails(plan.returnType);
+  if (!details) {
+    context.reportUnsupported(
+      "generator return type",
+      plan.sourceKindName,
+      plan.sourceText
+    );
+    return undefined;
+  }
+  const parameters = plan.parameters
+    .map((parameter) => renderParameter(parameter, context))
+    .join(", ");
+  const accessibility = insideClass
+    ? (context.overrideMemberAccessibility(heritageTypes, plan) ??
+      plan.accessibility)
+    : "public";
+  const staticModifier = insideClass ? (plan.static ? "static " : "") : "static ";
+  const canRenderOverride =
+    insideClass &&
+    plan.override &&
+    !plan.parameters.some((parameter) => isBroadSourceType(parameter.type));
+  const overrideModifier = canRenderOverride ? "override " : "";
+  const virtualModifier =
+    insideClass && !plan.static && !canRenderOverride ? "virtual " : "";
+  const returnType = renderRequiredCSharpType(
+    plan.returnType,
+    context,
+    "generator return type",
+    plan.sourceKindName,
+    plan.sourceText
+  );
+  const yieldType = renderCSharpType(details.yieldType, context);
+  const nextType = renderCSharpType(details.nextType, context);
+  const exchangeType = `global::Tsonic.Runtime.GeneratorExchange<${yieldType}, ${nextType}>`;
+  const enumerableType = details.async
+    ? `async global::System.Collections.Generic.IAsyncEnumerable<${exchangeType}>`
+    : `global::System.Collections.Generic.IEnumerable<${exchangeType}>`;
+  const exchangeName = "__tsonic_generator_exchange";
+  const returnValueName = details.returnType
+    ? "__tsonic_generator_return"
+    : undefined;
+  const generatorContext: RenderContext = {
+    ...context,
+    currentGenerator: {
+      exchangeName,
+      returnValueName,
+      yieldType: details.yieldType,
+      returnType: details.returnType,
+      nextType: details.nextType,
+    },
+  };
+  const previousGenerator = context.currentGenerator;
+  context.currentGenerator = generatorContext.currentGenerator;
+  const iteratorBody = renderFunctionBody(
+    plan.body,
+    context,
+    undefined,
+    plan.parameters
+  );
+  context.currentGenerator = previousGenerator;
+  const returnValueDeclaration = returnValueName
+    ? `    ${renderCSharpType(details.returnType!, context)} ${returnValueName} = default!;`
+    : undefined;
+  const returnValueAccessor = returnValueName
+    ? `, () => ${returnValueName}`
+    : "";
+  const body = [
+    "{",
+    `    var ${exchangeName} = new ${exchangeType}();`,
+    ...(returnValueDeclaration ? [returnValueDeclaration] : []),
+    `    ${enumerableType} __tsonic_generator_iterator()`,
+    indent(iteratorBody, 4),
+    `    return new ${returnType}(__tsonic_generator_iterator(), ${exchangeName}${returnValueAccessor});`,
+    "}",
+  ].join("\n");
+  const rendered = [
+    `${accessibility} ${staticModifier}${overrideModifier}${virtualModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})${renderWhereClauses(plan.typeParameterConstraints ?? [], context)}`,
+    body,
+  ].join("\n");
+  return withAttributes(plan.attributes, rendered, context);
+};
 
 const withAttributes = (
   attributes: readonly LoweringAttributePlan[],
@@ -127,6 +254,40 @@ const withTypeParameterScope = <T>(
   }
 };
 
+const constraintParts = (
+  constraint: LoweringTypeRefPlan | undefined,
+  context: RenderContext
+): readonly string[] => {
+  if (!constraint) return [];
+  switch (constraint.kind) {
+    case "intersection":
+      return constraint.types.flatMap((member) =>
+        constraintParts(member, context)
+      );
+    case "intrinsic":
+      return constraint.name === "object" ? ["class"] : [];
+    case "named":
+    case "source-primitive":
+      return [renderCSharpType(constraint, context)];
+    default:
+      return [];
+  }
+};
+
+const renderWhereClauses = (
+  constraints: readonly LoweringTypeParameterConstraintPlan[],
+  context: RenderContext
+): string => {
+  const clauses = constraints
+    .map((constraint) => {
+      const parts = constraintParts(constraint.constraint, context);
+      if (parts.length === 0) return undefined;
+      return `where ${sanitizeTypeName(constraint.name)} : ${parts.join(", ")}`;
+    })
+    .filter((clause): clause is string => clause !== undefined);
+  return clauses.length > 0 ? ` ${clauses.join(" ")}` : "";
+};
+
 const isBroadSourceType = (type: LoweringParameterPlan["type"]): boolean =>
   type?.kind === "intrinsic" &&
   (type.name === "any" || type.name === "unknown" || type.name === "object");
@@ -169,6 +330,15 @@ const renderFunction = (
     if (!declarationName) return undefined;
     const name = sanitizeIdentifier(declarationName);
     if (!plan.body) return undefined;
+    if (plan.generator === true) {
+      return renderGeneratorFunction(
+        plan,
+        context,
+        name,
+        insideClass,
+        heritageTypes
+      );
+    }
     const parameters = plan.parameters
       .map((parameter) => renderParameter(parameter, context))
       .join(", ");
@@ -209,7 +379,7 @@ const renderFunction = (
         ? effectiveReturnType.typeArguments[0]
         : effectiveReturnType;
     const rendered = [
-      `${accessibility} ${staticModifier}${overrideModifier}${virtualModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})`,
+      `${accessibility} ${staticModifier}${overrideModifier}${virtualModifier}${asyncModifier}${returnType} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})${renderWhereClauses(plan.typeParameterConstraints ?? [], context)}`,
       renderFunctionBody(plan.body, context, bodyReturnType, plan.parameters),
     ].join("\n");
     return withAttributes(plan.attributes, rendered, context);
@@ -535,7 +705,7 @@ const renderClass = (
         )
       : undefined;
     const rendered = [
-      `public ${declarationKeyword} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}${heritageClause}`,
+      `public ${declarationKeyword} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}${heritageClause}${renderWhereClauses(plan.typeParameterConstraints ?? [], context)}`,
       "{",
       ...members
         .map((member) =>
@@ -573,7 +743,7 @@ const renderInterfaceMember = (
         .join(", ");
       return withAttributes(
         plan.attributes,
-        `${renderRequiredCSharpType(plan.returnType, context, "interface method return type", plan.sourceKindName, plan.sourceText)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
+        `${renderRequiredCSharpType(plan.returnType, context, "interface method return type", plan.sourceKindName, plan.sourceText)} ${sanitizeIdentifier(name)}${renderTypeParameters(plan.typeParameters)}(${parameters})${renderWhereClauses(plan.typeParameterConstraints ?? [], context)};`,
         context
       );
     }
@@ -621,24 +791,17 @@ const renderInterface = (
       .join(", ");
     return withAttributes(
       plan.attributes,
-      `public delegate ${renderRequiredCSharpType(callSignature.returnType, context, "call signature return type", callSignature.sourceKindName, callSignature.sourceText)} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
+      `public delegate ${renderRequiredCSharpType(callSignature.returnType, context, "call signature return type", callSignature.sourceKindName, callSignature.sourceText)} ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}(${parameters})${renderWhereClauses(plan.typeParameterConstraints ?? [], context)};`,
       context
     );
   }
-  if (plan.members.every(isPropertyLikeDeclaration)) {
-    const rendered = [
-      `public sealed class ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}`,
-      "{",
-      ...plan.members
-        .map((member) => renderProperty(member, context))
-        .filter((rendered): rendered is string => rendered !== undefined)
-        .map((rendered) => indent(rendered, 4)),
-      "}",
-    ].join("\n");
-    return withAttributes(plan.attributes, rendered, context);
-  }
+  const heritage = plan.heritageTypes.map((heritageType) =>
+    renderCSharpType(heritageType, context)
+  );
+  const heritageClause =
+    heritage.length > 0 ? ` : ${heritage.join(", ")}` : "";
   const rendered = [
-    `public interface ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}`,
+    `public interface ${sanitizeTypeName(declarationName)}${renderTypeParameters(plan.typeParameters)}${heritageClause}${renderWhereClauses(plan.typeParameterConstraints ?? [], context)}`,
     "{",
     ...plan.members
       .map((member) => renderInterfaceMember(member, context))
@@ -732,7 +895,7 @@ const renderTypeAlias = (
       .join(", ");
     return withAttributes(
       plan.attributes,
-      `public delegate ${renderFunctionReturnType(functionTarget.returnType, false, context, plan.sourceKindName, plan.sourceText)} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters});`,
+      `public delegate ${renderFunctionReturnType(functionTarget.returnType, false, context, plan.sourceKindName, plan.sourceText)} ${name}${renderTypeParameters(plan.typeParameters)}(${parameters})${renderWhereClauses(plan.typeParameterConstraints ?? [], context)};`,
       context
     );
   }
@@ -778,7 +941,7 @@ const renderTypeAlias = (
     );
     if (hasMethods) {
       const rendered = [
-        `public interface ${name}${renderTypeParameters(plan.typeParameters)}`,
+        `public interface ${name}${renderTypeParameters(plan.typeParameters)}${renderWhereClauses(plan.typeParameterConstraints ?? [], context)}`,
         "{",
         ...target.members.map(
           (member) => `    ${renderTypeMemberAlias(member, context, false)}`
@@ -788,7 +951,7 @@ const renderTypeAlias = (
       return withAttributes(plan.attributes, rendered, context);
     }
     const rendered = [
-      `public sealed class ${name}${renderTypeParameters(plan.typeParameters)}`,
+      `public sealed class ${name}${renderTypeParameters(plan.typeParameters)}${renderWhereClauses(plan.typeParameterConstraints ?? [], context)}`,
       "{",
       ...target.members.map(
         (member) => `    ${renderTypeMemberAlias(member, context, true)}`

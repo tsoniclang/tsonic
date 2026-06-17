@@ -35,8 +35,18 @@ export type RenderContext = {
   currentNamespace?: string;
   currentReturnType?: LoweringTypeRefPlan;
   currentDefaultedParameters?: ReadonlyMap<string, string>;
+  currentDefaultedParameterBindings?: ReadonlyMap<string, string>;
+  currentBindingNames?: ReadonlyMap<string, string>;
   currentIdentifierAliasTypes?: ReadonlyMap<string, LoweringTypeRefPlan>;
+  currentThisExpression?: string;
   currentTypeParameters?: ReadonlySet<string>;
+  currentGenerator?: {
+    readonly exchangeName: string;
+    readonly returnValueName?: string;
+    readonly yieldType: LoweringTypeRefPlan;
+    readonly returnType?: LoweringTypeRefPlan;
+    readonly nextType: LoweringTypeRefPlan;
+  };
   readonly allocateTempName: (prefix: string) => string;
   readonly getStructuralTypeName: (type: LoweringTypeRefPlan) => string;
   readonly externalBindingTargetName: (

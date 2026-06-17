@@ -44,7 +44,10 @@ const privateJsRuntimeTypes: ReadonlyMap<string, string> = new Map([
   ["js._.Regex", "global::System.Text.RegularExpressions.Regex"],
   ["js._.RegexOptions", "global::System.Text.RegularExpressions.RegexOptions"],
   ["js._.Error", "global::js.Error"],
+  ["js._.RangeError", "global::js.RangeError"],
   ["js._.RegExp", "global::js.RegExp"],
+  ["js._.Date", "global::js.Date"],
+  ["js._.Set", "global::js.Set"],
   ["js._.Map", "global::js.Map"],
   ["js._.ReadonlyMap", "global::js.Map"],
   ["js._.Uint8Array", "global::js.Uint8Array"],
@@ -171,7 +174,8 @@ const renderNamedType = (
 
 const renderNamedRuntimeType = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
-  context: RenderContext
+  context: RenderContext,
+  options: { readonly missingExternalTarget?: "diagnostic" | "ignore" } = {}
 ): string | undefined => {
   const special = renderSpecialNamedType(type, context);
   if (special) return special;
@@ -184,6 +188,7 @@ const renderNamedRuntimeType = (
       context
     );
     if (!externalName) {
+      if (options.missingExternalTarget === "ignore") return undefined;
       context.reportUnsupported(
         "external binding target type",
         "TypeReference",
@@ -209,7 +214,9 @@ const renderIntersectionRuntimeType = (
   const renderedTypes = new Set<string>();
   for (const member of type.types) {
     if (member.kind === "named") {
-      const rendered = renderNamedRuntimeType(member, context);
+      const rendered = renderNamedRuntimeType(member, context, {
+        missingExternalTarget: "ignore",
+      });
       if (rendered) renderedTypes.add(rendered);
       continue;
     }
@@ -328,6 +335,21 @@ export const structuralTypeKey = (type: LoweringTypeRefPlan): string =>
 export const structuralTypeName = (type: LoweringTypeRefPlan): string =>
   `__TsonicShape_${stableHash(structuralTypeKey(type))}`;
 
+const structuralMemberIdentifierSuffix = (name: string): string =>
+  sanitizeIdentifier(name).replace(/^@/, "_").replace(/@/g, "_");
+
+export const structuralPropertyStorageMemberName = (name: string): string =>
+  `__tsonic_property_${structuralMemberIdentifierSuffix(name)}`;
+
+export const structuralPropertyGetterMemberName = (name: string): string =>
+  `__tsonic_get_${structuralMemberIdentifierSuffix(name)}`;
+
+export const structuralPropertySetterMemberName = (name: string): string =>
+  `__tsonic_set_${structuralMemberIdentifierSuffix(name)}`;
+
+export const structuralMethodStorageMemberName = (name: string): string =>
+  `__tsonic_method_${structuralMemberIdentifierSuffix(name)}`;
+
 const collectTypeParameterNames = (
   type: LoweringTypeRefPlan | undefined,
   names: Set<string>,
@@ -340,6 +362,11 @@ const collectTypeParameterNames = (
     case "named":
       if (type.declarationKind === "type-parameter") {
         names.add(type.name);
+      }
+      if ((type.typeParameters?.length ?? 0) > 0 && type.typeArguments.length === 0) {
+        for (const parameter of type.typeParameters ?? []) {
+          names.add(parameter);
+        }
       }
       for (const argument of type.typeArguments) {
         collectTypeParameterNames(argument, names, nextSeen);
@@ -475,8 +502,8 @@ export const shouldExpandNamedAliasTarget = (
 ): boolean =>
   type.kind === "named" &&
   type.aliasTarget !== undefined &&
-  ((type.declarationKind === "type-alias" &&
-    type.aliasTarget.kind === "union") ||
+  type.declarationKind !== "class" &&
+  (type.declarationKind === "type-alias" ||
     (type.sourceQualifiedName === undefined &&
       type.externalBinding === undefined &&
       type.aliasTarget.kind !== "union"));
@@ -599,7 +626,7 @@ const isScalarRuntimeTypePlan = (
   type: LoweringTypeRefPlan | undefined,
   seen: ReadonlySet<LoweringTypeRefPlan> = new Set()
 ): boolean => {
-  if (!type) return false;
+  if (!type) return true;
   if (seen.has(type)) return false;
   const nextSeen = new Set(seen);
   nextSeen.add(type);
@@ -658,7 +685,7 @@ const containsUnemittableStructuralMemberType = (
   type: LoweringTypeRefPlan | undefined,
   seen: ReadonlySet<LoweringTypeRefPlan> = new Set()
 ): boolean => {
-  if (!type) return false;
+  if (!type) return true;
   if (seen.has(type)) return false;
   const nextSeen = new Set(seen);
   nextSeen.add(type);
@@ -667,6 +694,9 @@ const containsUnemittableStructuralMemberType = (
   }
   switch (type.kind) {
     case "named":
+      if (type.declarationKind === "type-parameter") {
+        return false;
+      }
       return (
         type.typeArguments.some((argument) =>
           containsUnemittableStructuralMemberType(argument, nextSeen)
@@ -791,7 +821,10 @@ const isPromiseType = (type: LoweringTypeRefPlan | undefined): boolean =>
   type?.kind === "named" &&
   (type.name === "Promise" || type.name === "PromiseLike") &&
   (isPrivateJsRuntimeName(type.sourceQualifiedName) ||
-    isPrivateJsPromiseConstructorAliasTarget(type.aliasTarget));
+    isPrivateJsPromiseConstructorAliasTarget(type.aliasTarget) ||
+    (type.sourceQualifiedName === undefined &&
+      type.declaration === undefined &&
+      type.externalBinding === undefined));
 
 export const isTaskLikeTypePlan = (
   type: LoweringTypeRefPlan | undefined,
@@ -1147,6 +1180,14 @@ const renderSpecialNamedType = (
   type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>,
   context: RenderContext
 ): string | undefined => {
+  const privateRuntimeType = privateJsRuntimeTypes.get(
+    sourceQualifiedNameKey(type.sourceQualifiedName) ?? ""
+  );
+  if (privateRuntimeType) {
+    return type.typeArguments.length === 0
+      ? privateRuntimeType
+      : `${privateRuntimeType}<${type.typeArguments.map((argument) => renderCSharpType(argument, context)).join(", ")}>`;
+  }
   if (isPromiseType(type)) {
     const awaited = requiredTypeArgument(
       type,
@@ -1161,6 +1202,11 @@ const renderSpecialNamedType = (
   const privateJsRuntimeName = isPrivateJsRuntimeName(type.sourceQualifiedName)
     ? type.name
     : undefined;
+  const generatorTypeArgument = (index: number): string => {
+    const argument = type.typeArguments[index];
+    if (!argument || isVoidLikeTypePlan(argument)) return "object?";
+    return renderCSharpType(argument, context);
+  };
   switch (privateJsRuntimeName) {
     case "Array":
       return `global::System.Collections.Generic.List<${renderCSharpType(requiredTypeArgument(type, 0, context, "Array type argument"), context)}>`;
@@ -1169,8 +1215,12 @@ const renderSpecialNamedType = (
     case "Iterable":
     case "IterableIterator":
     case "Iterator":
-    case "Generator":
+    case "IteratorObject":
       return `global::System.Collections.Generic.IEnumerable<${renderCSharpType(requiredTypeArgument(type, 0, context, `${type.name} type argument`), context)}>`;
+    case "Generator":
+      return `global::Tsonic.Runtime.Generator<${generatorTypeArgument(0)}, ${generatorTypeArgument(1)}, ${generatorTypeArgument(2)}>`;
+    case "AsyncGenerator":
+      return `global::Tsonic.Runtime.AsyncGenerator<${generatorTypeArgument(0)}, ${generatorTypeArgument(1)}, ${generatorTypeArgument(2)}>`;
     default:
       return undefined;
   }
@@ -1221,15 +1271,15 @@ export const renderCSharpType = (
       if (type.externalBinding) {
         return renderNamedRuntimeType(type, context) ?? renderNamedType(type);
       }
+      if (type.runtimeVisibility === "opaque") {
+        return "object?";
+      }
       if (type.declarationKind === "type-alias" && !type.aliasTarget) {
         context.reportUnsupported(
           "type alias target",
           "TypeReference",
           type.sourceText ?? type.name
         );
-        return "object?";
-      }
-      if (type.runtimeVisibility === "opaque") {
         return "object?";
       }
       if (
@@ -1239,6 +1289,20 @@ export const renderCSharpType = (
         return shouldEmitAnonymousRuntimeUnionCarrier(type.aliasTarget, context)
           ? renderStructuralTypeReference(type, context)
           : renderUnionType(type.aliasTarget, context);
+      }
+      if (
+        type.declarationKind === "type-alias" &&
+        type.aliasTarget?.kind === "function"
+      ) {
+        return renderNamedRuntimeType(type, context) ?? renderNamedType(type);
+      }
+      if (
+        type.declarationKind === "type-alias" &&
+        type.aliasTarget?.kind === "object"
+      ) {
+        return shouldEmitStructuralObjectType(type.aliasTarget)
+          ? renderNamedRuntimeType(type, context) ?? renderNamedType(type)
+          : "object?";
       }
       if (
         type.declarationKind === "type-alias" &&
@@ -1345,6 +1409,9 @@ export const renderRequiredCSharpType = (
   context.reportUnsupported(feature, sourceKindName, sourceText);
   return renderCSharpType(objectTypePlan, context);
 };
+
+export const renderCSharpTypeofOperand = (csharpType: string): string =>
+  csharpType.split("?").join("");
 
 export const renderNullableCSharpType = (
   type: LoweringTypeRefPlan,

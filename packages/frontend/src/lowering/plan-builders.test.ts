@@ -324,6 +324,98 @@ describe("TSTS-backed lowering plan builders", () => {
     }
   });
 
+  it("excludes ECMAScript private fields from structural shape targets", () => {
+    const result = lowerProgram(`
+      class Response {
+        #header = "";
+        append_one(field: string, value: string): void {
+          this.#header = field + ":" + value;
+        }
+      }
+
+      export const response: Response = new Response();
+    `);
+
+    const variable = result.modules
+      .flatMap((module) => module.topLevelStatements)
+      .flatMap((statement) => statement.declarations)
+      .find((declaration) => declaration.name === "response");
+    const members =
+      variable?.type?.kind === "named" && variable.type.aliasTarget?.kind === "object"
+        ? variable.type.aliasTarget.members
+        : [];
+
+    expect(
+      members.some(
+        (member) => member.kind === "property" && member.name === "__private_header"
+      )
+    ).to.equal(false);
+    expect(
+      members.some((member) => member.kind === "method" && member.name === "append_one")
+    ).to.equal(true);
+  });
+
+  it("keeps source-runtime iterator declarations named instead of expanding recursive members", () => {
+    const result = lowerFiles(
+      {
+        "node_modules/@tsonic/js/package.json": JSON.stringify({
+          name: "@tsonic/js",
+          version: "0.0.0-test",
+          type: "module",
+        }),
+        "node_modules/@tsonic/js/tsonic.package.json": JSON.stringify({
+          kind: "tsonic-source-package",
+          source: {
+            namespace: "js",
+            exports: {
+              "./iter.js": "./iter.ts",
+            },
+          },
+        }),
+        "node_modules/@tsonic/js/iter.ts": [
+          "export interface Iterator<T> {",
+          "  next(): IteratorResult<T>;",
+          "}",
+          "export interface IteratorResult<T> {",
+          "  value: T;",
+          "  done: boolean;",
+          "}",
+          "export interface IterableIterator<T> extends Iterator<T> {",
+          "  self(): IterableIterator<T>;",
+          "}",
+          "",
+        ].join("\n"),
+        "index.ts": [
+          'import type { IterableIterator } from "@tsonic/js/iter.js";',
+          "export function read(value: IterableIterator<string>): IterableIterator<string> {",
+          "  return value;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      "index.ts"
+    );
+
+    const declaration = result.modules
+      .flatMap((module) => module.declarations)
+      .find(
+        (candidate) =>
+          candidate.declarationKind === "function" && candidate.name === "read"
+      );
+    const returnType = declaration?.returnType;
+
+    expect(returnType?.kind).to.equal("named");
+    if (returnType?.kind === "named") {
+      expect(returnType.name).to.equal("IterableIterator");
+      expect(returnType.runtimeVisibility).to.equal("opaque");
+      expect(returnType.aliasTarget).to.equal(undefined);
+      expect(returnType.sourceQualifiedName).to.deep.equal({
+        namespace: "js._",
+        name: "IterableIterator",
+      });
+    }
+  });
+
   it("treats standard NonNullable as compile-time-only during type planning", () => {
     const result = lowerProgram(`
       export const text: NonNullable<string | null | undefined> = "x";
@@ -337,6 +429,35 @@ describe("TSTS-backed lowering plan builders", () => {
     expect(type?.kind).to.equal("intrinsic");
     if (type?.kind === "intrinsic") {
       expect(type.name).to.equal("string");
+    }
+  });
+
+  it("erases conditional and mapped aliases to TSTS-projected storage types", () => {
+    const result = lowerProgram(`
+      type UnwrapPromise<T> = T extends Promise<infer U> ? U : T;
+      type NullableProps<T> = { [K in keyof T]: T[K] | undefined };
+      interface Person { name: string; age: number; }
+
+      export const value: UnwrapPromise<Promise<number>> = 42;
+      export const person: NullableProps<Person> = { name: "Alice", age: 30 };
+    `);
+
+    const [module] = result.modules;
+    const [valueDeclaration, personDeclaration] =
+      module?.topLevelStatements.flatMap((statement) => statement.declarations) ??
+      [];
+
+    expect(valueDeclaration?.type).to.deep.include({
+      kind: "intrinsic",
+      name: "number",
+    });
+    expect(personDeclaration?.type?.kind).to.equal("object");
+    if (personDeclaration?.type?.kind === "object") {
+      expect(
+        personDeclaration.type.members
+          .filter((member) => member.kind === "property")
+          .map((member) => member.name)
+      ).to.deep.equal(["name", "age"]);
     }
   });
 
@@ -545,6 +666,31 @@ describe("TSTS-backed lowering plan builders", () => {
       kind: "intrinsic",
       name: "string",
     });
+  });
+
+  it("lowers TSTS-proven generic function use-site type arguments", () => {
+    const result = lowerProgram(`
+      import type { int } from "@tsonic/core/types.js";
+
+      function id<T>(value: T): T {
+        return value;
+      }
+
+      export const monomorphic: (value: int) => int = id;
+    `);
+
+    const idUse = firstExpression(
+      result,
+      (expression) =>
+        expression.expressionKind === "identifier" &&
+        expression.literalText === "id" &&
+        expression.genericFunctionUseSiteTypeArguments !== undefined
+    );
+
+    expectSourcePrimitive(
+      idUse.genericFunctionUseSiteTypeArguments?.[0],
+      "int32"
+    );
   });
 
   it("projects marker source facts into declaration and parameter plans", () => {

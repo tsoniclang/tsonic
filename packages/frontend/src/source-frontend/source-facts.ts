@@ -82,6 +82,7 @@ export type SourceRuntimeOperationOwner =
   | "Array"
   | "Console"
   | "DataView"
+  | "Date"
   | "Error"
   | "Float32Array"
   | "Float64Array"
@@ -91,15 +92,28 @@ export type SourceRuntimeOperationOwner =
   | "Int32Array"
   | "Int8Array"
   | "JSON"
+  | "Math"
   | "Map"
   | "Object"
   | "Promise"
+  | "RangeError"
   | "RegExp"
+  | "Set"
   | "String"
   | "Uint16Array"
   | "Uint32Array"
   | "Uint8Array"
   | "Uint8ClampedArray";
+
+export type SourceRuntimeTypeOwner =
+  | SourceRuntimeOperationOwner
+  | "AsyncGenerator"
+  | "Generator"
+  | "Iterable"
+  | "IterableIterator"
+  | "Iterator"
+  | "IteratorObject"
+  | "ReadonlyArray";
 
 export type SourceRuntimeOperationDispatch =
   | "constructor"
@@ -123,6 +137,11 @@ export type WellKnownComputedNameFact = {
 
 export type GenericFunctionAliasFact = {
   readonly resolvedName: string;
+  readonly targetDeclaration?: TstsNode;
+};
+
+export type GenericFunctionUseSiteFact = {
+  readonly typeArguments: readonly SourceBindingProjectedType[];
 };
 
 export type SourceOverloadFamilyFact = {
@@ -193,10 +212,6 @@ export type SourceProjectedDeclarationKind =
 
 export type SourceBindingProjectedType =
   | {
-      readonly kind: "type-node";
-      readonly node: TstsNode;
-    }
-  | {
       readonly kind: "intrinsic";
       readonly name: SourceIntrinsicTypeName;
       readonly sourceNode?: TstsNode;
@@ -207,6 +222,18 @@ export type SourceBindingProjectedType =
       readonly sourceNode?: TstsNode;
     }
   | {
+      readonly kind: "literal";
+      readonly literalKind:
+        | "string"
+        | "number"
+        | "bigint"
+        | "boolean"
+        | "null"
+        | "undefined";
+      readonly valueText: string;
+      readonly sourceNode?: TstsNode;
+    }
+  | {
       readonly kind: "named";
       readonly name: string;
       readonly typeArguments: readonly SourceBindingProjectedType[];
@@ -214,7 +241,7 @@ export type SourceBindingProjectedType =
       readonly declaration?: TstsNode;
       readonly declarationKind?: SourceProjectedDeclarationKind;
       readonly aliasTarget?: SourceBindingProjectedType;
-      readonly runtimeTypeOwner?: SourceRuntimeOperationOwner;
+      readonly runtimeTypeOwner?: SourceRuntimeTypeOwner;
       readonly runtimeVisibility?: "opaque";
       readonly sourceNode?: TstsNode;
     }
@@ -269,7 +296,7 @@ export type SourceBindingTypeProjectionFact = {
   readonly type: SourceBindingProjectedType;
 };
 
-export type SourceTypeNodeProjectionFact = {
+export type SourceTypeProjectionFact = {
   readonly type: SourceBindingProjectedType;
 };
 
@@ -281,6 +308,7 @@ export type SourceExpressionTypeProjectionFact = {
 
 export type SourceCallArgumentTypesFact = {
   readonly argumentTypes: readonly (SourceBindingProjectedType | undefined)[];
+  readonly typeArguments?: readonly SourceBindingProjectedType[];
   readonly targetType?: SourceBindingProjectedType;
   readonly returnType?: SourceBindingProjectedType;
 };
@@ -404,6 +432,12 @@ export const genericFunctionAliasFactKey =
     "Source-level compile-time generic function alias target."
   );
 
+export const genericFunctionUseSiteFactKey =
+  defineSourceFactKey<GenericFunctionUseSiteFact>(
+    "tsonic:source:generic-function-use-site",
+    "Source-level generic function use-site type arguments proven by the TSTS source extension."
+  );
+
 export const sourceOverloadFamilyFactKey =
   defineSourceFactKey<SourceOverloadFamilyFact>(
     "tsonic:source:overload-family",
@@ -446,10 +480,10 @@ export const sourceBindingTypeProjectionFactKey =
     "Source-level type projected by TSTS for destructured binding elements."
   );
 
-export const sourceTypeNodeProjectionFactKey =
-  defineSourceFactKey<SourceTypeNodeProjectionFact>(
-    "tsonic:source:type-node-projection",
-    "Source-level type-node projection selected by TSTS."
+export const sourceTypeProjectionFactKey =
+  defineSourceFactKey<SourceTypeProjectionFact>(
+    "tsonic:source:type-projection",
+    "Source-level type projection selected by TSTS."
   );
 
 export const sourceExpressionTypeProjectionFactKey =
@@ -502,6 +536,7 @@ export const visitSourceSemanticFactKeys = (
   visit(sourceRuntimeOperationFactKey);
   visit(wellKnownComputedNameFactKey);
   visit(genericFunctionAliasFactKey);
+  visit(genericFunctionUseSiteFactKey);
   visit(sourceOverloadFamilyFactKey);
   visit(sourceOverloadCallImplementationFactKey);
   visit(intrinsicSemanticsFactKey);
@@ -509,7 +544,7 @@ export const visitSourceSemanticFactKeys = (
   visit(sourceRuntimeVisibilityFactKey);
   visit(sourceDictionaryTypeFactKey);
   visit(sourceBindingTypeProjectionFactKey);
-  visit(sourceTypeNodeProjectionFactKey);
+  visit(sourceTypeProjectionFactKey);
   visit(sourceExpressionTypeProjectionFactKey);
   visit(sourceCallArgumentTypesFactKey);
   visit(sourceInitializerReferencesDeclarationFactKey);

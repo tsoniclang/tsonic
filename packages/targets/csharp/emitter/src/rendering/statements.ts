@@ -136,6 +136,7 @@ const renderInstanceofNarrowingCondition = (
   | {
       readonly conditionText: string;
       readonly sourceName: string;
+      readonly sourceBindingId: string | undefined;
       readonly aliasName: string;
       readonly aliasType: LoweringTypeRefPlan;
     }
@@ -180,27 +181,41 @@ const renderInstanceofNarrowingCondition = (
   const conditionText = matchedArm
     ? `(${leftExpression}.As${matchedArm.index}()) is ${patternType} ${aliasName}`
     : `${leftExpression} is ${patternType} ${aliasName}`;
-  return {
-    conditionText,
-    sourceName,
-    aliasName,
-    aliasType: narrowedType,
-  };
+    return {
+      conditionText,
+      sourceName,
+      sourceBindingId: condition.left.bindingId,
+      aliasName,
+      aliasType: narrowedType,
+    };
 };
+
+const renderBindingName = (
+  name: string,
+  bindingId: string | undefined,
+  context: RenderContext
+): string =>
+  (bindingId ? context.currentBindingNames?.get(bindingId) : undefined) ??
+  sanitizeIdentifier(name);
 
 const renderWithIdentifierAlias = (
   context: RenderContext,
   sourceName: string,
+  sourceBindingId: string | undefined,
   aliasName: string,
   aliasType: LoweringTypeRefPlan,
   render: () => string
 ): string => {
   const previous = context.currentDefaultedParameters;
+  const previousBindingNames = context.currentBindingNames;
   const previousAliasTypes = context.currentIdentifierAliasTypes;
   context.currentDefaultedParameters = new Map([
     ...(previous?.entries() ?? []),
     [sourceName, aliasName],
   ]);
+  context.currentBindingNames = sourceBindingId
+    ? new Map([...(previousBindingNames?.entries() ?? []), [sourceBindingId, aliasName]])
+    : previousBindingNames;
   context.currentIdentifierAliasTypes = new Map([
     ...(previousAliasTypes?.entries() ?? []),
     [sourceName, aliasType],
@@ -209,6 +224,7 @@ const renderWithIdentifierAlias = (
     return render();
   } finally {
     context.currentDefaultedParameters = previous;
+    context.currentBindingNames = previousBindingNames;
     context.currentIdentifierAliasTypes = previousAliasTypes;
   }
 };
@@ -221,6 +237,26 @@ const singleMatchingType = (
   return matches.length === 1 ? matches[0] : undefined;
 };
 
+const tupleBindingType = (
+  type: LoweringTypeRefPlan | undefined
+): { readonly type: LoweringTypeRefPlan; readonly nullable: boolean } | undefined => {
+  if (!type) return undefined;
+  const unwrapped = unwrapAliasTarget(type);
+  if (!unwrapped) return undefined;
+  if (unwrapped.kind === "tuple") {
+    return { type: unwrapped, nullable: false };
+  }
+  const tuple = singleMatchingType(
+    nonNullishUnionTypes(unwrapped)
+      .map((member) => unwrapAliasTarget(member))
+      .filter(
+        (member): member is LoweringTypeRefPlan => member !== undefined
+      ),
+    (member) => member.kind === "tuple"
+  );
+  return tuple ? { type: tuple, nullable: true } : undefined;
+};
+
 const renderBindingAccess = (
   rootName: string,
   accessPath: readonly LoweringBindingAccessPlan[],
@@ -230,31 +266,25 @@ const renderBindingAccess = (
   return accessPath.reduce((current, access) => {
     switch (access.kind) {
       case "element": {
-        const nullableTuple =
-          currentType?.kind === "union"
-            ? singleMatchingType(
-                currentType.types,
-                (member) => member.kind === "tuple"
-              )
-            : undefined;
-        const tupleType =
-          currentType?.kind === "tuple" ? currentType : nullableTuple;
-        if (tupleType?.kind === "tuple") {
-          const nextType = tupleType.elements[access.index];
+        const tuple = tupleBindingType(currentType);
+        if (tuple?.type.kind === "tuple") {
+          const nextType = tuple.type.elements[access.index];
           currentType = nextType;
-          return `${current}${nullableTuple ? ".Value" : ""}.Item${access.index + 1}`;
+          return `${current}${tuple.nullable ? ".Value" : ""}.Item${access.index + 1}`;
         }
-        if (currentType?.kind === "array") {
-          currentType = currentType.elementType;
+        const unwrapped = currentType ? unwrapAliasTarget(currentType) : undefined;
+        if (unwrapped?.kind === "array") {
+          currentType = unwrapped.elementType;
         } else {
           currentType = undefined;
         }
         return `${current}[${access.index}]`;
       }
       case "property": {
+        const unwrapped = currentType ? unwrapAliasTarget(currentType) : undefined;
         const matchingMembers =
-          currentType?.kind === "object"
-            ? currentType.members.filter(
+          unwrapped?.kind === "object"
+            ? unwrapped.members.filter(
                 (candidate) =>
                   candidate.kind === "property" && candidate.name === access.name
               )
@@ -296,7 +326,7 @@ const renderBindingElementDeclaration = (
   const bindingType = binding.type
     ? renderCSharpType(binding.type, context)
     : "var";
-  return `${bindingType} ${sanitizeIdentifier(binding.name)} = ${renderBindingInitializer(
+  return `${bindingType} ${renderBindingName(binding.name, binding.bindingId, context)} = ${renderBindingInitializer(
     renderBindingAccess(rootName, binding.accessPath, rootType),
     binding.type,
     context
@@ -466,7 +496,7 @@ export const renderVariableFragment = (
         declaration.type ?? declaration.storageType
       )}`
     : "";
-  return `${type} ${sanitizeIdentifier(declaration.name)}${initializer}`;
+  return `${type} ${renderBindingName(declaration.name, declaration.bindingId, context)}${initializer}`;
 };
 
 export const renderStaticField = (
@@ -586,6 +616,136 @@ const renderSwitch = (
 const defaultedParameterAlias = (name: string): string =>
   `__defaulted_${sanitizeIdentifier(name).replace(/^@/, "")}`;
 
+const uniqueBindingName = (baseName: string, usedNames: Set<string>): string => {
+  if (!usedNames.has(baseName)) {
+    usedNames.add(baseName);
+    return baseName;
+  }
+  let index = 1;
+  while (usedNames.has(`${baseName}__${index}`)) {
+    index += 1;
+  }
+  const name = `${baseName}__${index}`;
+  usedNames.add(name);
+  return name;
+};
+
+const collectVariableBindingAlias = (
+  aliases: Map<string, string>,
+  usedNames: Set<string>,
+  name: string,
+  bindingId: string | undefined
+): void => {
+  if (!bindingId) return;
+  const baseName = sanitizeIdentifier(name);
+  const emittedName = uniqueBindingName(baseName, usedNames);
+  if (emittedName !== baseName) {
+    aliases.set(bindingId, emittedName);
+  }
+};
+
+const collectStatementBindingAliases = (
+  statement: LoweringStatementPlan | undefined,
+  aliases: Map<string, string>,
+  usedNames: Set<string>
+): void => {
+  if (!statement) return;
+  for (const declaration of statement.declarations) {
+    collectVariableBindingAlias(
+      aliases,
+      usedNames,
+      declaration.name,
+      declaration.bindingId
+    );
+    for (const binding of declaration.bindingElements) {
+      collectVariableBindingAlias(
+        aliases,
+        usedNames,
+        binding.name,
+        binding.bindingId
+      );
+    }
+  }
+  if (statement.catchVariable) {
+    collectVariableBindingAlias(
+      aliases,
+      usedNames,
+      statement.catchVariable.name,
+      statement.catchVariable.bindingId
+    );
+  }
+  for (const nested of statement.statements) {
+    collectStatementBindingAliases(nested, aliases, usedNames);
+  }
+  for (const switchCase of statement.cases) {
+    for (const nested of switchCase.statements) {
+      collectStatementBindingAliases(nested, aliases, usedNames);
+    }
+  }
+  collectStatementBindingAliases(statement.thenStatement, aliases, usedNames);
+  collectStatementBindingAliases(statement.elseStatement, aliases, usedNames);
+  collectStatementBindingAliases(statement.body, aliases, usedNames);
+  collectStatementBindingAliases(statement.tryBlock, aliases, usedNames);
+  collectStatementBindingAliases(statement.catchBlock, aliases, usedNames);
+  collectStatementBindingAliases(statement.finallyBlock, aliases, usedNames);
+};
+
+const functionBodyBindingAliases = (
+  body: LoweringStatementPlan | undefined,
+  parameters: readonly LoweringParameterPlan[]
+): ReadonlyMap<string, string> => {
+  const aliases = new Map<string, string>();
+  const usedNames = new Set<string>();
+  for (const parameter of parameters) {
+    usedNames.add(sanitizeIdentifier(parameter.name));
+  }
+  collectStatementBindingAliases(body, aliases, usedNames);
+  return aliases;
+};
+
+const generatorYieldExpression = (
+  expression: LoweringStatementPlan["expression"]
+) => (expression?.expressionKind === "yield" ? expression : undefined);
+
+const renderGeneratorReceivedValue = (context: RenderContext): string => {
+  const generator = context.currentGenerator;
+  return generator ? `${generator.exchangeName}.Input` : "default!";
+};
+
+const renderGeneratorYield = (
+  expression: NonNullable<ReturnType<typeof generatorYieldExpression>>,
+  context: RenderContext
+): readonly string[] => {
+  const generator = context.currentGenerator;
+  if (!generator) {
+    context.reportUnsupported(
+      "yield expression outside generator",
+      expression.sourceKindName,
+      expression.sourceText
+    );
+    return [];
+  }
+  if (expression.yieldDelegates) {
+    context.reportUnsupported(
+      "yield delegation",
+      expression.sourceKindName,
+      expression.sourceText
+    );
+    return [];
+  }
+  const output = expression.expression
+    ? renderExpressionWithUseSiteCast(
+        expression.expression,
+        context,
+        generator.yieldType
+      )
+    : "default!";
+  return [
+    `${generator.exchangeName}.Output = ${output};`,
+    `yield return ${generator.exchangeName};`,
+  ];
+};
+
 const renderVariableStatement = (
   declarations: readonly LoweringVariablePlan[],
   context: RenderContext
@@ -596,13 +756,27 @@ const renderVariableStatement = (
         return [];
       }
       if (declaration.bindingElements.length === 0) {
+        const yieldInitializer = generatorYieldExpression(
+          declaration.initializer
+        );
+        if (yieldInitializer && context.currentGenerator) {
+          const type = variableRenderType(declaration, context, "var");
+          return [
+            ...renderGeneratorYield(yieldInitializer, context),
+            `${type} ${renderBindingName(declaration.name, declaration.bindingId, context)} = ${renderGeneratorReceivedValue(context)};`,
+          ];
+        }
         if (
           declaration.initializerReferencesDeclaration === true &&
           declaration.initializer &&
           (declaration.initializer.expressionKind === "arrow-function" ||
             declaration.initializer.expressionKind === "function-expression")
         ) {
-          const name = sanitizeIdentifier(declaration.name);
+          const name = renderBindingName(
+            declaration.name,
+            declaration.bindingId,
+            context
+          );
           const type = variableRenderType(declaration, context, "object?");
           return [
             `${type} ${name} = default!;`,
@@ -631,7 +805,10 @@ const renderVariableStatement = (
           declaration.type ?? declaration.storageType
         )};`,
       ];
-      const rootType = declaration.storageType ?? declaration.initializer.type;
+      const rootType =
+        declaration.initializer.storageTypePlan ??
+        declaration.storageType ??
+        declaration.initializer.type;
       for (const binding of declaration.bindingElements) {
         if (binding.initializer) {
           context.reportUnsupported(
@@ -671,6 +848,37 @@ const renderVoidExpressionStatement = (
     default:
       return `_ = ${rendered};`;
   }
+};
+
+const renderGeneratorReturnStatement = (
+  plan: LoweringStatementPlan,
+  context: RenderContext
+): string | undefined => {
+  const generator = context.currentGenerator;
+  if (!generator || plan.statementKind !== "return") return undefined;
+  const yieldExpression = generatorYieldExpression(plan.expression);
+  const lines: string[] = [];
+  if (yieldExpression) {
+    lines.push(...renderGeneratorYield(yieldExpression, context));
+    if (generator.returnValueName) {
+      lines.push(
+        `${generator.returnValueName} = ${renderGeneratorReceivedValue(context)};`
+      );
+    }
+    lines.push("yield break;");
+    return lines.join("\n");
+  }
+  if (plan.expression && generator.returnValueName && generator.returnType) {
+    lines.push(
+      `${generator.returnValueName} = ${renderExpressionWithUseSiteCast(
+        plan.expression,
+        context,
+        generator.returnType
+      )};`
+    );
+  }
+  lines.push("yield break;");
+  return lines.join("\n");
 };
 
 const isCSharpStatementExpression = (
@@ -798,10 +1006,13 @@ export const renderStatement = (
   switch (plan.statementKind) {
     case "block":
       return renderBlockLike(plan.statements, context);
-    case "return":
+    case "return": {
+      const generatorReturn = renderGeneratorReturnStatement(plan, context);
+      if (generatorReturn !== undefined) return generatorReturn;
       return plan.expression
         ? `return ${renderReturnExpression(plan.expression, context)};`
         : "return;";
+    }
     case "expression":
       if (isCompileTimeOnlyExpression(plan.expression)) {
         return "";
@@ -810,15 +1021,7 @@ export const renderStatement = (
         return "";
       }
       if (plan.expression?.expressionKind === "yield") {
-        if (plan.expression.yieldDelegates) {
-          context.reportUnsupported(
-            "yield delegation",
-            plan.expression.sourceKindName,
-            plan.expression.sourceText
-          );
-          return "";
-        }
-        return `yield return ${renderExpression(plan.expression.expression, context)};`;
+        return renderGeneratorYield(plan.expression, context).join("\n");
       }
       if (plan.expression?.expressionKind === "void") {
         return renderVoidExpressionStatement(plan.expression, context);
@@ -837,6 +1040,7 @@ export const renderStatement = (
         ? renderWithIdentifierAlias(
             context,
             narrowing.sourceName,
+            narrowing.sourceBindingId,
             narrowing.aliasName,
             narrowing.aliasType,
             () => renderStatement(plan.thenStatement, context)
@@ -900,7 +1104,7 @@ export const renderStatement = (
       const type = declaration.type
         ? renderCSharpType(declaration.type, context)
         : "var";
-      return `foreach (${type} ${sanitizeIdentifier(declaration.name)} in ${renderExpression(plan.iterable, context)}) ${renderStatement(plan.body, context)}`;
+      return `foreach (${type} ${renderBindingName(declaration.name, declaration.bindingId, context)} in ${renderExpression(plan.iterable, context)}) ${renderStatement(plan.body, context)}`;
     }
     case "for-in":
       return unsupportedStatement(context, plan);
@@ -912,7 +1116,7 @@ export const renderStatement = (
       return renderSwitch(plan, context);
     case "try": {
       const catchBlock = plan.catchBlock
-        ? `\ncatch${plan.catchVariable ? ` (Exception ${sanitizeIdentifier(plan.catchVariable.name)})` : ""} ${renderStatement(plan.catchBlock, context)}`
+        ? `\ncatch${plan.catchVariable ? ` (Exception ${renderBindingName(plan.catchVariable.name, plan.catchVariable.bindingId, context)})` : ""} ${renderStatement(plan.catchBlock, context)}`
         : "";
       const finallyBlock = plan.finallyBlock
         ? `\nfinally ${renderStatement(plan.finallyBlock, context)}`
@@ -937,6 +1141,9 @@ export const renderFunctionBody = (
 ): string => {
   const previousReturnType = context.currentReturnType;
   const previousDefaultedParameters = context.currentDefaultedParameters;
+  const previousDefaultedParameterBindings =
+    context.currentDefaultedParameterBindings;
+  const previousBindingNames = context.currentBindingNames;
   context.currentReturnType = returnType;
   const defaultedParameters = parameters.filter(
     (parameter) => parameter.initializer !== undefined
@@ -948,6 +1155,18 @@ export const renderFunctionBody = (
             parameter.name,
             defaultedParameterAlias(parameter.name),
           ])
+        )
+      : undefined;
+  const defaultedParameterBindingAliases =
+    defaultedParameters.length > 0
+      ? new Map(
+          defaultedParameters
+            .filter((parameter) => parameter.bindingId !== undefined)
+            .map((parameter) => [
+              parameter.bindingId as string,
+              defaultedParameterAliases?.get(parameter.name) ??
+                defaultedParameterAlias(parameter.name),
+            ])
         )
       : undefined;
   const defaultedParameterPrologue = defaultedParameters.map((parameter) => {
@@ -963,7 +1182,21 @@ export const renderFunctionBody = (
       defaultedParameterAlias(parameter.name);
     return `${renderRequiredCSharpType(parameter.type, context, "defaulted parameter type", parameter.sourceKindName, parameter.sourceText)} ${alias} = ${parameterName} ?? ${renderExpression(parameter.initializer, context)};`;
   });
+  const bodyAliases = functionBodyBindingAliases(body, parameters);
   context.currentDefaultedParameters = defaultedParameterAliases;
+  context.currentDefaultedParameterBindings = defaultedParameterBindingAliases
+    ? new Map([
+        ...(previousDefaultedParameterBindings?.entries() ?? []),
+        ...defaultedParameterBindingAliases.entries(),
+      ])
+    : previousDefaultedParameterBindings;
+  context.currentBindingNames =
+    bodyAliases.size > 0
+      ? new Map([
+          ...(previousBindingNames?.entries() ?? []),
+          ...bodyAliases.entries(),
+        ])
+      : previousBindingNames;
   try {
   const rendered =
     !body
@@ -981,6 +1214,9 @@ export const renderFunctionBody = (
   } finally {
     context.currentReturnType = previousReturnType;
     context.currentDefaultedParameters = previousDefaultedParameters;
+    context.currentDefaultedParameterBindings =
+      previousDefaultedParameterBindings;
+    context.currentBindingNames = previousBindingNames;
   }
 };
 

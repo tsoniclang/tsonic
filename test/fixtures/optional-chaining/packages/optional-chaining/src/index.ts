@@ -15,7 +15,7 @@ function getCity(user: User | null): string | undefined {
 }
 
 function getNameLength(user: User | null): number {
-  return user?.name?.Length ?? 0;
+  return user?.name?.length ?? 0;
 }
 
 const user1: User = {

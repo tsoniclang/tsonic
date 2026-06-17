@@ -2,6 +2,7 @@ import type { SurfaceMode } from "../types.js";
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 type SurfaceProfile = {
   readonly mode: SurfaceMode;
@@ -59,6 +60,10 @@ const normalizeSurfaceMode = (mode: SurfaceMode | undefined): SurfaceMode => {
   return trimmed.length > 0 ? trimmed : "core";
 };
 
+const activeToolchainRoot = resolve(
+  join(dirname(fileURLToPath(import.meta.url)), "../../../..")
+);
+
 type ResolvedSurfacePackage = {
   readonly packageName: string;
   readonly packageRoot: string;
@@ -107,7 +112,10 @@ const resolveSiblingSearchRoots = (
   workspaceRoot: string
 ): readonly string[] => {
   const roots = new Set<string>();
-  for (const candidateRoot of findAncestorLookupRoots(workspaceRoot)) {
+  for (const candidateRoot of [
+    ...findAncestorLookupRoots(workspaceRoot),
+    activeToolchainRoot,
+  ]) {
     roots.add(resolve(candidateRoot));
     roots.add(resolve(candidateRoot, ".."));
   }

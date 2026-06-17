@@ -156,4 +156,64 @@ describe("C# statement renderer", () => {
     expect(rendered).to.not.contain("Router candidate__is_1");
     expect(rendered).to.not.contain("candidate.mountpath");
   });
+
+  it("destructures nullable tuple unions through tuple item access", () => {
+    const tupleType: LoweringTypeRefPlan = {
+      kind: "tuple",
+      readonly: true,
+      elements: [
+        { kind: "intrinsic", name: "string" },
+        { kind: "intrinsic", name: "unknown" },
+      ],
+    };
+    const nullableTupleType: LoweringTypeRefPlan = {
+      kind: "union",
+      types: [tupleType, { kind: "intrinsic", name: "undefined" }],
+    };
+
+    const rendered = renderStatement(
+      statementPlan({
+        statementKind: "variable",
+        declarations: [
+          {
+            sourceNode: dummySourceNode,
+            name: "entry",
+            storageType: {
+              kind: "object",
+              members: [
+                { kind: "property", name: "0", optional: false },
+                { kind: "property", name: "1", optional: false },
+                { kind: "property", name: "length", optional: false },
+              ],
+            },
+            initializer: expressionPlan({
+              expressionKind: "identifier",
+              name: "first",
+              type: nullableTupleType,
+              storageTypePlan: nullableTupleType,
+              literalText: "first",
+            }),
+            bindingElements: [
+              {
+                name: "key",
+                accessPath: [{ kind: "element", index: 0 }],
+                type: { kind: "intrinsic", name: "string" },
+              },
+              {
+                name: "value",
+                accessPath: [{ kind: "element", index: 1 }],
+                type: { kind: "intrinsic", name: "unknown" },
+              },
+            ],
+          },
+        ],
+      }),
+      createRenderContext()
+    );
+
+    expect(rendered).to.contain("binding_1.Value.Item1");
+    expect(rendered).to.contain("binding_1.Value.Item2");
+    expect(rendered).not.to.contain("binding_1[0]");
+    expect(rendered).not.to.contain("binding_1[1]");
+  });
 });
