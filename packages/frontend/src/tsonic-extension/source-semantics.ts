@@ -1629,6 +1629,13 @@ const uniqueProjectedTypes = (
   return result;
 };
 
+const singleProjectedType = (
+  types: readonly (SourceBindingProjectedType | undefined)[]
+): SourceBindingProjectedType | undefined => {
+  const unique = uniqueProjectedTypes(types);
+  return unique.length === 1 ? unique[0] : undefined;
+};
+
 const combinedProjectedType = (
   kind: "union" | "intersection",
   types: readonly (SourceBindingProjectedType | undefined)[],
@@ -3393,10 +3400,17 @@ const checkerObjectProjection = (
             (declaration): declaration is TstsNode =>
               declaration !== undefined
           );
+        const valueDeclaration =
+          context.checker.getSymbolValueDeclaration(property);
         const declaration =
-          context.checker.getSymbolValueDeclaration(property) ??
-          declarations[0];
-        const memberProjection = uniqueProjectedTypes(
+          valueDeclaration &&
+          isProjectedStructuralMemberDeclaration(valueDeclaration)
+            ? valueDeclaration
+            : singleDeclaration(
+                declarations,
+                isProjectedStructuralMemberDeclaration
+              );
+        const memberProjection = singleProjectedType(
           declarations.map((memberDeclaration) =>
             projectedTypeFromMemberDeclaration(
               context,
@@ -3406,7 +3420,7 @@ const checkerObjectProjection = (
               state
             )
           )
-        )[0];
+        );
         return {
           name: context.checker.getSymbolName(property),
           optional: declaration
