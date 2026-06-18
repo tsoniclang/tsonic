@@ -2,24 +2,25 @@
 set -euo pipefail
 
 scratch_roots=("workarea" ".temp" ".tests")
-excluded_repo_names=("tsts")
+
+# Active repositories for the Tsonic compiler architecture. Downstream projects,
+# archived package-surface repositories, and historical binding-package repos are
+# intentionally outside this check so they do not block compiler work.
+active_repo_names=(
+  "tsonic"
+  "tsts"
+  "tsonic-csharp"
+  "tsonic-rust"
+  "csharp-runtime"
+  "rust-runtime"
+  "tsonic.org"
+)
 
 is_scratch_root_name() {
   local name="$1"
   local scratch_root
   for scratch_root in "${scratch_roots[@]}"; do
     if [[ "$name" == "$scratch_root" ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-is_excluded_repo_name() {
-  local name="$1"
-  local excluded_repo_name
-  for excluded_repo_name in "${excluded_repo_names[@]}"; do
-    if [[ "$name" == "$excluded_repo_name" ]]; then
       return 0
     fi
   done
@@ -42,26 +43,27 @@ fi
 
 warn_count=0
 repo_count=0
+script_repo_root="$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel 2>/dev/null || true)"
 
 warn() {
   printf 'WARN  %s\n' "$1"
   warn_count=$((warn_count + 1))
 }
 
-while IFS= read -r repo; do
-  [[ -d "$repo/.git" ]] || continue
+check_repo() {
+  local repo="$1"
+  [[ -d "$repo/.git" ]] || return 0
   repo_count=$((repo_count + 1))
   repo_name="$(basename "$repo")"
 
-  if is_excluded_repo_name "$repo_name"; then
-    repo_count=$((repo_count - 1))
-    continue
-  fi
-
   current_branch="$(git -C "$repo" branch --show-current)"
   dirty_count="$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')"
+  is_current_work_repo=false
+  if [[ -n "$script_repo_root" && "$(cd "$repo" && pwd)" == "$script_repo_root" ]]; then
+    is_current_work_repo=true
+  fi
 
-  if [[ "$current_branch" != "main" ]]; then
+  if [[ "$current_branch" != "main" && "$is_current_work_repo" != true ]]; then
     warn "$repo_name: current branch is '$current_branch' (expected 'main')"
   fi
 
@@ -71,6 +73,9 @@ while IFS= read -r repo; do
 
   while IFS='|' read -r branch commit_epoch; do
     [[ -n "$branch" ]] || continue
+    if [[ "$is_current_work_repo" == true && "$branch" == "$current_branch" ]]; then
+      continue
+    fi
     ahead_behind="$(git -C "$repo" rev-list --left-right --count "main...$branch" 2>/dev/null || echo '0 0')"
     ahead="$(awk '{print $2}' <<<"$ahead_behind")"
     behind="$(awk '{print $1}' <<<"$ahead_behind")"
@@ -97,13 +102,16 @@ while IFS= read -r repo; do
       refs/heads \
       | grep -v '^main|' || true
   )
-done < <(
-  find "$workspace_root" -mindepth 1 -maxdepth 1 -type d \
-    ! -name 'workarea' \
-    ! -name '.temp' \
-    ! -name '.tests' \
-    | sort
-)
+}
+
+for active_repo_name in "${active_repo_names[@]}"; do
+  repo="$workspace_root/$active_repo_name"
+  if [[ ! -d "$repo/.git" ]]; then
+    warn "$active_repo_name: active repository is not cloned at $repo"
+    continue
+  fi
+  check_repo "$repo"
+done
 
 if (( warn_count > 0 )); then
   printf '\nBranch hygiene check failed: %d warning(s) across %d repo(s).\n' "$warn_count" "$repo_count" >&2
