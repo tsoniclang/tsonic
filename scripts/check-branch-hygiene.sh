@@ -10,9 +10,13 @@ active_repo_names=(
   "tsonic"
   "tsts"
   "tsonic-csharp"
-  "tsonic-rust"
   "csharp-runtime"
+  "csharp-js"
+  "csharp-nodejs"
+  "tsonic-rust"
   "rust-runtime"
+  "rust-js"
+  "rust-nodejs"
   "tsonic.org"
 )
 
