@@ -20,7 +20,7 @@ PACKAGES=(
 )
 
 # Clean dist directories in all packages. packages/tsts/dist is the checked-in
-# bootstrap compiler used to build this repo without invoking tsc.
+# bootstrap compiler used to build this repo without invoking legacy tsc.
 for pkg_name in "${PACKAGES[@]}"; do
   if [[ "$pkg_name" == "tsts" ]]; then
     continue

@@ -19,7 +19,7 @@
     }
   },
   "scripts": {
-    "build": "npm run clean && bash ../../scripts/build/tsts-project.sh ./tsconfig.json --pretty false && chmod +x dist/index.js",
+    "build": "npm run clean && bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false && chmod +x dist/index.js",
     "clean": "rm -rf dist *.tsbuildinfo",
     "pretest": "npm run build",
     "test": "mocha --require ../../test/mocha/checkpoint.cjs --parallel --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js'",

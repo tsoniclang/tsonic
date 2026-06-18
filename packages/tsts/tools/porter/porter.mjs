@@ -1119,16 +1119,17 @@ export function checkSkeletons(config, status, snapshot, options) {
     writeJson(tsconfigPath, skeletonTsConfig());
     console.log(`Skeleton output: ${path.relative(repoRoot, outRoot)}`);
     if (compile) {
+      const tsgoPath = path.join(repoRoot, "node_modules/.bin/tsgo");
       const result = spawnSync(
-        path.join(repoRoot, "node_modules/.bin/tsc"),
+        tsgoPath,
         ["--noEmit", "-p", tsconfigPath],
         { cwd: repoRoot, encoding: "utf8", maxBuffer: 1024 * 1024 * 256 },
       );
-      if (result.error) fail(`failed to execute TypeScript compiler: ${result.error.message}`);
+      if (result.error) fail(`failed to execute TS-Go compiler: ${result.error.message}`);
       if (result.status !== 0) {
-        fail(`skeleton TypeScript compile failed with exit ${result.status}\n${result.stdout}\n${result.stderr}`);
+        fail(`skeleton TS-Go compile failed with exit ${result.status}\n${result.stdout}\n${result.stderr}`);
       }
-      console.log("skeleton TypeScript compile passed");
+      console.log("skeleton TS-Go compile passed");
     }
   }
 }

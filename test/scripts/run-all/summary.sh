@@ -122,8 +122,8 @@ print_summary_and_exit() {
     echo "========================================" | tee -a "$LOG_FILE"
     echo "" | tee -a "$LOG_FILE"
 
-    TOTAL_PASSED=$((FRESH_BUILD_PASSED + RELEASE_SMOKE_PASSED + UNIT_PASSED + TSC_PASSED + E2E_DOTNET_PASSED + E2E_NEGATIVE_PASSED))
-    TOTAL_FAILED=$((FRESH_BUILD_FAILED + RELEASE_SMOKE_FAILED + UNIT_FAILED + TSC_FAILED + E2E_DOTNET_FAILED + E2E_NEGATIVE_FAILED))
+    TOTAL_PASSED=$((FRESH_BUILD_PASSED + RELEASE_SMOKE_PASSED + UNIT_PASSED + TSGO_PASSED + E2E_DOTNET_PASSED + E2E_NEGATIVE_PASSED))
+    TOTAL_FAILED=$((FRESH_BUILD_FAILED + RELEASE_SMOKE_FAILED + UNIT_FAILED + TSGO_FAILED + E2E_DOTNET_FAILED + E2E_NEGATIVE_FAILED))
 
     echo "Fresh Workspace Build:" | tee -a "$LOG_FILE"
     if [ "$FRESH_BUILD_STATUS" = "skipped" ]; then
@@ -168,10 +168,10 @@ print_summary_and_exit() {
         print_duration_breakdown "CLI Test Durations" "$CLI_ALL_PASSED" "$CLI_ALL_FAILED" "$CLI_ALL_SKIPPED" "$CLI_ALL_COUNT" "$CLI_ALL_TEST_DURATION_SUM_MS" "$CLI_ALL_TEST_AVG_MS"
     fi
 
-    if [ "$TSC_STATUS" = "skipped" ]; then
-        print_fixture_block "TypeScript Typecheck" "skipped" "$TSC_PASSED" "$TSC_FAILED" "$TSC_DURATION_MS" "--no-fixtures/--fast"
+    if [ "$TSGO_STATUS" = "skipped" ]; then
+        print_fixture_block "TS-Go Typecheck" "skipped" "$TSGO_PASSED" "$TSGO_FAILED" "$TSGO_DURATION_MS" "--no-fixtures/--fast"
     else
-        print_fixture_block "TypeScript Typecheck" "$TSC_STATUS" "$TSC_PASSED" "$TSC_FAILED" "$TSC_DURATION_MS"
+        print_fixture_block "TS-Go Typecheck" "$TSGO_STATUS" "$TSGO_PASSED" "$TSGO_FAILED" "$TSGO_DURATION_MS"
     fi
 
     runtime_skip_note=""

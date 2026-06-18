@@ -54,8 +54,8 @@ NC='\033[0m'
 # Results tracking
 UNIT_PASSED=0
 UNIT_FAILED=0
-TSC_PASSED=0
-TSC_FAILED=0
+TSGO_PASSED=0
+TSGO_FAILED=0
 E2E_DOTNET_PASSED=0
 E2E_DOTNET_FAILED=0
 E2E_NEGATIVE_PASSED=0
@@ -124,13 +124,13 @@ CLI_DURATION_MS=0
 FRESH_BUILD_STATUS="unknown"
 RELEASE_SMOKE_STATUS="unknown"
 UNIT_STATUS="unknown"
-TSC_STATUS="unknown"
+TSGO_STATUS="unknown"
 RUNTIME_SYNC_STATUS="unknown"
 AOT_PREFLIGHT_STATUS="not-run"
 FRESH_BUILD_DURATION_MS=0
 RELEASE_SMOKE_DURATION_MS=0
 UNIT_DURATION_MS=0
-TSC_DURATION_MS=0
+TSGO_DURATION_MS=0
 RUNTIME_SYNC_DURATION_MS=0
 AOT_PREFLIGHT_DURATION_MS=0
 E2E_DOTNET_DURATION_MS=0
@@ -215,7 +215,7 @@ else
 fi
 mkdir -p "$NUGET_PACKAGES"
 
-if [ ! -x "$ROOT_DIR/node_modules/.bin/tsc" ]; then
+if [ ! -x "$ROOT_DIR/node_modules/.bin/tsgo" ]; then
     echo "FAIL: Node dependencies are not installed."
     echo "Run npm ci in the repo root before ./test/scripts/run-all.sh."
     exit 1
@@ -612,14 +612,14 @@ echo "Unit + golden wall duration: $(format_duration_ms "$UNIT_DURATION_MS")" | 
 echo "" | tee -a "$LOG_FILE"
 
 # ============================================================
-# 1.25 TypeScript typecheck (fixtures must pass vanilla tsc)
+# 1.25 TS-Go typecheck (fixtures must pass TS-Go v7)
 # ============================================================
-echo -e "${BLUE}--- Running TypeScript Typecheck (E2E fixtures) ---${NC}" | tee -a "$LOG_FILE"
+echo -e "${BLUE}--- Running TS-Go Typecheck (E2E fixtures) ---${NC}" | tee -a "$LOG_FILE"
 tccheck_started_ms="$(now_ms)"
-trace_event phase-start scope phase phase typescript-typecheck
+trace_event phase-start scope phase phase tsgo-typecheck
 if [ "$SKIP_FIXTURES" = true ]; then
     echo -e "${YELLOW}SKIP: fixture typecheck (--no-fixtures/--fast)${NC}" | tee -a "$LOG_FILE"
-    TSC_STATUS="skipped"
+    TSGO_STATUS="skipped"
 else
     typecheck_cmd=(bash "$ROOT_DIR/test/scripts/typecheck-fixtures.sh")
     for pat in "${FILTER_PATTERNS[@]}"; do
@@ -627,26 +627,26 @@ else
     done
 
     if TSONIC_TEST_CHECKPOINT_DIR="$CACHE_DIR" TSONIC_TEST_RESUME="$([ "$RESUME_MODE" = true ] && echo 1 || echo 0)" "${typecheck_cmd[@]}" 2>&1 | tee -a "$LOG_FILE"; then
-        TSC_STATUS="passed"
+        TSGO_STATUS="passed"
     else
-        TSC_STATUS="failed"
+        TSGO_STATUS="failed"
     fi
 fi
 
-# Extract tsc pass/fail counts from script output
-tsc_summary_line=$(grep -E "Typecheck summary:" "$LOG_FILE" | tail -1 || true)
-if [[ "$tsc_summary_line" =~ Typecheck\ summary:\ ([0-9]+)\ passed,\ ([0-9]+)\ failed ]]; then
-    TSC_PASSED="${BASH_REMATCH[1]}"
-    TSC_FAILED="${BASH_REMATCH[2]}"
+# Extract TS-Go pass/fail counts from script output
+tsgo_summary_line=$(grep -E "Typecheck summary:" "$LOG_FILE" | tail -1 || true)
+if [[ "$tsgo_summary_line" =~ Typecheck\ summary:\ ([0-9]+)\ passed,\ ([0-9]+)\ failed ]]; then
+    TSGO_PASSED="${BASH_REMATCH[1]}"
+    TSGO_FAILED="${BASH_REMATCH[2]}"
 fi
 
 # Ensure failures are surfaced even when the typecheck script fails before printing a summary.
-if [ "$TSC_STATUS" = "failed" ] && [ "$TSC_FAILED" -eq 0 ]; then
-    TSC_FAILED=1
+if [ "$TSGO_STATUS" = "failed" ] && [ "$TSGO_FAILED" -eq 0 ]; then
+    TSGO_FAILED=1
 fi
-TSC_DURATION_MS=$(( $(now_ms) - tccheck_started_ms ))
-trace_event phase-done scope phase phase typescript-typecheck status "$TSC_STATUS" durationMs "$TSC_DURATION_MS" passed "$TSC_PASSED" failed "$TSC_FAILED"
-echo "Duration: $(format_duration_ms "$TSC_DURATION_MS")" | tee -a "$LOG_FILE"
+TSGO_DURATION_MS=$(( $(now_ms) - tccheck_started_ms ))
+trace_event phase-done scope phase phase tsgo-typecheck status "$TSGO_STATUS" durationMs "$TSGO_DURATION_MS" passed "$TSGO_PASSED" failed "$TSGO_FAILED"
+echo "Duration: $(format_duration_ms "$TSGO_DURATION_MS")" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 
