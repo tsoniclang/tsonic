@@ -31,7 +31,7 @@ try {
   }
 } catch (error) {
   console.error(`Built source tests were not found under ${relative(repoRoot, testRoot)}.`);
-  console.error("Run `npx tsc -p packages/tsts/tsconfig.json` before `npm run source:test`.");
+  console.error("Run `npm run typecheck` before `npm run source:test`.");
   if (error instanceof Error) {
     console.error(error.message);
   }

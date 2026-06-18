@@ -1,5 +1,5 @@
 #!/bin/bash
-# Typecheck all positive E2E fixtures with vanilla `tsc`.
+# Typecheck all positive E2E fixtures with TS-Go v7.
 #
 # This is a guardrail: all supported Tsonic programs must also typecheck under
 # standard TypeScript (no compiler-owned shims).
@@ -138,9 +138,9 @@ matches_filter() {
   return 1
 }
 
-TSC="$ROOT_DIR/node_modules/.bin/tsc"
-if [ ! -x "$TSC" ]; then
-  echo "FAIL: tsc not found at $TSC (run npm install in repo root)"
+TSGO="$ROOT_DIR/node_modules/.bin/tsgo"
+if [ ! -x "$TSGO" ]; then
+  echo "FAIL: tsgo not found at $TSGO (run npm install in repo root)"
   exit 1
 fi
 
@@ -445,7 +445,7 @@ failed=0
 tmp_dir="$(mktemp -d)"
 trap "rm -rf \"$tmp_dir\"" EXIT
 
-echo "=== TypeScript Typecheck (E2E fixtures) ==="
+echo "=== TS-Go Typecheck (E2E fixtures) ==="
 if [ ${#FILTER_PATTERNS[@]} -gt 0 ]; then
   echo "Filter: ${FILTER_PATTERNS[*]}"
 fi
@@ -790,7 +790,7 @@ $(for declaration_file in "${declaration_files[@]}"; do
 }
 EOF
 
-  if "$TSC" -p "$tsconfig_file" >"$out_file" 2>&1; then
+  if "$TSGO" -p "$tsconfig_file" >"$out_file" 2>&1; then
     fixture_duration_ms="$(( $(now_ms) - fixture_started_ms ))"
     echo "  $fixture_name: PASS ($(format_duration_ms "$fixture_duration_ms"))"
     append_trace_event fixture-done scope fixture phase typecheck fixture "$fixture_name" status pass durationMs "$fixture_duration_ms"

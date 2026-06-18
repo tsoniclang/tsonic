@@ -23,7 +23,7 @@
     }
   },
   "scripts": {
-    "build": "bash ../../scripts/build/tsts-project.sh ./tsconfig.json --pretty false",
+    "build": "bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false",
     "clean": "rm -rf dist *.tsbuildinfo",
     "pretest": "npm run clean && npm run build",
     "test": "mocha --require ../../test/mocha/checkpoint.cjs --parallel --timeout 10000 --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js'",

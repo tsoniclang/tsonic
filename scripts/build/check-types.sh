@@ -12,10 +12,6 @@ CONFIGS=(
 )
 
 for config in "${CONFIGS[@]}"; do
-  echo "Checking $config with TSTS…"
-  if [[ "$config" == "packages/tsts/tsconfig.json" ]]; then
-    TSTS_NODE_HEAP_MB=6144 bash scripts/build/tsts-project.sh "$config" --noEmit --pretty false
-  else
-    bash scripts/build/tsts-project.sh "$config" --noEmit --pretty false
-  fi
+  echo "Checking $config with TS-Go v7…"
+  bash scripts/build/tsgo-project.sh "$config" --noEmit --pretty false
 done

@@ -292,7 +292,7 @@ NODE
 
 (
   cd "$CONSUMER_DIR"
-  ./node_modules/.bin/tsc -p tsconfig.json --pretty false
+  ./node_modules/.bin/tsgo -p tsconfig.json --pretty false
 )
 
 set +e
