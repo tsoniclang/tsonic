@@ -29,10 +29,18 @@ import { GetLeadingCommentRanges, GetTrailingCommentRanges } from "../scanner/sc
 // `s[i]` is a byte, and slices like `s[i:j]` operate on byte offsets. Parser
 // positions are byte offsets, so reads of the source text by position must go
 // through the UTF-8 byte view rather than JS string indexing.
+//
+// The cache of encoded byte views MUST be byte-budgeted: long-lived processes
+// (the test runner compiles in-process) funnel thousands of distinct multi-MB
+// non-ASCII strings through here (lib texts and their derived slices), and an
+// unbounded cache retains a full encoded copy of every one of them — measured
+// at multiple GB on a single full-lib-check compilation.
 const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
 const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
 type Utf8ByteInfo = { ascii: bool; bytes: Uint8Array };
 const utf8ByteInfoCache = new globalThis.Map<string, Utf8ByteInfo>();
+const utf8ByteInfoCacheBudget = 64 * 1024 * 1024; // total cached bytes
+const cacheState = { bytes: 0 };
 
 const getUtf8ByteInfo = (s: string): Utf8ByteInfo => {
   const cached = utf8ByteInfoCache.get(s);
@@ -51,7 +59,13 @@ const getUtf8ByteInfo = (s: string): Utf8ByteInfo => {
     bytes: ascii ? undefined as unknown as Uint8Array : utf8Encoder.encode(s),
   };
   if (s.length >= 4096) {
+    const cost = ascii ? s.length : info.bytes.length;
+    if (cacheState.bytes + cost > utf8ByteInfoCacheBudget) {
+      utf8ByteInfoCache.clear();
+      cacheState.bytes = 0;
+    }
     utf8ByteInfoCache.set(s, info);
+    cacheState.bytes += cost;
   }
   return info;
 };
@@ -69,6 +83,42 @@ export const byteSlice = (s: string, start: int, end?: int): string => {
 export const byteAt = (s: string, i: int): int => {
   const info = getUtf8ByteInfo(s);
   return info.ascii ? s.charCodeAt(i) : info.bytes[i]!;
+};
+
+// Positional equivalents of Go's `text[start:]`-then-inspect patterns. Go tail
+// slices are free views; materializing them here allocates a decode of the
+// whole tail (multi-MB on lib-sized files), so hot paths that only inspect a
+// few bytes must read them in place instead.
+
+// isJSDocLikeText(text[start:]) without materializing the tail.
+export const isJSDocLikeTextAt = (text: string, start: int): bool => {
+  return (byteLen(text) - start >= 4 &&
+    byteAt(text, start + 1) === 0x2a /* '*' */ &&
+    byteAt(text, start + 2) === 0x2a /* '*' */ &&
+    byteAt(text, start + 3) !== 0x2f /* '/' */) as bool;
+};
+
+// strings.HasPrefix(text[start:], prefix) for an ASCII prefix, in place.
+export const hasAsciiPrefixAt = (text: string, start: int, prefix: string): bool => {
+  if (byteLen(text) - start < prefix.length) {
+    return false;
+  }
+  for (let i = 0; i < prefix.length; i++) {
+    if (byteAt(text, start + i) !== prefix.charCodeAt(i)) {
+      return false;
+    }
+  }
+  return true;
+};
+
+// strings.LastIndex(text[:end], "\n") without materializing the prefix.
+export const lastNewlineBefore = (text: string, end: int): int => {
+  for (let i = end - 1; i >= 0; i--) {
+    if (byteAt(text, i) === 0x0a /* '\n' */) {
+      return i;
+    }
+  }
+  return -1;
 };
 
 /**

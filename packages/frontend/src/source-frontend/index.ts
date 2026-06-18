@@ -1,38 +1,62 @@
-export type {
-  SourceFrontend,
-  SourceFrontendEngine,
-  SourceTranspileOptions,
-  SourceTranspileResult,
-} from "./source-frontend.js";
 export {
-  createSourceSemanticFactStore,
-  defineSourceSemanticFactKey,
-} from "./semantic-view.js";
-export {
-  attributeSemanticsFactKey,
+  extensionReceiverSemanticsFactKey,
   fieldSemanticsFactKey,
+  heritageWrapperSemanticsFactKey,
   intrinsicSemanticsFactKey,
+  markerApiSemanticsFactKey,
   numericPrimitiveFactKey,
   parameterPassingFactKey,
+  sourceAttributeApplicationsFactKey,
+  sourceAttributeDescriptorFactKey,
+  sourceBindingIdentityFactKey,
+  sourceInitializerReferencesDeclarationFactKey,
   sourceTypeSemanticsFactKey,
+  visitSourceSemanticFactKeys,
 } from "./source-facts.js";
+export {
+  getSourcePrimitiveFact,
+  getSourcePrimitiveNames,
+} from "./source-primitive-taxonomy.js";
+export {
+  CORE_LANG_MODULE_SPECIFIERS,
+  CORE_PACKAGE_NAME,
+  CORE_TYPES_MODULE_SPECIFIERS,
+  GLOBALS_PACKAGE_NAME,
+  coreDeclarationFileBaseName,
+  canonicalCoreModuleSpecifier,
+} from "./core-module-identity.js";
+export type { CoreModule } from "./core-module-identity.js";
+export type { SourceSemanticFactKey } from "./source-facts.js";
 export type {
-  SourceSemanticFactKey,
-  SourceSemanticFactStore,
-  SourceSemanticView,
-} from "./semantic-view.js";
-export type {
-  AttributeSemanticsFact,
+  ExtensionReceiverSemanticsFact,
   FieldSemanticsFact,
+  HeritageWrapperSemanticsFact,
   IntrinsicSemanticsFact,
+  MarkerApiSemanticsFact,
   NumericPrimitiveFact,
   NumericPrimitiveKind,
   NumericPrimitiveRuntimeBase,
   ParameterPassingFact,
   ParameterPassingMode,
+  SourceAttributeApplicationFact,
+  SourceAttributeApplicationsFact,
+  SourceAttributeDescriptorFact,
+  SourceAttributeTargetKind,
+  SourceAttributeTargetSpecifier,
+  SourceBindingDeclarationKind,
+  SourceBindingIdentityFact,
+  SourceInitializerReferencesDeclarationFact,
   SourceTypeSemanticsFact,
 } from "./source-facts.js";
-export { createTstsSourceFrontend } from "./tsts-source-frontend.js";
+export {
+  isExtensionReceiverFact,
+  isFieldSemanticsFact,
+  isHeritageInterfaceErasure,
+  isIntrinsicKind,
+  isMarkerApiKind,
+  isSourceTypeKind,
+  markerApiKindFromFact,
+} from "./source-fact-queries.js";
 export {
   createEmptyTstsSourceProgramForTests,
   createTstsSourceProgram,
@@ -41,8 +65,3 @@ export type {
   CreateTstsSourceProgramOptions,
   TstsSourceProgram,
 } from "./tsts-source-program.js";
-export { createTypeScriptSemanticView } from "./typescript-semantic-view.js";
-export type {
-  TypeScriptCallLikeExpression,
-  TypeScriptSemanticView,
-} from "./typescript-semantic-view.js";

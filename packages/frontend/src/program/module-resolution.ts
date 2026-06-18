@@ -5,11 +5,34 @@
  * and namespace remapping logic.
  */
 
-import * as ts from "typescript";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
-import { extractRawExternalBindingsPayload } from "./external-binding-payload.js";
+import type { SourcePackageMetadata } from "./source-package-metadata.js";
+
+export type ResolvedPackageModuleExtension =
+  | ".d.ts"
+  | ".ts"
+  | ".js"
+  | ".mts"
+  | ".cts";
+
+export type ResolvedPackageModule = {
+  readonly resolvedFileName: string;
+  readonly extension: ResolvedPackageModuleExtension;
+  readonly isExternalLibraryImport: boolean;
+};
+
+const resolvePackageModuleExtension = (
+  filePath: string
+): ResolvedPackageModuleExtension | undefined => {
+  if (filePath.endsWith(".d.ts")) return ".d.ts";
+  if (filePath.endsWith(".mts")) return ".mts";
+  if (filePath.endsWith(".cts")) return ".cts";
+  if (filePath.endsWith(".ts")) return ".ts";
+  if (filePath.endsWith(".js")) return ".js";
+  return undefined;
+};
 
 /**
  * Read the `name` field from a package.json file.
@@ -27,8 +50,7 @@ export const readPackageName = (pkgJsonPath: string): string | undefined => {
 };
 
 /**
- * Read the root namespace from a package's native source-package metadata or
- * external bindings payload.
+ * Read the root namespace from a package's native source-package metadata.
  */
 export const createReadPackageRootNamespace = (
   packageRootNamespaceCache: Map<string, string | null>
@@ -45,29 +67,6 @@ export const createReadPackageRootNamespace = (
     if (sourceMetadata?.namespace) {
       packageRootNamespaceCache.set(packageRoot, sourceMetadata.namespace);
       return sourceMetadata.namespace;
-    }
-
-    const candidates = [
-      path.join(packageRoot, "index", "bindings.json"),
-      path.join(packageRoot, "bindings.json"),
-    ];
-
-    for (const candidate of candidates) {
-      if (!fs.existsSync(candidate)) continue;
-      try {
-        const parsed = JSON.parse(fs.readFileSync(candidate, "utf-8")) as unknown;
-        const namespace = extractRawExternalBindingsPayload(parsed)?.namespace;
-        if (namespace && namespace.length > 0) {
-          packageRootNamespaceCache.set(packageRoot, namespace);
-          return namespace;
-        }
-      } catch (error) {
-        throw new Error(
-          `Failed to read external bindings metadata '${candidate}': ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
     }
 
     packageRootNamespaceCache.set(packageRoot, null);
@@ -106,16 +105,16 @@ export const parseTsonicModuleRequest = (
  * Resolve a module from a package root by trying candidate file paths.
  */
 export const createResolveModuleFromPackageRoot = (
-  packageRootModuleResolutionCache: Map<string, ts.ResolvedModuleFull | null>,
+  packageRootModuleResolutionCache: Map<string, ResolvedPackageModule | null>,
   readPackageRootNamespace: (packageRoot: string) => string | undefined
 ): ((
   packageRoot: string,
   subpath: string | undefined
-) => ts.ResolvedModuleFull | undefined) => {
+) => ResolvedPackageModule | undefined) => {
   const tryResolveExportTarget = (
     packageRoot: string,
     target: unknown
-  ): ts.ResolvedModuleFull | undefined => {
+  ): ResolvedPackageModule | undefined => {
     if (typeof target !== "string" || target.length === 0) {
       return undefined;
     }
@@ -125,18 +124,7 @@ export const createResolveModuleFromPackageRoot = (
       return undefined;
     }
 
-    const extension = candidate.endsWith(".d.ts")
-      ? ts.Extension.Dts
-      : candidate.endsWith(".ts")
-        ? ts.Extension.Ts
-        : candidate.endsWith(".js")
-          ? ts.Extension.Js
-          : candidate.endsWith(".mts")
-            ? ts.Extension.Mts
-            : candidate.endsWith(".cts")
-              ? ts.Extension.Cts
-              : undefined;
-
+    const extension = resolvePackageModuleExtension(candidate);
     if (!extension) {
       return undefined;
     }
@@ -151,7 +139,7 @@ export const createResolveModuleFromPackageRoot = (
   const tryResolveFromPackageJsonExports = (
     packageRoot: string,
     subpath: string | undefined
-  ): ts.ResolvedModuleFull | undefined => {
+  ): ResolvedPackageModule | undefined => {
     const packageJsonPath = path.join(packageRoot, "package.json");
     if (!fs.existsSync(packageJsonPath)) {
       return undefined;
@@ -209,45 +197,21 @@ export const createResolveModuleFromPackageRoot = (
     return undefined;
   };
 
-  const tryResolveFromSourceManifest = (
-    packageRoot: string,
+  const tryResolveFromSourcePackageMetadata = (
+    sourcePackageMetadata: SourcePackageMetadata,
     subpath: string | undefined
-  ): ts.ResolvedModuleFull | undefined => {
-    const manifestPath = path.join(packageRoot, "tsonic.package.json");
-    if (!fs.existsSync(manifestPath)) {
-      return undefined;
-    }
-
-    try {
-      const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
-        readonly source?: {
-          readonly exports?: Record<string, unknown>;
-        };
-      };
-      const exportsField = parsed.source?.exports;
-      if (
-        exportsField === null ||
-        typeof exportsField !== "object" ||
-        Array.isArray(exportsField)
-      ) {
-        return undefined;
-      }
-
-      const exportKey = subpath && subpath.length > 0 ? `./${subpath}` : ".";
-      return tryResolveExportTarget(packageRoot, exportsField[exportKey]);
-    } catch (error) {
-      throw new Error(
-        `Failed to read source package manifest '${manifestPath}': ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
+  ): ResolvedPackageModule | undefined => {
+    const exportKey = subpath && subpath.length > 0 ? `./${subpath}` : ".";
+    return tryResolveExportTarget(
+      sourcePackageMetadata.packageRoot,
+      sourcePackageMetadata.exports[exportKey]
+    );
   };
 
   const resolveModuleFromPackageRoot = (
     packageRoot: string,
     subpath: string | undefined
-  ): ts.ResolvedModuleFull | undefined => {
+  ): ResolvedPackageModule | undefined => {
     const cacheKey = `${path.resolve(packageRoot)}::${subpath ?? "."}`;
     const cached = packageRootModuleResolutionCache.get(cacheKey);
     if (cached !== undefined) {
@@ -256,10 +220,8 @@ export const createResolveModuleFromPackageRoot = (
 
     const sourcePackageMetadata = readSourcePackageMetadata(packageRoot);
     const exportedResolution = sourcePackageMetadata
-      ? (tryResolveFromSourceManifest(packageRoot, subpath) ??
-        tryResolveFromPackageJsonExports(packageRoot, subpath))
-      : (tryResolveFromPackageJsonExports(packageRoot, subpath) ??
-        tryResolveFromSourceManifest(packageRoot, subpath));
+      ? tryResolveFromSourcePackageMetadata(sourcePackageMetadata, subpath)
+      : tryResolveFromPackageJsonExports(packageRoot, subpath);
     if (exportedResolution) {
       packageRootModuleResolutionCache.set(cacheKey, exportedResolution);
       return exportedResolution;
@@ -327,13 +289,7 @@ export const createResolveModuleFromPackageRoot = (
       seenCandidates.add(candidate);
       if (!fs.existsSync(candidate)) continue;
 
-      const extension = candidate.endsWith(".d.ts")
-        ? ts.Extension.Dts
-        : candidate.endsWith(".js")
-          ? ts.Extension.Js
-          : candidate.endsWith(".ts")
-            ? ts.Extension.Ts
-            : undefined;
+      const extension = resolvePackageModuleExtension(candidate);
       if (!extension) continue;
 
       const resolvedModule = {

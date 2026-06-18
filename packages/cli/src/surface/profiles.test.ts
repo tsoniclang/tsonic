@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { describe, it } from "mocha";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   rmSync,
@@ -8,12 +9,28 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   hasResolvedSurfaceProfile,
   isSurfaceMode,
   resolveSurfaceCapabilities,
 } from "./profiles.js";
+
+const repoRoot = resolve(
+  join(dirname(fileURLToPath(import.meta.url)), "../../../..")
+);
+const realSiblingJsRoot = resolve(repoRoot, "..", "js", "versions", "10");
+const sourcePackageRootExists = (root: string): boolean =>
+  existsSync(join(root, "tsonic.package.json"));
+
+const expectedFirstPartyJsTypeRoot = (
+  installedJsRoot: string,
+  installedTypeRoot = "types"
+): string =>
+  sourcePackageRootExists(realSiblingJsRoot)
+    ? realSiblingJsRoot
+    : resolve(installedJsRoot, installedTypeRoot);
 
 describe("CLI Surface Profiles", () => {
   it("should resolve core capabilities", () => {
@@ -55,7 +72,7 @@ describe("CLI Surface Profiles", () => {
     expect(caps.requiredNpmPackages).to.deep.equal([]);
   });
 
-  it("should prefer installed @tsonic/js manifest without core inheritance", () => {
+  it("prefers first-party @tsonic/js source package over installed surface manifests", () => {
     const workspaceRoot = mkdtempSync(
       join(tmpdir(), "tsonic-surface-sibling-")
     );
@@ -83,30 +100,6 @@ describe("CLI Surface Profiles", () => {
             extends: [],
             requiredTypeRoots: ["types"],
             requiredNpmPackages: ["@tsonic/js"],
-            memberSemantics: {
-              "js.Array": {
-                length: {
-                  storageAccess: "arrayLength",
-                },
-                map: {
-                  returnsArray: true,
-                },
-              },
-              "js.Map": {
-                get: {
-                  borrowedMutationWriteBack: {
-                    methodName: "set",
-                    keyArgumentIndex: 0,
-                  },
-                },
-              },
-              "js.String": {
-                length: {
-                  emittedMemberName: "Length",
-                  emissionKind: "instanceMember",
-                },
-              },
-            },
           },
           null,
           2
@@ -116,23 +109,9 @@ describe("CLI Surface Profiles", () => {
       const caps = resolveSurfaceCapabilities("@tsonic/js", { workspaceRoot });
       expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/js"]);
       expect(caps.resolvedModes).to.deep.equal(["@tsonic/js"]);
-      expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
-      expect(caps.memberSemantics?.["js.Array"]?.map).to.deep.equal({
-        returnsArray: true,
-      });
-      expect(caps.memberSemantics?.["js.Array"]?.length).to.deep.equal({
-        storageAccess: "arrayLength",
-      });
-      expect(caps.memberSemantics?.["js.Map"]?.get).to.deep.equal({
-        borrowedMutationWriteBack: {
-          methodName: "set",
-          keyArgumentIndex: 0,
-        },
-      });
-      expect(caps.memberSemantics?.["js.String"]?.length).to.deep.equal({
-        emittedMemberName: "Length",
-        emissionKind: "instanceMember",
-      });
+      expect(caps.requiredTypeRoots).to.include(
+        expectedFirstPartyJsTypeRoot(jsRoot)
+      );
       expect(caps.requiredTypeRoots).to.not.include(
         "node_modules/@tsonic/dotnet"
       );
@@ -142,7 +121,7 @@ describe("CLI Surface Profiles", () => {
     }
   });
 
-  it("should resolve js capabilities only when a surface manifest exists", () => {
+  it("resolves js capabilities from the first-party source package when present", () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "tsonic-surface-js-"));
     try {
       writeFileSync(
@@ -177,7 +156,9 @@ describe("CLI Surface Profiles", () => {
       const caps = resolveSurfaceCapabilities("@tsonic/js", { workspaceRoot });
       expect(caps.includesCore).to.equal(false);
       expect(caps.requiredNpmPackages).to.deep.equal(["@tsonic/js"]);
-      expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
+      expect(caps.requiredTypeRoots).to.include(
+        expectedFirstPartyJsTypeRoot(jsRoot)
+      );
       expect(
         hasResolvedSurfaceProfile("@tsonic/js", { workspaceRoot })
       ).to.equal(true);
@@ -186,7 +167,7 @@ describe("CLI Surface Profiles", () => {
     }
   });
 
-  it("prefers a workspace-installed symlinked surface package over a sibling checkout", () => {
+  it("prefers a real first-party source package over a workspace-installed surface package", () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "tsonic-surface-link-"));
     const externalRoot = mkdtempSync(join(tmpdir(), "tsonic-surface-pkg-"));
     try {
@@ -224,7 +205,7 @@ describe("CLI Surface Profiles", () => {
 
       const caps = resolveSurfaceCapabilities("@tsonic/js", { workspaceRoot });
       expect(caps.requiredTypeRoots).to.include(
-        resolve(externalRoot, "linked-types")
+        expectedFirstPartyJsTypeRoot(externalRoot, "linked-types")
       );
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
@@ -232,7 +213,7 @@ describe("CLI Surface Profiles", () => {
     }
   });
 
-  it("prefers an ancestor workspace-installed surface package over a sibling checkout", () => {
+  it("prefers a real first-party source package over an ancestor installed surface package", () => {
     const workspaceRoot = mkdtempSync(
       join(tmpdir(), "tsonic-surface-ancestor-link-")
     );
@@ -283,7 +264,7 @@ describe("CLI Surface Profiles", () => {
         workspaceRoot: projectRoot,
       });
       expect(caps.requiredTypeRoots).to.include(
-        resolve(externalRoot, "linked-types")
+        expectedFirstPartyJsTypeRoot(externalRoot, "linked-types")
       );
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
@@ -331,7 +312,7 @@ describe("CLI Surface Profiles", () => {
         workspaceRoot: projectRoot,
       });
       expect(caps.requiredTypeRoots).to.include(
-        resolve(externalRoot, "linked-types")
+        expectedFirstPartyJsTypeRoot(externalRoot, "linked-types")
       );
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
@@ -596,37 +577,32 @@ describe("CLI Surface Profiles", () => {
     }
   });
 
-  it("should not treat installed regular packages as surfaces without manifest", () => {
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "tsonic-surface-nodejs-"));
+  it("should not treat installed custom regular packages as surfaces without manifest", () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "tsonic-surface-regular-"));
     try {
       writeFileSync(
         join(workspaceRoot, "package.json"),
         JSON.stringify({ name: "app", private: true, type: "module" }, null, 2)
       );
-      const nodejsRoot = join(
-        workspaceRoot,
-        "node_modules",
-        "@tsonic",
-        "nodejs"
-      );
-      mkdirSync(nodejsRoot, { recursive: true });
+      const regularRoot = join(workspaceRoot, "node_modules", "@acme", "plain");
+      mkdirSync(regularRoot, { recursive: true });
       writeFileSync(
-        join(nodejsRoot, "package.json"),
+        join(regularRoot, "package.json"),
         JSON.stringify(
-          { name: "@tsonic/nodejs", version: "1.0.0", type: "module" },
+          { name: "@acme/plain", version: "1.0.0", type: "module" },
           null,
           2
         )
       );
 
-      const caps = resolveSurfaceCapabilities("@tsonic/nodejs", {
+      const caps = resolveSurfaceCapabilities("@acme/plain", {
         workspaceRoot,
       });
       expect(caps.includesCore).to.equal(false);
       expect(caps.requiredTypeRoots).to.deep.equal([]);
       expect(caps.requiredNpmPackages).to.deep.equal([]);
       expect(
-        hasResolvedSurfaceProfile("@tsonic/nodejs", { workspaceRoot })
+        hasResolvedSurfaceProfile("@acme/plain", { workspaceRoot })
       ).to.equal(false);
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
@@ -707,7 +683,9 @@ describe("CLI Surface Profiles", () => {
         "@acme/runtime",
       ]);
       expect(caps.requiredNpmPackages).to.not.include("@tsonic/dotnet");
-      expect(caps.requiredTypeRoots).to.include(resolve(jsRoot, "types"));
+      expect(caps.requiredTypeRoots).to.include(
+        expectedFirstPartyJsTypeRoot(jsRoot)
+      );
       expect(caps.requiredTypeRoots).to.not.include(
         "node_modules/@tsonic/dotnet"
       );

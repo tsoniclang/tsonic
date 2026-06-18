@@ -16,7 +16,7 @@ These implement the compiler and CLI itself.
 Target-specific compiler implementations live under `packages/targets/<target>/`.
 The C# target is split into:
 
-- `packages/targets/csharp/emitter` for Source IR to C# source emission
+- `packages/targets/csharp/emitter` for lowering-plan to C# source emission
 - `packages/targets/csharp/backend` for project generation and .NET build orchestration
 
 The `tsonic` package is the npm wrapper under `npm/tsonic`. It forwards the

@@ -6,7 +6,7 @@ import * as path from "node:path";
 
 const normalizePathFragment = (fragment: string): string => {
   // Fast path: If the fragment is already a valid identifier fragment (letters/digits),
-  // keep it as-is (airplane-grade: no heuristics like camelCase word splitting).
+  // keep it as-is (airplane-grade: no camelCase word splitting).
   //
   // NOTE: We intentionally treat underscores as separators, not identifier characters,
   // so "foo_bar" behaves like "foo-bar" and becomes "FooBar" for readability.
@@ -19,8 +19,10 @@ const normalizePathFragment = (fragment: string): string => {
   // and PascalCase the result.
   const parts = fragment.split(/[^a-zA-Z0-9]+/g).filter((p) => p.length > 0);
   const pascal = parts
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    .map((p) => (p.length === 0 ? "" : p[0]!.toUpperCase() + p.slice(1)))
+    .map((part) => {
+      const [first = "", ...rest] = [...part];
+      return `${first.toUpperCase()}${rest.join("")}`;
+    })
     .join("");
 
   if (pascal.length === 0) return "_";

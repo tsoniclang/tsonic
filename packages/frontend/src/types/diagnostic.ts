@@ -23,7 +23,7 @@ export type DiagnosticCode =
   | "TSN2001" // Unsupported TypeScript feature
   | "TSN2002" // Invalid type mapping
   | "TSN2003" // File name conflicts with exported member name
-  | "TSN2004" // Legacy overload syntax not supported
+  | "TSN2004" // Unsupported TypeScript overload syntax
   | "TSN3001" // Target reserved keyword used
   | "TSN3002" // Invalid target identifier
   | "TSN3003" // Target identifier collision after naming policy
@@ -101,21 +101,6 @@ export type DiagnosticCode =
   | "TSN9016" // Metadata directory not found
   | "TSN9017" // Not a directory
   | "TSN9018" // No .metadata.json files found
-  // Bindings loading errors (TSN9101-TSN9114)
-  | "TSN9101" // Bindings file not found
-  | "TSN9102" // Failed to read bindings file
-  | "TSN9103" // Invalid JSON in bindings file
-  | "TSN9104" // Bindings file must be an object
-  | "TSN9105" // Missing or invalid 'namespace' field
-  | "TSN9106" // Missing or invalid 'types' field
-  | "TSN9107" // Invalid type binding: must be an object
-  | "TSN9108" // Invalid type binding: missing or invalid field
-  | "TSN9109" // Invalid type binding: 'metadataToken' must be a number
-  | "TSN9110" // Invalid type binding: member field must be an array if present
-  | "TSN9111" // Invalid type binding: heritage field must be an array if present
-  | "TSN9112" // Bindings directory not found
-  | "TSN9113" // Not a directory
-  | "TSN9114" // No bindings.json files found
   // Numeric proof errors (TSN5101-TSN5199)
   | "TSN5101" // Cannot prove numeric narrowing
   | "TSN5102" // Literal out of range for numeric type
@@ -127,7 +112,7 @@ export type DiagnosticCode =
   | "TSN5108" // Value exceeds JS safe integer range
   | "TSN5109" // Computed access kind not classified (compiler bug)
   | "TSN5110" // Integer literal cannot be implicitly converted to double
-  // Deterministic IR typing errors (TSN5201-TSN5299)
+  // Deterministic source typing errors (TSN5201-TSN5299)
   | "TSN5201" // Missing declared type annotation on target declaration required for deterministic typing
   | "TSN5202" // Cannot infer required type arguments deterministically; user must supply explicit type arguments
   | "TSN5203" // Member/property type cannot be recovered deterministically; user must add explicit type annotation

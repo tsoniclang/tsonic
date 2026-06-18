@@ -1,51 +1,39 @@
 /**
- * Program assembly -- wires up the TS compiler host, virtual declarations,
- * module resolution dispatch, and the final TsonicProgram construction.
+ * Program assembly -- TSTS source construction plus Tsonic extension facts.
  */
 
-import * as ts from "typescript";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  formatDiagnostics as formatTstsDiagnostics,
+  type TstsDiagnostic,
+  type TstsSourceFile,
+} from "@tsonic/tsts";
 import { Result, ok, error } from "../types/result.js";
-import { DiagnosticsCollector } from "../types/diagnostic.js";
-import { CompilerOptions, TsonicProgram } from "./types.js";
-import { loadExternalMetadata } from "./metadata.js";
-import { loadBindings, TSONIC_BINDINGS_SCHEMA } from "./bindings.js";
-import { collectTsDiagnostics } from "./diagnostics.js";
-import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
-import { createBinding } from "../ir/binding/index.js";
+import {
+  addDiagnostic,
+  createDiagnostic,
+  createDiagnosticsCollector,
+  type DiagnosticsCollector,
+} from "../types/diagnostic.js";
 import {
   hasResolvedSurfaceProfile,
   resolveSurfaceCapabilities,
 } from "../surface/profiles.js";
 import {
-  findContainingSourcePackageRoot,
-  resolveSourcePackageAliasTarget,
-  resolveSourcePackageImport,
-  resolveSourcePackageImportFromPackageRoot,
-} from "../resolver/source-package-resolution.js";
-import {
-  addDiagnostic,
-  createDiagnostic,
-  createDiagnosticsCollector,
-} from "../types/diagnostic.js";
-import { resolveDependencyPackageRoot } from "./package-roots.js";
-import {} from "./core-declarations.js";
-import {
-  parseTsonicModuleRequest,
-  createReadPackageRootNamespace,
-  createResolveModuleFromPackageRoot,
-} from "./module-resolution.js";
-import { discoverProgramInputs } from "./program-input-discovery.js";
-import { readSourcePackageMetadata } from "./source-package-metadata.js";
-import { resolveSourceBackedBindingFiles } from "./source-binding-imports.js";
-import { createBindingTargetSurfaceProvider } from "./binding-target-surface-provider.js";
-import { defineBackendTargetId } from "../ir/types.js";
-import {
   createTstsSourceProgram,
-  createTypeScriptSemanticView,
+  type TstsSourceProgram,
 } from "../source-frontend/index.js";
-import type { TstsSourceProgram } from "../source-frontend/index.js";
+import {
+  discoverProgramInputs,
+  type ProgramInputDiscovery,
+} from "./program-input-discovery.js";
+import {
+  buildWorkspaceGraphSnapshot,
+  type WorkspaceGraphEdge,
+} from "./workspace-fingerprint.js";
+import type { CompilerOptions, TsonicProgram } from "./types.js";
+import type { BackendTargetId } from "../lowering/index.js";
 
 const canonicalizeFilePath = (filePath: string): string => {
   const normalizedPath = path.resolve(filePath);
@@ -53,36 +41,6 @@ const canonicalizeFilePath = (filePath: string): string => {
     return fs.realpathSync(normalizedPath);
   } catch {
     return normalizedPath;
-  }
-};
-
-const resolveCommonRootDir = (paths: readonly string[]): string => {
-  const [first, ...remaining] = paths;
-  if (!first) {
-    throw new Error("resolveCommonRootDir requires at least one path");
-  }
-
-  const rest = remaining.map(canonicalizeFilePath);
-  let current = canonicalizeFilePath(first);
-
-  for (;;) {
-    const containsAll = rest.every((candidate) => {
-      const relative = path.relative(current, candidate);
-      return (
-        relative === "" ||
-        (!relative.startsWith("..") && !path.isAbsolute(relative))
-      );
-    });
-
-    if (containsAll) {
-      return current;
-    }
-
-    const parent = path.dirname(current);
-    if (parent === current) {
-      return current;
-    }
-    current = parent;
   }
 };
 
@@ -105,22 +63,65 @@ const dedupeCanonicalFilePaths = (
   return uniquePaths;
 };
 
-const createSourceFilePathSet = (
-  filePaths: readonly string[]
-): ReadonlySet<string> => {
-  const canonicalPaths = new Set<string>();
+const getLineColumnFromTextOffset = (
+  text: string,
+  offset: number
+): { readonly line: number; readonly column: number } => {
+  const boundedOffset = Math.max(0, Math.min(offset, text.length));
+  let line = 1;
+  let column = 1;
 
-  for (const filePath of filePaths) {
-    canonicalPaths.add(canonicalizeFilePath(filePath));
+  for (let index = 0; index < boundedOffset; index += 1) {
+    if (text.charCodeAt(index) === 10) {
+      line += 1;
+      column = 1;
+      continue;
+    }
+    column += 1;
   }
 
-  return canonicalPaths;
+  return { line, column };
 };
+
+const getTstsDiagnosticLocation = (diagnostic: TstsDiagnostic) => {
+  const sourceFile = diagnostic.file;
+  if (!sourceFile || diagnostic.loc.pos < 0) {
+    return undefined;
+  }
+
+  const { line, column } = getLineColumnFromTextOffset(
+    sourceFile.Text(),
+    diagnostic.loc.pos
+  );
+
+  return {
+    file: sourceFile.FileName(),
+    line,
+    column,
+    length: Math.max(1, diagnostic.loc.end - diagnostic.loc.pos),
+  };
+};
+
+const formatTstsDiagnosticMessage = (diagnostic: TstsDiagnostic): string =>
+  formatTstsDiagnostics([diagnostic]).trim() ||
+  `TSTS source program diagnostic ${diagnostic.code}`;
 
 const collectTstsSourceDiagnostics = (
   sourceProgram: TstsSourceProgram
 ): DiagnosticsCollector => {
   let collector = createDiagnosticsCollector();
+
+  for (const diagnostic of sourceProgram.compilerDiagnostics) {
+    collector = addDiagnostic(
+      collector,
+      createDiagnostic(
+        "TSN1008",
+        "error",
+        formatTstsDiagnosticMessage(diagnostic),
+        getTstsDiagnosticLocation(diagnostic)
+      )
+    );
+  }
 
   for (const diagnostic of sourceProgram.diagnostics) {
     const severity =
@@ -141,80 +142,157 @@ const collectTstsSourceDiagnostics = (
   return collector;
 };
 
-const findAuthoritativePackageRootForImport = (
-  importSpecifier: string,
-  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
-): string | undefined => {
-  let bestMatch: string | undefined;
+const isRuntimeSourceFile = (sourceFile: TstsSourceFile): boolean =>
+  sourceFile.IsDeclarationFile !== true;
 
-  for (const [packageName, packageRoot] of authoritativeTsonicPackageRoots) {
+const tstsSourceFilePath = (sourceFile: TstsSourceFile): string =>
+  canonicalizeFilePath(sourceFile.FileName());
+
+const collectTstsRuntimeSourceFiles = (
+  sourceProgram: TstsSourceProgram,
+  seedFiles: readonly string[]
+): Result<readonly TstsSourceFile[], DiagnosticsCollector> => {
+  const runtimeSourceFilesByPath = new Map<string, TstsSourceFile>();
+  for (const sourceFile of sourceProgram.sourceFiles) {
+    if (!isRuntimeSourceFile(sourceFile)) {
+      continue;
+    }
+    runtimeSourceFilesByPath.set(tstsSourceFilePath(sourceFile), sourceFile);
+  }
+
+  const seedPaths = dedupeCanonicalFilePaths(seedFiles);
+  const missingSeeds = seedPaths.filter(
+    (seedFile) => !runtimeSourceFilesByPath.has(seedFile)
+  );
+  if (missingSeeds.length > 0) {
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1008",
+          "fatal",
+          "TSTS source program did not load every requested runtime seed file.",
+          undefined,
+          missingSeeds.join("\n")
+        )
+      )
+    );
+  }
+
+  const selectedSourceFiles: TstsSourceFile[] = [];
+  const seenSourceFiles = new Set<string>();
+  const queue = [...seedPaths];
+  const enqueueResolvedRuntimeModule = (resolvedFileName: string): void => {
+    const resolvedPath = canonicalizeFilePath(resolvedFileName);
     if (
-      importSpecifier === packageName ||
-      importSpecifier.startsWith(`${packageName}/`)
+      runtimeSourceFilesByPath.has(resolvedPath) &&
+      !seenSourceFiles.has(resolvedPath)
     ) {
-      if (!bestMatch || packageName.length > bestMatch.length) {
-        bestMatch = packageName;
-      }
+      queue.push(resolvedPath);
+    }
+  };
 
-      if (packageName === importSpecifier) {
-        return packageRoot;
+  while (queue.length > 0) {
+    const currentPath = queue.shift();
+    if (currentPath === undefined || seenSourceFiles.has(currentPath)) {
+      continue;
+    }
+
+    const sourceFile = runtimeSourceFilesByPath.get(currentPath);
+    if (sourceFile === undefined) {
+      continue;
+    }
+
+    seenSourceFiles.add(currentPath);
+    selectedSourceFiles.push(sourceFile);
+
+    for (const moduleImport of sourceProgram.moduleGraph.getImports(sourceFile)) {
+      const resolvedModule = moduleImport.resolvedModule;
+      if (resolvedModule === undefined) {
+        continue;
       }
+      enqueueResolvedRuntimeModule(resolvedModule.resolvedFileName);
+    }
+
+    for (const moduleExport of sourceProgram.moduleGraph.getExports(sourceFile)) {
+      const resolvedModule = moduleExport.resolvedModule;
+      if (resolvedModule === undefined) {
+        continue;
+      }
+      enqueueResolvedRuntimeModule(resolvedModule.resolvedFileName);
     }
   }
 
-  return bestMatch ? authoritativeTsonicPackageRoots.get(bestMatch) : undefined;
+  return ok(selectedSourceFiles);
 };
 
-const toTsSourceResolvedModule = (
-  resolvedPath: string
-): ts.ResolvedModuleFull => ({
-  resolvedFileName: resolvedPath,
-  extension: resolvedPath.endsWith(".mts")
-    ? ts.Extension.Mts
-    : resolvedPath.endsWith(".cts")
-      ? ts.Extension.Cts
-      : ts.Extension.Ts,
-  isExternalLibraryImport: false,
-});
+const collectTstsWorkspaceGraphEdges = (
+  sourceProgram: TstsSourceProgram
+): readonly WorkspaceGraphEdge[] => {
+  const edges = new Map<string, WorkspaceGraphEdge>();
+  for (const sourceModule of sourceProgram.moduleGraph.modules) {
+    for (const moduleEdge of [...sourceModule.imports, ...sourceModule.exports]) {
+      const resolvedModule = moduleEdge.resolvedModule;
+      if (resolvedModule === undefined) {
+        continue;
+      }
+      const from = canonicalizeFilePath(sourceModule.fileName);
+      const to = canonicalizeFilePath(resolvedModule.resolvedFileName);
+      const specifier =
+        "specifier" in moduleEdge ? moduleEdge.specifier : moduleEdge.sourceSpecifier;
+      if (specifier === undefined) {
+        continue;
+      }
+      edges.set(`${from}\0${to}\0${specifier}`, { from, to, specifier });
+    }
+  }
 
-/**
- * Create a Tsonic program from TypeScript source files
- */
-export const createProgram = (
+  return Array.from(edges.values()).sort((left, right) => {
+    const leftKey = `${left.from}\0${left.to}\0${left.specifier}`;
+    const rightKey = `${right.from}\0${right.to}\0${right.specifier}`;
+    return leftKey.localeCompare(rightKey);
+  });
+};
+
+const discoverProgramInputsOrDiagnostic = (
   filePaths: readonly string[],
-  options: CompilerOptions
-): Result<TsonicProgram, DiagnosticsCollector> => {
+  options: CompilerOptions,
+  surfaceCapabilities: Parameters<typeof discoverProgramInputs>[2]
+): Result<ProgramInputDiscovery, DiagnosticsCollector> => {
+  try {
+    return ok(discoverProgramInputs(filePaths, options, surfaceCapabilities));
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1004",
+          "error",
+          `Program input discovery failed: ${message}`
+        )
+      )
+    );
+  }
+};
+
+export const createProgram = <Target extends BackendTargetId = BackendTargetId>(
+  filePaths: readonly string[],
+  options: CompilerOptions<Target>
+): Result<TsonicProgram<Target>, DiagnosticsCollector> => {
   const surface = options.surface ?? "core";
-  const activeTargetId =
-    options.backendTargetId === undefined
-      ? undefined
-      : String(options.backendTargetId);
-  const initialSurfaceResolveOptions = {
-    projectRoot: options.projectRoot,
-  };
+  const initialSurfaceResolveOptions = { projectRoot: options.projectRoot };
   let surfaceCapabilities = resolveSurfaceCapabilities(
     surface,
     initialSurfaceResolveOptions
   );
-  const packageRootNamespaceCache = new Map<string, string | null>();
-  const packageRootModuleResolutionCache = new Map<
-    string,
-    ts.ResolvedModuleFull | null
-  >();
-  const projectOwnedDependencyRootCache = new Map<string, string | null>();
-
-  const readPkgRootNamespace = createReadPackageRootNamespace(
-    packageRootNamespaceCache
-  );
-  const resolveModuleFromPackageRoot = createResolveModuleFromPackageRoot(
-    packageRootModuleResolutionCache,
-    readPkgRootNamespace
-  );
-  let discovery = discoverProgramInputs(
+  let discoveryResult = discoverProgramInputsOrDiagnostic(
     filePaths,
     options,
     surfaceCapabilities
   );
+  if (!discoveryResult.ok) return discoveryResult;
+  let discovery = discoveryResult.value;
   const resolveFinalSurfaceOptions = () => ({
     projectRoot: options.projectRoot,
     authoritativePackageRoots: discovery.authoritativeTsonicPackageRoots,
@@ -222,22 +300,21 @@ export const createProgram = (
 
   if (
     surface !== "core" &&
-    !hasResolvedSurfaceProfile(surface, initialSurfaceResolveOptions)
+    !hasResolvedSurfaceProfile(surface, initialSurfaceResolveOptions) &&
+    !hasResolvedSurfaceProfile(surface, resolveFinalSurfaceOptions())
   ) {
-    if (!hasResolvedSurfaceProfile(surface, resolveFinalSurfaceOptions())) {
-      return error(
-        addDiagnostic(
-          createDiagnosticsCollector(),
-          createDiagnostic(
-            "TSN1004",
-            "error",
-            `Surface '${surface}' is not a valid ambient surface package.`,
-            undefined,
-            "Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages separately."
-          )
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1004",
+          "error",
+          `Surface '${surface}' is not a valid ambient surface package.`,
+          undefined,
+          "Custom surfaces must provide tsonic.surface.json. Use '@tsonic/js' for JS ambient APIs, and add normal packages separately."
         )
-      );
-    }
+      )
+    );
   }
 
   const finalSurfaceCapabilities = resolveSurfaceCapabilities(
@@ -253,402 +330,36 @@ export const createProgram = (
 
   if (surfaceCapabilitiesChanged) {
     surfaceCapabilities = finalSurfaceCapabilities;
-    discovery = discoverProgramInputs(filePaths, options, surfaceCapabilities);
+    discoveryResult = discoverProgramInputsOrDiagnostic(
+      filePaths,
+      options,
+      surfaceCapabilities
+    );
+    if (!discoveryResult.ok) return discoveryResult;
+    discovery = discoveryResult.value;
   } else {
     surfaceCapabilities = finalSurfaceCapabilities;
   }
 
-  const {
-    absolutePaths: discoveredAbsolutePaths,
-    typeRoots,
-    authoritativeTsonicPackageRoots,
-    namespaceIndexFiles,
-    declarationModuleAliases,
-    allFiles: discoveredAllFiles,
-    tsOptions,
-  } = discovery;
-  const bindingRoots = dedupeCanonicalFilePaths(typeRoots);
-  const bindings = loadBindings(bindingRoots);
-  const bindingSourceFiles = resolveSourceBackedBindingFiles(
-    bindings,
-    path.join(options.projectRoot, "__tsonic_source_bindings__.ts"),
-    options.projectRoot,
-    surface,
-    authoritativeTsonicPackageRoots,
-    activeTargetId
-  );
-  if (!bindingSourceFiles.ok) {
-    return error(
-      addDiagnostic(createDiagnosticsCollector(), bindingSourceFiles.error)
-    );
-  }
-  const absolutePaths = dedupeCanonicalFilePaths(discoveredAbsolutePaths);
-  const allFiles = dedupeCanonicalFilePaths([
-    ...discoveredAllFiles,
-    ...bindingSourceFiles.value,
-  ]);
-  if (typeof tsOptions.rootDir === "string" && absolutePaths.length > 0) {
-    tsOptions.rootDir = resolveCommonRootDir([
-      tsOptions.rootDir,
-      ...absolutePaths,
-    ]);
-  }
-
-  const moduleResolutionCache = ts.createModuleResolutionCache(
-    options.projectRoot,
-    (fileName) =>
-      ts.sys.useCaseSensitiveFileNames ? fileName : fileName.toLowerCase(),
-    tsOptions
-  );
-
-  // Create custom compiler host with virtual external module declarations
-  const host = ts.createCompilerHost(tsOptions);
-  const originalRealpath = host.realpath?.bind(host);
-  host.realpath = (fileName: string): string => {
-    if (tsOptions.preserveSymlinks) {
-      return path.resolve(fileName);
-    }
-    if (originalRealpath) {
-      return originalRealpath(fileName);
-    }
-    return path.resolve(fileName);
-  };
-
-  // Map of external namespace names to their declaration file paths
-  const namespaceFiles = new Map<string, string>();
-  for (const indexFile of namespaceIndexFiles) {
-    // Extract namespace name from path (e.g., /path/to/External.Namespace/index.d.ts -> External.Namespace)
-    const dirName = path.basename(path.dirname(indexFile));
-    namespaceFiles.set(dirName, indexFile);
-  }
-
-  // Log namespace mappings when verbose
-  if (options.verbose && namespaceFiles.size > 0) {
-    console.log(`Found ${namespaceFiles.size} external namespace declarations`);
-    for (const [ns, file] of namespaceFiles) {
-      console.log(`  ${ns} -> ${file}`);
-    }
-  }
-
-  // Override getSourceFile to provide virtual module declarations
-  const originalGetSourceFile = host.getSourceFile;
-  host.getSourceFile = (
-    fileName: string,
-    languageVersion: ts.ScriptTarget,
-    onError?: (message: string) => void,
-    shouldCreateNewSourceFile?: boolean
-  ): ts.SourceFile | undefined => {
-    // Check if this is an external namespace being imported
-    const baseName = path.basename(fileName, path.extname(fileName));
-    const declarationPath = namespaceFiles.get(baseName);
-    if (declarationPath !== undefined && fileName.endsWith(".ts")) {
-      // Create a virtual source file that exports from the actual declaration
-      const virtualContent = `export * from '${declarationPath.replace(/\.d\.ts$/, "")}';`;
-      return ts.createSourceFile(
-        fileName,
-        virtualContent,
-        languageVersion,
-        true
-      );
-    }
-
-    return originalGetSourceFile.call(
-      host,
-      fileName,
-      languageVersion,
-      onError,
-      shouldCreateNewSourceFile
-    );
-  };
-
-  // Override resolveModuleNames to handle external imports
-  const hostWithResolve = host as ts.CompilerHost & {
-    resolveModuleNames: (
-      moduleNames: string[],
-      containingFile: string
-    ) => (ts.ResolvedModule | undefined)[];
-  };
-  hostWithResolve.resolveModuleNames = (
-    moduleNames: string[],
-    containingFile: string
-  ): (ts.ResolvedModule | undefined)[] => {
-    return moduleNames.map((moduleName) => {
-      const resolveSourcePackageAliasModule = ():
-        | ts.ResolvedModuleFull
-        | undefined => {
-        const candidateRoots = new Set<string>([
-          ...authoritativeTsonicPackageRoots.values(),
-        ]);
-        const containingSourcePackageRoot =
-          findContainingSourcePackageRoot(containingFile);
-        if (containingSourcePackageRoot) {
-          candidateRoots.add(containingSourcePackageRoot);
-        }
-
-        for (const packageRoot of candidateRoots) {
-          const metadata = readSourcePackageMetadata(packageRoot);
-          const aliasTarget = metadata?.moduleAliases[moduleName];
-          if (!aliasTarget) {
-            continue;
-          }
-
-          const resolved = resolveSourcePackageAliasTarget(
-            aliasTarget,
-            packageRoot,
-            options.surface,
-            options.projectRoot,
-            activeTargetId
-          );
-
-          if (!resolved.ok || !resolved.value) {
-            continue;
-          }
-
-          return toTsSourceResolvedModule(resolved.value.resolvedPath);
-        }
-
-        return undefined;
-      };
-
-      // Debug log
-      if (options.verbose) {
-        console.log(`Resolving module: ${moduleName} from ${containingFile}`);
-      }
-
-      // Check if this is an external namespace
-      const resolvedFile = namespaceFiles.get(moduleName);
-      if (resolvedFile !== undefined) {
-        if (options.verbose) {
-          console.log(
-            `  Resolved external namespace ${moduleName} to ${resolvedFile}`
-          );
-        }
-        return {
-          resolvedFileName: resolvedFile,
-          isExternalLibraryImport: true,
-        };
-      }
-
-      // @tsonic/* packages must stay on a single coherent package graph for the
-      // active compilation. Mixing:
-      //   - compiler/typeRoot-owned declarations, and
-      //   - project-local installed copies
-      // produces nominal identity splits inside TypeScript (e.g. two different
-      // deep external hierarchies), which then surface as impossible
-      // overload failures and self-incompatible types.
-      if (moduleName.startsWith("@tsonic/")) {
-        const request = parseTsonicModuleRequest(moduleName);
-
-        // 1) If this package is already part of the active type-root/surface
-        // graph, always resolve to that exact root — even for user source files.
-        if (request) {
-          const authoritativeRoot = authoritativeTsonicPackageRoots.get(
-            request.packageName
-          );
-          if (authoritativeRoot) {
-            const resolved = resolveModuleFromPackageRoot(
-              authoritativeRoot,
-              request.subpath
-            );
-            if (resolved) return resolved;
-          }
-        }
-
-        // 2) Prefer the project's installed source-package graph. Direct imports
-        // must resolve through the consuming project's package graph.
-        const projectResolveFile = path.join(
-          options.projectRoot,
-          "__tsonic_resolver__.ts"
-        );
-        const projectSourcePackage = resolveSourcePackageImport(
-          moduleName,
-          projectResolveFile,
-          options.surface,
-          options.projectRoot,
-          activeTargetId
-        );
-        if (projectSourcePackage.ok && projectSourcePackage.value) {
-          return {
-            resolvedFileName: projectSourcePackage.value.resolvedPath,
-            extension: projectSourcePackage.value.resolvedPath.endsWith(".mts")
-              ? ts.Extension.Mts
-              : projectSourcePackage.value.resolvedPath.endsWith(".cts")
-                ? ts.Extension.Cts
-                : ts.Extension.Ts,
-            isExternalLibraryImport: false,
-          };
-        }
-
-        // 3) Prefer the project's installed dependency graph so direct source
-        // imports stay coherent with the package roots the consumer installed.
-        if (request) {
-          let projectOwnedRoot = projectOwnedDependencyRootCache.get(
-            request.packageName
-          );
-          if (projectOwnedRoot === undefined) {
-            projectOwnedRoot =
-              resolveDependencyPackageRoot(
-                options.projectRoot,
-                request.packageName,
-                "installed-first"
-              ) ?? null;
-            projectOwnedDependencyRootCache.set(
-              request.packageName,
-              projectOwnedRoot
-            );
-          }
-          if (projectOwnedRoot) {
-            const resolved = resolveModuleFromPackageRoot(
-              projectOwnedRoot,
-              request.subpath
-            );
-            if (resolved) return resolved;
-          }
-        }
-
-        // 4) Final project-installed resolution through TypeScript itself.
-        // Note: containingFile can be a declaration file coming from a sibling
-        // checkout during development; resolving relative to that path would skip
-        // the project's node_modules entirely.
-        const projectResult = ts.resolveModuleName(
-          moduleName,
-          projectResolveFile,
-          tsOptions,
-          host,
-          moduleResolutionCache
-        );
-        if (projectResult.resolvedModule) return projectResult.resolvedModule;
-
-        return undefined;
-      }
-
-      const authoritativePackageRoot = findAuthoritativePackageRootForImport(
-        moduleName,
-        authoritativeTsonicPackageRoots
-      );
-      const sourcePackage =
-        authoritativePackageRoot !== undefined
-          ? resolveSourcePackageImportFromPackageRoot(
-              moduleName,
-              authoritativePackageRoot,
-              options.surface,
-              options.projectRoot,
-              activeTargetId
-            )
-          : resolveSourcePackageImport(
-              moduleName,
-              containingFile,
-              options.surface,
-              options.projectRoot,
-              activeTargetId
-            );
-      if (!sourcePackage.ok) {
-        return undefined;
-      }
-      if (sourcePackage.value) {
-        return toTsSourceResolvedModule(sourcePackage.value.resolvedPath);
-      }
-
-      const aliasedSourcePackage = resolveSourcePackageAliasModule();
-      if (aliasedSourcePackage) {
-        return aliasedSourcePackage;
-      }
-
-      const declarationAlias = declarationModuleAliases.get(moduleName);
-      if (declarationAlias) {
-        const authoritativeAliasRoot = findAuthoritativePackageRootForImport(
-          declarationAlias.targetSpecifier,
-          authoritativeTsonicPackageRoots
-        );
-        const redirectedSourcePackage =
-          authoritativeAliasRoot !== undefined
-            ? resolveSourcePackageAliasTarget(
-                declarationAlias.targetSpecifier,
-                authoritativeAliasRoot,
-                options.surface,
-                options.projectRoot,
-                activeTargetId
-              )
-            : declarationAlias.targetSpecifier === "." ||
-                declarationAlias.targetSpecifier.startsWith("./")
-              ? resolveSourcePackageAliasTarget(
-                  declarationAlias.targetSpecifier,
-                  path.dirname(declarationAlias.declarationFile),
-                  options.surface,
-                  options.projectRoot,
-                  activeTargetId
-                )
-              : resolveSourcePackageImport(
-                  declarationAlias.targetSpecifier,
-                  containingFile,
-                  options.surface,
-                  options.projectRoot,
-                  activeTargetId
-                );
-        if (redirectedSourcePackage.ok && redirectedSourcePackage.value) {
-          return toTsSourceResolvedModule(
-            redirectedSourcePackage.value.resolvedPath
-          );
-        }
-      }
-
-      // Use default resolution for other modules
-      const result = ts.resolveModuleName(
-        moduleName,
-        containingFile,
-        tsOptions,
-        host,
-        moduleResolutionCache
-      );
-      return result.resolvedModule;
+  if (discovery.diagnostics.length > 0) {
+    return error({
+      diagnostics: discovery.diagnostics,
+      hasErrors: true,
+      hasFatalErrors: discovery.diagnostics.some(
+        (diagnostic) => diagnostic.severity === "fatal"
+      ),
     });
-  };
-
-  const program = ts.createProgram(allFiles, tsOptions, host);
-
-  const diagnostics = collectTsDiagnostics(program);
-
-  if (diagnostics.hasErrors) {
-    return error(diagnostics);
   }
 
-  // User source files (non-declaration files from input paths)
-  const sourceFilePaths = createSourceFilePathSet(absolutePaths);
-  const isProgramOwnedSourceFile = (filePath: string): boolean => {
-    const normalizedFilePath = canonicalizeFilePath(filePath);
-    if (sourceFilePaths.has(normalizedFilePath)) {
-      return true;
-    }
-
-    if (findContainingSourcePackageRoot(normalizedFilePath) !== undefined) {
-      return true;
-    }
-
-    // Imported non-declaration source modules that live outside node_modules are
-    // part of the user's program and must stay in the IR/emitter graph. Dropping
-    // them loses local type declarations needed for cross-file structural typing.
-    return !normalizedFilePath.includes("/node_modules/");
-  };
-  const seenSourceFilePaths = new Set<string>();
-  const sourceFiles = program.getSourceFiles().filter((sf) => {
-    if (sf.isDeclarationFile || !isProgramOwnedSourceFile(sf.fileName)) {
-      return false;
-    }
-
-    const canonicalFileName = canonicalizeFilePath(sf.fileName);
-    if (seenSourceFilePaths.has(canonicalFileName)) {
-      return false;
-    }
-
-    seenSourceFilePaths.add(canonicalFileName);
-    return true;
-  });
+  const allFiles = dedupeCanonicalFilePaths(discovery.allFiles);
 
   let sourceProgram: TstsSourceProgram;
   try {
-    sourceProgram = createTstsSourceProgram(
-      sourceFiles.map((sourceFile) => sourceFile.fileName)
-    );
+    sourceProgram = createTstsSourceProgram(allFiles, {
+      projectRoot: options.projectRoot,
+      moduleResolutionPaths: discovery.moduleResolutionPaths,
+      sourceDiagnosticRoots: discovery.sourceDiagnosticRoots,
+    });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
     return error(
@@ -662,81 +373,53 @@ export const createProgram = (
       )
     );
   }
+
   const sourceDiagnostics = collectTstsSourceDiagnostics(sourceProgram);
   if (sourceDiagnostics.hasErrors) {
     return error(sourceDiagnostics);
   }
 
-  // Declaration files for TypeRegistry:
-  // include all declarations in the program. ProgramContext later filters out
-  // external metadata packages that are represented in the external catalog.
-  // This keeps surface support generic: custom non-@tsonic surface packages are
-  // available to the frontend without any package-name allowlist.
-  const declarationSourceFiles = program
-    .getSourceFiles()
-    .filter((sf) => sf.isDeclarationFile);
+  const runtimeSourceFilesResult = collectTstsRuntimeSourceFiles(
+    sourceProgram,
+    discovery.runtimeSeedFiles
+  );
+  if (!runtimeSourceFilesResult.ok) return runtimeSourceFilesResult;
+  const sourceFiles = runtimeSourceFilesResult.value;
 
-  // Load external metadata files
-  const metadata = loadExternalMetadata(typeRoots);
+  const workspaceGraphEdges = collectTstsWorkspaceGraphEdges(sourceProgram);
 
-  // Load binding manifests (from typeRoots - for ambient globals)
-  // Compiler-owned builtin: map TS `Error` to a core error abstraction.
-  // This keeps `throw new Error(...)` usable in noLib mode without requiring
-  // consumers to import a target exception type explicitly.
-  if (!bindings.getBinding("Error")) {
-    bindings.addBindings("tsonic:builtins", {
-      schema: TSONIC_BINDINGS_SCHEMA,
-      provider: {
-        namespace: "tsonic.core",
-        ownerIdentities: ["tsonic.core"],
-      },
-      sourceSurface: {
-        bindings: {
-          Error: {
-            kind: "global",
-            ownerIdentity: "tsonic.core",
-            type: "core:Error",
-            typeSemantics: {
-              contributesTypeIdentity: true,
-            },
-          },
-        },
-      },
-      targetSurface: { types: [] },
-    });
+  if (sourceFiles.length === 0) {
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1008",
+          "fatal",
+          "TSTS source program did not contain a runtime source file."
+        )
+      )
+    );
   }
 
-  // Create resolver for import-driven external namespace discovery
-  // Uses projectRoot (not sourceRoot) to resolve packages from node_modules
-  const externalResolver = createExternalBindingsResolver(options.projectRoot);
-  const targetSurfaceProvider = createBindingTargetSurfaceProvider({
-    targetId: options.backendTargetId ?? defineBackendTargetId("default"),
-    bindings,
-  });
-  const targetSurfaceArtifacts = targetSurfaceProvider.getArtifacts();
-
-  // Create binding layer for symbol resolution
-  // This replaces direct checker API calls throughout the pipeline
-  const checker = program.getTypeChecker();
-  const sourceSemantics = createTypeScriptSemanticView(checker);
-  const binding = createBinding(checker);
-
   return ok({
-    program,
-    checker,
     sourceProgram,
-    sourceSemantics,
     options,
     surfaceCapabilities,
-    authoritativeTsonicPackageRoots,
-    declarationModuleAliases,
-    sourceFiles,
-    declarationSourceFiles,
-    metadata,
-    bindings,
-    externalResolver,
-    binding,
-    targetSurfaceArtifacts,
-    targetSurfaceProvider,
+    workspaceGraph: buildWorkspaceGraphSnapshot({
+      projectRoot: options.projectRoot,
+      sourceRoot: options.sourceRoot,
+      sourceFiles: sourceProgram.sourceFiles.map((sourceFile) =>
+        sourceFile.FileName()
+      ),
+      ambientFiles: discovery.ambientSupportFiles,
+      typeRoots: discovery.typeRoots,
+      edges: workspaceGraphEdges,
+      options,
+      surfaceCapabilities,
+    }),
+    authoritativeTsonicPackageRoots:
+      discovery.authoritativeTsonicPackageRoots,
+    declarationModuleAliases: discovery.declarationModuleAliases,
+    runtimeSourceFiles: sourceFiles,
   });
 };

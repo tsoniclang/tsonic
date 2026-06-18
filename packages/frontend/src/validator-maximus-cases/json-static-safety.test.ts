@@ -139,6 +139,27 @@ describe("Maximus Validation Coverage", () => {
       });
     }
 
+    it("does not apply ambient JSON diagnostics to local shadowed values", () => {
+      expect(
+        hasCode(
+          `
+            const JSON = {
+              parse(_text: string): unknown {
+                return {};
+              },
+              stringify(_value: unknown): string {
+                return "";
+              }
+            };
+            const value: unknown = JSON.parse("{}");
+            const text = JSON.stringify(value);
+            console.log(text);
+          `,
+          "TSN5001"
+        )
+      ).to.equal(false);
+    });
+
     it("allows broad JSON.parse targets when the active backend declares support", () => {
       const source = `
         const value: unknown = JSON.parse("{}");

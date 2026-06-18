@@ -7,6 +7,7 @@
     "types": [
       {
         "targetName": "Acme.Core.Ok__Alias`1",
+        "sourceName": "Ok__Alias_1",
         "ownerIdentity": "Acme.Core",
         "methods": [],
         "properties": [],

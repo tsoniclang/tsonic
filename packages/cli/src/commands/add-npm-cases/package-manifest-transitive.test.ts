@@ -98,7 +98,7 @@ describe("add npm (transitive package manifests)", function () {
             "manifests",
             "npm",
             "acme-child",
-            "tsonic.bindings.normalized.json"
+            "tsonic.package.normalized.json"
           )
         )
       ).to.equal(true);
@@ -110,7 +110,7 @@ describe("add npm (transitive package manifests)", function () {
             "manifests",
             "npm",
             "acme-parent",
-            "tsonic.bindings.normalized.json"
+            "tsonic.package.normalized.json"
           )
         )
       ).to.equal(true);

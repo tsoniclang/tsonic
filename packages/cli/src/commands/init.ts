@@ -96,8 +96,8 @@ export const getTypePackageInfo = (
 ): TypePackageInfo => {
   const surface = options.surface ?? "core";
   const existingPackageSpecs = readExistingPackageSpecs(options.workspaceRoot);
-  const resolveVersion = (name: string, fallback: string): string =>
-    existingPackageSpecs.get(name) ?? fallback;
+  const resolveVersion = (name: string, defaultVersion: string): string =>
+    existingPackageSpecs.get(name) ?? defaultVersion;
   const packages = [CLI_PACKAGE];
 
   if (surface !== "core") {

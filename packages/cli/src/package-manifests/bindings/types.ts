@@ -2,7 +2,6 @@ import type {
   FrameworkReferenceConfig,
   PackageReferenceConfig,
 } from "../../types.js";
-import type { IrOverloadFamily, IrType } from "@tsonic/frontend";
 
 export type ManifestDotnet = {
   readonly frameworkReferences?: readonly FrameworkReferenceConfig[];
@@ -29,8 +28,6 @@ export type NormalizedNugetDependency = {
 };
 
 export type NormalizedBindingsManifest = {
-  readonly bindingVersion: 1;
-  readonly sourceManifest: "tsonic-package" | "tsonic-bindings";
   readonly packageName: string;
   readonly packageVersion: string;
   readonly surfaceMode: ManifestSurfaceMode;
@@ -43,16 +40,4 @@ export type NormalizedBindingsManifest = {
   readonly producer?: PackageManifestProducer;
   readonly dotnet?: ManifestDotnet;
   readonly testDotnet?: ManifestDotnet;
-  readonly semanticMetadata?: {
-    readonly version: 1;
-    readonly aliases?: Readonly<Record<string, AliasMetadataV1>>;
-    readonly overloadFamilies?: Readonly<Record<string, IrOverloadFamily>>;
-  };
-};
-
-export type AliasMetadataV1 = {
-  readonly aliasId: string;
-  readonly definition: IrType;
-  readonly isRecursive: boolean;
-  readonly typeParameters: readonly string[];
 };

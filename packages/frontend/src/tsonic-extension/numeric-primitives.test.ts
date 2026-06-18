@@ -7,11 +7,12 @@ import {
   visitTstsSubtree,
 } from "@tsonic/tsts";
 import { createTsonicNumericPrimitiveExtension } from "./numeric-primitives.js";
-import { tsonicNumericPrimitiveFactKey } from "./fact-keys.js";
+import { numericPrimitiveFactKey } from "../source-frontend/source-facts.js";
 
 const collectTypeReferenceNodes = (sourceText: string) => {
   const sourceFile = parseTstsSourceFile(sourceText);
-  const nodes: NonNullable<Parameters<typeof getTstsTypeReferenceName>[0]>[] = [];
+  const nodes: NonNullable<Parameters<typeof getTstsTypeReferenceName>[0]>[] =
+    [];
   visitTstsSubtree(sourceFile, (node) => {
     if (!node) return;
     if (getTstsTypeReferenceName(node) !== undefined) {
@@ -37,7 +38,7 @@ describe("Tsonic TSTS numeric primitive extension", () => {
     host.afterParseSourceFile(fixture.sourceFile);
 
     const facts = fixture.nodes.map((node) =>
-      host.facts.get(tsonicNumericPrimitiveFactKey, node),
+      host.facts.get(numericPrimitiveFactKey, node)
     );
     expect(facts.map((fact) => fact?.kind)).to.deep.equal([
       "int32",
@@ -56,7 +57,7 @@ describe("Tsonic TSTS numeric primitive extension", () => {
     host.afterParseSourceFile(fixture.sourceFile);
 
     const facts = fixture.nodes.map((node) =>
-      host.facts.get(tsonicNumericPrimitiveFactKey, node),
+      host.facts.get(numericPrimitiveFactKey, node)
     );
     expect(facts).to.deep.equal([undefined]);
   });

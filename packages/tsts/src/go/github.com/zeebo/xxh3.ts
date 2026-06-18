@@ -39,40 +39,59 @@ class uint128 implements Uint128 {
   }
 }
 
-const interned = new globalThis.Map<string, Uint128>();
-
-function makeUint128(hi: bigint, lo: bigint): Uint128 {
-  const key = hi.toString(16).padStart(16, "0") + lo.toString(16).padStart(16, "0");
-  let existing = interned.get(key);
-  if (existing === undefined) {
-    existing = new uint128(hi, lo);
-    interned.set(key, existing);
-  }
-  return existing;
-}
-
+// Go's xxh3.Uint128 is a VALUE; Sum128 must not retain anything at module
+// scope. (An earlier revision interned every distinct hash in a module-level
+// Map so plain-Map consumers could key by object identity; with millions of
+// unique cache keys per full-lib check the table grew without bound and
+// eventually exhausted the heap. Checker cache keys are now primitive strings
+// — see CacheHashKey — so no interning is needed for value semantics.)
 class hasher implements Hasher {
   private hi = offset64 ^ secondSeed;
   private lo = offset64;
 
+  private writeByte(value: number): void {
+    const byteValue = BigInt(value & 0xff);
+    this.lo ^= byteValue;
+    this.lo = (this.lo * prime64) & mask64;
+    this.hi ^= byteValue + secondSeed;
+    this.hi = (this.hi * prime64) & mask64;
+  }
+
   Write(p: GoSlice<byte>): [int, GoError] {
     for (const value of p) {
-      const byteValue = BigInt(value & 0xff);
-      this.lo ^= byteValue;
-      this.lo = (this.lo * prime64) & mask64;
-      this.hi ^= byteValue + secondSeed;
-      this.hi = (this.hi * prime64) & mask64;
+      this.writeByte(value);
     }
     return [p.length as int, undefined];
   }
 
   WriteString(s: string): [int, GoError] {
-    const bytes = Array.from(encoder.encode(s)) as GoSlice<byte>;
-    return this.Write(bytes);
+    // ASCII fast path: hash UTF-16 code units directly — identical to the
+    // UTF-8 byte sequence for ASCII — without allocating an encoded copy.
+    // Cache-key building hashes millions of short, almost always ASCII
+    // fragments; per-call TextEncoder allocations dominated runner memory churn.
+    let ascii = true;
+    for (let i = 0; i < s.length; i++) {
+      const code = s.charCodeAt(i);
+      if (code >= 0x80) {
+        ascii = false;
+        break;
+      }
+    }
+    if (ascii) {
+      for (let i = 0; i < s.length; i++) {
+        this.writeByte(s.charCodeAt(i));
+      }
+      return [s.length as int, undefined];
+    }
+    const bytes = encoder.encode(s);
+    for (let i = 0; i < bytes.length; i++) {
+      this.writeByte(bytes[i]!);
+    }
+    return [bytes.length as int, undefined];
   }
 
   Sum128(): Uint128 {
-    return makeUint128(this.hi, this.lo);
+    return new uint128(this.hi, this.lo);
   }
 
   Sum64(): bigint {

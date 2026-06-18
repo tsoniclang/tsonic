@@ -298,7 +298,7 @@ describe("build command (native library port regressions)", function () {
       expect(result.ok).to.equal(true);
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      expect(tree).to.include("global::Tsonic.Runtime.JSON.parse<object>");
+      expect(tree).to.include("global::js.JSON.parse<object?>");
       expect(tree).to.not.include("JsonSerializer.Deserialize<object>");
     } finally {
       rmSync(dir, { recursive: true, force: true });

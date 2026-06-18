@@ -12,89 +12,13 @@ import {
 describe("tsonic.package bindings", function () {
   this.timeout(buildTestTimeoutMs);
 
-  it("returns null when package has no bindings manifests", () => {
+  it("returns null when package has no package manifest overlay", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-package-none-"));
     try {
       const pkgRoot = writeInstalledPackage(dir, "no-bindings", "1.0.0");
       const result = resolveInstalledPackageBindingsManifest(pkgRoot);
       expect(result.ok).to.equal(true);
       expect(result.ok ? result.value : "x").to.equal(null);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("resolves tsonic.bindings.json manifests", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-bindings-"));
-    try {
-      const pkgRoot = writeInstalledPackage(dir, "clr-bindings", "1.2.3", {
-        bindingsManifest: {
-          bindingVersion: 1,
-          packageName: "clr-bindings",
-          packageVersion: "1.2.3",
-          dotnet: {
-            packageReferences: [{ id: "Acme.Bindings", version: "1.2.3" }],
-          },
-        },
-      });
-
-      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
-      expect(result.ok).to.equal(true);
-      const manifest = result.ok ? result.value : null;
-      expect(manifest?.sourceManifest).to.equal("tsonic-bindings");
-      expect(manifest?.dotnet?.packageReferences).to.deep.equal([
-        { id: "Acme.Bindings", version: "1.2.3" },
-      ]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("preserves semantic metadata from tsonic.bindings.json manifests", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-bindings-semantic-"));
-    try {
-      const pkgRoot = writeInstalledPackage(dir, "semantic-bindings", "1.0.0", {
-        bindingsManifest: {
-          bindingVersion: 1,
-          packageName: "semantic-bindings",
-          packageVersion: "1.0.0",
-          semanticMetadata: {
-            version: 1,
-            aliases: {
-              "semantic-bindings:User": {
-                aliasId: "semantic-bindings:User",
-                definition: { kind: "referenceType", name: "User" },
-                isRecursive: false,
-                typeParameters: [],
-              },
-            },
-            overloadFamilies: {
-              "semantic-bindings:parse": {
-                familyId: "semantic-bindings:parse",
-                ownerKind: "function",
-                publicName: "parse",
-                publicMembers: [],
-                resolutionMetadata: {},
-              },
-            },
-          },
-        },
-      });
-
-      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
-      expect(result.ok).to.equal(true);
-      const manifest = result.ok ? result.value : null;
-      expect(
-        manifest?.semanticMetadata?.aliases?.["semantic-bindings:User"]
-      ).to.deep.include({
-        aliasId: "semantic-bindings:User",
-        isRecursive: false,
-      });
-      expect(
-        manifest?.semanticMetadata?.overloadFamilies?.[
-          "semantic-bindings:parse"
-        ]?.familyId
-      ).to.equal("semantic-bindings:parse");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -127,7 +51,6 @@ describe("tsonic.package bindings", function () {
       const result = resolveInstalledPackageBindingsManifest(pkgRoot);
       expect(result.ok).to.equal(true);
       const manifest = result.ok ? result.value : null;
-      expect(manifest?.sourceManifest).to.equal("tsonic-package");
       expect(manifest?.assemblyName).to.equal("Acme.Node.Runtime");
       expect(manifest?.requiredTypeRoots).to.deep.equal([
         "node_modules/@acme/node",
@@ -142,47 +65,6 @@ describe("tsonic.package bindings", function () {
       expect(manifest?.dotnet?.packageReferences).to.deep.equal([
         { id: "Acme.Node.Runtime", version: "2.0.0" },
       ]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("treats source-package semantic metadata as overlay metadata", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-package-semantic-"));
-    try {
-      const pkgRoot = writeInstalledPackage(dir, "@acme/semantic", "1.0.0", {
-        packageManifest: {
-          schemaVersion: 1,
-          kind: "tsonic-source-package",
-          semanticMetadata: {
-            version: 1,
-            aliases: {
-              "@acme/semantic:Result": {
-                aliasId: "@acme/semantic:Result",
-                definition: { kind: "referenceType", name: "Result" },
-                isRecursive: true,
-                typeParameters: ["T", "E"],
-              },
-            },
-          },
-          source: {
-            exports: {
-              ".": "./src/index.ts",
-            },
-          },
-        },
-      });
-
-      const result = resolveInstalledPackageBindingsManifest(pkgRoot);
-      expect(result.ok).to.equal(true);
-      const manifest = result.ok ? result.value : null;
-      expect(manifest?.sourceManifest).to.equal("tsonic-package");
-      expect(
-        manifest?.semanticMetadata?.aliases?.["@acme/semantic:Result"]
-      ).to.deep.include({
-        aliasId: "@acme/semantic:Result",
-        isRecursive: true,
-      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

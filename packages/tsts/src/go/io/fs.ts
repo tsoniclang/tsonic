@@ -113,7 +113,12 @@ export function ReadFile(fsys: FS, name: string): [string, GoError] {
     return [bytesToBinaryString(Uint8Array.from(chunks)), undefined];
   }
   try {
-    return [bytesToBinaryString(toNodeBytes(nodeFs.readFileSync(resolveFsPath(fsys, name)))), undefined];
+    return [
+      bytesToBinaryString(
+        toNodeBytes(nodeFs.readFileSync(resolveFsPath(fsys, name)))
+      ),
+      undefined,
+    ];
   } catch (error) {
     return ["", normalizeFsError(error)];
   }

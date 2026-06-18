@@ -147,6 +147,7 @@ describe("restore command (runtime and local DLLs)", function () {
         "-o",
         join(dir, "libs"),
         "--nologo",
+        "--disable-build-servers",
       ]);
       expect(existsSync(join(dir, "libs", "TestLib.dll"))).to.equal(true);
 

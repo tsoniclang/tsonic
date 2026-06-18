@@ -1,0 +1,1014 @@
+import type {
+  LoweringDeclarationPlan,
+  LoweringExpressionPlan,
+  LoweringStatementPlan,
+  LoweringTypeRefPlan,
+  LoweringVariablePlan,
+} from "@tsonic/frontend";
+import type {
+  CSharpLoweringModulePlan,
+  EmitterOptions,
+  ModuleEmitResult,
+  RenderContext,
+} from "../types.js";
+import { renderDeclaration, renderStaticContainerMember } from "./declarations.js";
+import {
+  renderStaticFieldDeclaration,
+  renderTopLevelBody,
+} from "./statements.js";
+import {
+  renderCSharpTypeofOperand,
+  renderRequiredCSharpType,
+  shouldEmitStructuralObjectType,
+  shouldEmitAnonymousRuntimeUnionCarrier,
+  shouldExpandNamedAliasTarget,
+  structuralTypeName,
+  structuralTypeKey,
+  typePlanKey,
+  externalBindingKey,
+  isPrivateJsRuntimeName,
+  sourceQualifiedNameKey,
+} from "./types.js";
+import { sanitizeIdentifier } from "./names.js";
+import { renderStructuralTypeDeclaration } from "./structural-declarations.js";
+
+export const SHARED_STRUCTURAL_NAMESPACE = "Tsonic.Generated.Structural";
+export const JSON_CONTEXT_NAMESPACE = "Tsonic.Generated.Json";
+
+const hasNamespaceDeclarationShape = (
+  declaration: LoweringDeclarationPlan
+): boolean =>
+  declaration.declarationKind === "class" ||
+  declaration.declarationKind === "enum" ||
+  declaration.declarationKind === "interface" ||
+  declaration.declarationKind === "type-alias";
+
+const topLevelVariableDeclarations = (
+  module: CSharpLoweringModulePlan
+): readonly LoweringVariablePlan[] =>
+  module.topLevelStatements
+    .filter((statement) => statement.statementKind === "variable")
+    .flatMap((statement) => statement.declarations);
+
+const canonicalSourceFileName = (fileName: string): string =>
+  fileName.split("\\").join("/");
+
+const sourceModuleFileName = (
+  module: CSharpLoweringModulePlan
+): string | undefined => {
+  const sourceModule = module.sourceModule as { readonly fileName?: string };
+  return sourceModule.fileName;
+};
+
+const namespaceImportReadNames = (
+  module: CSharpLoweringModulePlan,
+  referenceModules: readonly CSharpLoweringModulePlan[] | undefined
+): ReadonlyMap<string, string> => {
+  if (!referenceModules || referenceModules.length === 0) return new Map();
+  const moduleBySourceFile = new Map(
+    referenceModules
+      .map((referenceModule) => {
+        const fileName = sourceModuleFileName(referenceModule);
+        return fileName
+          ? [canonicalSourceFileName(fileName), referenceModule] as const
+          : undefined;
+      })
+      .filter(
+        (
+          entry
+        ): entry is readonly [string, CSharpLoweringModulePlan] =>
+          entry !== undefined
+      )
+  );
+  const aliases = new Map<string, string>();
+  for (const importEdge of module.imports) {
+    if (importEdge.resolvedModule?.isExternalLibraryImport) continue;
+    const resolvedFileName = importEdge.resolvedModule?.resolvedFileName;
+    if (!resolvedFileName) continue;
+    const targetModule = moduleBySourceFile.get(
+      canonicalSourceFileName(resolvedFileName)
+    );
+    if (!targetModule) continue;
+    for (const binding of importEdge.bindings) {
+      if (binding.kind !== "namespace") continue;
+      aliases.set(
+        binding.localName,
+        `global::${targetModule.identity.namespace}.${targetModule.identity.className}`
+      );
+    }
+  }
+  return aliases;
+};
+
+const topLevelFieldDeclarations = (
+  module: CSharpLoweringModulePlan
+): readonly LoweringVariablePlan[] =>
+  topLevelVariableDeclarations(module).flatMap((declaration) =>
+    declaration.bindingElements.length === 0
+      ? [declaration]
+      : declaration.bindingElements.map(
+          (binding): LoweringVariablePlan => ({
+            sourceNode: declaration.sourceNode,
+            bindingId: binding.bindingId,
+            name: binding.name,
+            type: binding.storageType ?? binding.type,
+            storageType: binding.storageType ?? binding.type,
+            bindingElements: [],
+            compileTimeOnly: declaration.compileTimeOnly,
+          })
+        )
+  );
+
+const renderExportAliasFields = (
+  module: CSharpLoweringModulePlan,
+  context: RenderContext
+): readonly string[] => {
+  const variables = new Map(
+    topLevelVariableDeclarations(module).map((declaration) => [
+      declaration.name,
+      declaration,
+    ])
+  );
+  return module.exports
+    .filter(
+      (binding) =>
+        binding.kind === "named" &&
+        !binding.isTypeOnly &&
+        binding.localName !== undefined &&
+        binding.exportedName !== undefined &&
+        binding.localName !== binding.exportedName
+    )
+    .map((binding) => {
+      const variable = variables.get(binding.localName ?? "");
+      if (!variable) return undefined;
+      return `    public static ${renderRequiredCSharpType(variable.storageType ?? variable.type, context, "export alias type", "Variable", variable.name)} ${sanitizeIdentifier(binding.exportedName)} => ${sanitizeIdentifier(binding.localName)};`;
+    })
+    .filter((rendered): rendered is string => rendered !== undefined);
+};
+
+type StructuralTypeTraversalState = {
+  readonly types: ReadonlySet<LoweringTypeRefPlan>;
+  readonly namedTypes: ReadonlySet<string>;
+};
+
+const createStructuralTypeTraversalState = (): StructuralTypeTraversalState => ({
+  types: new Set<LoweringTypeRefPlan>(),
+  namedTypes: new Set<string>(),
+});
+
+const structuralNamedTypeKey = (
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>
+): string =>
+  `${sourceQualifiedNameKey(type.sourceQualifiedName) ?? externalBindingKey(type.externalBinding) ?? type.name}<${type.typeArguments.length}>`;
+
+const isGeneratorRuntimeType = (
+  type: LoweringTypeRefPlan | undefined
+): boolean =>
+  type?.kind === "named" &&
+  (type.name === "Generator" || type.name === "AsyncGenerator") &&
+  (isPrivateJsRuntimeName(type.sourceQualifiedName) ||
+    type.sourceQualifiedName === undefined);
+
+const isGeneratorMethodCall = (
+  expression: LoweringExpressionPlan
+): boolean => {
+  if (expression.expressionKind !== "call") return false;
+  const callee = expression.expression;
+  if (callee?.expressionKind !== "property-access") return false;
+  if (
+    callee.name !== "next" &&
+    callee.name !== "return" &&
+    callee.name !== "throw"
+  ) {
+    return false;
+  }
+  const receiverType =
+    callee.expression?.storageTypePlan ?? callee.expression?.type;
+  return isGeneratorRuntimeType(receiverType);
+};
+
+const withStructuralType = (
+  state: StructuralTypeTraversalState,
+  type: LoweringTypeRefPlan
+): StructuralTypeTraversalState | undefined => {
+  if (state.types.has(type)) return undefined;
+  const types = new Set(state.types);
+  types.add(type);
+  return { types, namedTypes: state.namedTypes };
+};
+
+const withStructuralNamedType = (
+  state: StructuralTypeTraversalState,
+  type: Extract<LoweringTypeRefPlan, { readonly kind: "named" }>
+): StructuralTypeTraversalState | undefined => {
+  const key = structuralNamedTypeKey(type);
+  if (state.namedTypes.has(key)) return undefined;
+  const namedTypes = new Set(state.namedTypes);
+  namedTypes.add(key);
+  return { types: state.types, namedTypes };
+};
+
+const setStructuralType = (
+  types: Map<string, LoweringTypeRefPlan>,
+  type: LoweringTypeRefPlan
+): void => {
+  const key = structuralTypeKey(type);
+  if (!types.has(key)) {
+    types.set(key, type);
+  }
+};
+
+const collectStructuralType = (
+  types: Map<string, LoweringTypeRefPlan>,
+  type: LoweringTypeRefPlan | undefined,
+  state: StructuralTypeTraversalState = createStructuralTypeTraversalState()
+): void => {
+  if (!type) return;
+  const typeState = withStructuralType(state, type);
+  if (!typeState) return;
+  switch (type.kind) {
+    case "object":
+      if (!shouldEmitStructuralObjectType(type)) {
+        break;
+      }
+      setStructuralType(types, type);
+      for (const member of type.members) {
+        switch (member.kind) {
+          case "property":
+            collectStructuralType(types, member.type, typeState);
+            break;
+          case "method":
+            for (const parameter of member.parameters) {
+              collectStructuralType(types, parameter.type, typeState);
+            }
+            collectStructuralType(types, member.returnType, typeState);
+            break;
+        }
+      }
+      break;
+    case "named": {
+      const namedState = withStructuralNamedType(typeState, type);
+      if (!namedState) return;
+      if (
+        type.aliasTarget?.kind === "object" &&
+        shouldEmitStructuralObjectType(type.aliasTarget) &&
+        type.declarationKind !== "class" &&
+        !isPrivateJsRuntimeName(type.sourceQualifiedName)
+      ) {
+        setStructuralType(types, type);
+        for (const member of type.aliasTarget.members) {
+          switch (member.kind) {
+            case "property":
+              collectStructuralType(types, member.type, namedState);
+              break;
+            case "method":
+              for (const parameter of member.parameters) {
+                collectStructuralType(types, parameter.type, namedState);
+              }
+              collectStructuralType(types, member.returnType, namedState);
+              break;
+          }
+        }
+        for (const argument of type.typeArguments) {
+          collectStructuralType(types, argument, namedState);
+        }
+        break;
+      }
+      if (
+        type.aliasTarget?.kind === "union" &&
+        shouldEmitAnonymousRuntimeUnionCarrier(type.aliasTarget)
+      ) {
+        if (!type.sourceQualifiedName) {
+          setStructuralType(types, type);
+        }
+        for (const member of type.aliasTarget.types) {
+          collectStructuralType(types, member, namedState);
+        }
+        break;
+      }
+      if (shouldExpandNamedAliasTarget(type)) {
+        collectStructuralType(types, type.aliasTarget, namedState);
+      }
+      for (const argument of type.typeArguments) {
+        collectStructuralType(types, argument, namedState);
+      }
+      break;
+    }
+    case "array":
+      collectStructuralType(types, type.elementType, typeState);
+      break;
+    case "record":
+      collectStructuralType(types, type.keyType, typeState);
+      collectStructuralType(types, type.valueType, typeState);
+      break;
+    case "tuple":
+      for (const element of type.elements) {
+        collectStructuralType(types, element, typeState);
+      }
+      break;
+    case "union":
+      if (shouldEmitAnonymousRuntimeUnionCarrier(type)) {
+        setStructuralType(types, type);
+      }
+      for (const member of type.types) {
+        collectStructuralType(types, member, typeState);
+      }
+      break;
+    case "intersection":
+      for (const member of type.types) {
+        collectStructuralType(types, member, typeState);
+      }
+      break;
+    case "function":
+      for (const parameter of type.parameters) {
+        collectStructuralType(types, parameter.type, typeState);
+      }
+      collectStructuralType(types, type.returnType, typeState);
+      break;
+    case "predicate":
+      collectStructuralType(types, type.assertedType, typeState);
+      break;
+    case "intrinsic":
+    case "source-primitive":
+    case "literal":
+    case "unsupported":
+      break;
+  }
+};
+
+type StructuralPlanTraversalState = {
+  readonly expressions: ReadonlySet<LoweringExpressionPlan>;
+  readonly statements: ReadonlySet<LoweringStatementPlan>;
+  readonly declarations: ReadonlySet<LoweringDeclarationPlan>;
+  readonly variables: ReadonlySet<LoweringVariablePlan>;
+};
+
+const createStructuralPlanTraversalState = (): StructuralPlanTraversalState => ({
+  expressions: new Set<LoweringExpressionPlan>(),
+  statements: new Set<LoweringStatementPlan>(),
+  declarations: new Set<LoweringDeclarationPlan>(),
+  variables: new Set<LoweringVariablePlan>(),
+});
+
+const withExpressionPlan = (
+  state: StructuralPlanTraversalState,
+  expression: LoweringExpressionPlan
+): StructuralPlanTraversalState | undefined => {
+  if (state.expressions.has(expression)) return undefined;
+  const expressions = new Set(state.expressions);
+  expressions.add(expression);
+  return { ...state, expressions };
+};
+
+const withStatementPlan = (
+  state: StructuralPlanTraversalState,
+  statement: LoweringStatementPlan
+): StructuralPlanTraversalState | undefined => {
+  if (state.statements.has(statement)) return undefined;
+  const statements = new Set(state.statements);
+  statements.add(statement);
+  return { ...state, statements };
+};
+
+const withDeclarationPlan = (
+  state: StructuralPlanTraversalState,
+  declaration: LoweringDeclarationPlan
+): StructuralPlanTraversalState | undefined => {
+  if (state.declarations.has(declaration)) return undefined;
+  const declarations = new Set(state.declarations);
+  declarations.add(declaration);
+  return { ...state, declarations };
+};
+
+const withVariablePlan = (
+  state: StructuralPlanTraversalState,
+  declaration: LoweringVariablePlan
+): StructuralPlanTraversalState | undefined => {
+  if (state.variables.has(declaration)) return undefined;
+  const variables = new Set(state.variables);
+  variables.add(declaration);
+  return { ...state, variables };
+};
+
+const typeParameterTypePlan = (name: string): LoweringTypeRefPlan => ({
+  kind: "named",
+  name,
+  typeArguments: [],
+  declarationKind: "type-parameter",
+});
+
+const namedTypeAliasCarrierPlan = (
+  declaration: LoweringDeclarationPlan,
+  namespace: string
+): LoweringTypeRefPlan | undefined => {
+  if (
+    declaration.declarationKind !== "type-alias" ||
+    declaration.typeAliasTarget?.kind !== "union" ||
+    !declaration.name
+  ) {
+    return undefined;
+  }
+  return {
+    kind: "named",
+    name: declaration.name,
+    typeArguments: (declaration.typeParameters ?? []).map(
+      typeParameterTypePlan
+    ),
+    typeParameters: declaration.typeParameters ?? [],
+    aliasTarget: declaration.typeAliasTarget,
+    sourceQualifiedName: {
+      namespace,
+      name: declaration.name,
+    },
+    declarationKind: "type-alias",
+    sourceText: declaration.sourceText,
+  };
+};
+
+const collectStructuralTypesFromExpression = (
+  types: Map<string, LoweringTypeRefPlan>,
+  expression: LoweringExpressionPlan | undefined,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState(),
+  collectOwnTypes = true
+): void => {
+  if (!expression) return;
+  const expressionState = withExpressionPlan(state, expression);
+  if (!expressionState) return;
+  const skipGeneratorMethodTypes = isGeneratorMethodCall(expression);
+  const skipSourceRuntimeStaticReceiverTypes =
+    expression.expressionKind === "property-access" &&
+    expression.sourceOperation?.dispatch === "static-call";
+  if (collectOwnTypes) {
+    collectStructuralType(types, expression.type);
+    collectStructuralType(types, expression.contextualTypePlan);
+    collectStructuralType(types, expression.storageTypePlan);
+    if (!skipSourceRuntimeStaticReceiverTypes) {
+      collectStructuralType(types, expression.receiverTypePlan);
+    }
+    if (!skipGeneratorMethodTypes) {
+      collectStructuralType(types, expression.callTargetTypePlan);
+    }
+    collectStructuralType(types, expression.returnType);
+    for (const typeArgument of expression.typeArguments) {
+      collectStructuralType(types, typeArgument);
+    }
+  }
+  const collectReceiverOwnTypes =
+    skipSourceRuntimeStaticReceiverTypes ? false : true;
+  collectStructuralTypesFromExpression(
+    types,
+    expression.expression,
+    expressionState,
+    collectReceiverOwnTypes
+  );
+  collectStructuralTypesFromExpression(types, expression.left, expressionState);
+  collectStructuralTypesFromExpression(types, expression.right, expressionState);
+  collectStructuralTypesFromExpression(types, expression.condition, expressionState);
+  collectStructuralTypesFromExpression(types, expression.whenTrue, expressionState);
+  collectStructuralTypesFromExpression(types, expression.whenFalse, expressionState);
+  for (const argument of expression.arguments) {
+    collectStructuralTypesFromExpression(
+      types,
+      argument,
+      expressionState,
+      !skipGeneratorMethodTypes
+    );
+  }
+  for (const element of expression.elements) {
+    collectStructuralTypesFromExpression(types, element, expressionState);
+  }
+  for (const property of expression.properties) {
+    collectStructuralTypesFromExpression(types, property.expression, expressionState);
+  }
+  for (const parameter of expression.parameters) {
+    collectStructuralType(types, parameter.type);
+    collectStructuralTypesFromExpression(
+      types,
+      parameter.initializer,
+      expressionState
+    );
+  }
+};
+
+const collectStructuralTypesFromVariable = (
+  types: Map<string, LoweringTypeRefPlan>,
+  declaration: LoweringVariablePlan,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
+): void => {
+  const variableState = withVariablePlan(state, declaration);
+  if (!variableState) return;
+  collectStructuralType(types, declaration.type);
+  collectStructuralType(types, declaration.storageType);
+  collectStructuralTypesFromExpression(
+    types,
+    declaration.initializer,
+    variableState
+  );
+  for (const binding of declaration.bindingElements) {
+    collectStructuralTypesFromExpression(
+      types,
+      binding.initializer,
+      variableState
+    );
+  }
+};
+
+const collectStructuralTypesFromStatement = (
+  types: Map<string, LoweringTypeRefPlan>,
+  statement: LoweringStatementPlan | undefined,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
+): void => {
+  if (!statement) return;
+  if (statement.compileTimeOnly) return;
+  const statementState = withStatementPlan(state, statement);
+  if (!statementState) return;
+  collectStructuralTypesFromExpression(types, statement.expression, statementState);
+  collectStructuralTypesFromExpression(types, statement.condition, statementState);
+  collectStructuralTypesFromExpression(
+    types,
+    statement.incrementor,
+    statementState
+  );
+  collectStructuralTypesFromExpression(types, statement.iterable, statementState);
+  if (statement.catchVariable) {
+    collectStructuralTypesFromVariable(
+      types,
+      statement.catchVariable,
+      statementState
+    );
+  }
+  collectStructuralTypesFromStatement(types, statement.thenStatement, statementState);
+  collectStructuralTypesFromStatement(types, statement.elseStatement, statementState);
+  collectStructuralTypesFromStatement(types, statement.body, statementState);
+  collectStructuralTypesFromStatement(types, statement.tryBlock, statementState);
+  collectStructuralTypesFromStatement(types, statement.catchBlock, statementState);
+  collectStructuralTypesFromStatement(types, statement.finallyBlock, statementState);
+  for (const declaration of statement.declarations) {
+    collectStructuralTypesFromVariable(types, declaration, statementState);
+  }
+  for (const child of statement.statements) {
+    collectStructuralTypesFromStatement(types, child, statementState);
+  }
+  for (const switchCase of statement.cases) {
+    collectStructuralTypesFromExpression(
+      types,
+      switchCase.expression,
+      statementState
+    );
+    for (const child of switchCase.statements) {
+      collectStructuralTypesFromStatement(types, child, statementState);
+    }
+  }
+};
+
+const collectStructuralTypesFromDeclaration = (
+  types: Map<string, LoweringTypeRefPlan>,
+  declaration: LoweringDeclarationPlan,
+  namespace: string,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
+): void => {
+  const declarationState = withDeclarationPlan(state, declaration);
+  if (!declarationState) return;
+  collectStructuralType(types, declaration.declaredTypePlan);
+  const aliasCarrier = namedTypeAliasCarrierPlan(declaration, namespace);
+  if (aliasCarrier) {
+    collectStructuralType(types, aliasCarrier);
+  } else if (
+    declaration.declarationKind === "type-alias" &&
+    declaration.typeAliasTarget?.kind === "union"
+  ) {
+    for (const member of declaration.typeAliasTarget.types) {
+      collectStructuralType(types, member);
+    }
+  } else if (declaration.declarationKind === "type-alias") {
+    if (
+      declaration.typeAliasTarget?.kind === "object" ||
+      declaration.typeAliasTarget?.kind === "function"
+    ) {
+      collectStructuralType(types, declaration.typeAliasTarget);
+    }
+  } else {
+    collectStructuralType(types, declaration.typeAliasTarget);
+  }
+  collectStructuralType(types, declaration.returnType);
+  for (const heritage of declaration.heritageTypes) {
+    collectStructuralType(types, heritage);
+  }
+  for (const parameter of declaration.parameters) {
+    collectStructuralType(types, parameter.type);
+    collectStructuralTypesFromExpression(
+      types,
+      parameter.initializer,
+      declarationState
+    );
+  }
+  collectStructuralTypesFromExpression(
+    types,
+    declaration.initializer,
+    declarationState
+  );
+  collectStructuralTypesFromStatement(types, declaration.body, declarationState);
+  for (const member of declaration.members) {
+    collectStructuralTypesFromDeclaration(
+      types,
+      member,
+      namespace,
+      declarationState
+    );
+  }
+};
+
+const setJsonType = (
+  types: Map<string, LoweringTypeRefPlan>,
+  type: LoweringTypeRefPlan | undefined
+): void => {
+  if (
+    !type ||
+    type.kind === "unsupported" ||
+    (type.kind === "intrinsic" && type.name === "void")
+  ) {
+    return;
+  }
+  types.set(typePlanKey(type), type);
+};
+
+const collectJsonTypesFromExpression = (
+  types: Map<string, LoweringTypeRefPlan>,
+  expression: LoweringExpressionPlan | undefined,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
+): void => {
+  if (!expression) return;
+  const expressionState = withExpressionPlan(state, expression);
+  if (!expressionState) return;
+  if (
+    expression.expressionKind === "call" &&
+    expression.expression?.sourceOperation?.owner === "JSON" &&
+    expression.expression.sourceOperation.dispatch === "static-call"
+  ) {
+    if (expression.expression.sourceOperation.member === "parse") {
+      setJsonType(types, expression.typeArguments[0] ?? expression.type);
+    }
+    if (expression.expression.sourceOperation.member === "stringify") {
+      const argument = expression.arguments[0];
+      setJsonType(types, argument?.storageTypePlan ?? argument?.type);
+    }
+  }
+  collectJsonTypesFromExpression(types, expression.expression, expressionState);
+  collectJsonTypesFromExpression(types, expression.left, expressionState);
+  collectJsonTypesFromExpression(types, expression.right, expressionState);
+  collectJsonTypesFromExpression(types, expression.condition, expressionState);
+  collectJsonTypesFromExpression(types, expression.whenTrue, expressionState);
+  collectJsonTypesFromExpression(types, expression.whenFalse, expressionState);
+  for (const argument of expression.arguments) {
+    collectJsonTypesFromExpression(types, argument, expressionState);
+  }
+  for (const element of expression.elements) {
+    collectJsonTypesFromExpression(types, element, expressionState);
+  }
+  for (const property of expression.properties) {
+    collectJsonTypesFromExpression(types, property.expression, expressionState);
+  }
+  for (const parameter of expression.parameters) {
+    collectJsonTypesFromExpression(
+      types,
+      parameter.initializer,
+      expressionState
+    );
+  }
+};
+
+const collectJsonTypesFromVariable = (
+  types: Map<string, LoweringTypeRefPlan>,
+  declaration: LoweringVariablePlan,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
+): void => {
+  const variableState = withVariablePlan(state, declaration);
+  if (!variableState) return;
+  collectJsonTypesFromExpression(types, declaration.initializer, variableState);
+  for (const binding of declaration.bindingElements) {
+    collectJsonTypesFromExpression(types, binding.initializer, variableState);
+  }
+};
+
+const collectJsonTypesFromStatement = (
+  types: Map<string, LoweringTypeRefPlan>,
+  statement: LoweringStatementPlan | undefined,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
+): void => {
+  if (!statement || statement.compileTimeOnly) return;
+  const statementState = withStatementPlan(state, statement);
+  if (!statementState) return;
+  collectJsonTypesFromExpression(types, statement.expression, statementState);
+  collectJsonTypesFromExpression(types, statement.condition, statementState);
+  collectJsonTypesFromExpression(types, statement.incrementor, statementState);
+  collectJsonTypesFromExpression(types, statement.iterable, statementState);
+  if (statement.catchVariable) {
+    collectJsonTypesFromVariable(types, statement.catchVariable, statementState);
+  }
+  collectJsonTypesFromStatement(types, statement.thenStatement, statementState);
+  collectJsonTypesFromStatement(types, statement.elseStatement, statementState);
+  collectJsonTypesFromStatement(types, statement.body, statementState);
+  collectJsonTypesFromStatement(types, statement.tryBlock, statementState);
+  collectJsonTypesFromStatement(types, statement.catchBlock, statementState);
+  collectJsonTypesFromStatement(types, statement.finallyBlock, statementState);
+  for (const declaration of statement.declarations) {
+    collectJsonTypesFromVariable(types, declaration, statementState);
+  }
+  for (const child of statement.statements) {
+    collectJsonTypesFromStatement(types, child, statementState);
+  }
+  for (const switchCase of statement.cases) {
+    collectJsonTypesFromExpression(types, switchCase.expression, statementState);
+    for (const child of switchCase.statements) {
+      collectJsonTypesFromStatement(types, child, statementState);
+    }
+  }
+};
+
+const collectJsonTypesFromDeclaration = (
+  types: Map<string, LoweringTypeRefPlan>,
+  declaration: LoweringDeclarationPlan,
+  state: StructuralPlanTraversalState = createStructuralPlanTraversalState()
+): void => {
+  const declarationState = withDeclarationPlan(state, declaration);
+  if (!declarationState) return;
+  collectJsonTypesFromExpression(
+    types,
+    declaration.initializer,
+    declarationState
+  );
+  collectJsonTypesFromStatement(types, declaration.body, declarationState);
+  for (const parameter of declaration.parameters) {
+    collectJsonTypesFromExpression(
+      types,
+      parameter.initializer,
+      declarationState
+    );
+  }
+  for (const member of declaration.members) {
+    collectJsonTypesFromDeclaration(types, member, declarationState);
+  }
+};
+
+export const collectModuleJsonTypes = (
+  module: CSharpLoweringModulePlan
+): readonly LoweringTypeRefPlan[] => {
+  const types = new Map<string, LoweringTypeRefPlan>();
+  const state = createStructuralPlanTraversalState();
+  for (const declaration of module.declarations) {
+    if (declaration.compileTimeOnly) continue;
+    collectJsonTypesFromDeclaration(types, declaration, state);
+  }
+  for (const statement of module.statements) {
+    collectJsonTypesFromStatement(types, statement, state);
+  }
+  for (const statement of module.topLevelStatements) {
+    collectJsonTypesFromStatement(types, statement, state);
+  }
+  return [...types.values()];
+};
+
+export const collectModuleStructuralTypes = (
+  module: CSharpLoweringModulePlan
+): readonly LoweringTypeRefPlan[] => {
+  const types = new Map<string, LoweringTypeRefPlan>();
+  const state = createStructuralPlanTraversalState();
+  for (const declaration of module.declarations) {
+    if (declaration.compileTimeOnly) continue;
+    collectStructuralTypesFromDeclaration(
+      types,
+      declaration,
+      module.identity.namespace,
+      state
+    );
+  }
+  for (const statement of module.statements) {
+    collectStructuralTypesFromStatement(types, statement, state);
+  }
+  for (const statement of module.topLevelStatements) {
+    collectStructuralTypesFromStatement(types, statement, state);
+  }
+  return [...types.values()];
+};
+
+const renderStructuralType = (
+  type: LoweringTypeRefPlan,
+  context: RenderContext
+): string | undefined => renderStructuralTypeDeclaration(type, context);
+
+const renderCSharpHeader = (namespace: string): string[] => [
+  "#nullable enable",
+  "using System;",
+  "using System.Collections.Concurrent;",
+  "using System.Collections.Generic;",
+  "using System.Globalization;",
+  "using System.Text;",
+  "using System.Text.RegularExpressions;",
+  "using System.Threading;",
+  "using System.Threading.Tasks;",
+  "",
+  `namespace ${namespace};`,
+  "",
+];
+
+const createRenderContext = (
+  options: Partial<EmitterOptions>
+): RenderContext => {
+  const diagnostics: RenderContext["diagnostics"] = [];
+  diagnostics.push(...(options.externalBindingMetadata?.diagnostics ?? []));
+  let nextTempId = 0;
+  const structuralReferenceName = (type: LoweringTypeRefPlan): string =>
+    options.includeStructuralDeclarations === false
+      ? `global::${SHARED_STRUCTURAL_NAMESPACE}.${structuralTypeName(type)}`
+      : structuralTypeName(type);
+  return {
+    diagnostics,
+    getStructuralTypeName: structuralReferenceName,
+    externalBindingTargetName: (binding) =>
+      options.externalBindingMetadata?.resolveTargetName(binding),
+    overrideMemberAccessibility: (heritageTypes, member) =>
+      options.externalBindingMetadata?.resolveOverrideAccessibility(
+        heritageTypes,
+        member
+      ),
+    allocateTempName: (prefix) => {
+      const name = `__tsonic_${prefix}_${nextTempId}`;
+      nextTempId += 1;
+      return name;
+    },
+    reportUnsupported: (feature, sourceKindName, sourceText) => {
+      diagnostics.push({
+        code: "TSN2001",
+        severity: "error",
+        message: `C# lowering does not yet support ${feature} '${sourceKindName}'.`,
+        hint: sourceText.replace(/\s+/g, " ").slice(0, 240),
+      });
+    },
+  };
+};
+
+export const emitStructuralTypesModule = (
+  namespace: string,
+  types: readonly LoweringTypeRefPlan[],
+  options: Partial<EmitterOptions> = {}
+): ModuleEmitResult => {
+  const context = createRenderContext(options);
+  const structuralDeclarations = [
+    ...new Map(types.map((type) => [structuralTypeKey(type), type])).values(),
+  ]
+    .map((type) => renderStructuralType(type, context))
+    .filter((rendered): rendered is string => rendered !== undefined);
+  if (context.diagnostics.length > 0) {
+    return { ok: false, errors: context.diagnostics };
+  }
+  return {
+    ok: true,
+    code: `${[
+      ...renderCSharpHeader(namespace),
+      ...structuralDeclarations,
+    ].join("\n")}\n`,
+  };
+};
+
+export const emitJsonContextModule = (
+  namespace: string,
+  types: readonly LoweringTypeRefPlan[],
+  options: Partial<EmitterOptions> = {}
+): ModuleEmitResult => {
+  const context = createRenderContext({
+    ...options,
+    includeStructuralDeclarations: false,
+  });
+  const jsonSerializableAttributes = [
+    ...new Map(types.map((type) => [typePlanKey(type), type])).values(),
+  ].map((type) => {
+    const csharpType = renderRequiredCSharpType(
+      type,
+      context,
+      "JSON serialization type",
+      "JSON",
+      type.sourceText ?? type.kind
+    );
+    return `[global::System.Text.Json.Serialization.JsonSerializable(typeof(${renderCSharpTypeofOperand(csharpType)}))]`;
+  });
+  if (context.diagnostics.length > 0) {
+    return { ok: false, errors: context.diagnostics };
+  }
+  return {
+    ok: true,
+    code: `${[
+      "#nullable enable",
+      "",
+      `namespace ${namespace};`,
+      "",
+      ...jsonSerializableAttributes,
+      "internal sealed partial class __TsonicJsonContext : global::System.Text.Json.Serialization.JsonSerializerContext",
+      "{",
+      "}",
+    ].join("\n")}\n`,
+  };
+};
+
+export const emitModule = (
+  module: CSharpLoweringModulePlan,
+  options: Partial<EmitterOptions> = {}
+): ModuleEmitResult => {
+  const context = createRenderContext(options);
+  context.currentNamespace = module.identity.namespace;
+  const previousIdentifierReadNames = context.currentIdentifierReadNames;
+  const namespaceAliases = namespaceImportReadNames(
+    module,
+    options.referenceModules
+  );
+  context.currentIdentifierReadNames =
+    namespaceAliases.size > 0
+      ? new Map([
+          ...(previousIdentifierReadNames?.entries() ?? []),
+          ...namespaceAliases.entries(),
+        ])
+      : previousIdentifierReadNames;
+  const namespaceDeclarations = module.declarations
+    .filter(
+      (declaration) =>
+        hasNamespaceDeclarationShape(declaration) && !declaration.compileTimeOnly
+    )
+    .map((declaration) => renderDeclaration(declaration, context))
+    .filter((rendered): rendered is string => rendered !== undefined);
+  const staticMembers = module.declarations
+    .filter(
+      (declaration) =>
+        !hasNamespaceDeclarationShape(declaration) && !declaration.compileTimeOnly
+    )
+    .map((declaration) => renderStaticContainerMember(declaration, context))
+    .filter((rendered): rendered is string => rendered !== undefined);
+  const topLevelFields = topLevelFieldDeclarations(module)
+    .filter((declaration) => !declaration.compileTimeOnly)
+    .map((declaration) => renderStaticFieldDeclaration(declaration, context))
+    .filter((rendered) => rendered.length > 0)
+    .map((rendered) => `    ${rendered}`);
+  const exportAliasFields = renderExportAliasFields(module, context);
+  const structuralDeclarations =
+    options.includeStructuralDeclarations === false
+      ? []
+      : collectModuleStructuralTypes(module)
+          .map((type) => renderStructuralType(type, context))
+          .filter((rendered): rendered is string => rendered !== undefined);
+  const executableTopLevelStatements = module.topLevelStatements.filter(
+    (statement) =>
+      statement.statementKind !== "declaration" &&
+      statement.statementKind !== "empty"
+  );
+  const topLevelMethod =
+    executableTopLevelStatements.length > 0
+      ? [
+          "    public static void __TopLevel()",
+          renderTopLevelBody(executableTopLevelStatements, context)
+            .split("\n")
+            .map((line) => `    ${line}`)
+            .join("\n"),
+        ]
+      : [];
+
+  const lines: string[] = renderCSharpHeader(module.identity.namespace);
+
+  lines.push(...namespaceDeclarations);
+  if (structuralDeclarations.length > 0) {
+    if (namespaceDeclarations.length > 0) lines.push("");
+    lines.push(...structuralDeclarations);
+  }
+
+  if (
+    staticMembers.length > 0 ||
+    topLevelFields.length > 0 ||
+    exportAliasFields.length > 0 ||
+    topLevelMethod.length > 0 ||
+    (namespaceDeclarations.length === 0 && structuralDeclarations.length === 0)
+  ) {
+    if (namespaceDeclarations.length > 0 || structuralDeclarations.length > 0) {
+      lines.push("");
+    }
+    lines.push(`public static class ${module.identity.className}`);
+    lines.push("{");
+    lines.push(...staticMembers);
+    lines.push(...topLevelFields);
+    lines.push(...exportAliasFields);
+    if (topLevelMethod.length > 0) {
+      if (
+        staticMembers.length > 0 ||
+        topLevelFields.length > 0 ||
+        exportAliasFields.length > 0
+      ) {
+        lines.push("");
+      }
+      lines.push(...topLevelMethod);
+    }
+    lines.push("}");
+  }
+
+  if (context.diagnostics.length > 0) {
+    context.currentIdentifierReadNames = previousIdentifierReadNames;
+    return { ok: false, errors: context.diagnostics };
+  }
+  context.currentIdentifierReadNames = previousIdentifierReadNames;
+  return { ok: true, code: `${lines.join("\n")}\n` };
+};

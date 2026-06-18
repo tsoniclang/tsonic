@@ -72,6 +72,7 @@ export const packCommand = (
     "-c",
     "Release",
     "--nologo",
+    "--disable-build-servers",
     "--configfile",
     nugetConfigResult.value,
   ];

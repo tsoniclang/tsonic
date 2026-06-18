@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,7 +47,33 @@ const resolveFrontendPackageRoot = (): string => {
 const frontendPackageRoot = resolveFrontendPackageRoot();
 const repoRoot = path.resolve(frontendPackageRoot, "../..");
 const fixtureSourceRoot = path.join(frontendPackageRoot, "test-fixtures");
-const materializedFixtureRoot = path.join(tmpdir(), "frontend-test-fixtures");
+const materializedFixtureRoot = path.join(
+  repoRoot,
+  ".temp",
+  "frontend-test-fixtures"
+);
+const activeFixtureRoots = new Set<string>();
+let fixtureCleanupRegistered = false;
+
+const registerFixtureRoot = (root: string): void => {
+  activeFixtureRoots.add(root);
+  if (fixtureCleanupRegistered) return;
+  fixtureCleanupRegistered = true;
+  process.once("exit", () => {
+    for (const fixtureRoot of activeFixtureRoots) {
+      fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+    activeFixtureRoots.clear();
+  });
+};
+
+const releaseFixtureRoot = (root: string): void => {
+  activeFixtureRoots.delete(root);
+  fs.rmSync(root, {
+    recursive: true,
+    force: true,
+  });
+};
 
 const loadFixtureMeta = (fixtureRoot: string): FixtureMeta => {
   const metaPath = path.join(fixtureRoot, "fixture.meta.json");
@@ -107,6 +132,11 @@ export const materializeFrontendFixture = (
   const destinationRoot = fs.mkdtempSync(
     path.join(materializedFixtureRoot, "fixture-")
   );
+  registerFixtureRoot(destinationRoot);
+  fs.writeFileSync(
+    path.join(destinationRoot, "tsonic.workspace.json"),
+    JSON.stringify({ packages: [] }, null, 2)
+  );
 
   for (const fixtureName of normalizedFixtureNames) {
     const sourceRoot = path.join(fixtureSourceRoot, fixtureName);
@@ -120,10 +150,6 @@ export const materializeFrontendFixture = (
   return {
     root: destinationRoot,
     path: (relativePath = ".") => path.join(destinationRoot, relativePath),
-    cleanup: () =>
-      fs.rmSync(destinationRoot, {
-        recursive: true,
-        force: true,
-      }),
+    cleanup: () => releaseFixtureRoot(destinationRoot),
   };
 };

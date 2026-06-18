@@ -2,23 +2,13 @@
  * Program type definitions
  */
 
-import * as ts from "typescript";
-import { ExternalMetadataRegistry } from "../external-metadata.js";
-import { BindingRegistry } from "./bindings.js";
-import { ExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
-import type { Binding } from "../ir/binding/index.js";
+import type { TstsSourceFile } from "@tsonic/tsts";
 import type { DeclarationModuleAlias } from "./declaration-module-aliases.js";
 import type { SurfaceCapabilities } from "../surface/profiles.js";
+import type { WorkspaceGraphSnapshot } from "./workspace-fingerprint.js";
 import type { BackendCapabilityManifest } from "../capabilities/backend-capabilities.js";
-import type { BackendTargetId } from "../ir/types.js";
-import type {
-  TargetSurfaceArtifacts,
-  TargetSurfaceProvider,
-} from "../symbols/index.js";
-import type {
-  TstsSourceProgram,
-  TypeScriptSemanticView,
-} from "../source-frontend/index.js";
+import type { BackendTargetId } from "../lowering/index.js";
+import type { TstsSourceProgram } from "../source-frontend/index.js";
 
 export type SurfaceMode = string;
 
@@ -39,28 +29,20 @@ export type CompilerOptions<Target extends BackendTargetId = BackendTargetId> =
   };
 
 export type TsonicProgram<Target extends BackendTargetId = BackendTargetId> = {
-  readonly program: ts.Program;
-  readonly checker: ts.TypeChecker;
   readonly sourceProgram: TstsSourceProgram;
-  readonly sourceSemantics: TypeScriptSemanticView;
   readonly options: CompilerOptions<Target>;
-  readonly surfaceCapabilities?: SurfaceCapabilities;
-  readonly authoritativeTsonicPackageRoots?: ReadonlyMap<string, string>;
-  readonly declarationModuleAliases?: ReadonlyMap<
+  readonly surfaceCapabilities: SurfaceCapabilities;
+  readonly workspaceGraph: WorkspaceGraphSnapshot;
+  readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
+  readonly declarationModuleAliases: ReadonlyMap<
     string,
     DeclarationModuleAlias
   >;
-  readonly sourceFiles: readonly ts.SourceFile[];
-  /** Declaration files from typeRoots (globals, external surface types, etc.) */
-  readonly declarationSourceFiles: readonly ts.SourceFile[];
-  readonly metadata: ExternalMetadataRegistry;
-  readonly bindings: BindingRegistry;
-  /** Resolver for external namespace imports (import-driven discovery) */
-  readonly externalResolver: ExternalBindingsResolver;
-  /** Symbol resolution binding layer (replaces direct checker calls) */
-  readonly binding: Binding;
-  /** Target-neutral symbol surface plus target render table produced for the active compilation. */
-  readonly targetSurfaceArtifacts?: TargetSurfaceArtifacts;
-  /** Active target surface contract used to produce symbol artifacts after bindings discovery. */
-  readonly targetSurfaceProvider?: TargetSurfaceProvider;
+  /**
+   * Runtime source closure selected from the TSTS module graph.
+   *
+   * This is intentionally distinct from `sourceProgram.sourceFiles`, which is
+   * the full semantic graph including declarations and support files.
+   */
+  readonly runtimeSourceFiles: readonly TstsSourceFile[];
 };

@@ -3,7 +3,7 @@ import * as nodeChildProcess from "node:child_process";
 import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
 import process from "node:process";
-import { toNodeBytes } from "../nodebytes.js";
+import { concatNodeBytes, toNodeBytes } from "../nodebytes.js";
 
 export class Cmd {
   Path: string;
@@ -41,12 +41,11 @@ export class Cmd {
         env: envObject(this.Env),
         stdio: ["ignore", "pipe", "pipe"],
       });
-      return [Array.from(result), undefined];
+      return [Array.from(toNodeBytes(result)), undefined];
     } catch (error) {
       const execError = error as { stdout?: Buffer | string; stderr?: Buffer | string };
-      const stdout = toNodeBytes(bufferFromExecOutput(execError.stdout));
-      const stderr = toNodeBytes(bufferFromExecOutput(execError.stderr));
-      return [[...stdout, ...stderr], normalizeExecError(error)];
+      const output = concatNodeBytes([execError.stdout, execError.stderr]);
+      return [Array.from(output), normalizeExecError(error)];
     }
   }
 
@@ -94,13 +93,6 @@ function envObject(env: GoSlice<string> | undefined): NodeJS.ProcessEnv | undefi
     }
   }
   return result;
-}
-
-function bufferFromExecOutput(value: Buffer | string | undefined): Buffer {
-  if (value === undefined) {
-    return Buffer.alloc(0);
-  }
-  return typeof value === "string" ? Buffer.from(value) : value;
 }
 
 function normalizeExecError(error: unknown): GoError {

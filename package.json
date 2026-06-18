@@ -19,7 +19,7 @@
     "lint:fix": "./scripts/build/lint.sh --fix",
     "format": "./scripts/build/format.sh",
     "format:check": "./scripts/build/format.sh --check",
-    "typecheck": "tsc -b"
+    "typecheck": "bash scripts/build/check-types.sh"
   },
   "workspaces": [
     "packages/*",

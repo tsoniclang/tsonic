@@ -207,14 +207,8 @@ export const resolveProjectCommandConfig = (
     const prodDotnet = restoredWorkspace.value.dotnet ?? {};
     const testDotnet = restoredWorkspace.value.testDotnet ?? {};
     const mergedPackageRefs = mergeUniquePackageReferences(
-      (prodDotnet.packageReferences ?? []) as readonly {
-        readonly id: string;
-        readonly version: string;
-      }[],
-      (testDotnet.packageReferences ?? []) as readonly {
-        readonly id: string;
-        readonly version: string;
-      }[]
+      prodDotnet.packageReferences ?? [],
+      testDotnet.packageReferences ?? []
     );
     if (!mergedPackageRefs.ok) {
       return { ok: false, error: { code: 1, error: mergedPackageRefs.error } };
@@ -225,17 +219,10 @@ export const resolveProjectCommandConfig = (
       dotnet: {
         ...prodDotnet,
         frameworkReferences: mergeUniqueFrameworkReferences(
-          (prodDotnet.frameworkReferences ?? []) as readonly (
-            | string
-            | { readonly id: string }
-          )[],
-          (testDotnet.frameworkReferences ?? []) as readonly (
-            | string
-            | { readonly id: string }
-          )[]
-        ) as unknown as typeof prodDotnet.frameworkReferences,
-        packageReferences:
-          mergedPackageRefs.value as unknown as typeof prodDotnet.packageReferences,
+          prodDotnet.frameworkReferences ?? [],
+          testDotnet.frameworkReferences ?? []
+        ),
+        packageReferences: mergedPackageRefs.value,
         msbuildProperties: {
           ...(prodDotnet.msbuildProperties ?? {}),
           ...(testDotnet.msbuildProperties ?? {}),

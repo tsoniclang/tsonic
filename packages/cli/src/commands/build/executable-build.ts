@@ -34,6 +34,7 @@ export const buildExecutable = (
     "-r",
     rid,
     "--nologo",
+    "--disable-build-servers",
     "--configfile",
     nugetConfigResult.value,
   ];

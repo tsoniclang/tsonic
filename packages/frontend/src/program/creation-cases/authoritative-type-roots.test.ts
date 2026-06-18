@@ -7,9 +7,79 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as ts from "typescript";
+import {
+  getTstsNodeText,
+  TstsSyntax,
+  type TstsNode,
+  type TstsSourceFile,
+  visitTstsSubtree,
+} from "@tsonic/tsts";
 import { createProgram } from "../creation.js";
+import { getProgramRuntimeSourceFiles } from "../queries.js";
 import { materializeFrontendFixture } from "../../testing/filesystem-fixtures.js";
+import {
+  sourceExpressionTypeProjectionFactKey,
+  type SourceSemanticFacts,
+  type SourceBindingProjectedType,
+} from "../../source-frontend/source-facts.js";
+
+const findSourceFile = (
+  sourceFiles: readonly TstsSourceFile[],
+  filePath: string
+): TstsSourceFile | undefined =>
+  sourceFiles.find(
+    (sourceFile) =>
+      path.resolve(sourceFile.FileName()) === path.resolve(filePath)
+  );
+
+const sourceFilePaths = (sourceFiles: readonly TstsSourceFile[]): string[] =>
+  sourceFiles.map((sourceFile) => path.resolve(sourceFile.FileName()));
+
+const expressionText = (node: TstsNode): string | undefined =>
+  getTstsNodeText(node)?.trim();
+
+const projectionSummary = (type: SourceBindingProjectedType): string => {
+  switch (type.kind) {
+    case "intrinsic":
+      return type.name;
+    case "source-primitive":
+      return type.fact.sourceName;
+    case "named":
+      return type.name;
+    case "union":
+      return type.types.map(projectionSummary).join(" | ");
+    default:
+      return type.kind;
+  }
+};
+
+const expressionTypeFactsByCallExpression = (
+  sourceFile: TstsSourceFile,
+  facts: SourceSemanticFacts,
+  wantedCallees: ReadonlySet<string>
+): ReadonlyMap<string, string> => {
+  const returnTypes = new Map<string, string>();
+
+  visitTstsSubtree(sourceFile, (node) => {
+    if (!node || !TstsSyntax.IsCallExpression(node)) return;
+    const call = TstsSyntax.AsCallExpression(node);
+    const expression = call?.Expression;
+    if (
+      !expression ||
+      (!TstsSyntax.IsIdentifier(expression) &&
+        !TstsSyntax.IsPropertyAccessExpression(expression))
+    ) {
+      return;
+    }
+
+    const callee = expressionText(expression);
+    if (!callee || !wantedCallees.has(callee)) return;
+    const fact = facts.get(sourceExpressionTypeProjectionFactKey, node);
+    if (fact) returnTypes.set(callee, projectionSummary(fact.type));
+  });
+
+  return returnTypes;
+};
 
 describe("Program Creation – authoritative type roots", function () {
   this.timeout(90_000);
@@ -38,38 +108,33 @@ describe("Program Creation – authoritative type roots", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const sourceFile = result.value.program.getSourceFile(entryPath);
+      const runtimeSourceFiles = getProgramRuntimeSourceFiles(result.value);
+      const sourceFile = findSourceFile(runtimeSourceFiles, entryPath);
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
-      const checker = result.value.program.getTypeChecker();
-      const returnTypes = new Map<string, string>();
-      const declarationFlags = new Map<string, boolean>();
-
-      const visit = (node: ts.Node): void => {
-        if (
-          ts.isCallExpression(node) &&
-          ts.isPropertyAccessExpression(node.expression)
-        ) {
-          const callee = node.expression.getText(sourceFile);
-          if (callee === "path.join" || callee === "process.cwd") {
-            const signature = checker.getResolvedSignature(node);
-            returnTypes.set(
-              callee,
-              checker.typeToString(checker.getTypeAtLocation(node))
-            );
-            declarationFlags.set(callee, signature?.declaration !== undefined);
-          }
-        }
-        ts.forEachChild(node, visit);
-      };
-
-      visit(sourceFile);
+      const returnTypes = expressionTypeFactsByCallExpression(
+        sourceFile,
+        result.value.sourceProgram.facts,
+        new Set(["path.join", "process.cwd"])
+      );
 
       expect(returnTypes.get("path.join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
-      expect(declarationFlags.get("path.join")).to.equal(true);
-      expect(declarationFlags.get("process.cwd")).to.equal(true);
+
+      const programFiles = sourceFilePaths(runtimeSourceFiles);
+      expect(programFiles).to.include(
+        path.resolve(authoritativeRoot, "src/path-module.ts")
+      );
+      expect(programFiles).to.include(
+        path.resolve(authoritativeRoot, "src/process-module.ts")
+      );
+      expect(programFiles).to.not.include(
+        fixture.path("app/node_modules/@tsonic/nodejs/src/path.ts")
+      );
+      expect(programFiles).to.not.include(
+        fixture.path("app/node_modules/@tsonic/nodejs/src/process.ts")
+      );
     } finally {
       fixture.cleanup();
     }
@@ -96,39 +161,33 @@ describe("Program Creation – authoritative type roots", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const sourceFile = result.value.program.getSourceFile(entryPath);
+      const runtimeSourceFiles = getProgramRuntimeSourceFiles(result.value);
+      const sourceFile = findSourceFile(runtimeSourceFiles, entryPath);
       expect(sourceFile).to.not.equal(undefined);
       if (!sourceFile) return;
 
-      const checker = result.value.program.getTypeChecker();
-      const returnTypes = new Map<string, string>();
-      const declarationFlags = new Map<string, boolean>();
-
-      const visit = (node: ts.Node): void => {
-        if (
-          ts.isCallExpression(node) &&
-          (ts.isIdentifier(node.expression) ||
-            ts.isPropertyAccessExpression(node.expression))
-        ) {
-          const callee = node.expression.getText(sourceFile);
-          if (callee === "join" || callee === "process.cwd") {
-            const signature = checker.getResolvedSignature(node);
-            returnTypes.set(
-              callee,
-              checker.typeToString(checker.getTypeAtLocation(node))
-            );
-            declarationFlags.set(callee, signature?.declaration !== undefined);
-          }
-        }
-        ts.forEachChild(node, visit);
-      };
-
-      visit(sourceFile);
+      const returnTypes = expressionTypeFactsByCallExpression(
+        sourceFile,
+        result.value.sourceProgram.facts,
+        new Set(["join", "process.cwd"])
+      );
 
       expect(returnTypes.get("join")).to.equal("string");
       expect(returnTypes.get("process.cwd")).to.equal("string");
-      expect(declarationFlags.get("join")).to.equal(true);
-      expect(declarationFlags.get("process.cwd")).to.equal(true);
+
+      const programFiles = sourceFilePaths(runtimeSourceFiles);
+      expect(programFiles).to.include(
+        path.resolve(authoritativeRoot, "src/index.ts")
+      );
+      expect(programFiles).to.include(
+        path.resolve(authoritativeRoot, "src/path-module.ts")
+      );
+      expect(programFiles).to.include(
+        path.resolve(authoritativeRoot, "src/process-module.ts")
+      );
+      expect(programFiles).to.not.include(
+        fixture.path("app/node_modules/@tsonic/nodejs/src/index.ts")
+      );
     } finally {
       fixture.cleanup();
     }
@@ -158,8 +217,8 @@ describe("Program Creation – authoritative type roots", function () {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const programFiles = result.value.sourceFiles.map((sourceFile) =>
-        path.resolve(sourceFile.fileName)
+      const programFiles = getProgramRuntimeSourceFiles(result.value).map(
+        (sourceFile) => path.resolve(sourceFile.FileName())
       );
       expect(programFiles).to.include(pathEntry);
       expect(programFiles).to.not.include(unusedEntry);

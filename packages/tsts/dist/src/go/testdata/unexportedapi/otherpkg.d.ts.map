@@ -1,0 +1,1 @@
+{"version":3,"file":"otherpkg.d.ts","sourceRoot":"","sources":["../../../../../src/go/testdata/unexportedapi/otherpkg.ts"],"names":[],"mappings":"AAGA,MAAM,WAAW,YAAY;IAC3B,QAAQ,CAAC,cAAc,EAAE,8CAA8C,CAAC;CACzE;AAED,MAAM,WAAW,kBAAkB;IACjC,QAAQ,CAAC,cAAc,EAAE,oDAAoD,CAAC;CAC/E"}

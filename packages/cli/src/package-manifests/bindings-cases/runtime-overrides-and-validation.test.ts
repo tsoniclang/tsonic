@@ -18,8 +18,6 @@ describe("tsonic.package bindings", function () {
 
   it("suppresses manifest package references when a local dll satisfies the same assembly", () => {
     const manifest: NormalizedBindingsManifest = {
-      bindingVersion: 1,
-      sourceManifest: "tsonic-bindings",
       packageName: "@acme/node",
       packageVersion: "10.0.0",
       surfaceMode: "@tsonic/js",
@@ -55,8 +53,6 @@ describe("tsonic.package bindings", function () {
 
   it("keeps manifest package references when no local dll satisfies the assembly", () => {
     const manifest: NormalizedBindingsManifest = {
-      bindingVersion: 1,
-      sourceManifest: "tsonic-bindings",
       packageName: "@tsonic/js",
       packageVersion: "10.0.0",
       surfaceMode: "@tsonic/js",
@@ -95,11 +91,18 @@ describe("tsonic.package bindings", function () {
     );
     try {
       const pkgRoot = writeInstalledPackage(dir, "@acme/node", "1.0.0", {
-        bindingsManifest: {
-          bindingVersion: 1,
+        packageManifest: {
+          schemaVersion: 1,
+          kind: "tsonic-source-package",
+          surfaces: ["@tsonic/js"],
           requiredTypeRoots: ["../outside"],
-          dotnet: {
-            packageReferences: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
+          runtime: {
+            nugetPackages: [{ id: "Acme.Node.Runtime", version: "1.0.0" }],
+          },
+          source: {
+            exports: {
+              ".": "./src/index.ts",
+            },
           },
         },
       });
@@ -147,8 +150,6 @@ describe("tsonic.package bindings", function () {
   it("fails overlay with TSN8A03 on conflicting runtime package versions", () => {
     const config = baseWorkspaceConfig();
     const manifest: NormalizedBindingsManifest = {
-      bindingVersion: 1,
-      sourceManifest: "tsonic-package",
       packageName: "acme-conflict",
       packageVersion: "1.0.0",
       surfaceMode: "core",

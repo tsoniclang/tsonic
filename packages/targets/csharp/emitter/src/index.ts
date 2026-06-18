@@ -1,15 +1,9 @@
-/**
- * Tsonic Emitter - C# code generator
- */
-
-export * from "./types.js";
-export * from "./type-emitter.js";
-export * from "./expression-emitter.js";
-export * from "./statement-emitter.js";
 export * from "./target.js";
-export {
-  emitModule,
-  emitCSharpFile,
-  emitCSharpFiles,
+export type {
+  CSharpLoweringModulePlan,
+  EmitterOptions,
   EmitResult,
-} from "./emitter.js";
+  ModuleEmitResult,
+} from "./types.js";
+export { emitModule, emitCSharpFile, emitCSharpFiles } from "./emitter.js";
+export type { EmitterContract } from "./contracts/emitter-contract.js";

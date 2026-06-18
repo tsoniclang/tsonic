@@ -182,6 +182,25 @@ export const resolveContainingSourcePackageNamespace = (
   );
 };
 
+export const resolveContainingSourcePackageOwnerIdentity = (
+  filePath: string
+): string | undefined => {
+  const normalizedFilePath = normalizeAbsolutePath(filePath);
+  const packageRoot = findContainingSourcePackageRoot(normalizedFilePath);
+  if (!packageRoot) {
+    return undefined;
+  }
+
+  const packageName = readPackageName(path.join(packageRoot, "package.json"));
+  if (!packageName) {
+    throw new Error(
+      `Installed source package at ${packageRoot} is missing package.json name.`
+    );
+  }
+
+  return packageName;
+};
+
 export const resolveContainingSourcePackageStableFilePath = (
   filePath: string
 ): string | undefined => {

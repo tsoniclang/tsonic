@@ -221,12 +221,80 @@ if [ ! -x "$ROOT_DIR/node_modules/.bin/tsc" ]; then
     exit 1
 fi
 
+check_package_local_tsonic_packages() {
+    local check_output
+    check_output="$(
+        node - "$ROOT_DIR" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const rootDir = process.argv[2];
+const failures = new Set();
+
+const addPackageRoot = (dir) => {
+  if (fs.existsSync(path.join(dir, "package.json"))) {
+    packageRoots.add(dir);
+  }
+};
+
+const addImmediatePackageRoots = (dir) => {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      addPackageRoot(path.join(dir, entry.name));
+    }
+  }
+};
+
+const addTargetPackageRoots = (dir) => {
+  if (!fs.existsSync(dir)) return;
+  for (const target of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!target.isDirectory()) continue;
+    const targetDir = path.join(dir, target.name);
+    for (const packageDir of fs.readdirSync(targetDir, { withFileTypes: true })) {
+      if (packageDir.isDirectory()) {
+        addPackageRoot(path.join(targetDir, packageDir.name));
+      }
+    }
+  }
+};
+
+const packageRoots = new Set();
+addImmediatePackageRoots(path.join(rootDir, "packages"));
+addTargetPackageRoots(path.join(rootDir, "packages", "targets"));
+addImmediatePackageRoots(path.join(rootDir, "npm"));
+
+for (const packageRoot of packageRoots) {
+  const scopedRoot = path.join(packageRoot, "node_modules", "@tsonic");
+  if (!fs.existsSync(scopedRoot)) continue;
+  for (const entry of fs.readdirSync(scopedRoot, { withFileTypes: true })) {
+    if (entry.isDirectory() || entry.isSymbolicLink()) {
+      failures.add(path.relative(rootDir, path.join(scopedRoot, entry.name)));
+    }
+  }
+}
+if (failures.size > 0) {
+  process.stdout.write([...failures].sort().join("\n"));
+}
+NODE
+    )"
+    if [ -n "$check_output" ]; then
+        echo "FAIL: package-local node_modules shadow first-party @tsonic packages." | tee -a "$LOG_FILE"
+        echo "Remove these package copies so Node resolves the canonical root workspace packages:" | tee -a "$LOG_FILE"
+        printf '%s\n' "$check_output" | sed 's/^/  - /' | tee -a "$LOG_FILE"
+        exit 1
+    fi
+}
+
+check_package_local_tsonic_packages
+
 if [ -x "$ROOT_DIR/scripts/bindings-semantics/install-local-wave.sh" ]; then
     echo -e "${BLUE}--- Installing Local First-Party Source Packages ---${NC}" | tee -a "$LOG_FILE"
     if ! "$ROOT_DIR/scripts/bindings-semantics/install-local-wave.sh" "$ROOT_DIR" 2>&1 | tee -a "$LOG_FILE"; then
         echo -e "${RED}FAIL: local first-party source package installation failed${NC}" | tee -a "$LOG_FILE"
         exit 1
     fi
+    check_package_local_tsonic_packages
     echo "" | tee -a "$LOG_FILE"
 fi
 

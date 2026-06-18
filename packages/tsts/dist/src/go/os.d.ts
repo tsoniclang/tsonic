@@ -1,0 +1,44 @@
+import type { int } from "@tsonic/core/types.js";
+import type { GoError, GoSlice } from "./compat.js";
+import * as nodeFs from "node:fs";
+import type { FileInfo, FS } from "./io/fs.js";
+import type { Writer } from "./io.js";
+export declare const Args: GoSlice<string>;
+export declare const Interrupt = "SIGINT";
+export declare const PathError: ErrorConstructor;
+export declare const O_APPEND: int;
+export declare const O_CREATE: int;
+export declare const O_TRUNC: int;
+export declare const O_WRONLY: int;
+export interface File extends Writer {
+    WriteString(s: string): [int, GoError];
+    Close(): GoError;
+    Fd(): int;
+}
+export declare const Stdin: File;
+export declare const Stdout: File;
+export declare const Stderr: File;
+export declare function DirFS(root: string): FS;
+export declare function Environ(): GoSlice<string>;
+export declare function Executable(): [string, GoError];
+export declare function Exit(code: int): never;
+export declare function Getenv(key: string): string;
+export declare function Getpid(): int;
+export declare function Getwd(): [string, GoError];
+export declare function IsNotExist(err: GoError): boolean;
+export declare function MkdirAll(path: string, perm: int): GoError;
+export declare function Open(path: string): [File, GoError];
+export declare function OpenFile(path: string, flag: int, perm: int): [File, GoError];
+export declare function Create(path: string): [File, GoError];
+export declare function ReadDir(path: string): [GoSlice<nodeFs.Dirent>, GoError];
+export declare function ReadFile(path: string): [string, GoError];
+export declare function Remove(path: string): GoError;
+export declare function RemoveAll(path: string): GoError;
+export declare function Stat(path: string): [FileInfo, GoError];
+export declare function Symlink(oldname: string, newname: string): GoError;
+export declare function TempDir(): string;
+export declare function UserCacheDir(): [string, GoError];
+export declare function UserHomeDir(): [string, GoError];
+export declare function WriteFile(path: string, data: string, perm: int): GoError;
+export declare function Chtimes(path: string, aTime: unknown, mTime: unknown): GoError;
+//# sourceMappingURL=os.d.ts.map

@@ -7,7 +7,6 @@
  *
  * Supported manifest contracts (airplane-grade):
  * - `tsonic.package.json` (native source-package metadata)
- * - `tsonic.bindings.json` (external bindings metadata)
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -186,12 +185,12 @@ const validateInstalledPackageTargetSupport = (
   packageRoot: string,
   packageName: string
 ): Result<void, string> => {
-  const sourceManifest = validateManifestTargetSupport(
+  const sourcePackageTargetSupport = validateManifestTargetSupport(
     packageName,
     join(packageRoot, "tsonic.package.json")
   );
-  if (!sourceManifest.ok) {
-    return sourceManifest;
+  if (!sourcePackageTargetSupport.ok) {
+    return sourcePackageTargetSupport;
   }
 
   return validateManifestTargetSupport(
@@ -218,7 +217,7 @@ const resolvePackageNameFromSpec = (
   };
 };
 
-const writeNormalizedBindingsManifest = (
+const writeNormalizedPackageManifest = (
   workspaceRoot: string,
   packageName: string,
   manifest: NormalizedBindingsManifest
@@ -230,7 +229,7 @@ const writeNormalizedBindingsManifest = (
     "npm",
     packageName
   );
-  const outPath = join(outDir, "tsonic.bindings.normalized.json");
+  const outPath = join(outDir, "tsonic.package.normalized.json");
   try {
     mkdirSync(outDir, { recursive: true });
     writeFileSync(outPath, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
@@ -238,17 +237,17 @@ const writeNormalizedBindingsManifest = (
   } catch (error) {
     return {
       ok: false,
-      error: `Failed to write normalized bindings manifest: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Failed to write normalized package manifest: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 };
 
-const writeNormalizedBindingsManifests = (
+const writeNormalizedPackageManifests = (
   workspaceRoot: string,
   manifests: readonly NormalizedBindingsManifest[]
 ): Result<void, string> => {
   for (const manifest of manifests) {
-    const writeResult = writeNormalizedBindingsManifest(
+    const writeResult = writeNormalizedPackageManifest(
       workspaceRoot,
       manifest.packageName,
       manifest
@@ -366,8 +365,7 @@ export const addNpmCommand = (
       error:
         `Missing manifest in npm package: ${pkgRoot}\n` +
         `Expected one of:\n` +
-        `- tsonic.package.json\n` +
-        `- tsonic.bindings.json`,
+        `- tsonic.package.json`,
     };
   }
 
@@ -392,7 +390,7 @@ export const addNpmCommand = (
     };
   }
 
-  const writeAllResult = writeNormalizedBindingsManifests(
+  const writeAllResult = writeNormalizedPackageManifests(
     workspaceRoot,
     resolvedManifests
   );

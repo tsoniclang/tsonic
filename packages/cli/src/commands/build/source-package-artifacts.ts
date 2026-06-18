@@ -25,10 +25,11 @@ type SourcePackageManifest = {
 
 const normalizeSlashes = (pathLike: string): string => pathLike.replace(/\\/g, "/");
 
+const pathApi: typeof nodePath & {
+  readonly matchesGlob?: (path: string, pattern: string) => boolean;
+} = nodePath;
+
 const matchesGlob = (candidate: string, pattern: string): boolean => {
-  const pathApi = nodePath as unknown as {
-    readonly matchesGlob?: (path: string, pattern: string) => boolean;
-  };
   return pathApi.matchesGlob?.(candidate, pattern) ?? false;
 };
 
@@ -74,7 +75,7 @@ const parseAmbientEntries = (value: unknown): readonly string[] => {
   });
 };
 
-const validateSourcePackageManifest = (
+export const validateSourcePackageManifest = (
   projectRoot: string
 ): Result<{ readonly manifestPath: string; readonly ambientFiles: readonly string[] }, string> => {
   const manifestPath = nodePath.join(projectRoot, "tsonic.package.json");
@@ -217,8 +218,8 @@ export const emitSourcePackageArtifacts = (
   const packageJsonResult = readProjectPackageJson(config.projectRoot);
   if (!packageJsonResult.ok) return packageJsonResult;
 
-    const manifestResult = validateSourcePackageManifest(config.projectRoot);
-    if (!manifestResult.ok) return manifestResult;
+  const manifestResult = validateSourcePackageManifest(config.projectRoot);
+  if (!manifestResult.ok) return manifestResult;
 
   const distRoot = nodePath.join(config.projectRoot, "dist");
   mkdirSync(distRoot, { recursive: true });

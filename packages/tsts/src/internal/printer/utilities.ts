@@ -124,10 +124,15 @@ import { TokenFlagsIsInvalid, TokenFlagsContainsSeparator, TokenFlagsSingleQuote
 // standard-library facades (strings/utf8) follow that contract, so we mirror it
 // here by operating over the UTF-8 byte view and converting back to a JS string
 // at the boundaries.
+// The encoded-view cache is byte-budgeted: unbounded caching retains a full
+// byte copy of every distinct large non-ASCII string a long-lived process
+// touches (multiple GB on an in-process full-lib check).
 const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
 const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
 type Utf8ByteInfo = { ascii: bool; bytes: Uint8Array };
 const utf8ByteInfoCache = new globalThis.Map<string, Utf8ByteInfo>();
+const utf8ByteInfoCacheBudget = 64 * 1024 * 1024; // total cached bytes
+const utf8ByteInfoCacheState = { bytes: 0 };
 
 const getUtf8ByteInfo = (s: string): Utf8ByteInfo => {
   const cached = utf8ByteInfoCache.get(s);
@@ -146,7 +151,13 @@ const getUtf8ByteInfo = (s: string): Utf8ByteInfo => {
     bytes: ascii ? undefined as unknown as Uint8Array : utf8Encoder.encode(s),
   };
   if (s.length >= 4096) {
+    const cost = ascii ? s.length : info.bytes.length;
+    if (utf8ByteInfoCacheState.bytes + cost > utf8ByteInfoCacheBudget) {
+      utf8ByteInfoCache.clear();
+      utf8ByteInfoCacheState.bytes = 0;
+    }
     utf8ByteInfoCache.set(s, info);
+    utf8ByteInfoCacheState.bytes += cost;
   }
   return info;
 };

@@ -40,6 +40,7 @@ export const testCommand = (
     "restore",
     "tsonic.csproj",
     "--nologo",
+    "--disable-build-servers",
     "--configfile",
     nugetConfigResult.value,
   ];
@@ -50,6 +51,7 @@ export const testCommand = (
     "-c",
     "Release",
     "--nologo",
+    "--disable-build-servers",
   ];
 
   const verbosity = config.quiet

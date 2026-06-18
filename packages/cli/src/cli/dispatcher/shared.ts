@@ -1,4 +1,9 @@
-import type { CliOptions, Result } from "../../types.js";
+import type {
+  CliOptions,
+  FrameworkReferenceConfig,
+  PackageReferenceConfig,
+  Result,
+} from "../../types.js";
 
 export type ParsedCliArgs = {
   readonly command: string;
@@ -13,12 +18,12 @@ export type DispatcherError = {
 };
 
 export const mergeUniqueFrameworkReferences = (
-  left: readonly (string | { readonly id: string })[],
-  right: readonly (string | { readonly id: string })[]
-): readonly (string | { readonly id: string })[] => {
-  const out: Array<string | { readonly id: string }> = [];
+  left: readonly FrameworkReferenceConfig[],
+  right: readonly FrameworkReferenceConfig[]
+): readonly FrameworkReferenceConfig[] => {
+  const out: FrameworkReferenceConfig[] = [];
   const seen = new Set<string>();
-  const push = (ref: string | { readonly id: string }): void => {
+  const push = (ref: FrameworkReferenceConfig): void => {
     const id = (typeof ref === "string" ? ref : ref.id).toLowerCase();
     if (seen.has(id)) return;
     seen.add(id);
@@ -30,20 +35,11 @@ export const mergeUniqueFrameworkReferences = (
 };
 
 export const mergeUniquePackageReferences = (
-  left: readonly { readonly id: string; readonly version: string }[],
-  right: readonly { readonly id: string; readonly version: string }[]
-): Result<
-  readonly { readonly id: string; readonly version: string }[],
-  string
-> => {
-  const byId = new Map<
-    string,
-    { readonly id: string; readonly version: string }
-  >();
-  const add = (pkg: {
-    readonly id: string;
-    readonly version: string;
-  }): Result<void, string> => {
+  left: readonly PackageReferenceConfig[],
+  right: readonly PackageReferenceConfig[]
+): Result<readonly PackageReferenceConfig[], string> => {
+  const byId = new Map<string, PackageReferenceConfig>();
+  const add = (pkg: PackageReferenceConfig): Result<void, string> => {
     const key = pkg.id.toLowerCase();
     const existing = byId.get(key);
     if (existing && existing.version !== pkg.version) {

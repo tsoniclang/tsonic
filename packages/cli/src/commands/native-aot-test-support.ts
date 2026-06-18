@@ -125,6 +125,7 @@ export const probeNativeAotSupport = (): NativeAotProbeResult => {
         "/p:PublishAot=true",
         "/p:PublishTrimmed=true",
         "/p:PublishSingleFile=true",
+        "--disable-build-servers",
         "--nologo",
       ],
       { encoding: "utf-8" }

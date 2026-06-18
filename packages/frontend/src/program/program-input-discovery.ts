@@ -1,11 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as ts from "typescript";
 import type { CompilerOptions } from "./types.js";
 import { resolveDependencyPackageRoot } from "./package-roots.js";
 import {
   collectProjectIncludedDeclarationFiles,
-  createCompilerOptions,
   scanForDeclarationFiles,
 } from "./core-declarations.js";
 import {
@@ -14,6 +12,13 @@ import {
 } from "./declaration-module-aliases.js";
 import { readPackageName } from "./module-resolution.js";
 import { readSourcePackageMetadata } from "./source-package-metadata.js";
+import { createDiagnostic, type Diagnostic } from "../types/diagnostic.js";
+import {
+  CORE_LANG_MODULE_SPECIFIERS,
+  CORE_PACKAGE_NAME,
+  CORE_TYPES_MODULE_SPECIFIERS,
+  coreDeclarationFileBaseName,
+} from "../source-frontend/core-module-identity.js";
 
 type SurfaceCapabilitiesLike = {
   readonly requiredTypeRoots: readonly string[];
@@ -31,35 +36,6 @@ const canonicalizeRootDirPath = (filePath: string): string => {
     return fs.realpathSync(normalizedPath);
   } catch {
     return normalizedPath;
-  }
-};
-
-const resolveCommonRootDir = (paths: readonly string[]): string => {
-  const [first, ...remaining] = paths;
-  if (!first) {
-    throw new Error("resolveCommonRootDir requires at least one path");
-  }
-  const rest = remaining.map(canonicalizeRootDirPath);
-  let current = canonicalizeRootDirPath(first);
-
-  for (;;) {
-    const containsAll = rest.every((candidate) => {
-      const relative = path.relative(current, candidate);
-      return (
-        relative === "" ||
-        (!relative.startsWith("..") && !path.isAbsolute(relative))
-      );
-    });
-
-    if (containsAll) {
-      return current;
-    }
-
-    const parent = path.dirname(current);
-    if (parent === current) {
-      return current;
-    }
-    current = parent;
   }
 };
 
@@ -144,10 +120,7 @@ const isExplicitAuthoritativePackageRoot = (packageRoot: string): boolean => {
     return true;
   }
 
-  return (
-    fs.existsSync(path.join(packageRoot, "tsonic.surface.json")) ||
-    fs.existsSync(path.join(packageRoot, "tsonic.bindings.json"))
-  );
+  return fs.existsSync(path.join(packageRoot, "tsonic.surface.json"));
 };
 
 const addInstalledSourcePackageCandidate = (
@@ -260,15 +233,240 @@ const scanInstalledSourcePackages = (
 export type ProgramInputDiscovery = {
   readonly absolutePaths: readonly string[];
   readonly typeRoots: readonly string[];
+  readonly moduleResolutionPaths: Readonly<Record<string, readonly string[]>>;
+  readonly sourceDiagnosticRoots: readonly string[];
   readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
   readonly namespaceIndexFiles: readonly string[];
   readonly declarationModuleAliases: ReadonlyMap<
     string,
     DeclarationModuleAlias
   >;
+  readonly ambientSupportFiles: readonly string[];
+  readonly diagnostics: readonly Diagnostic[];
   readonly allFiles: readonly string[];
-  readonly tsOptions: ts.CompilerOptions;
+  readonly runtimeSeedFiles: readonly string[];
 };
+
+const isPathMappingEligibleModuleSpecifier = (specifier: string): boolean =>
+  specifier.length > 0 &&
+  !specifier.startsWith(".") &&
+  !path.isAbsolute(specifier);
+
+const exportSpecifierForSourcePackageEntry = (
+  packageName: string,
+  exportKey: string
+): string =>
+  exportKey === "."
+    ? packageName
+    : `${packageName}/${exportKey.replace(/^\.\//, "")}`;
+
+const addModuleResolutionPath = (
+  paths: Map<string, string>,
+  diagnostics: Diagnostic[],
+  specifier: string,
+  resolvedTarget: string
+): void => {
+  if (!isPathMappingEligibleModuleSpecifier(specifier)) {
+    return;
+  }
+
+  const absoluteTarget = path.resolve(resolvedTarget);
+  const existingTarget = paths.get(specifier);
+  if (existingTarget === undefined) {
+    paths.set(specifier, absoluteTarget);
+    return;
+  }
+
+  if (
+    canonicalizeRootDirPath(existingTarget) !==
+    canonicalizeRootDirPath(absoluteTarget)
+  ) {
+    diagnostics.push(
+      createDiagnostic(
+        "TSN1002",
+        "fatal",
+        `Module specifier '${specifier}' resolves to multiple source files and cannot be represented as a deterministic TSTS path mapping.`,
+        undefined,
+        `${existingTarget}\n${absoluteTarget}`
+      )
+    );
+  }
+};
+
+const corePackageRootExists = (packageRoot: string): boolean =>
+  fs.existsSync(path.join(packageRoot, "package.json"));
+
+const activeCorePackageRoot = (
+  projectRoot: string,
+  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
+): string | undefined => {
+  const authoritativeRoot = authoritativeTsonicPackageRoots.get(
+    CORE_PACKAGE_NAME
+  );
+  if (authoritativeRoot !== undefined) return authoritativeRoot;
+
+  const projectCoreRoot = path.join(
+    projectRoot,
+    "node_modules",
+    "@tsonic",
+    "core"
+  );
+  return corePackageRootExists(projectCoreRoot) ? projectCoreRoot : undefined;
+};
+
+const addMissingCoreDeclarationDiagnostic = (
+  diagnostics: Diagnostic[],
+  coreRoot: string
+): boolean => {
+  const requiredFiles = [
+    path.join(coreRoot, coreDeclarationFileBaseName("types")),
+    path.join(coreRoot, coreDeclarationFileBaseName("lang")),
+  ];
+  const missingFiles = requiredFiles.filter((filePath) => !fs.existsSync(filePath));
+  if (missingFiles.length === 0) return false;
+  diagnostics.push(
+    createDiagnostic(
+      "TSN1004",
+      "fatal",
+      "Active @tsonic/core package is missing required source declaration files.",
+      undefined,
+      `Missing files:\n${missingFiles.join("\n")}`
+    )
+  );
+  return true;
+};
+
+const addCoreModuleResolutionPaths = (
+  paths: Map<string, string>,
+  diagnostics: Diagnostic[],
+  projectRoot: string,
+  authoritativeTsonicPackageRoots: ReadonlyMap<string, string>
+): void => {
+  const coreRoot = activeCorePackageRoot(
+    projectRoot,
+    authoritativeTsonicPackageRoots
+  );
+  if (!coreRoot) {
+    return;
+  }
+  if (addMissingCoreDeclarationDiagnostic(diagnostics, coreRoot)) {
+    return;
+  }
+
+  for (const specifier of CORE_TYPES_MODULE_SPECIFIERS) {
+    addModuleResolutionPath(
+      paths,
+      diagnostics,
+      specifier,
+      path.join(coreRoot, coreDeclarationFileBaseName("types"))
+    );
+  }
+  for (const specifier of CORE_LANG_MODULE_SPECIFIERS) {
+    addModuleResolutionPath(
+      paths,
+      diagnostics,
+      specifier,
+      path.join(coreRoot, coreDeclarationFileBaseName("lang"))
+    );
+  }
+};
+
+const addSourcePackageModuleResolutionPaths = (
+  paths: Map<string, string>,
+  diagnostics: Diagnostic[],
+  packageRoot: string
+): void => {
+  const metadata = readSourcePackageMetadata(packageRoot);
+  if (!metadata) {
+    return;
+  }
+
+  const packageExportPaths = new Map<string, string>();
+  for (const [exportKey, target] of Object.entries(metadata.exports)) {
+    const specifier = exportSpecifierForSourcePackageEntry(
+      metadata.packageName,
+      exportKey
+    );
+    const resolvedTarget = path.resolve(metadata.packageRoot, target);
+    if (!fs.existsSync(resolvedTarget)) {
+      continue;
+    }
+    packageExportPaths.set(specifier, resolvedTarget);
+    addModuleResolutionPath(paths, diagnostics, specifier, resolvedTarget);
+  }
+
+  for (const [specifier, targetSpecifier] of Object.entries(
+    metadata.moduleAliases
+  )) {
+    const targetPath = packageExportPaths.get(targetSpecifier);
+    if (targetPath) {
+      addModuleResolutionPath(paths, diagnostics, specifier, targetPath);
+    }
+  }
+};
+
+const addDeclarationModuleAliasPaths = (
+  paths: Map<string, string>,
+  diagnostics: Diagnostic[],
+  declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>
+): void => {
+  for (const [specifier, alias] of declarationModuleAliases) {
+    const targetPath = paths.get(alias.targetSpecifier);
+    if (targetPath) {
+      addModuleResolutionPath(paths, diagnostics, specifier, targetPath);
+    }
+  }
+};
+
+const createModuleResolutionPaths = (input: {
+  readonly projectRoot: string;
+  readonly authoritativeTsonicPackageRoots: ReadonlyMap<string, string>;
+  readonly declarationModuleAliases: ReadonlyMap<string, DeclarationModuleAlias>;
+}): {
+  readonly paths: Readonly<Record<string, readonly string[]>>;
+  readonly diagnostics: readonly Diagnostic[];
+} => {
+  const paths = new Map<string, string>();
+  const diagnostics: Diagnostic[] = [];
+
+  addCoreModuleResolutionPaths(
+    paths,
+    diagnostics,
+    input.projectRoot,
+    input.authoritativeTsonicPackageRoots
+  );
+  for (const packageRoot of input.authoritativeTsonicPackageRoots.values()) {
+    addSourcePackageModuleResolutionPaths(paths, diagnostics, packageRoot);
+  }
+  addDeclarationModuleAliasPaths(
+    paths,
+    diagnostics,
+    input.declarationModuleAliases
+  );
+
+  return {
+    paths: Object.fromEntries(
+      Array.from(paths.entries()).map(([specifier, resolvedTarget]) => [
+        specifier,
+        [resolvedTarget],
+      ])
+    ),
+    diagnostics,
+  };
+};
+
+const sourceDiagnosticRootsForProgram = (
+  sourceRoot: string
+): readonly string[] => [canonicalizeRootDirPath(sourceRoot)];
+
+const dedupePaths = (paths: readonly string[]): readonly string[] =>
+  Array.from(new Set(paths.map((entry) => canonicalizeRootDirPath(entry))));
+
+const createProgramFileSet = (
+  runtimeSeedFiles: readonly string[],
+  ambientSupportFiles: readonly string[]
+): readonly string[] =>
+  dedupePaths([...runtimeSeedFiles, ...ambientSupportFiles]);
 
 export const discoverProgramInputs = (
   filePaths: readonly string[],
@@ -463,11 +661,10 @@ export const discoverProgramInputs = (
   const sourcePackageAmbientPaths = typeRoots.flatMap((typeRoot) =>
     readSourcePackageAmbientPaths(typeRoot)
   );
-  const sourcePackageExportPaths =
-    includeCurrentPackageExports && currentProjectSourceMetadata
+  const currentSourcePackageExportPaths =
+    currentProjectSourceMetadata && includeCurrentPackageExports
       ? readSourcePackageExportPaths(currentProjectSourceMetadata.packageRoot)
       : [];
-
   if (options.verbose && typeRoots.length > 0) {
     console.log(`TypeRoots: ${typeRoots.join(", ")}`);
   }
@@ -488,11 +685,7 @@ export const discoverProgramInputs = (
     if (fs.existsSync(absoluteRoot)) {
       const entries = fs.readdirSync(absoluteRoot, { withFileTypes: true });
       for (const entry of entries) {
-        if (
-          entry.isDirectory() &&
-          !entry.name.startsWith("_") &&
-          !entry.name.startsWith("internal")
-        ) {
+        if (entry.isDirectory()) {
           const indexPath = path.join(absoluteRoot, entry.name, "index.d.ts");
           if (fs.existsSync(indexPath)) {
             namespaceIndexFiles.push(indexPath);
@@ -505,18 +698,8 @@ export const discoverProgramInputs = (
     }
   }
 
-  const tsOptions = createCompilerOptions(options);
-  if (typeof tsOptions.rootDir === "string" && absolutePaths.length > 0) {
-    tsOptions.rootDir = resolveCommonRootDir([
-      tsOptions.rootDir,
-      ...absolutePaths,
-      ...sourcePackageAmbientPaths,
-      ...activeAuthoritativeSourcePackageRoots.values(),
-    ]);
-  }
   const projectDeclarationFiles = collectProjectIncludedDeclarationFiles(
-    options.projectRoot,
-    tsOptions
+    options.projectRoot
   );
 
   const declarationModuleAliases = new Map(
@@ -536,24 +719,39 @@ export const discoverProgramInputs = (
     }
   }
 
-  const allFiles = Array.from(
+  const ambientSupportFiles = Array.from(
     new Set([
-      ...absolutePaths,
       ...sourcePackageAmbientPaths,
-      ...sourcePackageExportPaths,
       ...projectDeclarationFiles,
       ...declarationFiles,
       ...namespaceIndexFiles,
     ])
   );
+  const runtimeSeedFiles = dedupePaths([
+    ...absolutePaths,
+    ...currentSourcePackageExportPaths,
+  ]);
+  const allFiles = createProgramFileSet(runtimeSeedFiles, ambientSupportFiles);
+  const sourceDiagnosticRoots = sourceDiagnosticRootsForProgram(
+    options.sourceRoot
+  );
+  const moduleResolution = createModuleResolutionPaths({
+    projectRoot: options.projectRoot,
+    authoritativeTsonicPackageRoots,
+    declarationModuleAliases,
+  });
 
   return {
     absolutePaths,
     typeRoots,
+    moduleResolutionPaths: moduleResolution.paths,
+    sourceDiagnosticRoots,
     authoritativeTsonicPackageRoots,
     namespaceIndexFiles,
     declarationModuleAliases,
+    ambientSupportFiles,
+    diagnostics: moduleResolution.diagnostics,
     allFiles,
-    tsOptions,
+    runtimeSeedFiles,
   };
 };

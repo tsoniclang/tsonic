@@ -1,7 +1,7 @@
 import type { bool, int } from "@tsonic/core/types.js";
 import type { GoPtr, GoRune, GoSlice } from "../../go/compat.js";
-import { HasPrefix, LastIndex, TrimLeft, TrimRightFunc } from "../../go/strings.js";
-import { byteLen, byteSlice } from "./utilities.js";
+import { TrimLeft, TrimRightFunc } from "../../go/strings.js";
+import { byteLen, byteSlice, hasAsciiPrefixAt, isJSDocLikeTextAt, lastNewlineBefore } from "./utilities.js";
 import { Node_End, Node_Name, Node_Pos } from "../ast/spine.js";
 import type { Node, NodeList } from "../ast/spine.js";
 import { SetParseJSDocForNode, Node_TagName, Node_Text, Node_Type } from "../ast/ast.js";
@@ -151,7 +151,7 @@ import { Parser_newNodeList } from "./parser/lists.js";
 import { Parser_parseTypeArguments } from "./parser/types.js";
 import type { jsdocScannerInfo, JSDocInfo, Parser } from "./parser/state.js";
 import { jsdocScannerInfoHasDeprecated, jsdocScannerInfoHasJSDoc, jsdocScannerInfoHasSeeOrLink, PCJSDocComment } from "./parser/state.js";
-import { GetJSDocCommentRanges, isJSDocLikeText, tokenIsIdentifierOrKeyword } from "./utilities.js";
+import { GetJSDocCommentRanges, tokenIsIdentifierOrKeyword } from "./utilities.js";
 import { Parser_reparseTags } from "./reparser.js";
 
 /**
@@ -496,8 +496,9 @@ export function Parser_parseJSDocComment(receiver: GoPtr<Parser>, parent: GoPtr<
   if (end === -1) {
     end = byteLen(receiver!.sourceText);
   }
-  // Check for /** (JSDoc opening part)
-  if (!isJSDocLikeText(byteSlice(receiver!.sourceText, start))) {
+  // Check for /** (JSDoc opening part) — read in place: a materialized tail
+  // slice costs a multi-MB decode on lib-sized non-ASCII files.
+  if (!isJSDocLikeTextAt(receiver!.sourceText, start)) {
     // TODO: This should be a panic, unless parseSingleJSDocComment is calling this (not ported yet)
     return undefined;
   }
@@ -514,7 +515,7 @@ export function Parser_parseJSDocComment(receiver: GoPtr<Parser>, parent: GoPtr<
   // initial indent is start+4 to account for leading `/** `
   // + 1 because \n is one character before the first character in the line and,
   // if there is no \n before start, -1 is one index before the first character in the string
-  const initialIndent = start + 4 - (LastIndex(byteSlice(receiver!.sourceText, 0, start), "\n") + 1);
+  const initialIndent = start + 4 - (lastNewlineBefore(receiver!.sourceText, start) + 1);
   // -2 for trailing `*/`
   receiver!.sourceText = byteSlice(receiver!.sourceText, 0, end - 2);
   Scanner_SetText(receiver!.scanner, receiver!.sourceText);
@@ -1577,7 +1578,7 @@ export function Parser_parseTypeTag(receiver: GoPtr<Parser>, previousTags: GoSli
  * Go source: (uses parseTrailingTagComments)
  */
 export function Parser_parseSeeTag(receiver: GoPtr<Parser>, start: int, tagName: GoPtr<IdentifierNode>, indent: int, indentText: string): GoPtr<Node> {
-  const hasNameReference = (Parser_isIdentifier(receiver) && !HasPrefix(byteSlice(receiver!.sourceText, Scanner_TokenEnd(receiver!.scanner)), "://")) ||
+  const hasNameReference = (Parser_isIdentifier(receiver) && !hasAsciiPrefixAt(receiver!.sourceText, Scanner_TokenEnd(receiver!.scanner), "://")) ||
     (receiver!.token === KindOpenBraceToken && Parser_lookAhead(receiver, (p: GoPtr<Parser>): bool => Parser_nextTokenIsIdentifierOrKeyword(p)));
   let nameExpression: GoPtr<Node>;
   if (hasNameReference) {

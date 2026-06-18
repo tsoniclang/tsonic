@@ -94,7 +94,7 @@ describe("discoverProgramInputs", () => {
     }
   });
 
-  it("widens rootDir to include external installed source package files", () => {
+  it("includes external installed source package files directly", () => {
     const fixture = materializeFrontendFixture(
       "program/program-input-discovery/rootdir-external"
     );
@@ -121,26 +121,104 @@ describe("discoverProgramInputs", () => {
         }
       );
 
-      expect(typeof discovery.tsOptions.rootDir).to.equal("string");
-      if (typeof discovery.tsOptions.rootDir !== "string") return;
-
-      const resolvedRootDir = path.resolve(discovery.tsOptions.rootDir);
-      const relativeToProject = path.relative(resolvedRootDir, projectRoot);
-      const relativeToExternal = path.relative(
-        resolvedRootDir,
-        externalPackageFile
-      );
-
-      expect(relativeToProject.startsWith("..")).to.equal(false);
-      expect(path.isAbsolute(relativeToProject)).to.equal(false);
-      expect(relativeToExternal.startsWith("..")).to.equal(false);
-      expect(path.isAbsolute(relativeToExternal)).to.equal(false);
+      expect(discovery.allFiles).to.include(path.resolve(entryFile));
+      expect(discovery.allFiles).to.include(path.resolve(externalPackageFile));
     } finally {
       fixture.cleanup();
     }
   });
 
-  it("widens rootDir to include symlinked source package files by real path", () => {
+  it("leaves imported declaration-file closure expansion to TSTS", () => {
+    const fixture = materializeFrontendFixture(
+      "ir/external-identity/array-elements"
+    );
+
+    try {
+      const projectRoot = fixture.path("app");
+      const sourceRoot = fixture.path("app/src");
+      const entryFile = fixture.path("app/src/index.ts");
+      const declarationEntry = fixture.path("app/tsonic/bindings/Acme.Core.d.ts");
+      const internalDeclaration = fixture.path(
+        "app/tsonic/bindings/Acme.Core/internal/index.d.ts"
+      );
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "App",
+        },
+        {
+          requiredTypeRoots: [],
+          resolvedModes: [],
+        }
+      );
+
+      expect(discovery.allFiles).to.include(fs.realpathSync(entryFile));
+      expect(discovery.allFiles).to.not.include(path.resolve(declarationEntry));
+      expect(discovery.allFiles).to.not.include(path.resolve(internalDeclaration));
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("rejects malformed active core declaration packages", () => {
+    const fixture = materializeFrontendFixture(
+      "program/program-input-discovery/rootdir-external"
+    );
+
+    try {
+      const projectRoot = fixture.path("app");
+      const sourceRoot = fixture.path("app/src");
+      const entryFile = fixture.path("app/src/index.ts");
+      const coreRoot = fixture.path("app/node_modules/@tsonic/core");
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.mkdirSync(coreRoot, { recursive: true });
+      fs.writeFileSync(entryFile, "export const app = true;\n");
+      fs.writeFileSync(
+        path.join(coreRoot, "package.json"),
+        JSON.stringify(
+          { name: "@tsonic/core", version: "0.0.0", type: "module" },
+          null,
+          2
+        )
+      );
+
+      const discovery = discoverProgramInputs(
+        [entryFile],
+        {
+          projectRoot,
+          sourceRoot,
+          rootNamespace: "App",
+        },
+        {
+          requiredTypeRoots: [],
+          resolvedModes: ["core"],
+        }
+      );
+
+      expect(
+        discovery.diagnostics.map((diagnostic) => diagnostic.message)
+      ).to.deep.equal([
+        "Active @tsonic/core package is missing required source declaration files.",
+      ]);
+      expect(discovery.diagnostics[0]?.severity).to.equal("fatal");
+      expect(discovery.diagnostics[0]?.hint).to.equal(
+        `Missing files:\n${path.join(coreRoot, "types.d.ts")}\n${path.join(
+          coreRoot,
+          "lang.d.ts"
+        )}`
+      );
+      expect(discovery.moduleResolutionPaths).to.not.have.property(
+        "@tsonic/core/types.js"
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("includes symlinked source package files directly", () => {
     const fixture = materializeFrontendFixture(
       "program/program-input-discovery/rootdir-symlink"
     );
@@ -149,9 +227,6 @@ describe("discoverProgramInputs", () => {
       const projectRoot = fixture.path("workspace/packages/app");
       const sourceRoot = fixture.path("workspace/packages/app/src");
       const entryFile = fixture.path("workspace/packages/app/src/App.ts");
-      const externalPackageFile = fixture.path(
-        "external/nodejs-next/src/fs-module.ts"
-      );
       const linkedPackageFile = fixture.path(
         "workspace/node_modules/@tsonic/nodejs/src/fs-module.ts"
       );
@@ -170,20 +245,8 @@ describe("discoverProgramInputs", () => {
         }
       );
 
-      expect(typeof discovery.tsOptions.rootDir).to.equal("string");
-      if (typeof discovery.tsOptions.rootDir !== "string") return;
-
-      const resolvedRootDir = path.resolve(discovery.tsOptions.rootDir);
-      const relativeToProject = path.relative(resolvedRootDir, projectRoot);
-      const relativeToExternal = path.relative(
-        resolvedRootDir,
-        fs.realpathSync(externalPackageFile)
-      );
-
-      expect(relativeToProject.startsWith("..")).to.equal(false);
-      expect(path.isAbsolute(relativeToProject)).to.equal(false);
-      expect(relativeToExternal.startsWith("..")).to.equal(false);
-      expect(path.isAbsolute(relativeToExternal)).to.equal(false);
+      expect(discovery.allFiles).to.include(fs.realpathSync(entryFile));
+      expect(discovery.allFiles).to.include(fs.realpathSync(linkedPackageFile));
     } finally {
       fixture.cleanup();
     }
@@ -294,7 +357,7 @@ describe("discoverProgramInputs", () => {
       ).to.equal(linkedJsRoot);
       expect(discovery.typeRoots).to.include(linkedJsRoot);
       expect(discovery.typeRoots).to.include(fs.realpathSync(sourceNodejsRoot));
-      expect(discovery.allFiles).to.include(linkedJsAmbientFile);
+      expect(discovery.allFiles).to.include(fs.realpathSync(linkedJsAmbientFile));
     } finally {
       fixture.cleanup();
     }
@@ -340,25 +403,17 @@ describe("discoverProgramInputs", () => {
       ).to.equal(jsSiblingRoot);
       expect(discovery.typeRoots.includes(installedJsRoot)).to.equal(false);
 
-      expect(typeof discovery.tsOptions.rootDir).to.equal("string");
-      if (typeof discovery.tsOptions.rootDir !== "string") return;
-
-      const resolvedRootDir = path.resolve(discovery.tsOptions.rootDir);
-      const relativeToJsSibling = path.relative(
-        resolvedRootDir,
+      expect(discovery.allFiles).to.not.include(
         path.join(jsSiblingRoot, "src", "index.ts")
       );
-
-      expect(relativeToJsSibling.startsWith("..")).to.equal(false);
-      expect(path.isAbsolute(relativeToJsSibling)).to.equal(false);
     } finally {
       fixture.cleanup();
     }
   });
 
-  it("does not activate unrelated installed source-package ambients for clr compilations", () => {
+  it("does not activate unrelated installed source-package ambients for non-js compilations", () => {
     const fixture = materializeFrontendFixture(
-      "program/program-input-discovery/no-js-leak-clr"
+      "program/program-input-discovery/no-js-leak-native"
     );
 
     try {
@@ -379,7 +434,7 @@ describe("discoverProgramInputs", () => {
         },
         {
           requiredTypeRoots: [],
-          resolvedModes: ["clr"],
+          resolvedModes: ["native"],
         }
       );
 
@@ -505,7 +560,6 @@ describe("discoverProgramInputs", () => {
         JSON.stringify(
           {
             $schema: "https://tsonic.org/schema/workspace/v1.json",
-            dotnetVersion: "net10.0",
           },
           null,
           2
@@ -552,7 +606,7 @@ describe("discoverProgramInputs", () => {
         },
         {
           requiredTypeRoots: [],
-          resolvedModes: ["clr"],
+          resolvedModes: ["native"],
         }
       );
 

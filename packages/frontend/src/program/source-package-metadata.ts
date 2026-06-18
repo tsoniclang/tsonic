@@ -48,6 +48,50 @@ const readPackageName = (packageRoot: string): string | undefined => {
   }
 };
 
+const readRawManifest = (
+  manifestPath: string
+): RawSourcePackageManifest => {
+  try {
+    return JSON.parse(
+      fs.readFileSync(manifestPath, "utf-8")
+    ) as RawSourcePackageManifest;
+  } catch (error) {
+    throw new Error(
+      `Invalid source package manifest at ${manifestPath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+};
+
+const invalidSourcePackageManifest = (
+  manifestPath: string,
+  message: string
+): never => {
+  throw new Error(`Invalid source package manifest at ${manifestPath}: ${message}`);
+};
+
+const requirePackageName = (
+  packageRoot: string,
+  manifestPath: string
+): string => {
+  const packageName = readPackageName(packageRoot);
+  return packageName
+    ? packageName
+    : invalidSourcePackageManifest(
+        manifestPath,
+        "package.json must declare a non-empty package name."
+      );
+};
+
+const requireSourceSection = (
+  manifestPath: string,
+  value: unknown
+): RawSourceSection =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as RawSourceSection)
+    : invalidSourcePackageManifest(manifestPath, "`source` must be an object.");
+
 const parseExports = (
   value: unknown
 ): Readonly<Record<string, string>> | undefined => {
@@ -157,6 +201,59 @@ const parseNamespace = (value: unknown): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
+const requireExports = (
+  manifestPath: string,
+  value: unknown
+): Readonly<Record<string, string>> => {
+  const exportsMap = parseExports(value);
+  return exportsMap && Object.keys(exportsMap).length > 0
+    ? exportsMap
+    : invalidSourcePackageManifest(
+        manifestPath,
+        "`source.exports` must be a non-empty object of string targets."
+      );
+};
+
+const requireAmbient = (
+  manifestPath: string,
+  value: unknown
+): readonly string[] => {
+  const ambient = parseAmbient(value);
+  return ambient !== undefined
+    ? ambient
+    : invalidSourcePackageManifest(
+        manifestPath,
+        "`source.ambient` must be an array of non-empty strings when present."
+      );
+};
+
+const requireModuleAliases = (
+  manifestPath: string,
+  packageName: string,
+  value: unknown
+): Readonly<Record<string, string>> => {
+  const moduleAliases = parseModuleAliases(packageName, value);
+  return moduleAliases !== undefined
+    ? moduleAliases
+    : invalidSourcePackageManifest(
+        manifestPath,
+        "`source.moduleAliases` must map non-empty specifiers to valid non-empty targets when present."
+      );
+};
+
+const requireNamespace = (
+  manifestPath: string,
+  value: unknown
+): string => {
+  const namespace = parseNamespace(value);
+  return namespace
+    ? namespace
+    : invalidSourcePackageManifest(
+        manifestPath,
+        "`source.namespace` must be a non-empty string."
+      );
+};
+
 const resolveExportPaths = (
   packageRoot: string,
   exportsMap: Readonly<Record<string, string>>
@@ -260,71 +357,37 @@ export const readSourcePackageMetadata = (
     return null;
   }
 
-  const packageName = readPackageName(normalizedRoot);
-  if (!packageName) {
+  const parsed = readRawManifest(manifestPath);
+  if (parsed.kind !== "tsonic-source-package") {
     metadataCache.set(normalizedRoot, null);
     return null;
   }
 
-  try {
-    const parsed = JSON.parse(
-      fs.readFileSync(manifestPath, "utf-8")
-    ) as RawSourcePackageManifest;
-    if (parsed.kind !== "tsonic-source-package") {
-      metadataCache.set(normalizedRoot, null);
-      return null;
-    }
+  const packageName = requirePackageName(normalizedRoot, manifestPath);
+  const source = requireSourceSection(manifestPath, parsed.source);
+  const exportsMap = requireExports(manifestPath, source.exports);
+  const ambient = requireAmbient(manifestPath, source.ambient);
+  const moduleAliases = requireModuleAliases(
+    manifestPath,
+    packageName,
+    source.moduleAliases
+  );
+  const namespace = requireNamespace(manifestPath, source.namespace);
 
-    const source =
-      parsed.source !== null &&
-      typeof parsed.source === "object" &&
-      !Array.isArray(parsed.source)
-        ? (parsed.source as RawSourceSection)
-        : undefined;
-    if (!source) {
-      metadataCache.set(normalizedRoot, null);
-      return null;
-    }
-
-    const exportsMap = parseExports(source.exports);
-    if (!exportsMap || Object.keys(exportsMap).length === 0) {
-      metadataCache.set(normalizedRoot, null);
-      return null;
-    }
-    const ambient = parseAmbient(source.ambient);
-    if (ambient === undefined) {
-      metadataCache.set(normalizedRoot, null);
-      return null;
-    }
-    const moduleAliases = parseModuleAliases(packageName, source.moduleAliases);
-    if (moduleAliases === undefined) {
-      metadataCache.set(normalizedRoot, null);
-      return null;
-    }
-    const namespace = parseNamespace(source.namespace);
-    if (!namespace) {
-      metadataCache.set(normalizedRoot, null);
-      return null;
-    }
-
-    const exportPaths = resolveExportPaths(normalizedRoot, exportsMap);
-    const metadata: SourcePackageMetadata = {
-      packageName,
-      packageRoot: normalizedRoot,
-      namespace,
-      exports: exportsMap,
-      exportPaths,
-      ambient,
-      ambientPaths: resolveAmbientPaths(normalizedRoot, ambient),
-      moduleAliases,
-      sourceRoot: resolveSourceRoot(normalizedRoot, exportPaths),
-    };
-    metadataCache.set(normalizedRoot, metadata);
-    return metadata;
-  } catch {
-    metadataCache.set(normalizedRoot, null);
-    return null;
-  }
+  const exportPaths = resolveExportPaths(normalizedRoot, exportsMap);
+  const metadata: SourcePackageMetadata = {
+    packageName,
+    packageRoot: normalizedRoot,
+    namespace,
+    exports: exportsMap,
+    exportPaths,
+    ambient,
+    ambientPaths: resolveAmbientPaths(normalizedRoot, ambient),
+    moduleAliases,
+    sourceRoot: resolveSourceRoot(normalizedRoot, exportPaths),
+  };
+  metadataCache.set(normalizedRoot, metadata);
+  return metadata;
 };
 
 export const clearSourcePackageMetadataCachesForTests = (): void => {

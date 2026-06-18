@@ -31,14 +31,25 @@ export type PackageTarget = {
 
 export const normalizePkgId = (id: string): string => id.trim().toLowerCase();
 
-export const pickPackageFolder = (
+const compareStrings = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0;
+
+export const listPackageFolders = (
   assets: ProjectAssets
-): string | undefined => {
-  const folders = assets.packageFolders
-    ? Object.keys(assets.packageFolders)
+): readonly string[] =>
+  assets.packageFolders
+    ? Object.keys(assets.packageFolders).sort(compareStrings)
     : [];
-  if (folders.length === 0) return undefined;
-  return folders[0];
+
+const resolveCompileAssetPaths = (
+  packageFolders: readonly string[],
+  packagePath: string,
+  assetPath: string
+): readonly string[] => {
+  const existingPaths = packageFolders
+    .map((packageFolder) => join(packageFolder, packagePath, assetPath))
+    .filter((candidate) => existsSync(candidate));
+  return Array.from(new Set(existingPaths)).sort(compareStrings);
 };
 
 export const findTargetKey = (
@@ -64,7 +75,7 @@ export const parseLibKey = (
 export const collectPackageTargets = (
   assets: ProjectAssets,
   targetKey: string,
-  packageFolder: string
+  packageFolders: readonly string[]
 ): ReadonlyMap<string, PackageTarget> => {
   const targets = assets.targets?.[targetKey];
   const libraries = assets.libraries ?? {};
@@ -93,8 +104,12 @@ export const collectPackageTargets = (
       compile && typeof compile === "object"
         ? Object.keys(compile as Record<string, unknown>)
             .filter((pathLike) => pathLike.toLowerCase().endsWith(".dll"))
-            .map((pathLike) =>
-              join(packageFolder, libInfo.path as string, pathLike)
+            .flatMap((pathLike) =>
+              resolveCompileAssetPaths(
+                packageFolders,
+                libInfo.path as string,
+                pathLike
+              )
             )
         : [];
 

@@ -9,8 +9,7 @@ export type WorkspaceGraphNodeKind =
   | "ambient"
   | "config"
   | "surface"
-  | "package"
-  | "binding";
+  | "package";
 
 export type WorkspaceGraphNode = {
   readonly id: string;
@@ -95,9 +94,6 @@ const classifyNode = (
   if (ambientFileIds.has(pathId(projectRoot, filePath))) {
     return "ambient";
   }
-  if (basename === "bindings.json" || basename === "tsonic.bindings.json") {
-    return "binding";
-  }
   if (basename === "tsonic.surface.json") {
     return "surface";
   }
@@ -130,8 +126,7 @@ const collectProjectConfigFiles = (
       resolve(root, "tsonic.json"),
       resolve(root, "tsonic.workspace.json"),
       resolve(root, "tsonic.package.json"),
-      resolve(root, "tsonic.surface.json"),
-      resolve(root, "tsonic.bindings.json")
+      resolve(root, "tsonic.surface.json")
     );
   }
   return existingFiles(candidates);
@@ -145,9 +140,7 @@ const collectTypeRootMetadataFiles = (
     candidates.push(
       resolve(typeRoot, "package.json"),
       resolve(typeRoot, "tsonic.package.json"),
-      resolve(typeRoot, "tsonic.surface.json"),
-      resolve(typeRoot, "tsonic.bindings.json"),
-      resolve(typeRoot, "bindings.json")
+      resolve(typeRoot, "tsonic.surface.json")
     );
   }
   return existingFiles(candidates);
@@ -172,9 +165,7 @@ const collectNearestPackageMetadataFiles = (
         candidates.push(
           resolve(current, "package.json"),
           resolve(current, "tsonic.package.json"),
-          resolve(current, "tsonic.surface.json"),
-          resolve(current, "tsonic.bindings.json"),
-          resolve(current, "bindings.json")
+          resolve(current, "tsonic.surface.json")
         );
       }
 

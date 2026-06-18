@@ -1,59 +1,69 @@
-/**
- * C# Emitter Types
- * Main dispatcher - re-exports from emitter-types/ subdirectory
- */
+import type {
+  Diagnostic,
+  LoweringDeclarationPlan,
+  LoweringExternalBindingReferencePlan,
+  LoweringModulePlan,
+  LoweringTypeRefPlan,
+} from "@tsonic/frontend";
+import type { CSharpEmitterTargetId } from "./target.js";
+import type { ExternalBindingMetadataIndex } from "./rendering/external-bindings.js";
 
-export type {
-  EmitterOptions,
-  EmitterContext,
-  EmitResult,
-  CSharpAccessModifier,
-  CSharpClassModifier,
-  CSharpMethodModifier,
-  CSharpUsing,
-  ImportBinding,
-  ModuleIdentity,
-  ModuleMap,
-  ExportSource,
-  ExportMap,
-  TypeMemberIndex,
-  TypeMemberKind,
-  JsonAotRegistry,
-  InterfaceObjectAdapterDefinition,
-  InterfaceObjectAdapterMember,
-  InterfaceObjectAdapterMethod,
-  InterfaceObjectAdapterParameter,
-  InterfaceObjectAdapterProperty,
-  InterfaceObjectAdapterRegistry,
-  LocalTypeInfo,
-  NarrowedBinding,
-  ValueSymbolKind,
-  ValueSymbolInfo,
-} from "./emitter-types/index.js";
-export type {
-  SemanticType,
-  StorageCarrier,
-} from "./core/semantic/type-domains.js";
-export {
-  createContext,
-  indent,
-  dedent,
-  withStatic,
-  withAsync,
-  withClassName,
-  withScoped,
-  contextSurfaceIncludesJs,
-  getIndent,
-  renderTypeFQN,
-  renderMemberFQN,
-  renderFQN,
-  FQN,
-} from "./emitter-types/index.js";
-export {
-  semanticType,
-  storageCarrier,
-  semanticTypeOrUndefined,
-  storageCarrierOrUndefined,
-  semanticTypeMap,
-  storageCarrierMap,
-} from "./core/semantic/type-domains.js";
+export type CSharpLoweringModulePlan =
+  LoweringModulePlan<CSharpEmitterTargetId>;
+
+export type EmitterOptions = {
+  readonly rootNamespace?: string;
+  readonly entryPointPath?: string;
+  readonly referenceModules?: readonly CSharpLoweringModulePlan[];
+  readonly libraries?: readonly string[];
+  readonly bindingMetadataRoots?: readonly string[];
+  readonly externalBindingMetadata?: ExternalBindingMetadataIndex;
+  readonly surface?: string;
+  readonly includeStructuralDeclarations?: boolean;
+};
+
+export type EmitResult =
+  | { readonly ok: true; readonly files: Map<string, string> }
+  | { readonly ok: false; readonly errors: readonly Diagnostic[] };
+
+export type ModuleEmitResult =
+  | { readonly ok: true; readonly code: string }
+  | { readonly ok: false; readonly errors: readonly Diagnostic[] };
+
+export type RenderContext = {
+  readonly diagnostics: Diagnostic[];
+  currentNamespace?: string;
+  currentReturnType?: LoweringTypeRefPlan;
+  currentDefaultedParameters?: ReadonlyMap<string, string>;
+  currentDefaultedParameterBindings?: ReadonlyMap<string, string>;
+  currentBindingNames?: ReadonlyMap<string, string>;
+  currentIdentifierReadNames?: ReadonlyMap<string, string>;
+  currentIdentifierReadBindingNames?: ReadonlyMap<string, string>;
+  currentIdentifierAliasTypes?: ReadonlyMap<string, LoweringTypeRefPlan>;
+  currentIdentifierBindingAliasTypes?: ReadonlyMap<string, LoweringTypeRefPlan>;
+  currentArgumentsParameterNames?: readonly string[];
+  currentTopLevelBody?: boolean;
+  currentThisExpression?: string;
+  currentTypeParameters?: ReadonlySet<string>;
+  currentGenerator?: {
+    readonly exchangeName: string;
+    readonly returnValueName?: string;
+    readonly yieldType: LoweringTypeRefPlan;
+    readonly returnType?: LoweringTypeRefPlan;
+    readonly nextType: LoweringTypeRefPlan;
+  };
+  readonly allocateTempName: (prefix: string) => string;
+  readonly getStructuralTypeName: (type: LoweringTypeRefPlan) => string;
+  readonly externalBindingTargetName: (
+    binding: LoweringExternalBindingReferencePlan
+  ) => string | undefined;
+  readonly overrideMemberAccessibility: (
+    heritageTypes: readonly LoweringTypeRefPlan[],
+    member: LoweringDeclarationPlan
+  ) => LoweringDeclarationPlan["accessibility"] | undefined;
+  readonly reportUnsupported: (
+    feature: string,
+    sourceKindName: string,
+    sourceText: string
+  ) => void;
+};

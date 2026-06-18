@@ -201,13 +201,9 @@ describe("build command (native library port regressions)", function () {
       expect(result.ok).to.equal(true);
 
       const tree = readGeneratedCSharpTree(join(projectRoot, "generated"));
-      const pathSpecMatches = Array.from(
-        tree.matchAll(/global::App\.PathSpec/g),
-        (match) => match[0]
-      );
-      expect(pathSpecMatches.length).to.be.greaterThan(0);
-      expect(new Set(pathSpecMatches).size).to.equal(1);
       expect(tree).to.include("sealed class PathSpec");
+      expect(tree).to.match(/get\(global::App\.PathSpec path/);
+      expect(tree).to.match(/get_route\(global::App\.PathSpec\.From1\("\/items"\),/);
       expect(tree).to.not.match(
         /global::Tsonic\.Internal\.Union3_[A-F0-9]{8}<string\[\], global::js\.RegExp, string>/
       );

@@ -9,6 +9,7 @@ import {
 } from "../local-package-references.js";
 import { buildExecutable } from "./executable-build.js";
 import { buildLibrary } from "./library-build.js";
+import { validateSourcePackageManifest } from "./source-package-artifacts.js";
 
 type BuildState = {
   readonly completedOutputPaths: Map<string, string>;
@@ -20,6 +21,10 @@ const buildCurrentProject = (
   referencedAssemblyPaths: readonly string[]
 ): Result<{ outputPath: string }, string> => {
   const outputType = config.outputConfig.type ?? "executable";
+  if (outputType === "library") {
+    const manifestResult = validateSourcePackageManifest(config.projectRoot);
+    if (!manifestResult.ok) return manifestResult;
+  }
 
   const generatedDir = (() => {
     if (!config.noGenerate) {

@@ -565,10 +565,15 @@ import { Pool as PoolValue } from "../../go/sync.js";
 // `s[i]` is a byte, and slices like `s[i:j]` operate on byte offsets. Source
 // positions are byte offsets, so position-indexed reads of source text must go
 // through the UTF-8 byte view rather than JS string indexing.
+// The encoded-view cache is byte-budgeted: unbounded caching retains a full
+// byte copy of every distinct large non-ASCII string a long-lived process
+// touches (multiple GB on an in-process full-lib check).
 const utilUtf8Encoder: TextEncoder = new globalThis.TextEncoder();
 const utilUtf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
 type UtilUtf8ByteInfo = { ascii: bool; bytes: Uint8Array };
 const utilUtf8ByteInfoCache = new globalThis.Map<string, UtilUtf8ByteInfo>();
+const utilUtf8ByteInfoCacheBudget = 64 * 1024 * 1024; // total cached bytes
+const utilUtf8ByteInfoCacheState = { bytes: 0 };
 
 const utilGetUtf8ByteInfo = (s: string): UtilUtf8ByteInfo => {
   const cached = utilUtf8ByteInfoCache.get(s);
@@ -587,7 +592,13 @@ const utilGetUtf8ByteInfo = (s: string): UtilUtf8ByteInfo => {
     bytes: ascii ? undefined as unknown as Uint8Array : utilUtf8Encoder.encode(s),
   };
   if (s.length >= 4096) {
+    const cost = ascii ? s.length : info.bytes.length;
+    if (utilUtf8ByteInfoCacheState.bytes + cost > utilUtf8ByteInfoCacheBudget) {
+      utilUtf8ByteInfoCache.clear();
+      utilUtf8ByteInfoCacheState.bytes = 0;
+    }
     utilUtf8ByteInfoCache.set(s, info);
+    utilUtf8ByteInfoCacheState.bytes += cost;
   }
   return info;
 };

@@ -41,6 +41,7 @@ export type ExtensionImportBinding = {
 
 export type ExtensionImportModule = {
   readonly specifier: string;
+  readonly isTypeOnly: boolean;
   readonly importNode: GoPtr<Node>;
   readonly bindings: readonly ExtensionImportBinding[];
 };
@@ -166,6 +167,9 @@ export const createExtensionImportIndex = (
     }
     modules.push({
       specifier,
+      isTypeOnly:
+        bindings.length > 0 &&
+        bindings.every((binding) => binding.isTypeOnly),
       importNode: statement,
       bindings,
     });

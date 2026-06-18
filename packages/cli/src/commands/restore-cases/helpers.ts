@@ -139,7 +139,15 @@ ${deps}</Project>
     "utf-8"
   );
 
-  run(projDir, "dotnet", ["pack", "-c", "Release", "-o", feedDir, "--nologo"]);
+  run(projDir, "dotnet", [
+    "pack",
+    "-c",
+    "Release",
+    "-o",
+    feedDir,
+    "--nologo",
+    "--disable-build-servers",
+  ]);
 };
 
 export const buildSimpleDll = (
@@ -176,5 +184,6 @@ export const buildSimpleDll = (
     "-o",
     join(dir, "libs"),
     "--nologo",
+    "--disable-build-servers",
   ]);
 };

@@ -1,5 +1,5 @@
 /**
- * Tsonic Frontend - TypeScript parser and IR builder
+ * Tsonic Frontend - TSTS-backed source engine and lowering planner
  */
 
 export {
@@ -16,45 +16,69 @@ export {
   isError as isDiagnosticError,
 } from "./types/diagnostic.js";
 
-export * from "./types/module.js";
 export * from "./types/result.js";
 
 export * from "./program.js";
-export * from "./resolver.js";
 export * from "./validator.js";
-export * from "./symbol-table.js";
-export * from "./dependency-graph.js";
 export * from "./surface/profiles.js";
 export * from "./source-frontend/index.js";
 export * from "./tsonic-extension/index.js";
+export * from "./lowering/index.js";
 export * from "./capabilities/backend-capabilities.js";
-export * from "./symbols/index.js";
-export * from "./ir/index.js";
-export * from "./ir/validation/index.js";
-export * from "./external-metadata.js";
 
 import { createProgram, TsonicProgram, CompilerOptions } from "./program.js";
 import { validateProgram } from "./validator.js";
 import {
-  buildDependencyGraph,
-  DependencyAnalysis,
-} from "./dependency-graph.js";
-import { DiagnosticsCollector, mergeDiagnostics } from "./types/diagnostic.js";
+  createLoweringModuleGraph,
+  type LoweringModuleGraphResult,
+} from "./program/lowering-graph.js";
+import type { BackendTargetId } from "./lowering/index.js";
+import {
+  addDiagnostic,
+  createDiagnostic,
+  createDiagnosticsCollector,
+  type DiagnosticsCollector,
+  mergeDiagnostics,
+} from "./types/diagnostic.js";
 import { Result, ok, error } from "./types/result.js";
 
-export type CompileResult = {
-  readonly program: TsonicProgram;
-  readonly analysis: DependencyAnalysis;
+export type CompileResult<Target extends BackendTargetId = BackendTargetId> = {
+  readonly program: TsonicProgram<Target>;
+  readonly loweringGraph: LoweringModuleGraphResult<Target>;
 };
 
 /**
- * Main entry point for compiling TypeScript files
+ * Main entry point for compiling source files
  */
-export const compile = (
+export const compile = <Target extends BackendTargetId = BackendTargetId>(
   filePaths: readonly string[],
-  options: CompilerOptions
-): Result<CompileResult, DiagnosticsCollector> => {
-  // Create TypeScript program
+  options: CompilerOptions<Target>
+): Result<CompileResult<Target>, DiagnosticsCollector> => {
+  if (filePaths.length !== 1) {
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic(
+          "TSN1001",
+          "error",
+          filePaths.length === 0
+            ? "No entry file was provided."
+            : "compile() accepts exactly one runtime entry file. Additional source files must enter through the TSTS module graph."
+        )
+      )
+    );
+  }
+  const [entryFile] = filePaths;
+  if (entryFile === undefined) {
+    return error(
+      addDiagnostic(
+        createDiagnosticsCollector(),
+        createDiagnostic("TSN1001", "error", "No entry file was provided.")
+      )
+    );
+  }
+
+  // Create Tsonic program through the TSTS source engine
   const programResult = createProgram(filePaths, options);
 
   if (!programResult.ok) {
@@ -63,16 +87,28 @@ export const compile = (
 
   const program = programResult.value;
 
-  // Validate ESM rules and TypeScript constraints
+  // Validate ESM rules and Tsonic source constraints
   const validationDiagnostics = validateProgram(program);
 
-  // Build dependency graph and symbol table
-  const analysis = buildDependencyGraph(program, filePaths);
+  // Build lowering plans from the already-created TSTS program.
+  const loweringGraph = createLoweringModuleGraph(program, entryFile);
+  if (!loweringGraph.ok) {
+    return error({
+      diagnostics: loweringGraph.error,
+      hasErrors: loweringGraph.error.some(
+        (diagnostic) =>
+          diagnostic.severity === "error" || diagnostic.severity === "fatal"
+      ),
+      hasFatalErrors: loweringGraph.error.some(
+        (diagnostic) => diagnostic.severity === "fatal"
+      ),
+    });
+  }
 
   // Merge all diagnostics
   const allDiagnostics = mergeDiagnostics(
-    mergeDiagnostics(validationDiagnostics, analysis.diagnostics),
-    validationDiagnostics
+    validationDiagnostics,
+    createDiagnosticsCollector()
   );
 
   if (allDiagnostics.hasErrors) {
@@ -81,6 +117,6 @@ export const compile = (
 
   return ok({
     program,
-    analysis,
+    loweringGraph: loweringGraph.value,
   });
 };

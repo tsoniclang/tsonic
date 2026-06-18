@@ -1,81 +1,22 @@
 /**
  * Shared helper for validator test modules.
  *
- * Provides `createTestProgram` which constructs a TsonicProgram from
- * an inline source string, suitable for feeding into `validateProgram`.
+ * Provides `createTestProgram` which constructs a TsonicProgram from an inline
+ * source string, suitable for feeding into `validateProgram`.
  */
 
-import * as ts from "typescript";
-import { TsonicProgram } from "../program.js";
-import { ExternalMetadataRegistry } from "../external-metadata.js";
-import { BindingRegistry } from "../program/bindings.js";
-import { createExternalBindingsResolver } from "../resolver/external-bindings-resolver.js";
-import { createBinding } from "../ir/binding/index.js";
-import {
-  createEmptyTstsSourceProgramForTests,
-  createTypeScriptSemanticView,
-} from "../source-frontend/index.js";
+import type { TsonicProgram } from "../program.js";
+import { createInlineTstsTestProgram } from "../testing/tsts-test-program.js";
 
 export const createTestProgram = (
   source: string,
   fileName = "test.ts",
   options: Partial<TsonicProgram["options"]> = {}
-): TsonicProgram => {
-  const sourceFile = ts.createSourceFile(
+): TsonicProgram =>
+  createInlineTstsTestProgram(source, {
     fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
-
-  const compilerOptions: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.NodeNext,
-    strict: true,
-    noEmit: true,
-  };
-
-  const host = ts.createCompilerHost(compilerOptions);
-  const originalGetSourceFile = host.getSourceFile;
-  host.getSourceFile = (
-    name: string,
-    languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
-    onError?: (message: string) => void,
-    shouldCreateNewSourceFile?: boolean
-  ) => {
-    if (name === fileName) {
-      return sourceFile;
-    }
-    return originalGetSourceFile.call(
-      host,
-      name,
-      languageVersionOrOptions,
-      onError,
-      shouldCreateNewSourceFile
-    );
-  };
-
-  const program = ts.createProgram([fileName], compilerOptions, host);
-  const checker = program.getTypeChecker();
-
-  return {
-    program,
-    checker,
-    options: {
-      projectRoot: "/test",
-      sourceRoot: "/test",
-      rootNamespace: "TestApp",
-      strict: true,
-      ...options,
-    },
-    sourceFiles: [sourceFile],
-    declarationSourceFiles: [],
-    sourceProgram: createEmptyTstsSourceProgramForTests(),
-    sourceSemantics: createTypeScriptSemanticView(checker),
-    metadata: new ExternalMetadataRegistry(),
-    bindings: new BindingRegistry(),
-    externalResolver: createExternalBindingsResolver("/test"),
-    binding: createBinding(checker),
-  };
-};
+    projectRoot: options.projectRoot ?? "/test",
+    sourceRoot: options.sourceRoot ?? "/test",
+    rootNamespace: options.rootNamespace ?? "TestApp",
+    ...options,
+  });

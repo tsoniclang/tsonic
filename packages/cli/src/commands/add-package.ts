@@ -65,8 +65,10 @@ const setLibraryTypesMapping = (
     return { ok: true, value: undefined };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  const existing = entries[idx]!;
+  const existing = entries[idx];
+  if (existing === undefined) {
+    return { ok: false, error: `Invalid library entry index ${idx}.` };
+  }
   if (typeof existing === "string") {
     entries[idx] = { path: existing, types: typesPackage };
     return { ok: true, value: undefined };

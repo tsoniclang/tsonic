@@ -1,6 +1,6 @@
 import type { bool, int } from "@tsonic/core/types.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
-import { OrderedMap_Size } from "../collections/ordered_map.js";
+import { NewOrderedMapWithSizeHint, OrderedMap_Size } from "../collections/ordered_map.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
 import * as slices from "../../go/slices.js";
 import * as strings from "../../go/strings.js";
@@ -471,6 +471,7 @@ export function NormalizeCompilerOptions(options: GoPtr<CompilerOptions>): GoPtr
   target.ModuleDetection ??= 0 as ModuleDetectionKind;
   target.NewLine ??= 0 as NewLineKind;
   target.Target ??= 0 as ScriptTarget;
+  target.Paths ??= NewOrderedMapWithSizeHint<string, GoSlice<string>>(0 as int);
   return options;
 }
 

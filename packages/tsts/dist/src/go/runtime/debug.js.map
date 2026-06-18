@@ -1,0 +1,1 @@
+{"version":3,"file":"debug.js","sourceRoot":"","sources":["../../../../src/go/runtime/debug.ts"],"names":[],"mappings":"AAGA,MAAM,UAAU,KAAK;IACnB,MAAM,KAAK,GAAG,IAAI,UAAU,CAAC,KAAK,EAAE,CAAC,KAAK,IAAI,EAAE,CAAC;IACjD,OAAO,KAAK,CAAC,IAAI,CAAC,IAAI,WAAW,EAAE,CAAC,MAAM,CAAC,KAAK,CAAC,CAAkB,CAAC;AACtE,CAAC"}

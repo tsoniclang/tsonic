@@ -380,7 +380,7 @@ describe("Maximus Validation Coverage", () => {
       {
         name: "binding-style imported constructor aliases keep super-call typing deterministic",
         source: `
-          import { Exception } from "@fixture/dotnet/System.js";
+          import { Exception } from "@fixture/runtime/errors.js";
 
           class ErrorLike extends Exception {
             public constructor(message?: string) {
@@ -395,19 +395,19 @@ describe("Maximus Validation Coverage", () => {
             name: "test-app",
             type: "module",
           }),
-          "/test/node_modules/@fixture/dotnet/package.json": JSON.stringify({
-            name: "@fixture/dotnet",
+          "/test/node_modules/@fixture/runtime/package.json": JSON.stringify({
+            name: "@fixture/runtime",
             type: "module",
           }),
-          "/test/node_modules/@fixture/dotnet/System.js": "export {};",
-          "/test/node_modules/@fixture/dotnet/System.d.ts": `
-            import type * as Internal from "./System/internal/index.js";
+          "/test/node_modules/@fixture/runtime/errors.js": "export {};",
+          "/test/node_modules/@fixture/runtime/errors.d.ts": `
+            import type * as Internal from "./internal/errors.js";
             export type Exception = Internal.Exception;
             export const Exception: typeof Internal.Exception;
           `,
-          "/test/node_modules/@fixture/dotnet/System/internal/index.js":
+          "/test/node_modules/@fixture/runtime/internal/errors.js":
             "export {};",
-          "/test/node_modules/@fixture/dotnet/System/internal/index.d.ts": `
+          "/test/node_modules/@fixture/runtime/internal/errors.d.ts": `
             export interface Exception$instance {
               readonly Message: string;
             }

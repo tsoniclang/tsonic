@@ -1,87 +1,118 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type {
   CompilerExtension,
   ExtensionDiagnostic,
-  ExtensionHost,
+  ExtensionModuleGraph,
+  TstsDiagnostic,
   TstsSourceFile,
 } from "@tsonic/tsts";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import {
+  createCompilerSourceProgram,
   createExtensionHost,
-  parseTstsSourceFile,
+  createExtensionModuleGraph,
 } from "@tsonic/tsts";
-import { createTsonicNumericPrimitiveExtension } from "../tsonic-extension/index.js";
+import {
+  createTsonicNumericPrimitiveExtension,
+  createTsonicSourceSemanticsExtension,
+} from "../tsonic-extension/index.js";
+import type { SourceSemanticFacts } from "./source-facts.js";
 
 export type TstsSourceProgram = {
   readonly engine: "tsts";
   readonly sourceFiles: readonly TstsSourceFile[];
-  readonly extensionHost: ExtensionHost;
+  readonly moduleGraph: ExtensionModuleGraph;
+  readonly facts: SourceSemanticFacts;
   readonly diagnostics: readonly ExtensionDiagnostic[];
+  readonly compilerDiagnostics: readonly TstsDiagnostic[];
 };
 
 export type CreateTstsSourceProgramOptions = {
-  readonly extensions?: readonly CompilerExtension[];
-  readonly readFile?: (filePath: string) => string;
+  readonly projectRoot: string;
+  readonly moduleResolutionPaths: Readonly<Record<string, readonly string[]>>;
+  readonly sourceDiagnosticRoots: readonly string[];
 };
 
-const isTsxPath = (filePath: string): boolean =>
-  filePath.endsWith(".tsx") || filePath.endsWith(".jsx");
-
-const readSourceFile = (filePath: string): string =>
-  fs.readFileSync(filePath, "utf8");
-
-const defaultExtensions = (): readonly CompilerExtension[] => [
+const defaultExtensions = (
+  options: Pick<CreateTstsSourceProgramOptions, "sourceDiagnosticRoots">
+): readonly CompilerExtension[] => [
   createTsonicNumericPrimitiveExtension(),
+  createTsonicSourceSemanticsExtension({
+    sourceDiagnosticRoots: options.sourceDiagnosticRoots,
+  }),
 ];
+
+const canonicalizeFilePath = (filePath: string): string => {
+  const resolvedPath = path.resolve(filePath);
+  try {
+    return fs.realpathSync(resolvedPath);
+  } catch {
+    return resolvedPath;
+  }
+};
+
+const sourceDiagnosticRoots = (roots: readonly string[]): readonly string[] =>
+  roots.map((root) => canonicalizeFilePath(root));
+
+const isFileUnderRoot = (fileName: string, root: string): boolean => {
+  const relative = path.relative(root, canonicalizeFilePath(fileName));
+  return (
+    relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+};
+
+const isScopedCompilerDiagnostic = (
+  diagnosticRoots: readonly string[],
+  diagnostic: TstsDiagnostic
+): boolean => {
+  const fileName = diagnostic.file?.FileName();
+  return (
+    fileName === undefined ||
+    diagnosticRoots.some((root) => isFileUnderRoot(fileName, root))
+  );
+};
 
 export const createTstsSourceProgram = (
   filePaths: readonly string[],
-  options: CreateTstsSourceProgramOptions = {},
+  options: CreateTstsSourceProgramOptions
 ): TstsSourceProgram => {
-  const extensions = options.extensions ?? defaultExtensions();
-  const extensionHost = createExtensionHost(extensions);
-  const readFile = options.readFile ?? readSourceFile;
-  const sourceFiles = filePaths.map((filePath) => {
-    const resolvedPath = path.resolve(filePath);
-    let sourceFile: TstsSourceFile | undefined;
-    try {
-      sourceFile = parseTstsSourceFile(readFile(resolvedPath), {
-        fileName: resolvedPath,
-        tsx: isTsxPath(resolvedPath),
-        useCaseSensitiveFileNames: true,
-      });
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      throw new Error(`TSTS parser failed for ${resolvedPath}: ${message}`);
-    }
-
-    if (!sourceFile) {
-      throw new Error(`TSTS parser did not return a source file for ${resolvedPath}.`);
-    }
-
-    return sourceFile;
+  const diagnosticRoots = sourceDiagnosticRoots(options.sourceDiagnosticRoots);
+  const compiledSource = createCompilerSourceProgram(filePaths, {
+    projectRoot: options.projectRoot,
+    compilerOptions: {
+      allowImportingTsExtensions: true,
+      skipLibCheck: true,
+    },
+    moduleResolutionPaths: options.moduleResolutionPaths,
+    moduleResolutionBaseUrl: options.projectRoot,
+    extensions: defaultExtensions(options),
+    runSemanticChecks: true,
+    runExtensionChecks: true,
   });
-
-  extensionHost.configure();
-  for (const sourceFile of sourceFiles) {
-    extensionHost.afterParseSourceFile(sourceFile);
-  }
 
   return {
     engine: "tsts",
-    sourceFiles,
-    extensionHost,
-    diagnostics: extensionHost.diagnostics.all(),
+    sourceFiles: compiledSource.sourceFiles,
+    moduleGraph: compiledSource.moduleGraph,
+    facts: compiledSource.extensionHost.facts,
+    diagnostics: compiledSource.extensionDiagnostics,
+    compilerDiagnostics: compiledSource.diagnostics.filter((diagnostic) =>
+      isScopedCompilerDiagnostic(diagnosticRoots, diagnostic)
+    ),
   };
 };
 
 export const createEmptyTstsSourceProgramForTests = (): TstsSourceProgram => {
-  const extensionHost = createExtensionHost(defaultExtensions());
+  const extensionHost = createExtensionHost(
+    defaultExtensions({ sourceDiagnosticRoots: [] })
+  );
   extensionHost.configure();
   return {
     engine: "tsts",
     sourceFiles: [],
-    extensionHost,
+    moduleGraph: createExtensionModuleGraph(undefined, []),
+    facts: extensionHost.facts,
     diagnostics: extensionHost.diagnostics.all(),
+    compilerDiagnostics: [],
   };
 };

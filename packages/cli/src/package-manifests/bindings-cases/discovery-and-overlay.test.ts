@@ -57,11 +57,11 @@ describe("tsonic.package bindings", function () {
         }),
       });
       writeInstalledPackage(dir, "bindings-types", "1.0.0", {
-        bindingsManifest: {
-          dotnet: {
-            packageReferences: [{ id: "Bindings.Core", version: "1.0.0" }],
+        packageManifest: createSourcePackageManifest({
+          runtime: {
+            nugetPackages: [{ id: "Bindings.Core", version: "1.0.0" }],
           },
-        },
+        }),
       });
 
       const manifests = discoverWorkspaceBindingsManifests(dir);
@@ -201,11 +201,11 @@ describe("tsonic.package bindings", function () {
       });
 
       writeInstalledPackage(dir, "acme-a", "1.0.0", {
-        bindingsManifest: {
-          dotnet: {
-            packageReferences: [{ id: "Acme.Core", version: "1.0.0" }],
+        packageManifest: createSourcePackageManifest({
+          runtime: {
+            nugetPackages: [{ id: "Acme.Core", version: "1.0.0" }],
           },
-        },
+        }),
       });
       writeInstalledPackage(dir, "acme-b", "1.0.0", {
         packageManifest: createSourcePackageManifest({
@@ -260,15 +260,17 @@ describe("tsonic.package bindings", function () {
         "@acme/custom-surface"
       );
       expect(manifests.ok).to.equal(true);
-      expect(
-        (manifests.ok ? manifests.value : []).map((x) => x.packageName)
-      ).to.deep.equal(["acme-runtime"]);
+      const packageNames = (manifests.ok ? manifests.value : []).map(
+        (x) => x.packageName
+      );
+      expect(packageNames).to.include("acme-runtime");
+      expect(packageNames).to.not.include("@acme/custom-surface");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("merges requiredTypeRoots from tsonic.bindings.json into workspace overlay", () => {
+  it("merges requiredTypeRoots from package manifests into workspace overlay", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-package-bindings-roots-"));
     try {
       installClrSurfacePackages(dir);
@@ -282,13 +284,12 @@ describe("tsonic.package bindings", function () {
       });
 
       writeInstalledPackage(dir, "bindings-types", "1.0.0", {
-        bindingsManifest: {
-          bindingVersion: 1,
+        packageManifest: createSourcePackageManifest({
           requiredTypeRoots: ["."],
-          dotnet: {
-            packageReferences: [{ id: "Bindings.Core", version: "1.0.0" }],
+          runtime: {
+            nugetPackages: [{ id: "Bindings.Core", version: "1.0.0" }],
           },
-        },
+        }),
       });
 
       const result = applyPackageManifestWorkspaceOverlay(

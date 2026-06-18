@@ -1,12 +1,9 @@
 /**
- * Compiler-option helpers and declaration-file scanning for program creation.
+ * Declaration-file scanning for program creation.
  */
 
-import * as ts from "typescript";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { CompilerOptions } from "./types.js";
-import { defaultTsConfig } from "./config.js";
 
 /**
  * Recursively scan a directory for .d.ts files
@@ -23,7 +20,9 @@ export const scanForDeclarationFiles = (dir: string): readonly string[] => {
     ? scanRoot
     : undefined;
   const results: string[] = [];
-  const isLegacySourcePackageDeclaration = (candidatePath: string): boolean => {
+  const isSourcePackageInternalDeclaration = (
+    candidatePath: string
+  ): boolean => {
     if (!sourcePackageRoot) {
       return false;
     }
@@ -47,14 +46,14 @@ export const scanForDeclarationFiles = (dir: string): readonly string[] => {
         if (
           entry.name === "node_modules" ||
           entry.name === ".git" ||
-          isLegacySourcePackageDeclaration(fullPath)
+          isSourcePackageInternalDeclaration(fullPath)
         ) {
           continue;
         }
         visit(fullPath);
       } else if (
         entry.name.endsWith(".d.ts") &&
-        !isLegacySourcePackageDeclaration(fullPath)
+        !isSourcePackageInternalDeclaration(fullPath)
       ) {
         results.push(fullPath);
       }
@@ -66,101 +65,142 @@ export const scanForDeclarationFiles = (dir: string): readonly string[] => {
   return results;
 };
 
-export const collectProjectIncludedDeclarationFiles = (
+type ProjectConfigFileList = {
+  readonly files?: readonly string[];
+  readonly include?: readonly string[];
+  readonly exclude?: readonly string[];
+};
+
+const asStringArray = (value: unknown): readonly string[] | undefined =>
+  Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? value
+    : undefined;
+
+const readProjectConfigFileList = (
+  configPath: string
+): ProjectConfigFileList | undefined => {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+      readonly files?: unknown;
+      readonly include?: unknown;
+      readonly exclude?: unknown;
+    };
+    return {
+      files: asStringArray(parsed.files),
+      include: asStringArray(parsed.include),
+      exclude: asStringArray(parsed.exclude),
+    };
+  } catch {
+    return undefined;
+  }
+};
+
+const toPosixRelativePath = (projectRoot: string, filePath: string): string =>
+  path.relative(projectRoot, filePath).split(path.sep).join("/");
+
+const escapeRegExp = (text: string): string =>
+  text.replace(/[\\^$+?.()|[\]{}]/g, "\\$&");
+
+const globPatternToRegExp = (pattern: string): RegExp => {
+  const normalized = pattern.split(path.sep).join("/");
+  let source = "^";
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    const next = normalized[index + 1];
+    const afterNext = normalized[index + 2];
+
+    if (char === "*" && next === "*") {
+      if (afterNext === "/") {
+        source += "(?:.*/)?";
+        index += 2;
+      } else {
+        source += ".*";
+        index += 1;
+      }
+      continue;
+    }
+    if (char === "*") {
+      source += "[^/]*";
+      continue;
+    }
+    source += escapeRegExp(char ?? "");
+  }
+
+  return new RegExp(`${source}$`);
+};
+
+const staticGlobRoot = (projectRoot: string, pattern: string): string => {
+  const normalized = pattern.split(path.sep).join("/");
+  const wildcardIndex = normalized.search(/[*?[\]{}]/);
+  const staticPrefix =
+    wildcardIndex === -1 ? normalized : normalized.slice(0, wildcardIndex);
+  const directoryPrefix = staticPrefix.endsWith("/")
+    ? staticPrefix
+    : path.dirname(staticPrefix);
+  return path.resolve(
+    projectRoot,
+    directoryPrefix === "." ? "" : directoryPrefix
+  );
+};
+
+const isExcluded = (
   projectRoot: string,
-  compilerOptions: ts.CompilerOptions
+  filePath: string,
+  excludeMatchers: readonly RegExp[]
+): boolean => {
+  const relativePath = toPosixRelativePath(projectRoot, filePath);
+  return excludeMatchers.some((matcher) => matcher.test(relativePath));
+};
+
+const collectIncludedDeclarationFiles = (
+  projectRoot: string,
+  includePattern: string,
+  excludeMatchers: readonly RegExp[]
+): readonly string[] => {
+  const matcher = globPatternToRegExp(includePattern);
+  const root = staticGlobRoot(projectRoot, includePattern);
+  if (!fs.existsSync(root)) {
+    return [];
+  }
+
+  if (fs.statSync(root).isFile()) {
+    const relativePath = toPosixRelativePath(projectRoot, root);
+    return root.endsWith(".d.ts") &&
+      matcher.test(relativePath) &&
+      !isExcluded(projectRoot, root, excludeMatchers)
+      ? [root]
+      : [];
+  }
+
+  return scanForDeclarationFiles(root).filter((filePath) => {
+    const relativePath = toPosixRelativePath(projectRoot, filePath);
+    return (
+      matcher.test(relativePath) &&
+      !isExcluded(projectRoot, filePath, excludeMatchers)
+    );
+  });
+};
+
+export const collectProjectIncludedDeclarationFiles = (
+  projectRoot: string
 ): readonly string[] => {
   const configPath = path.join(projectRoot, "tsconfig.json");
   if (!fs.existsSync(configPath)) {
     return [];
   }
 
-  const configResult = ts.readConfigFile(configPath, ts.sys.readFile);
-  if (configResult.error) {
+  const config = readProjectConfigFileList(configPath);
+  if (!config) {
     return [];
   }
 
-  const parsed = ts.parseJsonConfigFileContent(
-    configResult.config,
-    ts.sys,
-    projectRoot,
-    {
-      ...compilerOptions,
-      noEmit: true,
-    },
-    configPath
+  const explicitFiles = (config.files ?? [])
+    .map((fileName) => path.resolve(projectRoot, fileName))
+    .filter((fileName) => fileName.endsWith(".d.ts"));
+  const excludeMatchers = (config.exclude ?? []).map(globPatternToRegExp);
+  const includedFiles = (config.include ?? []).flatMap((pattern) =>
+    collectIncludedDeclarationFiles(projectRoot, pattern, excludeMatchers)
   );
 
-  return parsed.fileNames
-    .filter((fileName) => fileName.endsWith(".d.ts"))
-    .map((fileName) => path.resolve(fileName));
-};
-
-/**
- * Create TypeScript compiler options from Tsonic options
- * Exported for use by dependency graph builder
- */
-export const createCompilerOptions = (
-  options: CompilerOptions
-): ts.CompilerOptions => {
-  const canonicalizePath = (filePath: string): string => {
-    const normalizedPath = path.resolve(filePath);
-    try {
-      return fs.realpathSync(normalizedPath);
-    } catch {
-      return normalizedPath;
-    }
-  };
-  const resolveCommonRootDir = (...paths: readonly string[]): string => {
-    const [first, ...rest] = paths.map(canonicalizePath);
-    let current = first ?? canonicalizePath(options.projectRoot);
-
-    for (;;) {
-      const containsAll = rest.every((candidate) => {
-        const relative = path.relative(current, candidate);
-        return (
-          relative === "" ||
-          (!relative.startsWith("..") && !path.isAbsolute(relative))
-        );
-      });
-
-      if (containsAll) {
-        return current;
-      }
-
-      const parent = path.dirname(current);
-      if (parent === current) {
-        return current;
-      }
-      current = parent;
-    }
-  };
-  const findNearestNodeModulesRoot = (start: string): string | undefined => {
-    let current = path.resolve(start);
-    for (;;) {
-      if (fs.existsSync(path.join(current, "node_modules"))) {
-        return current;
-      }
-      const parent = path.dirname(current);
-      if (parent === current) {
-        return undefined;
-      }
-      current = parent;
-    }
-  };
-  const nodeModulesRoot = findNearestNodeModulesRoot(options.projectRoot);
-  const baseConfig: ts.CompilerOptions = {
-    ...defaultTsConfig,
-    ...(options.strict === undefined ? {} : { strict: options.strict }),
-    preserveSymlinks: true,
-    rootDir: nodeModulesRoot
-      ? resolveCommonRootDir(
-          options.sourceRoot,
-          options.projectRoot,
-          nodeModulesRoot
-        )
-      : resolveCommonRootDir(options.sourceRoot, options.projectRoot),
-  };
-
-  return baseConfig;
+  return Array.from(new Set([...explicitFiles, ...includedFiles]));
 };

@@ -4678,7 +4678,7 @@ export function Checker_checkTypeAliasDeclaration(receiver: GoPtr<Checker>, node
   Checker_checkTypeParameters(receiver, typeParameters);
   if (typeNode !== undefined && typeNode.Kind === KindIntrinsicKeyword) {
     const nameText = Node_Text(Node_Name(node));
-    if (!((typeParameters.length === 0 && nameText === "BuiltinIteratorReturn") || (typeParameters.length === 1 && intrinsicTypeKinds.get(nameText) !== IntrinsicTypeKindUnknown))) {
+    if (!((typeParameters.length === 0 && nameText === "BuiltinIteratorReturn") || (typeParameters.length === 1 && (intrinsicTypeKinds.get(nameText) ?? IntrinsicTypeKindUnknown) !== IntrinsicTypeKindUnknown))) {
       Checker_error(receiver, typeNode, The_intrinsic_keyword_can_only_be_used_to_declare_compiler_provided_intrinsic_types);
     }
     return;

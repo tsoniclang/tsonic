@@ -189,6 +189,7 @@ export function emitLocalizedMessages(_records, config) {
   lines.push(`import { Buffer } from "node:buffer";`);
   lines.push(`import type { int } from "@tsonic/core/types.js";`);
   lines.push(`import type { GoMap } from "../../../go/compat.js";`);
+  lines.push(`import { toNodeBytes } from "../../../go/nodebytes.js";`);
   lines.push(`import type { Tag } from "../../../go/golang.org/x/text/language.js";`);
   lines.push(`import { English, Low, MustParse, NewMatcher } from "../../../go/golang.org/x/text/language.js";`);
   lines.push(`import type { Key } from "../diagnostics.js";`);
@@ -209,7 +210,7 @@ export function emitLocalizedMessages(_records, config) {
   lines.push(`type LocaleLoader = (() => GoMap<Key, string>) | undefined;`);
   lines.push("");
   lines.push(`function loadLocaleData(data: string): GoMap<Key, string> {`);
-  lines.push(`  const text = gunzipSync(Buffer.from(data, "base64")).toString("utf8");`);
+  lines.push(`  const text = gunzipSync(toNodeBytes(Buffer.from(data, "base64"))).toString("utf8");`);
   lines.push(`  return new globalThis.Map<Key, string>(globalThis.Object.entries(JSON.parse(text)) as Array<[Key, string]>);`);
   lines.push(`}`);
   lines.push("");

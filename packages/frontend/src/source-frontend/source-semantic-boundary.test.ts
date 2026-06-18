@@ -1,0 +1,665 @@
+import { expect } from "chai";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+const repoRoot = path.resolve(import.meta.dirname, "../../../..");
+const frontendSrcRoot = path.join(repoRoot, "packages/frontend/src");
+
+const collectTypeScriptFiles = (dir: string): readonly string[] => {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectTypeScriptFiles(entryPath));
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.endsWith(".ts")) {
+      files.push(entryPath);
+    }
+  }
+
+  return files;
+};
+
+const normalizePath = (filePath: string): string =>
+  filePath.replace(/\\/g, "/");
+
+const isBoundaryFile = (filePath: string): boolean => {
+  const normalized = normalizePath(path.relative(frontendSrcRoot, filePath));
+  return (
+    normalized.endsWith(".test.ts") ||
+    normalized.includes("-cases/") ||
+    normalized.startsWith("lowering/") ||
+    normalized === "tsonic-extension/source-semantics.ts"
+  );
+};
+
+const bannedSemanticQueries = [
+  "checker.getTypeAtLocation(",
+  "checker.getContextualType(",
+  "checker.getSymbolAtLocation(",
+  "checker.getResolvedSignature(",
+  "checker.getAliasedSymbol(",
+  "checker.getExportsOfModule(",
+  "checker.getShorthandAssignmentValueSymbol(",
+  "checker.getTypeOfSymbolAtLocation(",
+  "checker.getTypeArguments(",
+  "checker.getReturnTypeOfSignature(",
+  "checker.getSignatureFromDeclaration(",
+  "checker.getFullyQualifiedName(",
+  "checker.getSymbolsInScope(",
+  "checker.getTypeFromTypeNode(",
+  "checker.getApparentType(",
+  "checker.getPropertyOfType(",
+  "checker.getSignaturesOfType(",
+  "checker.isTypeAssignableTo(",
+  "checker.isTypeIdenticalTo(",
+  "checker.isArrayType(",
+  "checker.isTupleType(",
+  "checker.typeToString(",
+  "checker.typeToTypeNode(",
+] as const;
+
+describe("source semantic boundary", () => {
+  it("keeps source semantic queries behind TSTS facts and lowering boundaries", () => {
+    const offenders = collectTypeScriptFiles(frontendSrcRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const query = bannedSemanticQueries.find((candidate) =>
+            line.includes(candidate)
+          );
+          return query
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${query}`,
+              ]
+            : [];
+        });
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps overload implementation selection out of lowering-side type matching", () => {
+    const loweringPlanBuilders = fs.readFileSync(
+      path.join(frontendSrcRoot, "lowering/plan-builders.ts"),
+      "utf8"
+    );
+    const bannedLoweringMatchers = [
+      "selectedOverloadFamilyImplementation",
+      "typePlanMatchesParameter",
+      "overloadFamilyImplementationsForCallee",
+      "comparableTypePlan",
+      "literalBaseTypePlan",
+      "signatureTypeParameterSubstitutions",
+      "receiverTypeArgumentsForOwner",
+      "namedProjectionForGenericOwner",
+    ] as const;
+
+    const offenders = bannedLoweringMatchers.filter((matcher) =>
+      loweringPlanBuilders.includes(matcher)
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("does not export shadow projected-type facts from the source frontend boundary", () => {
+    const sourceFrontendIndex = fs.readFileSync(
+      path.join(frontendSrcRoot, "source-frontend/index.ts"),
+      "utf8"
+    );
+    const bannedPublicProjectionNames = [
+      "SourceBindingProjectedType",
+      "SourceBindingProjectedObjectMember",
+      "SourceBindingTypeProjectionFact",
+      "SourceTypeProjectionFact",
+      "SourceExpressionTypeProjectionFact",
+      "SourceCallArgumentTypesFact",
+      "SourceDeclarationTypeProjectionFact",
+      "sourceBindingTypeProjectionFactKey",
+      "sourceTypeProjectionFactKey",
+      "sourceExpressionTypeProjectionFactKey",
+      "sourceCallArgumentTypesFactKey",
+      "sourceDeclarationTypeProjectionFactKey",
+    ] as const;
+
+    const offenders = bannedPublicProjectionNames.filter((name) =>
+      sourceFrontendIndex.includes(name)
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps raw source symbol/type object reads behind TSTS facts and lowering boundaries", () => {
+    const bannedReads = [
+      ".getDeclarations(",
+      ".getConstructSignatures(",
+      ".getCallSignatures(",
+      ".getProperties(",
+      ".valueDeclaration",
+      "symbol.declarations",
+      "symbol?.declarations",
+      "SymbolFlags.Alias",
+      ".aliasSymbol",
+      ".aliasTypeArguments",
+      ".getSymbol()",
+      ".objectFlags",
+      "ts.ObjectFlags",
+      ".getDeclaration(",
+      ".getParameters(",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(frontendSrcRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const read = bannedReads.find((candidate) =>
+            line.includes(candidate)
+          );
+          return read
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${read}`,
+              ]
+            : [];
+        });
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps validation type classification behind TSTS facts and lowering boundaries", () => {
+    const validationRoot = path.join(frontendSrcRoot, "validation");
+    if (!fs.existsSync(validationRoot)) {
+      return;
+    }
+
+    const bannedReads = [
+      "ts.TypeFlags",
+      ".getFlags(",
+      ".isUnion(",
+      ".isIntersection(",
+      ".isUnionOrIntersection(",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(validationRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const read = bannedReads.find((candidate) =>
+            line.includes(candidate)
+          );
+          return read
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${read}`,
+              ]
+            : [];
+        });
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps target runtime identity terms out of frontend source", () => {
+    const bannedTerms = [
+      "source" + "RuntimeName",
+      "Source" + "RuntimeName",
+      "runtime" + "Named",
+      "resolved" + "C" + "lr",
+      "resolved" + "C" + "LR",
+      "emitted" + "C" + "lr",
+      "emitted" + "C" + "LR",
+      "C" + "Sharp",
+      "c" + "sharp",
+      "C" + "LR",
+      "C" + "lr",
+      "c" + "lr",
+      "@" + "tsonic/" + "dot" + "net",
+      "dot" + "net",
+      "System" + ".",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(frontendSrcRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("does not classify runtime visibility from source names in lowering", () => {
+    const loweringPlanBuilders = fs.readFileSync(
+      path.join(frontendSrcRoot, "lowering/plan-builders.ts"),
+      "utf8"
+    );
+    const bannedTerms = [
+      "source" + "RuntimeVisibilityForCanonicalDeclaration",
+      "getTstsNodeNameText(declaration) === " + '"JsValue"',
+      "sourceFileBelongsToPackage(sourceFile.FileName(), " + '"@tsonic/core"',
+    ] as const;
+
+    const offenders = bannedTerms.filter((term) =>
+      loweringPlanBuilders.includes(term)
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("does not pre-walk imports outside the TSTS module graph", () => {
+    const bannedTerms = [
+      "collect" + "Tsts" + "ModuleClosure",
+      "collect" + "Source" + "ImportClosure",
+      "collect" + "Declaration" + "ImportClosure",
+      "runtime" + "SourceClosure",
+      "semantic" + "SupportClosure",
+      "declaration" + "Closure",
+      "emittable" + "SourceFiles",
+      "source" + "Diagnostic" + "FileNames",
+      "discover" + "Declaration" + "GlobalImports",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(frontendSrcRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("does not keep old frontend analysis product directories", () => {
+    const staleDirectories = ["graph", "ir", "symbol-table"] as const;
+    const offenders = staleDirectories.flatMap((directory) => {
+      const directoryPath = path.join(frontendSrcRoot, directory);
+      if (!fs.existsSync(directoryPath)) return [];
+      const files = collectTypeScriptFiles(directoryPath);
+      return files.length > 0
+        ? files.map((filePath) =>
+            normalizePath(path.relative(repoRoot, filePath))
+          )
+        : [normalizePath(path.relative(repoRoot, directoryPath))];
+    });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("does not keep obsolete pre-TSTS import resolver entrypoints", () => {
+    const staleFiles = [
+      "resolver/import-resolution.ts",
+      "resolver/source-package-resolution.ts",
+      "resolver/path-resolution.ts",
+      "resolver/types.ts",
+    ] as const;
+    const offenders = staleFiles.filter((relativePath) =>
+      fs.existsSync(path.join(frontendSrcRoot, relativePath))
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("does not expose a TypeScript compiler program on TsonicProgram", () => {
+    const programTypesPath = path.join(frontendSrcRoot, "program/types.ts");
+    const text = fs.readFileSync(programTypesPath, "utf8");
+
+    expect(text).not.to.include("checker: ts.TypeChecker");
+    expect(text).not.to.include("readonly program: ts.Program");
+  });
+
+  it("does not reach through TsonicProgram to raw TypeScript program APIs", () => {
+    const offenders = collectTypeScriptFiles(frontendSrcRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) =>
+          line.includes("program.program.")
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1}`,
+              ]
+            : []
+        );
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("does not expose the raw TSTS compiler program outside the source-program adapter", () => {
+    const sourceProgramPath = path.join(
+      frontendSrcRoot,
+      "source-frontend/tsts-source-program.ts"
+    );
+    const text = fs.readFileSync(sourceProgramPath, "utf8");
+
+    expect(text).not.to.include("readonly compilerProgram");
+    expect(text).not.to.include("readonly extensionHost");
+    expect(text).not.to.include("readonly facts: ExtensionFacts");
+  });
+
+  it("keeps source-front TSTS integration on the public TSTS API", () => {
+    const tstsIntegrationRoots = [
+      path.join(frontendSrcRoot, "source-frontend"),
+      path.join(frontendSrcRoot, "tsonic-extension"),
+    ];
+    const offenders = tstsIntegrationRoots.flatMap((root) =>
+      collectTypeScriptFiles(root)
+        .filter((filePath) => !isBoundaryFile(filePath))
+        .flatMap((filePath) => {
+          const text = fs.readFileSync(filePath, "utf8");
+          const lines = text.split(/\r?\n/);
+          return lines.flatMap((line, index) => {
+            const importsPrivateTsts =
+              line.includes("@tsonic/tsts/") ||
+              line.includes("packages/tsts/src/internal/") ||
+              line.includes("../internal/ast/") ||
+              line.includes("../internal/checker/");
+            return importsPrivateTsts
+              ? [
+                  `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1}`,
+                ]
+              : [];
+          });
+        })
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps lowering and storage decisions out of the TSTS source extension", () => {
+    const extensionRoot = path.join(frontendSrcRoot, "tsonic-extension");
+    const bannedTerms = [
+      "native-" + "array",
+      "storage",
+      "storageType",
+      "sourceExpressionStorageProjection",
+      "sourceRuntimeArrayCallProjection",
+      "sourceRuntimeObjectCallProjection",
+      "projectionAssignableTo",
+      "declaredArmForNarrowedProjection",
+      "nonNullishProjection",
+      "projectionIsAritySentinel",
+      "projectedConditionalBranch",
+      "projectedConditionalTypeFromSyntax",
+      "receiverTypeSubstitutionsForCall",
+      "explicitSignatureTypeSubstitutionsForCall",
+      "signatureTypeSubstitutionsForCall",
+      "signatureTypeParameterSubstitutions",
+      "receiverTypeArgumentsForOwner",
+      "namedProjectionForGenericOwner",
+      "inferTypeParameterSubstitutionsFromProjection",
+      "inferConditionalPatternSubstitutions",
+      "conditionalTypeProjection",
+      "mappedTypeProjection",
+      "mappedMemberTypeProjection",
+      "findNamedProjectedTypeForDeclaration",
+      "for storage lowering",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(extensionRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps TSTS checker calls out of lowering", () => {
+    const loweringRoot = path.join(frontendSrcRoot, "lowering");
+    const bannedTerms = [
+      ".withTypeChecker(",
+      "checker.get",
+      "checker.is",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(loweringRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps expression type classification out of lowering", () => {
+    const loweringPlanBuilders = fs.readFileSync(
+      path.join(frontendSrcRoot, "lowering/plan-builders.ts"),
+      "utf8"
+    );
+    const bannedTerms = [
+      "expressionSourceTypePlan",
+      "declarationSourceTypePlan",
+      "sourceOperation.owner",
+      "sourceOperation.member",
+    ] as const;
+
+    const offenders = bannedTerms.filter((term) =>
+      loweringPlanBuilders.includes(term)
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps backend array storage markers out of frontend", () => {
+    const bannedTerms = [
+      "native-" + "array",
+      "readonly storage" + "?:",
+      ".storage" + " ===",
+      ".storage" + " !==",
+    ] as const;
+    const offenders = collectTypeScriptFiles(frontendSrcRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("defines source-extension facts directly on TSTS fact primitives", () => {
+    const sourceFactsPath = path.join(
+      frontendSrcRoot,
+      "source-frontend/source-facts.ts"
+    );
+    const text = fs.readFileSync(sourceFactsPath, "utf8");
+
+    expect(text).to.include('from "@tsonic/tsts"');
+    expect(text).to.include("ExtensionFactKeyLike");
+    expect(text).to.include("defineExtensionFactKey");
+    expect(text).not.to.include("defineSourceSemanticFactKey");
+    expect(text).not.to.include("new WeakMap");
+    expect(text).not.to.include("Map<string, unknown>");
+  });
+
+  it("does not expose call-return AST bridges from source facts", () => {
+    const sourceFactsPath = path.join(
+      frontendSrcRoot,
+      "source-frontend/source-facts.ts"
+    );
+    const text = fs.readFileSync(sourceFactsPath, "utf8");
+
+    expect(text).not.to.include("returnTypeNode");
+  });
+
+  it("does not keep semantic-view bridge modules", () => {
+    expect(
+      fs.existsSync(
+        path.join(frontendSrcRoot, "source-frontend/semantic-view.ts")
+      )
+    ).to.equal(false);
+    expect(
+      fs.existsSync(
+        path.join(frontendSrcRoot, "source-frontend/tsts-semantic-view.ts")
+      )
+    ).to.equal(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          frontendSrcRoot,
+          "source-frontend/frontend-source-semantic-view.ts"
+        )
+      )
+    ).to.equal(false);
+  });
+
+  it("does not export semantic bridge factories from the source frontend barrel", () => {
+    const sourceFrontendIndexPath = path.join(
+      frontendSrcRoot,
+      "source-frontend/index.ts"
+    );
+    const text = fs.readFileSync(sourceFrontendIndexPath, "utf8");
+
+    expect(text).not.to.include("createTypeScriptSemanticView");
+    expect(text).not.to.include("typescript-semantic-view.js");
+    expect(text).not.to.include("createTstsSemanticView");
+    expect(text).not.to.include("tsts-semantic-view.js");
+  });
+
+  it("does not keep a TSTS-to-TypeScript fact projection bridge", () => {
+    const bannedProjectionTerms = [
+      "projectTstsFactsTo" + "TypeScriptSource",
+      "tsts-fact-" + "projection",
+    ] as const;
+    const offenders = collectTypeScriptFiles(frontendSrcRoot).flatMap(
+      (filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) =>
+          bannedProjectionTerms.some((term) => line.includes(term))
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1}`,
+              ]
+            : []
+        );
+      }
+    );
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("does not keep frontend bridge casts or non-null suppression comments", () => {
+    const bannedTerms = [
+      "as unknown as",
+      "undefined!",
+      "eslint-disable-next-line @typescript-eslint/no-non-null-assertion",
+    ] as const;
+    const offenders = collectTypeScriptFiles(frontendSrcRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const term = bannedTerms.find((candidate) =>
+            line.includes(candidate)
+          );
+          return term
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${term}`,
+              ]
+            : [];
+        });
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
+
+  it("keeps product reads of raw program fields behind program queries", () => {
+    const allowedFiles = new Set([
+      "program/queries.ts",
+      "lowering/pipeline.ts",
+    ]);
+    const bannedReads = [
+      "program.sourceFiles",
+      "program.declarationSourceFiles",
+      "program.runtimeSourceFiles",
+    ] as const;
+
+    const offenders = collectTypeScriptFiles(frontendSrcRoot)
+      .filter((filePath) => !isBoundaryFile(filePath))
+      .filter(
+        (filePath) =>
+          !allowedFiles.has(
+            normalizePath(path.relative(frontendSrcRoot, filePath))
+          )
+      )
+      .flatMap((filePath) => {
+        const text = fs.readFileSync(filePath, "utf8");
+        const lines = text.split(/\r?\n/);
+        return lines.flatMap((line, index) => {
+          const read = bannedReads.find((candidate) =>
+            line.includes(candidate)
+          );
+          return read
+            ? [
+                `${normalizePath(path.relative(repoRoot, filePath))}:${index + 1} ${read}`,
+              ]
+            : [];
+        });
+      });
+
+    expect(offenders).to.deep.equal([]);
+  });
+});

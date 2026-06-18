@@ -30,7 +30,11 @@ class NodeFile implements File {
 
   Write(p: GoSlice<byte>): [int, GoError] {
     try {
-      return [nodeFs.writeSync(this.fd, toNodeBytes(p), 0, p.length) as int, undefined];
+      const bytes = toNodeBytes(p);
+      return [
+        nodeFs.writeSync(this.fd, bytes, 0, bytes.length) as int,
+        undefined,
+      ];
     } catch (error) {
       return [0 as int, normalizeError(error)];
     }
@@ -81,13 +85,12 @@ class stdioFile implements File {
 
   Write(p: GoSlice<byte>): [int, GoError] {
     try {
-      const bytes = Buffer.from(p);
-      const nodeBytes = toNodeBytes(bytes);
+      const bytes = toNodeBytes(p);
       if (this.fd >= 0) {
-        writeFullySync(this.fd, nodeBytes);
+        writeFullySync(this.fd, bytes);
         return [bytes.length as int, undefined];
       }
-      this.stream.write(nodeBytes);
+      this.stream.write(bytes);
       return [bytes.length as int, undefined];
     } catch (error) {
       return [0 as int, normalizeError(error)];
@@ -96,13 +99,12 @@ class stdioFile implements File {
 
   WriteString(s: string): [int, GoError] {
     try {
-      const bytes = Buffer.from(s, "utf8");
-      const nodeBytes = toNodeBytes(bytes);
+      const bytes = toNodeBytes(s);
       if (this.fd >= 0) {
-        writeFullySync(this.fd, nodeBytes);
+        writeFullySync(this.fd, bytes);
         return [bytes.length as int, undefined];
       }
-      this.stream.write(nodeBytes);
+      this.stream.write(bytes);
       return [bytes.length as int, undefined];
     } catch (error) {
       return [0 as int, normalizeError(error)];
