@@ -1792,7 +1792,7 @@ test("CLI emits omitted function and method return types from TSTS inferred sign
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects local destructuring until provider object-shape facts are finalized", async () => {
+test("CLI emits source-owned local object destructuring", async () => {
   const projectDirectory = resolve(tempRoot, "local-destructuring");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1830,11 +1830,22 @@ test("CLI rejects local destructuring until provider object-shape facts are fina
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Destructuring requires finalized TSTS\/provider object or collection shape facts/);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /var __destructure0 = point;/);
+  assert.match(generatedSource, /double x = __destructure0\.x;/);
+  assert.match(generatedSource, /double aliasX = __destructure\d+\.x;/);
+  assert.match(generatedSource, /double stringY = __destructure\d+\.y;/);
+  assert.match(generatedSource, /var __destructure\d+ = __destructure\d+\.child;/);
+  assert.match(generatedSource, /double nestedX = __destructure\d+\.x;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDestructuring.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects parameter destructuring until provider object-shape facts are finalized", async () => {
+test("CLI emits source-owned parameter and for-initializer object destructuring", async () => {
   const projectDirectory = resolve(tempRoot, "parameter-forof-destructuring");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1872,8 +1883,18 @@ test("CLI rejects parameter destructuring until provider object-shape facts are 
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Destructured parameters require finalized TSTS\/provider object-shape facts/);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double fromObjectParameter\(Point __param0\)/);
+  assert.match(generatedSource, /double x = __param0\.x;/);
+  assert.match(generatedSource, /var __destructure0 = point;/);
+  assert.match(generatedSource, /double x = __destructure0\.x;/);
+  assert.match(generatedSource, /for \(; x < 2; \)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedParameterForOfDestructuring.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects any and unknown before they trickle into C# output", async () => {
@@ -2630,6 +2651,11 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values.length;",
       "}",
       "",
+      "export function destruct(values: int32[]): int32 {",
+      "  const [first, second] = values;",
+      "  return first + second;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -2643,6 +2669,10 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return values\[index\];/);
   assert.match(generatedSource, /public static int count\(int\[\] values\)/);
   assert.match(generatedSource, /return values\.Length;/);
+  assert.match(generatedSource, /public static int destruct\(int\[\] values\)/);
+  assert.match(generatedSource, /int first = __destructure0\[0\];/);
+  assert.match(generatedSource, /int second = __destructure0\[1\];/);
+  assert.match(generatedSource, /return first \+ second;/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySurfaceOperations.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
@@ -2779,7 +2809,7 @@ test("CLI rejects structural object destructuring until target object-shape fact
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Destructured parameters require finalized TSTS\/provider object-shape facts/);
+  assert.match(build.stderr, /Object destructuring requires a source-owned declaration or finalized provider object-shape facts/);
 });
 
 test("CLI rejects structural binary operators without selected target facts", async () => {

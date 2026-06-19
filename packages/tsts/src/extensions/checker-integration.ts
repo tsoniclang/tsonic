@@ -40,11 +40,15 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
     return;
   }
 
+  const calleeSymbol = Checker_GetSymbolAtLocation(checker, callee);
+  const calleeType = Checker_getTypeOfExpression(checker, callee);
   const result = extensionHost.runDecision(
     ExtensionDecisionQuestion.resolveCall,
     {
       call: callExpression,
       callee,
+      ...(calleeSymbol !== undefined ? { calleeSymbol } : {}),
+      ...(calleeType !== undefined ? { calleeType } : {}),
       arguments: definedFactSubjects(Node_Arguments(callExpression) ?? []),
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },

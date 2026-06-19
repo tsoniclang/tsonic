@@ -30,6 +30,7 @@ export {
   Node_Symbol,
   Node_Statements,
   Node_Text,
+  Node_Type,
   SourceFile_FileName,
 } from "./internal/ast/ast.js";
 export { Node_Name } from "./internal/ast/spine.js";
