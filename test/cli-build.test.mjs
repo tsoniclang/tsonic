@@ -857,6 +857,65 @@ test("CLI rejects invalid C# target namespace segments", async () => {
   assert.match(build.stderr, /C# target option 'namespace' must be a dot-separated C# identifier path/);
 });
 
+test("CLI rejects non-string C# target namespace option", async () => {
+  const projectDirectory = resolve(tempRoot, "csharp-invalid-namespace-type");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: 42,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function read(): number {",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# target option 'namespace' must be a non-empty string/);
+});
+
+test("CLI rejects invalid C# target assembly name", async () => {
+  const projectDirectory = resolve(tempRoot, "csharp-invalid-assembly-name");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "../Bad",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function read(): number {",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# target option 'assemblyName' must be a file-safe \.NET assembly name/);
+});
+
 test("CLI emits TypeScript rest parameters as C# params arrays", async () => {
   const projectDirectory = resolve(tempRoot, "rest-parameters");
   await writeProject(projectDirectory, {
