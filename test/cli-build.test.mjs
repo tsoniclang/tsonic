@@ -266,6 +266,40 @@ test("CLI emits provider-owned static C# calls from selected TSTS target facts",
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects provider-owned calls when argument carriers do not match the selected target signature", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-static-call-carrier-mismatch");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderStaticCallCarrierMismatch",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Convert } from \"@tsonic/csharp/lang.js\";",
+      "import type { int32, uint8 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function toByte(value: int32): uint8 {",
+      "  return Convert.toByte(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderStaticCallCarrierMismatch.csproj")), false);
+});
+
 test("CLI emits provider-owned static C# properties from selected TSTS target facts", async () => {
   const projectDirectory = resolve(tempRoot, "provider-static-properties");
   await writeProject(projectDirectory, {

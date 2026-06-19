@@ -47,6 +47,13 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
   const calleeSymbol = getCallCalleeSymbol(checker, callee);
   const resolvedCalleeSymbol = getCallCalleeResolvedSymbol(checker, callee);
   const calleeType = Checker_getTypeOfExpression(checker, callee);
+  const argumentNodes = definedFactSubjects(Node_Arguments(callExpression) ?? []);
+  const argumentSymbols = argumentNodes.map((argument) =>
+    isNodeSubject(argument) ? getCallArgumentSymbol(checker, argument) : undefined);
+  const resolvedArgumentSymbols = argumentNodes.map((argument) =>
+    isNodeSubject(argument) ? getCallArgumentResolvedSymbol(checker, argument) : undefined);
+  const argumentTypes = argumentNodes.map((argument) =>
+    isNodeSubject(argument) ? Checker_getTypeOfExpression(checker, argument) : undefined);
   const result = extensionHost.runDecision(
     ExtensionDecisionQuestion.resolveCall,
     {
@@ -59,7 +66,10 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
       ...(calleeSymbol !== undefined ? { calleeSymbol } : {}),
       ...(resolvedCalleeSymbol !== undefined && resolvedCalleeSymbol !== calleeSymbol ? { resolvedCalleeSymbol } : {}),
       ...(calleeType !== undefined ? { calleeType } : {}),
-      arguments: definedFactSubjects(Node_Arguments(callExpression) ?? []),
+      arguments: argumentNodes,
+      argumentSymbols,
+      resolvedArgumentSymbols,
+      argumentTypes,
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
@@ -334,6 +344,28 @@ function getCallReceiverResolvedSymbol(checker: GoPtr<CheckerWithProgram>, recei
     case KindPropertyAccessExpression:
     case KindElementAccessExpression:
       return Checker_getResolvedSymbol(checker, receiver);
+    default:
+      return undefined;
+  }
+}
+
+function getCallArgumentSymbol(checker: GoPtr<CheckerWithProgram>, argument: GoPtr<Node>): GoPtr<Symbol> {
+  switch (argument?.Kind) {
+    case KindIdentifier:
+    case KindPropertyAccessExpression:
+    case KindElementAccessExpression:
+      return Checker_GetSymbolAtLocation(checker, argument);
+    default:
+      return undefined;
+  }
+}
+
+function getCallArgumentResolvedSymbol(checker: GoPtr<CheckerWithProgram>, argument: GoPtr<Node>): GoPtr<Symbol> {
+  switch (argument?.Kind) {
+    case KindIdentifier:
+    case KindPropertyAccessExpression:
+    case KindElementAccessExpression:
+      return Checker_getResolvedSymbol(checker, argument);
     default:
       return undefined;
   }
@@ -699,6 +731,12 @@ function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, ca
 
 function definedFactSubjects<T extends object>(subjects: readonly (T | undefined)[]): readonly ExtensionFactSubject[] {
   return subjects.filter((subject): subject is T => subject !== undefined);
+}
+
+function isNodeSubject(subject: ExtensionFactSubject): subject is Node {
+  return typeof subject === "object" &&
+    subject !== null &&
+    typeof (subject as { readonly Kind?: unknown }).Kind === "number";
 }
 
 function hasExtensionOwnedSubject(extensionHost: ExtensionHost, subject: ExtensionFactSubject | undefined): boolean {

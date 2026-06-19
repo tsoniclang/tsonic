@@ -82,6 +82,9 @@ export interface ResolveCallRequest {
   readonly resolvedCalleeSymbol?: ExtensionFactSubject;
   readonly calleeType?: ExtensionFactSubject;
   readonly arguments: readonly ExtensionFactSubject[];
+  readonly argumentSymbols?: readonly (ExtensionFactSubject | undefined)[];
+  readonly resolvedArgumentSymbols?: readonly (ExtensionFactSubject | undefined)[];
+  readonly argumentTypes?: readonly (ExtensionFactSubject | undefined)[];
   readonly target?: string;
 }
 
