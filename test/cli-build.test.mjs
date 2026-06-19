@@ -604,6 +604,50 @@ test("CLI emits TypeScript rest parameters as C# params arrays", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits literal default parameters as C# optional parameters", async () => {
+  const projectDirectory = resolve(tempRoot, "default-parameters");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedDefaultParameters",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function add(value: number = 3, enabled: boolean = true, label: string = \"x\"): number {",
+      "  if (enabled) {",
+      "    return value;",
+      "  }",
+      "  return 0;",
+      "}",
+      "",
+      "export function callDefault(): number {",
+      "  return add();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double add\(double value = 3, bool enabled = true, string label = "x"\)/);
+  assert.match(generatedSource, /return add\(\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaultParameters.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rewrites mixed-type for initializers into C# prelude locals", async () => {
   const projectDirectory = resolve(tempRoot, "mixed-for-initializers");
   await writeProject(projectDirectory, {
