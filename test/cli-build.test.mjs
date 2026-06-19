@@ -1644,6 +1644,54 @@ test("CLI emits nullable C# types only for nullish TSTS unions", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits typed object literals as C# object initializers", async () => {
+  const projectDirectory = resolve(tempRoot, "typed-object-initializers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedObjectInitializers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Box {",
+      "  value: number = 0;",
+      "  label: string = \"\";",
+      "}",
+      "",
+      "export function createExplicit(): Box {",
+      "  const box: Box = { value: 1, label: \"one\" };",
+      "  return box;",
+      "}",
+      "",
+      "export function createShorthand(value: number): Box {",
+      "  const box: Box = { value, label: \"two\" };",
+      "  return box;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Box box = new Box\n\s*\{\n\s*value = 1,\n\s*label = "one",\n\s*\};/);
+  assert.match(generatedSource, /Box box = new Box\n\s*\{\n\s*value = value,\n\s*label = "two",\n\s*\};/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectInitializers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects non-nullish unions until runtime-carrier facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "runtime-carrier-unions");
   await writeProject(projectDirectory, {
