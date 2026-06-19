@@ -447,14 +447,24 @@ test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
       "}",
       "",
       "export class Base {",
+      "  start: number;",
+      "",
+      "  constructor(start: number) {",
+      "    this.start = start;",
+      "  }",
+      "",
       "  value(): number {",
-      "    return 1;",
+      "    return this.start;",
       "  }",
       "}",
       "",
       "export class Derived extends Base {",
+      "  constructor(start: number) {",
+      "    super(start);",
+      "  }",
+      "",
       "  extra(): number {",
-      "    return this.value();",
+      "    return super.value() + 1;",
       "  }",
       "}",
       "",
@@ -482,6 +492,8 @@ test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
   assert.match(generatedSource, /public interface Named/);
   assert.match(generatedSource, /string name \{ get; \}/);
   assert.match(generatedSource, /public class Derived : Base/);
+  assert.match(generatedSource, /public Derived\(double start\) : base\(start\)/);
+  assert.match(generatedSource, /return base\.value\(\) \+ 1;/);
   assert.match(generatedSource, /public class Box<T> : Getter<T>/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
