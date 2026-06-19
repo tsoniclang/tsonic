@@ -10,7 +10,7 @@ import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import { Checker_getTypeOfExpression } from "../internal/checker/checker/types.js";
-import { Checker_GetSymbolAtLocation } from "../internal/checker/checker/symbols.js";
+import { Checker_GetSymbolAtLocation, Checker_getResolvedSymbol } from "../internal/checker/checker/symbols.js";
 import { ExtensionDecisionQuestion } from "./decisions.js";
 import type { AssignabilityRequest, ContextualTypeRequest, ContextualTypeResult, InferTypeArgumentsRequest, InferTypeArgumentsResult, ParameterModeRequest, ParameterModeResult, ResolveCallRequest, ResolveCallResult, ResolveConversionRequest, ResolveConversionResult, ResolveElementAccessRequest, ResolveOperationResult, ResolveOperatorRequest, ResolvePropertyAccessRequest, RuntimeCarrierRequest, RuntimeCarrierResult, SatisfiesConstraintRequest, ValidateFlowUseRequest, ValidateFlowUseResult } from "./decisions.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetIterationFactKey, targetOperationFactKey } from "./facts.js";
@@ -40,7 +40,8 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
     return;
   }
 
-  const calleeSymbol = Checker_GetSymbolAtLocation(checker, callee);
+  const calleeSymbol = getCallCalleeSymbol(checker, callee);
+  const resolvedCalleeSymbol = getCallCalleeResolvedSymbol(checker, callee);
   const calleeType = Checker_getTypeOfExpression(checker, callee);
   const result = extensionHost.runDecision(
     ExtensionDecisionQuestion.resolveCall,
@@ -48,6 +49,7 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
       call: callExpression,
       callee,
       ...(calleeSymbol !== undefined ? { calleeSymbol } : {}),
+      ...(resolvedCalleeSymbol !== undefined && resolvedCalleeSymbol !== calleeSymbol ? { resolvedCalleeSymbol } : {}),
       ...(calleeType !== undefined ? { calleeType } : {}),
       arguments: definedFactSubjects(Node_Arguments(callExpression) ?? []),
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
@@ -256,6 +258,28 @@ function getOperatorOperandSymbol(checker: GoPtr<CheckerWithProgram>, operand: G
     case KindPropertyAccessExpression:
     case KindElementAccessExpression:
       return Checker_GetSymbolAtLocation(checker, operand);
+    default:
+      return undefined;
+  }
+}
+
+function getCallCalleeSymbol(checker: GoPtr<CheckerWithProgram>, callee: GoPtr<Node>): GoPtr<Symbol> {
+  switch (callee?.Kind) {
+    case KindIdentifier:
+    case KindPropertyAccessExpression:
+    case KindElementAccessExpression:
+      return Checker_GetSymbolAtLocation(checker, callee);
+    default:
+      return undefined;
+  }
+}
+
+function getCallCalleeResolvedSymbol(checker: GoPtr<CheckerWithProgram>, callee: GoPtr<Node>): GoPtr<Symbol> {
+  switch (callee?.Kind) {
+    case KindIdentifier:
+    case KindPropertyAccessExpression:
+    case KindElementAccessExpression:
+      return Checker_getResolvedSymbol(checker, callee);
     default:
       return undefined;
   }

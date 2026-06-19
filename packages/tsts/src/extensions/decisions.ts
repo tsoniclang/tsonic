@@ -75,6 +75,7 @@ export interface ResolveCallRequest {
   readonly call: ExtensionFactSubject;
   readonly callee: ExtensionFactSubject;
   readonly calleeSymbol?: ExtensionFactSubject;
+  readonly resolvedCalleeSymbol?: ExtensionFactSubject;
   readonly calleeType?: ExtensionFactSubject;
   readonly arguments: readonly ExtensionFactSubject[];
   readonly target?: string;

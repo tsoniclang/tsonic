@@ -1626,6 +1626,44 @@ test("CLI rejects throw statements until provider exception facts are finalized"
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedThrowFacts.csproj")), false);
 });
 
+test("CLI emits provider-backed C# exception throws", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-backed-exception-throw");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderExceptionThrow",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Exception } from \"@tsonic/csharp/lang.js\";",
+      "",
+      "export function fail(): never {",
+      "  throw new Exception(\"failed\");",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /throw new System\.Exception\("failed"\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderExceptionThrow.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects catch variables until provider exception facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "catch-variable-requires-provider-facts");
   await writeProject(projectDirectory, {
