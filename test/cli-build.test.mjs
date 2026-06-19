@@ -692,6 +692,59 @@ test("CLI rewrites mixed-type for initializers into C# prelude locals", async ()
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI lowers labeled break and continue into deterministic C# labels", async () => {
+  const projectDirectory = resolve(tempRoot, "labeled-control-flow");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedLabeledControlFlow",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function count(limit: number): number {",
+      "  let total = 0;",
+      "  outer: for (let row = 0; row < limit; row++) {",
+      "    for (let column = 0; column < limit; column++) {",
+      "      if (column === 1) {",
+      "        continue outer;",
+      "      }",
+      "      if (row === 2) {",
+      "        break outer;",
+      "      }",
+      "      total = total + 1;",
+      "    }",
+      "  }",
+      "  return total;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /goto __label\d+_outer_continue;/);
+  assert.match(generatedSource, /goto __label\d+_outer_break;/);
+  assert.match(generatedSource, /__label\d+_outer_continue:/);
+  assert.match(generatedSource, /__label\d+_outer_break:/);
+  assert.doesNotMatch(generatedSource, /Labeled break requires/);
+  assert.doesNotMatch(generatedSource, /Labeled continue requires/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedLabeledControlFlow.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits standard JavaScript static class members", async () => {
   const projectDirectory = resolve(tempRoot, "static-class-members");
   await writeProject(projectDirectory, {
