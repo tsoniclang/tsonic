@@ -182,6 +182,80 @@ test("CLI resolves neutral source primitives through provider modules", async ()
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits C# generic declarations from TSTS generic AST", async () => {
+  const projectDirectory = resolve(tempRoot, "generic-declarations");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedGenerics",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Box<T> {",
+      "  value: T;",
+      "",
+      "  constructor(value: T) {",
+      "    this.value = value;",
+      "  }",
+      "",
+      "  get(): T {",
+      "    return this.value;",
+      "  }",
+      "}",
+      "",
+      "export function identity<T>(value: T): T {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public class Box<T>/);
+  assert.match(generatedSource, /public T value;/);
+  assert.match(generatedSource, /public Box\(T value\)/);
+  assert.match(generatedSource, /public T get\(\)/);
+  assert.match(generatedSource, /public static T identity<T>\(T value\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedGenerics.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects generic constraints until target constraint facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "generic-constraints");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function constrained<T extends object>(value: T): T {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Generic constraints require finalized target constraint facts/);
+});
+
 test("CLI reports unsupported property enumeration semantics instead of guessing", async () => {
   const projectDirectory = resolve(tempRoot, "unsupported-for-in");
   await writeProject(projectDirectory, {
