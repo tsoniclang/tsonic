@@ -1884,8 +1884,50 @@ test("CLI rejects primitive generic constraints until provider constraint facts 
   assert.match(build.stderr, /Generic constraints require a named target type/);
 });
 
-test("CLI reports unsupported property enumeration semantics instead of guessing", async () => {
-  const projectDirectory = resolve(tempRoot, "unsupported-for-in");
+test("CLI lowers array for-in into deterministic C# index-key loops", async () => {
+  const projectDirectory = resolve(tempRoot, "array-for-in");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArrayForIn",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function countKeys(values: number[]): number {",
+      "  let total = 0;",
+      "  for (const key in values) {",
+      "    total = total + key.length;",
+      "  }",
+      "  return total;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /for \(int __forInIndex0 = 0; __forInIndex0 < values\.Length; __forInIndex0\+\+\)/);
+  assert.match(generatedSource, /string key = __forInIndex0\.ToString\(\);/);
+  assert.match(generatedSource, /total = total \+ key\.Length;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayForIn.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects object for-in until target object-shape enumeration facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-object-for-in");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -1894,7 +1936,11 @@ test("CLI reports unsupported property enumeration semantics instead of guessing
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "export function countKeys(values: number[]): number {",
+      "export interface Bag {",
+      "  value: number;",
+      "}",
+      "",
+      "export function countKeys(values: Bag): number {",
       "  let total = 0;",
       "  for (const key in values) {",
       "    total = total + 1;",
@@ -1907,7 +1953,7 @@ test("CLI reports unsupported property enumeration semantics instead of guessing
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /For-in requires target property enumeration semantics/);
+  assert.match(build.stderr, /For-in requires a statically proven string or array collection/);
 });
 
 test("CLI rejects structural object destructuring until target object-shape facts are finalized", async () => {
