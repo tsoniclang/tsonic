@@ -2580,6 +2580,14 @@ test("CLI emits source-owned typed object literals as C# object initializers", a
       "  label: string = \"\";",
       "}",
       "",
+      "export class WithCtor {",
+      "  value: number = 0;",
+      "",
+      "  constructor() {",
+      "    this.value = 0;",
+      "  }",
+      "}",
+      "",
       "export function createExplicit(): Box {",
       "  const box: Box = { value: 1, label: \"one\" };",
       "  return box;",
@@ -2598,6 +2606,10 @@ test("CLI emits source-owned typed object literals as C# object initializers", a
       "  return flag ? { value, label: \"yes\" } : { value: 0, label: \"no\" };",
       "}",
       "",
+      "export function createWithCtor(value: number): WithCtor {",
+      "  return { value };",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -2609,6 +2621,7 @@ test("CLI emits source-owned typed object literals as C# object initializers", a
   assert.match(generatedSource, /Box box = new Box\s*\{\s*value = value,\s*label = "two",\s*\};/);
   assert.match(generatedSource, /return new Box\s*\{\s*value = value,\s*label = "three",\s*\};/);
   assert.match(generatedSource, /return flag \? new Box\s*\{\s*value = value,\s*label = "yes",\s*\} : new Box\s*\{\s*value = 0,\s*label = "no",\s*\};/);
+  assert.match(generatedSource, /return new WithCtor\s*\{\s*value = value,\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectInitializers.csproj"), "--nologo", "--v:minimal"]);
