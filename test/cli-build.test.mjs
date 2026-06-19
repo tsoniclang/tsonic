@@ -1693,8 +1693,8 @@ test("CLI rejects lambdas without contextual target delegate facts", async () =>
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedLambdaFacts.csproj")), false);
 });
 
-test("CLI rejects omitted function return types until return facts are finalized", async () => {
-  const projectDirectory = resolve(tempRoot, "return-type-requires-facts");
+test("CLI emits omitted function and method return types from TSTS inferred signatures", async () => {
+  const projectDirectory = resolve(tempRoot, "inferred-return-types");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -1705,7 +1705,7 @@ test("CLI rejects omitted function return types until return facts are finalized
           id: "csharp",
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedReturnFacts",
+            assemblyName: "SmokeGeneratedInferredReturns",
           },
         },
       ],
@@ -1715,13 +1715,31 @@ test("CLI rejects omitted function return types until return facts are finalized
       "  return 1;",
       "}",
       "",
+      "export function sideEffect(value: number) {",
+      "  let copy = value;",
+      "}",
+      "",
+      "export class Counter {",
+      "  value: number = 0;",
+      "  current() {",
+      "    return this.value;",
+      "  }",
+      "}",
+      "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /function declaration emission requires an explicit return type or finalized TSTS\/provider return-type facts/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedReturnFacts.csproj")), false);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double inferred\(\)/);
+  assert.match(generatedSource, /public static void sideEffect\(double value\)/);
+  assert.match(generatedSource, /public double current\(\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedInferredReturns.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects local destructuring until provider object-shape facts are finalized", async () => {

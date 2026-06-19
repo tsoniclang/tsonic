@@ -7,7 +7,7 @@ import { Node_Text } from "../internal/ast/ast.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { Diagnostic_String } from "../internal/ast/diagnostic.js";
-import { KindArrowFunction, KindCallExpression, KindExpressionStatement, KindIdentifier, KindPropertyAccessExpression } from "../internal/ast/generated/kinds.js";
+import { KindArrowFunction, KindCallExpression, KindExpressionStatement, KindFunctionDeclaration, KindIdentifier, KindPropertyAccessExpression } from "../internal/ast/generated/kinds.js";
 import { LibPath, WrapFS } from "../internal/bundled/bundled.js";
 import type { CompilerOptions } from "../internal/core/compileroptions.js";
 import { NewCompilerHost } from "../internal/compiler/host.js";
@@ -22,6 +22,7 @@ import { createTypeCheckerQueries } from "../index.js";
 test("public type-checker queries expose TS-Go checker facts without emitter re-analysis", () => {
   const { program, index } = createProgram(`
     function id<T>(x: T): T { return x; }
+    function inferred() { return 123; }
     declare function takes(callback: (value: number) => void): void;
     declare let value: string | number;
 
@@ -50,6 +51,12 @@ test("public type-checker queries expose TS-Go checker facts without emitter re-
   const call = findFirstNodeByKind(index, KindCallExpression);
   const signature = queries.getResolvedSignature(call);
   assert.equal(signature?.parameters[0]?.Name, "x");
+
+  const inferredFunction = findFunctionDeclarationByName(index, "inferred");
+  const inferredSignature = queries.getSignatureFromDeclaration(inferredFunction);
+  assert.ok(inferredSignature !== undefined);
+  const inferredReturnType = queries.getReturnTypeOfSignature(inferredSignature);
+  assert.equal((inferredReturnType?.flags ?? 0) & TypeFlagsNumber, TypeFlagsNumber);
 
   const arrow = findFirstNodeByKind(index, KindArrowFunction);
   assert.ok(queries.getContextualType(arrow) !== undefined);
@@ -146,6 +153,17 @@ function findFirstNodeByKind(root: GoPtr<Node>, kind: number): GoPtr<Node> {
   let found: GoPtr<Node>;
   visitNodes(root, (node) => {
     if (found === undefined && node?.Kind === kind) {
+      found = node;
+    }
+  });
+  assert.ok(found !== undefined);
+  return found;
+}
+
+function findFunctionDeclarationByName(root: GoPtr<Node>, name: string): GoPtr<Node> {
+  let found: GoPtr<Node>;
+  visitNodes(root, (node) => {
+    if (found === undefined && node?.Kind === KindFunctionDeclaration && Node_Text(Node_Name(node)) === name) {
       found = node;
     }
   });
