@@ -56,6 +56,14 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
       "  return values[1];",
       "}",
       "",
+      "export function sum(values: number[]): number {",
+      "  let total = 0;",
+      "  for (const value of values) {",
+      "    total = total + value;",
+      "  }",
+      "  return total;",
+      "}",
+      "",
       "export function control(value: int): int {",
       "  let result: int = 0;",
       "  while (result < value) {",
@@ -95,6 +103,8 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
   const generatedSourcePath = resolve(projectDirectory, "out/csharp/src/Index.cs");
   const generatedSource = await readFile(generatedSourcePath, "utf8");
   assert.match(generatedSource, /public static int pick\(int\[\] values\)/);
+  assert.match(generatedSource, /public static double sum\(double\[\] values\)/);
+  assert.match(generatedSource, /foreach \(double value in values\)/);
   assert.match(generatedSource, /public static int control\(int value\)/);
   assert.match(generatedSource, /public Counter\(int initial\)/);
   assert.match(generatedSource, /for \(int i = 0; i < delta; i\+\+\)/);
@@ -168,8 +178,8 @@ test("CLI resolves neutral source primitives through provider modules", async ()
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI reports unsupported iteration semantics instead of guessing", async () => {
-  const projectDirectory = resolve(tempRoot, "unsupported-for-of");
+test("CLI reports unsupported property enumeration semantics instead of guessing", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-for-in");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -178,10 +188,10 @@ test("CLI reports unsupported iteration semantics instead of guessing", async ()
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "export function sum(values: number[]): number {",
+      "export function countKeys(values: number[]): number {",
       "  let total = 0;",
-      "  for (const value of values) {",
-      "    total = total + value;",
+      "  for (const key in values) {",
+      "    total = total + 1;",
       "  }",
       "  return total;",
       "}",
@@ -191,7 +201,7 @@ test("CLI reports unsupported iteration semantics instead of guessing", async ()
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /For-in\/for-of requires target collection iteration semantics/);
+  assert.match(build.stderr, /For-in requires target property enumeration semantics/);
 });
 
 test("CLI does not emit target artifacts when TSTS rejects the source program", async () => {
