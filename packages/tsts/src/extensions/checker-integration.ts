@@ -23,7 +23,13 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveCall) === undefined) {
+  if (
+    extensionHost === undefined ||
+    (
+      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveCall) === undefined &&
+      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolveCall)
+    )
+  ) {
     return;
   }
 
@@ -41,9 +47,9 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
-      throw new Error("Extension-owned call resolution unexpectedly reached core fallback.");
+      throw new Error("Optional extension call resolution unexpectedly reached core fallback.");
     },
-    { requireOwner: true },
+    { deferWhenUnanswered: true },
   );
 
   if (result.kind !== "accept") {

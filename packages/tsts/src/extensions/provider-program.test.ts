@@ -778,7 +778,7 @@ test("provider extensions can drive a realistic emitter-facing fact chain", () =
   assert.equal(consumer.getRuntimeCarrierFact(searchValuesTypeReference)?.carrier.kind, "target-named");
 });
 
-test("checker-owned target call seam reports deferred providers without fallback facts", () => {
+test("deferred provider call seams do not poison source calls", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
       declare function contains(value: number): boolean;
@@ -820,7 +820,7 @@ test("checker-owned target call seam reports deferred providers without fallback
 
   const call = findFirstNodeByKind(index, KindCallExpression);
   assert.equal(extended.extensionHost.facts.get(call, selectedTargetSignatureFactKey), undefined);
-  assert.equal(extended.extensionHost.diagnostics.all().at(-1)?.numericCode, ExtensionHostDiagnosticCode.decisionOwnerDeferred);
+  assert.equal(extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.decisionOwnerDeferred).length, 0);
 
   assert.equal(finalizeExtensionSemantics(options), extended.extensionHost);
   const consumer = createExtensionConsumerQueries(extended.extensionHost, "emitter");
