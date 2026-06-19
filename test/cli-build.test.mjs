@@ -836,6 +836,52 @@ test("CLI emits module-scope variables as C# static fields", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI routes top-level for-of statements through the C# module entrypoint", async () => {
+  const projectDirectory = resolve(tempRoot, "top-level-for-of");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedTopLevelForOf",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "let total = 0;",
+      "",
+      "for (const value of [1, 2, 3]) {",
+      "  total = total + value;",
+      "}",
+      "",
+      "export function read(): number {",
+      "  return total;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double total = 0;/);
+  assert.match(generatedSource, /public static void Main\(\)/);
+  assert.match(generatedSource, /foreach \(double value in new\[\] \{ 1, 2, 3 \}\)/);
+  assert.match(generatedSource, /total = total \+ value;/);
+  assert.doesNotMatch(generatedSource, /Top-level statement is outside/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTopLevelForOf.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits standard JavaScript static class members", async () => {
   const projectDirectory = resolve(tempRoot, "static-class-members");
   await writeProject(projectDirectory, {
