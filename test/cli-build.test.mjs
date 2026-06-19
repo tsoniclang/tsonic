@@ -1730,6 +1730,50 @@ test("CLI emits explicit tuple types and tuple literals as C# value tuples", asy
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits standard JavaScript class static blocks as C# static constructors", async () => {
+  const projectDirectory = resolve(tempRoot, "class-static-blocks");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStaticBlocks",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Counter {",
+      "  static value: number = 0;",
+      "  static {",
+      "    Counter.value = 3;",
+      "  }",
+      "}",
+      "",
+      "export function read(): number {",
+      "  return Counter.value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double value = 0;/);
+  assert.match(generatedSource, /static Counter\(\)\n\s*\{\n\s*Counter\.value = 3;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStaticBlocks.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects non-nullish unions until runtime-carrier facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "runtime-carrier-unions");
   await writeProject(projectDirectory, {
