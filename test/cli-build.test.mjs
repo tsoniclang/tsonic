@@ -1677,6 +1677,10 @@ test("CLI emits typed object literals as C# object initializers", async () => {
       "  return box;",
       "}",
       "",
+      "export function createReturn(value: number): Box {",
+      "  return { value, label: \"three\" };",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1686,6 +1690,7 @@ test("CLI emits typed object literals as C# object initializers", async () => {
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /Box box = new Box\n\s*\{\n\s*value = 1,\n\s*label = "one",\n\s*\};/);
   assert.match(generatedSource, /Box box = new Box\n\s*\{\n\s*value = value,\n\s*label = "two",\n\s*\};/);
+  assert.match(generatedSource, /return new Box\n\s*\{\n\s*value = value,\n\s*label = "three",\n\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectInitializers.csproj"), "--nologo", "--v:minimal"]);
@@ -1715,6 +1720,10 @@ test("CLI emits explicit tuple types and tuple literals as C# value tuples", asy
       "  return pair;",
       "}",
       "",
+      "export function returnPair(name: string, value: number): [string, number] {",
+      "  return [name, value];",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1724,6 +1733,8 @@ test("CLI emits explicit tuple types and tuple literals as C# value tuples", asy
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static \(string, double\) makePair\(string name, double value\)/);
   assert.match(generatedSource, /\(string, double\) pair = \(name, value\);/);
+  assert.match(generatedSource, /public static \(string, double\) returnPair\(string name, double value\)/);
+  assert.match(generatedSource, /return \(name, value\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTuples.csproj"), "--nologo", "--v:minimal"]);
