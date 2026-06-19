@@ -793,6 +793,70 @@ test("CLI escapes TypeScript identifiers that are C# reserved words", async () =
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI validates and escapes C# target namespace segments", async () => {
+  const projectDirectory = resolve(tempRoot, "csharp-keyword-namespace");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "event.operator",
+            assemblyName: "SmokeGeneratedCsharpKeywordNamespace",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function read(): number {",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /namespace @event\.@operator/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCsharpKeywordNamespace.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects invalid C# target namespace segments", async () => {
+  const projectDirectory = resolve(tempRoot, "csharp-invalid-namespace");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Bad-Name",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function read(): number {",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# target option 'namespace' must be a dot-separated C# identifier path/);
+});
+
 test("CLI emits TypeScript rest parameters as C# params arrays", async () => {
   const projectDirectory = resolve(tempRoot, "rest-parameters");
   await writeProject(projectDirectory, {
