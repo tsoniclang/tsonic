@@ -272,6 +272,7 @@ export {
 } from "./internal/ast/generated/kinds.js";
 export type { Node, SourceFile } from "./internal/ast/ast.js";
 export type { Symbol } from "./internal/ast/symbol.js";
+export { IsTypeNode } from "./internal/ast/utilities.js";
 export {
   Type_AsTypeReference,
   TypeFlagsAny,

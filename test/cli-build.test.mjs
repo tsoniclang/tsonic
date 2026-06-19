@@ -2909,6 +2909,38 @@ test("CLI emits interface object literals through provider object-shape adapters
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits generic interface object literals through specialized provider adapters", async () => {
+  const projectDirectory = resolve(tempRoot, "generic-interface-object-initializers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export interface Box<T> {",
+      "  value: T;",
+      "  label: string;",
+      "}",
+      "",
+      "export function create(): Box<number> {",
+      "  return { value: 1, label: \"one\" };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+  const generated = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generated, /public interface Box<T>[\s\S]*T value \{ get; \}[\s\S]*string label \{ get; \}/);
+  assert.match(generated, /public class __TsonicShape_Box_[A-Za-z0-9_]+ : Box<double>[\s\S]*public double value[\s\S]*get;[\s\S]*set;[\s\S]*public string label[\s\S]*get;[\s\S]*set;/);
+  assert.match(generated, /public static Box<double> create\(\)[\s\S]*return new __TsonicShape_Box_[A-Za-z0-9_]+[\s\S]*value = 1,[\s\S]*label = "one",/);
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects class object literals when parameterless construction is unavailable", async () => {
   const projectDirectory = resolve(tempRoot, "required-constructor-object-initializers");
   await writeProject(projectDirectory, {
