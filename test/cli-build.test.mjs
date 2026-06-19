@@ -1401,6 +1401,37 @@ test("CLI rejects async functions until provider async facts are finalized", asy
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedAsyncFacts.csproj")), false);
 });
 
+test("CLI rejects throw statements until provider exception facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "throw-requires-provider-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedThrowFacts",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function fail(): never {",
+      "  throw 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Throw statements require finalized TSTS\/provider exception-carrier facts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedThrowFacts.csproj")), false);
+});
+
 test("CLI rejects local destructuring until provider object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "local-destructuring");
   await writeProject(projectDirectory, {
