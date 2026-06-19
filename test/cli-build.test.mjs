@@ -730,11 +730,17 @@ test("CLI lowers deterministic local destructuring from TSTS binding patterns", 
       "  values: number[] = [];",
       "}",
       "",
-      "export function local(point: Point): number {",
+      "export class Box {",
+      "  child: Point = new Point();",
+      "}",
+      "",
+      "export function local(point: Point, box: Box): number {",
       "  const { x } = point;",
+      "  const { x: aliasX, \"y\": stringY } = point;",
+      "  const { child: { x: nestedX } } = box;",
       "  const [first] = point.values;",
       "  const [, second] = point.values;",
-      "  return x + first + second;",
+      "  return x + aliasX + stringY + nestedX + first + second;",
       "}",
       "",
     ].join("\n"),
@@ -746,10 +752,16 @@ test("CLI lowers deterministic local destructuring from TSTS binding patterns", 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /var __destructure0 = point;/);
   assert.match(generatedSource, /double x = __destructure0\.x;/);
-  assert.match(generatedSource, /var __destructure1 = point\.values;/);
-  assert.match(generatedSource, /double first = __destructure1\[0\];/);
-  assert.match(generatedSource, /var __destructure2 = point\.values;/);
-  assert.match(generatedSource, /double second = __destructure2\[1\];/);
+  assert.match(generatedSource, /var __destructure1 = point;/);
+  assert.match(generatedSource, /double aliasX = __destructure1\.x;/);
+  assert.match(generatedSource, /double stringY = __destructure1\.y;/);
+  assert.match(generatedSource, /var __destructure2 = box;/);
+  assert.match(generatedSource, /var __destructure3 = __destructure2\.child;/);
+  assert.match(generatedSource, /double nestedX = __destructure3\.x;/);
+  assert.match(generatedSource, /var __destructure4 = point\.values;/);
+  assert.match(generatedSource, /double first = __destructure4\[0\];/);
+  assert.match(generatedSource, /var __destructure5 = point\.values;/);
+  assert.match(generatedSource, /double second = __destructure5\[1\];/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDestructuring.csproj"), "--nologo", "--v:minimal"]);
