@@ -882,6 +882,16 @@ test("CLI emits C# generic declarations from TSTS generic AST", async () => {
       "  return value;",
       "}",
       "",
+      "export function hold<T>(value: T): T {",
+      "  const current = value;",
+      "  return current;",
+      "}",
+      "",
+      "export function sameBox<T>(box: Box<T>): Box<T> {",
+      "  const current = box;",
+      "  return current;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -894,6 +904,10 @@ test("CLI emits C# generic declarations from TSTS generic AST", async () => {
   assert.match(generatedSource, /public Box\(T value\)/);
   assert.match(generatedSource, /public T get\(\)/);
   assert.match(generatedSource, /public static T identity<T>\(T value\)/);
+  assert.match(generatedSource, /public static T hold<T>\(T value\)/);
+  assert.match(generatedSource, /T current = value;/);
+  assert.match(generatedSource, /public static Box<T> sameBox<T>\(Box<T> box\)/);
+  assert.match(generatedSource, /Box<T> current = box;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedGenerics.csproj"), "--nologo", "--v:minimal"]);

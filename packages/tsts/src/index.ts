@@ -222,12 +222,14 @@ export {
 export type { Node, SourceFile } from "./internal/ast/ast.js";
 export type { Symbol } from "./internal/ast/symbol.js";
 export {
+  Type_AsTypeReference,
   TypeFlagsAny,
   TypeFlagsBigIntLike,
   TypeFlagsBooleanLike,
   TypeFlagsNever,
   TypeFlagsNumberLike,
   TypeFlagsStringLike,
+  TypeFlagsTypeParameter,
   TypeFlagsUnknown,
   TypeFlagsVoidLike,
 } from "./internal/checker/types.js";
