@@ -733,7 +733,8 @@ test("CLI lowers deterministic local destructuring from TSTS binding patterns", 
       "export function local(point: Point): number {",
       "  const { x } = point;",
       "  const [first] = point.values;",
-      "  return x + first;",
+      "  const [, second] = point.values;",
+      "  return x + first + second;",
       "}",
       "",
     ].join("\n"),
@@ -747,6 +748,8 @@ test("CLI lowers deterministic local destructuring from TSTS binding patterns", 
   assert.match(generatedSource, /double x = __destructure0\.x;/);
   assert.match(generatedSource, /var __destructure1 = point\.values;/);
   assert.match(generatedSource, /double first = __destructure1\[0\];/);
+  assert.match(generatedSource, /var __destructure2 = point\.values;/);
+  assert.match(generatedSource, /double second = __destructure2\[1\];/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDestructuring.csproj"), "--nologo", "--v:minimal"]);
