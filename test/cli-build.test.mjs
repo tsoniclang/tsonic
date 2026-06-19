@@ -2432,6 +2432,47 @@ test("CLI emits source-owned instanceof as C# is expressions", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits sanitized C# names through source-owned provider facts", async () => {
+  const projectDirectory = resolve(tempRoot, "source-owned-sanitized-names");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedSanitizedNames",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class KeywordBox {",
+      "  default: number = 1;",
+      "}",
+      "",
+      "export function read(box: KeywordBox): number {",
+      "  return box.default;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public double @default = 1;/);
+  assert.match(generatedSource, /return box\.@default;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedSanitizedNames.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits TypeScript numeric enums as C# enums", async () => {
   const projectDirectory = resolve(tempRoot, "numeric-enums");
   await writeProject(projectDirectory, {
