@@ -3019,14 +3019,22 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects string for-of until provider iteration facts are finalized", async () => {
+test("CLI emits string for-of from provider code-point iteration facts", async () => {
   const projectDirectory = resolve(tempRoot, "string-for-of");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
       outDir: "out",
-      targets: [{ id: "csharp" }],
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStringForOf",
+          },
+        },
+      ],
     }, null, 2),
     "src/index.ts": [
       "export function totalLength(value: string): number {",
@@ -3041,8 +3049,20 @@ test("CLI rejects string for-of until provider iteration facts are finalized", a
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# for-of emission requires finalized TSTS\/provider iteration facts/);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /string __forOfString0 = value;/);
+  assert.match(generatedSource, /for \(int __forOfIndex0 = 0; __forOfIndex0 < __forOfString0\.Length; \)/);
+  assert.match(generatedSource, /char\.IsHighSurrogate\(__forOfString0\[__forOfIndex0\]\)/);
+  assert.match(generatedSource, /char\.IsLowSurrogate\(__forOfString0\[__forOfIndex0 \+ 1\]\)/);
+  assert.match(generatedSource, /ch = __forOfString0\.Substring\(__forOfIndex0, 2\);/);
+  assert.match(generatedSource, /ch = __forOfString0\.Substring\(__forOfIndex0, 1\);/);
+  assert.match(generatedSource, /total = total \+ ch\.Length;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStringForOf.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects primitive generic constraints until provider constraint facts are finalized", async () => {
