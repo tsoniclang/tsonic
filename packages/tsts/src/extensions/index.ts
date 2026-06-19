@@ -25,6 +25,10 @@ export {
   finalizeExtensionSemantics,
 } from "./compiler-integration.js";
 export {
+  getTypeScriptArrayElementType,
+  isTypeScriptArrayType,
+} from "./type-helpers.js";
+export {
   ExtensionDecisionQuestion,
   acceptDecision,
   deferDecision,
