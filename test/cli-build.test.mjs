@@ -2533,7 +2533,7 @@ test("CLI emits nullable C# storage for nullish unions from TSTS union facts", a
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects typed object literals until provider object-shape facts are finalized", async () => {
+test("CLI emits source-owned typed object literals as C# object initializers", async () => {
   const projectDirectory = resolve(tempRoot, "typed-object-initializers");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -2578,8 +2578,17 @@ test("CLI rejects typed object literals until provider object-shape facts are fi
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Object literal emission requires finalized TSTS\/provider object-shape facts/);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Box box = new Box\s*\{\s*value = 1,\s*label = "one",\s*\};/);
+  assert.match(generatedSource, /Box box = new Box\s*\{\s*value = value,\s*label = "two",\s*\};/);
+  assert.match(generatedSource, /return new Box\s*\{\s*value = value,\s*label = "three",\s*\};/);
+  assert.match(generatedSource, /return flag \? new Box\s*\{\s*value = value,\s*label = "yes",\s*\} : new Box\s*\{\s*value = 0,\s*label = "no",\s*\};/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectInitializers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI emits explicit tuple types and tuple literals as C# value tuples", async () => {
