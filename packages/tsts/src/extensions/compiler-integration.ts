@@ -127,6 +127,10 @@ function getTargetBindingFact(virtualModule: ProviderResolvedModule, declaration
   if (declaration.targetIdentity === undefined) {
     return undefined;
   }
+  const declaringType = {
+    kind: "target-named",
+    id: declaration.targetIdentity.id,
+  } satisfies TargetTypeRef;
   return {
     id: declaration.targetIdentity.id,
     sourceName: declaration.name,
@@ -138,7 +142,7 @@ function getTargetBindingFact(virtualModule: ProviderResolvedModule, declaration
         typeParameters: declaration.typeParameters.map(getTargetTypeParameter),
       }
       : {}),
-    ...(declaration.members !== undefined ? { members: declaration.members.flatMap(getTargetMembers) } : {}),
+    ...(declaration.members !== undefined ? { members: declaration.members.flatMap((member) => getTargetMembers(member, declaringType)) } : {}),
   };
 }
 
@@ -151,9 +155,9 @@ function getTargetTypeParameter(parameter: ProviderTypeParameterDeclaration): Ta
   };
 }
 
-function getTargetMembers(member: ProviderMemberDeclaration): readonly TargetMember[] {
+function getTargetMembers(member: ProviderMemberDeclaration, declaringType?: TargetTypeRef): readonly TargetMember[] {
   if (member.signatures !== undefined && member.signatures.length > 0) {
-    return member.signatures.map((signature) => getTargetMemberFromSignature(member.name, member.kind, signature, member));
+    return member.signatures.map((signature) => getTargetMemberFromSignature(member.name, member.kind, signature, member, declaringType));
   }
   return [{
     id: member.id,
@@ -162,11 +166,12 @@ function getTargetMembers(member: ProviderMemberDeclaration): readonly TargetMem
     kind: member.kind,
     parameters: [],
     ...(member.static !== undefined ? { static: member.static } : {}),
+    ...(declaringType !== undefined ? { declaringType } : {}),
     ...(member.type !== undefined ? { returnType: getTargetTypeRef(member.type) } : {}),
   }];
 }
 
-function getTargetMemberFromSignature(sourceName: string, kind: TargetMember["kind"], signature: ProviderSignatureDeclaration, member?: ProviderMemberDeclaration): TargetMember {
+function getTargetMemberFromSignature(sourceName: string, kind: TargetMember["kind"], signature: ProviderSignatureDeclaration, member?: ProviderMemberDeclaration, declaringType?: TargetTypeRef): TargetMember {
   const typeParameters = (signature.typeParameters ?? []).map(getTargetTypeParameter);
   return {
     id: signature.id,
@@ -175,6 +180,7 @@ function getTargetMemberFromSignature(sourceName: string, kind: TargetMember["ki
     kind,
     parameters: signature.parameters.map(getTargetParameter),
     ...(member?.static !== undefined ? { static: member.static } : {}),
+    ...(declaringType !== undefined ? { declaringType } : {}),
     ...(signature.returnType !== undefined ? { returnType: getTargetTypeRef(signature.returnType) } : {}),
     ...(typeParameters.length > 0 ? { typeParameters } : {}),
     overloadGroup: member?.id ?? sourceName,

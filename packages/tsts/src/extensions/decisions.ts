@@ -74,6 +74,10 @@ export interface AssignabilityRequest {
 export interface ResolveCallRequest {
   readonly call: ExtensionFactSubject;
   readonly callee: ExtensionFactSubject;
+  readonly receiver?: ExtensionFactSubject;
+  readonly receiverSymbol?: ExtensionFactSubject;
+  readonly resolvedReceiverSymbol?: ExtensionFactSubject;
+  readonly receiverType?: ExtensionFactSubject;
   readonly calleeSymbol?: ExtensionFactSubject;
   readonly resolvedCalleeSymbol?: ExtensionFactSubject;
   readonly calleeType?: ExtensionFactSubject;

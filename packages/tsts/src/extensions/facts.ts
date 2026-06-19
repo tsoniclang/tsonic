@@ -157,6 +157,7 @@ export interface TargetMember {
   readonly targetName: string;
   readonly kind: "method" | "constructor" | "property" | "field" | "indexer" | "event" | "operator";
   readonly static?: boolean;
+  readonly declaringType?: TargetTypeRef;
   readonly parameters: readonly TargetParameter[];
   readonly returnType?: TargetTypeRef;
   readonly typeParameters?: readonly TargetTypeParameter[];
@@ -480,6 +481,7 @@ function targetMemberEquals(left: TargetMember, right: TargetMember): boolean {
     && left.targetName === right.targetName
     && left.kind === right.kind
     && left.static === right.static
+    && optionalTargetTypeRefEquals(left.declaringType, right.declaringType)
     && targetParameterArrayEquals(left.parameters, right.parameters)
     && optionalTargetTypeRefEquals(left.returnType, right.returnType)
     && targetTypeParameterArrayEquals(left.typeParameters, right.typeParameters)

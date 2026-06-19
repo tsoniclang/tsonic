@@ -225,6 +225,47 @@ test("CLI resolves neutral source primitives through provider modules", async ()
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits provider-owned static C# calls from selected TSTS target facts", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-static-calls");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderStaticCalls",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Convert } from \"@tsonic/csharp/lang.js\";",
+      "import type { uint8 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function toByte(value: number): uint8 {",
+      "  return Convert.toByte(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static byte toByte\(double value\)/);
+  assert.match(generatedSource, /return System\.Convert\.ToByte\(value\);/);
+  assert.doesNotMatch(generatedSource, /return Convert\.ToByte\(value\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderStaticCalls.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits char16 string literals as C# char literals from expected TSTS type", async () => {
   const projectDirectory = resolve(tempRoot, "char16-literals");
   await writeProject(projectDirectory, {

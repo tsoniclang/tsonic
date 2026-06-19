@@ -40,6 +40,10 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
     return;
   }
 
+  const receiver = getPropertyAccessCallReceiver(callee);
+  const receiverSymbol = receiver === undefined ? undefined : getCallReceiverSymbol(checker, receiver);
+  const resolvedReceiverSymbol = receiver === undefined ? undefined : getCallReceiverResolvedSymbol(checker, receiver);
+  const receiverType = receiver === undefined ? undefined : Checker_getTypeOfExpression(checker, receiver);
   const calleeSymbol = getCallCalleeSymbol(checker, callee);
   const resolvedCalleeSymbol = getCallCalleeResolvedSymbol(checker, callee);
   const calleeType = Checker_getTypeOfExpression(checker, callee);
@@ -48,6 +52,10 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
     {
       call: callExpression,
       callee,
+      ...(receiver !== undefined ? { receiver } : {}),
+      ...(receiverSymbol !== undefined ? { receiverSymbol } : {}),
+      ...(resolvedReceiverSymbol !== undefined && resolvedReceiverSymbol !== receiverSymbol ? { resolvedReceiverSymbol } : {}),
+      ...(receiverType !== undefined ? { receiverType } : {}),
       ...(calleeSymbol !== undefined ? { calleeSymbol } : {}),
       ...(resolvedCalleeSymbol !== undefined && resolvedCalleeSymbol !== calleeSymbol ? { resolvedCalleeSymbol } : {}),
       ...(calleeType !== undefined ? { calleeType } : {}),
@@ -280,6 +288,32 @@ function getCallCalleeResolvedSymbol(checker: GoPtr<CheckerWithProgram>, callee:
     case KindPropertyAccessExpression:
     case KindElementAccessExpression:
       return Checker_getResolvedSymbol(checker, callee);
+    default:
+      return undefined;
+  }
+}
+
+function getPropertyAccessCallReceiver(callee: GoPtr<Node>): GoPtr<Node> {
+  return callee?.Kind === KindPropertyAccessExpression ? Node_Expression(callee) : undefined;
+}
+
+function getCallReceiverSymbol(checker: GoPtr<CheckerWithProgram>, receiver: GoPtr<Node>): GoPtr<Symbol> {
+  switch (receiver?.Kind) {
+    case KindIdentifier:
+    case KindPropertyAccessExpression:
+    case KindElementAccessExpression:
+      return Checker_GetSymbolAtLocation(checker, receiver);
+    default:
+      return undefined;
+  }
+}
+
+function getCallReceiverResolvedSymbol(checker: GoPtr<CheckerWithProgram>, receiver: GoPtr<Node>): GoPtr<Symbol> {
+  switch (receiver?.Kind) {
+    case KindIdentifier:
+    case KindPropertyAccessExpression:
+    case KindElementAccessExpression:
+      return Checker_getResolvedSymbol(checker, receiver);
     default:
       return undefined;
   }
