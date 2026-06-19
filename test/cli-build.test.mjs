@@ -779,7 +779,7 @@ test("CLI rejects direct C# bitwise operators on plain TypeScript number", async
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /bitwise and shift operators require integral source primitive operands or integer literal operands/);
+  assert.match(build.stderr, /C# binary operator emission requires a selected provider operator fact/);
 });
 
 test("CLI escapes TypeScript identifiers that are C# reserved words", async () => {
@@ -1987,7 +1987,7 @@ test("CLI rejects generic type-parameter operators without selected target facts
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /operator emission requires a direct primitive\/source-owned operation or a selected provider operator fact/);
+  assert.match(build.stderr, /operator emission requires a selected provider operator fact/);
   assert.match(build.stderr, /operand type parameter/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
@@ -2808,7 +2808,7 @@ test("CLI rejects structural binary operators without selected target facts", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# binary operator emission requires a direct primitive\/source-owned operation or a selected provider operator fact/);
+  assert.match(build.stderr, /C# binary operator emission requires a selected provider operator fact/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 

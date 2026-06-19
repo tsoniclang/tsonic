@@ -154,6 +154,7 @@ export type ExtensionFactResolverCallback<T> = (subject: ExtensionFactSubject, c
 
 export interface ExtensionFactResolverContext {
   readonly facts: ExtensionFactStore;
+  readonly factResolver: ExtensionFactResolver;
   readonly diagnostics: ExtensionDiagnosticStore;
 }
 
@@ -644,7 +645,7 @@ export class ExtensionFactResolver {
     }
 
     for (const resolver of resolvers) {
-      const resolved = resolver(subject, { facts: this.#facts, diagnostics: this.#diagnostics }) as ExtensionFactResolution<T> | undefined;
+      const resolved = resolver(subject, { facts: this.#facts, factResolver: this, diagnostics: this.#diagnostics }) as ExtensionFactResolution<T> | undefined;
       if (resolved !== undefined) {
         this.#facts.setResolved(subject, key, resolved.value, resolved.evidence ?? []);
         return resolved.value;
