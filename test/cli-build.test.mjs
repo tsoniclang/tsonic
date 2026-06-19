@@ -752,6 +752,47 @@ test("CLI emits direct C# bitwise and compound operators from TSTS AST", async (
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI escapes TypeScript identifiers that are C# reserved words", async () => {
+  const projectDirectory = resolve(tempRoot, "csharp-keyword-identifiers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedCsharpKeywordIdentifiers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "let event = 1;",
+      "",
+      "export function read(operator: number): number {",
+      "  let params = operator + event;",
+      "  return params;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double @event = 1;/);
+  assert.match(generatedSource, /public static double read\(double @operator\)/);
+  assert.match(generatedSource, /double @params = @operator \+ @event;/);
+  assert.match(generatedSource, /return @params;/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCsharpKeywordIdentifiers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits TypeScript rest parameters as C# params arrays", async () => {
   const projectDirectory = resolve(tempRoot, "rest-parameters");
   await writeProject(projectDirectory, {
