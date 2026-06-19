@@ -56,6 +56,36 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
       "  return values[1];",
       "}",
       "",
+      "export function control(value: int): int {",
+      "  let result: int = 0;",
+      "  while (result < value) {",
+      "    result++;",
+      "    if (result === 2) continue;",
+      "    if (result > 5) break;",
+      "  }",
+      "  switch (value) {",
+      "    case 0:",
+      "      result = 10;",
+      "      break;",
+      "    case 1:",
+      "      result = 20;",
+      "      break;",
+      "    default:",
+      "      result = 30;",
+      "      break;",
+      "  }",
+      "  try {",
+      "    result = result + 1;",
+      "  } catch {",
+      "    result = 40;",
+      "  } finally {",
+      "    result = result + 1;",
+      "  }",
+      "  done: result = result + 1;",
+      "  debugger;",
+      "  return result;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -65,8 +95,18 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
   const generatedSourcePath = resolve(projectDirectory, "out/csharp/src/Index.cs");
   const generatedSource = await readFile(generatedSourcePath, "utf8");
   assert.match(generatedSource, /public static int pick\(int\[\] values\)/);
+  assert.match(generatedSource, /public static int control\(int value\)/);
   assert.match(generatedSource, /public Counter\(int initial\)/);
   assert.match(generatedSource, /for \(int i = 0; i < delta; i\+\+\)/);
+  assert.match(generatedSource, /switch \(value\)/);
+  assert.match(generatedSource, /case 0:/);
+  assert.match(generatedSource, /continue;/);
+  assert.match(generatedSource, /break;/);
+  assert.match(generatedSource, /try/);
+  assert.match(generatedSource, /catch/);
+  assert.match(generatedSource, /finally/);
+  assert.match(generatedSource, /done:/);
+  assert.match(generatedSource, /System\.Diagnostics\.Debugger\.Break\(\);/);
   assert.match(generatedSource, /return this\.value % 2 == 0 \? this\.value : this\.value \+ 1;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
