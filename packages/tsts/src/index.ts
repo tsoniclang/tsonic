@@ -154,6 +154,7 @@ export {
   KindCaretToken,
   KindCaseBlock,
   KindCaseClause,
+  KindCatchClause,
   KindClassDeclaration,
   KindClassStaticBlockDeclaration,
   KindConditionalExpression,

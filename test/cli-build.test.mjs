@@ -1664,8 +1664,8 @@ test("CLI emits provider-backed C# exception throws", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects catch variables until provider exception facts are finalized", async () => {
-  const projectDirectory = resolve(tempRoot, "catch-variable-requires-provider-facts");
+test("CLI emits provider-backed C# catch variables", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-backed-catch-variable");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -1676,7 +1676,7 @@ test("CLI rejects catch variables until provider exception facts are finalized",
           id: "csharp",
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedCatchFacts",
+            assemblyName: "SmokeGeneratedCatchVariable",
           },
         },
       ],
@@ -1694,9 +1694,14 @@ test("CLI rejects catch variables until provider exception facts are finalized",
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Catch variables require finalized TSTS\/provider exception-carrier facts/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedCatchFacts.csproj")), false);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /catch \(System\.Exception error\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCatchVariable.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI emits array literals from finalized runtime carrier facts", async () => {
