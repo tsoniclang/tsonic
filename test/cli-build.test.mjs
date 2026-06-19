@@ -657,6 +657,55 @@ test("CLI emits standard JavaScript class accessors as C# properties", async () 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits standard JavaScript private identifiers as private C# members", async () => {
+  const projectDirectory = resolve(tempRoot, "private-identifiers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedPrivateIdentifiers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class PrivateBox {",
+      "  #value: number = 1;",
+      "",
+      "  get value(): number {",
+      "    return this.#value;",
+      "  }",
+      "",
+      "  bump(): number {",
+      "    this.#value++;",
+      "    return this.#value;",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /private double _value = 1;/);
+  assert.match(generatedSource, /public double value/);
+  assert.match(generatedSource, /return this\._value;/);
+  assert.match(generatedSource, /this\._value\+\+;/);
+  assert.doesNotMatch(generatedSource, /#value/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedPrivateIdentifiers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits C# generic declarations from TSTS generic AST", async () => {
   const projectDirectory = resolve(tempRoot, "generic-declarations");
   await writeProject(projectDirectory, {
