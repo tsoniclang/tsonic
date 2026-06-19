@@ -1365,6 +1365,42 @@ test("CLI rejects TypeScript-only runtime-shape modifiers before C# emission", a
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeScriptOnlyModifiers.csproj")), false);
 });
 
+test("CLI rejects async functions until provider async facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "async-requires-provider-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedAsyncFacts",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export async function value() {",
+      "  return 1;",
+      "}",
+      "",
+      "export function delayed() {",
+      "  return async () => 2;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Async function declaration requires finalized TSTS\/provider async lowering facts/);
+  assert.match(build.stderr, /Async arrow function requires finalized TSTS\/provider async lowering facts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedAsyncFacts.csproj")), false);
+});
+
 test("CLI rejects local destructuring until provider object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "local-destructuring");
   await writeProject(projectDirectory, {
