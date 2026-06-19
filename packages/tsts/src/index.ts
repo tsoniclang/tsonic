@@ -33,6 +33,7 @@ export {
 } from "./internal/ast/ast.js";
 export { Node_Name } from "./internal/ast/spine.js";
 export { GetSourceFileOfNode, HasSyntacticModifier } from "./internal/ast/utilities.js";
+export { NodeFlagsConst } from "./internal/ast/generated/flags.js";
 export {
   ModifierFlagsAbstract,
   ModifierFlagsAccessor,

@@ -934,6 +934,45 @@ test("CLI emits module-scope variables as C# static fields", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits module-scope const bindings as C# static readonly fields", async () => {
+  const projectDirectory = resolve(tempRoot, "module-const-fields");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedModuleConstFields",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "const total = 1;",
+      "",
+      "export function read(): number {",
+      "  return total;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static readonly double total = 1;/);
+  assert.doesNotMatch(generatedSource, /public static double total = 1;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedModuleConstFields.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects standalone export declarations until module-export facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "standalone-export-declaration");
   await writeProject(projectDirectory, {
