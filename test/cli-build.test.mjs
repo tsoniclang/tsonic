@@ -2550,6 +2550,36 @@ test("CLI rejects structural object destructuring until target object-shape fact
   assert.match(build.stderr, /Destructured parameters require finalized TSTS\/provider object-shape facts/);
 });
 
+test("CLI rejects structural binary operators without selected target facts", async () => {
+  const projectDirectory = resolve(tempRoot, "structural-binary-operator");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/external.d.ts": [
+      "export declare const left: { value: number };",
+      "export declare const right: { value: number };",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { left, right } from \"./external.js\";",
+      "",
+      "export function compare(): boolean {",
+      "  return left == right;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# binary operator emission requires a direct primitive\/source-owned operation or a selected provider operator fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI does not emit target artifacts when TSTS rejects the source program", async () => {
   const projectDirectory = resolve(tempRoot, "tsts-diagnostic-stop");
   await writeProject(projectDirectory, {
