@@ -745,6 +745,56 @@ test("CLI lowers labeled break and continue into deterministic C# labels", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI lowers switch fallthrough into explicit C# switch gotos", async () => {
+  const projectDirectory = resolve(tempRoot, "switch-fallthrough");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedSwitchFallthrough",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function choose(value: number): number {",
+      "  let result = 0;",
+      "  switch (value) {",
+      "    case 0:",
+      "      result = 1;",
+      "    case 1:",
+      "      result = result + 2;",
+      "      break;",
+      "    case 2:",
+      "      result = 4;",
+      "    default:",
+      "      result = result + 8;",
+      "  }",
+      "  return result;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /goto case 1;/);
+  assert.match(generatedSource, /goto default;/);
+  assert.doesNotMatch(generatedSource, /Switch case fallthrough requires/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedSwitchFallthrough.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits standard JavaScript static class members", async () => {
   const projectDirectory = resolve(tempRoot, "static-class-members");
   await writeProject(projectDirectory, {
