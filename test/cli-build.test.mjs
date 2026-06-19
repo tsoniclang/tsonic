@@ -934,6 +934,28 @@ test("CLI emits module-scope variables as C# static fields", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects standalone export declarations until module-export facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "standalone-export-declaration");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "const value = 1;",
+      "export { value };",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Standalone export declarations require finalized TSTS module-export facts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI routes top-level for-of statements through the C# module entrypoint", async () => {
   const projectDirectory = resolve(tempRoot, "top-level-for-of");
   await writeProject(projectDirectory, {
