@@ -54,6 +54,7 @@ export {
   AsIfStatement,
   AsIndexSignatureDeclaration,
   AsInterfaceDeclaration,
+  AsLiteralTypeNode,
   AsMethodDeclaration,
   AsMethodSignatureDeclaration,
   AsNewExpression,
@@ -100,6 +101,7 @@ export {
   AsSetAccessorDeclaration,
   AsTypeAssertion,
   AsArrowFunction,
+  AsUnionTypeNode,
 } from "./internal/ast/generated/casts.js";
 export {
   KindAmpersandAmpersandToken,
@@ -169,6 +171,7 @@ export {
   KindLessThanLessThanEqualsToken,
   KindLessThanLessThanToken,
   KindLessThanToken,
+  KindLiteralType,
   KindMethodDeclaration,
   KindMethodSignature,
   KindMinusEqualsToken,
@@ -214,6 +217,8 @@ export {
   KindTypeAliasDeclaration,
   KindTypeLiteral,
   KindTypeAssertionExpression,
+  KindUndefinedKeyword,
+  KindUnionType,
   KindVariableStatement,
   KindVariableDeclarationList,
   KindWhileStatement,

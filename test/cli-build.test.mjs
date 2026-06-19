@@ -1577,6 +1577,78 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits nullable C# types only for nullish TSTS unions", async () => {
+  const projectDirectory = resolve(tempRoot, "nullable-unions");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNullableUnions",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Box {",
+      "  value: number = 1;",
+      "}",
+      "",
+      "export function maybeNumber(flag: boolean): number | null {",
+      "  return flag ? 1.5 : null;",
+      "}",
+      "",
+      "export function maybeBox(flag: boolean, box: Box): Box | null {",
+      "  return flag ? box : null;",
+      "}",
+      "",
+      "export function read(box: Box | null, fallback: number): number {",
+      "  return box?.value ?? fallback;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
+  assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);
+  assert.match(generatedSource, /public static double read\(Box\? box, double fallback\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNullableUnions.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects non-nullish unions until runtime-carrier facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "runtime-carrier-unions");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function choose(flag: boolean): string | number {",
+      "  return flag ? \"x\" : 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Union type annotations require nullable shape or finalized runtime-carrier facts/);
+});
+
 test("CLI rejects primitive generic constraints until provider constraint facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "primitive-generic-constraints");
   await writeProject(projectDirectory, {
