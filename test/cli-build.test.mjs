@@ -1541,6 +1541,30 @@ test("CLI emits C# generic declarations from TSTS generic AST", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects generic type-parameter operators without selected target facts", async () => {
+  const projectDirectory = resolve(tempRoot, "generic-operator-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function same<T>(left: T, right: T): boolean {",
+      "  return left === right;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /operator emission requires a direct primitive\/source-owned operation or a selected provider operator fact/);
+  assert.match(build.stderr, /operand type parameter/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
   const projectDirectory = resolve(tempRoot, "interfaces-and-heritage");
   await writeProject(projectDirectory, {
