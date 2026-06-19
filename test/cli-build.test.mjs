@@ -2744,6 +2744,52 @@ test("CLI rejects structural binary operators without selected target facts", as
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
+test("CLI rejects non-source-owned calls without selected target signature facts", async () => {
+  const projectDirectory = resolve(tempRoot, "builtin-call-requires-target-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function text(value: string): string {",
+      "  return value.toString();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects non-source-owned constructors without selected target signature facts", async () => {
+  const projectDirectory = resolve(tempRoot, "builtin-constructor-requires-target-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function create(): Date {",
+      "  return new Date();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI does not emit target artifacts when TSTS rejects the source program", async () => {
   const projectDirectory = resolve(tempRoot, "tsts-diagnostic-stop");
   await writeProject(projectDirectory, {
