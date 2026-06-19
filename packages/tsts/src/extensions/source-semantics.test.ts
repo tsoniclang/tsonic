@@ -82,7 +82,7 @@ function createExampleSourceSemanticsExtension() {
       subpath: "types.js",
       exports: [
         sourcePrimitive("bool", "bool", "boolean"),
-        sourcePrimitive("char", "char", "string", false, 16),
+        sourcePrimitive("char", "char16", "string", false, 16),
         sourcePrimitive("int", "int32", "number", true, 32),
         sourcePrimitive("INT", "int32", "number", true, 32),
         sourcePrimitive("I32", "int32", "number", true, 32),

@@ -46,6 +46,7 @@ export {
   AsForInOrOfStatement,
   AsForStatement,
   AsFunctionDeclaration,
+  AsGetAccessorDeclaration,
   AsIdentifier,
   AsIfStatement,
   AsIndexSignatureDeclaration,
@@ -90,6 +91,7 @@ export {
   AsHeritageClause,
   AsNonNullExpression,
   AsSatisfiesExpression,
+  AsSetAccessorDeclaration,
   AsTypeAssertion,
 } from "./internal/ast/generated/casts.js";
 export {
@@ -139,6 +141,7 @@ export {
   KindForOfStatement,
   KindForStatement,
   KindFunctionDeclaration,
+  KindGetAccessor,
   KindGreaterThanEqualsToken,
   KindGreaterThanGreaterThanEqualsToken,
   KindGreaterThanGreaterThanGreaterThanEqualsToken,
@@ -186,6 +189,7 @@ export {
   KindNoSubstitutionTemplateLiteral,
   KindNonNullExpression,
   KindSatisfiesExpression,
+  KindSetAccessor,
   KindTemplateExpression,
   KindSuperKeyword,
   KindSwitchStatement,

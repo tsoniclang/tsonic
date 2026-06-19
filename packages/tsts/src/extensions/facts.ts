@@ -15,7 +15,8 @@ export type ExtensionImportKind = "type" | "value" | "namespace" | "unknown";
 
 export type SourcePrimitiveKind =
   | "bool"
-  | "char"
+  | "char16"
+  | "char32"
   | "int8"
   | "uint8"
   | "int16"
@@ -29,7 +30,7 @@ export type SourcePrimitiveKind =
   | "float16"
   | "float32"
   | "float64"
-  | "decimal"
+  | "decimal128"
   | "int128"
   | "uint128";
 

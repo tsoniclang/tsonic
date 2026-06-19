@@ -153,7 +153,7 @@ test("CLI resolves neutral source primitives through provider modules", async ()
       ],
     }, null, 2),
     "src/index.ts": [
-      "import type { int32, float64, bool } from \"@tsonic/core/types.js\";",
+      "import type { int32, int128, nativeInt, float64, float16, bool, char16, decimal128 } from \"@tsonic/core/types.js\";",
       "",
       "export function choose(flag: bool, left: int32, right: int32): int32 {",
       "  return flag ? left : right;",
@@ -161,6 +161,26 @@ test("CLI resolves neutral source primitives through provider modules", async ()
       "",
       "export function scale(value: float64): float64 {",
       "  return value * 2;",
+      "}",
+      "",
+      "export function firstChar(value: char16): char16 {",
+      "  return value;",
+      "}",
+      "",
+      "export function keepDecimal(value: decimal128): decimal128 {",
+      "  return value;",
+      "}",
+      "",
+      "export function keepNative(value: nativeInt): nativeInt {",
+      "  return value;",
+      "}",
+      "",
+      "export function keepInt128(value: int128): int128 {",
+      "  return value;",
+      "}",
+      "",
+      "export function keepFloat16(value: float16): float16 {",
+      "  return value;",
       "}",
       "",
     ].join("\n"),
@@ -172,6 +192,11 @@ test("CLI resolves neutral source primitives through provider modules", async ()
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int choose\(bool flag, int left, int right\)/);
   assert.match(generatedSource, /public static double scale\(double value\)/);
+  assert.match(generatedSource, /public static char firstChar\(char value\)/);
+  assert.match(generatedSource, /public static decimal keepDecimal\(decimal value\)/);
+  assert.match(generatedSource, /public static nint keepNative\(nint value\)/);
+  assert.match(generatedSource, /public static Int128 keepInt128\(Int128 value\)/);
+  assert.match(generatedSource, /public static Half keepFloat16\(Half value\)/);
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedNeutral.csproj"), "utf8");
   assert.match(generatedProject, /<OutputType>Library<\/OutputType>/);
   assert.match(generatedProject, /<PublishAot>false<\/PublishAot>/);
@@ -575,6 +600,60 @@ test("CLI emits standard JavaScript static class members", async () => {
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStaticMembers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits standard JavaScript class accessors as C# properties", async () => {
+  const projectDirectory = resolve(tempRoot, "class-accessors");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedAccessors",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class AccessorBox {",
+      "  backing: number = 1;",
+      "",
+      "  get doubled(): number {",
+      "    return this.backing * 2;",
+      "  }",
+      "",
+      "  set doubled(next: number) {",
+      "    this.backing = next / 2;",
+      "  }",
+      "}",
+      "",
+      "export function useAccessor(box: AccessorBox): number {",
+      "  box.doubled = 10;",
+      "  return box.doubled;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public double doubled/);
+  assert.match(generatedSource, /get/);
+  assert.match(generatedSource, /set/);
+  assert.match(generatedSource, /return this\.backing \* 2;/);
+  assert.match(generatedSource, /double next = value;/);
+  assert.match(generatedSource, /this\.backing = next \/ 2;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedAccessors.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 

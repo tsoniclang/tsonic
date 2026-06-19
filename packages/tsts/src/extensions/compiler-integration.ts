@@ -255,8 +255,10 @@ function getSourcePrimitiveKind(name: string): SourcePrimitiveKind {
     case "bool":
     case "boolean":
       return "bool";
-    case "char":
-      return "char";
+    case "char16":
+      return "char16";
+    case "char32":
+      return "char32";
     case "sbyte":
     case "int8":
       return "int8";
@@ -296,8 +298,8 @@ function getSourcePrimitiveKind(name: string): SourcePrimitiveKind {
     case "double":
     case "float64":
       return "float64";
-    case "decimal":
-      return "decimal";
+    case "decimal128":
+      return "decimal128";
     case "int128":
       return "int128";
     case "uint128":

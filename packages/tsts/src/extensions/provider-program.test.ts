@@ -1463,8 +1463,8 @@ function surfaceSemanticProvider(): TargetSemanticProvider {
       resultType: semanticSubject("int32"),
     }),
     resolveElementAccess: () => acceptDecision({
-      operation: targetOperation("System.ReadOnlySpan.GetItem", "indexer", "char"),
-      resultType: semanticSubject("char"),
+      operation: targetOperation("System.ReadOnlySpan.GetItem", "indexer", "char16"),
+      resultType: semanticSubject("char16"),
     }),
     resolveOperator: () => acceptDecision({
       operation: targetOperation("System.Int32.op_Addition", "operator", "int32"),

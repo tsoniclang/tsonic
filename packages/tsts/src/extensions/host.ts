@@ -1671,7 +1671,8 @@ function renderSourcePrimitiveType(name: SourcePrimitiveKind): string {
   switch (name) {
     case "bool":
       return "boolean";
-    case "char":
+    case "char16":
+    case "char32":
       return "string";
     default:
       return "number";
@@ -1879,8 +1880,9 @@ function isKnownSourcePrimitive(name: SourcePrimitiveKind): boolean {
     case "float16":
     case "float32":
     case "float64":
-    case "decimal":
-    case "char":
+    case "decimal128":
+    case "char16":
+    case "char32":
       return true;
     default:
       return false;
