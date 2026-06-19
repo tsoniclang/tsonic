@@ -2673,6 +2673,36 @@ test("CLI rejects interface object literals until object-shape facts are finaliz
   assert.match(build.stderr, /Object literal emission requires a source-owned expected type or finalized TSTS\/provider object-shape facts/);
 });
 
+test("CLI rejects class object literals when parameterless construction is unavailable", async () => {
+  const projectDirectory = resolve(tempRoot, "required-constructor-object-initializers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Box {",
+      "  value: number;",
+      "",
+      "  constructor(value: number) {",
+      "    this.value = value;",
+      "  }",
+      "}",
+      "",
+      "export function create(): Box {",
+      "  return { value: 1 };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Object literal emission requires a source-owned expected type or finalized TSTS\/provider object-shape facts/);
+});
+
 test("CLI emits explicit tuple types and tuple literals as C# value tuples", async () => {
   const projectDirectory = resolve(tempRoot, "value-tuples");
   await writeProject(projectDirectory, {
