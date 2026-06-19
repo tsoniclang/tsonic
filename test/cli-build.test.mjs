@@ -2668,13 +2668,17 @@ test("CLI emits source-owned instanceof as C# is expressions", async () => {
         },
       ],
     }, null, 2),
-    "src/index.ts": [
+    "src/animal.ts": [
       "export class Animal {",
       "  name: string = \"\";",
       "}",
       "",
       "export class Dog extends Animal {",
       "}",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { Animal, Dog } from \"./animal.js\";",
       "",
       "export function isDog(value: Animal): boolean {",
       "  return value instanceof Dog;",
@@ -2689,6 +2693,7 @@ test("CLI emits source-owned instanceof as C# is expressions", async () => {
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static bool isDog\(Animal value\)/);
   assert.match(generatedSource, /return value is Dog;/);
+  assert.doesNotMatch(generatedSource, /value is Animal\.Dog/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedInstanceOf.csproj"), "--nologo", "--v:minimal"]);

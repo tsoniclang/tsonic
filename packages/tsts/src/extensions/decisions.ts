@@ -133,18 +133,26 @@ export interface ResolveOperatorRequest {
   readonly left: ExtensionFactSubject;
   readonly leftType?: ExtensionFactSubject;
   readonly leftSymbol?: ExtensionFactSubject;
+  readonly leftResolvedSymbol?: ExtensionFactSubject;
+  readonly leftAliasedSymbol?: ExtensionFactSubject;
   readonly leftSourcePrimitive?: SourcePrimitiveFact;
   readonly leftTypeofOperand?: ExtensionFactSubject;
   readonly leftTypeofOperandType?: ExtensionFactSubject;
   readonly leftTypeofOperandSymbol?: ExtensionFactSubject;
+  readonly leftTypeofOperandResolvedSymbol?: ExtensionFactSubject;
+  readonly leftTypeofOperandAliasedSymbol?: ExtensionFactSubject;
   readonly leftTypeofOperandSourcePrimitive?: SourcePrimitiveFact;
   readonly right?: ExtensionFactSubject;
   readonly rightType?: ExtensionFactSubject;
   readonly rightSymbol?: ExtensionFactSubject;
+  readonly rightResolvedSymbol?: ExtensionFactSubject;
+  readonly rightAliasedSymbol?: ExtensionFactSubject;
   readonly rightSourcePrimitive?: SourcePrimitiveFact;
   readonly rightTypeofOperand?: ExtensionFactSubject;
   readonly rightTypeofOperandType?: ExtensionFactSubject;
   readonly rightTypeofOperandSymbol?: ExtensionFactSubject;
+  readonly rightTypeofOperandResolvedSymbol?: ExtensionFactSubject;
+  readonly rightTypeofOperandAliasedSymbol?: ExtensionFactSubject;
   readonly rightTypeofOperandSourcePrimitive?: SourcePrimitiveFact;
   readonly target?: string;
 }

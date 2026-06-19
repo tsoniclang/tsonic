@@ -10,7 +10,8 @@ import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import { Checker_getTypeOfExpression } from "../internal/checker/checker/types.js";
-import { Checker_GetSymbolAtLocation, Checker_getResolvedSymbol } from "../internal/checker/checker/symbols.js";
+import { Checker_GetAliasedSymbol, Checker_GetSymbolAtLocation, Checker_getResolvedSymbol } from "../internal/checker/checker/symbols.js";
+import { SymbolFlagsAlias } from "../internal/ast/generated/flags.js";
 import { ExtensionDecisionQuestion } from "./decisions.js";
 import type { AssignabilityRequest, ContextualTypeRequest, ContextualTypeResult, InferTypeArgumentsRequest, InferTypeArgumentsResult, ParameterModeRequest, ParameterModeResult, ResolveCallRequest, ResolveCallResult, ResolveConversionRequest, ResolveConversionResult, ResolveElementAccessRequest, ResolveIterationRequest, ResolveOperationResult, ResolveOperatorRequest, ResolvePropertyAccessRequest, RuntimeCarrierRequest, RuntimeCarrierResult, SatisfiesConstraintRequest, ValidateFlowUseRequest, ValidateFlowUseResult } from "./decisions.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetIterationFactKey, targetOperationFactKey } from "./facts.js";
@@ -221,6 +222,10 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
   const rightType = right === undefined ? undefined : Checker_getTypeOfExpression(checker, right);
   const leftSymbol = getOperatorOperandSymbol(checker, left);
   const rightSymbol = getOperatorOperandSymbol(checker, right);
+  const leftResolvedSymbol = getOperatorOperandResolvedSymbol(checker, left);
+  const rightResolvedSymbol = getOperatorOperandResolvedSymbol(checker, right);
+  const leftAliasedSymbol = getAliasedSymbol(checker, leftResolvedSymbol ?? leftSymbol);
+  const rightAliasedSymbol = getAliasedSymbol(checker, rightResolvedSymbol ?? rightSymbol);
   const leftSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, left, leftType, leftSymbol);
   const rightSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, right, rightType, rightSymbol);
   const leftTypeofOperand = getTypeofOperand(left);
@@ -229,6 +234,10 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
   const rightTypeofOperandType = rightTypeofOperand === undefined ? undefined : Checker_getTypeOfExpression(checker, rightTypeofOperand);
   const leftTypeofOperandSymbol = getOperatorOperandSymbol(checker, leftTypeofOperand);
   const rightTypeofOperandSymbol = getOperatorOperandSymbol(checker, rightTypeofOperand);
+  const leftTypeofOperandResolvedSymbol = getOperatorOperandResolvedSymbol(checker, leftTypeofOperand);
+  const rightTypeofOperandResolvedSymbol = getOperatorOperandResolvedSymbol(checker, rightTypeofOperand);
+  const leftTypeofOperandAliasedSymbol = getAliasedSymbol(checker, leftTypeofOperandResolvedSymbol ?? leftTypeofOperandSymbol);
+  const rightTypeofOperandAliasedSymbol = getAliasedSymbol(checker, rightTypeofOperandResolvedSymbol ?? rightTypeofOperandSymbol);
   const leftTypeofOperandSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, leftTypeofOperand, leftTypeofOperandType, leftTypeofOperandSymbol);
   const rightTypeofOperandSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, rightTypeofOperand, rightTypeofOperandType, rightTypeofOperandSymbol);
   const result = extensionHost.runDecision(
@@ -239,18 +248,26 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
       left,
       ...(leftType !== undefined ? { leftType } : {}),
       ...(leftSymbol !== undefined ? { leftSymbol } : {}),
+      ...(leftResolvedSymbol !== undefined && leftResolvedSymbol !== leftSymbol ? { leftResolvedSymbol } : {}),
+      ...(leftAliasedSymbol !== undefined && leftAliasedSymbol !== leftResolvedSymbol && leftAliasedSymbol !== leftSymbol ? { leftAliasedSymbol } : {}),
       ...(leftSourcePrimitive !== undefined ? { leftSourcePrimitive } : {}),
       ...(leftTypeofOperand !== undefined ? { leftTypeofOperand } : {}),
       ...(leftTypeofOperandType !== undefined ? { leftTypeofOperandType } : {}),
       ...(leftTypeofOperandSymbol !== undefined ? { leftTypeofOperandSymbol } : {}),
+      ...(leftTypeofOperandResolvedSymbol !== undefined && leftTypeofOperandResolvedSymbol !== leftTypeofOperandSymbol ? { leftTypeofOperandResolvedSymbol } : {}),
+      ...(leftTypeofOperandAliasedSymbol !== undefined && leftTypeofOperandAliasedSymbol !== leftTypeofOperandResolvedSymbol && leftTypeofOperandAliasedSymbol !== leftTypeofOperandSymbol ? { leftTypeofOperandAliasedSymbol } : {}),
       ...(leftTypeofOperandSourcePrimitive !== undefined ? { leftTypeofOperandSourcePrimitive } : {}),
       ...(right !== undefined ? { right } : {}),
       ...(rightType !== undefined ? { rightType } : {}),
       ...(rightSymbol !== undefined ? { rightSymbol } : {}),
+      ...(rightResolvedSymbol !== undefined && rightResolvedSymbol !== rightSymbol ? { rightResolvedSymbol } : {}),
+      ...(rightAliasedSymbol !== undefined && rightAliasedSymbol !== rightResolvedSymbol && rightAliasedSymbol !== rightSymbol ? { rightAliasedSymbol } : {}),
       ...(rightSourcePrimitive !== undefined ? { rightSourcePrimitive } : {}),
       ...(rightTypeofOperand !== undefined ? { rightTypeofOperand } : {}),
       ...(rightTypeofOperandType !== undefined ? { rightTypeofOperandType } : {}),
       ...(rightTypeofOperandSymbol !== undefined ? { rightTypeofOperandSymbol } : {}),
+      ...(rightTypeofOperandResolvedSymbol !== undefined && rightTypeofOperandResolvedSymbol !== rightTypeofOperandSymbol ? { rightTypeofOperandResolvedSymbol } : {}),
+      ...(rightTypeofOperandAliasedSymbol !== undefined && rightTypeofOperandAliasedSymbol !== rightTypeofOperandResolvedSymbol && rightTypeofOperandAliasedSymbol !== rightTypeofOperandSymbol ? { rightTypeofOperandAliasedSymbol } : {}),
       ...(rightTypeofOperandSourcePrimitive !== undefined ? { rightTypeofOperandSourcePrimitive } : {}),
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
@@ -325,6 +342,24 @@ function getOperatorOperandSymbol(checker: GoPtr<CheckerWithProgram>, operand: G
     default:
       return undefined;
   }
+}
+
+function getOperatorOperandResolvedSymbol(checker: GoPtr<CheckerWithProgram>, operand: GoPtr<Node>): GoPtr<Symbol> {
+  switch (operand?.Kind) {
+    case KindIdentifier:
+    case KindPropertyAccessExpression:
+    case KindElementAccessExpression:
+      return Checker_getResolvedSymbol(checker, operand);
+    default:
+      return undefined;
+  }
+}
+
+function getAliasedSymbol(checker: GoPtr<CheckerWithProgram>, symbol: GoPtr<Symbol>): GoPtr<Symbol> {
+  if (checker === undefined || symbol === undefined || (symbol.Flags & SymbolFlagsAlias) === 0) {
+    return undefined;
+  }
+  return Checker_GetAliasedSymbol(checker, symbol);
 }
 
 function getCallCalleeSymbol(checker: GoPtr<CheckerWithProgram>, callee: GoPtr<Node>): GoPtr<Symbol> {
