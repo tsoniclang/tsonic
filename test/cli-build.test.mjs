@@ -1686,6 +1686,58 @@ test("CLI emits default export expression snapshots through TSTS module-export s
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits aliased star and namespace re-exports from TSTS module-export symbols", async () => {
+  const projectDirectory = resolve(tempRoot, "module-export-forms");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedModuleExportForms",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/other.ts": "export const value = 1;\n",
+    "src/math.ts": [
+      "export const seed = 2;",
+      "export function add(value: number): number {",
+      "  return value + seed;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/barrel.ts": [
+      "export { value as answer } from \"./other.js\";",
+      "export * from \"./math.js\";",
+      "export * as math from \"./math.js\";",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { answer, add, seed, math } from \"./barrel.js\";",
+      "",
+      "export function read(): number {",
+      "  return answer + add(seed) + math.seed;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Other\.value \+ Math\.add\(Math\.seed\) \+ Math\.seed;/);
+  assert.doesNotMatch(generatedSource, /answer|math\.seed|add\(seed\)|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedModuleExportForms.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects anonymous exported declarations instead of synthesizing C# names", async () => {
   const scenarios = [
     {
