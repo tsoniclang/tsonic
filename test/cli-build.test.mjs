@@ -795,6 +795,47 @@ test("CLI lowers switch fallthrough into explicit C# switch gotos", async () => 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits module-scope variables as C# static fields", async () => {
+  const projectDirectory = resolve(tempRoot, "module-fields");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedModuleFields",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "let total = 1;",
+      "",
+      "export function bump(): number {",
+      "  total = total + 1;",
+      "  return total;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double total = 1;/);
+  assert.match(generatedSource, /total = total \+ 1;/);
+  assert.doesNotMatch(generatedSource, /public static void Main\(\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedModuleFields.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits standard JavaScript static class members", async () => {
   const projectDirectory = resolve(tempRoot, "static-class-members");
   await writeProject(projectDirectory, {
