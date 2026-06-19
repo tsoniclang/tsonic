@@ -208,6 +208,35 @@ test("CLI reports unsupported property enumeration semantics instead of guessing
   assert.match(build.stderr, /For-in requires target property enumeration semantics/);
 });
 
+test("CLI reports unsupported binding patterns instead of synthesizing C# names", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-binding-pattern");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function fromParameter({ value }: { value: number }): number {",
+      "  return value;",
+      "}",
+      "",
+      "export function fromLocal(point: { value: number }): number {",
+      "  const { value } = point;",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /CSHARP_UNSUPPORTED_NAME/);
+  assert.match(build.stderr, /Parameter name must be an identifier/);
+  assert.match(build.stderr, /Local binding name must be an identifier/);
+});
+
 test("CLI does not emit target artifacts when TSTS rejects the source program", async () => {
   const projectDirectory = resolve(tempRoot, "tsts-diagnostic-stop");
   await writeProject(projectDirectory, {
