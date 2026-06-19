@@ -1681,6 +1681,10 @@ test("CLI emits typed object literals as C# object initializers", async () => {
       "  return { value, label: \"three\" };",
       "}",
       "",
+      "export function choose(flag: boolean, value: number): Box {",
+      "  return flag ? { value, label: \"yes\" } : { value: 0, label: \"no\" };",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1691,6 +1695,7 @@ test("CLI emits typed object literals as C# object initializers", async () => {
   assert.match(generatedSource, /Box box = new Box\n\s*\{\n\s*value = 1,\n\s*label = "one",\n\s*\};/);
   assert.match(generatedSource, /Box box = new Box\n\s*\{\n\s*value = value,\n\s*label = "two",\n\s*\};/);
   assert.match(generatedSource, /return new Box\n\s*\{\n\s*value = value,\n\s*label = "three",\n\s*\};/);
+  assert.match(generatedSource, /return flag \? new Box\n\s*\{\n\s*value = value,\n\s*label = "yes",\n\s*\} : new Box\n\s*\{\n\s*value = 0,\n\s*label = "no",\n\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectInitializers.csproj"), "--nologo", "--v:minimal"]);
