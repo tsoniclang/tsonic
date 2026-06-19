@@ -1529,6 +1529,37 @@ test("CLI rejects lambdas without contextual target delegate facts", async () =>
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedLambdaFacts.csproj")), false);
 });
 
+test("CLI rejects omitted function return types until return facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "return-type-requires-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedReturnFacts",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function inferred() {",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /function declaration emission requires an explicit return type or finalized TSTS\/provider return-type facts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedReturnFacts.csproj")), false);
+});
+
 test("CLI rejects local destructuring until provider object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "local-destructuring");
   await writeProject(projectDirectory, {
