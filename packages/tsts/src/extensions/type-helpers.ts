@@ -1,7 +1,18 @@
 import type { GoPtr } from "../go/compat.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Type } from "../internal/checker/types.js";
-import { Signature_HasRestParameter, Signature_Parameters, StructuredType_CallSignatures, Type_AsStructuredType, TypeFlagsStringLike, TypeFlagsStructuredType } from "../internal/checker/types.js";
+import {
+  Signature_HasRestParameter,
+  Signature_Parameters,
+  StructuredType_CallSignatures,
+  Type_AsStructuredType,
+  Type_Types,
+  TypeFlagsNull,
+  TypeFlagsStringLike,
+  TypeFlagsStructuredType,
+  TypeFlagsUndefined,
+  TypeFlagsUnion,
+} from "../internal/checker/types.js";
 import { Checker_getReturnTypeOfSignature } from "../internal/checker/checker/signatures.js";
 import { Checker_getElementTypeOfArrayType, Checker_isArrayType } from "../internal/checker/checker/types.js";
 import { Checker_getTypeOfSymbol } from "../internal/checker/checker/symbols.js";
@@ -34,6 +45,17 @@ export function getTypeScriptArrayElementType(type: GoPtr<Type>): GoPtr<Type> {
 
 export function isTypeScriptStringLikeType(type: GoPtr<Type>): boolean {
   return type !== undefined && (type.flags & TypeFlagsStringLike) !== 0;
+}
+
+export function getTypeScriptUnionTypes(type: GoPtr<Type>): readonly Type[] | undefined {
+  if (type === undefined || (type.flags & TypeFlagsUnion) === 0) {
+    return undefined;
+  }
+  return Type_Types(type).filter((unionType): unionType is Type => unionType !== undefined);
+}
+
+export function isTypeScriptNullishType(type: GoPtr<Type>): boolean {
+  return type !== undefined && (type.flags & (TypeFlagsNull | TypeFlagsUndefined)) !== 0;
 }
 
 export function getSingleTypeScriptCallSignatureInfo(type: GoPtr<Type>): TypeScriptCallSignatureInfo | undefined {

@@ -2438,7 +2438,7 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects nullish unions until provider storage facts are finalized", async () => {
+test("CLI emits nullable C# storage for nullish unions from TSTS union facts", async () => {
   const projectDirectory = resolve(tempRoot, "nullable-unions");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -2476,8 +2476,18 @@ test("CLI rejects nullish unions until provider storage facts are finalized", as
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Union type annotations require finalized TSTS\/provider storage facts/);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
+  assert.match(generatedSource, /return flag \? 1\.5 : null;/);
+  assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);
+  assert.match(generatedSource, /public static double read\(Box\? box, double fallback\)/);
+  assert.match(generatedSource, /return box\?\.value \?\? fallback;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNullableUnions.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects typed object literals until provider object-shape facts are finalized", async () => {

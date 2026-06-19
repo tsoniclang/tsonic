@@ -27,7 +27,9 @@ export {
 export {
   getSingleTypeScriptCallSignatureInfo,
   getTypeScriptArrayElementType,
+  getTypeScriptUnionTypes,
   getTypeScriptTypeReferenceInfo,
+  isTypeScriptNullishType,
   isTypeScriptStringLikeType,
   isTypeScriptArrayType,
 } from "./type-helpers.js";

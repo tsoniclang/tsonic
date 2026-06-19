@@ -114,6 +114,7 @@ export type TargetTypeRef =
   | { readonly kind: "source-primitive"; readonly name: SourcePrimitiveKind }
   | { readonly kind: "target-named"; readonly id: string; readonly typeArguments?: readonly TargetTypeRef[] }
   | { readonly kind: "type-parameter"; readonly name: string }
+  | { readonly kind: "nullable"; readonly inner: TargetTypeRef }
   | { readonly kind: "array"; readonly element: TargetTypeRef; readonly rank?: number }
   | { readonly kind: "tuple"; readonly elements: readonly TargetTypeRef[] }
   | { readonly kind: "pointer"; readonly pointee: TargetTypeRef; readonly mutability?: "const" | "mut" | "target-defined" }
@@ -576,6 +577,8 @@ function targetTypeRefEquals(left: TargetTypeRef, right: TargetTypeRef): boolean
         && targetTypeRefListEquals(left.typeArguments ?? [], right.typeArguments ?? []);
     case "type-parameter":
       return right.kind === "type-parameter" && left.name === right.name;
+    case "nullable":
+      return right.kind === "nullable" && targetTypeRefEquals(left.inner, right.inner);
     case "array":
       return right.kind === "array" && left.rank === right.rank && targetTypeRefEquals(left.element, right.element);
     case "tuple":
