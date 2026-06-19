@@ -753,6 +753,101 @@ test("CLI lowers deterministic local destructuring from TSTS binding patterns", 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI lowers parameter and for-of destructuring without dynamic C# carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "parameter-forof-destructuring");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedParameterForOfDestructuring",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Point {",
+      "  x: number = 1;",
+      "  y: number = 2;",
+      "  values: number[] = [];",
+      "}",
+      "",
+      "export function fromObjectParameter({ x }: Point): number {",
+      "  return x;",
+      "}",
+      "",
+      "export function fromArrayParameter([first]: number[]): number {",
+      "  return first;",
+      "}",
+      "",
+      "export function fromForOf(rows: number[][]): number {",
+      "  let total = 0;",
+      "  for (const [first] of rows) {",
+      "    total = total + first;",
+      "  }",
+      "  return total;",
+      "}",
+      "",
+      "export function fromForInitializer(point: Point): number {",
+      "  for (const { x } = point; x < 2;) {",
+      "    return x;",
+      "  }",
+      "  return 0;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double fromObjectParameter\(Point __param0\)/);
+  assert.match(generatedSource, /double x = __param0\.x;/);
+  assert.match(generatedSource, /public static double fromArrayParameter\(double\[\] __param0\)/);
+  assert.match(generatedSource, /double first = __param0\[0\];/);
+  assert.match(generatedSource, /foreach \(var __forOf0 in rows\)/);
+  assert.match(generatedSource, /double first = __forOf0\[0\];/);
+  assert.match(generatedSource, /var __destructure0 = point;/);
+  assert.match(generatedSource, /for \(; x < 2; \)/);
+  assert.doesNotMatch(generatedSource, /object __param/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedParameterForOfDestructuring.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects any and unknown before they trickle into C# output", async () => {
+  const projectDirectory = resolve(tempRoot, "reject-any-unknown");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function leakUnknown(value: unknown): unknown {",
+      "  return value;",
+      "}",
+      "",
+      "export function leakAny(value: any): any {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /any and unknown cannot trickle into generated C#/);
+});
+
 test("CLI emits C# generic declarations from TSTS generic AST", async () => {
   const projectDirectory = resolve(tempRoot, "generic-declarations");
   await writeProject(projectDirectory, {
@@ -956,8 +1051,8 @@ test("CLI reports unsupported property enumeration semantics instead of guessing
   assert.match(build.stderr, /For-in requires target property enumeration semantics/);
 });
 
-test("CLI reports unsupported binding patterns instead of synthesizing C# names", async () => {
-  const projectDirectory = resolve(tempRoot, "unsupported-binding-pattern");
+test("CLI rejects structural object destructuring until target object-shape facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "structural-object-destructuring");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -975,8 +1070,6 @@ test("CLI reports unsupported binding patterns instead of synthesizing C# names"
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /CSHARP_UNSUPPORTED_NAME/);
-  assert.match(build.stderr, /Parameter name must be an identifier/);
   assert.match(build.stderr, /Structural object type annotations require target object-shape semantics/);
 });
 
