@@ -2615,6 +2615,38 @@ test("CLI emits source-owned typed object literals as C# object initializers", a
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects provider-owned object literals until object-shape facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-owned-object-initializers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderObjectInitializers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Exception } from \"@tsonic/csharp/lang.js\";",
+      "",
+      "export function create(): Exception {",
+      "  return {};",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Object literal emission requires a source-owned expected type or finalized TSTS\/provider object-shape facts/);
+});
+
 test("CLI emits explicit tuple types and tuple literals as C# value tuples", async () => {
   const projectDirectory = resolve(tempRoot, "value-tuples");
   await writeProject(projectDirectory, {
