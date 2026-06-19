@@ -532,6 +532,52 @@ test("CLI emits direct C# bitwise and compound operators from TSTS AST", async (
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits standard JavaScript static class members", async () => {
+  const projectDirectory = resolve(tempRoot, "static-class-members");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStaticMembers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class MathBox {",
+      "  static count: number = 1;",
+      "",
+      "  static add(left: number, right: number): number {",
+      "    return left + right;",
+      "  }",
+      "}",
+      "",
+      "export function useStatic(): number {",
+      "  return MathBox.add(MathBox.count, 2);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double count = 1;/);
+  assert.match(generatedSource, /public static double add\(double left, double right\)/);
+  assert.match(generatedSource, /return MathBox\.add\(MathBox\.count, 2\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStaticMembers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits C# generic declarations from TSTS generic AST", async () => {
   const projectDirectory = resolve(tempRoot, "generic-declarations");
   await writeProject(projectDirectory, {

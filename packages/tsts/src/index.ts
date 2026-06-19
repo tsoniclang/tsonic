@@ -31,6 +31,8 @@ export {
   SourceFile_FileName,
 } from "./internal/ast/ast.js";
 export { Node_Name } from "./internal/ast/spine.js";
+export { HasSyntacticModifier } from "./internal/ast/utilities.js";
+export { ModifierFlagsStatic } from "./internal/ast/modifierflags.js";
 export {
   AsBinaryExpression,
   AsBlock,
