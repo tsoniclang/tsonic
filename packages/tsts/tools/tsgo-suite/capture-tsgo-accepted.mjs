@@ -17,7 +17,7 @@
 // must carry. A captured section that does NOT differ from the Strada baseline section is an
 // error: the overlay must stay minimal, covering only real divergences.
 import { spawnSync, execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -26,6 +26,7 @@ import {
   compilerOptionsForMaterializedCase,
   transpileInvocationsForMaterializedCase,
   compilerCommandLineArgsForMaterializedCase,
+  TSGO_ACCEPTED_ABSENT_MARKER,
 } from "./run.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -162,7 +163,24 @@ for (const entry of manifest) {
     }
     sections.push({ name: sectionName, content });
   }
-  if (sections.length !== entry.sections.length) {
+  // Absent sections: pinned TS-Go intentionally emits nothing (e.g. a .d.ts the new pin blocks
+  // under --isolatedDeclarations) while the Strada reference baseline still has it. Prove both
+  // facts, then record an explicit absence marker the runner applies by dropping the section.
+  for (const sectionName of entry.absentSections ?? []) {
+    const stradaSection = stradaSections.find((section) => section.name === sectionName);
+    if (stradaSection === undefined) {
+      console.error(`FAIL ${entry.artifact}#${sectionName}: marked absent, but the Strada baseline has no such section to be absent against.`);
+      failures += 1;
+      continue;
+    }
+    if (existsSync(join(caseDir, sectionName))) {
+      console.error(`FAIL ${entry.artifact}#${sectionName}: marked absent, but pinned TS-Go DID emit it; move it back to 'sections'.`);
+      failures += 1;
+      continue;
+    }
+    sections.push({ name: sectionName, content: TSGO_ACCEPTED_ABSENT_MARKER });
+  }
+  if (sections.length !== entry.sections.length + (entry.absentSections?.length ?? 0)) {
     continue;
   }
 

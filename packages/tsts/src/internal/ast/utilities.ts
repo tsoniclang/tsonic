@@ -1,11 +1,12 @@
-import type { bool, int, short, ulong } from "@tsonic/core/types.js";
+import type { bool, int, short, ulong } from "../../go/scalars.js";
 import type { GoConstraint, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import * as slices from "../../go/slices.js";
 import * as strings from "../../go/strings.js";
 import type { Pool } from "../../go/sync.js";
 import { Uint64 } from "../../go/sync/atomic.js";
+import * as utf8 from "../../go/unicode/utf8.js";
 import type { CompilerOptions, ModuleKind, ResolutionMode } from "../core/compileroptions.js";
-import { TextRange_End, TextRange_Pos } from "../core/text.js";
+import { CompareTextRanges, TextRange_End, TextRange_Pos } from "../core/text.js";
 import type { TextRange } from "../core/text.js";
 import type { Tristate } from "../core/tristate.js";
 import type { Path as Path_73a9f36e } from "../tspath/path.js";
@@ -124,6 +125,7 @@ import {
 } from "./generated/flags.js";
 import type { Kind } from "./generated/kinds.js";
 import {
+  KindAmpersandAmpersandEqualsToken,
   KindAmpersandAmpersandToken,
   KindAnyKeyword,
   KindArrayBindingPattern,
@@ -131,6 +133,7 @@ import {
   KindArrowFunction,
   KindAsExpression,
   KindAwaitExpression,
+  KindBarBarEqualsToken,
   KindBarBarToken,
   KindBigIntKeyword,
   KindBigIntLiteral,
@@ -255,6 +258,7 @@ import {
   KindPropertyDeclaration,
   KindPropertySignature,
   KindQualifiedName,
+  KindQuestionQuestionEqualsToken,
   KindQuestionQuestionToken,
   KindRegularExpressionLiteral,
   KindReturnStatement,
@@ -560,63 +564,6 @@ import {
 } from "../core/core.js";
 import { Assert, FailBadSyntaxKind } from "../debug/debug.js";
 import { Pool as PoolValue } from "../../go/sync.js";
-
-// Go strings are immutable UTF-8 byte sequences; `len(s)` is a byte length,
-// `s[i]` is a byte, and slices like `s[i:j]` operate on byte offsets. Source
-// positions are byte offsets, so position-indexed reads of source text must go
-// through the UTF-8 byte view rather than JS string indexing.
-// The encoded-view cache is byte-budgeted: unbounded caching retains a full
-// byte copy of every distinct large non-ASCII string a long-lived process
-// touches (multiple GB on an in-process full-lib check).
-const utilUtf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const utilUtf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
-type UtilUtf8ByteInfo = { ascii: bool; bytes: Uint8Array };
-const utilUtf8ByteInfoCache = new globalThis.Map<string, UtilUtf8ByteInfo>();
-const utilUtf8ByteInfoCacheBudget = 64 * 1024 * 1024; // total cached bytes
-const utilUtf8ByteInfoCacheState = { bytes: 0 };
-
-const utilGetUtf8ByteInfo = (s: string): UtilUtf8ByteInfo => {
-  const cached = utilUtf8ByteInfoCache.get(s);
-  if (cached !== undefined) {
-    return cached;
-  }
-  let ascii = true;
-  for (let i = 0; i < s.length; i++) {
-    if (s.charCodeAt(i) >= 0x80) {
-      ascii = false;
-      break;
-    }
-  }
-  const info: UtilUtf8ByteInfo = {
-    ascii,
-    bytes: ascii ? undefined as unknown as Uint8Array : utilUtf8Encoder.encode(s),
-  };
-  if (s.length >= 4096) {
-    const cost = ascii ? s.length : info.bytes.length;
-    if (utilUtf8ByteInfoCacheState.bytes + cost > utilUtf8ByteInfoCacheBudget) {
-      utilUtf8ByteInfoCache.clear();
-      utilUtf8ByteInfoCacheState.bytes = 0;
-    }
-    utilUtf8ByteInfoCache.set(s, info);
-    utilUtf8ByteInfoCacheState.bytes += cost;
-  }
-  return info;
-};
-
-const utilByteLen = (s: string): int => {
-  const info = utilGetUtf8ByteInfo(s);
-  return info.ascii ? s.length : info.bytes.length;
-};
-
-const utilByteSlice = (s: string, start: int, end?: int): string => {
-  const info = utilGetUtf8ByteInfo(s);
-  return info.ascii ? s.slice(start, end) : utilUtf8Decoder.decode(info.bytes.subarray(start, end));
-};
-
-const utilByteAt = (s: string, i: int): int => {
-  const info = utilGetUtf8ByteInfo(s);
-  return info.ascii ? s.charCodeAt(i) : info.bytes[i]!;
-};
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::varGroup::nextNodeId+nextSymbolId","kind":"varGroup","status":"implemented","sigHash":"023956e168736dc0e2e208f1009bb0207dce5c0c6e326fb624acc258ef9d4fd8","bodyHash":"bdf7525df846448041c907613da60444d42d43aa68effc987f7d071a0163c770"}
@@ -3322,7 +3269,7 @@ export function GetRootDeclaration(node: GoPtr<Node>): GoPtr<Node> {
  * 	return flags
  * }
  */
-export function getCombinedFlags<T extends number>(node: GoPtr<Node>, getFlags: (arg0: GoPtr<Node>) => T): T {
+export function getCombinedFlags<T extends GoConstraint<"~uint32"> & number>(node: GoPtr<Node>, getFlags: (arg0: GoPtr<Node>) => T): T {
   const root = GetRootDeclaration(node);
   const flags0 = getFlags(root);
   const n1 = root!.Kind === KindVariableDeclaration ? root!.Parent : root;
@@ -4454,6 +4401,18 @@ export function HasSamePropertyAccessName(node1: GoPtr<Node>, node2: GoPtr<Node>
 export function IsAmbientModule(node: GoPtr<Node>): bool {
   return (IsModuleDeclaration(node) &&
     (Node_Name(node)!.Kind === KindStringLiteral || IsGlobalScopeAugmentation(node))) as bool;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsAmbientModuleSymbolName","kind":"func","status":"implemented","sigHash":"a2850100990d293c0a0089378ef79c10ff84a6057b578bead0f55c33cee177ad","bodyHash":"d2f2d373e47d2771767f17f3473fea5bf1a7a89ec21f16e6308e28750b9ae326"}
+ *
+ * Go source:
+ * func IsAmbientModuleSymbolName(s string) bool {
+ * 	return strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")
+ * }
+ */
+export function IsAmbientModuleSymbolName(s: string): bool {
+  return (strings.HasPrefix(s, '"') && strings.HasSuffix(s, '"')) as bool;
 }
 
 /**
@@ -6952,8 +6911,45 @@ export function nodeContainsPosition(node: GoPtr<Node>, position: int): bool {
     (position < Node_End(node) || (position === Node_End(node) && node!.Kind === KindEndOfFile))) as bool;
 }
 
+const importBytes = [0x69, 0x6d, 0x70, 0x6f, 0x72, 0x74] as const;
+const requireBytes = [0x72, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65] as const;
+
+function sourceTextByteIndexAnyIR(text: string, view: utf8.StringByteView, start: int, end: int): int {
+  if (view.ascii) {
+    const importIndex = text.indexOf("i", start);
+    const requireIndex = text.indexOf("r", start);
+    if (importIndex < 0) {
+      return requireIndex as int;
+    }
+    if (requireIndex < 0) {
+      return importIndex as int;
+    }
+    return globalThis.Math.min(importIndex, requireIndex) as int;
+  }
+  for (let index = start; index < end; index++) {
+    const byte = utf8.StringByteViewAt(text, view, index as int);
+    if (byte === 0x69 /* 'i' */ || byte === 0x72 /* 'r' */) {
+      return index as int;
+    }
+  }
+  return -1 as int;
+}
+
+function sourceTextByteViewHasBytes(text: string, view: utf8.StringByteView, start: int, bytes: readonly number[]): bool {
+  if (start + bytes.length > utf8.StringByteViewLen(text, view)) {
+    return false as bool;
+  }
+  for (let index = 0; index < bytes.length; index++) {
+    if (utf8.StringByteViewAt(text, view, (start + index) as int) !== bytes[index]!) {
+      return false as bool;
+    }
+  }
+  return true as bool;
+}
+
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::findImportOrRequire","kind":"func","status":"implemented","sigHash":"dc74ebd84691acdaa23ed9ecd060a4e3f0c4eff44bc25a50aa1e7dbd8a2233a2","bodyHash":"b7bab03f95853ac66811cc7c9ec6cee4845cfb117b81ee6e95ec4027a33c8c2d"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Scan import/require candidates over one shared source byte view instead of materializing text[index:] and text[index:index+size] strings on each probe; byte offsets and match semantics remain TS-Go exact."}
  *
  * Go source:
  * func findImportOrRequire(text string, start int) (index int, size int) {
@@ -6984,20 +6980,18 @@ export function nodeContainsPosition(node: GoPtr<Node>, position: int): bool {
  * }
  */
 export function findImportOrRequire(text: string, start: int): [int, int] {
-  // Go strings are UTF-8 byte sequences; `start`/`index` are byte offsets into
-  // the source text, so reads must go through the byte view.
-  const n: int = utilByteLen(text);
+  const view = utf8.GetStringByteView(text);
+  const n: int = utf8.StringByteViewLen(text, view);
   let index = globalThis.Math.max(start, 0) as int;
   while (index < n) {
-    const next: int = strings.IndexAny(utilByteSlice(text, index), "ir");
-    if (next < 0) {
+    const newIndex = sourceTextByteIndexAnyIR(text, view, index, n);
+    if (newIndex < 0) {
       return [-1 as int, 0 as int];
     }
-    const newIndex = (index + next) as int;
-    const isImport = utilByteAt(text, newIndex) === 0x69 /* 'i' */;
+    const isImport = utf8.StringByteViewAt(text, view, newIndex) === 0x69 /* 'i' */;
     const size: int = isImport ? 6 as int : 7 as int;
-    const expected = isImport ? "import" : "require";
-    if (newIndex + size <= n && utilByteSlice(text, newIndex, newIndex + size) === expected) {
+    const expected = isImport ? importBytes : requireBytes;
+    if (sourceTextByteViewHasBytes(text, view, newIndex, expected)) {
       return [newIndex, size];
     }
     index = (newIndex + 1) as int;
@@ -9487,15 +9481,15 @@ export function IndexOfNode(nodes: GoSlice<GoPtr<Node>>, node: GoPtr<Node>): int
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::CompareNodePositions","kind":"func","status":"implemented","sigHash":"a56448196f40c6da578ff93594ccd0d30e8731d5cb756dbfe671d2b48ea51e76","bodyHash":"7f4a324f65fb2430c25fee0c30bd1bf47c62a3bcce5d4e4864701d5b398685aa"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::CompareNodePositions","kind":"func","status":"implemented","sigHash":"a56448196f40c6da578ff93594ccd0d30e8731d5cb756dbfe671d2b48ea51e76","bodyHash":"8743b35724a9d85c7049b96622befb33e4e4fc52e88f167d348ff4fab78e4c9b"}
  *
  * Go source:
  * func CompareNodePositions(n1, n2 *Node) int {
- * 	return n1.Pos() - n2.Pos()
+ * 	return core.CompareTextRanges(n1.Loc, n2.Loc)
  * }
  */
 export function CompareNodePositions(n1: GoPtr<Node>, n2: GoPtr<Node>): int {
-  return (Node_Pos(n1) - Node_Pos(n2)) as int;
+  return CompareTextRanges(n1!.Loc, n2!.Loc);
 }
 
 /**
@@ -10135,6 +10129,49 @@ export function GetHostSignatureFromJSDoc(node: GoPtr<Node>): GoPtr<Node> {
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::GetNextJSDocCommentLocation","kind":"func","status":"implemented","sigHash":"699c4ab4cfcafd1b4e36d930e951e49afacdaa4424d3ea98b3004e94937295db","bodyHash":"a4dec87fb910dbad54128383e2f69de9b055084f93ddf871921bd9f7fb41cec7"}
+ *
+ * Go source:
+ * // Finds the declaration that owns the JSDoc for a function-like node.
+ * // Keep these hosts aligned with JSDoc parameter reparsing so unmatched @param diagnostics use the same attachment rules.
+ * func GetNextJSDocCommentLocation(node *Node) *Node {
+ * 	if parent := node.Parent; parent != nil {
+ * 		switch parent.Kind {
+ * 		case KindPropertyAssignment, KindExportAssignment, KindPropertyDeclaration, KindVariableDeclaration,
+ * 			KindSatisfiesExpression, KindReturnStatement, KindVariableStatement, KindExpressionStatement:
+ * 			return parent
+ * 		case KindVariableDeclarationList:
+ * 			if parent.AsVariableDeclarationList().Declarations.Nodes[0] == node {
+ * 				return parent
+ * 			}
+ * 		}
+ * 	}
+ * 	return nil
+ * }
+ */
+export function GetNextJSDocCommentLocation(node: GoPtr<Node>): GoPtr<Node> {
+  const parent = node!.Parent;
+  if (parent !== undefined) {
+    switch (parent!.Kind) {
+      case KindPropertyAssignment:
+      case KindExportAssignment:
+      case KindPropertyDeclaration:
+      case KindVariableDeclaration:
+      case KindSatisfiesExpression:
+      case KindReturnStatement:
+      case KindVariableStatement:
+      case KindExpressionStatement:
+        return parent;
+      case KindVariableDeclarationList:
+        if (AsVariableDeclarationList(parent)!.Declarations!.Nodes[0] === node) {
+          return parent;
+        }
+    }
+  }
+  return undefined;
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsImportOrImportEqualsDeclaration","kind":"func","status":"implemented","sigHash":"fe92c4a59bb2e708fab26bc270ab1b41f5e2edd988dd8b156e717699fba59da4","bodyHash":"1fba3e81ee31777f279a73bec8622cbfb71896c82d629effe21c1ecbdcf7908a"}
  *
  * Go source:
@@ -10285,10 +10322,10 @@ export function HasModifier(node: GoPtr<Node>, flags: ModifierFlags): bool {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsExpandoInitializer","kind":"func","status":"implemented","sigHash":"f1987c4f350415ed08ca06d18e171aa6b6e48a74590d187d87088211057d9cf2","bodyHash":"8103a9072a9b02c74c8f6913f02853772779a38b4bd5f21e50089a322401d6f9"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsExpandoInitializer","kind":"func","status":"implemented","sigHash":"40aa09d23f580f35a32bb93958eb11870757656dfcb5e19329dcbcf489f05ccf","bodyHash":"9ea280bf6b247dd9b5f441c8aabf48b87f3f6013c986d0ad50d2189f25649cfc"}
  *
  * Go source:
- * func IsExpandoInitializer(initializer *Node) bool {
+ * func IsExpandoInitializer(declaration *Node, initializer *Node) bool {
  * 	if initializer == nil {
  * 		return false
  * 	}
@@ -10296,12 +10333,12 @@ export function HasModifier(node: GoPtr<Node>, flags: ModifierFlags): bool {
  * 		return true
  * 	}
  * 	if IsInJSFile(initializer) {
- * 		return IsClassExpression(initializer) || (IsObjectLiteralExpression(initializer) && len(initializer.Properties()) == 0)
+ * 		return IsClassExpression(initializer) || (IsObjectLiteralExpression(initializer) && len(initializer.Properties()) == 0 && declaration.Type() == nil)
  * 	}
  * 	return false
  * }
  */
-export function IsExpandoInitializer(initializer: GoPtr<Node>): bool {
+export function IsExpandoInitializer(declaration: GoPtr<Node>, initializer: GoPtr<Node>): bool {
   if (initializer === undefined) {
     return false as bool;
   }
@@ -10309,7 +10346,7 @@ export function IsExpandoInitializer(initializer: GoPtr<Node>): bool {
     return true as bool;
   }
   if (IsInJSFile(initializer)) {
-    return (IsClassExpression(initializer) || (IsObjectLiteralExpression(initializer) && (Node_Properties(initializer)?.length ?? 0) === 0)) as bool;
+    return (IsClassExpression(initializer) || (IsObjectLiteralExpression(initializer) && (Node_Properties(initializer)?.length ?? 0) === 0 && Node_Type(declaration) === undefined)) as bool;
   }
   return false as bool;
 }
@@ -10400,15 +10437,31 @@ export function TryGetImportFromModuleSpecifier(node: GoPtr<StringLiteralLike>):
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsImplicitlyExportedJSTypeAlias","kind":"func","status":"implemented","sigHash":"46a2509382b24883adf51c0fd51d1647f95dc7d94c5c636f4bdebe158609a8f9","bodyHash":"b04a03e3d14bb63a27e523169d7799863aaea67905abe1d8f36245a2af786ebf"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsImplicitlyExportedJSDocDeclaration","kind":"func","status":"implemented","sigHash":"2aef7b7b07d73dd796920346030c772b0824b67a4285976c9f9a5f474d1d6d79","bodyHash":"20f4a0453e9a1e81cfa069963a71df48d37ccc3dfeb28328a448aa6773a0b085"}
  *
  * Go source:
- * func IsImplicitlyExportedJSTypeAlias(node *Node) bool {
- * 	return IsJSTypeAliasDeclaration(node) && IsSourceFile(node.Parent) && IsExternalOrCommonJSModule(node.Parent.AsSourceFile())
+ * func IsImplicitlyExportedJSDocDeclaration(node *Node) bool {
+ * 	if !IsSourceFile(node.Parent) || !IsExternalOrCommonJSModule(node.Parent.AsSourceFile()) {
+ * 		return false
+ * 	}
+ * 	if IsJSTypeAliasDeclaration(node) {
+ * 		return true
+ * 	}
+ * 	// A reparsed ModuleDeclaration synthesized from a JSDoc @typedef/@callback
+ * 	// dotted name should also be treated as implicitly exported in modules.
+ * 	return IsModuleDeclaration(node) && node.Flags&NodeFlagsReparsed != 0
  * }
  */
-export function IsImplicitlyExportedJSTypeAlias(node: GoPtr<Node>): bool {
-  return (IsJSTypeAliasDeclaration(node) && IsSourceFile(node!.Parent) && IsExternalOrCommonJSModule(AsSourceFile(node!.Parent))) as bool;
+export function IsImplicitlyExportedJSDocDeclaration(node: GoPtr<Node>): bool {
+  if (!IsSourceFile(node!.Parent) || !IsExternalOrCommonJSModule(AsSourceFile(node!.Parent))) {
+    return false as bool;
+  }
+  if (IsJSTypeAliasDeclaration(node)) {
+    return true as bool;
+  }
+  // A reparsed ModuleDeclaration synthesized from a JSDoc @typedef/@callback
+  // dotted name should also be treated as implicitly exported in modules.
+  return (IsModuleDeclaration(node) && (node!.Flags & NodeFlagsReparsed) !== 0) as bool;
 }
 
 /**
@@ -10646,7 +10699,7 @@ export function ClassOrConstructorParameterIsDecorated(useLegacyDecorators: bool
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::ClassElementOrClassElementParameterIsDecorated","kind":"func","status":"implemented","sigHash":"f37ca568238145ebe8a86c02f2cef1b9313da88b33e1267b72712eba2c9f5d3a","bodyHash":"98910a59e98277c0d39ba313ff3ea11995960ddd9d05d207303a6f12c2991583"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::ClassElementOrClassElementParameterIsDecorated","kind":"func","status":"implemented","sigHash":"f37ca568238145ebe8a86c02f2cef1b9313da88b33e1267b72712eba2c9f5d3a","bodyHash":"47f7e53d0ff6621131b196fb36037954233a04fba2b3083091d58588bc82fb6a"}
  *
  * Go source:
  * func ClassElementOrClassElementParameterIsDecorated(useLegacyDecorators bool, node *Node, parent *Node) bool {
@@ -10656,7 +10709,7 @@ export function ClassOrConstructorParameterIsDecorated(useLegacyDecorators: bool
  * 		var firstAccessorWithDecorators *Node
  * 		if HasDecorators(decls.FirstAccessor) {
  * 			firstAccessorWithDecorators = decls.FirstAccessor
- * 		} else if HasDecorators(decls.SecondAccessor) {
+ * 		} else if decls.SecondAccessor != nil && HasDecorators(decls.SecondAccessor) {
  * 			firstAccessorWithDecorators = decls.SecondAccessor
  * 		}
  * 		if firstAccessorWithDecorators == nil || node != firstAccessorWithDecorators {
@@ -10689,7 +10742,7 @@ export function ClassElementOrClassElementParameterIsDecorated(useLegacyDecorato
     if (IsAccessor(node)) {
       const decls: AllAccessorDeclarations = GetAllAccessorDeclarations(Node_Members(parent) ?? [], node);
       const firstAccessorWithDecorators: GoPtr<Node> = HasDecorators(decls.FirstAccessor) ? decls.FirstAccessor
-        : HasDecorators(decls.SecondAccessor) ? decls.SecondAccessor
+        : (decls.SecondAccessor !== undefined && HasDecorators(decls.SecondAccessor)) ? decls.SecondAccessor
         : undefined;
       if (firstAccessorWithDecorators === undefined || node !== firstAccessorWithDecorators) return [true, undefined];
       return [false, decls.SetAccessor !== undefined ? decls.SetAccessor!.Parameters : undefined];
@@ -11158,4 +11211,79 @@ export function IsExpandoPropertyDeclaration(node: GoPtr<Node>): bool {
 export function IsSuperProperty(node: GoPtr<Node>): bool {
   return ((IsPropertyAccessExpression(node) || IsElementAccessExpression(node)) &&
     Node_Expression(node)!.Kind === KindSuperKeyword) as bool;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsNamedEvaluationSource","kind":"func","status":"implemented","sigHash":"c2427b362f66aa78871e2b40c41162d2f6984b20bf8915782ff39586fee3e9b2","bodyHash":"a2fdaa9bb90b1f6b2ac0ee1267bcc4593a87d471324832340841edd172413008"}
+ *
+ * Go source:
+ * // Indicates whether a node is a potential source of an assigned name for a class, function, or arrow function.
+ * func IsNamedEvaluationSource(node *Node) bool {
+ * 	switch node.Kind {
+ * 	case KindPropertyAssignment:
+ * 		return !IsProtoSetter(node.AsPropertyAssignment().Name())
+ * 	case KindShorthandPropertyAssignment:
+ * 		return node.AsShorthandPropertyAssignment().ObjectAssignmentInitializer != nil
+ * 	case KindVariableDeclaration:
+ * 		return IsIdentifier(node.AsVariableDeclaration().Name()) && node.Initializer() != nil
+ * 	case KindParameter:
+ * 		return IsIdentifier(node.AsParameterDeclaration().Name()) && node.Initializer() != nil && node.AsParameterDeclaration().DotDotDotToken == nil
+ * 	case KindBindingElement:
+ * 		return IsIdentifier(node.AsBindingElement().Name()) && node.Initializer() != nil && node.AsBindingElement().DotDotDotToken == nil
+ * 	case KindPropertyDeclaration:
+ * 		return node.Initializer() != nil
+ * 	case KindBinaryExpression:
+ * 		switch node.AsBinaryExpression().OperatorToken.Kind {
+ * 		case KindEqualsToken, KindAmpersandAmpersandEqualsToken, KindBarBarEqualsToken, KindQuestionQuestionEqualsToken:
+ * 			return IsIdentifier(node.AsBinaryExpression().Left)
+ * 		}
+ * 	case KindExportAssignment:
+ * 		return true
+ * 	}
+ * 	return false
+ * }
+ */
+export function IsNamedEvaluationSource(node: GoPtr<Node>): bool {
+  switch (node!.Kind) {
+    case KindPropertyAssignment:
+      return !IsProtoSetter(Node_Name(node)) as bool;
+    case KindShorthandPropertyAssignment:
+      return (AsShorthandPropertyAssignment(node)!.ObjectAssignmentInitializer !== undefined) as bool;
+    case KindVariableDeclaration:
+      return (IsIdentifier(Node_Name(node)) && Node_Initializer(node) !== undefined) as bool;
+    case KindParameter:
+      return (IsIdentifier(Node_Name(node)) && Node_Initializer(node) !== undefined && AsParameterDeclaration(node)!.DotDotDotToken === undefined) as bool;
+    case KindBindingElement:
+      return (IsIdentifier(Node_Name(node)) && Node_Initializer(node) !== undefined && AsBindingElement(node)!.DotDotDotToken === undefined) as bool;
+    case KindPropertyDeclaration:
+      return (Node_Initializer(node) !== undefined) as bool;
+    case KindBinaryExpression:
+      switch (AsBinaryExpression(node)!.OperatorToken!.Kind) {
+        case KindEqualsToken:
+        case KindAmpersandAmpersandEqualsToken:
+        case KindBarBarEqualsToken:
+        case KindQuestionQuestionEqualsToken:
+          return IsIdentifier(AsBinaryExpression(node)!.Left) as bool;
+      }
+      break;
+    case KindExportAssignment:
+      return true as bool;
+  }
+  return false as bool;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsProtoSetter","kind":"func","status":"implemented","sigHash":"4ce8dc880b6c589687b11d14b24979c2b511353db79a7ee61559a9d48ed23a01","bodyHash":"8a8853ef6ea0f298b90b21b9eb14d263ec3d79a37d7b7c4fadcdc2aa5d58b349"}
+ *
+ * Go source:
+ * // Indicates whether a property name is the special `__proto__` property.
+ * // Per the ECMA-262 spec, this only matters for property assignments whose name is
+ * // the Identifier `__proto__`, or the string literal `"__proto__"`, but not for
+ * // computed property names.
+ * func IsProtoSetter(node *Node) bool {
+ * 	return (IsIdentifier(node) || IsStringLiteral(node)) && node.Text() == "__proto__"
+ * }
+ */
+export function IsProtoSetter(node: GoPtr<Node>): bool {
+  return ((IsIdentifier(node) || IsStringLiteral(node)) && Node_Text(node) === "__proto__") as bool;
 }

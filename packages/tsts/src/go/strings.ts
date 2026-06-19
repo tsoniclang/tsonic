@@ -6,14 +6,15 @@
 // contract self-consistent we operate over the UTF-8 byte view of the string
 // and convert back to a JavaScript string at the boundaries.
 
-import type { bool, int, byte } from "@tsonic/core/types.js";
+import type { bool, int, byte } from "./scalars.js";
 import type { GoRune, GoSlice } from "./compat.js";
+import * as utf8 from "./unicode/utf8.js";
 
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
+const nonASCII = /[^\x00-\x7F]/;
 
-const encode = (s: string): Uint8Array => utf8Encoder.encode(s);
-const decode = (bytes: Uint8Array): string => utf8Decoder.decode(bytes);
+const encode = utf8.StringUtf8Bytes;
+const decode = utf8.StringFromUtf8Bytes;
+const isASCIIString = (s: string): bool => !nonASCII.test(s);
 
 // RuneError mirrors unicode/utf8.RuneError (U+FFFD, the replacement char).
 const RuneErrorValue: GoRune = 0xfffd;
@@ -483,14 +484,9 @@ export function IndexAny(s: string, chars: string): int {
 
 // IndexByte returns the byte index of the first instance of byte c in s, or -1.
 export function IndexByte(s: string, c: byte): int {
-  const bytes = encode(s);
+  const view = utf8.GetStringByteView(s);
   const target = c & 0xff;
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i] === target) {
-      return i;
-    }
-  }
-  return -1;
+  return utf8.StringByteViewIndexByte(s, view, 0, target as byte);
 }
 
 // IndexFunc returns the byte index of the first rune satisfying f, or -1.
@@ -535,8 +531,12 @@ export function LastIndex(s: string, substr: string): int {
 }
 
 export function LastIndexByte(s: string, c: byte): int {
-  const bytes = encode(s);
+  const view = utf8.GetStringByteView(s);
   const target = c & 0xff;
+  if (view.ascii) {
+    return s.lastIndexOf(globalThis.String.fromCharCode(target)) as int;
+  }
+  const bytes = view.bytes!;
   for (let i = bytes.length - 1; i >= 0; i--) {
     if (bytes[i] === target) {
       return i;
@@ -695,6 +695,29 @@ export function Repeat(s: string, count: int): string {
 // old replaced by replacement. n < 0 replaces all. Faithful port of Go's
 // strings.Replace.
 export function Replace(s: string, oldStr: string, newStr: string, n: int): string {
+  if (oldStr === newStr || n === 0) {
+    return s;
+  }
+  if (oldStr.length !== 0 && isASCIIString(oldStr) && isASCIIString(newStr)) {
+    const first = s.indexOf(oldStr);
+    if (first < 0) {
+      return s;
+    }
+    let result = s.slice(0, first) + newStr;
+    let start = first + oldStr.length;
+    let remaining = n < 0 ? Number.MAX_SAFE_INTEGER : n - 1;
+    while (remaining !== 0) {
+      const index = s.indexOf(oldStr, start);
+      if (index < 0) {
+        return result + s.slice(start);
+      }
+      result += s.slice(start, index) + newStr;
+      start = index + oldStr.length;
+      remaining--;
+    }
+    return result + s.slice(start);
+  }
+
   const sb = encode(s);
   const ob = encode(oldStr);
   const nb = encode(newStr);
@@ -890,10 +913,11 @@ export function ToValidUTF8(s: string, replacement: string): string {
 
 const makeCutset = (cutset: string): Set<GoRune> => {
   const set = new Set<GoRune>();
-  const cb = encode(cutset);
+  const view = utf8.GetStringByteView(cutset);
+  const length = utf8.StringByteViewLen(cutset, view);
   let i = 0;
-  while (i < cb.length) {
-    const [r, size] = decodeRune(cb, i);
+  while (i < length) {
+    const [r, size] = utf8.DecodeRuneInStringViewAt(cutset, view, i);
     set.add(r);
     i += size === 0 ? 1 : size;
   }
@@ -919,16 +943,17 @@ export function TrimLeft(s: string, cutset: string): string {
 
 // TrimLeftFunc returns s with all leading runes satisfying f removed.
 export function TrimLeftFunc(s: string, f: (r: GoRune) => bool): string {
-  const bytes = encode(s);
+  const view = utf8.GetStringByteView(s);
+  const length = utf8.StringByteViewLen(s, view);
   let i = 0;
-  while (i < bytes.length) {
-    const [r, size] = decodeRune(bytes, i);
+  while (i < length) {
+    const [r, size] = utf8.DecodeRuneInStringViewAt(s, view, i);
     if (!f(r)) {
       break;
     }
     i += size === 0 ? 1 : size;
   }
-  return decode(bytes.subarray(i));
+  return utf8.StringByteViewSlice(s, view, i);
 }
 
 // TrimPrefix returns s without the provided leading prefix string.
@@ -947,24 +972,19 @@ export function TrimRight(s: string, cutset: string): string {
 
 // TrimRightFunc returns s with all trailing runes satisfying f removed.
 export function TrimRightFunc(s: string, f: (r: GoRune) => bool): string {
-  const bytes = encode(s);
-  let end = bytes.length;
+  const view = utf8.GetStringByteView(s);
+  let end = utf8.StringByteViewLen(s, view);
   while (end > 0) {
-    // find the start of the last rune before `end`
-    let start = end - 1;
-    while (start > 0 && (bytes[start]! & 0xc0) === 0x80) {
-      start--;
-    }
-    const [r, size] = decodeRune(bytes, start);
+    const [r, size] = utf8.DecodeLastRuneInStringViewBefore(s, view, end);
     if (size === 0) {
       break;
     }
     if (!f(r)) {
       break;
     }
-    end = start;
+    end -= size;
   }
-  return decode(bytes.subarray(0, end));
+  return utf8.StringByteViewSlice(s, view, 0, end);
 }
 
 // TrimSpace returns s with all leading and trailing whitespace removed.

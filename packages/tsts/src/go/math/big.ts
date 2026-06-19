@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../scalars.js";
 
 export class Int {
   private value: bigint;

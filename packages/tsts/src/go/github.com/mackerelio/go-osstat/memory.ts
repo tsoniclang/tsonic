@@ -1,4 +1,4 @@
-import type { ulong } from "@tsonic/core/types.js";
+import type { ulong } from "../../../scalars.js";
 import type { GoError } from "../../../compat.js";
 import * as nodeOs from "node:os";
 

@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import { Node_Body, Node_Expression, Node_Initializer, Node_Parameters, Node_Symbol, Node_Type } from "../ast/ast.js";
 import { Node_ParameterList } from "../ast/ast.js";
@@ -70,6 +70,7 @@ import {
   KindTypePredicate,
   KindTypeQuery,
   KindTypeReference,
+  KindUndefinedKeyword,
   KindUnionType,
   KindVariableDeclaration,
 } from "../ast/generated/kinds.js";
@@ -133,7 +134,7 @@ import {
   NodeIsMissing,
 } from "../ast/utilities.js";
 import type { AllAccessorDeclarations } from "../ast/utilities.js";
-import { CountWhere, Every, Some } from "../core/core.js";
+import { CountWhere, Some } from "../core/core.js";
 import { FailBadSyntaxKind } from "../debug/debug.js";
 import type { PseudoChecker } from "./checker.js";
 import type { PseudoObjectElement, PseudoParameter, PseudoType } from "./type.js";
@@ -1363,7 +1364,7 @@ export function isUndefinedPseudoType(t: GoPtr<PseudoType>): bool {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/pseudochecker/lookup.go::func::typeNodeCouldReferToUndefined","kind":"func","status":"implemented","sigHash":"328eddc236093c5d48f2722e8373bea37f20c934a504bb8ccd45ab584c3301c3","bodyHash":"cc890cd3b7c7e1d55b61e3781e024aab58a2044f3a33d80a0e696489cd300ad1"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/pseudochecker/lookup.go::func::typeNodeCouldReferToUndefined","kind":"func","status":"implemented","sigHash":"328eddc236093c5d48f2722e8373bea37f20c934a504bb8ccd45ab584c3301c3","bodyHash":"310da50dff4ce8598d80664cabaf0a17fcf0504eb2b0f30c65452dd854974ba8"}
  *
  * Go source:
  * func typeNodeCouldReferToUndefined(node *ast.Node) bool {
@@ -1386,7 +1387,9 @@ export function isUndefinedPseudoType(t: GoPtr<PseudoType>): bool {
  * 		return true
  * 	case ast.KindTypePredicate: // suspect - always refers to `never` or `boolean`, depending on kind - considered possibly-`undefined` referencing for strada compat
  * 		return true
- * 	default: // all keywords (why is `undefined` not excluded???), literal types, function-y types, array/tuple types, type literals, template types, this types
+ * 	case ast.KindUndefinedKeyword:
+ * 		return true
+ * 	default: // all other keywords, literal types, function-y types, array/tuple types, type literals, template types, this types
  * 		return false
  * 	}
  * }
@@ -1412,6 +1415,8 @@ export function typeNodeCouldReferToUndefined(node: GoPtr<Node>): bool {
     case KindTypeOperator:
       return true;
     case KindTypePredicate:
+      return true;
+    case KindUndefinedKeyword:
       return true;
     default:
       return false;
@@ -1480,6 +1485,33 @@ export function isOptionalInitializedOrRestParameter(node: GoPtr<ParameterDeclar
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/pseudochecker/lookup.go::func::lastRequiredParamIndex","kind":"func","status":"implemented","sigHash":"f984f8061c687349341f1ae62bfd902ff9ef63da0c0a816a43cbd9ab3d3e7fbd","bodyHash":"241d1f596b7b564eabcf068e47483c5e46d2e3dcc2c898faaee3401f1e207938"}
+ *
+ * Go source:
+ * // lastRequiredParamIndex returns the index just past the last required parameter
+ * // in the list. A parameter is "required" if it has no question token, no initializer,
+ * // and no rest token. This is computed in a single reverse pass so callers can
+ * // determine "has required parameter after index i" with `i+1 < lastRequired`
+ * // (equivalently, `i < lastRequired-1`) in O(1).
+ * func lastRequiredParamIndex(params []*ast.Node) int {
+ * 	for i := len(params) - 1; i >= 0; i-- {
+ * 		if !isOptionalInitializedOrRestParameter(params[i]) {
+ * 			return i + 1
+ * 		}
+ * 	}
+ * 	return 0
+ * }
+ */
+export function lastRequiredParamIndex(params: GoSlice<GoPtr<Node>>): int {
+  for (let i = params.length - 1; i >= 0; i--) {
+    if (!isOptionalInitializedOrRestParameter(params[i])) {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/pseudochecker/lookup.go::func::addUndefinedIfDefinitelyRequired","kind":"func","status":"implemented","sigHash":"1da3334399e572e5768d65375c54567a27c77dbfd9ca0e219ebe4436398b1ad9","bodyHash":"00b39adb003864d39cfcf739f651c2e7b4c4d93c96f3cfe562ac41818314ee81"}
  *
  * Go source:
@@ -1503,7 +1535,7 @@ export function addUndefinedIfDefinitelyRequired(expr: GoPtr<PseudoType>): GoPtr
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/pseudochecker/lookup.go::method::PseudoChecker.typeFromParameter","kind":"method","status":"implemented","sigHash":"2e5ea3b5a7e5eaeee002ba1fc7b655b1aafc49885cf870ed9277a4de078a80f7","bodyHash":"cf3c94c88d3c9d4963c3ecc8d6403e8cc6ad349ab3af11cf8a6db7f57f8d329d"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/pseudochecker/lookup.go::method::PseudoChecker.typeFromParameter","kind":"method","status":"implemented","sigHash":"2e5ea3b5a7e5eaeee002ba1fc7b655b1aafc49885cf870ed9277a4de078a80f7","bodyHash":"be26eb9b4c87087a9e791f6998eaf561db733ada7d887eea046ada0b459bb6ee"}
  *
  * Go source:
  * func (ch *PseudoChecker) typeFromParameter(node *ast.ParameterDeclaration) *PseudoType {
@@ -1511,25 +1543,67 @@ export function addUndefinedIfDefinitelyRequired(expr: GoPtr<PseudoType>): GoPtr
  * 	if parent.Kind == ast.KindSetAccessor {
  * 		return ch.GetTypeOfAccessor(parent)
  * 	}
+ * 	// Fast path: no initializer means we never need parameter position info.
+ * 	if node.Initializer == nil {
+ * 		if node.Type != nil {
+ * 			return NewPseudoTypeDirect(node.Type)
+ * 		}
+ * 		return NewPseudoTypeNoResult(node.AsNode())
+ * 	}
+ * 	p := parent.Parameters()
+ * 	selfIdx := slices.Index(p, node.AsNode())
+ * 	lastRequired := lastRequiredParamIndex(p)
+ * 	return ch.typeFromParameterWorker(node, selfIdx, lastRequired)
+ * }
+ */
+export function PseudoChecker_typeFromParameter(receiver: GoPtr<PseudoChecker>, node: GoPtr<ParameterDeclaration>): GoPtr<PseudoType> {
+  const parent = node!.Parent;
+  if (parent!.Kind === KindSetAccessor) {
+    return PseudoChecker_GetTypeOfAccessor(receiver, parent);
+  }
+  // Fast path: no initializer means we never need parameter position info.
+  if (node!.Initializer === undefined) {
+    if (node!.Type !== undefined) {
+      return NewPseudoTypeDirect(node!.Type);
+    }
+    return NewPseudoTypeNoResult(Node_AsNode(node));
+  }
+  const p = Node_Parameters(parent);
+  const selfIdx = p.indexOf(Node_AsNode(node));
+  const lastRequired = lastRequiredParamIndex(p);
+  return PseudoChecker_typeFromParameterWorker(receiver, node, selfIdx, lastRequired);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/pseudochecker/lookup.go::method::PseudoChecker.typeFromParameterWorker","kind":"method","status":"implemented","sigHash":"448e76d1588c918da3cd18dbfd0e0a02d43196af461b4bb14b9d931b3ace821f","bodyHash":"5886a2f08a1fbb49ed2ee22314064c269aef1b6ce0fdbcebb18970b7e4bf53f2"}
+ *
+ * Go source:
+ * func (ch *PseudoChecker) typeFromParameterWorker(node *ast.ParameterDeclaration, selfIdx int, lastRequired int) *PseudoType {
+ * 	parent := node.Parent
+ * 	if parent.Kind == ast.KindSetAccessor {
+ * 		return ch.GetTypeOfAccessor(parent)
+ * 	}
+ * 	hasRequiredAfter := selfIdx < lastRequired-1
  * 	declaredType := node.Type
  * 	if declaredType != nil {
- * 		return NewPseudoTypeDirect(declaredType)
+ * 		result := NewPseudoTypeDirect(declaredType)
+ * 		// When the parameter has an initializer and strict null checks are enabled,
+ * 		// check if `| undefined` needs to be added because there are required parameters after this one.
+ * 		// This mirrors the checker's getTypeOfParameter which adds optionality for initialized parameters.
+ * 		if ch.strictNullChecks && node.Initializer != nil && hasRequiredAfter {
+ * 			return addUndefinedIfDefinitelyRequired(result)
+ * 		}
+ * 		return result
  * 	}
  * 	if node.Initializer != nil && ast.IsIdentifier(node.Name()) && !isContextuallyTyped(node.AsNode()) {
  * 		expr := ch.typeFromExpression(node.Initializer)
  * 		if !ch.strictNullChecks {
  * 			return expr
  * 		}
- * 		p := node.Parent.Parameters()
- * 		selfIdx := slices.Index(p, node.AsNode())
- * 		if selfIdx == len(p)-1 {
+ * 		if !hasRequiredAfter {
  * 			return expr
  * 		}
  * 		// if there is a non-optional parameter after this one, a `| undefined` will need to explicitly be emitted on this parameter, if it's not already there
- * 		remainingParams := node.Parent.Parameters()[selfIdx+1:]
- * 		if core.Every(remainingParams, isOptionalInitializedOrRestParameter) {
- * 			return expr
- * 		}
  * 		return addUndefinedIfDefinitelyRequired(expr)
  * 	}
  * 	// TODO: In strada, the ID checker doesn't infer a parameter type from binding pattern names, but the real checker _does_!
@@ -1539,30 +1613,32 @@ export function addUndefinedIfDefinitelyRequired(expr: GoPtr<PseudoType>): GoPtr
  * 	return NewPseudoTypeNoResult(node.AsNode())
  * }
  */
-export function PseudoChecker_typeFromParameter(receiver: GoPtr<PseudoChecker>, node: GoPtr<ParameterDeclaration>): GoPtr<PseudoType> {
+export function PseudoChecker_typeFromParameterWorker(receiver: GoPtr<PseudoChecker>, node: GoPtr<ParameterDeclaration>, selfIdx: int, lastRequired: int): GoPtr<PseudoType> {
   const parent = node!.Parent;
   if (parent!.Kind === KindSetAccessor) {
     return PseudoChecker_GetTypeOfAccessor(receiver, parent);
   }
+  const hasRequiredAfter = selfIdx < lastRequired - 1;
   const declaredType = node!.Type;
   if (declaredType !== undefined) {
-    return NewPseudoTypeDirect(declaredType);
+    const result = NewPseudoTypeDirect(declaredType);
+    // When the parameter has an initializer and strict null checks are enabled,
+    // check if `| undefined` needs to be added because there are required parameters after this one.
+    // This mirrors the checker's getTypeOfParameter which adds optionality for initialized parameters.
+    if (receiver!.strictNullChecks && node!.Initializer !== undefined && hasRequiredAfter) {
+      return addUndefinedIfDefinitelyRequired(result);
+    }
+    return result;
   }
   if (node!.Initializer !== undefined && IsIdentifier(Node_Name(Node_AsNode(node))) && !isContextuallyTyped(Node_AsNode(node))) {
-    const expr = PseudoChecker_typeFromExpression(receiver, node!.Initializer as unknown as GoPtr<Node>);
+    const expr = PseudoChecker_typeFromExpression(receiver, node!.Initializer);
     if (!receiver!.strictNullChecks) {
       return expr;
     }
-    const p = Node_Parameters(parent);
-    const selfIdx = p.indexOf(Node_AsNode(node));
-    if (selfIdx === p.length - 1) {
+    if (!hasRequiredAfter) {
       return expr;
     }
     // if there is a non-optional parameter after this one, a `| undefined` will need to explicitly be emitted on this parameter, if it's not already there
-    const remainingParams = p.slice(selfIdx + 1);
-    if (Every(remainingParams, isOptionalInitializedOrRestParameter)) {
-      return expr;
-    }
     return addUndefinedIfDefinitelyRequired(expr);
   }
   // TODO: In strada, the ID checker doesn't infer a parameter type from binding pattern names, but the real checker _does_!
@@ -1573,7 +1649,7 @@ export function PseudoChecker_typeFromParameter(receiver: GoPtr<PseudoChecker>, 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/pseudochecker/lookup.go::method::PseudoChecker.cloneParameters","kind":"method","status":"implemented","sigHash":"877e9bb3c299bafe31a9cf616e9b35142e177381118c88224b517a723deae078","bodyHash":"d8fd2febdc93dc34ef07e059b024259ac91af5900d8c3446fa6692d667cdc733"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/pseudochecker/lookup.go::method::PseudoChecker.cloneParameters","kind":"method","status":"implemented","sigHash":"877e9bb3c299bafe31a9cf616e9b35142e177381118c88224b517a723deae078","bodyHash":"8ece7f9ab61f42e4ae76b1f6424e4d6b9d45d6b79b89abb8ba236cd57abd14f1"}
  *
  * Go source:
  * func (ch *PseudoChecker) cloneParameters(nodes *ast.NodeList) []*PseudoParameter {
@@ -1583,13 +1659,22 @@ export function PseudoChecker_typeFromParameter(receiver: GoPtr<PseudoChecker>, 
  * 	if len(nodes.Nodes) == 0 {
  * 		return nil
  * 	}
+ * 	lastRequired := lastRequiredParamIndex(nodes.Nodes)
  * 	result := make([]*PseudoParameter, 0, len(nodes.Nodes))
- * 	for _, e := range nodes.Nodes {
+ * 	for i, e := range nodes.Nodes {
+ * 		p := e.AsParameterDeclaration()
+ * 		optional := p.QuestionToken != nil
+ * 		if !optional && p.Initializer != nil {
+ * 			// A parameter with an initializer is optional only if all subsequent
+ * 			// parameters are also optional/have initializers/are rest parameters.
+ * 			// This matches the checker's isOptionalParameter semantics.
+ * 			optional = i >= lastRequired-1
+ * 		}
  * 		result = append(result, NewPseudoParameter(
- * 			e.AsParameterDeclaration().DotDotDotToken != nil,
+ * 			p.DotDotDotToken != nil,
  * 			e.Name(),
- * 			e.AsParameterDeclaration().QuestionToken != nil || e.AsParameterDeclaration().Initializer != nil,
- * 			ch.typeFromParameter(e.AsParameterDeclaration()),
+ * 			optional,
+ * 			ch.typeFromParameterWorker(p, i, lastRequired),
  * 		))
  * 	}
  * 	return result
@@ -1602,14 +1687,23 @@ export function PseudoChecker_cloneParameters(receiver: GoPtr<PseudoChecker>, no
   if (nodes!.Nodes.length === 0) {
     return [];
   }
+  const lastRequired = lastRequiredParamIndex(nodes!.Nodes);
   const result: GoSlice<GoPtr<PseudoParameter>> = [];
-  for (const e of nodes!.Nodes) {
+  for (let i = 0; i < nodes!.Nodes.length; i++) {
+    const e = nodes!.Nodes[i];
     const p = AsParameterDeclaration(e);
+    let optional = p!.QuestionToken !== undefined;
+    if (!optional && p!.Initializer !== undefined) {
+      // A parameter with an initializer is optional only if all subsequent
+      // parameters are also optional/have initializers/are rest parameters.
+      // This matches the checker's isOptionalParameter semantics.
+      optional = i >= lastRequired - 1;
+    }
     result.push(NewPseudoParameter(
       p!.DotDotDotToken !== undefined,
       Node_Name(e),
-      p!.QuestionToken !== undefined || p!.Initializer !== undefined,
-      PseudoChecker_typeFromParameter(receiver, p),
+      optional,
+      PseudoChecker_typeFromParameterWorker(receiver, p, i, lastRequired),
     ));
   }
   return result;

@@ -1,9 +1,9 @@
-import type { bool, int, long } from "@tsonic/core/types.js";
+import type { bool, int, long } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoRune, GoSlice } from "../../../go/compat.js";
 import type { GoError } from "../../../go/compat.js";
 import { Builder, IndexByte } from "../../../go/strings.js";
 import { FormatInt, ParseInt } from "../../../go/strconv.js";
-import { DecodeRuneInString } from "../../../go/unicode/utf8.js";
+import { DecodeRuneInStringAt, StringByteAt, StringByteLen, StringByteSlice } from "../../../go/unicode/utf8.js";
 import type { Node, NodeList } from "../../ast/spine.js";
 import { Node_AsNode, Node_End, Node_Name, Node_Pos, Node_SubtreeFacts } from "../../ast/spine.js";
 import type { SourceFile } from "../../ast/ast.js";
@@ -28,7 +28,7 @@ import { LanguageVariantStandard } from "../../core/languagevariant.js";
 import { NewTextRange } from "../../core/text.js";
 import type { TextRange } from "../../core/text.js";
 import { TokenFlagsNone } from "../../ast/tokenflags.js";
-import { IsDigit, IsHexDigit, IsLineBreak, IsWhiteSpaceSingleLine } from "../../stringutil/util.js";
+import { EncodeJSStringRune, IsDigit, IsHexDigit, IsLineBreak, IsWhiteSpaceSingleLine } from "../../stringutil/util.js";
 import { CompareStringsCaseSensitive } from "../../stringutil/compare.js";
 import { EFCustomPrologue, EFStartOnNewLine } from "../../printer/emitflags.js";
 import { EmitContext_AddEmitFlags, EmitContext_EmitFlags, EmitContext_MostOriginal, EmitContext_ParseNode, EmitContext_ReadEmitHelpers, EmitContext_SetEmitFlags, EmitContext_AddEmitHelper } from "../../printer/emitcontext.js";
@@ -52,14 +52,9 @@ import { Transformer_EmitContext, Transformer_Factory, Transformer_NewTransforme
 // standard-library facades (strings/strconv/utf8) follow that contract, so we
 // mirror it here by operating over the UTF-8 byte view and converting back to a
 // JS string at the boundaries.
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
-const byteLen = (s: string): int => utf8Encoder.encode(s).length;
-const byteAt = (s: string, i: int): int => utf8Encoder.encode(s)[i]!;
-const byteSlice = (s: string, start: int, end?: int): string => {
-  const bytes = utf8Encoder.encode(s);
-  return utf8Decoder.decode(bytes.subarray(start, end));
-};
+const byteLen = StringByteLen;
+const byteAt = StringByteAt;
+const byteSlice = StringByteSlice;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/jsxtransforms/jsx.go::type::JSXTransformer","kind":"type","status":"implemented","sigHash":"f4d543aef50805c0daf1acbda906f9cd8582889e57dcbb274d9f2ec3142daf12","bodyHash":"24ca0c04864e6acfd1ba4c73accb3e3aa06410a4ba673b1275c2b2a13b39311c"}
@@ -84,7 +79,7 @@ export interface JSXTransformer {
   emitResolver: EmitResolver;
   importSpecifier: string;
   filenameDeclaration: GoPtr<Node>;
-  utilizedImplicitRuntimeImports: OrderedMap;
+  utilizedImplicitRuntimeImports: OrderedMap<string, GoMap<string, GoPtr<Node>>>;
   inJsxChild: bool;
   currentSourceFile: GoPtr<SourceFile>;
 }
@@ -1938,7 +1933,7 @@ export function fixupWhitespaceAndDecodeEntities(text: string): string {
   // but lastNonWhitespaceEnd = -1 as a special flag to indicate that we *don't* include the line if it's all whitespace.
   const textLen = byteLen(text);
   for (let i = 0; i < textLen; i++) {
-    const [c, size] = DecodeRuneInString(byteSlice(text, i));
+    const [c, size] = DecodeRuneInStringAt(text, i);
     if (IsLineBreak(c)) {
       // If we've seen any non-whitespace characters on this line, add the 'trim' of the line.
       // (lastNonWhitespaceEnd === -1 is a special flag to detect whether the first line is all whitespace.)
@@ -1992,7 +1987,7 @@ export function JSXTransformer_visitJsxExpression(receiver: GoPtr<JSXTransformer
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/jsxtransforms/jsx.go::func::decodeEntities","kind":"func","status":"implemented","sigHash":"ba81d1a1c2207e3826d333a469d95b3918d58f513134444890792e50b4a023f0","bodyHash":"5d62a374d29c3479fe93e98c481f88019da4b214fd83f7b92d6171ae73dbbebc"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/jsxtransforms/jsx.go::func::decodeEntities","kind":"func","status":"implemented","sigHash":"ba81d1a1c2207e3826d333a469d95b3918d58f513134444890792e50b4a023f0","bodyHash":"f8373dd13dbfbc6784c4a24bca91941922906e9d69c29599d71a94aac81eb4f1"}
  *
  * Go source:
  * func decodeEntities(text string) string {
@@ -2000,27 +1995,42 @@ export function JSXTransformer_visitJsxExpression(receiver: GoPtr<JSXTransformer
  * 	if i < 0 {
  * 		return text
  * 	}
- * 
+ *
  * 	var result strings.Builder
  * 	result.Grow(len(text))
  * 	for {
  * 		result.WriteString(text[:i])
  * 		text = text[i:]
- * 
+ *
  * 		semi := strings.IndexByte(text, ';')
  * 		if semi < 0 {
  * 			break
  * 		}
- * 
+ *
+ * 		// Skip past any intervening '&' characters between the current '&'
+ * 		// and the ';'. Each such '&' is not part of a valid entity, so emit
+ * 		// it (and any text before the next '&') as literals.
+ * 		for {
+ * 			nextAmp := strings.IndexByte(text[1:semi], '&')
+ * 			if nextAmp < 0 {
+ * 				break
+ * 			}
+ * 			result.WriteString(text[:nextAmp+1])
+ * 			text = text[nextAmp+1:]
+ * 			semi -= nextAmp + 1
+ * 		}
+ *
  * 		entity := text[1:semi]
  * 		decoded, ok := decodeEntity(entity)
  * 		if ok {
- * 			result.WriteRune(decoded)
+ * 			// Use the JS-string encoder so lone surrogates (e.g. "&#xD800;")
+ * 			// are preserved rather than being lost to U+FFFD by WriteRune.
+ * 			result.WriteString(stringutil.EncodeJSStringRune(decoded))
  * 		} else {
  * 			result.WriteString(text[:semi+1])
  * 		}
  * 		text = text[semi+1:]
- * 
+ *
  * 		i = strings.IndexByte(text, '&')
  * 		if i < 0 {
  * 			break
@@ -2043,15 +2053,30 @@ export function decodeEntities(text: string): string {
     result.WriteString(byteSlice(cur, 0, i));
     cur = byteSlice(cur, i);
 
-    const semi = IndexByte(cur, 0x3b /* ';' */);
+    let semi = IndexByte(cur, 0x3b /* ';' */);
     if (semi < 0) {
       break;
+    }
+
+    // Skip past any intervening '&' characters between the current '&'
+    // and the ';'. Each such '&' is not part of a valid entity, so emit
+    // it (and any text before the next '&') as literals.
+    for (;;) {
+      const nextAmp = IndexByte(byteSlice(cur, 1, semi), 0x26 /* '&' */);
+      if (nextAmp < 0) {
+        break;
+      }
+      result.WriteString(byteSlice(cur, 0, nextAmp + 1));
+      cur = byteSlice(cur, nextAmp + 1);
+      semi -= nextAmp + 1;
     }
 
     const entity = byteSlice(cur, 1, semi);
     const [decoded, ok] = decodeEntity(entity);
     if (ok) {
-      result.WriteRune(decoded);
+      // Use the JS-string encoder so lone surrogates (e.g. "&#xD800;")
+      // are preserved rather than being lost to U+FFFD by WriteRune.
+      result.WriteString(EncodeJSStringRune(decoded));
     } else {
       result.WriteString(byteSlice(cur, 0, semi + 1));
     }
@@ -2067,30 +2092,30 @@ export function decodeEntities(text: string): string {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/jsxtransforms/jsx.go::func::decodeEntity","kind":"func","status":"implemented","sigHash":"4bb9aac76a120e8bbe20916b93f1ac0c265495822afaba8e4cc07923912ced7c","bodyHash":"2bb2a87a96d56b141f89c282a614a9f4c5ed640051c873a2bac0ef16ec7d8457"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/jsxtransforms/jsx.go::func::decodeEntity","kind":"func","status":"implemented","sigHash":"4bb9aac76a120e8bbe20916b93f1ac0c265495822afaba8e4cc07923912ced7c","bodyHash":"94bedc7259efeeb9f316aee33ca968399723144efbb30fd68d51d8b919810646"}
  *
  * Go source:
  * func decodeEntity(entity string) (rune, bool) {
  * 	if len(entity) == 0 {
  * 		return 0, false
  * 	}
- * 
+ *
  * 	if entity[0] == '#' {
  * 		entity = entity[1:]
  * 		if len(entity) == 0 {
  * 			return 0, false
  * 		}
- * 
+ *
  * 		base := 10
- * 		if entity[0] == 'x' || entity[0] == 'X' {
+ * 		if entity[0] == 'x' {
  * 			base = 16
  * 			entity = entity[1:]
  * 		}
- * 
+ *
  * 		if len(entity) == 0 {
  * 			return 0, false
  * 		}
- * 
+ *
  * 		for _, c := range entity {
  * 			if base == 16 && !stringutil.IsHexDigit(c) {
  * 				return 0, false
@@ -2099,14 +2124,14 @@ export function decodeEntities(text: string): string {
  * 				return 0, false
  * 			}
  * 		}
- * 
+ *
  * 		parsed, err := strconv.ParseInt(entity, base, 32)
  * 		if err != nil {
  * 			return 0, false
  * 		}
  * 		return rune(parsed), true
  * 	}
- * 
+ *
  * 	r, ok := entities[entity]
  * 	return r, ok
  * }
@@ -2123,7 +2148,7 @@ export function decodeEntity(entity: string): [GoRune, bool] {
     }
 
     let base = 10;
-    if (byteAt(rest, 0) === 0x78 /* 'x' */ || byteAt(rest, 0) === 0x58 /* 'X' */) {
+    if (byteAt(rest, 0) === 0x78 /* 'x' */) {
       base = 16;
       rest = byteSlice(rest, 1);
     }
@@ -2134,7 +2159,7 @@ export function decodeEntity(entity: string): [GoRune, bool] {
 
     const restLen = byteLen(rest);
     for (let j = 0; j < restLen; ) {
-      const [c, size] = DecodeRuneInString(byteSlice(rest, j));
+      const [c, size] = DecodeRuneInStringAt(rest, j);
       if (base === 16 && !IsHexDigit(c)) {
         return [0, false];
       }

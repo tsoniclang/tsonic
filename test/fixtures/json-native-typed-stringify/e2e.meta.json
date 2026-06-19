@@ -1,3 +1,0 @@
-{
-  "description": "typed JSON.stringify uses generated NativeAOT serialization metadata and runs successfully."
-}

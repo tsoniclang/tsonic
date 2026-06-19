@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import { Clone, SortFunc, Values } from "../../../go/slices.js";
 import type { ModifierList, Node, NodeList } from "../../ast/spine.js";
@@ -552,12 +552,16 @@ export function Parser_finishSourceFile(receiver: GoPtr<Parser>, result: GoPtr<S
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.parseToplevelStatement","kind":"method","status":"implemented","sigHash":"83949e4347aa1b3b88fe6d6dc1425840fc963911952aa2b0d7bd1aa7b1537d60","bodyHash":"07ba3f009aeaaaf5b3d399eeae2dc7db3f31b671b6b8fef8d876ba0d40f2753b"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.parseToplevelStatement","kind":"method","status":"implemented","sigHash":"83949e4347aa1b3b88fe6d6dc1425840fc963911952aa2b0d7bd1aa7b1537d60","bodyHash":"899f4d1c4ee32a69da56fd932d90ef4d824e93263770776cbb8f7ca6f565cf9c"}
  *
  * Go source:
  * func (p *Parser) parseToplevelStatement(i int) *ast.Node {
  * 	p.statementHasAwaitIdentifier = false
  * 	statement := p.parseStatement()
+ * 	// Reparsed nodes (e.g. JSDoc @typedef) produced while parsing this statement are inserted
+ * 	// into the statement list before this statement, so account for them when recording the
+ * 	// statement's index for possibleAwaitSpans.
+ * 	i += len(p.reparseList)
  * 	if p.statementHasAwaitIdentifier && statement.Flags&ast.NodeFlagsAwaitContext == 0 {
  * 		if len(p.possibleAwaitSpans) == 0 || p.possibleAwaitSpans[len(p.possibleAwaitSpans)-1] != i {
  * 			p.possibleAwaitSpans = append(p.possibleAwaitSpans, i, i+1)
@@ -571,6 +575,10 @@ export function Parser_finishSourceFile(receiver: GoPtr<Parser>, result: GoPtr<S
 export function Parser_parseToplevelStatement(receiver: GoPtr<Parser>, i: int): GoPtr<Node> {
   receiver!.statementHasAwaitIdentifier = false;
   const statement = Parser_parseStatement(receiver);
+  // Reparsed nodes (e.g. JSDoc @typedef) produced while parsing this statement are inserted
+  // into the statement list before this statement, so account for them when recording the
+  // statement's index for possibleAwaitSpans.
+  i += receiver!.reparseList.length;
   if (receiver!.statementHasAwaitIdentifier && (statement!.Flags & NodeFlagsAwaitContext) === 0) {
     if (receiver!.possibleAwaitSpans.length === 0 || receiver!.possibleAwaitSpans[receiver!.possibleAwaitSpans.length - 1] !== i) {
       receiver!.possibleAwaitSpans.push(i, i + 1);

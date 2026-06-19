@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../go/scalars.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/scriptkind.go::type::ScriptKind","kind":"type","status":"implemented","sigHash":"6196215e249fe0b53ed41210f4585a3428de14e48e74b04eaadcbe1af1380453","bodyHash":"b6cd3259176326c4360a3df316c38dc5c58bc7c3cc365ee9706aa6cd6825f0fe"}

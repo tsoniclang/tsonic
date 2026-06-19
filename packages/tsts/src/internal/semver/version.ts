@@ -1,4 +1,4 @@
-import type { int, uint } from "@tsonic/core/types.js";
+import type { int, uint } from "../../go/scalars.js";
 import type { GoError, GoPtr, GoSlice } from "../../go/compat.js";
 import * as cmp from "../../go/cmp.js";
 import * as fmt from "../../go/fmt.js";

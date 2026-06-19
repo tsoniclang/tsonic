@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import { ReadDir, ReadFile, Stat } from "../../../go/io/fs.js";
 import { TestFS } from "../../../go/testing/fstest.js";
 import type { MapFile, MapFS as FstestMapFS } from "../../../go/testing/fstest.js";

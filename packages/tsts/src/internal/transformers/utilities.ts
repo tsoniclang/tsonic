@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { Node, NodeList } from "../ast/spine.js";
 import { Node_End, Node_Pos, Node_Name, NodeFactory_NewNodeList } from "../ast/spine.js";
@@ -88,6 +88,7 @@ import {
   KindQuestionQuestionToken,
   KindReturnStatement,
   KindSatisfiesExpression,
+  KindShorthandPropertyAssignment,
   KindSlashEqualsToken,
   KindSlashToken,
   KindSpreadAssignment,
@@ -124,6 +125,7 @@ import {
   AsForStatement,
   AsImportAttribute,
   AsImportEqualsDeclaration,
+  AsShorthandPropertyAssignment,
   AsTaggedTemplateExpression,
   AsTryStatement,
   AsVariableDeclaration,
@@ -214,7 +216,7 @@ export function IsExportName(emitContext: GoPtr<EmitContext>, name: GoPtr<Identi
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/utilities.go::func::IsIdentifierReference","kind":"func","status":"implemented","sigHash":"b6e5fc8d0502c6d60bfa0f602489341025ccbb87b981203c1a32f14123c64bda","bodyHash":"53921b0d6f143c95d514f5652bd97c1234b6f6c441b5a4d980464ac955a84604"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/utilities.go::func::IsIdentifierReference","kind":"func","status":"implemented","sigHash":"b6e5fc8d0502c6d60bfa0f602489341025ccbb87b981203c1a32f14123c64bda","bodyHash":"c446ea25f41e58e4fbae874d66ff67cc131caa463c5a88a5e1b82257d6b188f7"}
  *
  * Go source:
  * func IsIdentifierReference(name *ast.IdentifierNode, parent *ast.Node) bool {
@@ -269,6 +271,8 @@ export function IsExportName(emitContext: GoPtr<EmitContext>, name: GoPtr<Identi
  * 		ast.KindJsxAttribute:
  * 		// only an `Initializer()` child that can be `Identifier` would be an instance of `IdentifierReference`
  * 		return parent.Initializer() == name
+ * 	case ast.KindShorthandPropertyAssignment:
+ * 		return parent.AsShorthandPropertyAssignment().ObjectAssignmentInitializer == name
  * 	case ast.KindForStatement:
  * 		return parent.Initializer() == name ||
  * 			parent.AsForStatement().Condition == name ||
@@ -348,6 +352,8 @@ export function IsIdentifierReference(name: GoPtr<IdentifierNode>, parent: GoPtr
     case KindEnumMember:
     case KindJsxAttribute:
       return Node_Initializer(parent) === (name as unknown as GoPtr<Node>);
+    case KindShorthandPropertyAssignment:
+      return AsShorthandPropertyAssignment(parent)!.ObjectAssignmentInitializer === (name as unknown as GoPtr<Node>);
     case KindForStatement:
       return (
         Node_Initializer(parent) === (name as unknown as GoPtr<Node>) ||
@@ -639,17 +645,23 @@ export function ConvertVariableDeclarationToAssignmentExpression(emitContext: Go
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/utilities.go::func::SingleOrMany","kind":"func","status":"implemented","sigHash":"cddfa4ce97dd905cf844b8a7a93df3aa13b96c7a2c829708e9003e7f149a56f1","bodyHash":"6bc18adb85e648e86b415b632503cc38cdced2c306140416de5f05b2aa55fd21"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/utilities.go::func::SingleOrMany","kind":"func","status":"implemented","sigHash":"cddfa4ce97dd905cf844b8a7a93df3aa13b96c7a2c829708e9003e7f149a56f1","bodyHash":"b40cf81412825da56d808a07e37958ec1887eb6fe0f795f2091600819bc94984"}
  *
  * Go source:
  * func SingleOrMany(nodes []*ast.Node, factory *printer.NodeFactory) *ast.Node {
+ * 	if nodes == nil {
+ * 		return nil
+ * 	}
  * 	if len(nodes) == 1 {
  * 		return nodes[0]
  * 	}
  * 	return factory.NewSyntaxList(nodes)
  * }
  */
-export function SingleOrMany(nodes: GoSlice<GoPtr<Node>>, factory: GoPtr<NodeFactory>): GoPtr<Node> {
+export function SingleOrMany(nodes: GoSlice<GoPtr<Node>> | undefined, factory: GoPtr<NodeFactory>): GoPtr<Node> {
+  if (nodes === undefined) {
+    return undefined;
+  }
   if (nodes.length === 1) {
     return nodes[0];
   }

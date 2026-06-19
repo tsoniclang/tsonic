@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "./scalars.js";
 import { Sprint } from "./fmt.js";
 
 export function AllocsPerRun(runs: number, fn: () => void): number {

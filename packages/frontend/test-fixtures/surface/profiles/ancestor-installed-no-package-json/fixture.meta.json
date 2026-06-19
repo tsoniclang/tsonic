@@ -1,9 +1,0 @@
-{
-  "symlinks": [
-    {
-      "from": "external/js",
-      "to": "workspace/node_modules/@tsonic/js",
-      "type": "dir"
-    }
-  ]
-}

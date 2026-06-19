@@ -5,8 +5,9 @@ import type { Node } from "../ast/spine.js";
 import { Node_Name } from "../ast/spine.js";
 import { Node_JSDoc, Node_Parameters, Node_Text, Node_Type } from "../ast/ast.js";
 import { KindJSDocParameterTag } from "../ast/generated/kinds.js";
+import { NodeFlagsJSDoc } from "../ast/generated/flags.js";
 import { IsIdentifier, IsQualifiedName } from "../ast/generated/predicates.js";
-import { IsBindingPattern, IsInJSFile } from "../ast/utilities.js";
+import { GetNextJSDocCommentLocation, IsBindingPattern, IsInJSFile } from "../ast/utilities.js";
 import { JSDoc_param_tag_has_name_0_but_there_is_no_parameter_with_that_name, JSDoc_param_tag_has_name_0_but_there_is_no_parameter_with_that_name_It_would_match_arguments_if_it_had_an_array_type, Qualified_name_0_is_not_allowed_without_a_leading_param_object_1 } from "../diagnostics/generated/messages.js";
 import type { Checker } from "./checker/state.js";
 import { Checker_containsArgumentsReference } from "./checker/signatures.js";
@@ -178,35 +179,37 @@ export function Checker_checkUnmatchedJSDocParameters(receiver: GoPtr<Checker>, 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsdoc.go::func::getAllJSDocTags","kind":"func","status":"implemented","sigHash":"64e6a55ef6d0d498291e6a741c2d0231176ba9e6069c1771ce7875c29458684e","bodyHash":"6c4f301954df42c1d1b96a355714de5ea7365e1d08f895cc301eba8787579af9"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsdoc.go::func::getAllJSDocTags","kind":"func","status":"implemented","sigHash":"64e6a55ef6d0d498291e6a741c2d0231176ba9e6069c1771ce7875c29458684e","bodyHash":"d6ffeae36195eb45eee0b5ac8556d73b53e0677bc5936fa5d8ed17e446268912"}
  *
  * Go source:
  * func getAllJSDocTags(node *ast.Node) []*ast.Node {
- * 	if node == nil {
- * 		return nil
+ * 	if node.Flags&ast.NodeFlagsJSDoc == 0 {
+ * 		for current := node; current != nil; current = ast.GetNextJSDocCommentLocation(current) {
+ * 			jsdocs := current.JSDoc(nil)
+ * 			if len(jsdocs) == 0 {
+ * 				continue
+ * 			}
+ * 			lastJSDoc := jsdocs[len(jsdocs)-1].AsJSDoc()
+ * 			if lastJSDoc.Tags != nil {
+ * 				return lastJSDoc.Tags.Nodes
+ * 			}
+ * 		}
  * 	}
- * 	jsdocs := node.JSDoc(nil)
- * 	if len(jsdocs) == 0 {
- * 		return nil
- * 	}
- * 	lastJSDoc := jsdocs[len(jsdocs)-1].AsJSDoc()
- * 	if lastJSDoc.Tags == nil {
- * 		return nil
- * 	}
- * 	return lastJSDoc.Tags.Nodes
+ * 	return nil
  * }
  */
 export function getAllJSDocTags(node: GoPtr<Node>): GoSlice<GoPtr<Node>> {
-  if (node === undefined) {
-    return [];
+  if ((node!.Flags & NodeFlagsJSDoc) === 0) {
+    for (let current = node; current !== undefined; current = GetNextJSDocCommentLocation(current)) {
+      const jsdocs = Node_JSDoc(current, undefined);
+      if ((jsdocs?.length ?? 0) === 0) {
+        continue;
+      }
+      const lastJSDoc = AsJSDoc(jsdocs![jsdocs!.length - 1]);
+      if (lastJSDoc!.Tags !== undefined) {
+        return lastJSDoc!.Tags!.Nodes;
+      }
+    }
   }
-  const jsdocs = Node_JSDoc(node, undefined);
-  if ((jsdocs?.length ?? 0) === 0) {
-    return [];
-  }
-  const lastJSDoc = AsJSDoc(jsdocs![jsdocs!.length - 1]);
-  if (lastJSDoc!.Tags === undefined) {
-    return [];
-  }
-  return lastJSDoc!.Tags!.Nodes;
+  return [];
 }

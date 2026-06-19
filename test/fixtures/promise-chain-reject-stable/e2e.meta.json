@@ -1,3 +1,0 @@
-{
-  "description": "Promise.then/catch/finally chains compile in strict AOT mode."
-}

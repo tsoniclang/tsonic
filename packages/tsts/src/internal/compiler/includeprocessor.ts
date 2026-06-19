@@ -1,5 +1,5 @@
-import type { bool, int } from "@tsonic/core/types.js";
-import type { GoMap, GoPtr, GoSlice, GoUnresolved } from "../../go/compat.js";
+import type { bool, int } from "../../go/scalars.js";
+import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { IsExternalOrCommonJSModule } from "../ast/utilities.js";
 import { SourceFile_FileName } from "../ast/ast.js";
 import type { HasFileName, SourceFile } from "../ast/ast.js";
@@ -17,6 +17,7 @@ import { ForEachTsConfigPropArray } from "../tsoptions/tsconfigparsing.js";
 import { Identity } from "../core/core.js";
 import { IsObjectLiteralExpression } from "../ast/generated/predicates.js";
 import { AsObjectLiteralExpression } from "../ast/generated/casts.js";
+import type { ObjectLiteralExpression } from "../ast/generated/data.js";
 import { Program_GetImpliedNodeFormatForEmit, Program_GetSourceFileByPath, Program_GetSourceFileMetaData, Program_GetSourceOfProjectReferenceIfOutputIncluded } from "./program.js";
 import type { FileIncludeReason, referenceFileLocation } from "./fileInclude.js";
 import { FileIncludeReason_getReferencedLocation, FileIncludeReason_isReferencedFile, FileIncludeReason_toRelatedInfo } from "./fileInclude.js";
@@ -47,12 +48,12 @@ import type { Program } from "./program.js";
 export interface includeProcessor {
   fileIncludeReasons: GoMap<Path, GoSlice<GoPtr<FileIncludeReason>>>;
   processingDiagnostics: GoSlice<GoPtr<processingDiagnostic>>;
-  reasonToReferenceLocation: SyncMap;
-  includeReasonToRelatedInfo: SyncMap;
-  redirectAndFileFormat: SyncMap;
+  reasonToReferenceLocation: SyncMap<GoPtr<FileIncludeReason>, GoPtr<referenceFileLocation>>;
+  includeReasonToRelatedInfo: SyncMap<GoPtr<FileIncludeReason>, GoPtr<Diagnostic>>;
+  redirectAndFileFormat: SyncMap<Path, GoSlice<GoPtr<Diagnostic>>>;
   computedDiagnostics: GoPtr<DiagnosticsCollection>;
   computedDiagnosticsOnce: Once;
-  compilerOptionsSyntax: GoPtr<GoUnresolved<"github.com/microsoft/typescript-go/internal/ast.ObjectLiteralExpression">>;
+  compilerOptionsSyntax: GoPtr<ObjectLiteralExpression>;
   compilerOptionsSyntaxOnce: Once;
 }
 
@@ -72,9 +73,9 @@ export function updateFileIncludeProcessor(p: GoPtr<Program>): void {
   p!.__tsgoEmbedded0!.includeProcessor = {
     fileIncludeReasons: old!.fileIncludeReasons,
     processingDiagnostics: old!.processingDiagnostics,
-    reasonToReferenceLocation: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as SyncMap,
-    includeReasonToRelatedInfo: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as SyncMap,
-    redirectAndFileFormat: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as SyncMap,
+    reasonToReferenceLocation: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as SyncMap<GoPtr<FileIncludeReason>, GoPtr<referenceFileLocation>>,
+    includeReasonToRelatedInfo: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as SyncMap<GoPtr<FileIncludeReason>, GoPtr<Diagnostic>>,
+    redirectAndFileFormat: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as SyncMap<Path, GoSlice<GoPtr<Diagnostic>>>,
     computedDiagnostics: undefined,
     computedDiagnosticsOnce: new Once(),
     compilerOptionsSyntax: undefined,
@@ -257,7 +258,7 @@ export function includeProcessor_getReferenceLocation(receiver: GoPtr<includePro
  * 	return i.compilerOptionsSyntax
  * }
  */
-export function includeProcessor_getCompilerOptionsObjectLiteralSyntax(receiver: GoPtr<includeProcessor>, program: GoPtr<Program>): GoPtr<GoUnresolved<"github.com/microsoft/typescript-go/internal/ast.ObjectLiteralExpression">> {
+export function includeProcessor_getCompilerOptionsObjectLiteralSyntax(receiver: GoPtr<includeProcessor>, program: GoPtr<Program>): GoPtr<ObjectLiteralExpression> {
   receiver!.compilerOptionsSyntaxOnce.Do((): void => {
     const configFile = program!.opts.Config!.ConfigFile;
     if (configFile !== undefined) {
@@ -265,7 +266,7 @@ export function includeProcessor_getCompilerOptionsObjectLiteralSyntax(receiver:
       if (compilerOptionsProperty !== undefined &&
         compilerOptionsProperty.Initializer !== undefined &&
         IsObjectLiteralExpression(compilerOptionsProperty.Initializer)) {
-        receiver!.compilerOptionsSyntax = AsObjectLiteralExpression(compilerOptionsProperty.Initializer) as GoPtr<GoUnresolved<"github.com/microsoft/typescript-go/internal/ast.ObjectLiteralExpression">>;
+        receiver!.compilerOptionsSyntax = AsObjectLiteralExpression(compilerOptionsProperty.Initializer);
       }
     } else {
       receiver!.compilerOptionsSyntax = undefined;
@@ -297,7 +298,7 @@ export function includeProcessor_getRelatedInfo(receiver: GoPtr<includeProcessor
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/includeprocessor.go::method::includeProcessor.explainRedirectAndImpliedFormat","kind":"method","status":"implemented","sigHash":"e202b35c33de1654b2cd84c97131572b8405bf39afe3f60583766fbfb5eadc5c","bodyHash":"2739a668b2601f3040990b78762a9f9bcfd9d58376d41a740a9dc4cb495364e3"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/includeprocessor.go::method::includeProcessor.explainRedirectAndImpliedFormat","kind":"method","status":"implemented","sigHash":"e202b35c33de1654b2cd84c97131572b8405bf39afe3f60583766fbfb5eadc5c","bodyHash":"f841b15d333cbe0a2fca5f0a30520fb1928e1215c0c395b5e25cd850ca910a2d"}
  *
  * Go source:
  * func (i *includeProcessor) explainRedirectAndImpliedFormat(
@@ -315,6 +316,9 @@ export function includeProcessor_getRelatedInfo(receiver: GoPtr<includeProcessor
  * 		file = redirectsFile
  * 	} else {
  * 		sourceFile = program.GetSourceFileByPath(filePath)
+ * 		if sourceFile == nil {
+ * 			return nil
+ * 		}
  * 		file = sourceFile
  * 	}
  * 	var result []*ast.Diagnostic

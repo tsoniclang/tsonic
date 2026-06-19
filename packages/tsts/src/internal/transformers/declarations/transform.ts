@@ -1,48 +1,50 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 import type { CommentRange, FileReference, ModifierList, Node, SourceFile } from "../../ast/ast.js";
-import { SourceFile_Text, SourceFile_FileName, AsSourceFile, SourceFile_IsJS, Node_Symbol, Node_Initializer, Node_Type, Node_Expression, Node_Parameters, Node_ParameterList, Node_Elements, Node_IsTypeOnly, Node_ModuleSpecifier, NodeFactory_NewModifier, Node_Text, NodeFactory_UpdateClassDeclaration, NodeFactory_UpdateExpressionWithTypeArguments, Node_Arguments, NodeFactory_UpdateFunctionDeclaration, Node_StatementList, NodeFactory_UpdateSourceFile } from "../../ast/ast.js";
+import { SourceFile_Text, SourceFile_FileName, AsSourceFile, SourceFile_IsJS, Node_Symbol, Node_Initializer, Node_Type, Node_Expression, Node_Parameters, Node_ParameterList, Node_Elements, Node_IsTypeOnly, Node_ModuleSpecifier, NodeFactory_NewModifier, Node_Text, NodeFactory_UpdateClassDeclaration, NodeFactory_UpdateExpressionWithTypeArguments, Node_Arguments, NodeFactory_UpdateFunctionDeclaration, Node_StatementList, NodeFactory_UpdateSourceFile, Node_PropertyName, Node_EagerJSDoc, NodeFactory_UpdateVariableStatement, NodeFactory_UpdateVariableDeclarationList, NodeFactory_UpdateBindingElement } from "../../ast/ast.js";
 import type { BinaryExpression, BindingElement, BindingPattern, CallSignatureDeclaration, ClassDeclaration, ClassElementList, ConditionalTypeNode, ConstructorDeclaration, ConstructorTypeNode, ConstructSignatureDeclaration, Declaration, EnumDeclaration, ExpressionWithTypeArguments, FunctionDeclaration, FunctionTypeNode, GetAccessorDeclaration, HeritageClause, HeritageClauseList, ImportDeclaration, ImportEqualsDeclaration, ImportTypeNode, IndexSignatureDeclaration, InterfaceDeclaration, JSDocAllType, JSDocNonNullableType, JSDocNullableType, JSDocOptionalType, JSDocParameterOrPropertyTag, JSDocTypeExpression, JSDocTypeLiteral, JSDocVariadicType, LiteralTypeNode, MappedTypeNode, MethodDeclaration, MethodSignatureDeclaration, ModuleDeclaration, NodeFactory, ParameterDeclaration, ParameterList, PropertyDeclaration, PropertySignatureDeclaration, SetAccessorDeclaration, StatementList, TokenNode, TypeAliasDeclaration, TypeParameterDeclaration, TypeParameterList, TypeReferenceNode, VariableDeclaration, VariableDeclarationList, VariableStatement, ExportSpecifierList, VariableDeclarationNodeList, VariableDeclarationListNode } from "../../ast/ast_generated.js";
-import { AsIdentifier, AsParameterDeclaration, AsBinaryExpression, AsBindingElement, AsBindingPattern, AsClassDeclaration, AsConstructorDeclaration, AsEnumMember, AsExpressionWithTypeArguments, AsFunctionDeclaration, AsGetAccessorDeclaration, AsHeritageClause, AsImportClause, AsImportDeclaration, AsInterfaceDeclaration, AsModuleBlock, AsModuleDeclaration, AsNamedImports, AsSetAccessorDeclaration, AsSyntaxList, AsTypeAliasDeclaration, AsVariableDeclarationList, AsFunctionExpression, AsArrowFunction, AsEnumDeclaration, AsExternalModuleReference, AsLiteralTypeNode, AsExportDeclaration, AsExportAssignment, AsVariableStatement, AsImportEqualsDeclaration, AsElementAccessExpression, NewExportDeclaration, NewNamedExports, NewTypeLiteralNode, NewUnionTypeNode, NewArrayTypeNode, NewKeywordTypeNode, NewKeywordExpression, NewLiteralTypeNode, NewToken, NewBindingPattern, NewIdentifier, NewPrivateIdentifier, NewPropertyDeclaration, NewVariableDeclaration, NewVariableDeclarationList, NewVariableStatement, NodeFactory_UpdateVariableDeclaration, NewExportAssignment, NewSyntaxList, NewModuleDeclaration, NewModuleBlock, NewPropertySignatureDeclaration, NewParameterDeclaration, NewExportSpecifier, NewFunctionDeclaration, NewPrefixUnaryExpression, NewNumericLiteral, NewStringLiteral, NewHeritageClause, NewExpressionWithTypeArguments, NewNamedImports, NewImportDeclaration, NewImportClause, NewImportEqualsDeclaration, NewExternalModuleReference, NewEnumMember, NewClassDeclaration, NewConstructorDeclaration, NewInterfaceDeclaration, NewMethodDeclaration, NewMethodSignatureDeclaration, NewConstructSignatureDeclaration, NewCallSignatureDeclaration, NewIndexSignatureDeclaration, NewGetAccessorDeclaration, NewSetAccessorDeclaration, NewTypeParameterDeclaration, NewMappedTypeNode, NewConstructorTypeNode, NewFunctionTypeNode, NewConditionalTypeNode, NewImportTypeNode, NewBindingElement, NewTypeAliasDeclaration, NewEnumDeclaration } from "../../ast/ast_generated.js";
-import { KindSyntaxList, KindParameter, KindGlobalKeyword, KindNamespaceKeyword, KindModuleBlock, KindAnyKeyword, KindUndefinedKeyword, KindNullKeyword, KindExclamationToken, KindQuestionToken, KindDeclareKeyword, KindExportKeyword, KindMinusToken, KindImportDeclaration, KindJSImportDeclaration, KindImportEqualsDeclaration, KindModuleDeclaration, KindTypeLiteral, KindMappedType, KindTypeAliasDeclaration, KindJSTypeAliasDeclaration, KindJsxText, KindSourceFile, KindSemicolonClassElement, KindFunctionDeclaration, KindInterfaceDeclaration, KindClassDeclaration, KindEnumDeclaration, KindVariableStatement, KindExportDeclaration, KindExportAssignment, KindBreakStatement, KindContinueStatement, KindDebuggerStatement, KindDoStatement, KindEmptyStatement, KindForInStatement, KindForOfStatement, KindForStatement, KindIfStatement, KindLabeledStatement, KindReturnStatement, KindSwitchStatement, KindThrowStatement, KindTryStatement, KindWhileStatement, KindWithStatement, KindNotEmittedStatement, KindBlock, KindMissingDeclaration, KindExpressionStatement, KindHeritageClause, KindMethodSignature, KindMethodDeclaration, KindConstructSignature, KindConstructor, KindGetAccessor, KindSetAccessor, KindPropertyDeclaration, KindPropertySignature, KindCallSignature, KindIndexSignature, KindVariableDeclaration, KindTypeParameter, KindExpressionWithTypeArguments, KindTypeReference, KindConditionalType, KindFunctionType, KindConstructorType, KindImportType, KindTypeQuery, KindTupleType, KindJSDocTypeExpression, KindJSDocTypeLiteral, KindJSDocPropertyTag, KindJSDocAllType, KindJSDocNullableType, KindJSDocNonNullableType, KindJSDocOptionalType, KindJSDocVariadicType, KindMappedType as KindMappedTypeKind, KindExtendsKeyword, KindIdentifier, KindOmittedExpression, KindArrayBindingPattern, KindObjectBindingPattern, KindBindingElement, KindStaticKeyword, KindUnknown, KindDefaultKeyword, KindExternalModuleReference, KindDeferKeyword, KindNamespaceImport, KindFunctionExpression, KindArrowFunction } from "../../ast/generated/kinds.js";
-import { IsBinaryExpression, IsIdentifier, IsPrivateIdentifier, IsSourceFile, IsOmittedExpression, IsImportEqualsDeclaration, IsPropertyAccessExpression, IsElementAccessExpression, IsVariableDeclaration, IsStringLiteral, IsComputedPropertyName, IsObjectLiteralExpression, IsTypeLiteralNode, IsParameterDeclaration, IsSetAccessorDeclaration, IsClassDeclaration, IsInterfaceDeclaration, IsFunctionDeclaration, IsExportAssignment, IsBindingElement, IsArrowFunction, IsFunctionExpression, IsJSTypeAliasDeclaration, IsModuleDeclaration } from "../../ast/generated/predicates.js";
+import { AsIdentifier, AsParameterDeclaration, AsBinaryExpression, AsBindingElement, AsBindingPattern, AsClassDeclaration, AsConstructorDeclaration, AsEnumMember, AsExpressionWithTypeArguments, AsFunctionDeclaration, AsGetAccessorDeclaration, AsHeritageClause, AsImportClause, AsImportDeclaration, AsInterfaceDeclaration, AsModuleBlock, AsModuleDeclaration, AsNamedImports, AsSetAccessorDeclaration, AsSyntaxList, AsTypeAliasDeclaration, AsVariableDeclarationList, AsFunctionExpression, AsArrowFunction, AsEnumDeclaration, AsExternalModuleReference, AsLiteralTypeNode, AsExportDeclaration, AsExportAssignment, AsVariableStatement, AsImportEqualsDeclaration, AsElementAccessExpression, NewExportDeclaration, NewNamedExports, NewTypeLiteralNode, NewUnionTypeNode, NewArrayTypeNode, NewKeywordTypeNode, NewKeywordExpression, NewLiteralTypeNode, NewToken, NewBindingPattern, NewIdentifier, NewPrivateIdentifier, NewPropertyDeclaration, NewVariableDeclaration, NewVariableDeclarationList, NewVariableStatement, NodeFactory_UpdateVariableDeclaration, NewExportAssignment, NewSyntaxList, NewModuleDeclaration, NewModuleBlock, NewPropertySignatureDeclaration, NewParameterDeclaration, NewExportSpecifier, NewFunctionDeclaration, NewPrefixUnaryExpression, NewNumericLiteral, NewStringLiteral, NewHeritageClause, NewExpressionWithTypeArguments, NewNamedImports, NewImportDeclaration, NewImportClause, NewImportEqualsDeclaration, NewExternalModuleReference, NewEnumMember, NewClassDeclaration, NewConstructorDeclaration, NewInterfaceDeclaration, NewMethodDeclaration, NewMethodSignatureDeclaration, NewConstructSignatureDeclaration, NewCallSignatureDeclaration, NewIndexSignatureDeclaration, NewGetAccessorDeclaration, NewSetAccessorDeclaration, NewTypeParameterDeclaration, NewMappedTypeNode, NewConstructorTypeNode, NewFunctionTypeNode, NewConditionalTypeNode, NewImportTypeNode, NewBindingElement, NodeFactory_UpdateTypeAliasDeclaration, NewEnumDeclaration, NewImportSpecifier, NewComputedPropertyName } from "../../ast/ast_generated.js";
+import { KindSyntaxList, KindParameter, KindGlobalKeyword, KindNamespaceKeyword, KindModuleBlock, KindAnyKeyword, KindUndefinedKeyword, KindNullKeyword, KindExclamationToken, KindQuestionToken, KindDeclareKeyword, KindExportKeyword, KindMinusToken, KindImportDeclaration, KindJSImportDeclaration, KindImportEqualsDeclaration, KindModuleDeclaration, KindTypeLiteral, KindMappedType, KindTypeAliasDeclaration, KindJSTypeAliasDeclaration, KindJsxText, KindSourceFile, KindSemicolonClassElement, KindFunctionDeclaration, KindInterfaceDeclaration, KindClassDeclaration, KindEnumDeclaration, KindVariableStatement, KindExportDeclaration, KindExportAssignment, KindBreakStatement, KindContinueStatement, KindDebuggerStatement, KindDoStatement, KindEmptyStatement, KindForInStatement, KindForOfStatement, KindForStatement, KindIfStatement, KindLabeledStatement, KindReturnStatement, KindSwitchStatement, KindThrowStatement, KindTryStatement, KindWhileStatement, KindWithStatement, KindNotEmittedStatement, KindBlock, KindMissingDeclaration, KindExpressionStatement, KindHeritageClause, KindMethodSignature, KindMethodDeclaration, KindConstructSignature, KindConstructor, KindGetAccessor, KindSetAccessor, KindPropertyDeclaration, KindPropertySignature, KindCallSignature, KindIndexSignature, KindVariableDeclaration, KindTypeParameter, KindExpressionWithTypeArguments, KindTypeReference, KindConditionalType, KindFunctionType, KindConstructorType, KindImportType, KindTypeQuery, KindTupleType, KindJSDocTypeExpression, KindJSDocTypeLiteral, KindJSDocPropertyTag, KindJSDocAllType, KindJSDocNullableType, KindJSDocNonNullableType, KindJSDocOptionalType, KindJSDocVariadicType, KindMappedType as KindMappedTypeKind, KindExtendsKeyword, KindIdentifier, KindOmittedExpression, KindArrayBindingPattern, KindObjectBindingPattern, KindBindingElement, KindStaticKeyword, KindUnknown, KindDefaultKeyword, KindExternalModuleReference, KindDeferKeyword, KindNamespaceImport, KindFunctionExpression, KindArrowFunction, KindMultiLineCommentTrivia } from "../../ast/generated/kinds.js";
+import { IsBinaryExpression, IsIdentifier, IsPrivateIdentifier, IsSourceFile, IsOmittedExpression, IsImportEqualsDeclaration, IsPropertyAccessExpression, IsElementAccessExpression, IsVariableDeclaration, IsStringLiteral, IsComputedPropertyName, IsObjectLiteralExpression, IsTypeLiteralNode, IsParameterDeclaration, IsSetAccessorDeclaration, IsClassDeclaration, IsInterfaceDeclaration, IsFunctionDeclaration, IsExportAssignment, IsBindingElement, IsArrowFunction, IsFunctionExpression, IsJSTypeAliasDeclaration, IsModuleDeclaration, IsHeritageClause, IsCallExpression, IsArrayBindingPattern, IsExpressionStatement, IsNumericLiteral, IsClassStaticBlockDeclaration, IsExportDeclaration } from "../../ast/generated/predicates.js";
 import { ModifierFlagsAll, ModifierFlagsPrivate, ModifierFlagsExport, ModifierFlagsDefault, ModifierFlagsAmbient, ModifierFlagsNone, ModifierFlagsParameterPropertyModifier, ModifierFlagsPublic, ModifierFlagsAsync, ModifierFlagsOverride } from "../../ast/modifierflags.js";
-import { NodeFlagsConst, NodeFlagsNone, NodeFlagsAmbient, NodeFlagsReparsed, SymbolFlagsAssignment } from "../../ast/generated/flags.js";
-import { GetNodeId, IsParseTreeNode, IsExternalOrCommonJSModule, IsInJSFile, IsExpandoPropertyDeclaration, IsDeclaration, HasDynamicName, IsEntityNameExpression, IsEntityName, IsFunctionLike, NodeIsPresent, GetCombinedModifierFlags, CreateModifiersFromModifierFlags, ReplaceModifiers, GetThisParameter, GetAssignmentDeclarationKind, GetElementOrPropertyAccessName, GetLeftmostAccessExpression, GetExternalModuleImportEqualsDeclarationExpression, IsLateVisibilityPaintedStatement, IsExternalModuleIndicator, IsGlobalScopeAugmentation, IsVarUsing, IsVarAwaitUsing, HasSyntacticModifier, HasInferredType, IsFunctionExpressionOrArrowFunction, IsPrimitiveLiteralValue, IsNonContextualKeyword, IsLiteralImportTypeNode, IsImplicitlyExportedJSTypeAlias, CanHaveModifiers, GetFirstConstructorWithBody, JSDeclarationKindModuleExports, JSDeclarationKindExportsProperty, JSDeclarationKindProperty, JSDeclarationKindObjectDefinePropertyExports, IsModifier, IsBindingPattern } from "../../ast/utilities.js";
+import { NodeFlagsConst, NodeFlagsNone, NodeFlagsAmbient, NodeFlagsReparsed, NodeFlagsSynthesized, SymbolFlagsAssignment } from "../../ast/generated/flags.js";
+import { GetNodeId, IsParseTreeNode, IsExternalOrCommonJSModule, IsInJSFile, IsExpandoPropertyDeclaration, IsDeclaration, HasDynamicName, IsEntityNameExpression, IsEntityName, IsFunctionLike, NodeIsPresent, GetCombinedModifierFlags, CreateModifiersFromModifierFlags, ReplaceModifiers, GetThisParameter, GetAssignmentDeclarationKind, GetElementOrPropertyAccessName, GetLeftmostAccessExpression, GetExternalModuleImportEqualsDeclarationExpression, IsLateVisibilityPaintedStatement, IsExternalModuleIndicator, IsGlobalScopeAugmentation, IsVarUsing, IsVarAwaitUsing, HasSyntacticModifier, HasInferredType, IsFunctionExpressionOrArrowFunction, IsPrimitiveLiteralValue, IsNonContextualKeyword, IsLiteralImportTypeNode, IsImplicitlyExportedJSDocDeclaration, CanHaveModifiers, GetFirstConstructorWithBody, JSDeclarationKindModuleExports, JSDeclarationKindExportsProperty, JSDeclarationKindProperty, JSDeclarationKindObjectDefinePropertyExports, JSDeclarationKindThisProperty, IsModifier, IsBindingPattern, NodeIsMissing, IsStringLiteralLike, GetThisContainer, HasStaticModifier, GetTextOfPropertyName, GetNameOfDeclaration, GetSourceFileOfNode, IsVariableDeclarationInitializedToRequire } from "../../ast/utilities.js";
 import { InternalSymbolNameExportEquals } from "../../ast/symbol.js";
 import type { Symbol as AstSymbol } from "../../ast/symbol.js";
 import type { Diagnostic } from "../../ast/diagnostic.js";
 import type { NodeId } from "../../ast/ids.js";
 import type { ModifierFlags } from "../../ast/modifierflags.js";
-import { Node_Name, Node_Modifiers, NodeFactory_NewNodeList, NodeFactory_AsNodeFactory, Node_FunctionLikeData, updateNode, NodeFactory_NewModifierList, cloneNode, Node_DeclarationData, Node_LocalsContainerData, Node_Pos, Node_End } from "../../ast/spine.js";
+import { Node_Name, Node_Modifiers, NodeFactory_NewNodeList, NodeFactory_AsNodeFactory, Node_FunctionLikeData, updateNode, NodeFactory_NewModifierList, cloneNode, Node_DeclarationData, Node_LocalsContainerData, Node_Pos, Node_End, Node_ClassLikeData, Node_VisitEachChild, NodeDefault_AsNode, Node_Clone, ModifierList_Clone } from "../../ast/spine.js";
+import { Node_AsMutable, MutableNode_SetModifiers } from "../../ast/ast.js";
 import type { Set } from "../../collections/set.js";
-import { Set_Has, Set_Add } from "../../collections/set.js";
+import { Set_Has, Set_Add, Set_Clear } from "../../collections/set.js";
 import type { CompilerOptions, ResolutionMode } from "../../core/compileroptions.js";
 import { ResolutionModeNone } from "../../core/compileroptions.js";
-import { Filter, Map, Some, MapNonNil, IfElse } from "../../core/core.js";
+import { Filter, Map, Some, MapNonNil, IfElse, FirstOrNil } from "../../core/core.js";
 import { NewTextRange } from "../../core/text.js";
 import { TokenFlagsNone } from "../../ast/tokenflags.js";
 import { Number_String } from "../../jsnum/string.js";
+import { Number_IsInf, Number_IsNaN } from "../../jsnum/jsnum.js";
 import { LanguageVariantStandard } from "../../core/languagevariant.js";
 import type { ModuleSpecifierGenerationHost } from "../../modulespecifiers/types.js";
 import type { EmitContext } from "../../printer/emitcontext.js";
-import { EmitContext_MostOriginal, EmitContext_ParseNode, EmitContext_AddEmitFlags, EmitContext_AssignCommentRange, EmitContext_SetOriginal, EmitContext_SetCommentRange, EmitContext_NewNodeVisitor } from "../../printer/emitcontext.js";
+import { EmitContext_MostOriginal, EmitContext_ParseNode, EmitContext_AddEmitFlags, EmitContext_AssignCommentRange, EmitContext_SetOriginal, EmitContext_SetCommentRange, EmitContext_NewNodeVisitor, EmitContext_AddSyntheticLeadingComment } from "../../printer/emitcontext.js";
 import type { AutoGenerateOptions } from "../../printer/emitcontext.js";
 import { EFSingleLine, EFNoComments } from "../../printer/emitflags.js";
 import { GeneratedIdentifierFlagsOptimistic } from "../../printer/generatedidentifierflags.js";
-import { NodeFactory_NewUniqueNameEx, NodeFactory_NewGeneratedNameForNode } from "../../printer/factory.js";
+import { NodeFactory_NewUniqueNameEx, NodeFactory_NewGeneratedNameForNode, NodeFactory_NewStringLiteralFromNode } from "../../printer/factory.js";
 import type { EmitResolver, SymbolAccessibilityResult } from "../../printer/emitresolver.js";
 import { GetDirectoryPath, NormalizeSlashes, GetRelativePathToDirectoryOrUrl } from "../../tspath/path.js";
 import type { ComparePathsOptions } from "../../tspath/path.js";
 import { GetLeadingCommentRanges, GetTrailingCommentRanges, SkipTriviaEx, StringToToken } from "../../scanner/scanner.js";
 import type { SkipTriviaOptions } from "../../scanner/scanner.js";
-import { IsIdentifierText } from "../../scanner/utilities.js";
+import { IsIdentifierText, GetTextOfJSDocComment, IdentifierToKeywordKind } from "../../scanner/utilities.js";
 import type { Transformer } from "../transformer.js";
 import { Transformer_EmitContext, Transformer_Factory, Transformer_Visitor, Transformer_NewTransformer } from "../transformer.js";
-import { IsOriginalNodeSingleLine } from "../utilities.js";
+import { IsOriginalNodeSingleLine, IsSimpleInlineableExpression } from "../utilities.js";
 import type { NodeVisitor as ConcreteNodeVisitor } from "../../ast/visitor.js";
 import { NodeVisitor_VisitNode, NodeVisitor_VisitNodes, NodeVisitor_VisitEachChild, NodeVisitor_VisitSlice } from "../../ast/visitor.js";
-import { AsMappedTypeNode, AsMethodSignatureDeclaration, AsMethodDeclaration, AsConstructSignatureDeclaration, AsPropertyDeclaration, AsPropertySignatureDeclaration, AsCallSignatureDeclaration, AsIndexSignatureDeclaration, AsVariableDeclaration, AsTypeParameterDeclaration, AsTypeReferenceNode, AsConditionalTypeNode, AsFunctionTypeNode, AsConstructorTypeNode, AsImportTypeNode, AsTypeQueryNode, AsJSDocTypeExpression, AsJSDocTypeLiteral, AsJSDocParameterOrPropertyTag, AsJSDocAllType, AsJSDocNullableType, AsJSDocNonNullableType, AsJSDocOptionalType, AsJSDocVariadicType } from "../../ast/generated/casts.js";
+import { AsMappedTypeNode, AsMethodSignatureDeclaration, AsMethodDeclaration, AsConstructSignatureDeclaration, AsPropertyDeclaration, AsPropertySignatureDeclaration, AsCallSignatureDeclaration, AsIndexSignatureDeclaration, AsVariableDeclaration, AsTypeParameterDeclaration, AsTypeReferenceNode, AsConditionalTypeNode, AsFunctionTypeNode, AsConstructorTypeNode, AsImportTypeNode, AsTypeQueryNode, AsJSDocTypeExpression, AsJSDocTypeLiteral, AsJSDocParameterOrPropertyTag, AsJSDocAllType, AsJSDocNullableType, AsJSDocNonNullableType, AsJSDocOptionalType, AsJSDocVariadicType, AsCallExpression, AsJSDoc } from "../../ast/generated/casts.js";
 import { FlagsMultilineObjectLiterals, FlagsWriteClassExpressionAsTypeLiteral, FlagsUseTypeOfFunction, FlagsUseStructuralFallback, FlagsAllowEmptyTuple, FlagsGenerateNamesForShadowedTypeParams, FlagsNoTruncation, InternalFlagsAllowUnresolvedNames, InternalFlagsNoSyntacticPrinter } from "../../nodebuilder/types.js";
 import type { InternalFlags } from "../../nodebuilder/types.js";
 import { NewSymbolTracker } from "./tracker.js";
@@ -52,6 +54,7 @@ import { createDiagnosticForNode, SymbolTrackerImpl_handleSymbolAccessibilityErr
 import type { SymbolTrackerImpl, SymbolTrackerSharedState } from "./tracker.js";
 import { canHaveLiteralInitializer, canProduceDiagnostics, isDeclarationAndNotVisible, getBindingNameVisible, isEnclosingDeclaration, isAlwaysType, maskModifierFlags, unwrapParenthesizedExpression, isPrivateMethodTypeParameter, shouldEmitFunctionProperties, getEffectiveBaseTypeNode, needsScopeMarker, hasScopeMarker } from "./util.js";
 import * as diagnosticMessages from "../../diagnostics/generated/messages.js";
+import * as strings from "../../../go/strings.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::type::ReferencedFilePair","kind":"type","status":"implemented","sigHash":"1acae0a7e39042fd1870c208a4ed0078a626c88d9ad3c80e264bb4445390836a","bodyHash":"b90a2a9433bdd7e7e02b84c509b86299da137c99482ab84ebf78404b296f3108"}
@@ -109,7 +112,7 @@ export interface DeclarationEmitHost extends ModuleSpecifierGenerationHost {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::type::DeclarationTransformer","kind":"type","status":"implemented","sigHash":"0cc4f6ffd21d0e46700910172aa1bbfe45cf16f085a73d9816adba9c5752cb37","bodyHash":"3b6bc3d860dfafb089e4fa87cd0a28fb0e9a5519f3139bde924d5d0d7799f0af"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::type::DeclarationTransformer","kind":"type","status":"implemented","sigHash":"0cc4f6ffd21d0e46700910172aa1bbfe45cf16f085a73d9816adba9c5752cb37","bodyHash":"401a7a198b375e0bd6eaa4c6f77bf17244baabfaa377b6cc02851ed64e5e20cf"}
  *
  * Go source:
  * DeclarationTransformer struct {
@@ -121,18 +124,26 @@ export interface DeclarationEmitHost extends ModuleSpecifierGenerationHost {
  * 	resolver            printer.EmitResolver
  * 	declarationFilePath string
  * 	declarationMapPath  string
- * 
+ *
  * 	needsDeclare                     bool
  * 	needsScopeFixMarker              bool
  * 	resultHasScopeMarker             bool
  * 	enclosingDeclaration             *ast.Node
  * 	resultHasExternalModuleIndicator bool
  * 	suppressNewDiagnosticContexts    bool
+ * 	witnessedCjsExports              collections.Set[string]
  * 	lateStatementReplacementMap      map[ast.NodeId]*ast.Node
- * 	expandoHosts                     collections.Set[ast.NodeId]
+ * 	expandoHosts                     map[ast.NodeId]*ast.Node   // store the result of transforming expando hosts so they can be inserted later if the host is actually referenced
+ * 	expandoMembers                   map[ast.NodeId][]*ast.Node // store any found expando _members_ after transforming them so *if* the host is referenced, they can be emitted alongside it
+ * 	seenProperties                   collections.Set[*ast.Node]
+ * 	thisPropertyAssignmentsCollected []*ast.Node
  * 	rawReferencedFiles               []ReferencedFilePair
  * 	rawTypeReferenceDirectives       []*ast.FileReference
  * 	rawLibReferenceDirectives        []*ast.FileReference
+ * 	bindingNameVisitor               *ast.NodeVisitor
+ * 	expressionVisitor                *ast.NodeVisitor
+ * 	exportStrippingVisitor           *ast.NodeVisitor
+ * 	thisPropertyVisitor              *ast.NodeVisitor
  * }
  */
 export interface DeclarationTransformer {
@@ -150,15 +161,23 @@ export interface DeclarationTransformer {
   enclosingDeclaration: GoPtr<Node>;
   resultHasExternalModuleIndicator: bool;
   suppressNewDiagnosticContexts: bool;
+  witnessedCjsExports: Set<string>;
   lateStatementReplacementMap: GoMap<NodeId, GoPtr<Node>>;
-  expandoHosts: Set;
+  expandoHosts: GoMap<NodeId, GoPtr<Node>>;
+  expandoMembers: GoMap<NodeId, GoSlice<GoPtr<Node>>>;
+  seenProperties: Set<GoPtr<Node>>;
+  thisPropertyAssignmentsCollected: GoSlice<GoPtr<Node>> | undefined;
   rawReferencedFiles: GoSlice<ReferencedFilePair>;
   rawTypeReferenceDirectives: GoSlice<GoPtr<FileReference>>;
   rawLibReferenceDirectives: GoSlice<GoPtr<FileReference>>;
+  bindingNameVisitor: GoPtr<ConcreteNodeVisitor>;
+  expressionVisitor: GoPtr<ConcreteNodeVisitor>;
+  exportStrippingVisitor: GoPtr<ConcreteNodeVisitor>;
+  thisPropertyVisitor: GoPtr<ConcreteNodeVisitor>;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::func::NewDeclarationTransformer","kind":"func","status":"implemented","sigHash":"86e2ffb5034dbb8eb3dbca8531bc911df6fe113bccd753377fb1e23845c11eb0","bodyHash":"f397a999a4b40f307a8b0e34db54e7ea77ab8036337e9af37778f0936237c76f"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::func::NewDeclarationTransformer","kind":"func","status":"implemented","sigHash":"86e2ffb5034dbb8eb3dbca8531bc911df6fe113bccd753377fb1e23845c11eb0","bodyHash":"d44ca30b291208827dc1b0b2e1eca561dbb074df9081f88a746d5d7a80082cb0"}
  *
  * Go source:
  * func NewDeclarationTransformer(host DeclarationEmitHost, context *printer.EmitContext, compilerOptions *core.CompilerOptions, declarationFilePath string, declarationMapPath string) *DeclarationTransformer {
@@ -176,6 +195,9 @@ export interface DeclarationTransformer {
  * 		declarationMapPath:  declarationMapPath,
  * 	}
  * 	tx.state.reportExpandoFunctionErrors = func(node *ast.Node) {
+ * 		if !tx.state.isolatedDeclarations {
+ * 			return
+ * 		}
  * 		props := resolver.GetPropertiesOfContainerFunction(node)
  * 		for _, p := range props {
  * 			if ast.IsExpandoPropertyDeclaration(p.ValueDeclaration) {
@@ -188,6 +210,10 @@ export interface DeclarationTransformer {
  * 		}
  * 	}
  * 	tx.NewTransformer(tx.visit, context)
+ * 	tx.bindingNameVisitor = tx.EmitContext().NewNodeVisitor(tx.visitBindingName)
+ * 	tx.expressionVisitor = tx.EmitContext().NewNodeVisitor(tx.visitNestedExpression)
+ * 	tx.exportStrippingVisitor = tx.EmitContext().NewNodeVisitor(tx.stripExportModifiers)
+ * 	tx.thisPropertyVisitor = tx.EmitContext().NewNodeVisitor(tx.visitThisPropertyAssignments)
  * 	return tx
  * }
  */
@@ -220,13 +246,24 @@ export function NewDeclarationTransformer(host: DeclarationEmitHost, context: Go
     enclosingDeclaration: undefined,
     resultHasExternalModuleIndicator: false,
     suppressNewDiagnosticContexts: false,
+    witnessedCjsExports: { M: new globalThis.Map() },
     lateStatementReplacementMap: new globalThis.Map(),
-    expandoHosts: { entries: undefined } as unknown as Set,
+    expandoHosts: new globalThis.Map(),
+    expandoMembers: new globalThis.Map(),
+    seenProperties: { M: new globalThis.Map() },
+    thisPropertyAssignmentsCollected: [],
     rawReferencedFiles: [],
     rawTypeReferenceDirectives: [],
     rawLibReferenceDirectives: [],
+    bindingNameVisitor: undefined,
+    expressionVisitor: undefined,
+    exportStrippingVisitor: undefined,
+    thisPropertyVisitor: undefined,
   };
   state.reportExpandoFunctionErrors = (node: GoPtr<Node>): void => {
+    if (!tx.state!.isolatedDeclarations) {
+      return;
+    }
     const props = resolver.GetPropertiesOfContainerFunction(node);
     for (const p of props) {
       if (IsExpandoPropertyDeclaration(p!.ValueDeclaration)) {
@@ -239,6 +276,10 @@ export function NewDeclarationTransformer(host: DeclarationEmitHost, context: Go
     }
   };
   Transformer_NewTransformer(tx.__tsgoEmbedded0, (node) => DeclarationTransformer_visit(tx, node), context);
+  tx.bindingNameVisitor = EmitContext_NewNodeVisitor(Transformer_EmitContext(tx.__tsgoEmbedded0), (node) => DeclarationTransformer_visitBindingName(tx, node));
+  tx.expressionVisitor = EmitContext_NewNodeVisitor(Transformer_EmitContext(tx.__tsgoEmbedded0), (node) => DeclarationTransformer_visitNestedExpression(tx, node));
+  tx.exportStrippingVisitor = EmitContext_NewNodeVisitor(Transformer_EmitContext(tx.__tsgoEmbedded0), (node) => DeclarationTransformer_stripExportModifiers(tx, node));
+  tx.thisPropertyVisitor = EmitContext_NewNodeVisitor(Transformer_EmitContext(tx.__tsgoEmbedded0), (node) => DeclarationTransformer_visitThisPropertyAssignments(tx, node));
   return tx;
 }
 
@@ -549,14 +590,14 @@ export function throwDiagnostic(result: SymbolAccessibilityResult): GoPtr<Symbol
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.visitSourceFile","kind":"method","status":"implemented","sigHash":"1a023cc2cc92994130cb913ce21da2e97a5d0dbd8bcfadd00d81fb369e3c4814","bodyHash":"ae7da6c67f4d3ce4f1379df2199682c4a59c7a5d4549fa65421face29b74cf6b"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.visitSourceFile","kind":"method","status":"implemented","sigHash":"1a023cc2cc92994130cb913ce21da2e97a5d0dbd8bcfadd00d81fb369e3c4814","bodyHash":"8c52f643583f03f4cb5b11a666b6fa4663931645549b6eef23848a338cdb0557"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) visitSourceFile(node *ast.SourceFile) *ast.Node {
  * 	if node.IsDeclarationFile {
  * 		return node.AsNode()
  * 	}
- * 
+ *
  * 	tx.needsDeclare = true
  * 	tx.needsScopeFixMarker = false
  * 	tx.resultHasScopeMarker = false
@@ -566,10 +607,12 @@ export function throwDiagnostic(result: SymbolAccessibilityResult): GoPtr<Symbol
  * 	tx.suppressNewDiagnosticContexts = false
  * 	tx.state.lateMarkedStatements = make([]*ast.Node, 0)
  * 	tx.lateStatementReplacementMap = make(map[ast.NodeId]*ast.Node)
- * 	tx.expandoHosts = collections.Set[ast.NodeId]{}
+ * 	tx.expandoHosts = make(map[ast.NodeId]*ast.Node)
+ * 	tx.expandoMembers = make(map[ast.NodeId][]*ast.Node)
  * 	tx.rawReferencedFiles = make([]ReferencedFilePair, 0)
  * 	tx.rawTypeReferenceDirectives = make([]*ast.FileReference, 0)
  * 	tx.rawLibReferenceDirectives = make([]*ast.FileReference, 0)
+ * 	tx.witnessedCjsExports.Clear()
  * 	tx.state.currentSourceFile = node
  * 	tx.collectFileReferences(node)
  * 	tx.resolver.PrecalculateDeclarationEmitVisibility(node)
@@ -591,10 +634,12 @@ export function DeclarationTransformer_visitSourceFile(receiver: GoPtr<Declarati
   receiver!.suppressNewDiagnosticContexts = false;
   receiver!.state!.lateMarkedStatements = [];
   receiver!.lateStatementReplacementMap = new globalThis.Map();
-  receiver!.expandoHosts = { entries: undefined } as unknown as Set;
+  receiver!.expandoHosts = new globalThis.Map();
+  receiver!.expandoMembers = new globalThis.Map();
   receiver!.rawReferencedFiles = [];
   receiver!.rawTypeReferenceDirectives = [];
   receiver!.rawLibReferenceDirectives = [];
+  Set_Clear(receiver!.witnessedCjsExports);
   receiver!.state!.currentSourceFile = node;
   DeclarationTransformer_collectFileReferences(receiver, node);
   receiver!.resolver.PrecalculateDeclarationEmitVisibility(node);
@@ -623,10 +668,11 @@ export function DeclarationTransformer_collectFileReferences(receiver: GoPtr<Dec
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformSourceFile","kind":"method","status":"implemented","sigHash":"7a5dfb189679b2594685e8d8f81fab8ea8f9be6a6f972a81eb9fc211800dee7b","bodyHash":"1bd08a5bf9b615eba33729ac8ebf7cc1033a31bbe1c93b2ffc9e511852209d9a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformSourceFile","kind":"method","status":"implemented","sigHash":"7a5dfb189679b2594685e8d8f81fab8ea8f9be6a6f972a81eb9fc211800dee7b","bodyHash":"1c51a31d9351e1cc1e460eb8566b85937ceab76a99771a043de266e24b66b4bd"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformSourceFile(node *ast.SourceFile) *ast.Node {
+ * 	tx.expressionVisitor.VisitNode(node.AsNode()) // collect expando members
  * 	var combinedStatements *ast.StatementList
  * 	statements := tx.Visitor().VisitNodes(node.Statements)
  * 	combinedStatements = tx.transformAndReplaceLatePaintedStatements(statements)
@@ -662,6 +708,7 @@ export function DeclarationTransformer_collectFileReferences(receiver: GoPtr<Dec
 export function DeclarationTransformer_transformSourceFile(receiver: GoPtr<DeclarationTransformer>, node: GoPtr<SourceFile>): GoPtr<Node> {
   const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
   const visitor = Transformer_Visitor(receiver!.__tsgoEmbedded0) as ConcreteNodeVisitor;
+  NodeVisitor_VisitNode(receiver!.expressionVisitor, node); // collect expando members
   const statements = NodeVisitor_VisitNodes(visitor, node!.Statements as GoPtr<StatementList>);
   let combinedStatements = DeclarationTransformer_transformAndReplaceLatePaintedStatements(receiver, statements);
   combinedStatements!.Loc = statements!.Loc;
@@ -1029,7 +1076,53 @@ export function DeclarationTransformer_getTypeReferences(receiver: GoPtr<Declara
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.visitDeclarationSubtree","kind":"method","status":"implemented","sigHash":"9404718612ad86102a87cd49e260db131b6aa8357348c983aa0476cbd3731231","bodyHash":"c7fe4c375dc92d93c80cb4829951ebf71de3ba32587b705a40941e856876601e"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.setupDiagnosticContext","kind":"method","status":"implemented","sigHash":"90e70d9279997de7292f79a4561607b18f9cd790190afc685003872d16fdb734","bodyHash":"e09c9ce2df3515c439e634f093f04604fe999dbe1b168f036be0702201b0e842"}
+ *
+ * Go source:
+ * func (tx *DeclarationTransformer) setupDiagnosticContext(input *ast.Node) (bool, func()) {
+ * 	canProdiceDiagnostic := canProduceDiagnostics(input)
+ * 	oldWithinObjectLiteralType := tx.suppressNewDiagnosticContexts
+ * 	shouldEnterSuppressNewDiagnosticsContextContext := (input.Kind == ast.KindTypeLiteral || input.Kind == ast.KindMappedType) && !(input.Parent.Kind == ast.KindTypeAliasDeclaration || input.Parent.Kind == ast.KindJSTypeAliasDeclaration)
+ *
+ * 	oldDiag := tx.state.getSymbolAccessibilityDiagnostic
+ * 	if canProdiceDiagnostic && !tx.suppressNewDiagnosticContexts {
+ * 		tx.state.getSymbolAccessibilityDiagnostic = createGetSymbolAccessibilityDiagnosticForNode(input)
+ * 	}
+ * 	oldName := tx.state.errorNameNode
+ *
+ * 	if shouldEnterSuppressNewDiagnosticsContextContext {
+ * 		tx.suppressNewDiagnosticContexts = true
+ * 	}
+ *
+ * 	return canProdiceDiagnostic, func() {
+ * 		tx.state.getSymbolAccessibilityDiagnostic = oldDiag
+ * 		tx.state.errorNameNode = oldName
+ * 		tx.suppressNewDiagnosticContexts = oldWithinObjectLiteralType
+ * 	}
+ * }
+ */
+export function DeclarationTransformer_setupDiagnosticContext(receiver: GoPtr<DeclarationTransformer>, input: GoPtr<Node>): [bool, () => void] {
+  const canProdiceDiagnostic = canProduceDiagnostics(input);
+  const oldWithinObjectLiteralType = receiver!.suppressNewDiagnosticContexts;
+  const shouldEnterSuppressNewDiagnosticsContextContext = ((input!.Kind === KindTypeLiteral || input!.Kind === KindMappedType) &&
+    !(input!.Parent!.Kind === KindTypeAliasDeclaration || input!.Parent!.Kind === KindJSTypeAliasDeclaration)) as bool;
+  const oldDiag = receiver!.state!.getSymbolAccessibilityDiagnostic;
+  if (canProdiceDiagnostic && !receiver!.suppressNewDiagnosticContexts) {
+    receiver!.state!.getSymbolAccessibilityDiagnostic = createGetSymbolAccessibilityDiagnosticForNode(input);
+  }
+  const oldName = receiver!.state!.errorNameNode;
+  if (shouldEnterSuppressNewDiagnosticsContextContext) {
+    receiver!.suppressNewDiagnosticContexts = true;
+  }
+  return [canProdiceDiagnostic, (): void => {
+    receiver!.state!.getSymbolAccessibilityDiagnostic = oldDiag;
+    receiver!.state!.errorNameNode = oldName;
+    receiver!.suppressNewDiagnosticContexts = oldWithinObjectLiteralType;
+  }];
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.visitDeclarationSubtree","kind":"method","status":"implemented","sigHash":"9404718612ad86102a87cd49e260db131b6aa8357348c983aa0476cbd3731231","bodyHash":"2e9987304b372c6aab289c86cf2a555496a3c5237d6a45270a8f6cbf8dd27e53"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) visitDeclarationSubtree(input *ast.Node) *ast.Node {
@@ -1068,25 +1161,18 @@ export function DeclarationTransformer_getTypeReferences(receiver: GoPtr<Declara
  * 	if input.Kind == ast.KindSemicolonClassElement {
  * 		return nil
  * 	}
- * 
+ *
+ * 	if ast.IsHeritageClause(input) && (len(input.AsHeritageClause().Types.Nodes) == 0 || (len(input.AsHeritageClause().Types.Nodes) == 1 && ast.NodeIsMissing(input.AsHeritageClause().Types.Nodes[0]))) {
+ * 		return nil
+ * 	}
+ *
  * 	previousEnclosingDeclaration := tx.enclosingDeclaration
  * 	if isEnclosingDeclaration(input) {
  * 		tx.enclosingDeclaration = input
  * 	}
- * 
- * 	canProdiceDiagnostic := canProduceDiagnostics(input)
- * 	oldWithinObjectLiteralType := tx.suppressNewDiagnosticContexts
- * 	shouldEnterSuppressNewDiagnosticsContextContext := (input.Kind == ast.KindTypeLiteral || input.Kind == ast.KindMappedType) && !(input.Parent.Kind == ast.KindTypeAliasDeclaration || input.Parent.Kind == ast.KindJSTypeAliasDeclaration)
- * 
- * 	oldDiag := tx.state.getSymbolAccessibilityDiagnostic
- * 	if canProdiceDiagnostic && !tx.suppressNewDiagnosticContexts {
- * 		tx.state.getSymbolAccessibilityDiagnostic = createGetSymbolAccessibilityDiagnosticForNode(input)
- * 	}
- * 	oldName := tx.state.errorNameNode
- * 
- * 	if shouldEnterSuppressNewDiagnosticsContextContext {
- * 		tx.suppressNewDiagnosticContexts = true
- * 	}
+ *
+ * 	canProdiceDiagnostic, cleanupDiagnosticContext := tx.setupDiagnosticContext(input)
+ * 	defer cleanupDiagnosticContext()
  * 
  * 	var result *ast.Node
  * 
@@ -1164,11 +1250,8 @@ export function DeclarationTransformer_getTypeReferences(receiver: GoPtr<Declara
  * 	if result != nil && canProdiceDiagnostic && ast.HasDynamicName(input) {
  * 		tx.checkName(input)
  * 	}
- * 
+ *
  * 	tx.enclosingDeclaration = previousEnclosingDeclaration
- * 	tx.state.getSymbolAccessibilityDiagnostic = oldDiag
- * 	tx.state.errorNameNode = oldName
- * 	tx.suppressNewDiagnosticContexts = oldWithinObjectLiteralType
  * 	return result
  * }
  */
@@ -1205,22 +1288,15 @@ export function DeclarationTransformer_visitDeclarationSubtree(receiver: GoPtr<D
   if (input!.Kind === KindSemicolonClassElement) {
     return undefined;
   }
+  if (IsHeritageClause(input) && (AsHeritageClause(input)!.Types!.Nodes.length === 0 || (AsHeritageClause(input)!.Types!.Nodes.length === 1 && NodeIsMissing(AsHeritageClause(input)!.Types!.Nodes[0])))) {
+    return undefined;
+  }
   const previousEnclosingDeclaration = receiver!.enclosingDeclaration;
   if (isEnclosingDeclaration(input)) {
     receiver!.enclosingDeclaration = input;
   }
-  const canProdiceDiagnostic = canProduceDiagnostics(input);
-  const oldWithinObjectLiteralType = receiver!.suppressNewDiagnosticContexts;
-  const shouldEnterSuppressNewDiagnosticsContextContext = (input!.Kind === KindTypeLiteral || input!.Kind === KindMappedType) &&
-    !(input!.Parent!.Kind === KindTypeAliasDeclaration || input!.Parent!.Kind === KindJSTypeAliasDeclaration);
-  const oldDiag = receiver!.state!.getSymbolAccessibilityDiagnostic;
-  if (canProdiceDiagnostic && !receiver!.suppressNewDiagnosticContexts) {
-    receiver!.state!.getSymbolAccessibilityDiagnostic = createGetSymbolAccessibilityDiagnosticForNode(input);
-  }
-  const oldName = receiver!.state!.errorNameNode;
-  if (shouldEnterSuppressNewDiagnosticsContextContext) {
-    receiver!.suppressNewDiagnosticContexts = true;
-  }
+  const [canProdiceDiagnostic, cleanupDiagnosticContext] = DeclarationTransformer_setupDiagnosticContext(receiver, input);
+  try {
   let result: GoPtr<Node>;
   switch (input!.Kind) {
     case KindMappedType:
@@ -1328,10 +1404,10 @@ export function DeclarationTransformer_visitDeclarationSubtree(receiver: GoPtr<D
     DeclarationTransformer_checkName(receiver, input);
   }
   receiver!.enclosingDeclaration = previousEnclosingDeclaration;
-  receiver!.state!.getSymbolAccessibilityDiagnostic = oldDiag;
-  receiver!.state!.errorNameNode = oldName;
-  receiver!.suppressNewDiagnosticContexts = oldWithinObjectLiteralType;
   return result;
+  } finally {
+    cleanupDiagnosticContext();
+  }
 }
 
 /**
@@ -1646,10 +1722,13 @@ export function DeclarationTransformer_transformTypeParameterDeclaration(receive
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformVariableDeclaration","kind":"method","status":"implemented","sigHash":"04bbf3d7f83926f1174b9cc37c74a4ffcc018e006ffb8926231246acda8920fa","bodyHash":"de70354d8d0809b154fae674b1845adeee12652fe4c5cef36ede42017c736683"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformVariableDeclaration","kind":"method","status":"implemented","sigHash":"04bbf3d7f83926f1174b9cc37c74a4ffcc018e006ffb8926231246acda8920fa","bodyHash":"c7c2372aec60dd00c61cab2b19796989868d07847985f55349499b7434f74fa9"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformVariableDeclaration(input *ast.VariableDeclaration) *ast.Node {
+ * 	if tx.state.currentSourceFile.CommonJSModuleIndicator != nil && ast.IsVariableDeclarationInitializedToRequire(input.AsNode()) {
+ * 		return tx.transformCjsRequireVariableDeclaration(input)
+ * 	}
  * 	if ast.IsBindingPattern(input.Name()) {
  * 		return tx.recreateBindingPattern(input.Name().AsBindingPattern())
  * 	}
@@ -1665,6 +1744,9 @@ export function DeclarationTransformer_transformTypeParameterDeclaration(receive
  * }
  */
 export function DeclarationTransformer_transformVariableDeclaration(receiver: GoPtr<DeclarationTransformer>, input: GoPtr<VariableDeclaration>): GoPtr<Node> {
+  if (receiver!.state!.currentSourceFile!.CommonJSModuleIndicator !== undefined && IsVariableDeclarationInitializedToRequire(input)) {
+    return DeclarationTransformer_transformCjsRequireVariableDeclaration(receiver, input);
+  }
   if (IsBindingPattern(Node_Name(input))) {
     return DeclarationTransformer_recreateBindingPattern(receiver, AsBindingPattern(Node_Name(input)));
   }
@@ -1682,6 +1764,77 @@ export function DeclarationTransformer_transformVariableDeclaration(receiver: Go
     DeclarationTransformer_ensureType(receiver, input, false),
     DeclarationTransformer_ensureNoInitializer(receiver, input),
   );
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformCjsRequireVariableDeclaration","kind":"method","status":"implemented","sigHash":"4ae883685b2d7359ee813f13b00060d39075545850175c5fb62970e1f4a0d15f","bodyHash":"e5da44bce507f9b09522515792d60a68a2b9acdafbf8f5106a8ec799711b2b99"}
+ *
+ * Go source:
+ * func (tx *DeclarationTransformer) transformCjsRequireVariableDeclaration(input *ast.VariableDeclaration) *ast.Node {
+ * 	specifier := tx.rewriteModuleSpecifier(input.AsNode(), input.Initializer.AsCallExpression().Arguments.Nodes[0])
+ * 	if ast.IsIdentifier(input.Name()) {
+ * 		// `const x = require("something")` -> `import x = require("something")`
+ * 		return tx.Factory().NewImportEqualsDeclaration(nil, false, input.Name(), tx.Factory().NewExternalModuleReference(specifier))
+ * 	} else if ast.IsArrayBindingPattern(input.Name()) {
+ * 		// TODO: Is this actually reachable? should we error on this?
+ * 		return nil
+ * 	} else { // object binding pattern
+ *
+ * 		// `const {x, y: z} = require("something")` -> `import {x, y as z} from "something"`
+ * 		b := input.Name().AsBindingPattern()
+ * 		var importSpecifiers []*ast.Node
+ * 		for _, elem := range b.Elements.Nodes {
+ * 			if !ast.IsIdentifier(elem.Name()) {
+ * 				continue // nested destructuring, bail
+ * 			}
+ * 			importSpecifiers = append(importSpecifiers, tx.Factory().NewImportSpecifier(false, elem.PropertyName(), elem.Name()))
+ * 		}
+ * 		return tx.Factory().NewImportDeclaration(
+ * 			nil,
+ * 			tx.Factory().NewImportClause(
+ * 				ast.KindUnknown,
+ * 				nil,
+ * 				tx.Factory().NewNamedImports(tx.Factory().NewNodeList(importSpecifiers)),
+ * 			),
+ * 			specifier,
+ * 			nil,
+ * 		)
+ * 	}
+ * }
+ */
+export function DeclarationTransformer_transformCjsRequireVariableDeclaration(receiver: GoPtr<DeclarationTransformer>, input: GoPtr<VariableDeclaration>): GoPtr<Node> {
+  const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
+  const astFactory = factory!.__tsgoEmbedded0;
+  const specifier = DeclarationTransformer_rewriteModuleSpecifier(receiver, input, AsCallExpression(Node_Initializer(input))!.Arguments!.Nodes[0]);
+  if (IsIdentifier(Node_Name(input))) {
+    // `const x = require("something")` -> `import x = require("something")`
+    return NewImportEqualsDeclaration(astFactory, undefined, false as bool, Node_Name(input), NewExternalModuleReference(astFactory, specifier));
+  } else if (IsArrayBindingPattern(Node_Name(input))) {
+    // TODO: Is this actually reachable? should we error on this?
+    return undefined;
+  } else {
+    // `const {x, y: z} = require("something")` -> `import {x, y as z} from "something"`
+    const b = AsBindingPattern(Node_Name(input));
+    const importSpecifiers: GoSlice<GoPtr<Node>> = [];
+    for (const elem of b!.Elements!.Nodes) {
+      if (!IsIdentifier(Node_Name(elem))) {
+        continue; // nested destructuring, bail
+      }
+      importSpecifiers.push(NewImportSpecifier(astFactory, false as bool, Node_PropertyName(elem), Node_Name(elem)));
+    }
+    return NewImportDeclaration(
+      astFactory,
+      undefined,
+      NewImportClause(
+        astFactory,
+        KindUnknown,
+        undefined,
+        NewNamedImports(astFactory, NodeFactory_NewNodeList(astFactory, importSpecifiers)),
+      ),
+      specifier,
+      undefined,
+    );
+  }
 }
 
 /**
@@ -1831,14 +1984,14 @@ export function DeclarationTransformer_transformCallSignatureDeclaration(receive
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformPropertySignatureDeclaration","kind":"method","status":"implemented","sigHash":"522bb2a544bfe7937acef9cfcc889959d11b783893f1957b6587a827cb3d851b","bodyHash":"ddd8bdad69dc7db2876aff493b631fc38798078a0d65ec45b9647d452ca99b76"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformPropertySignatureDeclaration","kind":"method","status":"implemented","sigHash":"522bb2a544bfe7937acef9cfcc889959d11b783893f1957b6587a827cb3d851b","bodyHash":"25ef4276476c6daa1d5b4f9f699f909c68659c67d16fb7e6a4bebeb84dc3276e"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformPropertySignatureDeclaration(input *ast.PropertySignatureDeclaration) *ast.Node {
  * 	if ast.IsPrivateIdentifier(input.Name()) {
  * 		return nil
  * 	}
- * 	return tx.Factory().UpdatePropertySignatureDeclaration(
+ * 	result := tx.Factory().UpdatePropertySignatureDeclaration(
  * 		input,
  * 		tx.ensureModifiers(input.AsNode()),
  * 		input.Name(),
@@ -1846,6 +1999,8 @@ export function DeclarationTransformer_transformCallSignatureDeclaration(receive
  * 		tx.ensureType(input.AsNode(), false),
  * 		tx.ensureNoInitializer(input.AsNode()), // TODO: possible strada bug (fixed here) - const property signatures never initialized
  * 	)
+ * 	tx.preservePartialJsDoc(result, input.AsNode())
+ * 	return result
  * }
  */
 export function DeclarationTransformer_transformPropertySignatureDeclaration(receiver: GoPtr<DeclarationTransformer>, input: GoPtr<PropertySignatureDeclaration>): GoPtr<Node> {
@@ -1857,10 +2012,11 @@ export function DeclarationTransformer_transformPropertySignatureDeclaration(rec
   const modifiers = DeclarationTransformer_ensureModifiers(receiver, input);
   const typeNode = DeclarationTransformer_ensureType(receiver, input, false);
   const initializer = DeclarationTransformer_ensureNoInitializer(receiver, input);
-  if (modifiers !== input!.modifiers || typeNode !== input!.Type || initializer !== input!.Initializer) {
-    return updateNode(NewPropertySignatureDeclaration(astFactory, modifiers, input!.name, input!.PostfixToken, typeNode, initializer), input, astFactory!.hooks);
-  }
-  return input;
+  const result = (modifiers !== input!.modifiers || typeNode !== input!.Type || initializer !== input!.Initializer)
+    ? updateNode(NewPropertySignatureDeclaration(astFactory, modifiers, input!.name, input!.PostfixToken, typeNode, initializer), input, astFactory!.hooks)
+    : input;
+  DeclarationTransformer_preservePartialJsDoc(receiver, result, input);
+  return result;
 }
 
 /**
@@ -1976,7 +2132,7 @@ export function DeclarationTransformer_transformGetAccesorDeclaration(receiver: 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.updateAccessorParamList","kind":"method","status":"implemented","sigHash":"ad9b5a33496d54dc9ac74bf63943410d4c5a4892cde761e35f885378952a5a08","bodyHash":"2618e2ec4b529f7adf03c465b8eb93f6815d34ca4ecb92ff5a65ba30b1e93b42"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.updateAccessorParamList","kind":"method","status":"implemented","sigHash":"ad9b5a33496d54dc9ac74bf63943410d4c5a4892cde761e35f885378952a5a08","bodyHash":"e4c42ffacb36df39410a7bd9a842a607c518d0d5d1ddd1061c2ac7a1ecad7a77"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) updateAccessorParamList(input *ast.Node, isPrivate bool) *ast.ParameterList {
@@ -1997,10 +2153,10 @@ export function DeclarationTransformer_transformGetAccesorDeclaration(receiver: 
  * 			}
  * 		}
  * 		if valueParam == nil {
- * 			// TODO: strada bug - no type printed on set accessor missing arg as though private
+ * 			// When synthesizing a missing value parameter, emit `value: any` for non-private accessors to match TypeScript's declaration emit behavior.
  * 			var t *ast.Node
  * 			if !isPrivate {
- * 				t = tx.Factory().NewKeywordExpression(ast.KindAnyKeyword)
+ * 				t = tx.Factory().NewKeywordTypeNode(ast.KindAnyKeyword)
  * 			}
  * 			valueParam = tx.Factory().NewParameterDeclaration(
  * 				nil,
@@ -2038,8 +2194,8 @@ export function DeclarationTransformer_updateAccessorParamList(receiver: GoPtr<D
       }
     }
     if (valueParam === undefined) {
-      // TODO: strada bug - no type printed on set accessor missing arg as though private
-      const t = !isPrivate ? NewKeywordExpression(astFactory, KindAnyKeyword) : undefined;
+      // When synthesizing a missing value parameter, emit `value: any` for non-private accessors to match TypeScript's declaration emit behavior.
+      const t = !isPrivate ? NewKeywordTypeNode(astFactory, KindAnyKeyword) : undefined;
       valueParam = NewParameterDeclaration(astFactory, undefined, undefined, NewIdentifier(astFactory, "value"), undefined, t, undefined);
     }
     newParams.push(valueParam);
@@ -2102,21 +2258,22 @@ export function DeclarationTransformer_transformConstructSignatureDeclaration(re
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.omitPrivateMethodType","kind":"method","status":"implemented","sigHash":"b62f22a38ac92ba190573a736ad7f25b4d8a6e6f8d3cc5b3c6801cbae46e0f67","bodyHash":"bf6d28a7f58e487765df634d48796b5358bcf9a675381d2286f060b04b882557"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.omitPrivateMethodType","kind":"method","status":"implemented","sigHash":"b62f22a38ac92ba190573a736ad7f25b4d8a6e6f8d3cc5b3c6801cbae46e0f67","bodyHash":"ea3a2fcf87505d1af803a017b196d9431ac79a5cd9c1b18b2fcfcaa55e32477d"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) omitPrivateMethodType(input *ast.Node) *ast.Node {
  * 	if input.Symbol() != nil && len(input.Symbol().Declarations) > 0 && input.Symbol().Declarations[0] != input {
  * 		return nil
- * 	} else {
- * 		return tx.Factory().NewPropertyDeclaration(
- * 			tx.ensureModifiers(input),
- * 			input.Name(),
- * 			nil,
- * 			nil,
- * 			nil,
- * 		)
  * 	}
+ * 	result := tx.Factory().NewPropertyDeclaration(
+ * 		tx.ensureModifiers(input),
+ * 		input.Name(),
+ * 		nil,
+ * 		nil,
+ * 		nil,
+ * 	)
+ * 	tx.preserveJsDoc(result, input)
+ * 	return result
  * }
  */
 export function DeclarationTransformer_omitPrivateMethodType(receiver: GoPtr<DeclarationTransformer>, input: GoPtr<Node>): GoPtr<Node> {
@@ -2377,10 +2534,18 @@ export function DeclarationTransformer_transformExportAssignment(receiver: GoPtr
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformCommonJSExport","kind":"method","status":"implemented","sigHash":"070ef0ffb0240015196469d233cd46752736cefca9858b5dab5940e04b720627","bodyHash":"6f9f2181fc6d015a165803133561ac092cd2e404c381974a98d8a030e4a928bc"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformCommonJSExport","kind":"method","status":"implemented","sigHash":"070ef0ffb0240015196469d233cd46752736cefca9858b5dab5940e04b720627","bodyHash":"e849961ce8520ade5eaa5dca6ded995ef85f723c1bfaac841fdead4f4f984283"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformCommonJSExport(input *ast.Node, name *ast.Node) *ast.Node {
+ * 	var nameText string
+ * 	if ast.IsIdentifier(name) || ast.IsStringLiteral(name) {
+ * 		nameText = name.Text()
+ * 	}
+ * 	if tx.witnessedCjsExports.Has(nameText) && nameText != "" {
+ * 		return nil // Already emitted this export name
+ * 	}
+ * 	tx.witnessedCjsExports.Add(nameText)
  * 	tx.resultHasExternalModuleIndicator = true
  * 	tx.resultHasScopeMarker = true
  * 	if isCommonJSAliasExport(input) {
@@ -2419,7 +2584,8 @@ export function DeclarationTransformer_transformExportAssignment(receiver: GoPtr
  * 			tx.preserveJsDoc(statement, input)
  * 			tx.removeAllComments(assignment)
  * 			return tx.Factory().NewSyntaxList([]*ast.Node{statement, assignment})
- * 		} else {
+ * 		} else if tx.host.GetEmitResolver().GetReferencedValueDeclaration(name) == input || tx.host.GetEmitResolver().GetReferencedValueDeclaration(name) == nil {
+ * 			// only inline to a export var if the `name` lookup points at this assignment or nothing - if it points at something else, we must use a temp name
  * 			// export var name: Type
  * 			tx.tracker.PushErrorFallbackNode(input)
  * 			type_ := tx.ensureType(input, false)
@@ -2433,36 +2599,43 @@ export function DeclarationTransformer_transformExportAssignment(receiver: GoPtr
  * 			}
  * 			return tx.Factory().NewVariableStatement(modList, tx.Factory().NewVariableDeclarationList(tx.Factory().NewNodeList([]*ast.Node{varDecl}), ast.NodeFlagsNone))
  * 		}
- * 	} else {
- * 		// const _exported: Type; export {_exported as "name"};
- * 		newId := tx.Factory().NewUniqueNameEx("_exported", printer.AutoGenerateOptions{Flags: printer.GeneratedIdentifierFlagsOptimistic})
- * 		tx.state.getSymbolAccessibilityDiagnostic = func(_ printer.SymbolAccessibilityResult) *SymbolAccessibilityDiagnostic {
- * 			return &SymbolAccessibilityDiagnostic{
- * 				diagnosticMessage: diagnostics.Default_export_of_the_module_has_or_is_using_private_name_0,
- * 				errorNode:         input,
- * 			}
- * 		}
- * 		tx.tracker.PushErrorFallbackNode(input)
- * 		type_ := tx.ensureType(input, false)
- * 		varDecl := tx.Factory().NewVariableDeclaration(newId, nil, type_, nil)
- * 		tx.tracker.PopErrorFallbackNode()
- * 		var modList *ast.ModifierList
- * 		if tx.needsDeclare {
- * 			modList = tx.Factory().NewModifierList([]*ast.Node{tx.Factory().NewModifier(ast.KindDeclareKeyword)})
- * 		} else {
- * 			modList = tx.Factory().NewModifierList([]*ast.Node{})
- * 		}
- * 		statement := tx.Factory().NewVariableStatement(modList, tx.Factory().NewVariableDeclarationList(tx.Factory().NewNodeList([]*ast.Node{varDecl}), ast.NodeFlagsConst))
- * 
- * 		assignment := tx.Factory().NewExportDeclaration(nil, false, tx.Factory().NewNamedExports(tx.Factory().NewNodeList([]*ast.Node{tx.Factory().NewExportSpecifier(false, newId, name)})), nil, nil)
- * 		// Remove comments from the export declaration and copy them onto the synthetic _default declaration
- * 		tx.preserveJsDoc(statement, input)
- * 		tx.removeAllComments(assignment)
- * 		return tx.Factory().NewSyntaxList([]*ast.Node{statement, assignment})
  * 	}
+ * 	// const _exported: Type; export {_exported as "name"};
+ * 	newId := tx.Factory().NewUniqueNameEx("_exported", printer.AutoGenerateOptions{Flags: printer.GeneratedIdentifierFlagsOptimistic})
+ * 	tx.state.getSymbolAccessibilityDiagnostic = func(_ printer.SymbolAccessibilityResult) *SymbolAccessibilityDiagnostic {
+ * 		return &SymbolAccessibilityDiagnostic{
+ * 			diagnosticMessage: diagnostics.Default_export_of_the_module_has_or_is_using_private_name_0,
+ * 			errorNode:         input,
+ * 		}
+ * 	}
+ * 	tx.tracker.PushErrorFallbackNode(input)
+ * 	type_ := tx.ensureType(input, false)
+ * 	varDecl := tx.Factory().NewVariableDeclaration(newId, nil, type_, nil)
+ * 	tx.tracker.PopErrorFallbackNode()
+ * 	var modList *ast.ModifierList
+ * 	if tx.needsDeclare {
+ * 		modList = tx.Factory().NewModifierList([]*ast.Node{tx.Factory().NewModifier(ast.KindDeclareKeyword)})
+ * 	} else {
+ * 		modList = tx.Factory().NewModifierList([]*ast.Node{})
+ * 	}
+ * 	statement := tx.Factory().NewVariableStatement(modList, tx.Factory().NewVariableDeclarationList(tx.Factory().NewNodeList([]*ast.Node{varDecl}), ast.NodeFlagsConst))
+ *
+ * 	assignment := tx.Factory().NewExportDeclaration(nil, false, tx.Factory().NewNamedExports(tx.Factory().NewNodeList([]*ast.Node{tx.Factory().NewExportSpecifier(false, newId, name)})), nil, nil)
+ * 	// Remove comments from the export declaration and copy them onto the synthetic _default declaration
+ * 	tx.preserveJsDoc(statement, input)
+ * 	tx.removeAllComments(assignment)
+ * 	return tx.Factory().NewSyntaxList([]*ast.Node{statement, assignment})
  * }
  */
 export function DeclarationTransformer_transformCommonJSExport(receiver: GoPtr<DeclarationTransformer>, input: GoPtr<Node>, name: GoPtr<Node>): GoPtr<Node> {
+  let nameText = "";
+  if (IsIdentifier(name) || IsStringLiteral(name)) {
+    nameText = Node_Text(name);
+  }
+  if (Set_Has(receiver!.witnessedCjsExports, nameText) && nameText !== "") {
+    return undefined; // Already emitted this export name
+  }
+  Set_Add(receiver!.witnessedCjsExports, nameText);
   receiver!.resultHasExternalModuleIndicator = true;
   receiver!.resultHasScopeMarker = true;
   const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
@@ -2498,7 +2671,8 @@ export function DeclarationTransformer_transformCommonJSExport(receiver: GoPtr<D
       DeclarationTransformer_preserveJsDoc(receiver, statement, input);
       DeclarationTransformer_removeAllComments(receiver, assignment);
       return NewSyntaxList(astFactory, [statement, assignment]);
-    } else {
+    } else if (receiver!.host.GetEmitResolver().GetReferencedValueDeclaration(name) === input || receiver!.host.GetEmitResolver().GetReferencedValueDeclaration(name) === undefined) {
+      // only inline to a export var if the `name` lookup points at this assignment or nothing - if it points at something else, we must use a temp name
       // export var name: Type
       SymbolTrackerImpl_PushErrorFallbackNode(receiver!.tracker, input);
       const type_ = DeclarationTransformer_ensureType(receiver, input, false);
@@ -2618,6 +2792,42 @@ export function DeclarationTransformer_tryGetResolutionModeOverride(receiver: Go
 export function DeclarationTransformer_preserveJsDoc(receiver: GoPtr<DeclarationTransformer>, updated: GoPtr<Node>, original: GoPtr<Node>): void {
   // Copy comment range from original to updated node so JSDoc comments are preserved
   EmitContext_AssignCommentRange(Transformer_EmitContext(receiver!.__tsgoEmbedded0), updated, original);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.preservePartialJsDoc","kind":"method","status":"implemented","sigHash":"d8c6f610f14aaac844d5726934cfb3c263992817d6cf8caf6285470f515cab85","bodyHash":"fdaf2a3282ca5abc7466ebdd7290dbfd8b49ba869d737e000bd8c545f2d30c35"}
+ *
+ * Go source:
+ * func (tx *DeclarationTransformer) preservePartialJsDoc(updated *ast.Node, original *ast.Node) {
+ * 	if original.Flags&ast.NodeFlagsReparsed == 0 {
+ * 		return
+ * 	}
+ * 	jsdoc := core.FirstOrNil(original.EagerJSDoc(ast.GetSourceFileOfNode(original)))
+ * 	if jsdoc == nil {
+ * 		return
+ * 	}
+ * 	description := scanner.GetTextOfJSDocComment(jsdoc.AsJSDoc().Comment)
+ * 	if description == "" {
+ * 		return
+ * 	}
+ * 	comment := "*\n * " + strings.ReplaceAll(description, "\n", "\n * ") + "\n "
+ * 	tx.EmitContext().AddSyntheticLeadingComment(updated, ast.KindMultiLineCommentTrivia, comment, true /*hasTrailingNewLine* /)
+ * }
+ */
+export function DeclarationTransformer_preservePartialJsDoc(receiver: GoPtr<DeclarationTransformer>, updated: GoPtr<Node>, original: GoPtr<Node>): void {
+  if ((original!.Flags & NodeFlagsReparsed) === 0) {
+    return;
+  }
+  const jsdoc = FirstOrNil(Node_EagerJSDoc(original, GetSourceFileOfNode(original)));
+  if (jsdoc === undefined) {
+    return;
+  }
+  const description = GetTextOfJSDocComment(AsJSDoc(jsdoc)!.Comment);
+  if (description === "") {
+    return;
+  }
+  const comment = "*\n * " + strings.ReplaceAll(description, "\n", "\n * ") + "\n ";
+  EmitContext_AddSyntheticLeadingComment(Transformer_EmitContext(receiver!.__tsgoEmbedded0), updated, KindMultiLineCommentTrivia, comment, true as bool /*hasTrailingNewLine*/);
 }
 
 /**
@@ -2776,7 +2986,7 @@ export function DeclarationTransformer_checkEntityNameVisibility(receiver: GoPtr
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformTopLevelDeclaration","kind":"method","status":"implemented","sigHash":"bc0fcaec4e5c0e4b71d0d041ff2a8d8d0b1c0432f93c7b6416a959d983fade96","bodyHash":"5a095cb7fa010c04cb45f5de7eeb644e03a7716d9a665ea0f591dfabaa87e0bf"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformTopLevelDeclaration","kind":"method","status":"implemented","sigHash":"bc0fcaec4e5c0e4b71d0d041ff2a8d8d0b1c0432f93c7b6416a959d983fade96","bodyHash":"8523248dacc4d0df0ecb0c2034a6c2a600345e6de7965462a5c762f19cb15334"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformTopLevelDeclaration(input *ast.Node) *ast.Node {
@@ -2810,11 +3020,17 @@ export function DeclarationTransformer_checkEntityNameVisibility(receiver: GoPtr
  * 	if ast.IsFunctionLike(input) && tx.resolver.IsImplementationOfOverload(input) {
  * 		return nil
  * 	}
+ * 	original := tx.EmitContext().MostOriginal(input)
+ * 	id := ast.GetNodeId(original)
+ * 	if _, ok := tx.expandoHosts[id]; ok {
+ * 		return tx.createFullExpandoBlock(id)
+ * 	}
+ *
  * 	previousEnclosingDeclaration := tx.enclosingDeclaration
  * 	if isEnclosingDeclaration(input) {
  * 		tx.enclosingDeclaration = input
  * 	}
- * 
+ *
  * 	canProdiceDiagnostic := canProduceDiagnostics(input)
  * 	oldDiag := tx.state.getSymbolAccessibilityDiagnostic
  * 	oldName := tx.state.errorNameNode
@@ -2884,6 +3100,11 @@ export function DeclarationTransformer_transformTopLevelDeclaration(receiver: Go
   if (IsFunctionLike(input) && receiver!.resolver.IsImplementationOfOverload(input)) {
     return undefined;
   }
+  const original = EmitContext_MostOriginal(emitContext, input);
+  const id = GetNodeId(original);
+  if (receiver!.expandoHosts!.has(id)) {
+    return DeclarationTransformer_createFullExpandoBlock(receiver, id);
+  }
   const previousEnclosingDeclaration = receiver!.enclosingDeclaration;
   if (isEnclosingDeclaration(input)) {
     receiver!.enclosingDeclaration = input;
@@ -2946,10 +3167,7 @@ export function DeclarationTransformer_transformTypeAliasDeclaration(receiver: G
   const modifiers = DeclarationTransformer_ensureModifiers(receiver, input);
   const typeParameters = NodeVisitor_VisitNodes(visitor, input!.TypeParameters);
   const type = NodeVisitor_VisitNode(visitor, input!.Type);
-  if (modifiers !== input!.modifiers || typeParameters !== input!.TypeParameters || type !== input!.Type) {
-    return updateNode(NewTypeAliasDeclaration(astFactory, modifiers, input!.name, typeParameters, type), input, astFactory!.hooks);
-  }
-  return input;
+  return NodeFactory_UpdateTypeAliasDeclaration(astFactory, input, modifiers, input!.name, typeParameters, type);
 }
 
 /**
@@ -2982,11 +3200,11 @@ export function DeclarationTransformer_transformInterfaceDeclaration(receiver: G
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformFunctionDeclaration","kind":"method","status":"implemented","sigHash":"554f24546016a216b0ca1b7b5c55b6c269e459b49cfb4976cf2d5c423551b548","bodyHash":"1ba8e96b4af85f71f5ae032d7b8f08d0fbb876458cd40c8774ca5bb09ae847da"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformFunctionDeclaration","kind":"method","status":"implemented","sigHash":"554f24546016a216b0ca1b7b5c55b6c269e459b49cfb4976cf2d5c423551b548","bodyHash":"f8ef725b3645caaf01b81fcc17f6eefb107da1a82484fed0ce3d1f652a6f344d"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformFunctionDeclaration(input *ast.FunctionDeclaration) *ast.Node {
- * 	if tx.resolver.IsExpandoFunctionDeclaration(input.AsNode()) && tx.state.isolatedDeclarations {
+ * 	if tx.resolver.IsExpandoFunctionDeclaration(input.AsNode()) {
  * 		tx.state.reportExpandoFunctionErrors(input.AsNode())
  * 	}
  * 	return tx.Factory().UpdateFunctionDeclaration(
@@ -3003,7 +3221,7 @@ export function DeclarationTransformer_transformInterfaceDeclaration(receiver: G
  * }
  */
 export function DeclarationTransformer_transformFunctionDeclaration(receiver: GoPtr<DeclarationTransformer>, input: GoPtr<FunctionDeclaration>): GoPtr<Node> {
-  if (receiver!.resolver.IsExpandoFunctionDeclaration(input) && receiver!.state!.isolatedDeclarations) {
+  if (receiver!.resolver.IsExpandoFunctionDeclaration(input)) {
     receiver!.state!.reportExpandoFunctionErrors(input);
   }
   const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
@@ -3019,7 +3237,7 @@ export function DeclarationTransformer_transformFunctionDeclaration(receiver: Go
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformModuleDeclaration","kind":"method","status":"implemented","sigHash":"83701f79e2cb62f99a103edb750808e9a4a7d13c2df2bdcd70b94b0caf03e551","bodyHash":"1b3bd669dd4c0a4b53fb45c119e4202fce71388ac3b619996fbcf693dd77d6b5"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformModuleDeclaration","kind":"method","status":"implemented","sigHash":"83701f79e2cb62f99a103edb750808e9a4a7d13c2df2bdcd70b94b0caf03e551","bodyHash":"7813f0bd846bbf3449fca0d53a47ecf015ee61b549b0e23d3be7dd37ea4608b5"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformModuleDeclaration(input *ast.ModuleDeclaration) *ast.Node {
@@ -3053,7 +3271,7 @@ export function DeclarationTransformer_transformFunctionDeclaration(receiver: Go
  * 			if tx.needsScopeFixMarker {
  * 				lateStatements = tx.Factory().NewNodeList(append(lateStatements.Nodes, createEmptyExports(tx.Factory().AsNodeFactory())))
  * 			} else {
- * 				lateStatements = tx.EmitContext().NewNodeVisitor(tx.stripExportModifiers).VisitNodes(lateStatements)
+ * 				lateStatements = tx.exportStrippingVisitor.VisitNodes(lateStatements)
  * 			}
  * 		}
  * 
@@ -3131,7 +3349,7 @@ export function DeclarationTransformer_transformModuleDeclaration(receiver: GoPt
     const lateStatements: GoPtr<StatementList> = (!IsGlobalScopeAugmentation(input) && !receiver!.resultHasScopeMarker && !hasScopeMarker(lateStatementsResult))
       ? (receiver!.needsScopeFixMarker
           ? NodeFactory_NewNodeList(astFactory, [...lateStatementsResult!.Nodes, createEmptyExports(astFactory)]) as GoPtr<StatementList>
-          : NodeVisitor_VisitNodes(EmitContext_NewNodeVisitor(emitContext, (s) => DeclarationTransformer_stripExportModifiers(receiver, s)) as ConcreteNodeVisitor, lateStatementsResult) as GoPtr<StatementList>)
+          : NodeVisitor_VisitNodes(receiver!.exportStrippingVisitor, lateStatementsResult) as GoPtr<StatementList>)
       : lateStatementsResult;
     const moduleBlock = AsModuleBlock(inner)!;
     const newBody = updateNode(NewModuleBlock(astFactory, lateStatements), inner, astFactory!.hooks);
@@ -3154,19 +3372,20 @@ export function DeclarationTransformer_transformModuleDeclaration(receiver: GoPt
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.stripExportModifiers","kind":"method","status":"implemented","sigHash":"f2b6dedc47305cf14b7cea41c11c708484dd5025f079ec952539fb4ee6dab2e3","bodyHash":"cecfc8c26d8fad326a53c6129b6c7c698afbfc74ea589475220c2b173a8dcfab"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.stripExportModifiers","kind":"method","status":"implemented","sigHash":"f2b6dedc47305cf14b7cea41c11c708484dd5025f079ec952539fb4ee6dab2e3","bodyHash":"389934e8632da97972acd0e27fb21e4f141f5068720bc10dfcb0c19b38d4be3e"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) stripExportModifiers(statement *ast.Node) *ast.Node {
  * 	if statement == nil {
  * 		return nil
  * 	}
- * 	if ast.IsImportEqualsDeclaration(statement) || tx.host.GetEffectiveDeclarationFlags(tx.EmitContext().ParseNode(statement), ast.ModifierFlagsDefault) != 0 || !ast.CanHaveModifiers(statement) {
+ * 	parseNode := tx.EmitContext().ParseNode(statement)
+ * 	if ast.IsImportEqualsDeclaration(statement) || (parseNode != nil && tx.host.GetEffectiveDeclarationFlags(parseNode, ast.ModifierFlagsDefault) != 0) || !ast.CanHaveModifiers(statement) {
  * 		// `export import` statements should remain as-is, as imports are _not_ implicitly exported in an ambient namespace
  * 		// Likewise, `export default` classes and the like and just be `default`, so we preserve their `export` modifiers, too
  * 		return statement
  * 	}
- * 
+ *
  * 	oldFlags := ast.GetCombinedModifierFlags(statement)
  * 	if oldFlags&ast.ModifierFlagsExport == 0 {
  * 		return statement
@@ -3183,7 +3402,8 @@ export function DeclarationTransformer_stripExportModifiers(receiver: GoPtr<Decl
   const emitContext = Transformer_EmitContext(receiver!.__tsgoEmbedded0);
   const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
   const astFactory = factory!.__tsgoEmbedded0;
-  if (IsImportEqualsDeclaration(statement) || receiver!.host.GetEffectiveDeclarationFlags(EmitContext_ParseNode(emitContext, statement), ModifierFlagsDefault) !== 0 || !CanHaveModifiers(statement)) {
+  const parseNode = EmitContext_ParseNode(emitContext, statement);
+  if (IsImportEqualsDeclaration(statement) || (parseNode !== undefined && receiver!.host.GetEffectiveDeclarationFlags(parseNode, ModifierFlagsDefault) !== 0) || !CanHaveModifiers(statement)) {
     // `export import` statements should remain as-is, as imports are _not_ implicitly exported in an ambient namespace
     // Likewise, `export default` classes and the like and just be `default`, so we preserve their `export` modifiers, too
     return statement;
@@ -3198,7 +3418,7 @@ export function DeclarationTransformer_stripExportModifiers(receiver: GoPtr<Decl
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformClassDeclaration","kind":"method","status":"implemented","sigHash":"b92abc52fbf359fcd6ea3da95594209d53dc87209e0cdcdc73993c4996479e02","bodyHash":"0d79933cf2d25111b1a76ed96e25349a8eda73a6058acd3846854eb9708cf3ab"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformClassDeclaration","kind":"method","status":"implemented","sigHash":"b92abc52fbf359fcd6ea3da95594209d53dc87209e0cdcdc73993c4996479e02","bodyHash":"786b6c8ea1cc2f9c8b2b21fea3979814acc427b19b2c110ff8df50d907b6df3c"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformClassDeclaration(input *ast.ClassDeclaration) *ast.Node {
@@ -3247,7 +3467,13 @@ export function DeclarationTransformer_stripExportModifiers(receiver: GoPtr<Decl
  * 			nil,
  * 		)
  * 	}
- * 
+ *
+ * 	// Collect this.x property assignments from constructors and static blocks in JS files
+ * 	var thisPropertyAssignments []*ast.Node
+ * 	if ast.IsInJSFile(input.AsNode()) {
+ * 		thisPropertyAssignments = tx.collectThisPropertyAssignments(input)
+ * 	}
+ *
  * 	lateIndexes := tx.resolver.CreateLateBoundIndexSignatures(
  * 		tx.EmitContext(),
  * 		input.AsNode(),
@@ -3256,13 +3482,14 @@ export function DeclarationTransformer_stripExportModifiers(receiver: GoPtr<Decl
  * 		declarationEmitInternalNodeBuilderFlags,
  * 		tx.tracker,
  * 	)
- * 
+ *
  * 	memberNodes := make([]*ast.Node, 0, len(input.Members.Nodes))
  * 	if privateIdentifier != nil {
  * 		memberNodes = append(memberNodes, privateIdentifier)
  * 	}
  * 	memberNodes = append(memberNodes, lateIndexes...)
  * 	memberNodes = append(memberNodes, parameterProperties...)
+ * 	memberNodes = append(memberNodes, thisPropertyAssignments...)
  * 	visitResult := tx.Visitor().VisitNodes(input.Members)
  * 	if visitResult != nil && len(visitResult.Nodes) > 0 {
  * 		memberNodes = append(memberNodes, visitResult.Nodes...)
@@ -3392,6 +3619,12 @@ export function DeclarationTransformer_transformClassDeclaration(receiver: GoPtr
       ? NewPropertyDeclaration(astFactory, undefined, NewPrivateIdentifier(astFactory, "#private"), undefined, undefined, undefined)
       : undefined;
 
+    // Collect this.x property assignments from constructors and static blocks in JS files
+    let thisPropertyAssignments: GoSlice<GoPtr<Node>> = [];
+    if (IsInJSFile(input)) {
+      thisPropertyAssignments = DeclarationTransformer_collectThisPropertyAssignments(receiver, input);
+    }
+
     const lateIndexes = receiver!.resolver.CreateLateBoundIndexSignatures(
       emitContext,
       input,
@@ -3406,6 +3639,7 @@ export function DeclarationTransformer_transformClassDeclaration(receiver: GoPtr
       ...(privateIdentifier !== undefined ? [privateIdentifier] : []),
       ...(lateIndexes ?? []),
       ...parameterProperties,
+      ...thisPropertyAssignments,
       ...(visitResult !== undefined && visitResult!.Nodes.length > 0 ? visitResult!.Nodes : []),
     ];
     const members = NodeFactory_NewNodeList(astFactory, memberNodes) as GoPtr<ClassElementList>;
@@ -3472,6 +3706,239 @@ export function DeclarationTransformer_transformClassDeclaration(receiver: GoPtr
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.visitThisPropertyAssignments","kind":"method","status":"implemented","sigHash":"18a2405c61c0164d8a5050695d91baa6bd26c87b8a28cb53a4d753dad8e1b10c","bodyHash":"3d138c5ed7e71acfc4e0e76b67f3bbfe258349ea2a0d0be165583323f530d4eb"}
+ *
+ * Go source:
+ * func (tx *DeclarationTransformer) visitThisPropertyAssignments(node *ast.Node) *ast.Node {
+ * 	var thisTarget *ast.Node
+ * 	isStatic := false
+ * 	thisContainer := ast.GetThisContainer(node, false, false)
+ * 	thisTarget = thisContainer.Parent
+ * 	if thisTarget == nil {
+ * 		return nil // thisContainer was source file, can't have expando-this
+ * 	}
+ * 	if ast.HasStaticModifier(thisContainer) || ast.IsClassStaticBlockDeclaration(thisContainer) {
+ * 		isStatic = true
+ * 	}
+ * 	if thisTarget != tx.enclosingDeclaration {
+ * 		return nil // stop searching within new `this` contexts
+ * 	}
+ * caseBlock:
+ * 	switch ast.GetAssignmentDeclarationKind(node) {
+ * 	case ast.JSDeclarationKindThisProperty:
+ * 		name := ast.GetNameOfDeclaration(node)
+ * 		base := tx.resolver.GetReferencedMemberValueDeclaration(node)
+ * 		if base == nil || tx.seenProperties.Has(base) {
+ * 			break
+ * 		}
+ * 		tx.seenProperties.Add(base)
+ *
+ * 		// problem: this prop might be overriding a prop from a base type. The checker has special bails for override compat comparisons for binary expression properties,
+ * 		// but what we transform to won't - so we either need to match the base type (for example, if it's a getter/setter) or emit nothing
+ * 		// See `checkKindsOfPropertyMemberOverrides` in the checker for what we're trying to satisfy here
+ * 		if thisTarget.ClassLikeData().HeritageClauses != nil && len(thisTarget.ClassLikeData().HeritageClauses.Nodes) > 0 && !isClassExtendingNull(thisTarget) {
+ * 			// there is a base type any assignments might be "from"
+ * 			tx.tracker.ReportInferenceFallback(thisTarget) // Add an isolated declarations error on this class - we can't know how to transform this prop into an assignment without referring to type information
+ * 			decls := tx.resolver.GetBaseDeclarationsForPropertyDeclaration(node)
+ * 			if len(decls) > 0 {
+ * 				break caseBlock // property lightly overrides a property in a base type - skip it
+ * 				// TODO: If the property has an explicit `@type` annotation, we should probably emit it (maybe with an `override` modifier) instead of skipping it
+ * 			}
+ * 		}
+ *
+ * 		var mods *ast.ModifierList
+ * 		if isStatic {
+ * 			mods = tx.Factory().NewModifierList([]*ast.Node{tx.Factory().NewModifier(ast.KindStaticKeyword)})
+ * 		}
+ * 		if ast.HasDynamicName(node) {
+ * 			if !transformers.IsSimpleInlineableExpression(name) {
+ * 				break // Member either becomes an index signature or is a reassignment
+ * 			}
+ * 			tx.checkName(node)
+ * 			name = tx.Factory().NewComputedPropertyName(name) // Convert `this[foo] = expr` to `[foo]: Type`
+ * 		}
+ * 		if ast.GetTextOfPropertyName(name) == "constructor" {
+ * 			break // `constructor` is a builtin class member, not allowed to redeclare it
+ * 		}
+ * 		if ast.IsIdentifier(name) && !scanner.IsIdentifierText(name.Text(), core.LanguageVariantStandard) {
+ * 			name = tx.Factory().NewStringLiteralFromNode(name)
+ * 		}
+ * 		prop := tx.Factory().NewPropertyDeclaration(
+ * 			mods,
+ * 			name,
+ * 			nil,
+ * 			tx.ensureType(node, false),
+ * 			nil,
+ * 		)
+ * 		if ast.IsExpressionStatement(node.Parent) {
+ * 			tx.preserveJsDoc(prop, node.Parent)
+ * 		}
+ * 		tx.thisPropertyAssignmentsCollected = append(tx.thisPropertyAssignmentsCollected, prop)
+ * 	}
+ * 	return tx.thisPropertyVisitor.VisitEachChild(node)
+ * }
+ */
+export function DeclarationTransformer_visitThisPropertyAssignments(receiver: GoPtr<DeclarationTransformer>, node: GoPtr<Node>): GoPtr<Node> {
+  const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
+  const astFactory = factory!.__tsgoEmbedded0;
+  let isStatic = false;
+  const thisContainer = GetThisContainer(node, false as bool, false as bool);
+  const thisTarget = thisContainer!.Parent;
+  if (thisTarget === undefined) {
+    return undefined; // thisContainer was source file, can't have expando-this
+  }
+  if (HasStaticModifier(thisContainer) || IsClassStaticBlockDeclaration(thisContainer)) {
+    isStatic = true;
+  }
+  if (thisTarget !== receiver!.enclosingDeclaration) {
+    return undefined; // stop searching within new `this` contexts
+  }
+  switch (GetAssignmentDeclarationKind(node)) {
+    case JSDeclarationKindThisProperty: {
+      let name = GetNameOfDeclaration(node);
+      const base = receiver!.resolver.GetReferencedMemberValueDeclaration(node);
+      if (base === undefined || Set_Has(receiver!.seenProperties, base)) {
+        break;
+      }
+      Set_Add(receiver!.seenProperties, base);
+
+      // problem: this prop might be overriding a prop from a base type. The checker has special bails for override compat comparisons for binary expression properties,
+      // but what we transform to won't - so we either need to match the base type (for example, if it's a getter/setter) or emit nothing
+      // See `checkKindsOfPropertyMemberOverrides` in the checker for what we're trying to satisfy here
+      if (Node_ClassLikeData(thisTarget)!.HeritageClauses !== undefined && Node_ClassLikeData(thisTarget)!.HeritageClauses!.Nodes.length > 0 && !isClassExtendingNull(thisTarget)) {
+        // there is a base type any assignments might be "from"
+        SymbolTrackerImpl_ReportInferenceFallback(receiver!.tracker, thisTarget); // Add an isolated declarations error on this class - we can't know how to transform this prop into an assignment without referring to type information
+        const decls = receiver!.resolver.GetBaseDeclarationsForPropertyDeclaration(node);
+        if (decls.length > 0) {
+          break; // property lightly overrides a property in a base type - skip it
+          // TODO: If the property has an explicit `@type` annotation, we should probably emit it (maybe with an `override` modifier) instead of skipping it
+        }
+      }
+
+      let mods: GoPtr<ModifierList>;
+      if (isStatic) {
+        mods = NodeFactory_NewModifierList(astFactory, [NodeFactory_NewModifier(astFactory, KindStaticKeyword)]);
+      }
+      if (HasDynamicName(node)) {
+        if (!IsSimpleInlineableExpression(name)) {
+          break; // Member either becomes an index signature or is a reassignment
+        }
+        DeclarationTransformer_checkName(receiver, node);
+        name = NewComputedPropertyName(astFactory, name); // Convert `this[foo] = expr` to `[foo]: Type`
+      }
+      if (GetTextOfPropertyName(name) === "constructor") {
+        break; // `constructor` is a builtin class member, not allowed to redeclare it
+      }
+      if (IsIdentifier(name) && !IsIdentifierText(Node_Text(name), LanguageVariantStandard)) {
+        name = NodeFactory_NewStringLiteralFromNode(factory, name);
+      }
+      const prop = NewPropertyDeclaration(astFactory, mods, name, undefined, DeclarationTransformer_ensureType(receiver, node, false), undefined);
+      if (IsExpressionStatement(node!.Parent)) {
+        DeclarationTransformer_preserveJsDoc(receiver, prop, node!.Parent);
+      }
+      receiver!.thisPropertyAssignmentsCollected = [...(receiver!.thisPropertyAssignmentsCollected ?? []), prop];
+      break;
+    }
+  }
+  return Node_VisitEachChild(node, receiver!.thisPropertyVisitor);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::func::isClassExtendingNull","kind":"func","status":"implemented","sigHash":"2f486afa95d354dbc946db813e17133bc00d2ed1f266b1e354b92e41c642c6dc","bodyHash":"68ab00cbb9c8dfe4a18e1ad2b4a8c28322e0246dba74b0b9c4dab119c6a6ffd0"}
+ *
+ * Go source:
+ * func isClassExtendingNull(node *ast.Node) bool {
+ * 	if node == nil {
+ * 		return false
+ * 	}
+ * 	heritage := node.ClassLikeData().HeritageClauses
+ * 	if heritage == nil {
+ * 		return false
+ * 	}
+ * 	if len(heritage.Nodes) > 1 || len(heritage.Nodes) == 0 {
+ * 		return false
+ * 	}
+ * 	for _, expA := range heritage.Nodes[0].AsHeritageClause().Types.Nodes {
+ * 		expr := expA.AsExpressionWithTypeArguments().Expression
+ * 		if expr != nil && expr.Kind == ast.KindNullKeyword {
+ * 			return true
+ * 		}
+ * 	}
+ * 	return false
+ * }
+ */
+export function isClassExtendingNull(node: GoPtr<Node>): bool {
+  if (node === undefined) {
+    return false;
+  }
+  const heritage = Node_ClassLikeData(node)!.HeritageClauses;
+  if (heritage === undefined) {
+    return false;
+  }
+  if (heritage!.Nodes.length > 1 || heritage!.Nodes.length === 0) {
+    return false;
+  }
+  for (const expA of AsHeritageClause(heritage!.Nodes[0])!.Types!.Nodes) {
+    const expr = AsExpressionWithTypeArguments(expA)!.Expression;
+    if (expr !== undefined && expr!.Kind === KindNullKeyword) {
+      return true as bool;
+    }
+  }
+  return false;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.collectThisPropertyAssignments","kind":"method","status":"implemented","sigHash":"ae153d25aa9518c5a86a2a224770ff66dc1801bc6261cfc6e5e7d5fe439758ac","bodyHash":"c3a5e04011d15a1253e68874df46ada86ff92c153fe3c6be3791aa10608106e7"}
+ *
+ * Go source:
+ * // collectThisPropertyAssignments finds `this.x = expr` assignments in constructors, methods, and static blocks
+ * // of JS classes and synthesizes PropertyDeclaration nodes for each unique property name.
+ * func (tx *DeclarationTransformer) collectThisPropertyAssignments(input *ast.ClassDeclaration) []*ast.Node {
+ * 	seen := collections.Set[*ast.Node]{}
+ * 	// Pre-populate seen with existing direct member nodes to avoid duplicates
+ * 	for _, member := range input.Members.Nodes {
+ * 		if member.Name() != nil {
+ * 			seen.Add(member)
+ * 		}
+ * 	}
+ * 	tx.seenProperties = seen
+ * 	defer tx.seenProperties.Clear()
+ * 	tx.thisPropertyAssignmentsCollected = []*ast.Node{}
+ * 	defer func() {
+ * 		tx.thisPropertyAssignmentsCollected = nil
+ * 	}()
+ *
+ * 	for _, n := range input.Members.Nodes {
+ * 		tx.thisPropertyVisitor.VisitEachChild(n)
+ * 	}
+ * 	return tx.thisPropertyAssignmentsCollected
+ * }
+ */
+export function DeclarationTransformer_collectThisPropertyAssignments(receiver: GoPtr<DeclarationTransformer>, input: GoPtr<ClassDeclaration>): GoSlice<GoPtr<Node>> {
+  const seen: Set<GoPtr<Node>> = { M: new globalThis.Map() };
+  // Pre-populate seen with existing direct member nodes to avoid duplicates
+  for (const member of input!.Members!.Nodes) {
+    if (Node_Name(member) !== undefined) {
+      Set_Add(seen, member);
+    }
+  }
+  receiver!.seenProperties = seen;
+  try {
+    receiver!.thisPropertyAssignmentsCollected = [];
+    try {
+      for (const n of input!.Members!.Nodes) {
+        Node_VisitEachChild(n, receiver!.thisPropertyVisitor);
+      }
+      return receiver!.thisPropertyAssignmentsCollected ?? [];
+    } finally {
+      receiver!.thisPropertyAssignmentsCollected = undefined;
+    }
+  } finally {
+    Set_Clear(receiver!.seenProperties);
+  }
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.walkBindingPattern","kind":"method","status":"implemented","sigHash":"af90c35a26a58400c92f22a8988024c6a433aaca158bd9a1763e55d0613cbbed","bodyHash":"1d1d9f495d0209848ff4a58d6713d1a7810d0b8697aba719fb713a8dd51c66f4"}
  *
  * Go source:
@@ -3519,7 +3986,7 @@ export function DeclarationTransformer_walkBindingPattern(receiver: GoPtr<Declar
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformVariableStatement","kind":"method","status":"implemented","sigHash":"b418e5198a4c889c0e6532957cf2eec567540b35b91fac12f7da65913bc61b51","bodyHash":"1a48b428c593e6e5bcb791995c71d590cad57e1240e23a2a0e99ffd9203aca23"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformVariableStatement","kind":"method","status":"implemented","sigHash":"b418e5198a4c889c0e6532957cf2eec567540b35b91fac12f7da65913bc61b51","bodyHash":"73d8244a6c1efd4f4281bd7a43a91cd1510efce0113182d1dcdb00a28c7d6cfb"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformVariableStatement(input *ast.VariableStatement) *ast.Node {
@@ -3533,24 +4000,48 @@ export function DeclarationTransformer_walkBindingPattern(receiver: GoPtr<Declar
  * 	if !visible {
  * 		return nil
  * 	}
- * 
- * 	nodes := tx.Visitor().VisitNodes(input.DeclarationList.AsVariableDeclarationList().Declarations)
- * 	if nodes != nil && len(nodes.Nodes) == 0 {
+ *
+ * 	inputNodes := input.DeclarationList.AsVariableDeclarationList().Declarations.Nodes
+ * 	var extraImports []*ast.Node
+ * 	if tx.state.currentSourceFile.CommonJSModuleIndicator != nil {
+ * 		var normalDeclarations []*ast.Node
+ * 		var imports []*ast.Node
+ * 		for _, n := range inputNodes {
+ * 			if ast.IsVariableDeclarationInitializedToRequire(n) {
+ * 				imports = append(imports, n)
+ * 			} else {
+ * 				normalDeclarations = append(normalDeclarations, n)
+ * 			}
+ * 		}
+ * 		inputNodes = normalDeclarations
+ * 		extraImports, _ = tx.Visitor().VisitSlice(imports)
+ * 	}
+ *
+ * 	nodes, _ := tx.Visitor().VisitSlice(inputNodes)
+ * 	if len(nodes) == 0 {
+ * 		if len(extraImports) > 0 {
+ * 			return tx.Factory().NewSyntaxList(extraImports)
+ * 		}
  * 		return nil
  * 	}
- * 
+ * 	nodeList := tx.Factory().NewNodeList(nodes)
+ *
  * 	modifiers := tx.ensureModifiers(input.AsNode())
- * 
+ *
  * 	var declList *ast.Node
  * 	if ast.IsVarUsing(input.DeclarationList) || ast.IsVarAwaitUsing(input.DeclarationList) {
- * 		declList = tx.Factory().NewVariableDeclarationList(nodes, ast.NodeFlagsConst)
+ * 		declList = tx.Factory().NewVariableDeclarationList(nodeList, ast.NodeFlagsConst)
  * 		tx.EmitContext().SetOriginal(declList, input.DeclarationList)
  * 		tx.EmitContext().SetCommentRange(declList, input.DeclarationList.Loc)
  * 		declList.Loc = input.DeclarationList.Loc
  * 	} else {
- * 		declList = tx.Factory().UpdateVariableDeclarationList(input.DeclarationList.AsVariableDeclarationList(), nodes, input.DeclarationList.Flags)
+ * 		declList = tx.Factory().UpdateVariableDeclarationList(input.DeclarationList.AsVariableDeclarationList(), nodeList, input.DeclarationList.Flags)
  * 	}
- * 	return tx.Factory().UpdateVariableStatement(input, modifiers, declList)
+ * 	res := tx.Factory().UpdateVariableStatement(input, modifiers, declList)
+ * 	if len(extraImports) > 0 {
+ * 		return tx.Factory().NewSyntaxList(append(extraImports, res))
+ * 	}
+ * 	return res
  * }
  */
 export function DeclarationTransformer_transformVariableStatement(receiver: GoPtr<DeclarationTransformer>, input: GoPtr<VariableStatement>): GoPtr<Node> {
@@ -3558,38 +4049,57 @@ export function DeclarationTransformer_transformVariableStatement(receiver: GoPt
   const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
   const astFactory = factory!.__tsgoEmbedded0;
   const visitor = Transformer_Visitor(receiver!.__tsgoEmbedded0) as ConcreteNodeVisitor;
-  const declList = AsVariableDeclarationList(input!.DeclarationList)!;
-  const visible = declList.Declarations!.Nodes.some((decl) => getBindingNameVisible(receiver!.resolver, decl));
+  const declListData = AsVariableDeclarationList(input!.DeclarationList)!;
+  const visible = declListData.Declarations!.Nodes.some((decl) => getBindingNameVisible(receiver!.resolver, decl));
   if (!visible) {
     return undefined;
   }
-  const nodes = NodeVisitor_VisitNodes(visitor, declList.Declarations);
-  if (nodes !== undefined && nodes!.Nodes.length === 0) {
+  let inputNodes = declListData.Declarations!.Nodes;
+  let extraImports: GoSlice<GoPtr<Node>> = [];
+  if (receiver!.state!.currentSourceFile!.CommonJSModuleIndicator !== undefined) {
+    const normalDeclarations: GoSlice<GoPtr<Node>> = [];
+    const imports: GoSlice<GoPtr<Node>> = [];
+    for (const n of inputNodes) {
+      if (IsVariableDeclarationInitializedToRequire(n)) {
+        imports.push(n);
+      } else {
+        normalDeclarations.push(n);
+      }
+    }
+    inputNodes = normalDeclarations;
+    [extraImports] = NodeVisitor_VisitSlice(visitor, imports);
+  }
+
+  const [nodes] = NodeVisitor_VisitSlice(visitor, inputNodes);
+  if (nodes.length === 0) {
+    if (extraImports.length > 0) {
+      return NewSyntaxList(astFactory, extraImports);
+    }
     return undefined;
   }
+  const nodeList = NodeFactory_NewNodeList(astFactory, nodes) as GoPtr<VariableDeclarationNodeList>;
+
   const modifiers = DeclarationTransformer_ensureModifiers(receiver, input);
+
   let newDeclList: GoPtr<Node>;
   if (IsVarUsing(input!.DeclarationList) || IsVarAwaitUsing(input!.DeclarationList)) {
-    const newList = NewVariableDeclarationList(astFactory, nodes, NodeFlagsConst);
+    const newList = NewVariableDeclarationList(astFactory, nodeList, NodeFlagsConst);
     EmitContext_SetOriginal(emitContext, newList, input!.DeclarationList);
     EmitContext_SetCommentRange(emitContext, newList, input!.DeclarationList!.Loc);
     newList!.Loc = input!.DeclarationList!.Loc;
     newDeclList = newList;
   } else {
-    if (nodes !== declList.Declarations || declList.Flags !== (input!.DeclarationList as GoPtr<VariableDeclarationList>)!.Flags) {
-      newDeclList = updateNode(NewVariableDeclarationList(astFactory, nodes, declList.Flags), input!.DeclarationList, astFactory!.hooks);
-    } else {
-      newDeclList = input!.DeclarationList;
-    }
+    newDeclList = NodeFactory_UpdateVariableDeclarationList(astFactory, declListData, nodeList, (input!.DeclarationList as GoPtr<VariableDeclarationList>)!.Flags);
   }
-  if (modifiers !== input!.modifiers || newDeclList !== input!.DeclarationList) {
-    return updateNode(NewVariableStatement(astFactory, modifiers, newDeclList), input, astFactory!.hooks);
+  const res = NodeFactory_UpdateVariableStatement(astFactory, input, modifiers, newDeclList as GoPtr<VariableDeclarationListNode>);
+  if (extraImports.length > 0) {
+    return NewSyntaxList(astFactory, [...extraImports, res]);
   }
-  return input;
+  return res;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformEnumDeclaration","kind":"method","status":"implemented","sigHash":"5914aaee18cf276fbd4b5225dc2ef928893b5c8167a9df170e22b4ff503a69c8","bodyHash":"00340974b06c36a47ef011add4dcea46a172441ae88d78339ce9d7203167b6cd"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformEnumDeclaration","kind":"method","status":"implemented","sigHash":"5914aaee18cf276fbd4b5225dc2ef928893b5c8167a9df170e22b4ff503a69c8","bodyHash":"c3c5361d1f11d20351723c4c5a9f73eda4078fefb166335288c392b627d48fad"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformEnumDeclaration(input *ast.EnumDeclaration) *ast.Node {
@@ -3614,7 +4124,15 @@ export function DeclarationTransformer_transformVariableStatement(receiver: GoPt
  * 			var newInitializer *ast.Node
  * 			switch value := enumValue.Value.(type) {
  * 			case jsnum.Number:
- * 				if value >= 0 {
+ * 				if value.IsInf() {
+ * 					if value > 0 {
+ * 						newInitializer = tx.Factory().NewIdentifier("Infinity")
+ * 					} else {
+ * 						newInitializer = tx.Factory().NewPrefixUnaryExpression(ast.KindMinusToken, tx.Factory().NewIdentifier("Infinity"))
+ * 					}
+ * 				} else if value.IsNaN() {
+ * 					newInitializer = tx.Factory().NewIdentifier("NaN")
+ * 				} else if value >= 0 {
  * 					newInitializer = tx.Factory().NewNumericLiteral(value.String(), ast.TokenFlagsNone)
  * 				} else {
  * 					newInitializer = tx.Factory().NewPrefixUnaryExpression(
@@ -3651,13 +4169,26 @@ export function DeclarationTransformer_transformEnumDeclaration(receiver: GoPtr<
       SymbolTrackerSharedState_addDiagnostic(receiver!.state!, createDiagnosticForNode(m, diagnosticMessages.Enum_member_initializers_must_be_computable_without_references_to_external_symbols_with_isolatedDeclarations));
     }
     const value = enumValue.Value;
-    const newInitializer: GoPtr<Node> = (typeof value === 'number')
-      ? (value >= 0
-          ? NewNumericLiteral(astFactory, Number_String(value), TokenFlagsNone)
-          : NewPrefixUnaryExpression(astFactory, KindMinusToken, NewNumericLiteral(astFactory, Number_String(-value), TokenFlagsNone)))
-      : (typeof value === 'string')
-      ? NewStringLiteral(astFactory, value, TokenFlagsNone)
-      : undefined;
+    let newInitializer: GoPtr<Node>;
+    if (typeof value === 'number') {
+      if (Number_IsInf(value)) {
+        if (value > 0) {
+          newInitializer = NewIdentifier(astFactory, "Infinity");
+        } else {
+          newInitializer = NewPrefixUnaryExpression(astFactory, KindMinusToken, NewIdentifier(astFactory, "Infinity"));
+        }
+      } else if (Number_IsNaN(value)) {
+        newInitializer = NewIdentifier(astFactory, "NaN");
+      } else if (value >= 0) {
+        newInitializer = NewNumericLiteral(astFactory, Number_String(value), TokenFlagsNone);
+      } else {
+        newInitializer = NewPrefixUnaryExpression(astFactory, KindMinusToken, NewNumericLiteral(astFactory, Number_String(-value), TokenFlagsNone));
+      }
+    } else if (typeof value === 'string') {
+      newInitializer = NewStringLiteral(astFactory, value, TokenFlagsNone);
+    } else {
+      newInitializer = undefined;
+    }
     const enumMember = AsEnumMember(m)!;
     const result = updateNode(NewEnumMember(astFactory, enumMember.name, newInitializer), m, astFactory!.hooks);
     DeclarationTransformer_preserveJsDoc(receiver, result, m);
@@ -3671,11 +4202,11 @@ export function DeclarationTransformer_transformEnumDeclaration(receiver: GoPtr<
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.ensureModifiers","kind":"method","status":"implemented","sigHash":"c31f8fcb5e92d64049015ebeffc483060baa78f1c0789c91479fa4e27e8e0841","bodyHash":"5cb2eb4e13530a02e3ae199cd165a676e62e9d2d70f758d11b41c5b1d4b73d34"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.ensureModifiers","kind":"method","status":"implemented","sigHash":"c31f8fcb5e92d64049015ebeffc483060baa78f1c0789c91479fa4e27e8e0841","bodyHash":"c3b37e4d85ec30e78c4580e5ff7e61a0d0c168f031cf0359cb4ddaa6d337b158"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) ensureModifiers(node *ast.Node) *ast.ModifierList {
- * 	currentFlags := tx.host.GetEffectiveDeclarationFlags(tx.EmitContext().ParseNode(node), ast.ModifierFlagsAll)
+ * 	currentFlags := ast.GetCombinedModifierFlags(tx.EmitContext().ParseNode(node)) & ast.ModifierFlagsAll
  * 	newFlags := tx.ensureModifierFlags(node)
  * 	if currentFlags == newFlags {
  * 		// Elide decorators
@@ -3696,7 +4227,7 @@ export function DeclarationTransformer_ensureModifiers(receiver: GoPtr<Declarati
   const emitContext = Transformer_EmitContext(receiver!.__tsgoEmbedded0);
   const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
   const astFactory = factory!.__tsgoEmbedded0;
-  const currentFlags = receiver!.host.GetEffectiveDeclarationFlags(EmitContext_ParseNode(emitContext, node), ModifierFlagsAll);
+  const currentFlags = ((GetCombinedModifierFlags(EmitContext_ParseNode(emitContext, node)) & ModifierFlagsAll) >>> 0) as ModifierFlags;
   const newFlags = DeclarationTransformer_ensureModifierFlags(receiver, node);
   if (currentFlags === newFlags) {
     // Elide decorators
@@ -3714,7 +4245,7 @@ export function DeclarationTransformer_ensureModifiers(receiver: GoPtr<Declarati
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.ensureModifierFlags","kind":"method","status":"implemented","sigHash":"6be0724d6284878fd402988a2053beed8273de0a8468c78bba2fe77eb67aeb9f","bodyHash":"6b4ddb106f3029d38ba27016810690598119ac47fc2c54d402770df541650fcf"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.ensureModifierFlags","kind":"method","status":"implemented","sigHash":"6be0724d6284878fd402988a2053beed8273de0a8468c78bba2fe77eb67aeb9f","bodyHash":"ee0d1cfc9baf49ba218410508a60331603a584f7e9253c3bea8efc4f2e6a00bc"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) ensureModifierFlags(node *ast.Node) ast.ModifierFlags {
@@ -3728,10 +4259,10 @@ export function DeclarationTransformer_ensureModifiers(receiver: GoPtr<Declarati
  * 		mask ^= ast.ModifierFlagsAmbient
  * 		additions = ast.ModifierFlagsNone
  * 	}
- * 	if ast.IsImplicitlyExportedJSTypeAlias(node) {
+ * 	if ast.IsImplicitlyExportedJSDocDeclaration(node) {
  * 		additions |= ast.ModifierFlagsExport
  * 	}
- * 	return maskModifierFlags(tx.host, node, mask, additions)
+ * 	return maskModifierFlags(node, mask, additions)
  * }
  */
 export function DeclarationTransformer_ensureModifierFlags(receiver: GoPtr<DeclarationTransformer>, node: GoPtr<Node>): ModifierFlags {
@@ -3740,9 +4271,9 @@ export function DeclarationTransformer_ensureModifierFlags(receiver: GoPtr<Decla
   const parentIsFile = node!.Parent !== undefined && node!.Parent.Kind === KindSourceFile;
   const mask: ModifierFlags = parentIsFile ? baseMask : ((baseMask ^ ModifierFlagsAmbient) as ModifierFlags);
   const additions: ModifierFlags = parentIsFile
-    ? (IsImplicitlyExportedJSTypeAlias(node) ? ((baseAdditions | ModifierFlagsExport) as ModifierFlags) : baseAdditions)
-    : (IsImplicitlyExportedJSTypeAlias(node) ? ModifierFlagsExport : ModifierFlagsNone);
-  return maskModifierFlags(receiver!.host, node, mask, additions);
+    ? (IsImplicitlyExportedJSDocDeclaration(node) ? ((baseAdditions | ModifierFlagsExport) as ModifierFlags) : baseAdditions)
+    : (IsImplicitlyExportedJSDocDeclaration(node) ? ModifierFlagsExport : ModifierFlagsNone);
+  return maskModifierFlags(node, mask, additions);
 }
 
 /**
@@ -3844,7 +4375,7 @@ export function DeclarationTransformer_updateParamList(receiver: GoPtr<Declarati
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.ensureParameter","kind":"method","status":"implemented","sigHash":"1b6f9e5314ea5cc4cc0f6541e325100222dedaa0e8624c0a143b11129260ecd7","bodyHash":"70877923efb1b4bb07d2e10bf42c4da96b702a1a64b925fafa08b29b7a336fa1"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.ensureParameter","kind":"method","status":"implemented","sigHash":"1b6f9e5314ea5cc4cc0f6541e325100222dedaa0e8624c0a143b11129260ecd7","bodyHash":"f4c97e3d6f5b32d3e7cf7885b1a0da98533f904f21e560016df4654b2c4f7aac"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) ensureParameter(p *ast.ParameterDeclaration) *ast.Node {
@@ -3864,7 +4395,7 @@ export function DeclarationTransformer_updateParamList(receiver: GoPtr<Declarati
  * 		p,
  * 		nil,
  * 		p.DotDotDotToken,
- * 		tx.filterBindingPatternInitializers(p.Name()),
+ * 		tx.bindingNameVisitor.VisitNode(p.Name()),
  * 		questionToken,
  * 		tx.ensureType(p.AsNode(), true),
  * 		tx.ensureNoInitializer(p.AsNode()),
@@ -3883,7 +4414,7 @@ export function DeclarationTransformer_ensureParameter(receiver: GoPtr<Declarati
   const questionToken: GoPtr<TokenNode> = receiver!.resolver.IsOptionalParameter(p)
     ? (p!.QuestionToken !== undefined ? p!.QuestionToken : NewToken(astFactory, KindQuestionToken))
     : undefined;
-  const filteredName = DeclarationTransformer_filterBindingPatternInitializers(receiver, Node_Name(p));
+  const filteredName = NodeVisitor_VisitNode(receiver!.bindingNameVisitor, Node_Name(p));
   const typeNode = DeclarationTransformer_ensureType(receiver, p, true);
   const initializer = DeclarationTransformer_ensureNoInitializer(receiver, p);
   const result = updateNode(NewParameterDeclaration(astFactory, undefined, p!.DotDotDotToken, filteredName, questionToken, typeNode, initializer), p, astFactory!.hooks);
@@ -3920,72 +4451,44 @@ export function DeclarationTransformer_ensureNoInitializer(receiver: GoPtr<Decla
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.filterBindingPatternInitializers","kind":"method","status":"implemented","sigHash":"b1c70d2c5bcecd8a2997b707bb76833615cccf5d9dededa01d4153f799f4a5ee","bodyHash":"d21fabacbb69b8ba54624d84fd501d738ef9ffa7fbaf34016b2a7c0393167a68"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.visitBindingName","kind":"method","status":"implemented","sigHash":"18bc9632ea2a778d65577f6207981bc4e412a7f5584fac0f67de7a02004bc741","bodyHash":"56096ecebe17231ffa3241592f9c09d3c34abb0551330f690500ff72046578e0"}
  *
  * Go source:
- * func (tx *DeclarationTransformer) filterBindingPatternInitializers(node *ast.Node) *ast.Node {
- * 	if node.Kind == ast.KindIdentifier {
+ * func (tx *DeclarationTransformer) visitBindingName(node *ast.Node) *ast.Node {
+ * 	switch node.Kind {
+ * 	case ast.KindIdentifier, ast.KindOmittedExpression:
  * 		return node
- * 	} else {
- * 		// TODO: visitor to avoid always making new nodes?
- * 		elements := make([]*ast.Node, 0, len(node.Elements()))
- * 		for _, elem := range node.Elements() {
- * 			if elem.Kind == ast.KindOmittedExpression {
- * 				elements = append(elements, elem)
- * 				continue
- * 			}
- * 			if elem.PropertyName() != nil && ast.IsComputedPropertyName(elem.PropertyName()) && ast.IsEntityNameExpression(elem.PropertyName().Expression()) {
- * 				tx.checkEntityNameVisibility(elem.PropertyName().Expression(), tx.enclosingDeclaration)
- * 			}
- * 			if elem.Name() == nil {
- * 				elements = append(elements, elem)
- * 				continue
- * 			}
- *
- * 			elements = append(elements, tx.Factory().UpdateBindingElement(
- * 				elem.AsBindingElement(),
- * 				elem.AsBindingElement().DotDotDotToken,
- * 				elem.PropertyName(),
- * 				tx.filterBindingPatternInitializers(elem.Name()),
- * 				nil,
- * 			))
+ * 	case ast.KindArrayBindingPattern, ast.KindObjectBindingPattern:
+ * 		return node.VisitEachChild(tx.bindingNameVisitor)
+ * 	case ast.KindBindingElement:
+ * 		if node.PropertyName() != nil && ast.IsComputedPropertyName(node.PropertyName()) && ast.IsEntityNameExpression(node.PropertyName().Expression()) {
+ * 			tx.checkEntityNameVisibility(node.PropertyName().Expression(), tx.enclosingDeclaration)
  * 		}
- * 		elemList := tx.Factory().NewNodeList(elements)
- * 		return tx.Factory().UpdateBindingPattern(node.AsBindingPattern(), elemList)
+ * 		return tx.Factory().UpdateBindingElement(node.AsBindingElement(), node.AsBindingElement().DotDotDotToken, node.PropertyName(), tx.bindingNameVisitor.VisitNode(node.Name()), nil /*initializer* /)
+ * 	default:
+ * 		return node
  * 	}
  * }
  */
-export function DeclarationTransformer_filterBindingPatternInitializers(receiver: GoPtr<DeclarationTransformer>, node: GoPtr<Node>): GoPtr<Node> {
-  if (node!.Kind === KindIdentifier) {
-    return node;
-  }
+export function DeclarationTransformer_visitBindingName(receiver: GoPtr<DeclarationTransformer>, node: GoPtr<Node>): GoPtr<Node> {
   const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
   const astFactory = factory!.__tsgoEmbedded0;
-  // TODO: visitor to avoid always making new nodes?
-  const elements: GoSlice<GoPtr<Node>> = [];
-  for (const elem of Node_Elements(node)!) {
-    if (elem!.Kind === KindOmittedExpression) {
-      elements.push(elem);
-      continue;
+  switch (node!.Kind) {
+    case KindIdentifier:
+    case KindOmittedExpression:
+      return node;
+    case KindArrayBindingPattern:
+    case KindObjectBindingPattern:
+      return Node_VisitEachChild(node, receiver!.bindingNameVisitor);
+    case KindBindingElement: {
+      if (Node_PropertyName(node) !== undefined && IsComputedPropertyName(Node_PropertyName(node)) && IsEntityNameExpression(Node_Expression(Node_PropertyName(node)))) {
+        DeclarationTransformer_checkEntityNameVisibility(receiver, Node_Expression(Node_PropertyName(node)), receiver!.enclosingDeclaration);
+      }
+      return NodeFactory_UpdateBindingElement(astFactory, AsBindingElement(node), AsBindingElement(node)!.DotDotDotToken, Node_PropertyName(node), NodeVisitor_VisitNode(receiver!.bindingNameVisitor, Node_Name(node)), undefined /*initializer*/);
     }
-    const elemPropertyName = AsBindingElement(elem)!.PropertyName;
-    if (elemPropertyName !== undefined && IsComputedPropertyName(elemPropertyName) && IsEntityNameExpression(Node_Expression(elemPropertyName))) {
-      DeclarationTransformer_checkEntityNameVisibility(receiver, Node_Expression(elemPropertyName), receiver!.enclosingDeclaration);
-    }
-    const elemName = Node_Name(elem);
-    if (elemName === undefined) {
-      elements.push(elem);
-      continue;
-    }
-    const bindingElem = AsBindingElement(elem)!;
-    elements.push(updateNode(
-      NewBindingElement(astFactory, bindingElem.DotDotDotToken, bindingElem.PropertyName, DeclarationTransformer_filterBindingPatternInitializers(receiver, elemName), undefined),
-      elem,
-      astFactory!.hooks,
-    ));
+    default:
+      return node;
   }
-  const elemList = NodeFactory_NewNodeList(astFactory, elements);
-  return updateNode(NewBindingPattern(astFactory, node!.Kind, elemList), node, astFactory!.hooks);
 }
 
 /**
@@ -4382,11 +4885,59 @@ export function DeclarationTransformer_transformJSDocOptionalType(receiver: GoPt
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.visitExpressionStatement","kind":"method","status":"implemented","sigHash":"162013a14fc71c190de06b228e3395c49bccbb3b37056179b347a303030bae72","bodyHash":"2f1e714190b9887038946d740391c2d4cbd241390110d859f949989f5f2808b2"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.getNameExpressionPreferringIdentifier","kind":"method","status":"implemented","sigHash":"e31f1463de4f0b60512e76742ca9694f86919476736ec4d954e847e159a27cf6","bodyHash":"2c350e6acecba674cc07f795c2c142a4094485310f400e15f0e6beeac6819e47"}
+ *
+ * Go source:
+ * func (tx *DeclarationTransformer) getNameExpressionPreferringIdentifier(nameExpr *ast.Node) *ast.Node {
+ * 	if ast.IsNumericLiteral(nameExpr) {
+ * 		// Numeric property names are string properties in JS; convert to string literal
+ * 		nameExpr = tx.Factory().NewStringLiteral(nameExpr.Text(), ast.TokenFlagsNone)
+ * 	}
+ * 	if ast.IsStringLiteralLike(nameExpr) && scanner.IsIdentifierText(nameExpr.Text(), core.LanguageVariantStandard) {
+ * 		result := tx.Factory().NewIdentifier(nameExpr.Text()) // prefer non-string literal names where possible
+ * 		kwKind := scanner.IdentifierToKeywordKind(result.AsIdentifier())
+ * 		// keep keywords as strings, except `default`, which has special reformulations in the transformer
+ * 		if kwKind == ast.KindUnknown || kwKind == ast.KindDefaultKeyword {
+ * 			// fake this into a parse tree node so the reference resolver resolves the node via `resolveName`
+ * 			result.Parent = nameExpr.Parent
+ * 			result.Flags &^= ast.NodeFlagsSynthesized
+ * 			// intentionally leave Loc unset so the string isn't used as the text source of the identifier
+ * 			return result
+ * 		}
+ * 	}
+ * 	return nameExpr
+ * }
+ */
+export function DeclarationTransformer_getNameExpressionPreferringIdentifier(receiver: GoPtr<DeclarationTransformer>, nameExpr: GoPtr<Node>): GoPtr<Node> {
+  const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
+  const astFactory = factory!.__tsgoEmbedded0;
+  if (IsNumericLiteral(nameExpr)) {
+    // Numeric property names are string properties in JS; convert to string literal
+    nameExpr = NewStringLiteral(astFactory, Node_Text(nameExpr), TokenFlagsNone);
+  }
+  if (IsStringLiteralLike(nameExpr) && IsIdentifierText(Node_Text(nameExpr), LanguageVariantStandard)) {
+    const result = NewIdentifier(astFactory, Node_Text(nameExpr)); // prefer non-string literal names where possible
+    const kwKind = IdentifierToKeywordKind(AsIdentifier(result));
+    // keep keywords as strings, except `default`, which has special reformulations in the transformer
+    if (kwKind === KindUnknown || kwKind === KindDefaultKeyword) {
+      // fake this into a parse tree node so the reference resolver resolves the node via `resolveName`
+      result!.Parent = nameExpr!.Parent;
+      result!.Flags = (result!.Flags & ~NodeFlagsSynthesized) >>> 0;
+      // intentionally leave Loc unset so the string isn't used as the text source of the identifier
+      return result;
+    }
+  }
+  return nameExpr;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.visitExpressionStatement","kind":"method","status":"implemented","sigHash":"162013a14fc71c190de06b228e3395c49bccbb3b37056179b347a303030bae72","bodyHash":"9579d88c827fc81db397f5bbd9897d7674f33538567b4e8e82edc96bf925df61"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) visitExpressionStatement(node *ast.Node) *ast.Node {
  * 	if expression := node.Expression(); expression != nil {
+ * 		_, cleanupDiagnosticContext := tx.setupDiagnosticContext(expression)
+ * 		defer cleanupDiagnosticContext()
  * 		switch ast.GetAssignmentDeclarationKind(expression) {
  * 		case ast.JSDeclarationKindModuleExports:
  * 			if ast.IsSourceFile(node.Parent) && node.Parent.AsSourceFile().CommonJSModuleIndicator != nil {
@@ -4394,13 +4945,13 @@ export function DeclarationTransformer_transformJSDocOptionalType(receiver: GoPt
  * 			}
  * 		case ast.JSDeclarationKindExportsProperty:
  * 			if ast.IsSourceFile(node.Parent) && node.Parent.AsSourceFile().CommonJSModuleIndicator != nil {
- * 				return tx.transformCommonJSExport(expression, ast.GetElementOrPropertyAccessName(expression.AsBinaryExpression().Left))
+ * 				return tx.transformCommonJSExport(expression, tx.getNameExpressionPreferringIdentifier(ast.GetElementOrPropertyAccessName(expression.AsBinaryExpression().Left)))
  * 			}
  * 		case ast.JSDeclarationKindProperty:
- * 			return tx.transformExpandoAssignment(expression.AsBinaryExpression())
+ * 			return nil // handled in pre-walk
  * 		case ast.JSDeclarationKindObjectDefinePropertyExports:
  * 			if ast.IsSourceFile(node.Parent) && node.Parent.AsSourceFile().CommonJSModuleIndicator != nil {
- * 				return tx.transformCommonJSExport(expression, expression.Arguments()[1])
+ * 				return tx.transformCommonJSExport(expression, tx.getNameExpressionPreferringIdentifier(expression.Arguments()[1]))
  * 			}
  * 		}
  * 	}
@@ -4410,220 +4961,345 @@ export function DeclarationTransformer_transformJSDocOptionalType(receiver: GoPt
 export function DeclarationTransformer_visitExpressionStatement(receiver: GoPtr<DeclarationTransformer>, node: GoPtr<Node>): GoPtr<Node> {
   const expression = Node_Expression(node);
   if (expression !== undefined) {
-    switch (GetAssignmentDeclarationKind(expression)) {
-      case JSDeclarationKindModuleExports:
-        if (IsSourceFile(node!.Parent) && AsSourceFile(node!.Parent)!.CommonJSModuleIndicator !== undefined) {
-          return DeclarationTransformer_transformExportAssignment(receiver, node, expression, AsBinaryExpression(expression)!.Right, true as bool);
-        }
-        break;
-      case JSDeclarationKindExportsProperty:
-        if (IsSourceFile(node!.Parent) && AsSourceFile(node!.Parent)!.CommonJSModuleIndicator !== undefined) {
-          return DeclarationTransformer_transformCommonJSExport(receiver, expression, GetElementOrPropertyAccessName(AsBinaryExpression(expression)!.Left));
-        }
-        break;
-      case JSDeclarationKindProperty:
-        return DeclarationTransformer_transformExpandoAssignment(receiver, AsBinaryExpression(expression)!);
-      case JSDeclarationKindObjectDefinePropertyExports:
-        if (IsSourceFile(node!.Parent) && AsSourceFile(node!.Parent)!.CommonJSModuleIndicator !== undefined) {
-          const args = Node_Arguments(expression);
-          return DeclarationTransformer_transformCommonJSExport(receiver, expression, args !== undefined ? args[1] : undefined);
-        }
-        break;
+    const [, cleanupDiagnosticContext] = DeclarationTransformer_setupDiagnosticContext(receiver, expression);
+    try {
+      switch (GetAssignmentDeclarationKind(expression)) {
+        case JSDeclarationKindModuleExports:
+          if (IsSourceFile(node!.Parent) && AsSourceFile(node!.Parent)!.CommonJSModuleIndicator !== undefined) {
+            return DeclarationTransformer_transformExportAssignment(receiver, node, expression, AsBinaryExpression(expression)!.Right, true as bool);
+          }
+          break;
+        case JSDeclarationKindExportsProperty:
+          if (IsSourceFile(node!.Parent) && AsSourceFile(node!.Parent)!.CommonJSModuleIndicator !== undefined) {
+            return DeclarationTransformer_transformCommonJSExport(receiver, expression, DeclarationTransformer_getNameExpressionPreferringIdentifier(receiver, GetElementOrPropertyAccessName(AsBinaryExpression(expression)!.Left)));
+          }
+          break;
+        case JSDeclarationKindProperty:
+          return undefined; // handled in pre-walk
+        case JSDeclarationKindObjectDefinePropertyExports:
+          if (IsSourceFile(node!.Parent) && AsSourceFile(node!.Parent)!.CommonJSModuleIndicator !== undefined) {
+            return DeclarationTransformer_transformCommonJSExport(receiver, expression, DeclarationTransformer_getNameExpressionPreferringIdentifier(receiver, Node_Arguments(expression)![1]));
+          }
+          break;
+      }
+    } finally {
+      cleanupDiagnosticContext();
     }
   }
   return undefined;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformExpandoAssignment","kind":"method","status":"implemented","sigHash":"0b92cc38be505860a06a19d02a325f6a06308b7cd9d5ddccf98f97cacff9977c","bodyHash":"0121b37af0fbfc21f2c71f27bad33c56cd00bcb2826cba0bd4541d7b50ccb9ff"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.visitNestedExpression","kind":"method","status":"implemented","sigHash":"1f1f8ef04626503c098347d1d1fb8cd59cb3764e164acf5b7f73cca099028313","bodyHash":"12eb666f61dcb765d6e447901380282c965c802ddb172e7c4e9f024a09f06803"}
  *
  * Go source:
- * func (tx *DeclarationTransformer) transformExpandoAssignment(node *ast.BinaryExpression) *ast.Node {
+ * func (tx *DeclarationTransformer) visitNestedExpression(expression *ast.Node) *ast.Node {
+ * 	if expression != nil {
+ * 		switch ast.GetAssignmentDeclarationKind(expression) {
+ * 		case ast.JSDeclarationKindProperty:
+ * 			tx.transformExpandoAssignment(expression.AsBinaryExpression())
+ * 		}
+ * 		return tx.expressionVisitor.VisitEachChild(expression) // recur through the whole tree, looking for special assignments
+ * 	}
+ * 	return nil
+ * }
+ */
+export function DeclarationTransformer_visitNestedExpression(receiver: GoPtr<DeclarationTransformer>, expression: GoPtr<Node>): GoPtr<Node> {
+  if (expression !== undefined) {
+    switch (GetAssignmentDeclarationKind(expression)) {
+      case JSDeclarationKindProperty:
+        DeclarationTransformer_transformExpandoAssignment(receiver, AsBinaryExpression(expression)!);
+        break;
+    }
+    return Node_VisitEachChild(expression, receiver!.expressionVisitor); // recur through the whole tree, looking for special assignments
+  }
+  return undefined;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformExpandoAssignment","kind":"method","status":"implemented","sigHash":"51d5b44cb04ec9738537fa98d6336c72bfe89b8a4baed069814c2196fa5d868b","bodyHash":"a328783e0825ae58830e1db3bd418da0efc82f821f779ff0937fd97a47780ee5"}
+ *
+ * Go source:
+ * func (tx *DeclarationTransformer) transformExpandoAssignment(node *ast.BinaryExpression) {
  * 	left := node.Left
- * 
+ *
  * 	symbol := node.Symbol
  * 	if symbol == nil || symbol.Flags&ast.SymbolFlagsAssignment == 0 {
- * 		return nil
+ * 		return
  * 	}
- * 
+ *
  * 	ns := ast.GetLeftmostAccessExpression(left)
  * 	if ns == nil || ns.Kind != ast.KindIdentifier {
- * 		return nil
+ * 		return
  * 	}
- * 
+ *
  * 	declaration := tx.resolver.GetReferencedValueDeclaration(ns)
  * 	if declaration == nil {
- * 		return nil
+ * 		return
  * 	}
- * 
+ *
+ * 	if tx.shouldStripInternal(declaration) {
+ * 		return
+ * 	}
+ *
  * 	if ast.IsVariableDeclaration(declaration) && declaration.Type() != nil {
- * 		return nil
+ * 		return
  * 	}
- * 
+ *
+ * 	if ast.IsFunctionDeclaration(declaration) && declaration.FunctionLikeData().FullSignature != nil {
+ * 		return
+ * 	}
+ *
+ * 	if ast.IsVariableDeclaration(declaration) && !ast.IsFunctionLike(declaration.Initializer()) {
+ * 		return // We're going to add a type, no need to dupe members with a namespace
+ * 	}
+ *
  * 	host := declaration.Symbol()
  * 	if host == nil {
- * 		return nil
+ * 		return
  * 	}
- * 
+ *
  * 	name := tx.Factory().NewIdentifier(ns.Text())
  * 	property := tx.tryGetPropertyName(left)
  * 	if property == "" || !scanner.IsIdentifierText(property, core.LanguageVariantStandard) {
- * 		return nil
+ * 		return
  * 	}
- * 
- * 	tx.transformExpandoHost(name, declaration)
- * 
+ *
+ * 	if ast.IsDeclaration(declaration) && isDeclarationAndNotVisible(tx.EmitContext(), tx.resolver, declaration) {
+ * 		return
+ * 	}
+ *
  * 	if ast.IsFunctionDeclaration(declaration) && !shouldEmitFunctionProperties(declaration.AsFunctionDeclaration()) {
- * 		return nil
+ * 		return
  * 	}
- * 
+ *
+ * 	tx.transformExpandoHost(name, declaration)
+ *
  * 	isNonContextualKeywordName := ast.IsNonContextualKeyword(scanner.StringToToken(property))
  * 	exportName := core.IfElse(isNonContextualKeywordName, tx.Factory().NewGeneratedNameForNode(left), tx.Factory().NewIdentifier(property))
- * 
+ *
+ * 	hostId := tx.getExpandoHostId(declaration)
+ * 	preexistingExpandoHasExport := core.Some(tx.expandoMembers[hostId], ast.IsExportDeclaration)
+ * 	var varModifiers *ast.ModifierList
+ *
+ * 	if preexistingExpandoHasExport {
+ * 		varModifiers = tx.Factory().NewModifierList(ast.CreateModifiersFromModifierFlags(ast.ModifierFlagsExport, tx.Factory().NewModifier))
+ * 	}
+ *
  * 	synthesizedNamespace := tx.Factory().NewModuleDeclaration(nil /*modifiers* /, ast.KindNamespaceKeyword, name, tx.Factory().NewModuleBlock(tx.Factory().NewNodeList([]*ast.Node{})))
  * 	synthesizedNamespace.Parent = tx.enclosingDeclaration
- * 
  * 	declarationData := synthesizedNamespace.DeclarationData()
  * 	declarationData.Symbol = host
- * 
  * 	containerData := synthesizedNamespace.LocalsContainerData()
  * 	containerData.Locals = make(ast.SymbolTable, 0)
- * 
- * 	saveDiag := tx.state.getSymbolAccessibilityDiagnostic
- * 	tx.state.getSymbolAccessibilityDiagnostic = createGetSymbolAccessibilityDiagnosticForNode(node.AsNode())
- * 	t := tx.resolver.CreateTypeOfExpression(tx.EmitContext(), left, synthesizedNamespace, declarationEmitNodeBuilderFlags, declarationEmitInternalNodeBuilderFlags|nodebuilder.InternalFlagsNoSyntacticPrinter, tx.tracker)
- * 	tx.state.getSymbolAccessibilityDiagnostic = saveDiag
- * 
+ *
+ * 	oldEnclosing := tx.enclosingDeclaration
+ * 	tx.enclosingDeclaration = synthesizedNamespace
+ * 	defer func() {
+ * 		tx.enclosingDeclaration = oldEnclosing
+ * 	}()
+ *
+ * 	_, cleanupDiagnosticContext := tx.setupDiagnosticContext(node.AsNode())
+ * 	defer cleanupDiagnosticContext()
+ *
  * 	statements := []*ast.Statement{
  * 		tx.Factory().NewVariableStatement(
- * 			nil, /*modifiers* /
+ * 			varModifiers,
  * 			tx.Factory().NewVariableDeclarationList(
  * 				tx.Factory().NewNodeList([]*ast.Node{
- * 					tx.Factory().NewVariableDeclaration(exportName, nil /*exclamationToken* /, t, nil /*initializer* /),
+ * 					tx.Factory().NewVariableDeclaration(exportName, nil /*exclamationToken* /, tx.ensureType(node.AsNode(), false), nil /*initializer* /),
  * 				}),
  * 				ast.NodeFlagsNone,
  * 			),
  * 		),
  * 	}
- * 
+ *
  * 	if isNonContextualKeywordName {
  * 		namedExports := tx.Factory().NewNamedExports(tx.Factory().NewNodeList(
  * 			[]*ast.Node{
- * 				tx.Factory().NewExportSpecifier(false /*isTypeOnly* /, exportName, tx.Factory().NewIdentifier(left.Name().Text())),
+ * 				tx.Factory().NewExportSpecifier(false /*isTypeOnly* /, exportName, tx.Factory().NewIdentifier(property)),
  * 			},
  * 		))
  * 		statements = append(statements, tx.Factory().NewExportDeclaration(nil /*modifiers* /, false /*isTypeOnly* /, namedExports, nil /*moduleSpecifier* /, nil /*attributes* /))
  * 	}
- * 
- * 	flags := tx.host.GetEffectiveDeclarationFlags(tx.EmitContext().ParseNode(declaration), ast.ModifierFlagsAll)
- * 	modifierFlags := ast.ModifierFlagsAmbient
- * 
- * 	if flags&ast.ModifierFlagsExport != 0 {
- * 		if flags&ast.ModifierFlagsDefault == 0 {
- * 			modifierFlags |= ast.ModifierFlagsExport
+ *
+ * 	if len(statements) > 1 && !preexistingExpandoHasExport {
+ * 		// Add an `export` modifier to all existing expando members so they remain exported after the `export {}` is added
+ * 		for _, decl := range tx.expandoMembers[hostId] {
+ * 			modifierFlags := ast.ModifierFlagsExport | ast.GetCombinedModifierFlags(decl)
+ * 			decl.AsMutable().SetModifiers(tx.Factory().NewModifierList(ast.CreateModifiersFromModifierFlags(modifierFlags, tx.Factory().NewModifier)))
  * 		}
- * 		tx.resultHasScopeMarker = true
- * 		tx.resultHasExternalModuleIndicator = true
  * 	}
- * 
- * 	return tx.Factory().NewModuleDeclaration(tx.Factory().NewModifierList(ast.CreateModifiersFromModifierFlags(modifierFlags, tx.Factory().NewModifier)), ast.KindNamespaceKeyword, name, tx.Factory().NewModuleBlock(tx.Factory().NewNodeList(statements)))
+ * 	tx.expandoMembers[hostId] = append(tx.expandoMembers[hostId], statements...)
  * }
  */
-export function DeclarationTransformer_transformExpandoAssignment(receiver: GoPtr<DeclarationTransformer>, node: GoPtr<BinaryExpression>): GoPtr<Node> {
+export function DeclarationTransformer_transformExpandoAssignment(receiver: GoPtr<DeclarationTransformer>, node: GoPtr<BinaryExpression>): void {
   const emitContext = Transformer_EmitContext(receiver!.__tsgoEmbedded0);
   const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
   const astFactory = factory!.__tsgoEmbedded0;
   const left = node!.Left;
-  const symbol = Node_Symbol(node as unknown as GoPtr<Node>);
+
+  const symbol = Node_Symbol(NodeDefault_AsNode(node));
   if (symbol === undefined || (symbol!.Flags & SymbolFlagsAssignment) === 0) {
-    return undefined;
+    return;
   }
+
   const ns = GetLeftmostAccessExpression(left);
   if (ns === undefined || ns!.Kind !== KindIdentifier) {
-    return undefined;
+    return;
   }
+
   const declaration = receiver!.resolver.GetReferencedValueDeclaration(AsIdentifier(ns)!);
   if (declaration === undefined) {
-    return undefined;
+    return;
   }
+
+  if (DeclarationTransformer_shouldStripInternal(receiver, declaration)) {
+    return;
+  }
+
   if (IsVariableDeclaration(declaration) && Node_Type(declaration) !== undefined) {
-    return undefined;
+    return;
   }
+
+  if (IsFunctionDeclaration(declaration) && Node_FunctionLikeData(declaration)!.FullSignature !== undefined) {
+    return;
+  }
+
+  if (IsVariableDeclaration(declaration) && !IsFunctionLike(Node_Initializer(declaration))) {
+    return; // We're going to add a type, no need to dupe members with a namespace
+  }
+
   const host = Node_Symbol(declaration);
   if (host === undefined) {
-    return undefined;
+    return;
   }
+
   const name = NewIdentifier(astFactory, Node_Text(ns));
   const property = DeclarationTransformer_tryGetPropertyName(receiver, left);
   if (property === "" || !IsIdentifierText(property, LanguageVariantStandard)) {
-    return undefined;
+    return;
   }
-  DeclarationTransformer_transformExpandoHost(receiver, name, declaration);
+
+  if (IsDeclaration(declaration) && isDeclarationAndNotVisible(emitContext, receiver!.resolver, declaration)) {
+    return;
+  }
+
   if (IsFunctionDeclaration(declaration) && !shouldEmitFunctionProperties(AsFunctionDeclaration(declaration)!)) {
-    return undefined;
+    return;
   }
+
+  DeclarationTransformer_transformExpandoHost(receiver, name, declaration);
+
   const isNonContextualKeywordName = IsNonContextualKeyword(StringToToken(property));
   const exportName = isNonContextualKeywordName
     ? NodeFactory_NewGeneratedNameForNode(factory, left)
     : NewIdentifier(astFactory, property);
+
+  const hostId = DeclarationTransformer_getExpandoHostId(receiver, declaration);
+  const preexistingExpandoHasExport = Some(receiver!.expandoMembers!.get(hostId) ?? [], IsExportDeclaration);
+  let varModifiers: GoPtr<ModifierList>;
+
+  if (preexistingExpandoHasExport) {
+    varModifiers = NodeFactory_NewModifierList(astFactory, CreateModifiersFromModifierFlags(ModifierFlagsExport, (kind) => NodeFactory_NewModifier(astFactory, kind)));
+  }
+
   const synthesizedNamespace = NewModuleDeclaration(astFactory, undefined, KindNamespaceKeyword, name, NewModuleBlock(astFactory, NodeFactory_NewNodeList(astFactory, [])));
   synthesizedNamespace!.Parent = receiver!.enclosingDeclaration;
   (Node_DeclarationData(synthesizedNamespace) as unknown as { Symbol?: GoPtr<AstSymbol> })!.Symbol = host;
   (Node_LocalsContainerData(synthesizedNamespace) as unknown as { Locals?: GoMap<string, GoPtr<AstSymbol>> })!.Locals = new globalThis.Map();
-  const saveDiag = receiver!.state!.getSymbolAccessibilityDiagnostic;
-  receiver!.state!.getSymbolAccessibilityDiagnostic = createGetSymbolAccessibilityDiagnosticForNode(node as unknown as GoPtr<Node>);
-  const t = receiver!.resolver.CreateTypeOfExpression(emitContext, left, synthesizedNamespace, declarationEmitNodeBuilderFlags, declarationEmitInternalNodeBuilderFlags | InternalFlagsNoSyntacticPrinter, SymbolTrackerImpl_AsSymbolTracker(receiver!.tracker));
-  receiver!.state!.getSymbolAccessibilityDiagnostic = saveDiag;
-  const varDecl = NewVariableDeclaration(astFactory, exportName, undefined, t, undefined);
-  const varDeclList = NewVariableDeclarationList(astFactory, NodeFactory_NewNodeList(astFactory, [varDecl]) as GoPtr<VariableDeclarationNodeList>, NodeFlagsNone);
-  const varStatement = NewVariableStatement(astFactory, undefined, varDeclList);
-  const statements: GoSlice<GoPtr<Node>> = isNonContextualKeywordName
-    ? [
-        varStatement,
-        NewExportDeclaration(astFactory, undefined, false as bool, NewNamedExports(astFactory, NodeFactory_NewNodeList(astFactory, [NewExportSpecifier(astFactory, false as bool, exportName, NewIdentifier(astFactory, Node_Text(Node_Name(left)!)))]) as GoPtr<ExportSpecifierList>), undefined, undefined),
-      ]
-    : [varStatement];
-  const flags = receiver!.host.GetEffectiveDeclarationFlags(EmitContext_ParseNode(emitContext, declaration), ModifierFlagsAll);
-  const baseModifierFlags = ModifierFlagsAmbient;
-  const modifierFlags = (flags & ModifierFlagsExport) !== 0
-    ? (() => {
-        receiver!.resultHasScopeMarker = true;
-        receiver!.resultHasExternalModuleIndicator = true;
-        return (flags & ModifierFlagsDefault) === 0 ? baseModifierFlags | ModifierFlagsExport : baseModifierFlags;
-      })()
-    : baseModifierFlags;
-  return NewModuleDeclaration(astFactory, NodeFactory_NewModifierList(astFactory, CreateModifiersFromModifierFlags(modifierFlags, (kind) => NodeFactory_NewModifier(astFactory, kind))), KindNamespaceKeyword, name, NewModuleBlock(astFactory, NodeFactory_NewNodeList(astFactory, statements)));
+
+  const oldEnclosing = receiver!.enclosingDeclaration;
+  receiver!.enclosingDeclaration = synthesizedNamespace;
+  try {
+    const [, cleanupDiagnosticContext] = DeclarationTransformer_setupDiagnosticContext(receiver, NodeDefault_AsNode(node));
+    try {
+      const statements: GoSlice<GoPtr<Node>> = [
+        NewVariableStatement(
+          astFactory,
+          varModifiers,
+          NewVariableDeclarationList(
+            astFactory,
+            NodeFactory_NewNodeList(astFactory, [
+              NewVariableDeclaration(astFactory, exportName, undefined, DeclarationTransformer_ensureType(receiver, NodeDefault_AsNode(node), false), undefined),
+            ]) as GoPtr<VariableDeclarationNodeList>,
+            NodeFlagsNone,
+          ),
+        ),
+      ];
+
+      if (isNonContextualKeywordName) {
+        const namedExports = NewNamedExports(astFactory, NodeFactory_NewNodeList(astFactory, [
+          NewExportSpecifier(astFactory, false as bool, exportName, NewIdentifier(astFactory, property)),
+        ]) as GoPtr<ExportSpecifierList>);
+        statements.push(NewExportDeclaration(astFactory, undefined, false as bool, namedExports, undefined, undefined));
+      }
+
+      if (statements.length > 1 && !preexistingExpandoHasExport) {
+        // Add an `export` modifier to all existing expando members so they remain exported after the `export {}` is added
+        for (const decl of receiver!.expandoMembers!.get(hostId) ?? []) {
+          const modifierFlags = ((ModifierFlagsExport | GetCombinedModifierFlags(decl)) >>> 0) as ModifierFlags;
+          MutableNode_SetModifiers(Node_AsMutable(decl), NodeFactory_NewModifierList(astFactory, CreateModifiersFromModifierFlags(modifierFlags, (kind) => NodeFactory_NewModifier(astFactory, kind))));
+        }
+      }
+      receiver!.expandoMembers!.set(hostId, [...(receiver!.expandoMembers!.get(hostId) ?? []), ...statements]);
+    } finally {
+      cleanupDiagnosticContext();
+    }
+  } finally {
+    receiver!.enclosingDeclaration = oldEnclosing;
+  }
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformExpandoHost","kind":"method","status":"implemented","sigHash":"646110464b3b5152aebccec085bd7f0bb0d445581280f1ac598d539a40d3b011","bodyHash":"c27b75aca2f0cbebe22736b517aaf5f7be405e35db899ff94b235167407865a4"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.getExpandoHostId","kind":"method","status":"implemented","sigHash":"ade8b560eed993bb04a20ec44d69ddb4c6b03a775982cc5fd2d1495a370d4255","bodyHash":"e579eaf46a3677cb269d115548b18c0a28bff1d5966d875db3101b5f9408a014"}
+ *
+ * Go source:
+ * func (tx *DeclarationTransformer) getExpandoHostId(declaration *ast.Declaration) ast.NodeId {
+ * 	root := core.IfElse(ast.IsVariableDeclaration(declaration), declaration.Parent.Parent, declaration)
+ * 	id := ast.GetNodeId(tx.EmitContext().MostOriginal(root))
+ * 	return id
+ * }
+ */
+export function DeclarationTransformer_getExpandoHostId(receiver: GoPtr<DeclarationTransformer>, declaration: GoPtr<Declaration>): NodeId {
+  const emitContext = Transformer_EmitContext(receiver!.__tsgoEmbedded0);
+  const root = IfElse(IsVariableDeclaration(declaration), declaration!.Parent!.Parent, declaration);
+  const id = GetNodeId(EmitContext_MostOriginal(emitContext, root));
+  return id;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.transformExpandoHost","kind":"method","status":"implemented","sigHash":"646110464b3b5152aebccec085bd7f0bb0d445581280f1ac598d539a40d3b011","bodyHash":"4ced353af733027348d842fcc1f86749edeb1902a7797fe07e1cb05f01a6bac8"}
  *
  * Go source:
  * func (tx *DeclarationTransformer) transformExpandoHost(name *ast.Node, declaration *ast.Declaration) {
  * 	root := core.IfElse(ast.IsVariableDeclaration(declaration), declaration.Parent.Parent, declaration)
- * 	id := ast.GetNodeId(tx.EmitContext().MostOriginal(root))
- * 
- * 	if tx.expandoHosts.Has(id) {
+ * 	id := tx.getExpandoHostId(declaration)
+ *
+ * 	if _, ok := tx.expandoHosts[id]; ok {
  * 		return
  * 	}
- * 
+ *
  * 	saveNeedsDeclare := tx.needsDeclare
  * 	tx.needsDeclare = true
- * 
+ *
  * 	modifierFlags := tx.ensureModifierFlags(root)
  * 	defaultExport := modifierFlags&ast.ModifierFlagsExport != 0 && modifierFlags&ast.ModifierFlagsDefault != 0
- * 
+ *
  * 	tx.needsDeclare = saveNeedsDeclare
- * 
+ *
  * 	if defaultExport {
  * 		modifierFlags |= ast.ModifierFlagsAmbient
  * 		modifierFlags ^= ast.ModifierFlagsDefault
  * 		modifierFlags ^= ast.ModifierFlagsExport
  * 	}
- * 
+ *
+ * 	_, cleanupDiagnosticContext := tx.setupDiagnosticContext(declaration)
+ * 	defer cleanupDiagnosticContext()
+ *
  * 	modifiers := tx.Factory().NewModifierList(ast.CreateModifiersFromModifierFlags(modifierFlags, tx.Factory().NewModifier))
  * 	replacement := make([]*ast.Node, 0)
- * 
+ *
  * 	if ast.IsFunctionDeclaration(declaration) {
  * 		typeParameters, parameters, asteriskToken := extractExpandoHostParams(declaration)
  * 		replacement = append(replacement, tx.Factory().UpdateFunctionDeclaration(declaration.AsFunctionDeclaration(), modifiers, asteriskToken, declaration.Name(), tx.ensureTypeParams(declaration, typeParameters), tx.updateParamList(declaration, parameters), tx.ensureType(declaration, false), nil /*fullSignature* /, nil /*body* /))
@@ -4632,55 +5308,163 @@ export function DeclarationTransformer_transformExpandoAssignment(receiver: GoPt
  * 		typeParameters, parameters, asteriskToken := extractExpandoHostParams(fn)
  * 		replacement = append(replacement, tx.Factory().NewFunctionDeclaration(modifiers, asteriskToken, tx.Factory().NewIdentifier(name.Text()), tx.ensureTypeParams(fn, typeParameters), tx.updateParamList(fn, parameters), tx.ensureType(fn, false), nil /*fullSignature* /, nil /*body* /))
  * 	} else {
+ * 		tx.expandoHosts[id] = tx.transformTopLevelDeclaration(declaration)
  * 		return
  * 	}
- * 
+ *
+ * 	tx.state.reportExpandoFunctionErrors(declaration)
+ *
  * 	if defaultExport {
+ * 		if ast.IsSourceFile(declaration.Parent) {
+ * 			tx.resultHasExternalModuleIndicator = true
+ * 		}
+ * 		tx.resultHasScopeMarker = true
  * 		replacement = append(replacement, tx.Factory().NewExportAssignment(nil /*modifiers* /, false /*isExportEquals* /, nil /*typeNode* /, name))
  * 	}
- * 
- * 	tx.expandoHosts.Add(id)
- * 	tx.lateStatementReplacementMap[id] = tx.Factory().NewSyntaxList(replacement)
+ *
+ * 	// store host result to be added to the output when it's actually visited
+ * 	tx.expandoHosts[id] = tx.Factory().NewSyntaxList(replacement)
+ * 	if _, ok := tx.lateStatementReplacementMap[id]; ok {
+ * 		tx.lateStatementReplacementMap[id] = tx.createFullExpandoBlock(id)
+ * 	}
  * }
  */
 export function DeclarationTransformer_transformExpandoHost(receiver: GoPtr<DeclarationTransformer>, name: GoPtr<Node>, declaration: GoPtr<Declaration>): void {
-  const emitContext = Transformer_EmitContext(receiver!.__tsgoEmbedded0);
   const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
   const astFactory = factory!.__tsgoEmbedded0;
-  const root = IsVariableDeclaration(declaration) ? declaration!.Parent?.Parent : declaration;
-  const id = GetNodeId(EmitContext_MostOriginal(emitContext, root!));
-  if (Set_Has(receiver!.expandoHosts, id)) {
+  const root = IfElse(IsVariableDeclaration(declaration), declaration!.Parent!.Parent, declaration);
+  const id = DeclarationTransformer_getExpandoHostId(receiver, declaration);
+  if (receiver!.expandoHosts!.has(id)) {
     return;
   }
   const saveNeedsDeclare = receiver!.needsDeclare;
   receiver!.needsDeclare = true;
-  const modifierFlags = DeclarationTransformer_ensureModifierFlags(receiver, root!);
+  let modifierFlags = DeclarationTransformer_ensureModifierFlags(receiver, root!);
   const defaultExport = (modifierFlags & ModifierFlagsExport) !== 0 && (modifierFlags & ModifierFlagsDefault) !== 0;
   receiver!.needsDeclare = saveNeedsDeclare;
-  const finalModifierFlags = defaultExport
-    ? (modifierFlags | ModifierFlagsAmbient) ^ ModifierFlagsDefault ^ ModifierFlagsExport
-    : modifierFlags;
-  const modifiers = NodeFactory_NewModifierList(astFactory, CreateModifiersFromModifierFlags(finalModifierFlags, (kind) => NodeFactory_NewModifier(astFactory, kind)));
-  const replacement: GoSlice<GoPtr<Node>> = (() => {
+  if (defaultExport) {
+    modifierFlags = ((((modifierFlags | ModifierFlagsAmbient) >>> 0) ^ ModifierFlagsDefault ^ ModifierFlagsExport) >>> 0) as ModifierFlags;
+  }
+  const [, cleanupDiagnosticContext] = DeclarationTransformer_setupDiagnosticContext(receiver, declaration);
+  try {
+    const modifiers = NodeFactory_NewModifierList(astFactory, CreateModifiersFromModifierFlags(modifierFlags, (kind) => NodeFactory_NewModifier(astFactory, kind)));
+    let replacement: GoSlice<GoPtr<Node>> = [];
     if (IsFunctionDeclaration(declaration)) {
       const [typeParameters, parameters, asteriskToken] = extractExpandoHostParams(declaration);
-      return [NodeFactory_UpdateFunctionDeclaration(astFactory, AsFunctionDeclaration(declaration)!, modifiers, asteriskToken, Node_Name(declaration), DeclarationTransformer_ensureTypeParams(receiver, declaration, typeParameters), DeclarationTransformer_updateParamList(receiver, declaration, parameters), DeclarationTransformer_ensureType(receiver, declaration, false), undefined, undefined)];
-    }
-    if (IsVariableDeclaration(declaration) && IsFunctionExpressionOrArrowFunction(Node_Initializer(declaration)!)) {
+      replacement = [...replacement, NodeFactory_UpdateFunctionDeclaration(astFactory, AsFunctionDeclaration(declaration)!, modifiers, asteriskToken, Node_Name(declaration), DeclarationTransformer_ensureTypeParams(receiver, declaration, typeParameters), DeclarationTransformer_updateParamList(receiver, declaration, parameters), DeclarationTransformer_ensureType(receiver, declaration, false), undefined, undefined)];
+    } else if (IsVariableDeclaration(declaration) && IsFunctionExpressionOrArrowFunction(Node_Initializer(declaration)!)) {
       const fn = Node_Initializer(declaration)!;
       const [typeParameters, parameters, asteriskToken] = extractExpandoHostParams(fn);
-      return [NewFunctionDeclaration(astFactory, modifiers, asteriskToken, NewIdentifier(astFactory, Node_Text(name)), DeclarationTransformer_ensureTypeParams(receiver, fn, typeParameters), DeclarationTransformer_updateParamList(receiver, fn, parameters), DeclarationTransformer_ensureType(receiver, fn, false), undefined, undefined)];
+      replacement = [...replacement, NewFunctionDeclaration(astFactory, modifiers, asteriskToken, NewIdentifier(astFactory, Node_Text(name)), DeclarationTransformer_ensureTypeParams(receiver, fn, typeParameters), DeclarationTransformer_updateParamList(receiver, fn, parameters), DeclarationTransformer_ensureType(receiver, fn, false), undefined, undefined)];
+    } else {
+      receiver!.expandoHosts!.set(id, DeclarationTransformer_transformTopLevelDeclaration(receiver, declaration));
+      return;
     }
-    return [];
-  })();
-  if (replacement.length === 0) {
-    return;
+
+    receiver!.state!.reportExpandoFunctionErrors(declaration);
+
+    if (defaultExport) {
+      if (IsSourceFile(declaration!.Parent)) {
+        receiver!.resultHasExternalModuleIndicator = true;
+      }
+      receiver!.resultHasScopeMarker = true;
+      replacement = [...replacement, NewExportAssignment(astFactory, undefined, false as bool, undefined, name)];
+    }
+
+    // store host result to be added to the output when it's actually visited
+    receiver!.expandoHosts!.set(id, NewSyntaxList(astFactory, replacement));
+    if (receiver!.lateStatementReplacementMap.has(id)) {
+      receiver!.lateStatementReplacementMap.set(id, DeclarationTransformer_createFullExpandoBlock(receiver, id));
+    }
+  } finally {
+    cleanupDiagnosticContext();
   }
-  const finalReplacement = defaultExport
-    ? [...replacement, NewExportAssignment(astFactory, undefined, false as bool, undefined, name)]
-    : replacement;
-  Set_Add(receiver!.expandoHosts, id);
-  receiver!.lateStatementReplacementMap.set(id, NewSyntaxList(astFactory, finalReplacement));
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/transform.go::method::DeclarationTransformer.createFullExpandoBlock","kind":"method","status":"implemented","sigHash":"89c47b9b171dd5443224cc3bbf27f09fbd639f66ae2b7a06b77e6927a8253b3e","bodyHash":"c5783bdcbfa60536475ad2af99add466abda5f043aa6bcba3a391c3cd4e105da"}
+ *
+ * Go source:
+ * func (tx *DeclarationTransformer) createFullExpandoBlock(id ast.NodeId) *ast.Node {
+ * 	n := tx.expandoHosts[id]
+ * 	if addOns, ok := tx.expandoMembers[id]; ok {
+ * 		var modifiers *ast.ModifierList
+ * 		var name *ast.Node
+ * 		var host []*ast.Node
+ * 		if n != nil && n.Kind == ast.KindSyntaxList {
+ * 			// find the first named syntax list element and use its' name & modifiers
+ * 			for c := range n.AsSyntaxList().IterChildren() {
+ * 				if c.Name() != nil {
+ * 					name = c.Name().Clone(tx.Factory())
+ * 					if c.Modifiers() != nil {
+ * 						modifiers = c.Modifiers().Clone(tx.Factory().AsNodeFactory())
+ * 					}
+ * 					break
+ * 				}
+ * 			}
+ * 			host = n.AsSyntaxList().Children
+ * 		} else if n != nil {
+ * 			name = n.Name().Clone(tx.Factory())
+ * 			if n.Modifiers() != nil {
+ * 				modifiers = n.Modifiers().Clone(tx.Factory().AsNodeFactory())
+ * 			}
+ * 			host = []*ast.Node{n}
+ * 		}
+ * 		if name != nil {
+ * 			moduleDecl := tx.Factory().NewModuleDeclaration(
+ * 				modifiers,
+ * 				ast.KindNamespaceKeyword,
+ * 				name,
+ * 				tx.Factory().NewModuleBlock(tx.Factory().NewNodeList(addOns)),
+ * 			)
+ * 			members := append(host, moduleDecl)
+ * 			return tx.Factory().NewSyntaxList(members)
+ * 		}
+ * 	}
+ * 	return n
+ * }
+ */
+export function DeclarationTransformer_createFullExpandoBlock(receiver: GoPtr<DeclarationTransformer>, id: NodeId): GoPtr<Node> {
+  const factory = Transformer_Factory(receiver!.__tsgoEmbedded0);
+  const astFactory = factory!.__tsgoEmbedded0;
+  const n = receiver!.expandoHosts!.get(id);
+  const addOns = receiver!.expandoMembers!.get(id);
+  if (addOns !== undefined) {
+    let modifiers: GoPtr<ModifierList>;
+    let name: GoPtr<Node>;
+    let host: GoSlice<GoPtr<Node>> = [];
+    if (n !== undefined && n!.Kind === KindSyntaxList) {
+      // find the first named syntax list element and use its' name & modifiers
+      for (const c of AsSyntaxList(n)!.Children) {
+        if (Node_Name(c) !== undefined) {
+          name = Node_Clone(Node_Name(c), astFactory!);
+          if (Node_Modifiers(c) !== undefined) {
+            modifiers = ModifierList_Clone(Node_Modifiers(c), astFactory);
+          }
+          break;
+        }
+      }
+      host = AsSyntaxList(n)!.Children;
+    } else if (n !== undefined) {
+      name = Node_Clone(Node_Name(n), astFactory!);
+      if (Node_Modifiers(n) !== undefined) {
+        modifiers = ModifierList_Clone(Node_Modifiers(n), astFactory);
+      }
+      host = [n];
+    }
+    if (name !== undefined) {
+      const moduleDecl = NewModuleDeclaration(
+        astFactory,
+        modifiers,
+        KindNamespaceKeyword,
+        name,
+        NewModuleBlock(astFactory, NodeFactory_NewNodeList(astFactory, addOns)),
+      );
+      const members = [...host, moduleDecl];
+      return NewSyntaxList(astFactory, members);
+    }
+  }
+  return n;
 }
 
 /**

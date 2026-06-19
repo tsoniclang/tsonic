@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../scalars.js";
 import type { TB } from "../../testing.js";
 import { DeepEqual as reflectDeepEqual } from "../../reflect.js";
 import { Sprint, Sprintf } from "../../fmt.js";

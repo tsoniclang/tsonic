@@ -1,4 +1,4 @@
-import type { long } from "@tsonic/core/types.js";
+import type { long } from "./scalars.js";
 
 export type Duration = long;
 

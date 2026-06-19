@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy to corpus.json (gitignored) and set cwd to absolute project paths on your machine. Each project: { name, cwd (abs dir), args (compiler args, e.g. -p tsconfig.json --noEmit) }. The harness appends --extendedDiagnostics. Use modern-config projects (target>=ES2015, module esnext/nodenext) so tsgo/TSTS support them.",
+  "projects": [
+    { "name": "lib-micro", "cwd": "/tmp", "args": ["--noEmit", "triv.ts"] },
+    { "name": "ms", "cwd": "/home/jeswin/temp/tsts-smoke/ms", "args": ["-p", "tsconfig.json", "--noEmit"] },
+    { "name": "immer", "cwd": "/home/jeswin/temp/tsts-smoke/immer", "args": ["-p", "tsconfig.json", "--noEmit"] },
+    { "name": "zod", "cwd": "/home/jeswin/temp/tsts-smoke/zod", "args": ["-p", "tsconfig.json", "--noEmit"] }
+  ]
+}

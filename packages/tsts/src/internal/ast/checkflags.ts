@@ -1,4 +1,4 @@
-import type { int, uint } from "@tsonic/core/types.js";
+import type { int, uint } from "../../go/scalars.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/checkflags.go::type::CheckFlags","kind":"type","status":"implemented","sigHash":"8783fe522e6fb728eda21975eac65cc4e65e974800f115a4801bc8cffe63fa24","bodyHash":"bc5b0aaffe170f45300b26c2000cf73afff3e70e2b4884987366c08876b2f849"}

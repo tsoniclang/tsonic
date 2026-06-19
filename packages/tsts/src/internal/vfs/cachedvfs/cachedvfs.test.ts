@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoError } from "../../../go/compat.js";
 import { FromMap } from "../vfstest/vfstest.js";
 import { Wrap } from "../vfsmock/wrapper.js";

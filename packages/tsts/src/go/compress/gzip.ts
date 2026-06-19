@@ -1,8 +1,7 @@
-import type { byte, int } from "@tsonic/core/types.js";
+import type { byte, int } from "../scalars.js";
 import type { GoError, GoSlice } from "../compat.js";
 import type { Reader as IoReader, Writer as IoWriter } from "../io.js";
 import { EOF } from "../io.js";
-import { toNodeBytes } from "../nodebytes.js";
 import * as nodeZlib from "node:zlib";
 
 export const BestCompression: int = 9 as int;
@@ -41,11 +40,7 @@ class gzipWriter implements IoWriter {
 
   Close(): GoError {
     try {
-      const gzipped = toNodeBytes(
-        nodeZlib.gzipSync(toNodeBytes(this.chunks), {
-          level: this.level as number,
-        })
-      );
+      const gzipped = nodeZlib.gzipSync(Buffer.from(this.chunks), { level: this.level as number });
       const [, err] = this.writer.Write(Array.from(gzipped) as GoSlice<byte>);
       return err;
     } catch (error) {
@@ -57,7 +52,7 @@ class gzipWriter implements IoWriter {
 export function NewReader(source: IoReader | GoSlice<byte> | Uint8Array | string): [gzipReader | undefined, GoError] {
   try {
     const bytes = sourceToBytes(source);
-    return [new gzipReader(toNodeBytes(nodeZlib.gunzipSync(bytes))), undefined];
+    return [new gzipReader(nodeZlib.gunzipSync(Buffer.from(bytes))), undefined];
   } catch (error) {
     return [undefined, normalizeError(error)];
   }
@@ -70,17 +65,15 @@ export function NewWriterLevel(writer: IoWriter, level: int): [gzipWriter | unde
   return [new gzipWriter(writer, level), undefined];
 }
 
-function sourceToBytes(
-  source: IoReader | GoSlice<byte> | Uint8Array | string
-): Uint8Array<ArrayBuffer> {
+function sourceToBytes(source: IoReader | GoSlice<byte> | Uint8Array | string): Uint8Array {
   if (typeof source === "string") {
-    return toNodeBytes(source);
+    return new TextEncoder().encode(source);
   }
   if (source instanceof Uint8Array) {
-    return toNodeBytes(source);
+    return source;
   }
   if (globalThis.Array.isArray(source)) {
-    return toNodeBytes(source);
+    return Uint8Array.from(source);
   }
   const chunks: number[] = [];
   const buffer = new Array<byte>(8192 as int);
@@ -96,7 +89,7 @@ function sourceToBytes(
       break;
     }
   }
-  return toNodeBytes(chunks);
+  return Uint8Array.from(chunks);
 }
 
 function normalizeError(error: unknown): GoError {

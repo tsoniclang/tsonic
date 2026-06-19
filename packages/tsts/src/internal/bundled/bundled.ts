@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import { existsSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,7 +49,7 @@ export function LibPath(): string {
  * 	return filepath.Dir(filepath.FromSlash(filename))
  * })
  */
-export const bundledSourceDir = (() => {
+export const bundledSourceDir: () => string = (() => {
   let value: string | undefined;
   return (): string => {
     if (value === undefined) {
@@ -76,7 +76,7 @@ export const bundledSourceDir = (() => {
  * 	return tspath.NormalizeSlashes(filepath.Join(bundledSourceDir(), "libs"))
  * })
  */
-export const testingLibPath = (() => {
+export const testingLibPath: () => string = (() => {
   let value: string | undefined;
   return (): string => {
     value ??= path.join(bundledSourceDir(), "libs").replaceAll(path.sep, "/");

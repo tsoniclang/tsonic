@@ -1,5 +1,5 @@
-import type { bool, int } from "@tsonic/core/types.js";
-import type { GoSlice } from "../../go/compat.js";
+import type { bool, int } from "../../go/scalars.js";
+import type { GoConstraint, GoSlice } from "../../go/compat.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/binarysearch.go::func::BinarySearchUniqueFunc","kind":"func","status":"implemented","sigHash":"eb9aa8d5ae45b66b6740ea5a604ff6184345506ebd0c4f35d9d51c339045e8f6","bodyHash":"6551b934ed24c11e0cd49d524a7771d895f2f69a3bbcb812b8afa3f69a536667"}
@@ -25,7 +25,7 @@ import type { GoSlice } from "../../go/compat.js";
  * 	return low, false
  * }
  */
-export function BinarySearchUniqueFunc<S extends GoSlice<E>, E>(x: S, cmp: (arg0: int, arg1: E) => int): [int, bool] {
+export function BinarySearchUniqueFunc<S extends GoConstraint<"~[]E"> & GoSlice<E>, E>(x: S, cmp: (arg0: int, arg1: E) => int): [int, bool] {
   const n = x.length as int;
   if (n === 0) {
     return [0 as int, false];

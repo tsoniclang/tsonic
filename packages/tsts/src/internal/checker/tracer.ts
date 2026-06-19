@@ -1,5 +1,6 @@
-import type { bool, int, uint } from "@tsonic/core/types.js";
+import type { bool, int, uint } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
+import * as maps from "../../go/maps.js";
 import { goReceiverKey } from "../ast/spine.js";
 import type { Node } from "../ast/spine.js";
 import type { Symbol as Symbol_0b94c68b } from "../ast/symbol.js";
@@ -40,29 +41,31 @@ import {
 import type { IntrinsicType, Type } from "./types.js";
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::type::Tracer","kind":"type","status":"implemented","sigHash":"f6f6cd010e9b895165c298c7bce581689d14754cbe933633c3878896feab31c3","bodyHash":"a85968b149300409ddc7bc9e41b6a21837139fba413b368f02c7ef1b03cd95dc"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::type::Tracer","kind":"type","status":"implemented","sigHash":"f6f6cd010e9b895165c298c7bce581689d14754cbe933633c3878896feab31c3","bodyHash":"6af7bd12623c8e5aa4fceed128e77b4c5f1aff234df6e3f6ad12f3af1e37d9d1"}
  *
  * Go source:
  * Tracer struct {
- * 	tracing  *tracing.Tracing
- * 	recorder tracing.Tracer
+ * 	tracing      *tracing.Tracing
+ * 	recorder     tracing.Tracer
+ * 	checkerIndex int
  * }
  */
 export interface Tracer {
   tracing: GoPtr<Tracing>;
   recorder: Tracer_5708eec8;
+  checkerIndex: int;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::func::NewTracer","kind":"func","status":"implemented","sigHash":"5a3eaee96bfab76e74b793560aeaf801e00b8c4e807ce1c849cb31588a5ed889","bodyHash":"ab7e0c9e8c50d53b0d7527c347155dc7bdab495edf785d302c2fd5939b199670"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::func::NewTracer","kind":"func","status":"implemented","sigHash":"5a3eaee96bfab76e74b793560aeaf801e00b8c4e807ce1c849cb31588a5ed889","bodyHash":"289772e26b78773e99ab1e7693cc622c039dec7b0b800bbf5d622ced274b4cdb"}
  *
  * Go source:
  * func NewTracer(tr *tracing.Tracing, checkerIndex int) *Tracer {
- * 	return &Tracer{tracing: tr, recorder: tr.NewTypeTracer(checkerIndex)}
+ * 	return &Tracer{tracing: tr, recorder: tr.NewTypeTracer(checkerIndex), checkerIndex: checkerIndex}
  * }
  */
 export function NewTracer(tr: GoPtr<Tracing>, checkerIndex: int): GoPtr<Tracer> {
-  return { tracing: tr, recorder: Tracing_NewTypeTracer(tr, checkerIndex) };
+  return { tracing: tr, recorder: Tracing_NewTypeTracer(tr, checkerIndex), checkerIndex: checkerIndex };
 }
 
 /**
@@ -78,27 +81,111 @@ export function Tracer_RecordType(receiver: GoPtr<Tracer>, typ: GoPtr<Type>): vo
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::method::Tracer.Push","kind":"method","status":"implemented","sigHash":"c9e8f40f38ad2a360fb5d7feb268c01130cda07d7ae8e72ba50ddc9ba3ac61c2","bodyHash":"91219a285a6a763fb5abeb18a7dce4279b9cdcf3aa1b355498045128885a7825"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::method::Tracer.Push","kind":"method","status":"implemented","sigHash":"c9e8f40f38ad2a360fb5d7feb268c01130cda07d7ae8e72ba50ddc9ba3ac61c2","bodyHash":"e88dbcebd844f398cde6caae509e79b0486ad4a802a1fec0abea34a545e71936"}
  *
  * Go source:
  * func (t *Tracer) Push(phase tracing.Phase, name string, args map[string]any, separateBeginAndEnd bool) func() {
- * 	return t.tracing.Push(phase, name, args, separateBeginAndEnd)
+ * 	if !separateBeginAndEnd {
+ * 		return t.tracing.Push(phase, name, t.copyWithCheckerIndex(args), separateBeginAndEnd)
+ * 	}
+ *
+ * 	args, restore := t.temporarilyAddCheckerIndex(args)
+ * 	pop := t.tracing.Push(phase, name, args, separateBeginAndEnd)
+ * 	restore()
+ *
+ * 	return func() {
+ * 		_, restoreEndArgs := t.temporarilyAddCheckerIndex(args)
+ * 		defer restoreEndArgs()
+ * 		pop()
+ * 	}
  * }
  */
 export function Tracer_Push(receiver: GoPtr<Tracer>, phase: Phase, name: string, args: GoMap<string, unknown>, separateBeginAndEnd: bool): () => void {
-  return Tracing_Push(receiver!.tracing, phase, name, args, separateBeginAndEnd);
+  if (!separateBeginAndEnd) {
+    return Tracing_Push(receiver!.tracing, phase, name, Tracer_copyWithCheckerIndex(receiver, args), separateBeginAndEnd);
+  }
+
+  const [args_0, restore] = Tracer_temporarilyAddCheckerIndex(receiver, args);
+  const pop = Tracing_Push(receiver!.tracing, phase, name, args_0, separateBeginAndEnd);
+  restore();
+
+  return (): void => {
+    const [, restoreEndArgs] = Tracer_temporarilyAddCheckerIndex(receiver, args_0);
+    try {
+      pop();
+    } finally {
+      restoreEndArgs();
+    }
+  };
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::method::Tracer.Instant","kind":"method","status":"implemented","sigHash":"706c5c33b0b24d2ff2766778e6fd828c2a8b1fb2f36c5b7c89d5cbda913a0b3a","bodyHash":"4e4fa48f481158b4ff63ccdd26ab9be07f7a85b5c7f4f4b4f123c9d3a9fed035"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::method::Tracer.Instant","kind":"method","status":"implemented","sigHash":"706c5c33b0b24d2ff2766778e6fd828c2a8b1fb2f36c5b7c89d5cbda913a0b3a","bodyHash":"9fdeaf3b692fff4d6836cfc4c6a4a81139302697684c3f365a4953e4ca51c2d4"}
  *
  * Go source:
  * func (t *Tracer) Instant(phase tracing.Phase, name string, args map[string]any) {
- * 	t.tracing.Instant(phase, name, args)
+ * 	t.tracing.Instant(phase, name, t.copyWithCheckerIndex(args))
  * }
  */
 export function Tracer_Instant(receiver: GoPtr<Tracer>, phase: Phase, name: string, args: GoMap<string, unknown>): void {
-  Tracing_Instant(receiver!.tracing, phase, name, args);
+  Tracing_Instant(receiver!.tracing, phase, name, Tracer_copyWithCheckerIndex(receiver, args));
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::method::Tracer.copyWithCheckerIndex","kind":"method","status":"implemented","sigHash":"223309489e8ee567b3134b7f9f5b146a7c372d260d48dd64462dfb057b694808","bodyHash":"0c5c2075287b14886037baee3a993e8c7afcc84df88b6b89830fede1d9ab910e"}
+ *
+ * Go source:
+ * func (t *Tracer) copyWithCheckerIndex(args map[string]any) map[string]any {
+ * 	withCheckerIndex := make(map[string]any, len(args)+1)
+ * 	maps.Copy(withCheckerIndex, args)
+ * 	withCheckerIndex["checkerId"] = t.checkerIndex
+ * 	return withCheckerIndex
+ * }
+ */
+export function Tracer_copyWithCheckerIndex(receiver: GoPtr<Tracer>, args: GoMap<string, unknown>): GoMap<string, unknown> {
+  const withCheckerIndex = new globalThis.Map<string, unknown>();
+  maps.Copy(withCheckerIndex, args ?? new globalThis.Map<string, unknown>());
+  withCheckerIndex.set("checkerId", receiver!.checkerIndex);
+  return withCheckerIndex;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::method::Tracer.temporarilyAddCheckerIndex","kind":"method","status":"implemented","sigHash":"05c282d023cb1d080e7ef6ff0e0c9b32197ec454d6c2ccc99ac9937252de6309","bodyHash":"ceb149b974f0c4cb90678a2f1169c885e08fc2451346b8335b75fb85b79cd22f"}
+ *
+ * Go source:
+ * func (t *Tracer) temporarilyAddCheckerIndex(args map[string]any) (map[string]any, func()) {
+ * 	if args == nil {
+ * 		args = map[string]any{}
+ * 	}
+ *
+ * 	previous, hadPrevious := args["checkerId"]
+ * 	args["checkerId"] = t.checkerIndex
+ *
+ * 	return args, func() {
+ * 		if hadPrevious {
+ * 			args["checkerId"] = previous
+ * 		} else {
+ * 			delete(args, "checkerId")
+ * 		}
+ * 	}
+ * }
+ */
+export function Tracer_temporarilyAddCheckerIndex(receiver: GoPtr<Tracer>, args: GoMap<string, unknown>): [GoMap<string, unknown>, () => void] {
+  if (args === undefined) {
+    args = new globalThis.Map<string, unknown>();
+  }
+
+  const hadPrevious = args.has("checkerId");
+  const previous = args.get("checkerId");
+  args.set("checkerId", receiver!.checkerIndex);
+
+  return [args, (): void => {
+    if (hadPrevious) {
+      args.set("checkerId", previous);
+    } else {
+      args.delete("checkerId");
+    }
+  }];
 }
 
 /**
@@ -121,7 +208,7 @@ export interface tracedTypeAdapter {
  * Go source:
  * var _ tracing.TracedType = (*tracedTypeAdapter)(nil)
  */
-export const __88a6f671_0: (t: GoPtr<Type>) => TracedType = wrapType;
+export const __88a6f671_0: TracedType = wrapType(undefined);
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/tracer.go::method::tracedTypeAdapter.Id","kind":"method","status":"implemented","sigHash":"1b5527e62eddf3209bac5d770df27dc9fd21a153ab2cf9a0163fbeb8ec218011","bodyHash":"243119c609768300ad153d96a1858edd0c54b28fb824be1cf41a626d1a2eedb5"}

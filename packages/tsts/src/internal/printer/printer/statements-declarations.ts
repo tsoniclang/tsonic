@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import { Node_AsNode, Node_End, Node_Name, Node_Modifiers, Node_Pos, NodeList_End } from "../../ast/spine.js";
@@ -213,7 +213,7 @@ import { Printer_emitEnumMemberNode, Printer_emitExpression, Printer_emitExpress
 import { Printer_emitHeritageClauseNode, Printer_emitTypeAliasDeclaration, Printer_emitTypeAnnotation, Printer_emitTypeElement, Printer_emitTypeParameters } from "./types.js";
 import { Printer_emitListRange } from "./source-maps.js";
 import { Printer_emitDetachedCommentsAfterStatementList, Printer_emitDetachedCommentsBeforeStatementList, Printer_emitPrologueDirectives, Printer_emitTrailingComments, Printer_writeComment } from "./comments.js";
-import { rangeEndIsOnSameLineAsRangeStart, rangeStartPositionsAreOnSameLine, greatestEnd } from "../utilities.js";
+import { rangeEndIsOnSameLineAsRangeStart, RangeStartPositionsAreOnSameLine, greatestEnd } from "../utilities.js";
 import { EFNoLeadingComments, EFNoSourceMap, EFReuseTempVariableScope } from "../emitflags.js";
 import { EmitContext_AddEmitFlags, EmitContext_CommentRange, EmitContext_EmitFlags, EmitContext_GetTypeNode } from "../emitcontext.js";
 import type { Printer } from "./state.js";
@@ -2504,7 +2504,7 @@ export function Printer_emitJsxNamespacedName(receiver: GoPtr<Printer>, node: Go
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitCaseOrDefaultClauseStatements","kind":"method","status":"implemented","sigHash":"be7449cee2ca2b07abaf69d0a2cd312760b706591ff0f105775c813e7f199e93","bodyHash":"f0158b87bdad6024d47164a250fee1bae8ab4964dcbecf3a2f27bf3ab53d7efb"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitCaseOrDefaultClauseStatements","kind":"method","status":"implemented","sigHash":"be7449cee2ca2b07abaf69d0a2cd312760b706591ff0f105775c813e7f199e93","bodyHash":"560c3345d0346354a0f7b671620da36500252b47bdc64c8c4bd6126938ed76f5"}
  *
  * Go source:
  * func (p *Printer) emitCaseOrDefaultClauseStatements(node *ast.CaseOrDefaultClause, colonPos int) {
@@ -2513,7 +2513,7 @@ export function Printer_emitJsxNamespacedName(receiver: GoPtr<Printer>, node: Go
  * 		(p.currentSourceFile == nil ||
  * 			ast.NodeIsSynthesized(node.AsNode()) ||
  * 			ast.NodeIsSynthesized(node.Statements.Nodes[0]) ||
- * 			rangeStartPositionsAreOnSameLine(node.Loc, node.Statements.Nodes[0].Loc, p.currentSourceFile))
+ * 			RangeStartPositionsAreOnSameLine(node.Loc, node.Statements.Nodes[0].Loc, p.currentSourceFile))
  * 
  * 	format := LFCaseOrDefaultClauseStatements
  * 	if emitAsSingleStatement {
@@ -2536,7 +2536,7 @@ export function Printer_emitCaseOrDefaultClauseStatements(receiver: GoPtr<Printe
     (receiver!.currentSourceFile === undefined ||
       NodeIsSynthesized(Node_AsNode(node)) ||
       NodeIsSynthesized(node!.Statements!.Nodes[0]) ||
-      rangeStartPositionsAreOnSameLine(node!.Loc, node!.Statements!.Nodes[0]!.Loc, receiver!.currentSourceFile));
+      RangeStartPositionsAreOnSameLine(node!.Loc, node!.Statements!.Nodes[0]!.Loc, receiver!.currentSourceFile));
 
   let format: int = LFCaseOrDefaultClauseStatements;
   if (emitAsSingleStatement) {

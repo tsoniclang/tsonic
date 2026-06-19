@@ -1,4 +1,4 @@
-import type { byte } from "@tsonic/core/types.js";
+import type { byte } from "../scalars.js";
 import type { GoError, GoSlice } from "../compat.js";
 
 const textDecoder = new TextDecoder();

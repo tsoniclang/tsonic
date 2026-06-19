@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Node, NodeList } from "../../ast/spine.js";
 import { NodeFactory_NewNodeList, Node_Name, Node_Clone, Node_SubtreeFacts } from "../../ast/spine.js";
@@ -872,7 +872,7 @@ export function objectRestSpreadTransformer_collectObjectRestAssignments(receive
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/objectrestspread.go::method::objectRestSpreadTransformer.visitCatchClause","kind":"method","status":"implemented","sigHash":"ca6e5c954dc01197dade0bedc2ba2d2e351adc50747fc04f3fc23d0660176052","bodyHash":"4056810b64edbd8037f8b3b09c23beab7004aab801be350283da5e0d0282943f"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/objectrestspread.go::method::objectRestSpreadTransformer.visitCatchClause","kind":"method","status":"implemented","sigHash":"ca6e5c954dc01197dade0bedc2ba2d2e351adc50747fc04f3fc23d0660176052","bodyHash":"fb4057a36acb703be1a4e634158ded3646cf3f49eda9516bb71a908af3edcbbf"}
  *
  * Go source:
  * func (ch *objectRestSpreadTransformer) visitCatchClause(node *ast.CatchClause) *ast.Node {

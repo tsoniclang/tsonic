@@ -1,4 +1,0 @@
-{
-  "modes": ["dotnet"],
-  "description": "LINQ Queryable (Expression<Func<...>>) inference + optional PascalCase class naming policy"
-}

@@ -65,7 +65,7 @@ import {
  * 	}
  * }
  */
-export function WriteConfigFile(sys: System, locale: Locale, reportDiagnostic: DiagnosticReporter, options: GoPtr<OrderedMap>): void {
+export function WriteConfigFile(sys: System, locale: Locale, reportDiagnostic: DiagnosticReporter, options: GoPtr<OrderedMap<string, unknown>>): void {
   const getCurrentDirectory = sys.GetCurrentDirectory();
   const file = NormalizePath(CombinePaths(getCurrentDirectory, "tsconfig.json"));
   if (sys.FS().FileExists(file)) {
@@ -267,7 +267,7 @@ export function WriteConfigFile(sys: System, locale: Locale, reportDiagnostic: D
  * 	return strings.Join(result, "\n")
  * }
  */
-export function generateTSConfig(options: GoPtr<OrderedMap>, locale: Locale): string {
+export function generateTSConfig(options: GoPtr<OrderedMap<string, unknown>>, locale: Locale): string {
   const tab = "  ";
   const result: string[] = [];
 
@@ -289,7 +289,7 @@ export function generateTSConfig(options: GoPtr<OrderedMap>, locale: Locale): st
     result.push(...args);
   };
 
-  const formatSingleValue = (value: unknown, enumMap: GoPtr<OrderedMap>): string => {
+  const formatSingleValue = (value: unknown, enumMap: GoPtr<OrderedMap<string, unknown>>): string => {
     let resolvedValue = value;
     if (enumMap !== undefined) {
       let found = false;
@@ -321,7 +321,7 @@ export function generateTSConfig(options: GoPtr<OrderedMap>, locale: Locale): st
     }
 
     if (globalThis.Array.isArray(value)) {
-      let enumMap: GoPtr<OrderedMap> = undefined;
+      let enumMap: GoPtr<OrderedMap<string, unknown>> = undefined;
       const elemOption = CommandLineOption_Elements(option);
       if (elemOption !== undefined) {
         enumMap = CommandLineOption_EnumMap(elemOption);

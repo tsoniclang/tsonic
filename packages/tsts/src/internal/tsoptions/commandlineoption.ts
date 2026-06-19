@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
 import type { Set } from "../collections/set.js";
@@ -186,7 +186,7 @@ export function CommandLineOption_DeprecatedKeys(receiver: GoPtr<CommandLineOpti
  * 	return commandLineOptionEnumMap[o.Name]
  * }
  */
-export function CommandLineOption_EnumMap(receiver: GoPtr<CommandLineOption>): GoPtr<OrderedMap> {
+export function CommandLineOption_EnumMap(receiver: GoPtr<CommandLineOption>): GoPtr<OrderedMap<string, unknown>> {
   const o = receiver!;
   if (o.Kind !== CommandLineOptionTypeEnum) {
     return undefined;
@@ -436,17 +436,17 @@ export const commandLineOptionElements: GoMap<string, GoPtr<CommandLineOption>> 
  * 	"fallbackPolling":  fallbackEnumMap,
  * }
  */
-export const commandLineOptionEnumMap: GoMap<string, GoPtr<OrderedMap>> = new globalThis.Map<string, GoPtr<OrderedMap>>([
-  ["lib", LibMap as GoPtr<OrderedMap>],
-  ["moduleResolution", moduleResolutionOptionMap as GoPtr<OrderedMap>],
-  ["module", moduleOptionMap as GoPtr<OrderedMap>],
-  ["target", targetOptionMap as GoPtr<OrderedMap>],
-  ["moduleDetection", moduleDetectionOptionMap as GoPtr<OrderedMap>],
-  ["jsx", jsxOptionMap as GoPtr<OrderedMap>],
-  ["newLine", newLineOptionMap as GoPtr<OrderedMap>],
-  ["watchFile", watchFileEnumMap as GoPtr<OrderedMap>],
-  ["watchDirectory", watchDirectoryEnumMap as GoPtr<OrderedMap>],
-  ["fallbackPolling", fallbackEnumMap as GoPtr<OrderedMap>],
+export const commandLineOptionEnumMap: GoMap<string, GoPtr<OrderedMap<string, unknown>>> = new globalThis.Map<string, GoPtr<OrderedMap<string, unknown>>>([
+  ["lib", LibMap as GoPtr<OrderedMap<string, unknown>>],
+  ["moduleResolution", moduleResolutionOptionMap as GoPtr<OrderedMap<string, unknown>>],
+  ["module", moduleOptionMap as GoPtr<OrderedMap<string, unknown>>],
+  ["target", targetOptionMap as GoPtr<OrderedMap<string, unknown>>],
+  ["moduleDetection", moduleDetectionOptionMap as GoPtr<OrderedMap<string, unknown>>],
+  ["jsx", jsxOptionMap as GoPtr<OrderedMap<string, unknown>>],
+  ["newLine", newLineOptionMap as GoPtr<OrderedMap<string, unknown>>],
+  ["watchFile", watchFileEnumMap as GoPtr<OrderedMap<string, unknown>>],
+  ["watchDirectory", watchDirectoryEnumMap as GoPtr<OrderedMap<string, unknown>>],
+  ["fallbackPolling", fallbackEnumMap as GoPtr<OrderedMap<string, unknown>>],
 ]);
 
 /**

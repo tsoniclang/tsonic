@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoComparable, GoError, GoMap, GoPtr, GoSeq, GoSeq2, GoSlice } from "../../go/compat.js";
 import { Int as reflect_Int, Int8 as reflect_Int8, Int16 as reflect_Int16, Int32 as reflect_Int32, Int64 as reflect_Int64, Uint as reflect_Uint, Uint8 as reflect_Uint8, Uint16 as reflect_Uint16, Uint32 as reflect_Uint32, Uint64 as reflect_Uint64, Uintptr as reflect_Uintptr, String as reflect_String, ValueOf as reflect_ValueOf } from "../../go/reflect.js";
 import type { Value } from "../../go/reflect.js";
@@ -132,7 +132,7 @@ export function NewOrderedMapFromList<K extends GoComparable, V>(items: GoSlice<
  * 	m.mp[key] = value
  * }
  */
-export function OrderedMap_Set<K, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K, value: V): void {
+export function OrderedMap_Set<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K, value: V): void {
   const m = receiver!;
   if (m.mp === undefined) {
     m.mp = new globalThis.Map<K, V>();
@@ -153,7 +153,7 @@ export function OrderedMap_Set<K, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K, 
  * 	return v, ok
  * }
  */
-export function OrderedMap_Get<K, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K): [V, bool] {
+export function OrderedMap_Get<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K): [V, bool] {
   const m = receiver!;
   const ok = m.mp.has(key);
   const v = m.mp.get(key) as V;
@@ -168,7 +168,7 @@ export function OrderedMap_Get<K, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K):
  * 	return m.mp[key]
  * }
  */
-export function OrderedMap_GetOrZero<K, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K): V {
+export function OrderedMap_GetOrZero<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K): V {
   const m = receiver!;
   return m.mp.get(key) as V;
 }
@@ -189,7 +189,7 @@ export function OrderedMap_GetOrZero<K, V>(receiver: GoPtr<OrderedMap<K, V>>, ke
  * 	return key, value, true
  * }
  */
-export function OrderedMap_EntryAt<K, V>(receiver: GoPtr<OrderedMap<K, V>>, index: int): [K, V, bool] {
+export function OrderedMap_EntryAt<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>, index: int): [K, V, bool] {
   const m = receiver!;
   if (index < 0 || index >= m.keys.length) {
     const zero = undefined as K;
@@ -211,7 +211,7 @@ export function OrderedMap_EntryAt<K, V>(receiver: GoPtr<OrderedMap<K, V>>, inde
  * 	return ok
  * }
  */
-export function OrderedMap_Has<K, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K): bool {
+export function OrderedMap_Has<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K): bool {
   const m = receiver!;
   const ok = m.mp.has(key);
   return ok;
@@ -246,7 +246,7 @@ export function OrderedMap_Has<K, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K):
  * 	return v, true
  * }
  */
-export function OrderedMap_Delete<K, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K): [V, bool] {
+export function OrderedMap_Delete<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>, key: K): [V, bool] {
   const m = receiver!;
   const v = m.mp.get(key) as V;
   const ok = m.mp.has(key);
@@ -296,7 +296,7 @@ export function OrderedMap_Delete<K, V>(receiver: GoPtr<OrderedMap<K, V>>, key: 
  * 	}
  * }
  */
-export function OrderedMap_Keys<K, V>(receiver: GoPtr<OrderedMap<K, V>>): GoSeq<K> {
+export function OrderedMap_Keys<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>): GoSeq<K> {
   const m = receiver;
   return (yield_: (value: K) => bool): void => {
     if (m === undefined) {
@@ -333,7 +333,7 @@ export function OrderedMap_Keys<K, V>(receiver: GoPtr<OrderedMap<K, V>>): GoSeq<
  * 	}
  * }
  */
-export function OrderedMap_Values<K, V>(receiver: GoPtr<OrderedMap<K, V>>): GoSeq<V> {
+export function OrderedMap_Values<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>): GoSeq<V> {
   const m = receiver;
   return (yield_: (value: V) => bool): void => {
     if (m === undefined) {
@@ -371,7 +371,7 @@ export function OrderedMap_Values<K, V>(receiver: GoPtr<OrderedMap<K, V>>): GoSe
  * 	}
  * }
  */
-export function OrderedMap_Entries<K, V>(receiver: GoPtr<OrderedMap<K, V>>): GoSeq2<K, V> {
+export function OrderedMap_Entries<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>): GoSeq2<K, V> {
   const m = receiver;
   return (yield_: (key: K, value: V) => bool): void => {
     if (m === undefined) {
@@ -401,7 +401,7 @@ export function OrderedMap_Entries<K, V>(receiver: GoPtr<OrderedMap<K, V>>): GoS
  * 	clear(m.mp)
  * }
  */
-export function OrderedMap_Clear<K, V>(receiver: GoPtr<OrderedMap<K, V>>): void {
+export function OrderedMap_Clear<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>): void {
   const m = receiver!;
   m.keys.length = 0;
   m.keys = m.keys.slice(0, 0);
@@ -420,7 +420,7 @@ export function OrderedMap_Clear<K, V>(receiver: GoPtr<OrderedMap<K, V>>): void 
  * 	return len(m.keys)
  * }
  */
-export function OrderedMap_Size<K, V>(receiver: GoPtr<OrderedMap<K, V>>): int {
+export function OrderedMap_Size<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>): int {
   const m = receiver;
   if (m === undefined) {
     return 0 as int;
@@ -442,7 +442,7 @@ export function OrderedMap_Size<K, V>(receiver: GoPtr<OrderedMap<K, V>>): int {
  * 	return &m2
  * }
  */
-export function OrderedMap_Clone<K, V>(receiver: GoPtr<OrderedMap<K, V>>): GoPtr<OrderedMap<K, V>> {
+export function OrderedMap_Clone<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>): GoPtr<OrderedMap<K, V>> {
   const m = receiver;
   if (m === undefined) {
     return undefined;
@@ -463,7 +463,7 @@ export function OrderedMap_Clone<K, V>(receiver: GoPtr<OrderedMap<K, V>>): GoPtr
  * 	}
  * }
  */
-export function OrderedMap_clone<K, V>(receiver: GoPtr<OrderedMap<K, V>>): OrderedMap<K, V> {
+export function OrderedMap_clone<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>): OrderedMap<K, V> {
   const m = receiver!;
   return {
     __tsgoBlank0: {},
@@ -514,7 +514,7 @@ export function OrderedMap_as_json_MarshalerTo<K, V>(receiver: GoPtr<OrderedMap<
  * 	return enc.WriteToken(json.EndObject)
  * }
  */
-export function OrderedMap_MarshalJSONTo<K, V>(receiver: GoPtr<OrderedMap<K, V>>, enc: GoPtr<Encoder>): GoError {
+export function OrderedMap_MarshalJSONTo<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>, enc: GoPtr<Encoder>): GoError {
   if (enc === undefined) {
     return new globalThis.Error("nil json encoder");
   }
@@ -629,7 +629,7 @@ export function OrderedMap_as_json_UnmarshalerFrom<K, V>(receiver: GoPtr<Ordered
  * 	return nil
  * }
  */
-export function OrderedMap_UnmarshalJSONFrom<K, V>(receiver: GoPtr<OrderedMap<K, V>>, dec: GoPtr<Decoder>): GoError {
+export function OrderedMap_UnmarshalJSONFrom<K extends GoComparable, V>(receiver: GoPtr<OrderedMap<K, V>>, dec: GoPtr<Decoder>): GoError {
   if (dec === undefined) {
     return new globalThis.Error("nil json decoder");
   }

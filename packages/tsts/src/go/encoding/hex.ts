@@ -1,4 +1,4 @@
-import type { byte } from "@tsonic/core/types.js";
+import type { byte } from "../scalars.js";
 import type { GoSlice } from "../compat.js";
 
 export function EncodeToString(source: GoSlice<byte> | Uint8Array): string {

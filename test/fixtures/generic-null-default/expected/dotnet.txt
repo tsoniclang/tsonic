@@ -1,6 +1,0 @@
-Error: something went wrong
-Value is null: False
-Value: 42
-Error is null: True
-Both null: True
-All tests passed!

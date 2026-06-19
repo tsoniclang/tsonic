@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import * as slices from "../../go/slices.js";
 import type { OrderedMap } from "../collections/ordered_map.js";

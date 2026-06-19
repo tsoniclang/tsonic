@@ -1,4 +1,4 @@
-import type { byte } from "@tsonic/core/types.js";
+import type { byte } from "../../go/scalars.js";
 import type { GoError, GoPtr, GoSlice } from "../../go/compat.js";
 import type { Reader as Reader_565be45f, Writer as Writer_8cbaef7c } from "../../go/bufio.js";
 import type { Reader as Reader_9d71ca04, Writer as Writer_51cf46eb } from "../../go/io.js";

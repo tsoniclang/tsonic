@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import { Contains, HasPrefix, HasSuffix, Index } from "../../go/strings.js";
 
@@ -62,14 +62,14 @@ export function Pattern_IsValid(receiver: GoPtr<Pattern>): bool {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/pattern.go::method::Pattern.Matches","kind":"method","status":"implemented","sigHash":"a3ec44c05de1eded892f96c3debcb3682317b700dd7c6d323cd34416002d4f54","bodyHash":"a1942230963c7d29fbf5019c4d6d2c45479418bca9d5396da2f57aadb2a34a9f"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/pattern.go::method::Pattern.Matches","kind":"method","status":"implemented","sigHash":"a3ec44c05de1eded892f96c3debcb3682317b700dd7c6d323cd34416002d4f54","bodyHash":"4bd59eb093ea857f03dee4e2059e8fcc22c101d546eb80bd48b119ea97a8bde0"}
  *
  * Go source:
  * func (p *Pattern) Matches(candidate string) bool {
  * 	if p.StarIndex == -1 {
  * 		return p.Text == candidate
  * 	}
- * 	return len(candidate) >= p.StarIndex &&
+ * 	return len(candidate) >= len(p.Text)-1 &&
  * 		strings.HasPrefix(candidate, p.Text[:p.StarIndex]) &&
  * 		strings.HasSuffix(candidate, p.Text[p.StarIndex+1:])
  * }
@@ -80,7 +80,7 @@ export function Pattern_Matches(receiver: GoPtr<Pattern>, candidate: string): bo
     return p.Text === candidate;
   }
   return (
-    byteLen(candidate) >= p.StarIndex &&
+    byteLen(candidate) >= byteLen(p.Text) - 1 &&
     HasPrefix(candidate, byteSlice(p.Text, 0, p.StarIndex)) &&
     HasSuffix(candidate, byteSlice(p.Text, p.StarIndex + 1))
   );

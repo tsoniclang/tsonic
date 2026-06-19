@@ -1,6 +1,7 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import { Every, Find, FirstOrNil, Filter, Some } from "../core/core.js";
 import type { GoComparable, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
+import * as slices from "../../go/slices.js";
 import type { Node, NodeList } from "../ast/spine.js";
 import { IsTypeOrJSTypeAliasDeclaration, Node_Arguments, Node_Body, Node_Elements, Node_Expression, Node_ImportClause, Node_Initializer, Node_Members, Node_ModifierFlags, Node_Parameters, Node_Properties, Node_PropertyNameOrName, Node_Text, Node_Type, Node_TypeArguments, SourceFile_FileName, SourceFile_Path, SourceFile_Text } from "../ast/ast.js";
 import { goReceiverKey, Node_FlowNodeData, Node_ForEachChild, Node_Name, Node_Pos, NodeList_End, NodeList_Pos } from "../ast/spine.js";
@@ -8,8 +9,8 @@ import type { HasFileName, SourceFile } from "../ast/ast.js";
 import type { ClassLikeDeclaration, EntityName, SignatureDeclaration } from "../ast/generated/unions.js";
 import type { ParameterDeclaration } from "../ast/generated/data.js";
 import { AsBinaryExpression, AsBindingElement, AsElementAccessExpression, AsExportAssignment, AsForStatement, AsImportEqualsDeclaration, AsImportTypeNode, AsJsxExpression, AsNamedTupleMember, AsParameterDeclaration, AsTypeReferenceNode, AsVariableDeclarationList, AsVariableStatement } from "../ast/generated/casts.js";
-import type { FindAncestorResult } from "../ast/utilities.js";
-import { ClassOrConstructorParameterIsDecorated, EntityNameToString, FindAncestor, FindAncestorOrQuit, FindAncestorFalse, FindAncestorQuit, FindAncestorTrue, GetAssignmentTarget, GetCombinedModifierFlags, GetContainingClass, GetExtendsHeritageClauseElements, GetImmediatelyInvokedFunctionExpression, GetPropertyNameForPropertyNameNode, GetRootDeclaration, GetSourceFileOfNode, HasAccessorModifier, HasModifier, HasQuestionToken, HasStaticModifier, HasSyntacticModifier, IsAccessExpression, IsAssertionExpression, IsAssignmentExpression, IsBindableStaticAccessExpression, IsBindableStaticNameExpression, IsCallOrNewExpression, IsClassElement, IsClassLike, IsExpandoPropertyDeclaration, IsExternalModuleAugmentation, IsFunctionLike, IsFunctionLikeOrClassStaticBlockDeclaration, IsGlobalSourceFile, IsInJSFile, IsPartOfTypeNode, IsJsxOpeningLikeElement, IsLogicalBinaryOperator, IsParameterPropertyDeclaration, IsPrivateIdentifierClassElementDeclaration, IsPropertyName, IsPrototypeAccess, IsStatic, IsVarConst, IsVariableDeclarationInitializedToRequire, NewHasFileName, SkipParentheses, WalkUpParenthesizedExpressions } from "../ast/utilities.js";
+import type { FindAncestorResult, OuterExpressionKinds } from "../ast/utilities.js";
+import { ClassOrConstructorParameterIsDecorated, EntityNameToString, FindAncestor, FindAncestorOrQuit, FindAncestorFalse, FindAncestorQuit, FindAncestorTrue, GetAssignmentTarget, GetCombinedModifierFlags, GetContainingClass, GetExtendsHeritageClauseElements, GetImmediatelyInvokedFunctionExpression, GetPropertyNameForPropertyNameNode, GetRootDeclaration, GetSourceFileOfNode, HasAccessorModifier, HasModifier, HasQuestionToken, HasStaticModifier, HasSyntacticModifier, IsAccessExpression, IsAssertionExpression, IsAssignmentExpression, IsBindableStaticAccessExpression, IsBindableStaticNameExpression, IsCallOrNewExpression, IsClassElement, IsClassLike, IsExpandoPropertyDeclaration, IsExternalModuleAugmentation, IsFunctionLike, IsFunctionLikeOrClassStaticBlockDeclaration, IsGlobalSourceFile, IsInJSFile, IsOuterExpression, IsPartOfTypeNode, IsJsxOpeningLikeElement, IsLogicalBinaryOperator, IsParameterPropertyDeclaration, IsPrivateIdentifierClassElementDeclaration, IsPropertyName, IsPrototypeAccess, IsStatic, IsThisParameter, IsVarConst, IsVariableDeclarationInitializedToRequire, NewHasFileName, OEKAll, SkipParentheses, WalkUpParenthesizedExpressions } from "../ast/utilities.js";
 import { IsArrayLiteralExpression, IsAssignmentOperator, IsBinaryExpression, IsCallExpression, IsCatchClause, IsComputedPropertyName, IsDecorator, IsElementAccessExpression, IsExportAssignment, IsExportSpecifier, IsExpressionStatement, IsForStatement, IsGetAccessorDeclaration, IsIdentifier, IsImportDeclaration, IsInterfaceDeclaration, IsLogicalOrCoalescingAssignmentOperator, IsModuleBlock, IsNamespaceExport, IsNonNullExpression, IsObjectLiteralExpression, IsParameterDeclaration, IsParenthesizedExpression, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, IsTaggedTemplateExpression, IsTypeLiteralNode, IsVariableDeclaration, IsVoidExpression } from "../ast/generated/predicates.js";
 import { IsJsxNamespacedName } from "../ast/generated/predicates.js";
 import { ContainerFlagsIsContainer, GetContainerFlags } from "../binder/binder.js";
@@ -201,6 +202,7 @@ import { TokenFlagsContainsSeparator } from "../ast/tokenflags.js";
 import { EscapeString, QuoteCharDoubleQuote } from "../printer/utilities.js";
 import { GetTypesPackageName, MangleScopedPackageName } from "../module/util.js";
 import type { ResolvedModule } from "../module/types.js";
+import { ResolvedModule_IsProviderVirtual } from "../module/types.js";
 import { ExtensionDts, ExtensionJs, ExtensionMjs, ExtensionMts, ExtensionTs, TryGetExtensionFromPath } from "../tspath/extension.js";
 import { CombinePaths } from "../tspath/path.js";
 import { ScriptKindJS, ScriptKindJSX } from "../core/scriptkind.js";
@@ -2208,6 +2210,16 @@ export function isDeclarationReadonly(declaration: GoPtr<Node>): bool {
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::constGroup::orderedSetMapThreshold","kind":"constGroup","status":"implemented","sigHash":"0a8e7c6dda3a0579ec52981a0cec6db48bd2bbe244db49d9552a9dc2217416af","bodyHash":"4562a3ed8000e6cd8fe18da48f5328aea40f866c9404e0a8006250dbcfa13274"}
+ *
+ * Go source:
+ * // orderedSetMapThreshold is the size at which an orderedSet materializes its dedup map.
+ * // Below this, contains() scans the values slice.
+ * const orderedSetMapThreshold = 16
+ */
+export const orderedSetMapThreshold: int = 16;
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::type::orderedSet","kind":"type","status":"implemented","sigHash":"0b8cbabe0644feba32a9e54af5d9e781c38f6cef14766411376b73b8cfa700ba","bodyHash":"2c7752c6016345bde032fc1f305ae9cc0aeca157c4ea70bbeea23f728cda0636"}
  *
  * Go source:
@@ -2222,36 +2234,58 @@ export interface orderedSet<T extends GoComparable = unknown> {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::method::orderedSet.contains","kind":"method","status":"implemented","sigHash":"2460cca9f495c58bfd288bba1cb596fcda44bfefe3d01c509566a50a397acd7d","bodyHash":"b21516737e740c0bc4a427e9e50241356f4d2a281c3e05556801a33ee503dc94"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::method::orderedSet.contains","kind":"method","status":"implemented","sigHash":"2460cca9f495c58bfd288bba1cb596fcda44bfefe3d01c509566a50a397acd7d","bodyHash":"566d28f8827e3ee25409a906ed7c2f2cf40e79775f18c54f175244ea42ff9c20"}
  *
  * Go source:
  * func (s *orderedSet[T]) contains(value T) bool {
+ * 	if s.valuesByKey == nil {
+ * 		return slices.Contains(s.values, value)
+ * 	}
  * 	_, ok := s.valuesByKey[value]
  * 	return ok
  * }
  */
-export function orderedSet_contains<T>(receiver: GoPtr<orderedSet<T>>, value: T): bool {
+export function orderedSet_contains<T extends GoComparable>(receiver: GoPtr<orderedSet<T>>, value: T): bool {
+  if (receiver!.valuesByKey === undefined) {
+    return slices.Contains(receiver!.values, value);
+  }
   return receiver!.valuesByKey.has(value) as bool;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::method::orderedSet.add","kind":"method","status":"implemented","sigHash":"780f9106360da89759277f7728d7eacda5a81d3279d5126745fad67e81a89be6","bodyHash":"4be6f96df9e04cba0b1a3b82f23309402b69191d75b43f1356ecab4e28ea617e"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::method::orderedSet.add","kind":"method","status":"implemented","sigHash":"780f9106360da89759277f7728d7eacda5a81d3279d5126745fad67e81a89be6","bodyHash":"d91896cac02b90eea0bbcc54457f6917a003cebb08cf1ad5a47dc61b800f58f4"}
  *
  * Go source:
  * func (s *orderedSet[T]) add(value T) {
+ * 	s.values = append(s.values, value)
+ * 	// Small sets are served by a linear scan over values; only materialize the map once the set
+ * 	// grows large enough for hashing to win.
  * 	if s.valuesByKey == nil {
- * 		s.valuesByKey = make(map[T]struct{})
+ * 		if len(s.values) <= orderedSetMapThreshold {
+ * 			return
+ * 		}
+ * 		s.valuesByKey = make(map[T]struct{}, len(s.values))
+ * 		for _, v := range s.values[:len(s.values)-1] {
+ * 			s.valuesByKey[v] = struct{}{}
+ * 		}
  * 	}
  * 	s.valuesByKey[value] = struct{}{}
- * 	s.values = append(s.values, value)
  * }
  */
-export function orderedSet_add<T>(receiver: GoPtr<orderedSet<T>>, value: T): void {
+export function orderedSet_add<T extends GoComparable>(receiver: GoPtr<orderedSet<T>>, value: T): void {
+  receiver!.values = [...receiver!.values, value];
+  // Small sets are served by a linear scan over values; only materialize the map once the set
+  // grows large enough for hashing to win.
   if (receiver!.valuesByKey === undefined) {
+    if (receiver!.values.length <= orderedSetMapThreshold) {
+      return;
+    }
     receiver!.valuesByKey = new globalThis.Map<T, { readonly __tsgoEmpty?: never }>();
+    for (const v of receiver!.values.slice(0, receiver!.values.length - 1)) {
+      receiver!.valuesByKey.set(v, {});
+    }
   }
   receiver!.valuesByKey.set(value, {});
-  receiver!.values = [...receiver!.values, value];
 }
 
 /**
@@ -3302,6 +3336,8 @@ export interface FeatureMapEntry {
   props: GoSlice<string>;
 }
 
+let featureMapValue: GoMap<string, GoSlice<FeatureMapEntry>> | undefined;
+
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::varGroup::getFeatureMap","kind":"varGroup","status":"implemented","sigHash":"91d7ad405cbb9f158b0e038918e57e5a622b254e3ce64301f4ab9869573decd5","bodyHash":"8798a4060347aaeb280d75e0077067a092b3df12b5e70469a4cdb9b68fdb818a"}
  *
@@ -3568,7 +3604,7 @@ export interface FeatureMapEntry {
  * 	}
  * })
  */
-const featureMapValue: GoMap<string, GoSlice<FeatureMapEntry>> = new Map<string, GoSlice<FeatureMapEntry>>([
+export const getFeatureMap: () => GoMap<string, GoSlice<FeatureMapEntry>> = (): GoMap<string, GoSlice<FeatureMapEntry>> => (featureMapValue ??= new Map<string, GoSlice<FeatureMapEntry>>([
   ["Array", [
     { lib: "es2015", props: ["find", "findIndex", "fill", "copyWithin", "entries", "keys", "values"] },
     { lib: "es2016", props: ["includes"] },
@@ -3779,9 +3815,7 @@ const featureMapValue: GoMap<string, GoSlice<FeatureMapEntry>> = new Map<string,
   ["Date", [
     { lib: "esnext", props: ["toTemporalInstant"] },
   ]],
-]);
-
-export const getFeatureMap = (): GoMap<string, GoSlice<FeatureMapEntry>> => featureMapValue;
+]));
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::func::rangeOfTypeParameters","kind":"func","status":"implemented","sigHash":"3b96c6d77a3011eff67caed0c5370d8d0c0e881c217e70234a2ce374030685d1","bodyHash":"d2c5ff22c84983fb52406c10b321a8873d61b10e82b9480d194c80956ad0734a"}
@@ -4077,7 +4111,7 @@ export function Checker_getPackagesMap(receiver: GoPtr<Checker>): GoMap<string, 
     for (const [, resolvedModulesInFile] of resolvedModules) {
       for (const [, module_] of resolvedModulesInFile) {
         const module = module_ as GoPtr<ResolvedModule>;
-        if (module !== undefined && module!.PackageId.Name !== "") {
+        if (module !== undefined && !ResolvedModule_IsProviderVirtual(module) && module!.PackageId.Name !== "") {
           receiver!.packagesMap.set(
             module!.PackageId.Name,
             (receiver!.packagesMap.get(module!.PackageId.Name) || module!.Extension === ExtensionDts) as bool,
@@ -4425,4 +4459,46 @@ export function CreateModeMismatchDetails(program: Program, file: GoPtr<SourceFi
     Message: To_convert_this_file_to_an_ECMAScript_module_create_a_local_package_json_file_with_type_Colon_module,
     Args: [],
   };
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::func::walkUpOuterExpressions","kind":"func","status":"implemented","sigHash":"c2401f9056b80e8194cdd77103fc9831e946143748df574cca22f11da0bd54ba","bodyHash":"c713159fd8767cea05104b3326527803391b2a89a9c9d8a8bd16073410c7bca5"}
+ *
+ * Go source:
+ * func walkUpOuterExpressions(node *ast.Node) *ast.Node {
+ * 	parent := node.Parent
+ * 	for parent != nil && ast.IsOuterExpression(parent, ast.OEKAll) {
+ * 		parent = parent.Parent
+ * 	}
+ * 	return parent
+ * }
+ */
+export function walkUpOuterExpressions(node: GoPtr<Node>): GoPtr<Node> {
+  let parent = node!.Parent;
+  while (parent !== undefined && IsOuterExpression(parent, OEKAll as OuterExpressionKinds)) {
+    parent = parent!.Parent;
+  }
+  return parent;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/utilities.go::func::GetSetAccessorValueParameter","kind":"func","status":"implemented","sigHash":"8b6c176bcd814a545ab1c61fc6111b90dde1031cd17af47d95ad82ea23d8f500","bodyHash":"ffe76edd64512f7772c89916b27ed8bfeba747030a6cebad165b47faf1e1ae19"}
+ *
+ * Go source:
+ * func GetSetAccessorValueParameter(accessor *ast.Node) *ast.Node {
+ * 	parameters := accessor.Parameters()
+ * 	if len(parameters) > 0 {
+ * 		hasThis := len(parameters) == 2 && ast.IsThisParameter(parameters[0])
+ * 		return parameters[core.IfElse(hasThis, 1, 0)]
+ * 	}
+ * 	return nil
+ * }
+ */
+export function GetSetAccessorValueParameter(accessor: GoPtr<Node>): GoPtr<Node> {
+  const parameters = Node_Parameters(accessor);
+  if (parameters.length > 0) {
+    const hasThis = (parameters.length === 2 && IsThisParameter(parameters[0])) as bool;
+    return parameters[hasThis ? 1 : 0];
+  }
+  return undefined;
 }

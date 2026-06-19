@@ -1,9 +1,0 @@
-{
-  "symlinks": [
-    {
-      "from": "external/nodejs-next/versions/10",
-      "to": "workspace/apps/proof/node_modules/@tsonic/nodejs",
-      "type": "dir"
-    }
-  ]
-}

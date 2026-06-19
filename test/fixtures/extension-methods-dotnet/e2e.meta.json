@@ -1,4 +1,0 @@
-{
-  "modes": ["dotnet"],
-  "description": "Instance-style extension method calls + user-declared extension methods (thisarg)"
-}

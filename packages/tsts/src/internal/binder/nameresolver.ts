@@ -1,10 +1,10 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import { Node_Locals, Node_Body, Node_Type, Node_Parameters, Node_Expression, Node_Symbol, Node_LocalSymbol, AsSourceFile, Node_ModuleSpecifier, Node_Text } from "../ast/ast.js";
 import { Node_Name, Node_BodyData, Node_ForEachChild, Node_Pos, Node_End } from "../ast/spine.js";
 import type { Node } from "../ast/ast.js";
 import { AsConditionalTypeNode, AsFunctionExpression, AsHeritageClause, AsParameterDeclaration, AsBindingElement, AsInferTypeNode, AsExportSpecifier, AsPropertyDeclaration, AsTypeParameterDeclaration } from "../ast/generated/casts.js";
-import { KindSourceFile, KindModuleDeclaration, KindEnumDeclaration, KindPropertyDeclaration, KindClassDeclaration, KindClassExpression, KindInterfaceDeclaration, KindExpressionWithTypeArguments, KindComputedPropertyName, KindMethodDeclaration, KindConstructor, KindGetAccessor, KindSetAccessor, KindFunctionDeclaration, KindFunctionExpression, KindDecorator, KindParameter, KindBindingElement, KindInferType, KindExportSpecifier, KindConditionalType, KindTypeParameter, KindExtendsKeyword, KindTypeAliasDeclaration, KindJSTypeAliasDeclaration, KindNamespaceExport, KindArrowFunction, KindPropertyAssignment } from "../ast/generated/kinds.js";
+import { KindSourceFile, KindModuleDeclaration, KindEnumDeclaration, KindPropertyDeclaration, KindClassDeclaration, KindClassExpression, KindInterfaceDeclaration, KindExpressionWithTypeArguments, KindComputedPropertyName, KindMethodDeclaration, KindConstructor, KindGetAccessor, KindSetAccessor, KindFunctionDeclaration, KindFunctionExpression, KindDecorator, KindParameter, KindBindingElement, KindInferType, KindExportSpecifier, KindConditionalType, KindTypeParameter, KindExtendsKeyword, KindTypeAliasDeclaration, KindJSTypeAliasDeclaration, KindNamespaceExport, KindArrowFunction, KindPropertyAssignment, KindJSDoc, KindJSDocParameterTag, KindJSDocReturnTag } from "../ast/generated/kinds.js";
 import { NodeFlagsSynthesized, NodeFlagsAmbient, SymbolFlagsFunction } from "../ast/generated/flags.js";
 import { SymbolFlagsType, SymbolFlagsTypeParameter, SymbolFlagsVariable, SymbolFlagsFunctionScopedVariable, SymbolFlagsClass, SymbolFlagsGlobalLookup, SymbolFlagsModuleMember, SymbolFlagsEnumMember, SymbolFlagsProperty, SymbolFlagsTransient, SymbolFlagsAlias, SymbolFlagsValue } from "../ast/symbolflags.js";
 import { ModifierFlagsDefault, ModifierFlagsAsync } from "../ast/modifierflags.js";
@@ -14,7 +14,7 @@ import type { Symbol, SymbolTable } from "../ast/symbol.js";
 import type { SymbolFlags } from "../ast/symbolflags.js";
 import {
   IsConstAssertion, IsModuleOrEnumDeclaration, IsGlobalSourceFile, IsFunctionLike,
-  IsBindingPattern, IsParameterLike, IsPartOfParameterDeclaration, IsClassLike,
+  IsBindingPattern, IsPartOfParameterDeclaration, IsClassLike,
   IsClassElement, IsExternalOrCommonJSModule, IsGlobalScopeAugmentation, GetDeclarationOfKind,
   IsStatic, FindConstructorDeclaration, IsNullishCoalesce, IsOptionalChain, IsTypeNode,
   IsFunctionLikeDeclaration, HasStaticModifier, GetImmediatelyInvokedFunctionExpression,
@@ -67,7 +67,7 @@ export interface NameResolver {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/nameresolver.go::method::NameResolver.Resolve","kind":"method","status":"implemented","sigHash":"0f4191719b08d3d15de2cc99cabc73488e5180e51315fa460d804c84d8b01a66","bodyHash":"02ed75ae3c423ed6d0fdd4c00e35ffd2745febc8d08f672b84586a65a52acbaa"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/nameresolver.go::method::NameResolver.Resolve","kind":"method","status":"implemented","sigHash":"0f4191719b08d3d15de2cc99cabc73488e5180e51315fa460d804c84d8b01a66","bodyHash":"0c2e96ad7cf683854f32ec77d555f59dce70168fa56b07f768ab2362298a6811"}
  *
  * Go source:
  * func (r *NameResolver) Resolve(location *ast.Node, name string, meaning ast.SymbolFlags, nameNotFoundMessage *diagnostics.Message, isUse bool, excludeGlobals bool) *ast.Symbol {
@@ -104,8 +104,18 @@ export interface NameResolver {
  * 					// - Type parameters of a function are in scope in the entire function declaration, including the parameter
  * 					//   list and return type. However, local types are only in scope in the function body.
  * 					// - parameters are only in the scope of function body
- * 					if meaning&result.Flags&ast.SymbolFlagsType != 0 {
- * 						useResult = result.Flags&ast.SymbolFlagsTypeParameter != 0 && (lastLocation == location.Type() || ast.IsParameterLike(lastLocation))
+ * 					// This restriction does not apply to JSDoc comment types because they are parented
+ * 					// at a higher level than type parameters would normally be
+ * 					if meaning&result.Flags&ast.SymbolFlagsType != 0 && lastLocation.Kind != ast.KindJSDoc {
+ * 						// type parameters are visible in parameter list, return type and type parameter list.
+ * 						// Synthetic fake scopes are added for signatures so type parameters are accessible from them.
+ * 						useResult = result.Flags&ast.SymbolFlagsTypeParameter != 0 &&
+ * 							(lastLocation.Flags&ast.NodeFlagsSynthesized != 0 ||
+ * 								lastLocation == location.Type() ||
+ * 								lastLocation.Kind == ast.KindParameter ||
+ * 								lastLocation.Kind == ast.KindJSDocParameterTag ||
+ * 								lastLocation.Kind == ast.KindJSDocReturnTag ||
+ * 								lastLocation.Kind == ast.KindTypeParameter)
  * 					}
  * 					if meaning&result.Flags&ast.SymbolFlagsVariable != 0 {
  * 						// expression inside parameter will lookup as normal variable scope when targeting es2015+
@@ -414,9 +424,18 @@ export function NameResolver_Resolve(receiver: GoPtr<NameResolver>, location: Go
           // - Type parameters of a function are in scope in the entire function declaration, including the parameter
           //   list and return type. However, local types are only in scope in the function body.
           // - parameters are only in the scope of function body
-          if ((meaning & result!.Flags & SymbolFlagsType) !== 0) {
+          // This restriction does not apply to JSDoc comment types because they are parented
+          // at a higher level than type parameters would normally be
+          if ((meaning & result!.Flags & SymbolFlagsType) !== 0 && lastLocation!.Kind !== KindJSDoc) {
+            // type parameters are visible in parameter list, return type and type parameter list.
+            // Synthetic fake scopes are added for signatures so type parameters are accessible from them.
             useResult = (result!.Flags & SymbolFlagsTypeParameter) !== 0 &&
-              (lastLocation === Node_Type(location) || IsParameterLike(lastLocation));
+              ((lastLocation!.Flags & NodeFlagsSynthesized) !== 0 ||
+                lastLocation === Node_Type(location) ||
+                lastLocation!.Kind === KindParameter ||
+                lastLocation!.Kind === KindJSDocParameterTag ||
+                lastLocation!.Kind === KindJSDocReturnTag ||
+                lastLocation!.Kind === KindTypeParameter);
           }
           if ((meaning & result!.Flags & SymbolFlagsVariable) !== 0) {
             // expression inside parameter will lookup as normal variable scope when targeting es2015+

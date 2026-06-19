@@ -1,7 +1,11 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../go/scalars.js";
 import { Args, Exit, Stderr } from "../../go/os.js";
 import { Fprintln } from "../../go/fmt.js";
 import type { Writer } from "../../go/io.js";
+import { Background } from "../../go/context.js";
+import { NotifyContext } from "../../go/os/signal.js";
+import { SIGINT, SIGTERM } from "../../go/syscall.js";
+import { ApplyDebugStackLimit } from "../../internal/core/core.js";
 import { CommandLine } from "../../internal/execute/tsc.js";
 import { runAPI } from "./api.js";
 import { newSystem, osSys_as_tsc_System } from "./sys.js";
@@ -19,10 +23,11 @@ export function main(): void {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::cmd/tsgo/main.go::func::runMain","kind":"func","status":"implemented","sigHash":"7a440dbeaa39ecf531185f0c253125a97b7e7dd79e07179c951f6b2809023b4f","bodyHash":"4c0d9be47470ffc9adb6769aaa63e17f07ad553c1d92b744e591b11f2fa6d9fb"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::cmd/tsgo/main.go::func::runMain","kind":"func","status":"implemented","sigHash":"7a440dbeaa39ecf531185f0c253125a97b7e7dd79e07179c951f6b2809023b4f","bodyHash":"3bd2c285d68f3f611a0d3e8a32047678eb112e0fa7a7829b7cb8d2c53388610b"}
  *
  * Go source:
  * func runMain() int {
+ * 	core.ApplyDebugStackLimit()
  * 	args := os.Args[1:]
  * 	if len(args) > 0 {
  * 		switch args[0] {
@@ -32,11 +37,14 @@ export function main(): void {
  * 			return runAPI(args[1:])
  * 		}
  * 	}
- * 	result := execute.CommandLine(newSystem(), args, nil)
+ * 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+ * 	defer stop()
+ * 	result := execute.CommandLine(ctx, newSystem(), args, nil)
  * 	return int(result.Status)
  * }
  */
 export function runMain(): int {
+  ApplyDebugStackLimit();
   const args = Args.slice(1);
   if (args.length > 0) {
     switch (args[0]) {
@@ -47,6 +55,11 @@ export function runMain(): int {
         return runAPI(args.slice(1));
     }
   }
-  const result = CommandLine(osSys_as_tsc_System(newSystem()), args, undefined);
-  return result.Status as int;
+  const [ctx, stop] = NotifyContext(Background(), SIGINT as NodeJS.Signals, SIGTERM as NodeJS.Signals);
+  try {
+    const result = CommandLine(ctx, osSys_as_tsc_System(newSystem()), args, undefined);
+    return result.Status as int;
+  } finally {
+    stop();
+  }
 }

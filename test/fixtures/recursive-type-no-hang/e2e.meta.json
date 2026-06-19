@@ -1,3 +1,0 @@
-{
-  "description": "Recursive types should compile without hanging (cycle guard test)"
-}

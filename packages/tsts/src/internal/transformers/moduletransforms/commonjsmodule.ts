@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 import { AsSourceFile, Node_Text, SourceFile_FileName, SourceFile_Path, Node_Elements, Node_Properties, Node_Expression, Node_Initializer } from "../../ast/ast.js";
 import type { HasFileName, SourceFile } from "../../ast/ast.js";
@@ -7,7 +7,7 @@ import { Node_SubtreeFacts } from "../../ast/spine.js";
 import type { ModifierList, Node, NodeVisitor } from "../../ast/spine.js";
 import { Node_AsNode } from "../../ast/spine.js";
 import { NodeFactory_NewNodeList } from "../../ast/spine.js";
-import { NewArrowFunction, NewBinaryExpression, NewBlock, NewCallExpression, NewClassDeclaration, NewElementAccessExpression, NewExpressionStatement, NewFunctionDeclaration, NewFunctionExpression, NewObjectLiteralExpression, NewParameterDeclaration, NewPropertyAccessExpression, NewPropertyAssignment, NewReturnStatement, NewSetAccessorDeclaration, NewStringLiteral, NewTemplateExpression, NewTemplateHead, NewTemplateSpan, NewTemplateTail, NewToken, NewVariableDeclaration, NewVariableDeclarationList, NewVariableStatement, NewIdentifier, NewClassExpression, NewShorthandPropertyAssignment, NewLabeledStatement } from "../../ast/generated/factory.js";
+import { NewArrowFunction, NewBinaryExpression, NewBlock, NewCallExpression, NewClassDeclaration, NewElementAccessExpression, NewEmptyStatement, NewExpressionStatement, NewFunctionDeclaration, NewFunctionExpression, NewObjectLiteralExpression, NewParameterDeclaration, NewPropertyAccessExpression, NewPropertyAssignment, NewReturnStatement, NewSetAccessorDeclaration, NewStringLiteral, NewTemplateExpression, NewTemplateHead, NewTemplateSpan, NewTemplateTail, NewToken, NewVariableDeclaration, NewVariableDeclarationList, NewVariableStatement, NewIdentifier, NewClassExpression, NewShorthandPropertyAssignment, NewLabeledStatement } from "../../ast/generated/factory.js";
 import { AsArrayLiteralExpression, AsBinaryExpression, AsBlock, AsCaseBlock, AsCaseOrDefaultClause, AsCatchClause, AsClassDeclaration, AsExportAssignment, AsExportDeclaration, AsFunctionDeclaration, AsForInOrOfStatement, AsForStatement, AsImportClause, AsImportDeclaration, AsImportEqualsDeclaration, AsImportSpecifier, AsPropertyAssignment, AsShorthandPropertyAssignment, AsSpreadAssignment, AsVariableDeclaration, AsVariableDeclarationList, AsVariableStatement } from "../../ast/generated/casts.js";
 import { IsArrowFunction, IsArrayLiteralExpression, IsBlock, IsBinaryExpression, IsClassExpression, IsFunctionExpression, IsIdentifier, IsImportClause, IsImportDeclaration, IsImportSpecifier, IsNamedExports, IsObjectLiteralExpression, IsOmittedExpression, IsSourceFile, IsSpreadElement, IsStringLiteral, IsVariableDeclaration, IsVariableDeclarationList } from "../../ast/generated/predicates.js";
 import { HasSyntacticModifier, IsBindingPattern, ModuleExportNameIsDefault, IsDefaultImport, GetNamespaceDeclarationNode } from "../../ast/utilities.js";
@@ -252,13 +252,13 @@ export function CommonJSModuleTransformer_visitTopLevelNested(receiver: GoPtr<Co
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/moduletransforms/commonjsmodule.go::method::CommonJSModuleTransformer.visitTopLevelNestedNoStack","kind":"method","status":"implemented","sigHash":"f958e2fec85bd486349c7485d0713fe49db9162c22b14ffe83b1f20c3931c010","bodyHash":"218a65973e9a1c2f55fcc245cd00ae79b6de314cd194f294b58dbabc8a7805e8"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/moduletransforms/commonjsmodule.go::method::CommonJSModuleTransformer.visitTopLevelNestedNoStack","kind":"method","status":"implemented","sigHash":"f958e2fec85bd486349c7485d0713fe49db9162c22b14ffe83b1f20c3931c010","bodyHash":"ff41309d2d85d495090fe016413775905a49b96084ab2332faf872ce6737c9b5"}
  *
  * Go source:
  * func (tx *CommonJSModuleTransformer) visitTopLevelNestedNoStack(node *ast.Node) *ast.Node {
  * 	switch node.Kind {
  * 	case ast.KindVariableStatement:
- * 		node = tx.visitTopLevelNestedVariableStatement(node.AsVariableStatement())
+ * 		node = tx.visitTopLevelVariableStatement(node.AsVariableStatement())
  * 	case ast.KindForStatement:
  * 		node = tx.visitTopLevelNestedForStatement(node.AsForStatement())
  * 	case ast.KindForInStatement, ast.KindForOfStatement:
@@ -294,7 +294,7 @@ export function CommonJSModuleTransformer_visitTopLevelNested(receiver: GoPtr<Co
 export function CommonJSModuleTransformer_visitTopLevelNestedNoStack(receiver: GoPtr<CommonJSModuleTransformer>, node: GoPtr<Node>): GoPtr<Node> {
   switch (node!.Kind) {
     case KindVariableStatement:
-      node = CommonJSModuleTransformer_visitTopLevelNestedVariableStatement(receiver, AsVariableStatement(node));
+      node = CommonJSModuleTransformer_visitTopLevelVariableStatement(receiver, AsVariableStatement(node));
       break;
     case KindForStatement:
       node = CommonJSModuleTransformer_visitTopLevelNestedForStatement(receiver, AsForStatement(node) as GoPtr<ForStatement>);
@@ -1214,7 +1214,7 @@ export function CommonJSModuleTransformer_appendExportsOfClassOrFunctionDeclarat
  * 	return statements
  * }
  */
-export function CommonJSModuleTransformer_appendExportsOfDeclaration(receiver: GoPtr<CommonJSModuleTransformer>, statements: GoSlice<GoPtr<Statement>>, decl: GoPtr<Declaration>, seen: GoPtr<Set>, liveBinding: bool): GoSlice<GoPtr<Statement>> {
+export function CommonJSModuleTransformer_appendExportsOfDeclaration(receiver: GoPtr<CommonJSModuleTransformer>, statements: GoSlice<GoPtr<Statement>>, decl: GoPtr<Declaration>, seen: GoPtr<Set<string>>, liveBinding: bool): GoSlice<GoPtr<Statement>> {
   if (receiver!.currentModuleInfo!.exportEquals !== undefined) {
     return statements;
   }
@@ -1254,7 +1254,7 @@ export function CommonJSModuleTransformer_appendExportsOfDeclaration(receiver: G
  * 	return statements
  * }
  */
-export function CommonJSModuleTransformer_appendExportStatement(receiver: GoPtr<CommonJSModuleTransformer>, statements: GoSlice<GoPtr<Statement>>, seen: GoPtr<Set>, exportName: GoPtr<ModuleExportName>, expression: GoPtr<Expression>, location: GoPtr<TextRange>, allowComments: bool, liveBinding: bool): GoSlice<GoPtr<Statement>> {
+export function CommonJSModuleTransformer_appendExportStatement(receiver: GoPtr<CommonJSModuleTransformer>, statements: GoSlice<GoPtr<Statement>>, seen: GoPtr<Set<string>>, exportName: GoPtr<ModuleExportName>, expression: GoPtr<Expression>, location: GoPtr<TextRange>, allowComments: bool, liveBinding: bool): GoSlice<GoPtr<Statement>> {
   if (exportName!.Kind !== KindStringLiteral) {
     if (Set_Has(seen, Node_Text(exportName))) {
       return statements;
@@ -2389,13 +2389,13 @@ export function CommonJSModuleTransformer_visitTopLevelVariableStatement(receive
     commitPendingVariables();
     commitPendingExpressions();
     statements = CommonJSModuleTransformer_appendExportsOfVariableStatement(receiver, statements, node);
-    return SingleOrMany(statements, pf);
+    return SingleOrMany(statements.length === 0 ? undefined : statements, pf);
   }
   return CommonJSModuleTransformer_visitTopLevelNestedVariableStatement(receiver, node);
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/moduletransforms/commonjsmodule.go::method::CommonJSModuleTransformer.transformInitializedVariable","kind":"method","status":"implemented","sigHash":"78eb78c1cdd835f3c0cb10f0e029f1cb6214f5b84486a1ef29b1f3f4a15bf6ec","bodyHash":"e005df86fb9121c43b7a12668806354dc4d9d2eea7925fc870a99e160d3be72d"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/moduletransforms/commonjsmodule.go::method::CommonJSModuleTransformer.transformInitializedVariable","kind":"method","status":"implemented","sigHash":"78eb78c1cdd835f3c0cb10f0e029f1cb6214f5b84486a1ef29b1f3f4a15bf6ec","bodyHash":"1bbbfa0fb36cc1f1fcaff7f32e8efd89bbf7d17dea09c76024e59a96d8629a77"}
  *
  * Go source:
  * func (tx *CommonJSModuleTransformer) transformInitializedVariable(node *ast.VariableDeclaration) *ast.Expression {
@@ -2404,13 +2404,14 @@ export function CommonJSModuleTransformer_visitTopLevelVariableStatement(receive
  * 	}
  * 	name := node.Name()
  * 	if ast.IsBindingPattern(name) {
- * 		return transformers.FlattenDestructuringAssignment(
- * 			&tx.Transformer,
- * 			tx.Visitor().VisitNode(node.AsNode()),
- * 			false, /*needsValue* /
- * 			transformers.FlattenLevelAll,
- * 			tx.createAllExportExpressions,
- * 		)
+ * 		// Convert the binding pattern into an equivalent assignment expression and visit it
+ * 		// as a destructuring assignment. This preserves native destructuring (and therefore
+ * 		// iterator semantics for array patterns) whenever each leaf identifier can be
+ * 		// substituted to an export reference. Only when the destructuring would assign to
+ * 		// re-aliased or multi-exported names (where native destructuring cannot update all
+ * 		// targets) does `visitDestructuringAssignment` fall back to flattening.
+ * 		assignment := transformers.ConvertVariableDeclarationToAssignmentExpression(tx.EmitContext(), node)
+ * 		return tx.visitDestructuringAssignment(assignment.AsBinaryExpression(), true /*valueIsDiscarded* /)
  * 	}
  * 	propertyAccess := tx.Factory().NewPropertyAccessExpression(
  * 		tx.Factory().NewIdentifier("exports"),
@@ -2429,16 +2430,16 @@ export function CommonJSModuleTransformer_transformInitializedVariable(receiver:
   const pf = Transformer_Factory(receiver!.__tsgoEmbedded0!);
   const f = pf!.__tsgoEmbedded0!;
   const emitContext = Transformer_EmitContext(receiver!.__tsgoEmbedded0!);
-  const visitor = Transformer_Visitor(receiver!.__tsgoEmbedded0!) as ConcreteNodeVisitor;
   const name = node!.name;
   if (IsBindingPattern(name)) {
-    return FlattenDestructuringAssignment(
-      receiver!.__tsgoEmbedded0!,
-      NodeVisitor_VisitNode(visitor, Node_AsNode(node)),
-      false, /*needsValue*/
-      FlattenLevelAll,
-      (n, v, loc) => CommonJSModuleTransformer_createAllExportExpressions(receiver, n, v, loc),
-    );
+    // Convert the binding pattern into an equivalent assignment expression and visit it
+    // as a destructuring assignment. This preserves native destructuring (and therefore
+    // iterator semantics for array patterns) whenever each leaf identifier can be
+    // substituted to an export reference. Only when the destructuring would assign to
+    // re-aliased or multi-exported names (where native destructuring cannot update all
+    // targets) does `visitDestructuringAssignment` fall back to flattening.
+    const assignment = ConvertVariableDeclarationToAssignmentExpression(emitContext, node);
+    return CommonJSModuleTransformer_visitDestructuringAssignment(receiver, AsBinaryExpression(assignment) as GoPtr<BinaryExpression>, true as bool /*valueIsDiscarded*/);
   }
   const propertyAccess = NewPropertyAccessExpression(f,
     NewIdentifier(f, "exports"),
@@ -2687,26 +2688,25 @@ export function CommonJSModuleTransformer_visitTopLevelNestedWhileStatement(rece
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/moduletransforms/commonjsmodule.go::method::CommonJSModuleTransformer.visitTopLevelNestedLabeledStatement","kind":"method","status":"implemented","sigHash":"5bc10d83027114b85d93f1452423f91dc7bcbd9cbc9be0bf8e1ba2d27f6f1b6a","bodyHash":"f94490048dc25d3afdcc28434a82e5448559251a902542ec1e99c95dfd804ce0"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/moduletransforms/commonjsmodule.go::method::CommonJSModuleTransformer.visitTopLevelNestedLabeledStatement","kind":"method","status":"implemented","sigHash":"5bc10d83027114b85d93f1452423f91dc7bcbd9cbc9be0bf8e1ba2d27f6f1b6a","bodyHash":"06669a1a51c62daa8a73b01c0cee971491651e683d1923c02d1b2fe352f9d028"}
  *
  * Go source:
  * func (tx *CommonJSModuleTransformer) visitTopLevelNestedLabeledStatement(node *ast.LabeledStatement) *ast.Node {
- * 	return tx.Factory().UpdateLabeledStatement(
- * 		node,
- * 		node.Label,
- * 		tx.topLevelNestedVisitor.VisitEmbeddedStatement(node.Statement),
- * 	)
+ * 	statement := tx.topLevelNestedVisitor.VisitEmbeddedStatement(node.Statement)
+ * 	if statement == nil {
+ * 		statement = tx.Factory().NewEmptyStatement()
+ * 	}
+ * 	return tx.Factory().UpdateLabeledStatement(node, node.Label, statement)
  * }
  */
 export function CommonJSModuleTransformer_visitTopLevelNestedLabeledStatement(receiver: GoPtr<CommonJSModuleTransformer>, node: GoPtr<LabeledStatement>): GoPtr<Node> {
   const f = Transformer_Factory(receiver!.__tsgoEmbedded0!)!.__tsgoEmbedded0!;
   const topLevelNestedVisitor = receiver!.topLevelNestedVisitor as ConcreteNodeVisitor;
-  return NodeFactory_UpdateLabeledStatement(
-    f,
-    node,
-    node!.Label,
-    NodeVisitor_VisitEmbeddedStatement(topLevelNestedVisitor, node!.Statement),
-  );
+  let statement = NodeVisitor_VisitEmbeddedStatement(topLevelNestedVisitor, node!.Statement);
+  if (statement === undefined) {
+    statement = NewEmptyStatement(f);
+  }
+  return NodeFactory_UpdateLabeledStatement(f, node, node!.Label, statement);
 }
 
 /**
@@ -2734,29 +2734,30 @@ export function CommonJSModuleTransformer_visitTopLevelNestedWithStatement(recei
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/moduletransforms/commonjsmodule.go::method::CommonJSModuleTransformer.visitTopLevelNestedIfStatement","kind":"method","status":"implemented","sigHash":"9274818fdb55e5799f6d9f624a4d6d5bca70e339112f39f72800e749a9ba1e74","bodyHash":"3fe186eb0997e21a9a59d7f50b9a7848cd067d4f55e02cf7f4b72d48adb47a17"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/moduletransforms/commonjsmodule.go::method::CommonJSModuleTransformer.visitTopLevelNestedIfStatement","kind":"method","status":"implemented","sigHash":"9274818fdb55e5799f6d9f624a4d6d5bca70e339112f39f72800e749a9ba1e74","bodyHash":"255692db810da3db98ec30e1a4cce90f753078c7cea6d312b525af24f546e6ac"}
  *
  * Go source:
  * func (tx *CommonJSModuleTransformer) visitTopLevelNestedIfStatement(node *ast.IfStatement) *ast.Node {
- * 	return tx.Factory().UpdateIfStatement(
- * 		node,
- * 		tx.Visitor().VisitNode(node.Expression),
- * 		tx.topLevelNestedVisitor.VisitEmbeddedStatement(node.ThenStatement),
- * 		tx.topLevelNestedVisitor.VisitEmbeddedStatement(node.ElseStatement),
- * 	)
+ * 	expression := tx.Visitor().VisitNode(node.Expression)
+ * 	thenStatement := tx.topLevelNestedVisitor.VisitEmbeddedStatement(node.ThenStatement)
+ * 	if thenStatement == nil {
+ * 		thenStatement = tx.Factory().NewBlock(tx.Factory().NewNodeList(nil), false /*multiLine* /)
+ * 	}
+ * 	elseStatement := tx.topLevelNestedVisitor.VisitEmbeddedStatement(node.ElseStatement)
+ * 	return tx.Factory().UpdateIfStatement(node, expression, thenStatement, elseStatement)
  * }
  */
 export function CommonJSModuleTransformer_visitTopLevelNestedIfStatement(receiver: GoPtr<CommonJSModuleTransformer>, node: GoPtr<IfStatement>): GoPtr<Node> {
   const f = Transformer_Factory(receiver!.__tsgoEmbedded0!)!.__tsgoEmbedded0!;
   const visitor = Transformer_Visitor(receiver!.__tsgoEmbedded0!) as ConcreteNodeVisitor;
   const topLevelNestedVisitor = receiver!.topLevelNestedVisitor as ConcreteNodeVisitor;
-  return NodeFactory_UpdateIfStatement(
-    f,
-    node,
-    NodeVisitor_VisitNode(visitor, node!.Expression),
-    NodeVisitor_VisitEmbeddedStatement(topLevelNestedVisitor, node!.ThenStatement),
-    NodeVisitor_VisitEmbeddedStatement(topLevelNestedVisitor, node!.ElseStatement),
-  );
+  const expression = NodeVisitor_VisitNode(visitor, node!.Expression);
+  let thenStatement = NodeVisitor_VisitEmbeddedStatement(topLevelNestedVisitor, node!.ThenStatement);
+  if (thenStatement === undefined) {
+    thenStatement = NewBlock(f, NodeFactory_NewNodeList(f, []), false as bool /*multiLine*/);
+  }
+  const elseStatement = NodeVisitor_VisitEmbeddedStatement(topLevelNestedVisitor, node!.ElseStatement);
+  return NodeFactory_UpdateIfStatement(f, node, expression, thenStatement, elseStatement);
 }
 
 /**
@@ -3105,7 +3106,7 @@ export function CommonJSModuleTransformer_visitDestructuringAssignment(receiver:
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/moduletransforms/commonjsmodule.go::method::CommonJSModuleTransformer.destructuringNeedsFlattening","kind":"method","status":"implemented","sigHash":"eed0d8a80cbac31da6548beea1813aaba3c53c8245df06a4c1a3d5a1cc06db9f","bodyHash":"5b47b3364567b0ad5f607b97f9cd7ab23f272b623706387ab6c66b3ed426e3de"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/moduletransforms/commonjsmodule.go::method::CommonJSModuleTransformer.destructuringNeedsFlattening","kind":"method","status":"implemented","sigHash":"eed0d8a80cbac31da6548beea1813aaba3c53c8245df06a4c1a3d5a1cc06db9f","bodyHash":"f4e8340be77aef3a540af98bf22a52f0f01a21eb219d50d26ff8ff565e6a6c84"}
  *
  * Go source:
  * func (tx *CommonJSModuleTransformer) destructuringNeedsFlattening(node *ast.Node) bool {
@@ -3140,11 +3141,22 @@ export function CommonJSModuleTransformer_visitDestructuringAssignment(receiver:
  * 		}
  * 	} else if ast.IsIdentifier(node) {
  * 		exportedNames := tx.getExports(node)
- * 		threshold := 0
  * 		if transformers.IsExportName(tx.EmitContext(), node) {
- * 			threshold = 1
+ * 			// The identifier is already wrapped to be an export reference; tolerate up to one
+ * 			// matching export.
+ * 			return len(exportedNames) > 1
  * 		}
- * 		return len(exportedNames) > threshold
+ * 		if len(exportedNames) == 0 {
+ * 			return false
+ * 		}
+ * 		// A single direct export whose export name matches the identifier text can be handled
+ * 		// natively: substitution will rewrite the identifier to `exports.X`, so no flattening
+ * 		// is needed. Re-aliased exports (where the export name differs from the local name) or
+ * 		// multi-exported names cannot be expressed natively in a destructuring assignment.
+ * 		if len(exportedNames) == 1 && tx.isDirectExport(node) && exportedNames[0].Text() == node.Text() {
+ * 			return false
+ * 		}
+ * 		return true
  * 	}
  * 	return false
  * }
@@ -3187,11 +3199,22 @@ export function CommonJSModuleTransformer_destructuringNeedsFlattening(receiver:
     }
   } else if (IsIdentifier(node)) {
     const exportedNames = CommonJSModuleTransformer_getExports(receiver, node);
-    let threshold = 0;
     if (IsExportName(emitContext, node)) {
-      threshold = 1;
+      // The identifier is already wrapped to be an export reference; tolerate up to one
+      // matching export.
+      return (exportedNames.length > 1) as bool;
     }
-    return exportedNames.length > threshold;
+    if (exportedNames.length === 0) {
+      return false as bool;
+    }
+    // A single direct export whose export name matches the identifier text can be handled
+    // natively: substitution will rewrite the identifier to `exports.X`, so no flattening
+    // is needed. Re-aliased exports (where the export name differs from the local name) or
+    // multi-exported names cannot be expressed natively in a destructuring assignment.
+    if (exportedNames.length === 1 && CommonJSModuleTransformer_isDirectExport(receiver, node) && Node_Text(exportedNames[0]!) === Node_Text(node)) {
+      return false as bool;
+    }
+    return true as bool;
   }
   return false;
 }

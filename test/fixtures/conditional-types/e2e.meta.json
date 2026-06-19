@@ -1,3 +1,0 @@
-{
-  "description": "Conditional type aliases (including infer clauses) are accepted and compile in AOT mode."
-}

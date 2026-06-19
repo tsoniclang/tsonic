@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import { Builder } from "../../go/strings.js";
 import * as strings from "../../go/strings.js";
@@ -14,11 +14,19 @@ import type { EmitTextWriter } from "./emittextwriter.js";
 // byte slicing `s[i:]` operates on byte offsets. We mirror that contract by
 // operating over the UTF-8 byte view and converting back at the boundaries.
 const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
+const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8", { ignoreBOM: true });
 const byteLen = (s: string): int => utf8Encoder.encode(s).length;
 const byteSliceFrom = (s: string, start: int): string => {
   const bytes = utf8Encoder.encode(s);
   return utf8Decoder.decode(bytes.subarray(start));
+};
+const currentColumnByWriter = new WeakMap<textWriter, UTF16Offset>();
+const textWriter_getCurrentColumn = (w: textWriter): UTF16Offset => currentColumnByWriter.get(w) ?? UTF16Len(byteSliceFrom(w.builder.String(), w.linePos));
+const textWriter_setCurrentColumn = (w: textWriter, column: UTF16Offset): void => {
+  currentColumnByWriter.set(w, column);
+};
+const textWriter_addCurrentColumn = (w: textWriter, text: string): void => {
+  textWriter_setCurrentColumn(w, textWriter_getCurrentColumn(w) + UTF16Len(text));
 };
 
 // textWriter_as_EmitTextWriter adapts a *textWriter to the EmitTextWriter
@@ -71,7 +79,6 @@ export const __f8aeeddb_0: EmitTextWriter = textWriter_as_EmitTextWriter({
   lineStart: false,
   lineCount: 0,
   linePos: 0,
-  column: 0,
   hasTrailingCommentState: false,
 });
 
@@ -88,7 +95,6 @@ export const __f8aeeddb_0: EmitTextWriter = textWriter_as_EmitTextWriter({
  * 	lineStart               bool
  * 	lineCount               int
  * 	linePos                 int
- * 	column                  core.UTF16Offset
  * 	hasTrailingCommentState bool
  * }
  */
@@ -101,7 +107,6 @@ export interface textWriter {
   lineStart: bool;
   lineCount: int;
   linePos: int;
-  column: UTF16Offset;
   hasTrailingCommentState: bool;
 }
 
@@ -123,8 +128,8 @@ export function textWriter_Clear(receiver: GoPtr<textWriter>): void {
   w.lineStart = true;
   w.lineCount = 0;
   w.linePos = 0;
-  w.column = 0;
   w.hasTrailingCommentState = false;
+  textWriter_setCurrentColumn(w, 0);
 }
 
 /**
@@ -171,7 +176,7 @@ export function textWriter_GetColumn(receiver: GoPtr<textWriter>): UTF16Offset {
   if (w.lineStart) {
     return w.indent * w.indentSize;
   }
-  return w.column;
+  return textWriter_getCurrentColumn(w);
 }
 
 /**
@@ -354,11 +359,11 @@ export function textWriter_updateLineCountAndPosFor(receiver: GoPtr<textWriter>,
     const curLen = w.builder.Len();
     w.linePos = curLen - byteLen(s) + lastLineStart;
     w.lineStart = w.linePos - curLen === 0;
-    w.column = UTF16Len(byteSliceFrom(s, lastLineStart));
+    textWriter_setCurrentColumn(w, UTF16Len(byteSliceFrom(s, lastLineStart)));
     return;
   }
   w.lineStart = false;
-  w.column += UTF16Len(s);
+  textWriter_addCurrentColumn(w, s);
 }
 
 /**
@@ -423,7 +428,7 @@ export function textWriter_writeText(receiver: GoPtr<textWriter>, s: string): vo
     if (w.lineStart) {
       const indentText = getIndentString(w.indent, w.indentSize);
       w.builder.WriteString(indentText);
-      w.column = w.indent * w.indentSize;
+      textWriter_setCurrentColumn(w, UTF16Len(indentText));
       w.lineStart = false;
     }
     w.builder.WriteString(s);
@@ -503,8 +508,8 @@ export function textWriter_writeLineRaw(receiver: GoPtr<textWriter>): void {
   w.lineCount++;
   w.linePos = w.builder.Len();
   w.lineStart = true;
-  w.column = 0;
   w.hasTrailingCommentState = false;
+  textWriter_setCurrentColumn(w, 0);
 }
 
 /**
@@ -687,7 +692,6 @@ export function NewTextWriter(newLine: string, indentSize: int): EmitTextWriter 
     lineStart: false,
     lineCount: 0,
     linePos: 0,
-    column: 0,
     hasTrailingCommentState: false,
   };
   w.newLine = newLine;

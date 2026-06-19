@@ -1,8 +1,0 @@
-{
-  "runtime": "dotnet",
-  "rootNamespace": "NullableNarrowing",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "nullable-narrowing"
-}

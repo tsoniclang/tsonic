@@ -1,4 +1,4 @@
-import type { byte, int } from "@tsonic/core/types.js";
+import type { byte, int } from "./scalars.js";
 import type { GoError, GoSlice } from "./compat.js";
 import * as nodeFs from "node:fs";
 import * as nodeOs from "node:os";
@@ -8,7 +8,6 @@ import type { Writable } from "node:stream";
 import { NodeFS } from "./io/fs.js";
 import type { FileInfo, FS } from "./io/fs.js";
 import type { Writer } from "./io.js";
-import { toNodeBytes } from "./nodebytes.js";
 
 export const Args: GoSlice<string> = [process.argv[1] ?? process.argv[0] ?? "node", ...process.argv.slice(2)];
 export const Interrupt = "SIGINT";
@@ -30,11 +29,7 @@ class NodeFile implements File {
 
   Write(p: GoSlice<byte>): [int, GoError] {
     try {
-      const bytes = toNodeBytes(p);
-      return [
-        nodeFs.writeSync(this.fd, bytes, 0, bytes.length) as int,
-        undefined,
-      ];
+      return [nodeFs.writeSync(this.fd, Buffer.from(p), 0, p.length) as int, undefined];
     } catch (error) {
       return [0 as int, normalizeError(error)];
     }
@@ -66,7 +61,7 @@ class NodeFile implements File {
 // fs.writeSync on a piped stdio fd can perform short writes and raise EAGAIN when the
 // pipe buffer is full (the fd is non-blocking under the libuv event loop), which would
 // silently truncate compiler output. Loop to full completion to keep Go semantics.
-function writeFullySync(fd: int, bytes: Uint8Array<ArrayBuffer>): void {
+function writeFullySync(fd: int, bytes: Buffer): void {
   let offset = 0;
   while (offset < bytes.length) {
     try {
@@ -85,7 +80,7 @@ class stdioFile implements File {
 
   Write(p: GoSlice<byte>): [int, GoError] {
     try {
-      const bytes = toNodeBytes(p);
+      const bytes = Buffer.from(p);
       if (this.fd >= 0) {
         writeFullySync(this.fd, bytes);
         return [bytes.length as int, undefined];
@@ -99,7 +94,7 @@ class stdioFile implements File {
 
   WriteString(s: string): [int, GoError] {
     try {
-      const bytes = toNodeBytes(s);
+      const bytes = Buffer.from(s, "utf8");
       if (this.fd >= 0) {
         writeFullySync(this.fd, bytes);
         return [bytes.length as int, undefined];

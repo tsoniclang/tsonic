@@ -7,13 +7,13 @@
 // `errors.Is(err, strconv.ErrRange)` works. Multiple returns map to tuples
 // `[value, GoError]`.
 //
-// Numeric note: every @tsonic/core numeric alias (int/long/uint/ulong/...) is a
+// Numeric note: every internal Go scalar alias (int/long/uint/ulong/...) is a
 // JavaScript `number`. typescript-go only parses/formats values that comfortably
 // fit in a double (line numbers, char codes, small ids), so we operate on `number`.
 // Range checks honour the requested bitSize using exact integer math where the
 // magnitude is within Number.MAX_SAFE_INTEGER.
 
-import type { bool, int, long, ulong } from "@tsonic/core/types.js";
+import type { bool, int, long, ulong } from "./scalars.js";
 import type { GoError } from "./compat.js";
 import { errorString } from "./errors.js";
 

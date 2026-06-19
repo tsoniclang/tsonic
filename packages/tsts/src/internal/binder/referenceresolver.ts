@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import { Node_IsTypeOnly, Node_Symbol, AsSourceFile } from "../ast/ast.js";
 import { Node_Name, NodeDefault_AsNode } from "../ast/spine.js";
@@ -18,7 +18,7 @@ import { NameResolver_Resolve } from "./nameresolver.js";
 import type { NameResolver } from "./nameresolver.js";
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/referenceresolver.go::type::ReferenceResolver","kind":"type","status":"implemented","sigHash":"116c7dbca6419fe3a56769e505765cff79fed3244bc81b4465a5b4fa4058737d","bodyHash":"81e7b978492681bbce5136cdfb8af2572baeed4157aaae35d67082a8b009fa51"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/referenceresolver.go::type::ReferenceResolver","kind":"type","status":"implemented","sigHash":"116c7dbca6419fe3a56769e505765cff79fed3244bc81b4465a5b4fa4058737d","bodyHash":"23c7bfe98262f5cb06698ba14803aa4c1ecaea7af86f4da690c2c05961d68630"}
  *
  * Go source:
  * ReferenceResolver interface {
@@ -27,6 +27,7 @@ import type { NameResolver } from "./nameresolver.js";
  * 	GetReferencedValueDeclaration(node *ast.IdentifierNode) *ast.Declaration
  * 	GetReferencedValueDeclarations(node *ast.IdentifierNode) []*ast.Declaration
  * 	GetElementAccessExpressionName(expression *ast.ElementAccessExpression) string
+ * 	GetReferencedMemberValueDeclaration(node *ast.Node) *ast.Declaration
  * }
  */
 export interface ReferenceResolver {
@@ -35,6 +36,7 @@ export interface ReferenceResolver {
   GetReferencedValueDeclaration(node: GoPtr<IdentifierNode>): GoPtr<Declaration>;
   GetReferencedValueDeclarations(node: GoPtr<IdentifierNode>): GoSlice<GoPtr<Declaration>>;
   GetElementAccessExpressionName(expression: GoPtr<ElementAccessExpression>): string;
+  GetReferencedMemberValueDeclaration(node: GoPtr<Node>): GoPtr<Declaration>;
 }
 
 /**
@@ -114,6 +116,8 @@ function referenceResolver_as_ReferenceResolver(receiver: GoPtr<referenceResolve
       referenceResolver_GetReferencedValueDeclarations(r, node),
     GetElementAccessExpressionName: (expression: GoPtr<ElementAccessExpression>): string =>
       referenceResolver_GetElementAccessExpressionName(r, expression),
+    GetReferencedMemberValueDeclaration: (node: GoPtr<Node>): GoPtr<Declaration> =>
+      referenceResolver_GetReferencedMemberValueDeclaration(r, node),
   };
 }
 
@@ -590,4 +594,34 @@ export function referenceResolver_GetElementAccessExpressionName(receiver: GoPtr
     }
   }
   return "";
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/referenceresolver.go::method::referenceResolver.GetReferencedMemberValueDeclaration","kind":"method","status":"implemented","sigHash":"42ea677a7cc7f2b3129dc968cbaf00f111375ff7a24c311bb005ad842a8246df","bodyHash":"29eafcdbf4f1621c83c4352c44fa4552701fdb8e453e2c2aa8cd5fe33502bd54"}
+ *
+ * Go source:
+ * func (r *referenceResolver) GetReferencedMemberValueDeclaration(node *ast.Node) *ast.Declaration {
+ * 	// member references are `this.something` or `this[something]`, so should always simply have a resolved symbol
+ * 	s := r.getResolvedSymbol(node)
+ * 	if s == nil && node.Symbol() != nil {
+ * 		// might be a declaration instead of a ref, get the merged declaration symbol
+ * 		s = r.getMergedSymbol(node.Symbol())
+ * 	}
+ * 	if s == nil {
+ * 		return nil
+ * 	}
+ * 	return r.getExportSymbolOfValueSymbolIfExported(s).ValueDeclaration
+ * }
+ */
+export function referenceResolver_GetReferencedMemberValueDeclaration(receiver: GoPtr<referenceResolver>, node: GoPtr<Node>): GoPtr<Declaration> {
+  // member references are `this.something` or `this[something]`, so should always simply have a resolved symbol
+  let s = referenceResolver_getResolvedSymbol(receiver, node);
+  if (s === undefined && Node_Symbol(node) !== undefined) {
+    // might be a declaration instead of a ref, get the merged declaration symbol
+    s = referenceResolver_getMergedSymbol(receiver, Node_Symbol(node));
+  }
+  if (s === undefined) {
+    return undefined;
+  }
+  return referenceResolver_getExportSymbolOfValueSymbolIfExported(receiver, s)!.ValueDeclaration;
 }

@@ -1,25 +1,89 @@
 #!/usr/bin/env node
-/**
- * Tsonic CLI - Command-line interface for Tsonic compiler
- */
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { parseTsonicProjectConfig } from "@tsonic/host";
+import { createTargetRegistry } from "@tsonic/target-api";
+import { createCsharpTargetPack } from "@tsonic/target-csharp";
 
-import { runCli } from "./cli.js";
+interface CliResult {
+  readonly exitCode: number;
+  readonly stdout?: string;
+  readonly stderr?: string;
+}
 
-// Run CLI with arguments (skip node and script name)
-const args = process.argv.slice(2);
+const registry = createTargetRegistry([
+  createCsharpTargetPack(),
+]);
 
-runCli(args)
-  .then((exitCode) => {
-    // Avoid immediate process.exit(...) so stderr/stdout flush reliably when
-    // this CLI is invoked from another Node process (e.g. spawnSync tests).
-    process.exitCode = exitCode;
-  })
-  .catch((error) => {
-    console.error("Fatal error:", error);
-    process.exitCode = 1;
+const result = await run(process.argv.slice(2), process.cwd());
+if (result.stdout !== undefined && result.stdout.length > 0) {
+  process.stdout.write(result.stdout);
+}
+if (result.stderr !== undefined && result.stderr.length > 0) {
+  process.stderr.write(result.stderr);
+}
+process.exitCode = result.exitCode;
+
+export async function run(args: readonly string[], currentDirectory: string): Promise<CliResult> {
+  const command = args[0];
+  if (command === undefined || command === "help" || command === "--help" || command === "-h") {
+    return {
+      exitCode: 0,
+      stdout: helpText(),
+    };
+  }
+  if (command !== "build") {
+    return {
+      exitCode: 2,
+      stderr: `Unknown command '${command}'.\n\n${helpText()}`,
+    };
+  }
+  return runBuild(args.slice(1), currentDirectory);
+}
+
+async function runBuild(args: readonly string[], currentDirectory: string): Promise<CliResult> {
+  const projectPath = resolve(currentDirectory, readProjectPath(args));
+  const text = await readFile(projectPath, "utf8");
+  const config = parseTsonicProjectConfig(JSON.parse(text));
+  const targetSummaries = config.targets.map((target) => {
+    const pack = registry.require(target.id);
+    return `${target.id} (${pack.displayName})`;
   });
+  return {
+    exitCode: 0,
+    stdout: [
+      "Tsonic clean-slate compiler host is installed.",
+      `Project: ${projectPath}`,
+      `Entry: ${config.entryPoint}`,
+      `Targets: ${targetSummaries.join(", ")}`,
+      "Semantic compilation is owned by packages/host and target packs; no legacy frontend path is present.",
+      "",
+    ].join("\n"),
+  };
+}
 
-// Export for testing
-export { runCli } from "./cli.js";
-export * from "./types.js";
-export * from "./config.js";
+function readProjectPath(args: readonly string[]): string {
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (value === "--project" || value === "-p") {
+      const path = args[index + 1];
+      if (path === undefined || path.startsWith("-")) {
+        throw new Error("Expected a path after --project.");
+      }
+      return path;
+    }
+  }
+  return "tsonic.json";
+}
+
+function helpText(): string {
+  return [
+    "Usage:",
+    "  tsonic build --project <tsonic.json>",
+    "",
+    "Architecture:",
+    "  TSTS owns TypeScript parse/bind/check/flow/narrowing and extension facts.",
+    "  Tsonic owns project orchestration, target selection, target source generation, and toolchain handoff.",
+    "",
+  ].join("\n");
+}

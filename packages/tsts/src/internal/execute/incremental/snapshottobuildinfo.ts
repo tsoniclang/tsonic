@@ -39,7 +39,7 @@ import type { ParsedCommandLine } from "../../tsoptions/parsedcommandline.js";
 import { ParsedCommandLine_FileNames } from "../../tsoptions/parsedcommandline.js";
 import type { ComparePathsOptions, Path } from "../../tspath/path.js";
 import { ToPath, GetDirectoryPath, GetRelativePathFromDirectory, EnsurePathIsNonModuleName } from "../../tspath/path.js";
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../../go/scalars.js";
 import type { Value } from "../../../go/reflect.js";
 import type { BuildInfo, BuildInfoDiagnostic, BuildInfoDiagnosticsOfFile, BuildInfoFileId, BuildInfoFileIdListId, BuildInfoRepopulateInfo } from "./buildInfo.js";
 import type { BuildInfoEmitSignature, BuildInfoFilePendingEmit, BuildInfoResolvedRoot, BuildInfoRoot, BuildInfoSemanticDiagnostic, BuildInfoReferenceMapEntry } from "./buildInfo.js";
@@ -242,7 +242,7 @@ export function toBuildInfo_toFileId(receiver: GoPtr<toBuildInfo>, path: Path): 
  * 	return fileIdListId
  * }
  */
-export function toBuildInfo_toFileIdListId(receiver: GoPtr<toBuildInfo>, set_: GoPtr<Set>): BuildInfoFileIdListId {
+export function toBuildInfo_toFileIdListId(receiver: GoPtr<toBuildInfo>, set_: GoPtr<Set<Path>>): BuildInfoFileIdListId {
   const fileIds = core.Map(slices.Collect(maps.Keys(Set_Keys(set_ as GoPtr<import("../../collections/set.js").Set<Path>>))), (id: Path) => toBuildInfo_toFileId(receiver, id));
   slices.Sort(fileIds);
   const key = core.Map(fileIds, (id: BuildInfoFileId) => String(id)).join(",");
@@ -674,7 +674,7 @@ export function toBuildInfo_setCompilerOptions(receiver: GoPtr<toBuildInfo>): vo
         return false;
       }
       if (receiver!.buildInfo!.Options === undefined) {
-        receiver!.buildInfo!.Options = newMapWithSizeHint<string, unknown>(0) as GoPtr<OrderedMap>;
+        receiver!.buildInfo!.Options = newMapWithSizeHint<string, unknown>(0);
       }
       OrderedMap_Set(receiver!.buildInfo!.Options as GoPtr<OrderedMap<string, unknown>>, option!.Name, toBuildInfo_toRelativeToBuildInfoCompilerOptionValue(receiver, option, value.Interface()));
       return false;
@@ -705,7 +705,7 @@ export function toBuildInfo_setReferencedMap(receiver: GoPtr<toBuildInfo>): void
     const [references] = referenceMap_getReferences(receiver!.snapshot!.referencedMap as GoPtr<import("./referencemap.js").referenceMap>, filePath);
     return {
       FileId: toBuildInfo_toFileId(receiver, filePath),
-      FileIdListId: toBuildInfo_toFileIdListId(receiver, references as GoPtr<Set>),
+      FileIdListId: toBuildInfo_toFileIdListId(receiver, references),
     } as BuildInfoReferenceMapEntry;
   });
 }

@@ -1,4 +1,4 @@
-import type { bool, int, uint } from "@tsonic/core/types.js";
+import type { bool, int, uint } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { Pool } from "../../go/sync.js";
 import { Uint32 } from "../../go/sync/atomic.js";
@@ -2135,15 +2135,15 @@ export function EmitContext_VisitIterationBody(receiver: GoPtr<EmitContext>, bod
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/emitcontext.go::method::EmitContext.VisitEmbeddedStatement","kind":"method","status":"implemented","sigHash":"0e03657ed41915ab365f277e9ff6069944c743a3818ee9a70badfae3bf0a31dd","bodyHash":"ccaa53cd14d9d3c14c3ab765b6ec63d6264551821703ce464d8ac091e0f1bacd"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/emitcontext.go::method::EmitContext.VisitEmbeddedStatement","kind":"method","status":"implemented","sigHash":"0e03657ed41915ab365f277e9ff6069944c743a3818ee9a70badfae3bf0a31dd","bodyHash":"4f1ce05a8f71f9416700170cd0887fa3fb14db7eeceb059d6c94be3500cbc06d"}
  *
  * Go source:
  * func (c *EmitContext) VisitEmbeddedStatement(node *ast.Statement, visitor *ast.NodeVisitor) *ast.Statement {
- * 	embeddedStatement := visitor.VisitEmbeddedStatement(node)
- * 	if embeddedStatement == nil {
+ * 	if node == nil {
  * 		return nil
  * 	}
- * 	if ast.IsNotEmittedStatement(embeddedStatement) {
+ * 	embeddedStatement := visitor.VisitEmbeddedStatement(node)
+ * 	if embeddedStatement == nil || ast.IsNotEmittedStatement(embeddedStatement) {
  * 		emptyStatement := visitor.Factory.NewEmptyStatement()
  * 		emptyStatement.Loc = node.Loc
  * 		c.SetOriginal(emptyStatement, node)
@@ -2154,12 +2154,12 @@ export function EmitContext_VisitIterationBody(receiver: GoPtr<EmitContext>, bod
  * }
  */
 export function EmitContext_VisitEmbeddedStatement(receiver: GoPtr<EmitContext>, node: GoPtr<Statement>, visitor: GoPtr<NodeVisitor>): GoPtr<Statement> {
-  const concreteVisitor = visitor as GoPtr<ConcreteNodeVisitor>;
-  const embeddedStatement = NodeVisitor_VisitEmbeddedStatement(concreteVisitor, node);
-  if (embeddedStatement === undefined) {
+  if (node === undefined) {
     return undefined;
   }
-  if (IsNotEmittedStatement(embeddedStatement)) {
+  const concreteVisitor = visitor as GoPtr<ConcreteNodeVisitor>;
+  const embeddedStatement = NodeVisitor_VisitEmbeddedStatement(concreteVisitor, node);
+  if (embeddedStatement === undefined || IsNotEmittedStatement(embeddedStatement)) {
     const emptyStatement = NewEmptyStatement(concreteVisitor!.Factory)!;
     emptyStatement.Loc = node!.Loc;
     EmitContext_SetOriginal(receiver, emptyStatement, node);

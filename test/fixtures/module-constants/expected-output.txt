@@ -1,4 +1,0 @@
-PI: 3.14159
-MESSAGE: Hello, World!
-COUNT: 42
-IS_ENABLED: True

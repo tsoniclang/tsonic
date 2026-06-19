@@ -21,9 +21,13 @@ import {
   Compiler_option_0_may_only_be_used_with_build,
   Option_build_must_be_the_first_command_line_argument,
   Unknown_build_option_0,
+  Unknown_build_option_0_Did_you_mean_1,
   Unknown_compiler_option_0,
+  Unknown_compiler_option_0_Did_you_mean_1,
   Unknown_type_acquisition_option_0,
+  Unknown_type_acquisition_option_0_Did_you_mean_1,
   Unknown_watch_option_0,
+  Unknown_watch_option_0_Did_you_mean_1,
 } from "../diagnostics/generated/messages.js";
 import type { CommandLineOption } from "./commandlineoption.js";
 import {
@@ -236,6 +240,40 @@ export function extraKeyDiagnostics(s: string): GoPtr<Message> {
       return Unknown_type_acquisition_option_0;
     case "buildOptions":
       return Unknown_build_option_0;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/errors.go::func::extraKeyDidYouMeanDiagnostics","kind":"func","status":"implemented","sigHash":"d29991ca5ba5a0e1e6050cf1433f62af4fbc9862f759392b04452b9266b60ea6","bodyHash":"0d5f9b156a85ae4a49189a55c681ba64bffc1de94922a0d441a51d831678de59"}
+ *
+ * Go source:
+ * func extraKeyDidYouMeanDiagnostics(s string) *diagnostics.Message {
+ * 	switch s {
+ * 	case "compilerOptions":
+ * 		return diagnostics.Unknown_compiler_option_0_Did_you_mean_1
+ * 	case "watchOptions":
+ * 		return diagnostics.Unknown_watch_option_0_Did_you_mean_1
+ * 	case "typeAcquisition":
+ * 		return diagnostics.Unknown_type_acquisition_option_0_Did_you_mean_1
+ * 	case "buildOptions":
+ * 		return diagnostics.Unknown_build_option_0_Did_you_mean_1
+ * 	default:
+ * 		return nil
+ * 	}
+ * }
+ */
+export function extraKeyDidYouMeanDiagnostics(s: string): GoPtr<Message> {
+  switch (s) {
+    case "compilerOptions":
+      return Unknown_compiler_option_0_Did_you_mean_1;
+    case "watchOptions":
+      return Unknown_watch_option_0_Did_you_mean_1;
+    case "typeAcquisition":
+      return Unknown_type_acquisition_option_0_Did_you_mean_1;
+    case "buildOptions":
+      return Unknown_build_option_0_Did_you_mean_1;
     default:
       return undefined;
   }

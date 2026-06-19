@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/generatedidentifierflags.go::type::GeneratedIdentifierFlags","kind":"type","status":"implemented","sigHash":"bee2677a88c9d3eaa01b18bbf3715991a891d97d5826e877f1c6190ba65ccfa2","bodyHash":"eccc0436f5d9572d1d6d5cce1d5c9208beb6459fb61b7949481ce72db427cb02"}

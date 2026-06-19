@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { CompilerOptions } from "../core/compileroptions.js";
 import {
@@ -29,7 +29,6 @@ import {
   IsImportDeclaration,
   IsImportEqualsDeclaration,
   IsJsxFragment,
-  IsJsxOpeningElement,
 } from "./generated/predicates.js";
 import { ModifierFlagsExport } from "./modifierflags.js";
 import type { Visitor } from "./spine.js";
@@ -39,6 +38,7 @@ import {
   GetImpliedNodeFormatForEmitWorker,
   HasSyntacticModifier,
   IsImportMeta,
+  IsJsxOpeningLikeElement,
 } from "./utilities.js";
 import { NodeFlagsPossiblyContainsImportMeta } from "./generated/flags.js";
 import { ScriptKindJSON } from "../core/scriptkind.js";
@@ -324,7 +324,7 @@ export function isFileModuleFromUsingJSXTag(file: GoPtr<SourceFile>): GoPtr<Node
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/parseoptions.go::func::walkTreeForJSXTags","kind":"func","status":"implemented","sigHash":"19964bc6e5e18190cc0173165e74a2f16d38796c25a999b41ecc2c8d6b280b02","bodyHash":"0ddc99f039e6b129842fd2d0fe1e7f57b027cef46653603b91854a048a0aab6e"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/parseoptions.go::func::walkTreeForJSXTags","kind":"func","status":"implemented","sigHash":"19964bc6e5e18190cc0173165e74a2f16d38796c25a999b41ecc2c8d6b280b02","bodyHash":"685b3fd0b5588e81d6d3995c60c219b47a4ec06bb8611d015ba2d01e9bb13bb9"}
  *
  * Go source:
  * func walkTreeForJSXTags(node *Node) *Node {
@@ -338,7 +338,7 @@ export function isFileModuleFromUsingJSXTag(file: GoPtr<SourceFile>): GoPtr<Node
  * 		if node.SubtreeFacts()&SubtreeContainsJsx == 0 {
  * 			return false
  * 		}
- * 		if IsJsxOpeningElement(node) || IsJsxFragment(node) {
+ * 		if IsJsxOpeningLikeElement(node) || IsJsxFragment(node) {
  * 			found = node
  * 			return true
  * 		}
@@ -358,7 +358,7 @@ export function walkTreeForJSXTags(node: GoPtr<Node>): GoPtr<Node> {
     if ((Node_SubtreeFacts(n) & SubtreeContainsJsx) === 0) {
       return false;
     }
-    if (IsJsxOpeningElement(n) || IsJsxFragment(n)) {
+    if (IsJsxOpeningLikeElement(n) || IsJsxFragment(n)) {
       container.found = n;
       return true;
     }

@@ -1,8 +1,9 @@
-import type { bool, byte, int, sbyte, uint } from "@tsonic/core/types.js";
+import type { bool, byte, int, sbyte, uint } from "../../go/scalars.js";
 import type { GoArray, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import type { GoInterfaceValue, Node } from "../ast/spine.js";
 import { goReceiverKey } from "../ast/spine.js";
-import type { ConditionalTypeNodeNode, EntityName, MappedTypeNodeNode } from "../ast/generated/unions.js";
+import type { EntityName } from "../ast/generated/unions.js";
+import type { ConditionalTypeNode, MappedTypeNode } from "../ast/generated/data.js";
 import type { SymbolFlags } from "../ast/generated/flags.js";
 import type { NodeId } from "../ast/ids.js";
 import type { Symbol as Symbol_62f2f8bf, SymbolTable } from "../ast/symbol.js";
@@ -243,6 +244,93 @@ export const SymbolFormatFlagsAllowAnyNodeKind: SymbolFormatFlags = 1 << 2;
 export const SymbolFormatFlagsUseAliasDefinedOutsideCurrentScope: SymbolFormatFlags = 1 << 3;
 export const SymbolFormatFlagsWriteComputedProps: SymbolFormatFlags = 1 << 4;
 export const SymbolFormatFlagsDoNotIncludeSymbolChain: SymbolFormatFlags = 1 << 5;
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::ExternalEmitHelpers","kind":"type","status":"implemented","sigHash":"a349e95616e75ba22f2f785bd107cafe350b65fdc1a39eeedd12151090f11e2c","bodyHash":"3352877ba50e78da3d29f2e1a274d5d401397e7b3546c07438be80820285cccd"}
+ *
+ * Go source:
+ * ExternalEmitHelpers uint32
+ */
+export type ExternalEmitHelpers = uint;
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::constGroup::ExternalEmitHelpersRest+ExternalEmitHelpersDecorate+ExternalEmitHelpersMetadata+ExternalEmitHelpersParam+ExternalEmitHelpersAwaiter+ExternalEmitHelpersAwait+ExternalEmitHelpersAsyncGenerator+ExternalEmitHelpersAsyncDelegator+ExternalEmitHelpersAsyncValues+ExternalEmitHelpersExportStar+ExternalEmitHelpersImportStar+ExternalEmitHelpersImportDefault+ExternalEmitHelpersMakeTemplateObject+ExternalEmitHelpersClassPrivateFieldGet+ExternalEmitHelpersClassPrivateFieldSet+ExternalEmitHelpersClassPrivateFieldIn+ExternalEmitHelpersSetFunctionName+ExternalEmitHelpersPropKey+ExternalEmitHelpersAddDisposableResourceAndDisposeResources+ExternalEmitHelpersRewriteRelativeImportExtension+ExternalEmitHelpersESDecorateAndRunInitializers+ExternalEmitHelpersFirstEmitHelper+ExternalEmitHelpersLastEmitHelper+ExternalEmitHelpersForAwaitOfIncludes+ExternalEmitHelpersAsyncGeneratorIncludes+ExternalEmitHelpersAsyncDelegatorIncludes","kind":"constGroup","status":"implemented","sigHash":"b0eeb932a593bcbcf033a8873da201738a1afcc028bffc744a93165d27598941","bodyHash":"62e9c4303813c5bfddc2c0ce0cc46b51242017d32cb476ae12f7b63a92a76af9"}
+ *
+ * Go source:
+ * const (
+ * 	ExternalEmitHelpersRest                                     ExternalEmitHelpers           = 1 << iota // __rest (used by ESNext object rest transformation)
+ * 	ExternalEmitHelpersDecorate                                                                           // __decorate (used by TypeScript decorators transformation)
+ * 	ExternalEmitHelpersMetadata                                                                           // __metadata (used by TypeScript decorators transformation)
+ * 	ExternalEmitHelpersParam                                                                              // __param (used by TypeScript decorators transformation)
+ * 	ExternalEmitHelpersAwaiter                                                                            // __awaiter (used by ES2017 async functions transformation)
+ * 	ExternalEmitHelpersAwait                                                                              // __await (used by ES2017 async generator transformation)
+ * 	ExternalEmitHelpersAsyncGenerator                                                                     // __asyncGenerator (used by ES2017 async generator transformation)
+ * 	ExternalEmitHelpersAsyncDelegator                                                                     // __asyncDelegator (used by ES2017 async generator yield* transformation)
+ * 	ExternalEmitHelpersAsyncValues                                                                        // __asyncValues (used by ES2017 for..await..of transformation)
+ * 	ExternalEmitHelpersExportStar                                                                         // __exportStar (used by CommonJS/AMD/UMD module transformation)
+ * 	ExternalEmitHelpersImportStar                                                                         // __importStar (used by CommonJS/AMD/UMD module transformation)
+ * 	ExternalEmitHelpersImportDefault                                                                      // __importDefault (used by CommonJS/AMD/UMD module transformation)
+ * 	ExternalEmitHelpersMakeTemplateObject                                                                 // __makeTemplateObject (used for constructing template string array objects)
+ * 	ExternalEmitHelpersClassPrivateFieldGet                                                               // __classPrivateFieldGet (used by the class private field transformation)
+ * 	ExternalEmitHelpersClassPrivateFieldSet                                                               // __classPrivateFieldSet (used by the class private field transformation)
+ * 	ExternalEmitHelpersClassPrivateFieldIn                                                                // __classPrivateFieldIn (used by the class private field transformation)
+ * 	ExternalEmitHelpersSetFunctionName                                                                    // __setFunctionName (used by class fields and ECMAScript decorators)
+ * 	ExternalEmitHelpersPropKey                                                                            // __propKey (used by class fields and ECMAScript decorators)
+ * 	ExternalEmitHelpersAddDisposableResourceAndDisposeResources                                           // __addDisposableResource and __disposeResources (used by ESNext transformations)
+ * 	ExternalEmitHelpersRewriteRelativeImportExtension                                                     // __rewriteRelativeImportExtension (used by --rewriteRelativeImportExtensions)
+ * 	ExternalEmitHelpersESDecorateAndRunInitializers             = ExternalEmitHelpersDecorate             // __esDecorate and __runInitializers (used by ECMAScript decorators transformation)
+ *
+ * 	ExternalEmitHelpersFirstEmitHelper = ExternalEmitHelpersRest
+ * 	ExternalEmitHelpersLastEmitHelper  = ExternalEmitHelpersRewriteRelativeImportExtension
+ *
+ * 	// Helpers included by ES2017 for..await..of
+ * 	ExternalEmitHelpersForAwaitOfIncludes = ExternalEmitHelpersAsyncValues
+ *
+ * 	// Helpers included by ES2017 async generators
+ * 	ExternalEmitHelpersAsyncGeneratorIncludes = ExternalEmitHelpersAwait | ExternalEmitHelpersAsyncGenerator
+ *
+ * 	// Helpers included by yield* in ES2017 async generators
+ * 	ExternalEmitHelpersAsyncDelegatorIncludes = ExternalEmitHelpersAwait | ExternalEmitHelpersAsyncDelegator | ExternalEmitHelpersAsyncValues
+ * )
+ */
+export const ExternalEmitHelpersRest: ExternalEmitHelpers = 1 << 0; // __rest (used by ESNext object rest transformation)
+export const ExternalEmitHelpersDecorate: ExternalEmitHelpers = 1 << 1; // __decorate (used by TypeScript decorators transformation)
+export const ExternalEmitHelpersMetadata: ExternalEmitHelpers = 1 << 2; // __metadata (used by TypeScript decorators transformation)
+export const ExternalEmitHelpersParam: ExternalEmitHelpers = 1 << 3; // __param (used by TypeScript decorators transformation)
+export const ExternalEmitHelpersAwaiter: ExternalEmitHelpers = 1 << 4; // __awaiter (used by ES2017 async functions transformation)
+export const ExternalEmitHelpersAwait: ExternalEmitHelpers = 1 << 5; // __await (used by ES2017 async generator transformation)
+export const ExternalEmitHelpersAsyncGenerator: ExternalEmitHelpers = 1 << 6; // __asyncGenerator (used by ES2017 async generator transformation)
+export const ExternalEmitHelpersAsyncDelegator: ExternalEmitHelpers = 1 << 7; // __asyncDelegator (used by ES2017 async generator yield* transformation)
+export const ExternalEmitHelpersAsyncValues: ExternalEmitHelpers = 1 << 8; // __asyncValues (used by ES2017 for..await..of transformation)
+export const ExternalEmitHelpersExportStar: ExternalEmitHelpers = 1 << 9; // __exportStar (used by CommonJS/AMD/UMD module transformation)
+export const ExternalEmitHelpersImportStar: ExternalEmitHelpers = 1 << 10; // __importStar (used by CommonJS/AMD/UMD module transformation)
+export const ExternalEmitHelpersImportDefault: ExternalEmitHelpers = 1 << 11; // __importDefault (used by CommonJS/AMD/UMD module transformation)
+export const ExternalEmitHelpersMakeTemplateObject: ExternalEmitHelpers = 1 << 12; // __makeTemplateObject (used for constructing template string array objects)
+export const ExternalEmitHelpersClassPrivateFieldGet: ExternalEmitHelpers = 1 << 13; // __classPrivateFieldGet (used by the class private field transformation)
+export const ExternalEmitHelpersClassPrivateFieldSet: ExternalEmitHelpers = 1 << 14; // __classPrivateFieldSet (used by the class private field transformation)
+export const ExternalEmitHelpersClassPrivateFieldIn: ExternalEmitHelpers = 1 << 15; // __classPrivateFieldIn (used by the class private field transformation)
+export const ExternalEmitHelpersSetFunctionName: ExternalEmitHelpers = 1 << 16; // __setFunctionName (used by class fields and ECMAScript decorators)
+export const ExternalEmitHelpersPropKey: ExternalEmitHelpers = 1 << 17; // __propKey (used by class fields and ECMAScript decorators)
+export const ExternalEmitHelpersAddDisposableResourceAndDisposeResources: ExternalEmitHelpers = 1 << 18; // __addDisposableResource and __disposeResources (used by ESNext transformations)
+export const ExternalEmitHelpersRewriteRelativeImportExtension: ExternalEmitHelpers = 1 << 19; // __rewriteRelativeImportExtension (used by --rewriteRelativeImportExtensions)
+export const ExternalEmitHelpersESDecorateAndRunInitializers: int = ExternalEmitHelpersDecorate; // __esDecorate and __runInitializers (used by ECMAScript decorators transformation)
+export const ExternalEmitHelpersFirstEmitHelper: int = ExternalEmitHelpersRest;
+export const ExternalEmitHelpersLastEmitHelper: int = ExternalEmitHelpersRewriteRelativeImportExtension;
+// Helpers included by ES2017 for..await..of
+export const ExternalEmitHelpersForAwaitOfIncludes: int = ExternalEmitHelpersAsyncValues;
+// Helpers included by ES2017 async generators
+export const ExternalEmitHelpersAsyncGeneratorIncludes: int = (ExternalEmitHelpersAwait | ExternalEmitHelpersAsyncGenerator) >>> 0;
+// Helpers included by yield* in ES2017 async generators
+export const ExternalEmitHelpersAsyncDelegatorIncludes: int =
+  (ExternalEmitHelpersAwait | ExternalEmitHelpersAsyncDelegator | ExternalEmitHelpersAsyncValues) >>> 0;
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::constGroup::externalHelpersModuleNameText","kind":"constGroup","status":"implemented","sigHash":"42b8d30f6cec123c960fc65215bb7957d60e1e2100a713e6f60422dd65ee175e","bodyHash":"3a84e0e3d22c1db0bc8672e8e58062771a665415a82256bcf69ae99de8d0f1f2"}
+ *
+ * Go source:
+ * const externalHelpersModuleNameText = "tslib"
+ */
+export const externalHelpersModuleNameText: string = "tslib";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::TypeId","kind":"type","status":"implemented","sigHash":"d668dd6b5968591e5c5613cca2d2be3143ae2409565fe3e7511b04dc47b31a91","bodyHash":"c917c67ee6facc506c65f8fca44f5f54a27d38c4388b43560967f8add59893e5"}
@@ -768,24 +856,28 @@ export interface AssertionLinks {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::SourceFileLinks","kind":"type","status":"implemented","sigHash":"5dd853bef6c2926129d6cdcecfedb6620736cd2ed3e23a6f409d48ad43f6285b","bodyHash":"6af9fa6cd639c0c8f78d577a32258a634f3fbaa2ca73aac0f23097312b2e6c3d"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::SourceFileLinks","kind":"type","status":"implemented","sigHash":"5dd853bef6c2926129d6cdcecfedb6620736cd2ed3e23a6f409d48ad43f6285b","bodyHash":"dc37f73e751e633cde67993d45c883b3a6d979cebd26fb23c22290e30969388e"}
  *
  * Go source:
  * SourceFileLinks struct {
- * 	typeChecked               bool
- * 	unusedChecked             bool
- * 	deferredNodes             collections.OrderedSet[*ast.Node]
- * 	identifierCheckNodes      []*ast.Node
- * 	localJsxNamespace         string
- * 	localJsxFragmentNamespace string
- * 	localJsxFactory           *ast.EntityName
- * 	localJsxFragmentFactory   *ast.EntityName
- * 	jsxFragmentType           *Type
+ * 	typeChecked                  bool
+ * 	unusedChecked                bool
+ * 	externalHelpersModule        *ast.Symbol
+ * 	requestedExternalEmitHelpers ExternalEmitHelpers
+ * 	deferredNodes                collections.OrderedSet[*ast.Node]
+ * 	identifierCheckNodes         []*ast.Node
+ * 	localJsxNamespace            string
+ * 	localJsxFragmentNamespace    string
+ * 	localJsxFactory              *ast.EntityName
+ * 	localJsxFragmentFactory      *ast.EntityName
+ * 	jsxFragmentType              *Type
  * }
  */
 export interface SourceFileLinks {
   typeChecked: bool;
   unusedChecked: bool;
+  externalHelpersModule: GoPtr<Symbol_62f2f8bf>;
+  requestedExternalEmitHelpers: ExternalEmitHelpers;
   deferredNodes: OrderedSet<GoPtr<Node>>;
   identifierCheckNodes: GoSlice<GoPtr<Node>>;
   localJsxNamespace: string;
@@ -1260,7 +1352,7 @@ export function VarianceFlags_String(receiver: VarianceFlags): string {
 export type ObjectFlags = uint;
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::constGroup::ObjectFlagsNone+ObjectFlagsClass+ObjectFlagsInterface+ObjectFlagsReference+ObjectFlagsTuple+ObjectFlagsAnonymous+ObjectFlagsMapped+ObjectFlagsInstantiated+ObjectFlagsObjectLiteral+ObjectFlagsEvolvingArray+ObjectFlagsObjectLiteralPatternWithComputedProperties+ObjectFlagsReverseMapped+ObjectFlagsJsxAttributes+ObjectFlagsJSLiteral+ObjectFlagsFreshLiteral+ObjectFlagsArrayLiteral+ObjectFlagsPrimitiveUnion+ObjectFlagsContainsWideningType+ObjectFlagsContainsObjectOrArrayLiteral+ObjectFlagsNonInferrableType+ObjectFlagsCouldContainTypeVariablesComputed+ObjectFlagsCouldContainTypeVariables+ObjectFlagsMembersResolved+ObjectFlagsClassOrInterface+ObjectFlagsRequiresWidening+ObjectFlagsPropagatingFlags+ObjectFlagsInstantiatedMapped+ObjectFlagsObjectTypeKindMask+ObjectFlagsContainsSpread+ObjectFlagsObjectRestType+ObjectFlagsInstantiationExpressionType+ObjectFlagsSingleSignatureType+ObjectFlagsIsClassInstanceClone+ObjectFlagsIdenticalBaseTypeCalculated+ObjectFlagsIdenticalBaseTypeExists+ObjectFlagsUnresolvedMembers+ObjectFlagsIsGenericTypeComputed+ObjectFlagsIsGenericObjectType+ObjectFlagsIsGenericIndexType+ObjectFlagsIsGenericType+ObjectFlagsContainsIntersections+ObjectFlagsIsUnknownLikeUnionComputed+ObjectFlagsIsUnknownLikeUnion+ObjectFlagsIsNeverIntersectionComputed+ObjectFlagsIsNeverIntersection+ObjectFlagsIsConstrainedTypeVariable","kind":"constGroup","status":"implemented","sigHash":"6c840bef57000fbe5bac3057ae6926d6558998dafa08db035160ddcbfbfb5c2e","bodyHash":"014781a8668979fdae4cf62ddd6a668cd9da7601ddba500ae3c7868476be6406"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::constGroup::ObjectFlagsNone+ObjectFlagsClass+ObjectFlagsInterface+ObjectFlagsReference+ObjectFlagsTuple+ObjectFlagsAnonymous+ObjectFlagsMapped+ObjectFlagsInstantiated+ObjectFlagsObjectLiteral+ObjectFlagsEvolvingArray+ObjectFlagsObjectLiteralPatternWithComputedProperties+ObjectFlagsReverseMapped+ObjectFlagsJsxAttributes+ObjectFlagsJSLiteral+ObjectFlagsFreshLiteral+ObjectFlagsArrayLiteral+ObjectFlagsPrimitiveUnion+ObjectFlagsContainsWideningType+ObjectFlagsContainsObjectOrArrayLiteral+ObjectFlagsNonInferrableType+ObjectFlagsCouldContainTypeVariablesComputed+ObjectFlagsCouldContainTypeVariables+ObjectFlagsMembersResolved+ObjectFlagsClassOrInterface+ObjectFlagsRequiresWidening+ObjectFlagsPropagatingFlags+ObjectFlagsInstantiatedMapped+ObjectFlagsObjectTypeKindMask+ObjectFlagsContainsSpread+ObjectFlagsObjectRestType+ObjectFlagsInstantiationExpressionType+ObjectFlagsSingleSignatureType+ObjectFlagsIsClassInstanceClone+ObjectFlagsIdenticalBaseTypeCalculated+ObjectFlagsIdenticalBaseTypeExists+ObjectFlagsUnresolvedMembers+ObjectFlagsFromTypeNode+ObjectFlagsIsGenericTypeComputed+ObjectFlagsIsGenericObjectType+ObjectFlagsIsGenericIndexType+ObjectFlagsIsGenericType+ObjectFlagsContainsIntersections+ObjectFlagsIsUnknownLikeUnionComputed+ObjectFlagsIsUnknownLikeUnion+ObjectFlagsIsNeverIntersectionComputed+ObjectFlagsIsNeverIntersection+ObjectFlagsIsConstrainedTypeVariable","kind":"constGroup","status":"implemented","sigHash":"15558a9d9329127d7ec52195464550b5ede8bdf0deb9040c5fd2a2699a0e7776","bodyHash":"6623b28b3482c1e05e5eb8dd4d8e2b9f4befbf4aff048310cbdf61d27ce5d710"}
  *
  * Go source:
  * const (
@@ -1304,6 +1396,7 @@ export type ObjectFlags = uint;
  * 	ObjectFlagsIdenticalBaseTypeCalculated = 1 << 27 // has had `getSingleBaseForNonAugmentingSubtype` invoked on it already
  * 	ObjectFlagsIdenticalBaseTypeExists     = 1 << 28 // has a defined cachedEquivalentBaseType member
  * 	ObjectFlagsUnresolvedMembers           = 1 << 29 // Member resolution in process
+ * 	ObjectFlagsFromTypeNode                = 1 << 30 // Originates in resolution of AST type node
  * 	// Flags that require TypeFlags.UnionOrIntersection or TypeFlags.Substitution
  * 	ObjectFlagsIsGenericTypeComputed = 1 << 22 // IsGenericObjectType flag has been computed
  * 	ObjectFlagsIsGenericObjectType   = 1 << 23 // Union or intersection contains generic object type
@@ -1367,6 +1460,7 @@ export const ObjectFlagsObjectTypeKindMask: int =
 export const ObjectFlagsIdenticalBaseTypeCalculated: int = 1 << 27;
 export const ObjectFlagsIdenticalBaseTypeExists: int = 1 << 28;
 export const ObjectFlagsUnresolvedMembers: int = 1 << 29;
+export const ObjectFlagsFromTypeNode: int = 1 << 30;
 export const ObjectFlagsIsGenericTypeComputed: int = 1 << 22;
 export const ObjectFlagsIsGenericObjectType: int = 1 << 23;
 export const ObjectFlagsIsGenericIndexType: int = 1 << 24;
@@ -1875,6 +1969,18 @@ export function Type_Symbol(receiver: GoPtr<Type>): GoPtr<Symbol_62f2f8bf> {
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::method::Type.Alias","kind":"method","status":"implemented","sigHash":"36884e753a632b0bf858499b32915c0021c7109e26f63e627795171f2d404b51","bodyHash":"333fc8462b7530b2d54af000f18072c0f6cd2f0f9cbfce89209e3dd748b1ab58"}
+ *
+ * Go source:
+ * func (t *Type) Alias() *TypeAlias {
+ * 	return t.alias
+ * }
+ */
+export function Type_Alias(receiver: GoPtr<Type>): GoPtr<TypeAlias> {
+  return receiver!.alias;
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::method::Type.IsUnion","kind":"method","status":"implemented","sigHash":"e2db35f5282304268763587807ec788b48853145056a0159fb73766c0020702e","bodyHash":"33600854d4aeab6e34b494f064e36d6a1c50f2b258ae425abeef64afa8786438"}
  *
  * Go source:
@@ -2188,6 +2294,30 @@ export interface LiteralType {
  */
 export function LiteralType_Value(receiver: GoPtr<LiteralType>): unknown {
   return receiver!.value;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::method::LiteralType.FreshType","kind":"method","status":"implemented","sigHash":"a6f3f73ea5f030f96e4cc3b2512ea3bfd2ff3699bbec1e3cd560f16e16808fe9","bodyHash":"98bc1c6ed1239535d35f8e7a04d2f0540fe508bf75e5f85582e6f5fb88c54245"}
+ *
+ * Go source:
+ * func (t *LiteralType) FreshType() *Type {
+ * 	return t.freshType
+ * }
+ */
+export function LiteralType_FreshType(receiver: GoPtr<LiteralType>): GoPtr<Type> {
+  return receiver!.freshType;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::method::LiteralType.RegularType","kind":"method","status":"implemented","sigHash":"712fe3c873001e9e7b72ed2e006149d05e3f78a4bcfeb641182309ee79c9c29b","bodyHash":"d8fe37f6f3e0eaca1bbbddbb82dd8e2c321b4bb96d836185452eb4b133149a1d"}
+ *
+ * Go source:
+ * func (t *LiteralType) RegularType() *Type {
+ * 	return t.regularType
+ * }
+ */
+export function LiteralType_RegularType(receiver: GoPtr<LiteralType>): GoPtr<Type> {
+  return receiver!.regularType;
 }
 
 /**
@@ -2631,7 +2761,7 @@ export interface InstantiationExpressionType {
  */
 export interface MappedType {
   readonly __tsgoEmbedded0?: ObjectType;
-  declaration: GoPtr<MappedTypeNodeNode>;
+  declaration: GoPtr<MappedTypeNode>;
   typeParameter: GoPtr<Type>;
   constraintType: GoPtr<Type>;
   nameType: GoPtr<Type>;
@@ -2987,7 +3117,7 @@ export function SubstitutionType_SubstConstraint(receiver: GoPtr<SubstitutionTyp
  * }
  */
 export interface ConditionalRoot {
-  node: GoPtr<ConditionalTypeNodeNode>;
+  node: GoPtr<ConditionalTypeNode>;
   checkType: GoPtr<Type>;
   extendsType: GoPtr<Type>;
   isDistributive: bool;
@@ -3223,6 +3353,18 @@ export function Signature_HasRestParameter(receiver: GoPtr<Signature>): bool {
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::method::Signature.MinArgumentCount","kind":"method","status":"implemented","sigHash":"dffe370ab537f2b777e3d81c05a65da9b432a8008374e6214d0d073692c54fed","bodyHash":"385180c80b78422d965aa16d5ac6bcd1871e72c2fafada7a738821c89546ac79"}
+ *
+ * Go source:
+ * func (s *Signature) MinArgumentCount() int {
+ * 	return int(s.minArgumentCount)
+ * }
+ */
+export function Signature_MinArgumentCount(receiver: GoPtr<Signature>): int {
+  return receiver!.minArgumentCount;
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::CompositeSignature","kind":"type","status":"implemented","sigHash":"e39032c93f95ea566e79718783a8a1210ed6c0142a0081b023a01f35211c28c1","bodyHash":"3772f4c15e650cd316631442f16b04d56116357fa776a268d07c62a4aa46f616"}
  *
  * Go source:
@@ -3382,6 +3524,18 @@ export function IndexInfo_ValueType(receiver: GoPtr<IndexInfo>): GoPtr<Type> {
  */
 export function IndexInfo_IsReadonly(receiver: GoPtr<IndexInfo>): bool {
   return receiver!.isReadonly;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::method::IndexInfo.Declaration","kind":"method","status":"implemented","sigHash":"d0414a85ecaaac1f8ef44c887c47b7e4d268c9ed249c53543c0dc1def7e966b1","bodyHash":"d751dc42a5487d2a6eaca73ae1d5ca4e0b42a13224e8da72b5cd3c13ba9570df"}
+ *
+ * Go source:
+ * func (info *IndexInfo) Declaration() *ast.Node {
+ * 	return info.declaration
+ * }
+ */
+export function IndexInfo_Declaration(receiver: GoPtr<IndexInfo>): GoPtr<Node> {
+  return receiver!.declaration;
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { bool, sbyte, short } from "@tsonic/core/types.js";
+import type { bool, sbyte, short } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { GoInterfaceValue, Node } from "../ast/spine.js";
 import { goReceiverKey } from "../ast/spine.js";

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { computeSignatureReport } from "./sig-check.mjs";
 
 import {
   buildAstGeneratedArtifactStatus,
@@ -22,15 +23,25 @@ import {
   collectBundledArtifactFailures,
   emptyBundledGeneratedArtifactStatus,
 } from "../bundled/generate-bundled.mjs";
+import {
+  buildUnicodeGeneratedArtifactStatus,
+  collectUnicodeArtifactFailures,
+  emptyUnicodeGeneratedArtifactStatus,
+} from "../unicode/generate-unicode-data.mjs";
 
 export const repoRoot = findRepoRoot(process.cwd());
 export const configPath = path.join(repoRoot, "packages/tsts/porter.config.json");
 export const activePortCategories = new Set(["literal-port", "manual-required", "host-native"]);
 
-export function main() {
+export async function main() {
   const [command = "status", ...args] = process.argv.slice(2);
   const options = parseArgs(args);
   const config = loadConfig();
+
+  if (command === "sig-check") {
+    await runSigCheck(config, options);
+    return;
+  }
 
   if (command === "scan") {
     const snapshot = runScan(config);
@@ -80,6 +91,10 @@ export function main() {
   if (command === "ast") {
     const snapshot = runScan(config);
     const sourceRevision = snapshot.gitRevision;
+    const schemaSourceSyncFailures = collectSchemaSourceSyncFailures(buildSchemaSourceSyncStatus(config));
+    if (schemaSourceSyncFailures.length > 0) {
+      fail(`AST schema/source sync check failed: ${schemaSourceSyncFailures.join(", ")}`);
+    }
     if (options.write === true) {
       const results = writeAstGenerated(config, sourceRevision, { force: options.force === true });
       for (const result of results) {
@@ -124,7 +139,22 @@ export function main() {
     const astGeneratedArtifacts = buildAstGeneratedArtifactStatus(config, snapshot.gitRevision);
     const diagnosticsGeneratedArtifacts = buildDiagnosticsGeneratedArtifactStatus(config, snapshot.gitRevision);
     const bundledGeneratedArtifacts = buildBundledGeneratedArtifactStatus(config, snapshot.gitRevision);
-    const status = buildStatus(config, snapshot, tsUnits, generatedArtifacts, astGeneratedArtifacts, diagnosticsGeneratedArtifacts, bundledGeneratedArtifacts);
+    const unicodeGeneratedArtifacts = buildUnicodeGeneratedArtifactStatus(config);
+    const schemaSourceSync = buildSchemaSourceSyncStatus(config);
+    const localOverrides = buildLocalOverrideStatus(config, tsUnits);
+    const status = buildStatus(config, snapshot, tsUnits, generatedArtifacts, astGeneratedArtifacts, diagnosticsGeneratedArtifacts, bundledGeneratedArtifacts, unicodeGeneratedArtifacts, schemaSourceSync, localOverrides);
+    if (command === "verify") {
+      const signatureReport = await computeSignatureReport(
+        {
+          config,
+          snapshot,
+          repoRoot,
+          tsFiles: tsUnits.files.filter((file) => file.metadataCount > 0),
+          tsById: new Map(tsUnits.units.map((unit) => [unit.id, unit])),
+        },
+      );
+      status.signatureCheck = summarizeSignatureReport(signatureReport);
+    }
     writeJson(resolveRepo(config.snapshotOut), snapshot);
     writeJson(resolveRepo(config.statusOut), status);
     writeText(resolveRepo(config.reportOut), renderStatusMarkdown(status));
@@ -145,7 +175,62 @@ export function main() {
     return;
   }
 
-  fail(`unknown command '${command}'. Expected scan, status, verify, scaffold, facades, large-files, ast, diagnostics, or skeleton-check.`);
+  fail(`unknown command '${command}'. Expected scan, status, verify, sig-check, scaffold, facades, large-files, ast, diagnostics, or skeleton-check.`);
+}
+
+// Signature/type-equivalence check. Compares each ported @tsgo-unit's actual TS
+// signature against the signature derived from Go. `porter verify` always runs
+// this as a hard gate; the standalone command supports `--id <glob>`, `--json`,
+// and `--no-gate` for local exploration.
+async function runSigCheck(config, options) {
+  const snapshot = runScan(config);
+  const tsUnits = scanTsUnits(resolveRepo(config.tsRoot));
+  const tsById = new Map(tsUnits.units.map((u) => [u.id, u]));
+  const tsFiles = tsUnits.files.filter((file) => file.metadataCount > 0);
+  const report = await computeSignatureReport(
+    { config, snapshot, repoRoot, tsFiles, tsById },
+    { idFilter: typeof options.id === "string" ? options.id : undefined },
+  );
+  if (options.json === true) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    printSigReport(report);
+  }
+  if ((report.mismatches.length > 0 || (report.overrideIssues?.length ?? 0) > 0) && options["no-gate"] !== true) {
+    process.exit(1);
+  }
+}
+
+function summarizeSignatureReport(report) {
+  const byKind = {};
+  for (const mismatch of report.mismatches) byKind[mismatch.kind] = (byKind[mismatch.kind] ?? 0) + 1;
+  return {
+    checked: report.checked,
+    overriddenUnits: report.overriddenUnits,
+    mismatches: report.mismatches.length,
+    overrideIssues: report.overrideIssues?.length ?? 0,
+    byKind,
+  };
+}
+
+function printSigReport(report) {
+  const byKind = new Map();
+  for (const m of report.mismatches) byKind.set(m.kind, (byKind.get(m.kind) ?? 0) + 1);
+  console.log(`porter sig-check: ${report.checked} units checked, ${report.overriddenUnits} overridden, ${report.mismatches.length} mismatches, ${report.overrideIssues?.length ?? 0} override metadata issues`);
+  for (const issue of report.overrideIssues ?? []) {
+    console.log(`\n[override-metadata] ${issue.id || "<config>"}\n  ${issue.reason}`);
+  }
+  for (const [kind, n] of [...byKind.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${String(n).padStart(5)}  ${kind}`);
+  }
+  for (const m of report.mismatches.slice(0, 50)) {
+    const unit = m.id.split("::").slice(2).join("::");
+    console.log(`\n[${m.kind}] ${unit}\n  ${m.file}\n  ${m.detail}`);
+    if (m.expected !== undefined || m.actual !== undefined) {
+      console.log(`  expected: ${m.expected}\n  actual:   ${m.actual}`);
+    }
+  }
+  if (report.mismatches.length > 50) console.log(`\n… and ${report.mismatches.length - 50} more (use --json for the full list).`);
 }
 
 export function runScan(config) {
@@ -172,6 +257,45 @@ export function runScan(config) {
   }
 }
 
+export function emptySchemaSourceSyncStatus() {
+  return { mismatches: [] };
+}
+
+// Some vendored-schema inputs (packages/tsts/schema/tsgo/*) are verbatim copies
+// of TS-Go source files. The AST generator validates artifacts against those
+// COPIES, never against live source, so a real upstream change that wasn't
+// mirrored into the schema dir would sit behind a green `verify`. This check
+// asserts each declared copy is byte-identical (CRLF-normalized) to its live
+// source file under config.sourceRoot, so the schema pin cannot silently lag
+// the source pin. Bias is toward over-reporting: any byte difference fails.
+export function buildSchemaSourceSyncStatus(config) {
+  const checks = config.schemaSourceSyncChecks ?? [];
+  const sourceRoot = resolveRepo(config.sourceRoot);
+  const mismatches = [];
+  const normalize = (text) => text.replace(/\r\n/g, "\n");
+  for (const check of checks) {
+    const schemaPath = resolveRepo(check.schema);
+    const sourcePath = path.join(sourceRoot, check.source);
+    if (!existsSync(schemaPath)) {
+      mismatches.push({ schema: check.schema, source: check.source, reason: "schema-dir copy is missing" });
+      continue;
+    }
+    if (!existsSync(sourcePath)) {
+      mismatches.push({ schema: check.schema, source: check.source, reason: "live source file is missing (upstream moved/removed it; refresh the schema pin)" });
+      continue;
+    }
+    if (normalize(readFileSync(schemaPath, "utf8")) !== normalize(readFileSync(sourcePath, "utf8"))) {
+      mismatches.push({ schema: check.schema, source: check.source, reason: "schema-dir copy differs from live source; refresh the AST schema pin and regenerate" });
+    }
+  }
+  return { mismatches };
+}
+
+export function collectSchemaSourceSyncFailures(status) {
+  if (status.mismatches.length === 0) return [];
+  return [`${status.mismatches.length} schema/source sync mismatches (${status.mismatches.map((m) => m.schema.split("/").pop()).join(", ")})`];
+}
+
 export function buildStatus(
   config,
   snapshot,
@@ -180,6 +304,9 @@ export function buildStatus(
   astGeneratedArtifacts = emptyAstGeneratedArtifactStatus(),
   diagnosticsGeneratedArtifacts = emptyDiagnosticsGeneratedArtifactStatus(),
   bundledGeneratedArtifacts = emptyBundledGeneratedArtifactStatus(),
+  unicodeGeneratedArtifacts = emptyUnicodeGeneratedArtifactStatus(),
+  schemaSourceSync = emptySchemaSourceSyncStatus(),
+  localOverrides = emptyLocalOverrideStatus(),
 ) {
   const primaryKinds = new Set(config.primaryUnitKinds);
   const largeFileSplits = buildLargeFileSplitStatus(config, snapshot);
@@ -368,7 +495,14 @@ export function buildStatus(
       orphanBundledArtifacts: bundledGeneratedArtifacts.orphan.length,
       untrackedBundledArtifacts: bundledGeneratedArtifacts.untracked.length,
       invalidBundledArtifacts: bundledGeneratedArtifacts.invalid.length,
+      missingUnicodeArtifacts: unicodeGeneratedArtifacts.missing.length,
+      staleUnicodeArtifacts: unicodeGeneratedArtifacts.stale.length,
+      orphanUnicodeArtifacts: unicodeGeneratedArtifacts.orphan.length,
+      untrackedUnicodeArtifacts: unicodeGeneratedArtifacts.untracked.length,
+      invalidUnicodeArtifacts: unicodeGeneratedArtifacts.invalid.length,
       largeFileSplitFailures: largeFileSplits.failureCount,
+      schemaSourceMismatches: schemaSourceSync.mismatches.length,
+      localOverrideIssues: localOverrides.failureCount,
     },
     categories: Object.fromEntries([...categoryCounts.entries()].sort()),
     modules: Object.fromEntries([...moduleCounts.entries()].sort()),
@@ -385,6 +519,9 @@ export function buildStatus(
     astGeneratedArtifacts,
     diagnosticsGeneratedArtifacts,
     bundledGeneratedArtifacts,
+    unicodeGeneratedArtifacts,
+    schemaSourceSync,
+    localOverrides,
     largeFileSplits,
     missing: missing.slice(0, 500),
     stale: stale.slice(0, 500),
@@ -417,6 +554,19 @@ export function scanTsUnits(root) {
           path: path.relative(repoRoot, file).split(path.sep).join("/"),
           metadata,
         });
+        const overrideDocStart = text.lastIndexOf("/**", match.index);
+        const overrideDocEnd = text.indexOf("*/", regex.lastIndex);
+        if (overrideDocStart >= 0 && overrideDocEnd >= regex.lastIndex) {
+          const doc = text.slice(overrideDocStart, overrideDocEnd);
+          const overrideJson = extractTsgoOverrideJson(doc);
+          if (overrideJson !== undefined) {
+            try {
+              units[units.length - 1].override = JSON.parse(overrideJson);
+            } catch (error) {
+              fail(`invalid @tsgo-override JSON in ${path.relative(repoRoot, file)}: ${error.message}`);
+            }
+          }
+        }
         // Check if the first TS export after the JSDoc block throws TSGO_UNIMPLEMENTED.
         // We skip the JSDoc body (Go source) and only inspect the first export declaration's body.
         const afterPos = regex.lastIndex;
@@ -450,6 +600,134 @@ export function scanTsUnits(root) {
     });
   }
   return { fileCount: files.length, files: fileReports, units };
+}
+
+function extractTsgoOverrideJson(doc) {
+  const marker = "@tsgo-override";
+  const markerIndex = doc.indexOf(marker);
+  if (markerIndex < 0) return undefined;
+
+  const raw = doc.slice(markerIndex + marker.length);
+  const cleaned = raw
+    .split(/\r?\n/)
+    .map((line, index) => (index === 0 ? line : line.replace(/^\s*\*\s?/, "")))
+    .join("\n")
+    .trimStart();
+  const start = cleaned.indexOf("{");
+  if (start < 0) return undefined;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < cleaned.length; index++) {
+    const ch = cleaned[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      depth++;
+      continue;
+    }
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        return cleaned.slice(start, index + 1);
+      }
+    }
+  }
+  return cleaned.slice(start);
+}
+
+export function emptyLocalOverrideStatus() {
+  return {
+    inline: 0,
+    failureCount: 0,
+    invalidInline: [],
+    byCategory: {},
+    byAllow: {},
+    signatureUnits: [],
+  };
+}
+
+export function buildLocalOverrideStatus(config, tsUnits) {
+  if ((config.implementationOverrides ?? []).length > 0) {
+    return {
+      ...emptyLocalOverrideStatus(),
+      failureCount: config.implementationOverrides.length,
+      invalidInline: config.implementationOverrides.map((entry, index) => ({
+        id: entry.id ?? "",
+        path: "",
+        reason: `central implementationOverrides[${index}] is banned; move the full metadata to local @tsgo-override`,
+      })),
+    };
+  }
+  const units = tsUnits.units ?? [];
+  const invalidInline = [];
+  const byCategory = new Map();
+  const byAllow = new Map();
+  const signatureUnits = [];
+  const inlineUnits = units.filter((unit) => unit.override !== undefined);
+  for (const unit of inlineUnits) {
+    const issues = validateOverrideShape(unit.override);
+    if (issues.length > 0) {
+      invalidInline.push({
+        id: unit.id,
+        path: unit.path,
+        reason: issues.join("; "),
+      });
+      continue;
+    }
+    increment(byCategory, unit.override.category);
+    for (const allow of unit.override.allow) increment(byAllow, allow);
+    if (unit.override.allow.includes("signature")) {
+      signatureUnits.push({ id: unit.id, path: unit.path, category: unit.override.category, reason: unit.override.reason });
+    }
+  }
+  return {
+    inline: inlineUnits.length,
+    failureCount: invalidInline.length,
+    invalidInline,
+    byCategory: Object.fromEntries([...byCategory.entries()].sort()),
+    byAllow: Object.fromEntries([...byAllow.entries()].sort()),
+    signatureUnits,
+  };
+}
+
+function validateOverrideShape(value) {
+  const issues = [];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return ["override must be an object"];
+  }
+  if (typeof value.category !== "string" || value.category.trim() === "") {
+    issues.push("category is required");
+  }
+  if (typeof value.reason !== "string" || value.reason.trim() === "") {
+    issues.push("reason is required");
+  }
+  const allowed = new Set(["body", "signature"]);
+  if (!Array.isArray(value.allow) || value.allow.length === 0 || value.allow.some((item) => !allowed.has(item))) {
+    issues.push("allow must be a non-empty array containing only 'body' or 'signature'");
+  }
+  if (Array.isArray(value.allow) && value.allow.includes("signature")) {
+    if (typeof value.goSignature !== "string" || value.goSignature.trim() === "") {
+      issues.push("signature overrides require goSignature");
+    }
+    if (typeof value.tsSignature !== "string" || value.tsSignature.trim() === "") {
+      issues.push("signature overrides require tsSignature");
+    }
+  }
+  return issues;
 }
 
 export function authoredFacadePathSet(config) {
@@ -1119,17 +1397,16 @@ export function checkSkeletons(config, status, snapshot, options) {
     writeJson(tsconfigPath, skeletonTsConfig());
     console.log(`Skeleton output: ${path.relative(repoRoot, outRoot)}`);
     if (compile) {
-      const tsgoPath = path.join(repoRoot, "node_modules/.bin/tsgo");
       const result = spawnSync(
-        tsgoPath,
+        path.join(repoRoot, "node_modules/.bin/tsc"),
         ["--noEmit", "-p", tsconfigPath],
         { cwd: repoRoot, encoding: "utf8", maxBuffer: 1024 * 1024 * 256 },
       );
-      if (result.error) fail(`failed to execute TS-Go compiler: ${result.error.message}`);
+      if (result.error) fail(`failed to execute TypeScript compiler: ${result.error.message}`);
       if (result.status !== 0) {
-        fail(`skeleton TS-Go compile failed with exit ${result.status}\n${result.stdout}\n${result.stderr}`);
+        fail(`skeleton TypeScript compile failed with exit ${result.status}\n${result.stdout}\n${result.stderr}`);
       }
-      console.log("skeleton TS-Go compile passed");
+      console.log("skeleton TypeScript compile passed");
     }
   }
 }
@@ -1147,9 +1424,11 @@ export function renderUnitGroup(config, snapshot, relativeTargetPath, units, opt
 }
 
 function rendererContext(config, snapshot, relativeTargetPath, units, options) {
-  const filesByPath = new Map(snapshot.files.map((file) => [file.path, file]));
+  const filesByPath = options.filesByPath ?? new Map(snapshot.files.map((file) => [file.path, file]));
   const largeFileSplits = options.largeFileSplits ?? buildLargeFileSplitStatus(config, snapshot);
-  const symbolIndex = buildSymbolIndex(config, snapshot, largeFileSplits);
+  // The symbol/value/facade indexes are expensive global builds over the whole
+  // snapshot; callers that render many units in a loop may inject pre-built ones.
+  const symbolIndex = options.symbolIndex ?? buildSymbolIndex(config, snapshot, largeFileSplits);
   const firstUnit = units[0];
   const goPath = firstUnit?.metadata?.goPath ?? "";
   const file = filesByPath.get(goPath) ?? fileFromUnit(firstUnit);
@@ -1163,7 +1442,7 @@ function rendererContext(config, snapshot, relativeTargetPath, units, options) {
     config,
     snapshot,
     symbolIndex,
-    valueTypeIndex: buildValueTypeIndex(config, snapshot, largeFileSplits),
+    valueTypeIndex: options.valueTypeIndex ?? buildValueTypeIndex(config, snapshot, largeFileSplits),
     file,
     relativeTargetPath,
     imports: new Map(),
@@ -1173,6 +1452,21 @@ function rendererContext(config, snapshot, relativeTargetPath, units, options) {
     localTypeNames,
     localTopLevelNames,
     importAliases: importAliasMap(file.imports ?? []),
+    externalFacades: options.externalFacades ?? buildExternalFacadeMap(config, snapshot),
+  };
+}
+
+// Builds the expensive whole-snapshot indexes once, for callers that render many
+// units in a loop (e.g. the signature checker). Pass the result as renderUnitGroup
+// `options` so rendererContext reuses them instead of rebuilding per call.
+export function buildRenderIndexes(config, snapshot) {
+  const filesByPath = new Map(snapshot.files.map((file) => [file.path, file]));
+  const largeFileSplits = buildLargeFileSplitStatus(config, snapshot);
+  return {
+    filesByPath,
+    largeFileSplits,
+    symbolIndex: buildSymbolIndex(config, snapshot, largeFileSplits),
+    valueTypeIndex: buildValueTypeIndex(config, snapshot, largeFileSplits),
     externalFacades: buildExternalFacadeMap(config, snapshot),
   };
 }
@@ -1614,7 +1908,7 @@ function importTypeName(context, targetPath, exportName, unit) {
 function renderImports(context) {
   const lines = [];
   if (context.coreImports.size > 0) {
-    lines.push(`import type { ${[...context.coreImports].sort().join(", ")} } from "@tsonic/core/types.js";`);
+    lines.push(`import type { ${[...context.coreImports].sort().join(", ")} } from "${relativeImportPath(context.relativeTargetPath, `${context.config.tsRoot}/go/scalars.ts`)}";`);
   }
   if (context.compatImports.size > 0) {
     lines.push(`import type { ${[...context.compatImports].sort().join(", ")} } from "${relativeImportPath(context.relativeTargetPath, `${context.config.tsRoot}/go/compat.ts`)}";`);
@@ -1797,6 +2091,11 @@ function writeExternalFacades(config, snapshot, options) {
 export function renderExpectedGeneratedArtifacts(config, snapshot) {
   const artifacts = new Map();
   const sourceRootPrefix = config.tsRoot.replace(/\/$/, "");
+  const scalarsBody = renderGoScalarsModule();
+  artifacts.set(
+    `${sourceRootPrefix}/go/scalars.ts`,
+    renderGeneratedArtifact(snapshot, "go/scalars.ts", "go-scalars", scalarsBody),
+  );
   const compatBody = renderGoCompatModule();
   artifacts.set(
     `${sourceRootPrefix}/go/compat.ts`,
@@ -2187,12 +2486,30 @@ function knownExternalFacadePolicies() {
   ];
 }
 
+function renderGoScalarsModule() {
+  return `export type bool = boolean;
+export type byte = number;
+export type double = number;
+export type float = number;
+export type int = number;
+export type long = number;
+export type nint = number;
+export type nuint = number;
+export type sbyte = number;
+export type short = number;
+export type uint = number;
+export type ulong = number;
+export type ushort = number;
+`;
+}
+
 function renderGoCompatModule() {
-  return `import type { bool, int } from "@tsonic/core/types.js";
+  return `import type { bool, int } from "./scalars.js";
 
 declare const __goBrand: unique symbol;
 
 export type GoPtr<T> = T | undefined;
+export type GoRef<T> = { v: T };
 export type GoSlice<T> = T[];
 export type GoArray<T, Length extends string> = T[] & { readonly [__goBrand]?: { readonly length: Length } };
 export type GoMap<K, V> = Map<K, V>;
@@ -2240,21 +2557,23 @@ export class GoStructMap<K, V> implements Map<K, V> {
   }
 
   getOrInsert(key: K, value: V): V {
-    const existing = this.get(key);
-    if (existing !== undefined || this.has(key)) {
-      return existing as V;
+    const keyText = goStructMapKey(key);
+    const existing = this.entriesByKey.get(keyText);
+    if (existing !== undefined) {
+      return existing.value;
     }
-    this.set(key, value);
+    this.entriesByKey.set(keyText, { key, value });
     return value;
   }
 
   getOrInsertComputed(key: K, callbackfn: (key: K) => V): V {
-    const existing = this.get(key);
-    if (existing !== undefined || this.has(key)) {
-      return existing as V;
+    const keyText = goStructMapKey(key);
+    const existing = this.entriesByKey.get(keyText);
+    if (existing !== undefined) {
+      return existing.value;
     }
     const value = callbackfn(key);
-    this.set(key, value);
+    this.entriesByKey.set(keyText, { key, value });
     return value;
   }
 
@@ -2265,6 +2584,34 @@ export class GoStructMap<K, V> implements Map<K, V> {
   set(key: K, value: V): this {
     this.entriesByKey.set(goStructMapKey(key), { key, value });
     return this;
+  }
+
+  load(key: K): [V | undefined, boolean] {
+    const entry = this.entriesByKey.get(goStructMapKey(key));
+    if (entry === undefined) {
+      return [undefined, false];
+    }
+    return [entry.value, true];
+  }
+
+  loadOrStore(key: K, value: V): [V, boolean] {
+    const keyText = goStructMapKey(key);
+    const existing = this.entriesByKey.get(keyText);
+    if (existing !== undefined) {
+      return [existing.value, true];
+    }
+    this.entriesByKey.set(keyText, { key, value });
+    return [value, false];
+  }
+
+  loadAndDelete(key: K): [V | undefined, boolean] {
+    const keyText = goStructMapKey(key);
+    const existing = this.entriesByKey.get(keyText);
+    if (existing === undefined) {
+      return [undefined, false];
+    }
+    this.entriesByKey.delete(keyText);
+    return [existing.value, true];
   }
 
   *entries(): MapIterator<[K, V]> {
@@ -2290,8 +2637,8 @@ export class GoStructMap<K, V> implements Map<K, V> {
   }
 }
 
-export function NewGoStructMap<K, V>(): GoMap<K, V> {
-  return new GoStructMap<K, V>() as unknown as GoMap<K, V>;
+export function NewGoStructMap<K, V>(): GoStructMap<K, V> {
+  return new GoStructMap<K, V>();
 }
 
 export function GoAppend<T>(slice: GoPtr<GoSlice<T>>, ...items: GoSlice<T>): GoSlice<T> {
@@ -2338,10 +2685,25 @@ function goValueKey(value: unknown, topLevelStruct: boolean): string {
 
 function goStructFieldsKey(value: Record<PropertyKey, unknown>): string {
   if (globalThis.Array.isArray(value)) {
-    return \`array:[\${value.map((item) => goValueKey(item, false)).join(",")}]\`;
+    let result = "array:[";
+    for (let index = 0; index < value.length; index++) {
+      if (index > 0) {
+        result += ",";
+      }
+      result += goValueKey(value[index], false);
+    }
+    return result + "]";
   }
   const keys = globalThis.Object.keys(value).sort();
-  return \`struct:{\${keys.map((key) => \`\${key}=\${goValueKey(value[key], false)}\`).join(",")}}\`;
+  let result = "struct:{";
+  for (let index = 0; index < keys.length; index++) {
+    if (index > 0) {
+      result += ",";
+    }
+    const key = keys[index]!;
+    result += \`\${key}=\${goValueKey(value[key], false)}\`;
+  }
+  return result + "}";
 }
 
 function isUint128Like(value: Record<PropertyKey, unknown>): boolean {
@@ -2353,6 +2715,9 @@ function isValueStruct(value: Record<PropertyKey, unknown>): boolean {
     return true;
   }
   if (typeof value.Negative === "boolean" && typeof value.Base10Value === "string") {
+    return true;
+  }
+  if (typeof value.pos === "number" && typeof value.end === "number") {
     return true;
   }
   return false;
@@ -2511,10 +2876,23 @@ export function collectVerifyFailures(status, options) {
   if (status.counts.forbiddenTsFiles > 0) failures.push(`${status.counts.forbiddenTsFiles} forbidden TS files`);
   if (status.counts.untrackedTsFiles > 0) failures.push(`${status.counts.untrackedTsFiles} TS files without @tsgo-unit metadata`);
   if (status.counts.stale > 0) failures.push(`${status.counts.stale} stale TS units`);
+  failures.push(...collectSchemaSourceSyncFailures(status.schemaSourceSync ?? emptySchemaSourceSyncStatus()));
   failures.push(...collectGeneratedArtifactFailures(status.generatedArtifacts ?? emptyGeneratedArtifactStatus()));
   failures.push(...collectAstArtifactFailures(status.astGeneratedArtifacts ?? emptyAstGeneratedArtifactStatus()));
   failures.push(...collectDiagnosticsArtifactFailures(status.diagnosticsGeneratedArtifacts ?? emptyDiagnosticsGeneratedArtifactStatus()));
   failures.push(...collectBundledArtifactFailures(status.bundledGeneratedArtifacts ?? emptyBundledGeneratedArtifactStatus()));
+  failures.push(...collectUnicodeArtifactFailures(status.unicodeGeneratedArtifacts ?? emptyUnicodeGeneratedArtifactStatus()));
+  failures.push(...collectLocalOverrideFailures(status.localOverrides ?? emptyLocalOverrideStatus()));
+  if ((status.signatureCheck?.overrideIssues ?? 0) > 0) {
+    failures.push(`${status.signatureCheck.overrideIssues} signature override metadata issues`);
+  }
+  if ((status.signatureCheck?.mismatches ?? 0) > 0) {
+    const byKind = Object.entries(status.signatureCheck.byKind ?? {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([kind, count]) => `${kind}=${count}`)
+      .join(", ");
+    failures.push(`${status.signatureCheck.mismatches} signature/type mismatches${byKind ? ` (${byKind})` : ""}`);
+  }
   if (strictPort && status.counts.missing > 0) failures.push(`${status.counts.missing} missing Go units`);
   if (strictPort) {
     const rows = status.rows ?? [];
@@ -2529,6 +2907,12 @@ export function collectVerifyFailures(status, options) {
       failures.push(`${stubsWithoutThrow.length} stub func/method units missing TSGO_UNIMPLEMENTED throw: ${stubsWithoutThrow.slice(0,3).map(r=>r.id.split('::').pop()).join(', ')}`);
     }
   }
+  return failures;
+}
+
+export function collectLocalOverrideFailures(status) {
+  const failures = [];
+  if (status.invalidInline.length > 0) failures.push(`${status.invalidInline.length} invalid local @tsgo-override entries`);
   return failures;
 }
 
@@ -2574,7 +2958,11 @@ export function printStatus(config, status) {
   console.log(`AST generated artifacts missing/stale/orphan/untracked/invalid: ${status.counts.missingAstArtifacts}/${status.counts.staleAstArtifacts}/${status.counts.orphanAstArtifacts}/${status.counts.untrackedAstArtifacts}/${status.counts.invalidAstArtifacts}`);
   console.log(`Diagnostics generated artifacts missing/stale/orphan/untracked/invalid: ${status.counts.missingDiagnosticsArtifacts}/${status.counts.staleDiagnosticsArtifacts}/${status.counts.orphanDiagnosticsArtifacts}/${status.counts.untrackedDiagnosticsArtifacts}/${status.counts.invalidDiagnosticsArtifacts}`);
   console.log(`Bundled generated artifacts missing/stale/orphan/untracked/invalid: ${status.counts.missingBundledArtifacts}/${status.counts.staleBundledArtifacts}/${status.counts.orphanBundledArtifacts}/${status.counts.untrackedBundledArtifacts}/${status.counts.invalidBundledArtifacts}`);
+  console.log(`Unicode generated artifacts missing/stale/orphan/untracked/invalid: ${status.counts.missingUnicodeArtifacts}/${status.counts.staleUnicodeArtifacts}/${status.counts.orphanUnicodeArtifacts}/${status.counts.untrackedUnicodeArtifacts}/${status.counts.invalidUnicodeArtifacts}`);
   console.log(`Large-file split plan failures: ${status.counts.largeFileSplitFailures}`);
+  const localOverrides = status.localOverrides ?? emptyLocalOverrideStatus();
+  console.log(`Local overrides inline/body/signature/issues: ${localOverrides.inline}/${localOverrides.byAllow.body ?? 0}/${localOverrides.byAllow.signature ?? 0}/${localOverrides.failureCount}`);
+  console.log(`Schema/source sync mismatches: ${status.counts.schemaSourceMismatches ?? 0}`);
   console.log(`Go parse errors: ${status.counts.parseErrors}`);
   console.log(`Unitless Go files: ${status.counts.unitlessGoFiles}`);
   console.log(`Report: ${path.relative(repoRoot, resolveRepo(config.reportOut))}`);
@@ -2604,7 +2992,10 @@ export function renderStatusMarkdown(status) {
   lines.push(`- AST generated artifacts missing/stale/orphan/untracked/invalid: ${status.counts.missingAstArtifacts}/${status.counts.staleAstArtifacts}/${status.counts.orphanAstArtifacts}/${status.counts.untrackedAstArtifacts}/${status.counts.invalidAstArtifacts}`);
   lines.push(`- Diagnostics generated artifacts missing/stale/orphan/untracked/invalid: ${status.counts.missingDiagnosticsArtifacts}/${status.counts.staleDiagnosticsArtifacts}/${status.counts.orphanDiagnosticsArtifacts}/${status.counts.untrackedDiagnosticsArtifacts}/${status.counts.invalidDiagnosticsArtifacts}`);
   lines.push(`- Bundled generated artifacts missing/stale/orphan/untracked/invalid: ${status.counts.missingBundledArtifacts}/${status.counts.staleBundledArtifacts}/${status.counts.orphanBundledArtifacts}/${status.counts.untrackedBundledArtifacts}/${status.counts.invalidBundledArtifacts}`);
+  lines.push(`- Unicode generated artifacts missing/stale/orphan/untracked/invalid: ${status.counts.missingUnicodeArtifacts}/${status.counts.staleUnicodeArtifacts}/${status.counts.orphanUnicodeArtifacts}/${status.counts.untrackedUnicodeArtifacts}/${status.counts.invalidUnicodeArtifacts}`);
   lines.push(`- Large-file split plan failures: ${status.counts.largeFileSplitFailures}`);
+  const localOverrides = status.localOverrides ?? emptyLocalOverrideStatus();
+  lines.push(`- Local overrides inline/body/signature/issues: ${localOverrides.inline}/${localOverrides.byAllow.body ?? 0}/${localOverrides.byAllow.signature ?? 0}/${localOverrides.failureCount}`);
   lines.push(`- Go parse errors: ${status.counts.parseErrors}`);
   lines.push(`- Unitless Go files: ${status.counts.unitlessGoFiles}`);
   lines.push("");
@@ -2662,6 +3053,14 @@ export function renderStatusMarkdown(status) {
     lines.push("|---|---|---|---|---|");
     for (const issue of status.largeFileSplits.issues.slice(0, 100)) {
       lines.push(`| ${issue.file} | ${issue.kind} | ${escapeMd(issue.declaration ?? "")} | ${escapeMd(issue.target ?? "")} | ${escapeMd(issue.message)} |`);
+    }
+  }
+  if (status.localOverrides?.failureCount > 0) {
+    lines.push("");
+    lines.push("## Local Override Issues");
+    lines.push("");
+    for (const issue of status.localOverrides.invalidInline.slice(0, 100)) {
+      lines.push(`- ${issue.id || issue.match || `config[${issue.index}]`} ${issue.path ? `(${issue.path}) ` : ""}- ${issue.reason}`);
     }
   }
   if (status.unitlessGoFiles.length > 0) {
@@ -2924,9 +3323,7 @@ export function fail(message) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  try {
-    main();
-  } catch (error) {
-    fail(error?.message ?? String(error));
-  }
+  Promise.resolve()
+    .then(() => main())
+    .catch((error) => fail(error?.message ?? String(error)));
 }

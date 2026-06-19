@@ -1,12 +1,33 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { cpSync, rmSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = join(dirname(scriptPath), "../../../..");
-const testRoot = join(repoRoot, "packages/tsts/dist/src");
+const testRoot = join(repoRoot, ".temp/source-tests/dist/src");
+const testConfig = "packages/tsts/tsconfig.source-tests.json";
+const tscPath = join(repoRoot, "node_modules/typescript/bin/tsc");
+
+rmSync(join(repoRoot, ".temp/source-tests"), { recursive: true, force: true });
+
+const build = spawnSync(process.execPath, [tscPath, "-p", testConfig, "--pretty", "false"], {
+  cwd: repoRoot,
+  stdio: "inherit",
+});
+if (build.status !== 0 || build.signal !== null) {
+  if (build.signal !== null) {
+    console.error(`source test build terminated by ${build.signal}`);
+  }
+  process.exit(build.status ?? 1);
+}
+cpSync(
+  join(repoRoot, "packages/tsts/src/internal/bundled/libs"),
+  join(testRoot, "internal/bundled/libs"),
+  { recursive: true, force: true },
+);
 
 async function collectTests(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -31,7 +52,7 @@ try {
   }
 } catch (error) {
   console.error(`Built source tests were not found under ${relative(repoRoot, testRoot)}.`);
-  console.error("Run `npm run typecheck` before `npm run source:test`.");
+  console.error(`Run \`npx tsc -p ${testConfig}\` before inspecting built source tests manually.`);
   if (error instanceof Error) {
     console.error(error.message);
   }

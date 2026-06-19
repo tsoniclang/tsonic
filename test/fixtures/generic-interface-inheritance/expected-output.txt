@@ -1,2 +1,0 @@
-Person: 1 - Charlie
-Item: SKU-001 - Widget

@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../scalars.js";
 import type { GoSlice } from "../../compat.js";
 
 export type DiffKind = "equal" | "delete" | "insert";

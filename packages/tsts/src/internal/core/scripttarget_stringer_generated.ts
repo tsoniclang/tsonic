@@ -1,4 +1,4 @@
-import type { byte, long } from "@tsonic/core/types.js";
+import type { byte, long } from "../../go/scalars.js";
 import type { GoArray } from "../../go/compat.js";
 import { FormatInt } from "../../go/strconv.js";
 import {

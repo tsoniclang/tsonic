@@ -1,6 +1,0 @@
-{
-  "schemaVersion": 1,
-  "id": "@tsonic/js",
-  "extends": [],
-  "requiredTypeRoots": ["linked-types"]
-}

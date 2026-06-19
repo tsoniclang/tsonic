@@ -6,7 +6,7 @@
 // separately by the porter:diagnostics generator into ./generated/messages.ts,
 // mirroring how diagnostics_generated.go is produced by generate.go.
 
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { Sprintf } from "../../go/fmt.js";
 import * as regexp from "../../go/regexp.js";
@@ -188,7 +188,7 @@ export function Message_String(m: GoPtr<Message>): string {
  * 	return Localize(locale, m, "", StringifyArgs(args)...)
  * }
  */
-export function Message_Localize(m: GoPtr<Message>, locale: Locale, ...args: GoSlice<unknown>): string {
+export function Message_Localize(m: GoPtr<Message>, locale: Locale, ...args: Array<unknown>): string {
   return Localize(locale, m, "", ...StringifyArgs(args));
 }
 
@@ -212,7 +212,7 @@ export function Message_Localize(m: GoPtr<Message>, locale: Locale, ...args: GoS
  * 	return Format(text, args)
  * }
  */
-export function Localize(locale: Locale, message: GoPtr<Message>, key: Key, ...args: GoSlice<string>): string {
+export function Localize(locale: Locale, message: GoPtr<Message>, key: Key, ...args: Array<string>): string {
   if (message === undefined) {
     message = keyToMessage(key);
   }

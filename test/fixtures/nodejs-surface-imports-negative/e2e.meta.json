@@ -1,4 +1,0 @@
-{
-  "description": "nodejs default imports require an explicit default export.",
-  "expectFailure": true
-}

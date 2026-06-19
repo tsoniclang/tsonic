@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoError, GoMap, GoPtr } from "../../../go/compat.js";
 import { ContainsFunc } from "../../../go/slices.js";
 import type { Node, NodeList } from "../../ast/spine.js";
@@ -27,7 +27,7 @@ import { NodeFactory_AsNodeFactory } from "../../ast/spine.js";
 import { EmitContext_EmitFlags, EmitContext_GetSyntheticLeadingComments, EmitContext_MostOriginal, EmitContext_ParseNode, EmitContext_SourceMapRange, EmitContext_TokenSourceMapRange, EmitContext_GetExternalHelpersModuleName } from "../emitcontext.js";
 import type { SynthesizedComment } from "../emitcontext.js";
 import { EFExternalHelpers, EFMultiLine, EFNoLeadingSourceMap, EFNoNestedSourceMaps, EFNoTokenLeadingSourceMaps, EFNoTokenTrailingSourceMaps, EFNoTrailingSourceMap, EFSingleLine, EFStartOnNewLine } from "../emitflags.js";
-import { newLineCharacterCache, greatestEnd, getLinesBetweenRangeEndAndRangeStart, getLinesBetweenPositionAndPrecedingNonWhitespaceCharacter, getLinesBetweenPositionAndNextNonWhitespaceCharacter, originalNodesHaveSameParent, rangeEndIsOnSameLineAsRangeStart, rangeEndPositionsAreOnSameLine, rangeStartPositionsAreOnSameLine, RangeIsOnSingleLine, siblingNodePositionsAreComparable, skipSynthesizedParentheses } from "../utilities.js";
+import { newLineCharacterCache, greatestEnd, getLinesBetweenRangeEndAndRangeStart, getLinesBetweenPositionAndPrecedingNonWhitespaceCharacter, getLinesBetweenPositionAndNextNonWhitespaceCharacter, originalNodesHaveSameParent, rangeEndIsOnSameLineAsRangeStart, rangeEndPositionsAreOnSameLine, RangeStartPositionsAreOnSameLine, RangeIsOnSingleLine, siblingNodePositionsAreComparable, skipSynthesizedParentheses } from "../utilities.js";
 import { Arena_New } from "../../core/arena.js";
 import type { Arena } from "../../core/arena.js";
 import {
@@ -351,7 +351,7 @@ export function Printer_getEffectiveLines(receiver: GoPtr<Printer>, getLineDiffe
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.getLeadingLineTerminatorCount","kind":"method","status":"implemented","sigHash":"8b4eb3bf5b3f21870f677fb63723b281459580c99353ff0cd48a7272035b8d8f","bodyHash":"26c245cb9b11e375579e6ee45412772a2a625d653a32b1a5d3aa7aed546f2d0b"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.getLeadingLineTerminatorCount","kind":"method","status":"implemented","sigHash":"8b4eb3bf5b3f21870f677fb63723b281459580c99353ff0cd48a7272035b8d8f","bodyHash":"6c2ebdf1e2192adc8d2407991b7636dbbd4f4439d174374d180d728df554ee5d"}
  *
  * Go source:
  * func (p *Printer) getLeadingLineTerminatorCount(parentNode *ast.Node, firstChild *ast.Node, format ListFormat) int {
@@ -401,7 +401,7 @@ export function Printer_getEffectiveLines(receiver: GoPtr<Printer>, getLineDiffe
  * 					},
  * 				)
  * 			}
- * 			return core.IfElse(rangeStartPositionsAreOnSameLine(parentNode.Loc, firstChild.Loc, p.currentSourceFile), 0, 1)
+ * 			return core.IfElse(RangeStartPositionsAreOnSameLine(parentNode.Loc, firstChild.Loc, p.currentSourceFile), 0, 1)
  * 		}
  * 		if p.shouldEmitOnNewLine(firstChild, format) {
  * 			return 1
@@ -440,7 +440,7 @@ export function Printer_getLeadingLineTerminatorCount(receiver: GoPtr<Printer>, 
           ),
         );
       }
-      return (rangeStartPositionsAreOnSameLine(parentNode!.Loc, firstChild!.Loc, receiver!.currentSourceFile) ? 0 : 1) as int;
+      return (RangeStartPositionsAreOnSameLine(parentNode!.Loc, firstChild!.Loc, receiver!.currentSourceFile) ? 0 : 1) as int;
     }
     if (Printer_shouldEmitOnNewLine(receiver, firstChild, format)) {
       return 1 as int;
@@ -450,7 +450,7 @@ export function Printer_getLeadingLineTerminatorCount(receiver: GoPtr<Printer>, 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.getSeparatingLineTerminatorCount","kind":"method","status":"implemented","sigHash":"c773105a2f5c575c9b94183a664bf9cdbf1674b395c88db4fddce2c553a200ec","bodyHash":"aa3aea2222f98a508e5dd448c8599107222997564e3f3cf76ad313743404f054"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.getSeparatingLineTerminatorCount","kind":"method","status":"implemented","sigHash":"c773105a2f5c575c9b94183a664bf9cdbf1674b395c88db4fddce2c553a200ec","bodyHash":"eb6e09ab47e130dfda77a07b1aaf5fd56c641e56ec67a501a1c0e40c6f2aea5c"}
  *
  * Go source:
  * func (p *Printer) getSeparatingLineTerminatorCount(previousNode *ast.Node, nextNode *ast.Node, format ListFormat) int {
@@ -462,7 +462,7 @@ export function Printer_getLeadingLineTerminatorCount(receiver: GoPtr<Printer>, 
  * 			// JsxText will be written with its leading whitespace, so don't add more manually.
  * 			return 0
  * 		} else if p.currentSourceFile != nil && !ast.NodeIsSynthesized(previousNode) && !ast.NodeIsSynthesized(nextNode) {
- * 			if p.Options.PreserveSourceNewlines && siblingNodePositionsAreComparable(previousNode, nextNode) {
+ * 			if p.Options.PreserveSourceNewlines && siblingNodePositionsAreComparable(p.emitContext, previousNode, nextNode) {
  * 				return p.getEffectiveLines(
  * 					func(includeComments bool) int {
  * 						return getLinesBetweenRangeEndAndRangeStart(
@@ -473,7 +473,7 @@ export function Printer_getLeadingLineTerminatorCount(receiver: GoPtr<Printer>, 
  * 						)
  * 					},
  * 				)
- * 			} else if !p.Options.PreserveSourceNewlines && originalNodesHaveSameParent(previousNode, nextNode) {
+ * 			} else if !p.Options.PreserveSourceNewlines && originalNodesHaveSameParent(p.emitContext, previousNode, nextNode) {
  * 				// If `preserveSourceNewlines` is `false` we do not intend to preserve the effective lines between the
  * 				// previous and next node. Instead we naively check whether nodes are on separate lines within the
  * 				// same node parent. If so, we intend to preserve a single line terminator. This is less precise and
@@ -501,7 +501,7 @@ export function Printer_getSeparatingLineTerminatorCount(receiver: GoPtr<Printer
     if (nextNode!.Kind === KindJsxText) {
       return 0 as int;
     } else if (receiver!.currentSourceFile !== undefined && !NodeIsSynthesized(previousNode) && !NodeIsSynthesized(nextNode)) {
-      if (receiver!.Options.PreserveSourceNewlines && siblingNodePositionsAreComparable(previousNode, nextNode)) {
+      if (receiver!.Options.PreserveSourceNewlines && siblingNodePositionsAreComparable(receiver!.emitContext, previousNode, nextNode)) {
         return Printer_getEffectiveLines(
           receiver,
           (includeComments: bool): int => getLinesBetweenRangeEndAndRangeStart(
@@ -511,7 +511,7 @@ export function Printer_getSeparatingLineTerminatorCount(receiver: GoPtr<Printer
             includeComments,
           ),
         );
-      } else if (!receiver!.Options.PreserveSourceNewlines && originalNodesHaveSameParent(previousNode, nextNode)) {
+      } else if (!receiver!.Options.PreserveSourceNewlines && originalNodesHaveSameParent(receiver!.emitContext, previousNode, nextNode)) {
         return (rangeEndIsOnSameLineAsRangeStart(previousNode!.Loc, nextNode!.Loc, receiver!.currentSourceFile) ? 0 : 1) as int;
       }
       // If the two nodes are not comparable, add a line terminator based on the format that can indicate

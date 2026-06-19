@@ -1,9 +1,0 @@
-{
-  "schema": "tsonic.bindings",
-  "provider": {
-    "namespace": "Public"
-  },
-  "targetSurface": {
-    "types": []
-  }
-}

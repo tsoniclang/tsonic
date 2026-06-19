@@ -5,7 +5,7 @@
 // knownsymlinks_bench_test.go is a Go benchmark and has no mirror.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import type { SourceFile } from "../ast/ast.js";
 import type { SyncSet } from "../collections/syncset.js";

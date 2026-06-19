@@ -1,3 +1,0 @@
-User #1: Alice
-User #2: Bob
-Done

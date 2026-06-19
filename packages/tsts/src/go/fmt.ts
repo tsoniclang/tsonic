@@ -11,7 +11,7 @@
 // Multiple returns map to tuples; Errorf returns a GoError. The %w verb wraps an
 // operand error so errors.Is/Unwrap see it (matching Go's fmt.wrapError).
 
-import type { bool, byte, int } from "@tsonic/core/types.js";
+import type { bool, byte, int } from "./scalars.js";
 import type { GoError, GoSlice } from "./compat.js";
 
 // fmt.Stringer: any value with a String() string method participates in %v/%s

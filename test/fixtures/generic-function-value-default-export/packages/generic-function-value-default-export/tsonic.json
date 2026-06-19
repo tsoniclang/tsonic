@@ -1,8 +1,0 @@
-{
-  "$schema": "https://tsonic.org/schema/v1.json",
-  "rootNamespace": "GenericFunctionValueDefaultExport",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "generic-function-value-default-export"
-}

@@ -1,8 +1,0 @@
-{
-  "$schema": "https://tsonic.org/schema/v1.json",
-  "rootNamespace": "ObjectLiteralMethodArgumentsLength",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "object-literal-method-arguments-length"
-}

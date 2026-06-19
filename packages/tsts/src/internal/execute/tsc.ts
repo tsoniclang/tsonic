@@ -1,5 +1,6 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
+import type { Context } from "../../go/context.js";
 import { Map as SyncGoMap } from "../../go/sync.js";
 import { ToLower } from "../../go/strings.js";
 import { Fprintf } from "../../go/fmt.js";
@@ -127,33 +128,33 @@ export function stopTracing(sys: System, tr: GoPtr<Tracing>): void {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/execute/tsc.go::func::CommandLine","kind":"func","status":"implemented","sigHash":"5797dcadb4cf7887837174e4a3ba707391da9ac4af4966c7c44f58d4b5c8cd9c","bodyHash":"a166b544e8133a1ff0688af339e26e4e979311679b4fc7152ff9fefae54afa48"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/execute/tsc.go::func::CommandLine","kind":"func","status":"implemented","sigHash":"3a208e3a9c96e7c8034b72e4604c502f4f0c9f9b585cb027b24f0ae032a8f286","bodyHash":"52f0414c6d29ff8174e17bf7322503f8d3f8fdb0154f0e2ec8e17e3b58b48e8f"}
  *
  * Go source:
- * func CommandLine(sys tsc.System, commandLineArgs []string, testing tsc.CommandLineTesting) tsc.CommandLineResult {
+ * func CommandLine(ctx context.Context, sys tsc.System, commandLineArgs []string, testing tsc.CommandLineTesting) tsc.CommandLineResult {
  * 	if len(commandLineArgs) > 0 {
  * 		switch strings.ToLower(commandLineArgs[0]) {
  * 		case "-b", "--b", "-build", "--build":
- * 			return tscBuildCompilation(sys, tsoptions.ParseBuildCommandLine(commandLineArgs, sys), testing)
+ * 			return tscBuildCompilation(ctx, sys, tsoptions.ParseBuildCommandLine(commandLineArgs, sys), testing)
  * 			// case "-f":
  * 			// 	return fmtMain(sys, commandLineArgs[1], commandLineArgs[1])
  * 		}
  * 	}
  *
- * 	return tscCompilation(sys, tsoptions.ParseCommandLine(commandLineArgs, sys), testing)
+ * 	return tscCompilation(ctx, sys, tsoptions.ParseCommandLine(commandLineArgs, sys), testing)
  * }
  */
-export function CommandLine(sys: System, commandLineArgs: GoSlice<string>, testing: CommandLineTesting | undefined): CommandLineResult {
+export function CommandLine(ctx: Context, sys: System, commandLineArgs: GoSlice<string>, testing: CommandLineTesting | undefined): CommandLineResult {
   if (commandLineArgs.length > 0) {
     switch (ToLower(commandLineArgs[0]!)) {
       case "-b":
       case "--b":
       case "-build":
       case "--build":
-        return tscBuildCompilation(sys, ParseBuildCommandLine(commandLineArgs, sys), testing);
+        return tscBuildCompilation(ctx, sys, ParseBuildCommandLine(commandLineArgs, sys), testing);
     }
   }
-  return tscCompilation(sys, ParseCommandLine(commandLineArgs, sys), testing);
+  return tscCompilation(ctx, sys, ParseCommandLine(commandLineArgs, sys), testing);
 }
 
 /**
@@ -191,10 +192,10 @@ export function fmtMain(sys: System, input: string, output: string): ExitStatus 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/execute/tsc.go::func::tscBuildCompilation","kind":"func","status":"implemented","sigHash":"f68645a75c9c070321c836ada363a304ee5283c27b43e1f2a137ddbfc7fa4394","bodyHash":"fff529fcf5bf7956e4f6cceb9c35ce769e63e2d00928fd6a8c5157cc8a7d393e"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/execute/tsc.go::func::tscBuildCompilation","kind":"func","status":"implemented","sigHash":"4bb367e07c320fa321bae542eadbd4c2f8885cfa2e187327a27b90dbf1363695","bodyHash":"1085d6a2f2bccddca81ec3f1e39627d471af1e496eb26cad345e8ce8fbdfdc4a"}
  *
  * Go source:
- * func tscBuildCompilation(sys tsc.System, buildCommand *tsoptions.ParsedBuildCommandLine, testing tsc.CommandLineTesting) tsc.CommandLineResult {
+ * func tscBuildCompilation(ctx context.Context, sys tsc.System, buildCommand *tsoptions.ParsedBuildCommandLine, testing tsc.CommandLineTesting) tsc.CommandLineResult {
  * 	locale := buildCommand.Locale()
  * 	reportDiagnostic := tsc.CreateDiagnosticReporter(sys, sys.Writer(), locale, buildCommand.CompilerOptions)
  *
@@ -222,10 +223,10 @@ export function fmtMain(sys: System, input: string, output: string): ExitStatus 
  * 		Command: buildCommand,
  * 		Testing: testing,
  * 	})
- * 	return orchestrator.Start()
+ * 	return orchestrator.Start(ctx)
  * }
  */
-export function tscBuildCompilation(sys: System, buildCommand: GoPtr<ParsedBuildCommandLine>, testing: CommandLineTesting | undefined): CommandLineResult {
+export function tscBuildCompilation(ctx: Context, sys: System, buildCommand: GoPtr<ParsedBuildCommandLine>, testing: CommandLineTesting | undefined): CommandLineResult {
   const locale = ParsedBuildCommandLine_Locale(buildCommand);
   const reportDiagnostic = CreateDiagnosticReporter(sys, sys.Writer(), locale, buildCommand!.CompilerOptions);
 
@@ -250,7 +251,7 @@ export function tscBuildCompilation(sys: System, buildCommand: GoPtr<ParsedBuild
     }
 
     const orchestrator = NewOrchestrator({ Sys: sys, Command: buildCommand, Testing: testing });
-    return Orchestrator_Start(orchestrator);
+    return Orchestrator_Start(orchestrator, ctx);
   } finally {
     if (profileSession !== undefined) {
       ProfileSession_Stop(profileSession);
@@ -259,10 +260,10 @@ export function tscBuildCompilation(sys: System, buildCommand: GoPtr<ParsedBuild
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/execute/tsc.go::func::tscCompilation","kind":"func","status":"implemented","sigHash":"722977dd38b813663a6cec00a0d2cb0e0888e26f96b7161d3d2c955916140761","bodyHash":"68b95caca66db42d24329581b03f519352198d6963e10201299ae1937cc3546d"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/execute/tsc.go::func::tscCompilation","kind":"func","status":"implemented","sigHash":"4cfc67a51dc65422489b2bff627706eeb09e78308acefd4b9b523152ad189f9e","bodyHash":"ddadfa54cfa27644cf238dda5e7387ea302c08b095816dd6b6e3705c3a2e2224"}
  *
  * Go source:
- * func tscCompilation(sys tsc.System, commandLine *tsoptions.ParsedCommandLine, testing tsc.CommandLineTesting) tsc.CommandLineResult {
+ * func tscCompilation(ctx context.Context, sys tsc.System, commandLine *tsoptions.ParsedCommandLine, testing tsc.CommandLineTesting) tsc.CommandLineResult {
  * 	configFileName := ""
  * 	locale := commandLine.Locale()
  * 	reportDiagnostic := tsc.CreateDiagnosticReporter(sys, sys.Writer(), locale, commandLine.CompilerOptions())
@@ -345,9 +346,9 @@ export function tscBuildCompilation(sys: System, buildCommand: GoPtr<ParsedBuild
  * 	configForCompilation := commandLine
  * 	extendedConfigCache := &tsc.ExtendedConfigCache{}
  * 	var compileTimes tsc.CompileTimes
+ * 	var commandLineRaw *collections.OrderedMap[string, any]
  * 	if configFileName != "" {
  * 		configStart := sys.Now()
- * 		var commandLineRaw *collections.OrderedMap[string, any]
  * 		if raw, ok := commandLine.Raw.(*collections.OrderedMap[string, any]); ok {
  * 			// Wrap command line options in a "compilerOptions" key to match tsconfig.json structure
  * 			wrapped := &collections.OrderedMap[string, any]{}
@@ -378,11 +379,12 @@ export function tscBuildCompilation(sys: System, buildCommand: GoPtr<ParsedBuild
  * 			sys,
  * 			configForCompilation,
  * 			compilerOptionsFromCommandLine,
+ * 			commandLineRaw,
  * 			reportDiagnostic,
  * 			reportErrorSummary,
  * 			testing,
  * 		)
- * 		watcher.start()
+ * 		watcher.start(ctx)
  * 		return tsc.CommandLineResult{Status: tsc.ExitStatusSuccess, Watcher: watcher}
  * 	} else if configForCompilation.CompilerOptions().IsIncremental() {
  * 		return performIncrementalCompilation(
@@ -406,7 +408,7 @@ export function tscBuildCompilation(sys: System, buildCommand: GoPtr<ParsedBuild
  * 	)
  * }
  */
-export function tscCompilation(sys: System, commandLine: GoPtr<ParsedCommandLine>, testing: CommandLineTesting | undefined): CommandLineResult {
+export function tscCompilation(ctx: Context, sys: System, commandLine: GoPtr<ParsedCommandLine>, testing: CommandLineTesting | undefined): CommandLineResult {
   let configFileName = "";
   const locale = ParsedCommandLine_Locale(commandLine);
   let reportDiagnostic = CreateDiagnosticReporter(sys, sys.Writer(), locale, ParsedCommandLine_CompilerOptions(commandLine));
@@ -426,7 +428,7 @@ export function tscCompilation(sys: System, commandLine: GoPtr<ParsedCommandLine
   }
   try {
     if (Tristate_IsTrue(ParsedCommandLine_CompilerOptions(commandLine)!.Init)) {
-      WriteConfigFile(sys, locale, reportDiagnostic, commandLine!.Raw as GoPtr<OrderedMap>);
+      WriteConfigFile(sys, locale, reportDiagnostic, commandLine!.Raw as GoPtr<OrderedMap<string, unknown>>);
       return { Status: ExitStatusSuccess, Watcher: undefined };
     }
 
@@ -490,12 +492,12 @@ export function tscCompilation(sys: System, commandLine: GoPtr<ParsedCommandLine
     let configForCompilation = commandLine;
     const extendedConfigCache: ExtendedConfigCache = { m: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncGoMap() } as SyncMap<string, GoPtr<extendedConfigCacheEntry>> };
     const compileTimes: import("./tsc/compile.js").CompileTimes = { ConfigTime: 0, ParseTime: 0, bindTime: 0, checkTime: 0, totalTime: 0, emitTime: 0, BuildInfoReadTime: 0, ChangesComputeTime: 0 };
+    let commandLineRaw: GoPtr<OrderedMap<string, unknown>> = undefined;
     if (configFileName !== "") {
       const configStart = sys.Now();
-      let commandLineRaw: GoPtr<OrderedMap> = undefined;
       const raw = commandLine!.Raw;
       if (raw !== undefined && raw !== null) {
-        const rawMap = raw as OrderedMap;
+        const rawMap = raw as OrderedMap<string, unknown>;
         if (rawMap.keys !== undefined) {
           // Wrap command line options in a "compilerOptions" key to match tsconfig.json structure
           const wrapped = NewOrderedMapWithSizeHint<string, unknown>(0);
@@ -528,11 +530,12 @@ export function tscCompilation(sys: System, commandLine: GoPtr<ParsedCommandLine
         sys,
         configForCompilation,
         compilerOptionsFromCommandLine,
+        commandLineRaw,
         reportDiagnostic,
         reportErrorSummary,
         testing,
       );
-      Watcher_start(watcher);
+      Watcher_start(watcher, ctx);
       return { Status: ExitStatusSuccess, Watcher: Watcher_as_tsc_Watcher(watcher) };
     } else if (CompilerOptions_IsIncremental(ParsedCommandLine_CompilerOptions(configForCompilation))) {
       return performIncrementalCompilation(

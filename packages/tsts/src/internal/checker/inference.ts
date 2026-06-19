@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { NewGoStructMap } from "../../go/compat.js";
 import * as slices from "../../go/slices.js";
@@ -407,7 +407,7 @@ export function Checker_inferTypes(receiver: GoPtr<Checker>, inferences: GoSlice
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.inferFromTypes","kind":"method","status":"implemented","sigHash":"4a180277141dbdbc23e2da739671cff9d0f8148ad64f7fcd366e8a2da725d96a","bodyHash":"b7636afd77b37b0236ed354eaa866d12d78f8d7770d30561a24e1720838459c2"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.inferFromTypes","kind":"method","status":"implemented","sigHash":"4a180277141dbdbc23e2da739671cff9d0f8148ad64f7fcd366e8a2da725d96a","bodyHash":"beda9ddd49fcf2fefb5b1e4547c74a406ce5a3ca0ccdea8f2c85f9bf19852dbd"}
  *
  * Go source:
  * func (c *Checker) inferFromTypes(n *InferenceState, source *Type, target *Type) {
@@ -446,10 +446,16 @@ export function Checker_inferTypes(receiver: GoPtr<Checker>, inferences: GoSlice
  * 		}
  * 		return
  * 	}
- * 	if target.flags&TypeFlagsUnion != 0 && source.flags&TypeFlagsNever == 0 {
+ * 	if target.flags&TypeFlagsUnion != 0 {
+ * 		var sourceTypes []*Type
+ * 		if source.flags&TypeFlagsUnion != 0 {
+ * 			sourceTypes = source.Types()
+ * 		} else {
+ * 			sourceTypes = []*Type{source}
+ * 		}
  * 		// First, infer between identically matching source and target constituents and remove the
  * 		// matching types.
- * 		tempSources, tempTargets := c.inferFromMatchingTypes(n, source.Distributed(), target.Distributed(), (*Checker).isTypeOrBaseIdenticalTo)
+ * 		tempSources, tempTargets := c.inferFromMatchingTypes(n, sourceTypes, target.Distributed(), (*Checker).isTypeOrBaseIdenticalTo)
  * 		// Next, infer between closely matching source and target constituents and remove
  * 		// the matching types. Types closely match when they are instantiations of the same
  * 		// object type or instantiations of the same type alias.
@@ -1069,14 +1075,19 @@ export function Checker_inferFromMatchingTypes(receiver: GoPtr<Checker>, n: GoPt
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.inferToMultipleTypes","kind":"method","status":"implemented","sigHash":"a605a043077d26b932102e01380cd6999551c28808603bdf7d2c93f30cadec3f","bodyHash":"8e95e7dcfcfd1d67082f0206a9d8bf483bb0515a8900264595f55d277c0509bf"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.inferToMultipleTypes","kind":"method","status":"implemented","sigHash":"a605a043077d26b932102e01380cd6999551c28808603bdf7d2c93f30cadec3f","bodyHash":"4986815fe5d2052c8f1b2624a5645abc75394374e0b06a14d364537cf2dbc852"}
  *
  * Go source:
  * func (c *Checker) inferToMultipleTypes(n *InferenceState, source *Type, targets []*Type, targetFlags TypeFlags) {
  * 	typeVariableCount := 0
  * 	if targetFlags&TypeFlagsUnion != 0 {
  * 		var nakedTypeVariable *Type
- * 		sources := source.Distributed()
+ * 		var sources []*Type
+ * 		if source.flags&TypeFlagsUnion != 0 {
+ * 			sources = source.Types()
+ * 		} else {
+ * 			sources = []*Type{source}
+ * 		}
  * 		matched := make([]bool, len(sources))
  * 		inferenceCircularity := false
  * 		// First infer to types that are not naked type variables. For each source type we
@@ -1157,7 +1168,12 @@ export function Checker_inferToMultipleTypes(receiver: GoPtr<Checker>, n: GoPtr<
   let typeVariableCount = 0;
   if ((targetFlags & TypeFlagsUnion) !== 0) {
     let nakedTypeVariable: GoPtr<Type> = undefined;
-    const sources = Type_Distributed(source);
+    let sources: GoSlice<GoPtr<Type>>;
+    if ((source!.flags & TypeFlagsUnion) !== 0) {
+      sources = Type_Types(source);
+    } else {
+      sources = [source];
+    }
     const matched: bool[] = new Array<bool>(sources.length).fill(false);
     let inferenceCircularity = false;
     // First infer to types that are not naked type variables. For each source type we
@@ -1621,7 +1637,7 @@ export function Checker_inferFromGenericMappedTypes(receiver: GoPtr<Checker>, n:
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.inferFromObjectTypes","kind":"method","status":"implemented","sigHash":"1e786fae1ad85769b0d5d58d2cb17488d761e04646c1d0981fe6a197627c71b9","bodyHash":"924d4c576a4e6c0194a7c4a115db7aa9d08e69d3a19b0a901990105f11551254"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.inferFromObjectTypes","kind":"method","status":"implemented","sigHash":"1e786fae1ad85769b0d5d58d2cb17488d761e04646c1d0981fe6a197627c71b9","bodyHash":"22d0c8b82340248562ebe45b30c0f316f8e6659a6c36bd1deab4058f8b70db65"}
  *
  * Go source:
  * func (c *Checker) inferFromObjectTypes(n *InferenceState, source *Type, target *Type) {
@@ -1698,7 +1714,9 @@ export function Checker_inferFromGenericMappedTypes(receiver: GoPtr<Checker>, n:
  * 							if constraint != nil && isTupleType(constraint) && constraint.TargetTupleType().combinedFlags&ElementFlagsVariable == 0 {
  * 								impliedArity := constraint.TargetTupleType().fixedLength
  * 								c.inferFromTypes(n, c.sliceTupleType(source, startLength, sourceArity-(startLength+impliedArity)), elementTypes[startLength])
- * 								c.inferFromTypes(n, c.getElementTypeOfSliceOfTupleType(source, startLength+impliedArity, endLength, false, false), elementTypes[startLength+1])
+ * 								if restType := c.getElementTypeOfSliceOfTupleType(source, startLength+impliedArity, endLength, false, false); restType != nil {
+ * 									c.inferFromTypes(n, restType, elementTypes[startLength+1])
+ * 								}
  * 							}
  * 						}
  * 					} else if elementInfos[startLength].flags&ElementFlagsRest != 0 && elementInfos[startLength+1].flags&ElementFlagsVariadic != 0 {
@@ -1710,9 +1728,13 @@ export function Checker_inferFromGenericMappedTypes(receiver: GoPtr<Checker>, n:
  * 								impliedArity := constraint.TargetTupleType().fixedLength
  * 								endIndex := sourceArity - getEndElementCount(target.TargetTupleType(), ElementFlagsFixed)
  * 								startIndex := endIndex - impliedArity
- * 								trailingSlice := c.createTupleTypeEx(c.getTypeArguments(source)[startIndex:endIndex], source.TargetTupleType().elementInfos[startIndex:endIndex], false /*readonly* /)
- * 								c.inferFromTypes(n, c.getElementTypeOfSliceOfTupleType(source, startLength, endLength+impliedArity, false, false), elementTypes[startLength])
- * 								c.inferFromTypes(n, trailingSlice, elementTypes[startLength+1])
+ * 								if startIndex >= startLength {
+ * 									trailingSlice := c.createTupleTypeEx(c.getTypeArguments(source)[startIndex:endIndex], source.TargetTupleType().elementInfos[startIndex:endIndex], false /*readonly* /)
+ * 									if restType := c.getElementTypeOfSliceOfTupleType(source, startLength, endLength+impliedArity, false, false); restType != nil {
+ * 										c.inferFromTypes(n, restType, elementTypes[startLength])
+ * 									}
+ * 									c.inferFromTypes(n, trailingSlice, elementTypes[startLength+1])
+ * 								}
  * 							}
  * 						}
  * 					}
@@ -1828,7 +1850,10 @@ export function Checker_inferFromObjectTypes(receiver: GoPtr<Checker>, n: GoPtr<
               if (constraint !== undefined && isTupleType(constraint) && (Type_TargetTupleType(constraint)!.combinedFlags & ElementFlagsVariable) === 0) {
                 const impliedArity = Type_TargetTupleType(constraint)!.fixedLength;
                 Checker_inferFromTypes(c, state, Checker_sliceTupleType(c, source, startLength, sourceArity - (startLength + impliedArity)), elementTypes[startLength]);
-                Checker_inferFromTypes(c, state, Checker_getElementTypeOfSliceOfTupleType(c, source, startLength + impliedArity, endLength, false, false), elementTypes[startLength + 1]);
+                const restType = Checker_getElementTypeOfSliceOfTupleType(c, source, startLength + impliedArity, endLength, false, false);
+                if (restType !== undefined) {
+                  Checker_inferFromTypes(c, state, restType, elementTypes[startLength + 1]);
+                }
               }
             }
           } else if ((elementInfos[startLength]!.flags & ElementFlagsRest) !== 0 && (elementInfos[startLength + 1]!.flags & ElementFlagsVariadic) !== 0) {
@@ -1841,9 +1866,14 @@ export function Checker_inferFromObjectTypes(receiver: GoPtr<Checker>, n: GoPtr<
                 const impliedArity = Type_TargetTupleType(constraint)!.fixedLength;
                 const endIndex = sourceArity - getEndElementCount(Type_TargetTupleType(target)!, ElementFlagsFixed);
                 const startIndex = endIndex - impliedArity;
-                const trailingSlice = Checker_createTupleTypeEx(c, Checker_getTypeArguments(c, source).slice(startIndex, endIndex), Type_TargetTupleType(source)!.elementInfos.slice(startIndex, endIndex), false);
-                Checker_inferFromTypes(c, state, Checker_getElementTypeOfSliceOfTupleType(c, source, startLength, endLength + impliedArity, false, false), elementTypes[startLength]);
-                Checker_inferFromTypes(c, state, trailingSlice, elementTypes[startLength + 1]);
+                if (startIndex >= startLength) {
+                  const trailingSlice = Checker_createTupleTypeEx(c, Checker_getTypeArguments(c, source).slice(startIndex, endIndex), Type_TargetTupleType(source)!.elementInfos.slice(startIndex, endIndex), false);
+                  const restType = Checker_getElementTypeOfSliceOfTupleType(c, source, startLength, endLength + impliedArity, false, false);
+                  if (restType !== undefined) {
+                    Checker_inferFromTypes(c, state, restType, elementTypes[startLength]);
+                  }
+                  Checker_inferFromTypes(c, state, trailingSlice, elementTypes[startLength + 1]);
+                }
               }
             }
           }

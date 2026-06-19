@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../go/scalars.js";
 import type { GoSlice } from "../../go/compat.js";
 import { Builder } from "../../go/strings.js";
 import type { TextRange } from "./text.js";

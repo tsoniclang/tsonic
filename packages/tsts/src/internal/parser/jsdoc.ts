@@ -1,7 +1,7 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoRune, GoSlice } from "../../go/compat.js";
 import { TrimLeft, TrimRightFunc } from "../../go/strings.js";
-import { byteLen, byteSlice, hasAsciiPrefixAt, isJSDocLikeTextAt, lastNewlineBefore } from "./utilities.js";
+import { byteLen, hasAsciiPrefixAt, isJSDocLikeTextAt, lastNewlineBefore } from "./utilities.js";
 import { Node_End, Node_Name, Node_Pos } from "../ast/spine.js";
 import type { Node, NodeList } from "../ast/spine.js";
 import { SetParseJSDocForNode, Node_TagName, Node_Text, Node_Type } from "../ast/ast.js";
@@ -74,8 +74,10 @@ import {
 import {
   NodeFlagsHasAsyncFunctions,
   NodeFlagsHasJSDoc,
+  NodeFlagsIdentifierIsInJSDocNamespace,
   NodeFlagsJavaScriptFile,
   NodeFlagsJSDoc,
+  NodeFlagsNestedNamespace,
   NodeFlagsNone,
   NodeFlagsOptionalChain,
   NodeFlagsPossiblyContainsDeprecatedTag,
@@ -109,7 +111,7 @@ import {
   Scanner_ResetPos,
   Scanner_ReScanHashToken,
   Scanner_SetSkipJSDocLeadingAsterisks,
-  Scanner_SetText,
+  Scanner_SetTextEnd,
   Scanner_TokenEnd,
   Scanner_TokenFullStart,
   Scanner_TokenStart,
@@ -508,6 +510,7 @@ export function Parser_parseJSDocComment(receiver: GoPtr<Parser>, parent: GoPtr<
   const saveContextFlags = receiver!.contextFlags;
   const saveParsingContexts = receiver!.parsingContexts;
   const saveScannerState: ScannerState = Scanner_Mark(receiver!.scanner);
+  const saveScannerEnd = receiver!.scanner!.end;
   const saveDiagnosticsLength = receiver!.diagnostics.length;
   const saveHasParseError = receiver!.hasParseError;
   const saveHasAwaitIdentifier = receiver!.statementHasAwaitIdentifier;
@@ -516,9 +519,10 @@ export function Parser_parseJSDocComment(receiver: GoPtr<Parser>, parent: GoPtr<
   // + 1 because \n is one character before the first character in the line and,
   // if there is no \n before start, -1 is one index before the first character in the string
   const initialIndent = start + 4 - (lastNewlineBefore(receiver!.sourceText, start) + 1);
-  // -2 for trailing `*/`
-  receiver!.sourceText = byteSlice(receiver!.sourceText, 0, end - 2);
-  Scanner_SetText(receiver!.scanner, receiver!.sourceText);
+  // -2 for trailing `*/`. Keep the original source string/view and narrow only
+  // the scanner's active byte end; this mirrors p.sourceText[:end-2] without
+  // materializing a prefix string or rebuilding the UTF-8 byte view per JSDoc.
+  Scanner_SetTextEnd(receiver!.scanner, receiver!.sourceText, end - 2);
   // +3 for leading `/**`
   Scanner_ResetPos(receiver!.scanner, start + 3);
   Parser_setContextFlags(receiver, NodeFlagsJSDoc, true);
@@ -532,7 +536,7 @@ export function Parser_parseJSDocComment(receiver: GoPtr<Parser>, parent: GoPtr<
   receiver!.diagnostics = receiver!.diagnostics.slice(0, saveDiagnosticsLength);
 
   receiver!.sourceText = saveSourceText;
-  Scanner_SetText(receiver!.scanner, receiver!.sourceText);
+  Scanner_SetTextEnd(receiver!.scanner, receiver!.sourceText, saveScannerEnd);
   receiver!.parsingContexts = saveParsingContexts;
   receiver!.contextFlags = saveContextFlags;
   Scanner_Rewind(receiver!.scanner, saveScannerState);
@@ -544,7 +548,7 @@ export function Parser_parseJSDocComment(receiver: GoPtr<Parser>, parent: GoPtr<
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseJSDocCommentWorker","kind":"method","status":"implemented","sigHash":"582b0878c098492c9c6a9465058d854952b30789e43eb30c927c01a586bce4d8","bodyHash":"2e5b02f24d4f490f8fdd684eb0c6bf7aa2a163e1c5e4e1d98783a6cc97f51027"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseJSDocCommentWorker","kind":"method","status":"implemented","sigHash":"582b0878c098492c9c6a9465058d854952b30789e43eb30c927c01a586bce4d8","bodyHash":"99ed47ed48785a05be396ce95f68b27835c8993b893ad4b5b50b1e2568de8b58"}
  *
  * Go source:
  * func (p *Parser) parseJSDocCommentWorker(start int, end int, fullStart int, indent int) *ast.Node {
@@ -1046,7 +1050,7 @@ export function Parser_parseTrailingTagComments(receiver: GoPtr<Parser>, pos: in
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseTagComments","kind":"method","status":"implemented","sigHash":"a6864a465e146657c734aa711bdc59d3613d2e8f704e4664fec203229f84a8dc","bodyHash":"647eaacbdc98b3b54ebf4b55b046e2e13120102953445e8bf90e31a96fe61b26"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseTagComments","kind":"method","status":"implemented","sigHash":"a6864a465e146657c734aa711bdc59d3613d2e8f704e4664fec203229f84a8dc","bodyHash":"3efea51ab5f10f26b19a8657cd641c241ff4a097d7dd8c4b9274ec32cabd2748"}
  *
  * Go source: (uses arena-cloned string slices: p.stringSliceArena.Clone / p.nodeSliceArena.Clone)
  */
@@ -1507,7 +1511,7 @@ export function Parser_parseParameterOrPropertyTag(receiver: GoPtr<Parser>, star
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseNestedTypeLiteral","kind":"method","status":"implemented","sigHash":"c59f7ee0382abe1caaa8c28de790420f33b055e596509f4c07e5afe2158c6605","bodyHash":"181b731dcb1b3b23c609d5668fe01800f089662b49db9d166793efb4746130b8"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseNestedTypeLiteral","kind":"method","status":"implemented","sigHash":"c59f7ee0382abe1caaa8c28de790420f33b055e596509f4c07e5afe2158c6605","bodyHash":"fd2ed57948639a75af3d91dec125a270ab24b1a8e0aba16ada818f1b952fd449"}
  *
  * Go source: (uses typeExpression.Type() and child.TagName().Loc)
  */
@@ -1731,14 +1735,72 @@ export function Parser_parseThisTag(receiver: GoPtr<Parser>, start: int, tagName
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseTypedefTag","kind":"method","status":"implemented","sigHash":"5d56ed9fa8a5d4d2f7d04ebb717d03b62cf3d34b70138e46b4967dc3679b000f","bodyHash":"0de048995e261c2102341aa3968b1694c2e9c965775b5dd1f3ac210b6dc38f59"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseJSDocTypeNameWithNamespace","kind":"method","status":"implemented","sigHash":"8cf37a6d3032c3b8f7a3e4e1abfa3a0d3187da60c74289a8386701edf1d18cab","bodyHash":"530eed71be2bef460028c9bdb2762ce678082c8cafd3ee661740e7ec35b3485e"}
  *
- * Go source: (uses isObjectOrObjectArrayTypeReference / typeExpression.Type() / parseTagComments)
+ * Go source:
+ * func (p *Parser) parseJSDocTypeNameWithNamespace(nested bool) *ast.Node {
+ * 	start := p.scanner.TokenStart()
+ * 	if !tokenIsIdentifierOrKeyword(p.token) {
+ * 		return nil
+ * 	}
+ * 	typeNameOrNamespaceName := p.parseJSDocIdentifierName(nil)
+ * 	if p.parseOptionalJsdoc(ast.KindDotToken) {
+ * 		body := p.parseJSDocTypeNameWithNamespace(true /*nested* /)
+ * 		jsDocNamespaceNode := p.factory.NewModuleDeclaration(
+ * 			nil,                      /*modifiers* /
+ * 			ast.KindNamespaceKeyword, /*keyword* /
+ * 			typeNameOrNamespaceName,
+ * 			body,
+ * 		)
+ * 		if nested {
+ * 			jsDocNamespaceNode.Flags |= ast.NodeFlagsNestedNamespace
+ * 		}
+ * 		return p.finishNode(jsDocNamespaceNode, start)
+ * 	}
+ * 	if nested {
+ * 		typeNameOrNamespaceName.Flags |= ast.NodeFlagsIdentifierIsInJSDocNamespace
+ * 	}
+ * 	return typeNameOrNamespaceName
+ * }
+ */
+export function Parser_parseJSDocTypeNameWithNamespace(receiver: GoPtr<Parser>, nested: bool): GoPtr<Node> {
+  const start = Scanner_TokenStart(receiver!.scanner);
+  if (!tokenIsIdentifierOrKeyword(receiver!.token)) {
+    return undefined;
+  }
+  const typeNameOrNamespaceName = Parser_parseJSDocIdentifierName(receiver, undefined);
+  if (Parser_parseOptionalJsdoc(receiver, KindDotToken)) {
+    const body = Parser_parseJSDocTypeNameWithNamespace(receiver, true as bool);
+    const jsDocNamespaceNode = NewModuleDeclaration(
+      receiver!.factory,
+      undefined, // modifiers
+      KindNamespaceKeyword, // keyword
+      typeNameOrNamespaceName,
+      body,
+    );
+    if (nested) {
+      jsDocNamespaceNode!.Flags |= NodeFlagsNestedNamespace;
+    }
+    return Parser_finishNode(receiver, jsDocNamespaceNode, start);
+  }
+  if (nested) {
+    typeNameOrNamespaceName!.Flags |= NodeFlagsIdentifierIsInJSDocNamespace;
+  }
+  return typeNameOrNamespaceName;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseTypedefTag","kind":"method","status":"implemented","sigHash":"5d56ed9fa8a5d4d2f7d04ebb717d03b62cf3d34b70138e46b4967dc3679b000f","bodyHash":"a75b3f14dd0bf0c60d37616bce7822a8f51b99e212b535fc7a7c027d044a3197"}
+ *
+ * Go source: (uses parseJSDocTypeNameWithNamespace / isObjectOrObjectArrayTypeReference / typeExpression.Type() / parseTagComments)
  */
 export function Parser_parseTypedefTag(receiver: GoPtr<Parser>, start: int, tagName: GoPtr<IdentifierNode>, indent: int, indentText: string): GoPtr<Node> {
   let typeExpression = Parser_tryParseTypeExpression(receiver);
   Parser_skipWhitespaceOrAsterisk(receiver);
-  const fullName = Parser_parseJSDocIdentifierName(receiver, Identifier_expected);
+  let fullName = Parser_parseJSDocTypeNameWithNamespace(receiver, false as bool);
+  if (fullName === undefined) {
+    fullName = Parser_parseJSDocIdentifierName(receiver, Identifier_expected);
+  }
   Parser_skipWhitespace(receiver);
   const comment = Parser_parseTagComments(receiver, indent, undefined);
 
@@ -1755,23 +1817,25 @@ export function Parser_parseTypedefTag(receiver: GoPtr<Parser>, start: int, tagN
         Parser_rewind(receiver, state);
         break;
       }
-      if (child!.Kind === KindJSDocTemplateTag) {
-        break;
-      }
       hasChildren = true;
-      if (child!.Kind === KindJSDocTypeTag) {
-        if (childTypeTag === undefined) {
-          childTypeTag = AsJSDocTypeTag(child);
-        } else {
-          const lastError = Parser_parseErrorAtCurrentToken(receiver, A_JSDoc_typedef_comment_may_not_contain_multiple_type_tags);
-          if (lastError !== undefined) {
-            const related = NewDiagnostic(undefined, NewTextRange(0, 0), The_tag_was_first_specified_here);
-            Diagnostic_AddRelatedInfo(lastError, related);
+      switch (child!.Kind) {
+        case KindJSDocTemplateTag:
+          Parser_parseErrorAtRange(receiver, Node_TagName(child)!.Loc, A_JSDoc_template_tag_may_not_follow_a_typedef_callback_or_overload_tag);
+          break;
+        case KindJSDocTypeTag:
+          if (childTypeTag === undefined) {
+            childTypeTag = AsJSDocTypeTag(child);
+          } else {
+            const lastError = Parser_parseErrorAtCurrentToken(receiver, A_JSDoc_typedef_comment_may_not_contain_multiple_type_tags);
+            if (lastError !== undefined) {
+              const related = NewDiagnostic(undefined, NewTextRange(0, 0), The_tag_was_first_specified_here);
+              Diagnostic_AddRelatedInfo(lastError, related);
+            }
           }
           break;
-        }
-      } else {
-        jsdocPropertyTags.push(child!);
+        default:
+          jsdocPropertyTags.push(child!);
+          break;
       }
     }
     if (hasChildren) {
@@ -1811,7 +1875,7 @@ export function Parser_parseTypedefTag(receiver: GoPtr<Parser>, start: int, tagN
     finalComment = Parser_parseTrailingTagComments(receiver, start, end, indent, indentText);
   }
 
-  const typedefTag = Parser_finishNodeWithEnd(receiver, NewJSDocTypedefTag(receiver!.factory, tagName, typeExpression, fullName as GoPtr<IdentifierNode>, finalComment!), start, end);
+  const typedefTag = Parser_finishNodeWithEnd(receiver, NewJSDocTypedefTag(receiver!.factory, tagName, typeExpression, fullName, finalComment!), start, end);
   if (typeExpression !== undefined) {
     typeExpression!.Parent = typedefTag; // forcibly overwrite parent potentially set by inner type expression parse
   }
@@ -1819,7 +1883,7 @@ export function Parser_parseTypedefTag(receiver: GoPtr<Parser>, start: int, tagN
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseCallbackTagParameters","kind":"method","status":"implemented","sigHash":"4ad87430b3330f13901ca974355508fb4e1cc79ddc839f284d7d84e57f2f282a","bodyHash":"102319cc2b565326e13425dd05e36bd6ffbb497dfdbad1a74908e02ce1efb41a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseCallbackTagParameters","kind":"method","status":"implemented","sigHash":"4ad87430b3330f13901ca974355508fb4e1cc79ddc839f284d7d84e57f2f282a","bodyHash":"0102bd38e054b7f7c44ca0230f09d97bfc5c458d0db48ebd43d28354cca92da3"}
  *
  * Go source: (uses parseChildParameterOrPropertyTag / child.TagName().Loc)
  */
@@ -1836,9 +1900,9 @@ export function Parser_parseCallbackTagParameters(receiver: GoPtr<Parser>, inden
     }
     if (child.Kind === KindJSDocTemplateTag) {
       Parser_parseErrorAtRange(receiver, Node_TagName(child)!.Loc, A_JSDoc_template_tag_may_not_follow_a_typedef_callback_or_overload_tag);
-      break;
+    } else {
+      parameters.push(child);
     }
-    parameters.push(child);
   }
   return Parser_newNodeList(receiver, NewTextRange(pos, Parser_nodePos(receiver)), parameters);
 }
@@ -1865,12 +1929,15 @@ export function Parser_parseJSDocSignature(receiver: GoPtr<Parser>, start: int, 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseCallbackTag","kind":"method","status":"implemented","sigHash":"cb3bc6c00bfc192275c96cf7ba0b68de671626f1b38670fec99b97c57b7c6055","bodyHash":"cf909d9bdecb1892bc658acb2b220c629fee98631d55ceedaf90686c034e6125"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/jsdoc.go::method::Parser.parseCallbackTag","kind":"method","status":"implemented","sigHash":"cb3bc6c00bfc192275c96cf7ba0b68de671626f1b38670fec99b97c57b7c6055","bodyHash":"51304a04839e0d8aacc720954895beb55637dbca463aa979d56090a8b7103ad4"}
  *
- * Go source: (uses parseTagComments / parseJSDocSignature)
+ * Go source: (uses parseJSDocTypeNameWithNamespace / parseTagComments / parseJSDocSignature)
  */
 export function Parser_parseCallbackTag(receiver: GoPtr<Parser>, start: int, tagName: GoPtr<IdentifierNode>, indent: int, indentText: string): GoPtr<Node> {
-  const fullName = Parser_parseJSDocIdentifierName(receiver, Identifier_expected);
+  let fullName = Parser_parseJSDocTypeNameWithNamespace(receiver, false as bool);
+  if (fullName === undefined) {
+    fullName = Parser_parseJSDocIdentifierName(receiver, Identifier_expected);
+  }
   Parser_skipWhitespace(receiver);
   let comment = Parser_parseTagComments(receiver, indent, undefined);
   const typeExpression = Parser_parseJSDocSignature(receiver, Parser_nodePos(receiver), indent);

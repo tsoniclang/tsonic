@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { Index } from "../../go/strings.js";
 import type { Node, SourceFile } from "../ast/ast.js";
@@ -1286,6 +1286,81 @@ export function Checker_IsSymbolReferencedInFile(receiver: GoPtr<Checker>, sourc
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/services.go::method::Checker.GetReferencesToSymbolInFile","kind":"method","status":"implemented","sigHash":"fe4b890e85dd90ab1a38fa00fab88f3bd6fdbc9fe63de343ff7f988807f5ec80","bodyHash":"983dc4e2bc54ca9e973d6f81adb13e3f7bef349d2829510b7ddb6c7116e8e7b5"}
+ *
+ * Go source:
+ * func (c *Checker) GetReferencesToSymbolInFile(
+ * 	sourceFile *ast.SourceFile,
+ * 	symbol *ast.Symbol,
+ * ) []*ast.Node {
+ * 	identifierText := symbol.Name
+ * 	var result []*ast.Node
+ * 	for _, token := range getPossibleSymbolReferenceNodes(sourceFile, identifierText, sourceFile.AsNode()) {
+ * 		if !ast.IsIdentifier(token) {
+ * 			continue
+ * 		}
+ * 		id := token.AsIdentifier()
+ * 		if id.Text != identifierText {
+ * 			continue
+ * 		}
+ * 		refSymbol := c.GetSymbolAtLocation(token)
+ * 		if refSymbol == symbol {
+ * 			result = append(result, token)
+ * 			continue
+ * 		}
+ * 		if token.Parent != nil && token.Parent.Kind == ast.KindShorthandPropertyAssignment {
+ * 			shorthandSymbol := c.GetShorthandAssignmentValueSymbol(token.Parent)
+ * 			if shorthandSymbol == symbol {
+ * 				result = append(result, token)
+ * 				continue
+ * 			}
+ * 		}
+ * 		if token.Parent != nil && ast.IsExportSpecifier(token.Parent) {
+ * 			localSymbol := c.getLocalSymbolForExportSpecifier(token.AsIdentifier(), refSymbol, token.Parent.AsExportSpecifier())
+ * 			if localSymbol == symbol {
+ * 				result = append(result, token)
+ * 				continue
+ * 			}
+ * 		}
+ * 	}
+ * 	return result
+ * }
+ */
+export function Checker_GetReferencesToSymbolInFile(receiver: GoPtr<Checker>, sourceFile: GoPtr<SourceFile>, symbol_: GoPtr<Symbol>): GoSlice<GoPtr<Node>> {
+  const identifierText = symbol_!.Name;
+  let result: GoSlice<GoPtr<Node>> = [];
+  for (const token of getPossibleSymbolReferenceNodes(sourceFile, identifierText, sourceFile as unknown as GoPtr<Node>)) {
+    if (!IsIdentifier(token)) {
+      continue;
+    }
+    const id = AsIdentifier(token);
+    if (id!.Text !== identifierText) {
+      continue;
+    }
+    const refSymbol = Checker_GetSymbolAtLocation(receiver, token);
+    if (refSymbol === symbol_) {
+      result = [...result, token];
+      continue;
+    }
+    if (token!.Parent !== undefined && token!.Parent!.Kind === KindShorthandPropertyAssignment) {
+      const shorthandSymbol = Checker_GetShorthandAssignmentValueSymbol(receiver, token!.Parent);
+      if (shorthandSymbol === symbol_) {
+        result = [...result, token];
+        continue;
+      }
+    }
+    if (token!.Parent !== undefined && IsExportSpecifier(token!.Parent)) {
+      const localSymbol = Checker_getLocalSymbolForExportSpecifier(receiver, AsIdentifier(token), refSymbol, AsExportSpecifier(token!.Parent));
+      if (localSymbol === symbol_) {
+        result = [...result, token];
+        continue;
+      }
+    }
+  }
+  return result;
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/services.go::method::Checker.getLocalSymbolForExportSpecifier","kind":"method","status":"implemented","sigHash":"47af3957dcb7a7066d16d477beeef6ef00f2d5164347c422fe3012b46da8e750","bodyHash":"b1a7c80abc904a1b06537fbfd12169f9ae7dc2fe8ffef7a8bd3c0404cad031d0"}
  *
  * Go source:
@@ -1972,6 +2047,18 @@ export function Checker_GetCandidateSignaturesForStringLiteralCompletions(receiv
   }
 
   return candidates;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/services.go::method::Checker.GetTypeAtPosition","kind":"method","status":"implemented","sigHash":"c27720031507ff0fa6e638dca7b0482b591398c76a83b60e4bb9fe685f67b3b8","bodyHash":"762337844dc89340840ac04544913b75a3420c1c6bcdbfcd3c5b73e221ea733f"}
+ *
+ * Go source:
+ * func (c *Checker) GetTypeAtPosition(s *Signature, pos int) *Type {
+ * 	return c.getTypeAtPosition(s, pos)
+ * }
+ */
+export function Checker_GetTypeAtPosition(receiver: GoPtr<Checker>, s: GoPtr<Signature>, pos: int): GoPtr<Type> {
+  return Checker_getTypeAtPosition(receiver, s, pos);
 }
 
 /**

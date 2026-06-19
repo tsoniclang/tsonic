@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoError, GoPtr } from "../../go/compat.js";
 import { Map as sync_Map } from "../../go/sync.js";
 import type { Time } from "../../go/time.js";
@@ -83,10 +83,10 @@ export function newProjectReferenceDtsFakingHost(loader: GoPtr<fileLoader>): Res
     projectReferenceFileMapper: loader!.projectReferenceFileMapper,
     dtsDirectories: loader!.dtsDirectories,
     knownSymlinks: {
-      directories: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap,
-      directoriesByRealpath: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap,
-      files: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap,
-      filesByRealpath: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap,
+      directories: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap<import("../tspath/path.js").Path, GoPtr<import("../symlinks/knownsymlinks.js").KnownDirectoryLink>>,
+      directoriesByRealpath: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap<import("../tspath/path.js").Path, GoPtr<import("../collections/syncset.js").SyncSet<string>>>,
+      files: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap<import("../tspath/path.js").Path, string>,
+      filesByRealpath: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap<import("../tspath/path.js").Path, GoPtr<import("../collections/syncset.js").SyncSet<string>>>,
       cwd: "",
       useCaseSensitiveFileNames: false,
     },
@@ -134,7 +134,7 @@ export function projectReferenceDtsFakingHost_GetCurrentDirectory(receiver: GoPt
  */
 export interface projectReferenceDtsFakingVfs {
   projectReferenceFileMapper: GoPtr<projectReferenceFileMapper>;
-  dtsDirectories: Set;
+  dtsDirectories: Set<Path>;
   knownSymlinks: KnownSymlinks;
 }
 

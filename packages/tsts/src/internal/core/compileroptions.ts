@@ -1,9 +1,11 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
-import { NewOrderedMapWithSizeHint, OrderedMap_Size } from "../collections/ordered_map.js";
+import { OrderedMap_Size } from "../collections/ordered_map.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
 import * as slices from "../../go/slices.js";
 import * as strings from "../../go/strings.js";
+import { TypeFor } from "../../go/reflect.js";
+import type { Type } from "../../go/reflect.js";
 import { CombinePaths, ForEachAncestorDirectory, GetDirectoryPath } from "../tspath/path.js";
 import { IsDeclarationFileName } from "../tspath/extension.js";
 import {
@@ -232,7 +234,7 @@ export interface CompilerOptions {
   NoImplicitOverride: Tristate;
   NoUncheckedSideEffectImports: Tristate;
   OutDir: string;
-  Paths: GoPtr<OrderedMap>;
+  Paths: GoPtr<OrderedMap<string, GoSlice<string>>>;
   PreserveConstEnums: Tristate;
   PreserveSymlinks: Tristate;
   Project: string;
@@ -453,11 +455,19 @@ const compilerOptionTristateFields = [
   "Quiet",
 ] as const;
 
+const normalizedCompilerOptionsMarker: unique symbol = Symbol("tsts.normalizedCompilerOptions");
+type NormalizedCompilerOptions = CompilerOptions & Record<string, unknown> & {
+  [normalizedCompilerOptionsMarker]?: true;
+};
+
 export function NormalizeCompilerOptions(options: GoPtr<CompilerOptions>): GoPtr<CompilerOptions> {
   if (options === undefined) {
     return undefined;
   }
-  const target = options as CompilerOptions & Record<string, unknown>;
+  const target = options as NormalizedCompilerOptions;
+  if (target[normalizedCompilerOptionsMarker] === true) {
+    return options;
+  }
   target.__tsgoBlank0 ??= {};
   for (const key of compilerOptionStringFields) {
     target[key] ??= "";
@@ -471,7 +481,7 @@ export function NormalizeCompilerOptions(options: GoPtr<CompilerOptions>): GoPtr
   target.ModuleDetection ??= 0 as ModuleDetectionKind;
   target.NewLine ??= 0 as NewLineKind;
   target.Target ??= 0 as ScriptTarget;
-  target.Paths ??= NewOrderedMapWithSizeHint<string, GoSlice<string>>(0 as int);
+  target[normalizedCompilerOptionsMarker] = true;
   return options;
 }
 
@@ -481,7 +491,7 @@ export function NormalizeCompilerOptions(options: GoPtr<CompilerOptions>): GoPtr
  * Go source:
  * var optionsType = reflect.TypeFor[CompilerOptions]()
  */
-export const optionsType: unknown = undefined as never;
+export const optionsType: Type = TypeFor<CompilerOptions>();
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/compileroptions.go::method::CompilerOptions.Clone","kind":"method","status":"implemented","sigHash":"f7d4a926a50c11b48bf433a036d815a2acc0c65ae5238d38c2ccf8340be890b1","bodyHash":"3bedcaaecca6dcc7cad2f15a08f5ea19fa8855978b0ff2013714458ad0cc3e19"}

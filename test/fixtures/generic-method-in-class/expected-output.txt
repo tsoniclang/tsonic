@@ -1,2 +1,0 @@
-Value: 5
-Combined: 15

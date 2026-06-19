@@ -1,8 +1,0 @@
-{
-  "name": "generator-return-value",
-  "version": "1.0.0",
-  "dependencies": {
-    "@tsonic/dotnet": "^0.7.4",
-    "@tsonic/globals": "^0.1.0"
-  }
-}

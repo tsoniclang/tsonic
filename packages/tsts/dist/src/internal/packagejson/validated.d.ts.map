@@ -1,1 +1,0 @@
-{"version":3,"file":"validated.d.ts","sourceRoot":"","sources":["../../../../src/internal/packagejson/validated.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,IAAI,EAAE,MAAM,uBAAuB,CAAC;AAElD;;;;;;;;;;GAUG;AACH,MAAM,WAAW,kBAAkB;IACjC,SAAS,IAAI,IAAI,CAAC;IAClB,OAAO,IAAI,IAAI,CAAC;IAChB,gBAAgB,IAAI,MAAM,CAAC;IAC3B,cAAc,IAAI,MAAM,CAAC;CAC1B"}

@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoError, GoPtr, GoRune, GoSlice } from "../../go/compat.js";
 import type { Stringer } from "../../go/fmt.js";
 import * as errors from "../../go/errors.js";

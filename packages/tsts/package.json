@@ -4,35 +4,21 @@
   "private": true,
   "description": "TypeScript-native TypeScript compiler targeting TS-Go contracts",
   "type": "module",
-  "main": "./dist/src/index.js",
-  "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
-    },
-    "./index.js": {
-      "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
-    }
+    ".": "./src/index.ts",
+    "./index.js": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false"
   },
   "bin": {
     "tsts": "./dist/src/cli/index.js"
   },
-  "scripts": {
-    "build": "bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false",
-    "test": "node --test \"dist/src/**/*.test.js\""
-  },
   "files": [
-    "dist",
+    "src/**/*.ts",
     "tsonic.package.json",
     "tsonic.json",
     "README.md",
     "LICENSE"
-  ],
-  "peerDependencies": {
-    "@tsonic/core": "10.0.46",
-    "@tsonic/js": "10.0.54",
-    "@tsonic/nodejs": "10.0.55"
-  }
+  ]
 }

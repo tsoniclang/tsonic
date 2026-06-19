@@ -1,8 +1,8 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { ModifierList, Node, NodeList } from "../ast/spine.js";
 import { Node_Modifiers, Node_FunctionLikeData, Node_Name, NodeFactory_NewNodeList } from "../ast/spine.js";
-import { NodeFlagsReparsed, NodeFlagsHasJSDoc } from "../ast/generated/flags.js";
+import { NodeFlagsReparsed, NodeFlagsHasJSDoc, NodeFlagsReparserTransformedLiteral } from "../ast/generated/flags.js";
 import type { ClassLikeBase } from "../ast/generated/node.js";
 import type { JSDocParameterOrPropertyTag, ParameterDeclaration } from "../ast/generated/data.js";
 import type { TypeNode } from "../ast/generated/unions.js";
@@ -10,7 +10,6 @@ import type { Parser } from "./parser/state.js";
 import { Parser_overrideParentInImmediateChildren } from "./parser/support.js";
 import {
   AsJSDoc,
-  AsJSDocCallbackTag,
   AsJSDocImportTag,
   AsJSDocOverloadTag,
   AsJSDocTypedefTag,
@@ -38,11 +37,13 @@ import {
   AsTypeAliasDeclaration,
   AsJSDocSignature,
   AsModuleDeclaration,
+  AsIdentifier,
 } from "../ast/generated/casts.js";
 import {
   IsFunctionDeclaration,
   IsMethodDeclaration,
   IsConstructorDeclaration,
+  IsIdentifier,
   IsJSDocTypedefTag,
   IsJSDocCallbackTag,
   IsJSDocTemplateTag,
@@ -100,6 +101,7 @@ import {
   KindImplementsKeyword,
   KindExtendsKeyword,
   KindAnyKeyword,
+  KindModuleDeclaration,
   KindNamespaceKeyword,
   KindTypeKeyword,
   KindThisKeyword,
@@ -115,6 +117,7 @@ import {
   HasSamePropertyAccessName,
   IsFunctionLike,
   IsFunctionLikeDeclaration,
+  IsThisIdentifier,
 } from "../ast/utilities.js";
 import {
   Node_AsMutable,
@@ -136,6 +139,7 @@ import {
   Node_Expression,
   Node_TypeParameterList,
   Node_TypeParameters,
+  NodeFactory_NewModifier,
 } from "../ast/ast.js";
 import { Node_Pos, Node_End } from "../ast/spine.js";
 import {
@@ -152,6 +156,7 @@ import {
   NewArrayTypeNode,
   NewAsExpression,
   NewSatisfiesExpression,
+  NewStringLiteral,
   NewJSTypeAliasDeclaration,
   NewJSImportDeclaration,
   NewJSDoc,
@@ -165,12 +170,25 @@ import {
   NodeFactory_DeepCloneReparseModifiers,
 } from "../ast/deepclone.js";
 import { Every, Find, Map as core_Map } from "../core/core.js";
-import { NewTextRange } from "../core/text.js";
+import { NewTextRange, TextRange_Len } from "../core/text.js";
 import type { TextRange } from "../core/text.js";
 import { Arena_NewSlice, Arena_NewSlice1 } from "../core/arena.js";
+import { TokenFlagsNone } from "../ast/tokenflags.js";
+import { IsValidIdentifier, IsIdentifierStart, IsIdentifierPart } from "../scanner/scanner.js";
+import { Identifier_expected } from "../diagnostics/generated/messages.js";
+import { Parser_parseErrorAtRange } from "./parser/errors-recovery.js";
+import { Builder } from "../../go/strings.js";
+import { Itoa } from "../../go/strconv.js";
+import { DecodeRuneInStringAt, StringByteLen } from "../../go/unicode/utf8.js";
+import type { GoRune } from "../../go/compat.js";
 import { Parser_newNodeList, Parser_newModifierList } from "./parser/lists.js";
 import { Parser_finishNodeWithEnd } from "./parser/statements-declarations.js";
 import { PCObjectLiteralMembers } from "./parser/state.js";
+
+// Byte-string helpers mirroring Go's `s[i:]` / `len(s)` semantics over UTF-8 bytes,
+// used to faithfully port the `for i, ch := range s` rune iteration in
+// reparseJSDocSignature (matches the convention used in scanner.ts/support.ts).
+const byteLen = StringByteLen;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.finishReparsedNode","kind":"method","status":"implemented","sigHash":"9746fe8b20ebd2539697c4040b2a128334306a1a0d090567ea8bdba97f6a5691","bodyHash":"3dd5f736e3ddbd9486e0f32fbca391f7d4819aaa1565b658123015f0cb4fcd3f"}
@@ -221,6 +239,50 @@ export function Parser_addDeepCloneReparse(receiver: GoPtr<Parser>, node: GoPtr<
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.addTransformedReparse","kind":"method","status":"implemented","sigHash":"5a73a6a719713469d73532310de50511a78489b42fd79033745495db79c91f63","bodyHash":"5c497cc043f69f67da6e87a804dee16aa63ef50e43539c3d29406865e80d555a"}
+ *
+ * Go source:
+ * func (p *Parser) addTransformedReparse(newNode *ast.Node, old *ast.Node) *ast.Node {
+ * 	p.finishReparsedNode(newNode, old)
+ * 	newNode.Flags |= ast.NodeFlagsReparserTransformedLiteral
+ * 	p.reparsedClones = append(p.reparsedClones, newNode)
+ * 	return newNode
+ * }
+ */
+export function Parser_addTransformedReparse(receiver: GoPtr<Parser>, newNode: GoPtr<Node>, old: GoPtr<Node>): GoPtr<Node> {
+  Parser_finishReparsedNode(receiver, newNode, old);
+  newNode!.Flags |= NodeFlagsReparserTransformedLiteral;
+  receiver!.reparsedClones = [...receiver!.reparsedClones, newNode];
+  return newNode;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.checkNonIdentifierName","kind":"method","status":"implemented","sigHash":"dbe0e31801de661103c2a579256d3c281374e82f221b2050a3a5ef6cc8438cbb","bodyHash":"e0cedc095ff9bb80c7450cc4589b42946d82e10a507fb6eb68c3a73f857480a2"}
+ *
+ * Go source:
+ * func (p *Parser) checkNonIdentifierName(name *ast.Node) *ast.Node {
+ * 	if ast.IsIdentifier(name) && !scanner.IsValidIdentifier(name.AsIdentifier().Text) {
+ * 		errLoc := name.Loc
+ * 		if errLoc.Len() == 0 { // missing name, emit error on the character before the missing name node
+ * 			errLoc = core.NewTextRange(name.Loc.Pos()-1, name.Loc.Pos())
+ * 		}
+ * 		p.parseErrorAtRange(errLoc, diagnostics.Identifier_expected)
+ * 	}
+ * 	return name
+ * }
+ */
+export function Parser_checkNonIdentifierName(receiver: GoPtr<Parser>, name: GoPtr<Node>): GoPtr<Node> {
+  if (IsIdentifier(name) && !IsValidIdentifier(AsIdentifier(name)!.Text)) {
+    let errLoc: TextRange = name!.Loc;
+    if (TextRange_Len(errLoc) === 0) { // missing name, emit error on the character before the missing name node
+      errLoc = NewTextRange(name!.Loc.pos - 1, name!.Loc.pos);
+    }
+    Parser_parseErrorAtRange(receiver, errLoc, Identifier_expected);
+  }
+  return name;
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.reparseTags","kind":"method","status":"implemented","sigHash":"75b2d992a3104a44b40e0fae3d99b923c0e702cf7df7972a2bbe7eba5f3f08be","bodyHash":"49267c03a8ccd1b16741fea1700e4eee8964a5f8fe92476761aa99b34afc5947"}
  *
  * Go source:
@@ -257,7 +319,7 @@ export function Parser_reparseTags(receiver: GoPtr<Parser>, parent: GoPtr<Node>,
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.reparseUnhosted","kind":"method","status":"implemented","sigHash":"dde604f1c50ebedb28ab84d37632a0d54944cffb728423ba5b489b46c172cdce","bodyHash":"32d6237f6dc8b3158e6b4d0205c608cfe84fff8621f3b62085d7331a1b3a707f"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.reparseUnhosted","kind":"method","status":"implemented","sigHash":"dde604f1c50ebedb28ab84d37632a0d54944cffb728423ba5b489b46c172cdce","bodyHash":"4f93f6cf2a2bff5eca537844b94949b6b6c51f9e674f4e26233c1b9d243ffd63"}
  *
  * Go source:
  * func (p *Parser) reparseUnhosted(tag *ast.Node, parent *ast.Node, jsDoc *ast.Node) {
@@ -267,8 +329,14 @@ export function Parser_reparseTags(receiver: GoPtr<Parser>, parent: GoPtr<Node>,
  * 		if typeExpression == nil {
  * 			break
  * 		}
- * 		typeAlias := p.factory.NewJSTypeAliasDeclaration(nil, p.addDeepCloneReparse(tag.AsJSDocTypedefTag().Name()), nil, nil)
- * 		typeAlias.AsTypeAliasDeclaration().TypeParameters = p.gatherTypeParameters(jsDoc, tag)
+ * 		fullName := tag.Name()
+ * 		isNamespace := fullName != nil && ast.IsModuleDeclaration(fullName)
+ * 		var modifiers *ast.ModifierList
+ * 		if isNamespace {
+ * 			modifiers = p.createExportModifier(tag)
+ * 		}
+ * 		typeAlias := p.factory.NewJSTypeAliasDeclaration(modifiers, p.addDeepCloneReparse(p.checkNonIdentifierName(p.getInnermostNameOfJSDocNamespace(fullName))), nil, nil)
+ * 		typeAlias.AsTypeAliasDeclaration().TypeParameters = p.gatherTypeParameters(jsDoc, true /*typedefOrCallback* /)
  * 		var t *ast.Node
  * 		switch typeExpression.Kind {
  * 		case ast.KindJSDocTypeExpression:
@@ -282,19 +350,27 @@ export function Parser_reparseTags(receiver: GoPtr<Parser>, parent: GoPtr<Node>,
  * 		p.finishReparsedNode(typeAlias, tag)
  * 		p.jsdocInfos = append(p.jsdocInfos, JSDocInfo{parent: typeAlias, jsDocs: []*ast.Node{jsDoc}})
  * 		typeAlias.Flags |= ast.NodeFlagsHasJSDoc
- * 		p.reparseList = append(p.reparseList, typeAlias)
+ * 		result := p.wrapInJSDocNamespace(fullName, typeAlias, false /*nested* /)
+ * 		p.reparseList = append(p.reparseList, result)
  * 	case ast.KindJSDocCallbackTag:
- * 		callbackTag := tag.AsJSDocCallbackTag()
- * 		if callbackTag.TypeExpression == nil {
+ * 		typeExpression := tag.TypeExpression()
+ * 		if typeExpression == nil {
  * 			break
  * 		}
- * 		functionType := p.reparseJSDocSignature(callbackTag.TypeExpression, tag, jsDoc, tag, nil)
- * 		typeAlias := p.factory.NewJSTypeAliasDeclaration(nil, p.addDeepCloneReparse(callbackTag.FullName), nil, functionType)
- * 		typeAlias.AsTypeAliasDeclaration().TypeParameters = p.gatherTypeParameters(jsDoc, tag)
+ * 		fullName := tag.Name()
+ * 		isNamespace := fullName != nil && ast.IsModuleDeclaration(fullName)
+ * 		var modifiers *ast.ModifierList
+ * 		if isNamespace {
+ * 			modifiers = p.createExportModifier(tag)
+ * 		}
+ * 		functionType := p.reparseJSDocSignature(typeExpression, tag, jsDoc, tag, nil)
+ * 		typeAlias := p.factory.NewJSTypeAliasDeclaration(modifiers, p.addDeepCloneReparse(p.getInnermostNameOfJSDocNamespace(fullName)), nil, functionType)
+ * 		typeAlias.AsTypeAliasDeclaration().TypeParameters = p.gatherTypeParameters(jsDoc, true /*typedefOrCallback* /)
  * 		p.finishReparsedNode(typeAlias, tag)
  * 		p.jsdocInfos = append(p.jsdocInfos, JSDocInfo{parent: typeAlias, jsDocs: []*ast.Node{jsDoc}})
  * 		typeAlias.Flags |= ast.NodeFlagsHasJSDoc
- * 		p.reparseList = append(p.reparseList, typeAlias)
+ * 		result := p.wrapInJSDocNamespace(fullName, typeAlias, false /*nested* /)
+ * 		p.reparseList = append(p.reparseList, result)
  * 	case ast.KindJSDocImportTag:
  * 		importTag := tag.AsJSDocImportTag()
  * 		if importTag.ImportClause == nil {
@@ -325,8 +401,14 @@ export function Parser_reparseUnhosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>
       if (typeExpression === undefined) {
         break;
       }
-      const typeAlias = NewJSTypeAliasDeclaration(receiver!.factory, undefined, Parser_addDeepCloneReparse(receiver, Node_Name(tag)), undefined, undefined);
-      AsTypeAliasDeclaration(typeAlias)!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, tag);
+      const fullName = Node_Name(tag);
+      const isNamespace = fullName !== undefined && IsModuleDeclaration(fullName);
+      let modifiers: GoPtr<ModifierList> = undefined;
+      if (isNamespace) {
+        modifiers = Parser_createExportModifier(receiver, tag);
+      }
+      const typeAlias = NewJSTypeAliasDeclaration(receiver!.factory, modifiers, Parser_addDeepCloneReparse(receiver, Parser_checkNonIdentifierName(receiver, Parser_getInnermostNameOfJSDocNamespace(receiver, fullName))), undefined, undefined);
+      AsTypeAliasDeclaration(typeAlias)!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, true as bool);
       let t: GoPtr<Node>;
       switch (typeExpression!.Kind) {
         case KindJSDocTypeExpression:
@@ -342,22 +424,29 @@ export function Parser_reparseUnhosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>
       Parser_finishReparsedNode(receiver, typeAlias, tag);
       receiver!.jsdocInfos = [...receiver!.jsdocInfos, { parent: typeAlias, jsDocs: [jsDoc] }];
       typeAlias!.Flags |= NodeFlagsHasJSDoc;
-      receiver!.reparseList = [...receiver!.reparseList, typeAlias];
+      const result = Parser_wrapInJSDocNamespace(receiver, fullName, typeAlias, false as bool);
+      receiver!.reparseList = [...receiver!.reparseList, result];
       break;
     }
     case KindJSDocCallbackTag: {
-      const callbackTag = AsJSDocCallbackTag(tag);
-      const typeExpression = callbackTag!.TypeExpression;
+      const typeExpression = Node_TypeExpression(tag);
       if (typeExpression === undefined) {
         break;
       }
+      const fullName = Node_Name(tag);
+      const isNamespace = fullName !== undefined && IsModuleDeclaration(fullName);
+      let modifiers: GoPtr<ModifierList> = undefined;
+      if (isNamespace) {
+        modifiers = Parser_createExportModifier(receiver, tag);
+      }
       const functionType = Parser_reparseJSDocSignature(receiver, typeExpression, tag, jsDoc, tag, undefined);
-      const typeAlias = NewJSTypeAliasDeclaration(receiver!.factory, undefined, Parser_addDeepCloneReparse(receiver, callbackTag!.FullName), undefined, functionType);
-      AsTypeAliasDeclaration(typeAlias)!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, tag);
+      const typeAlias = NewJSTypeAliasDeclaration(receiver!.factory, modifiers, Parser_addDeepCloneReparse(receiver, Parser_getInnermostNameOfJSDocNamespace(receiver, fullName)), undefined, functionType);
+      AsTypeAliasDeclaration(typeAlias)!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, true as bool);
       Parser_finishReparsedNode(receiver, typeAlias, tag);
       receiver!.jsdocInfos = [...receiver!.jsdocInfos, { parent: typeAlias, jsDocs: [jsDoc] }];
       typeAlias!.Flags |= NodeFlagsHasJSDoc;
-      receiver!.reparseList = [...receiver!.reparseList, typeAlias];
+      const result = Parser_wrapInJSDocNamespace(receiver, fullName, typeAlias, false as bool);
+      receiver!.reparseList = [...receiver!.reparseList, result];
       break;
     }
     case KindJSDocImportTag: {
@@ -388,7 +477,7 @@ export function Parser_reparseUnhosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.reparseJSDocSignature","kind":"method","status":"implemented","sigHash":"881a921d17f7c9183951c1d845aeb86c49ccdf85c86b24464694aa2349c35fd2","bodyHash":"b33929501086918c40d99c654fa2845a6d1207fc2076efae381ffabe44dd275c"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.reparseJSDocSignature","kind":"method","status":"implemented","sigHash":"881a921d17f7c9183951c1d845aeb86c49ccdf85c86b24464694aa2349c35fd2","bodyHash":"7510748f839a92b7b07571e0d792870cb3030385a1cdbcbcd416430e7abf4fed"}
  *
  * Go source:
  * func (p *Parser) reparseJSDocSignature(jsSignature *ast.Node, fun *ast.Node, jsDoc *ast.Node, tag *ast.Node, modifiers *ast.ModifierList) *ast.Node {
@@ -396,9 +485,9 @@ export function Parser_reparseUnhosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>
  * 	clonedModifiers := p.factory.DeepCloneReparseModifiers(modifiers)
  * 	switch fun.Kind {
  * 	case ast.KindFunctionDeclaration:
- * 		signature = p.factory.NewFunctionDeclaration(clonedModifiers, nil, p.factory.DeepCloneReparse(fun.Name()), nil, nil, nil, nil, nil)
+ * 		signature = p.factory.NewFunctionDeclaration(clonedModifiers, nil, p.factory.DeepCloneReparse(p.checkNonIdentifierName(fun.Name())), nil, nil, nil, nil, nil)
  * 	case ast.KindMethodDeclaration:
- * 		signature = p.factory.NewMethodDeclaration(clonedModifiers, nil, p.factory.DeepCloneReparse(fun.Name()), nil, nil, nil, nil, nil, nil)
+ * 		signature = p.factory.NewMethodDeclaration(clonedModifiers, nil, p.factory.DeepCloneReparse(p.checkNonIdentifierName(fun.Name())), nil, nil, nil, nil, nil, nil)
  * 	case ast.KindConstructor:
  * 		signature = p.factory.NewConstructorDeclaration(clonedModifiers, nil, nil, nil, nil, nil)
  * 	case ast.KindJSDocCallbackTag:
@@ -406,12 +495,12 @@ export function Parser_reparseUnhosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>
  * 	default:
  * 		panic("Unexpected kind " + fun.Kind.String())
  * 	}
- * 
+ *
  * 	if tag.Kind != ast.KindJSDocCallbackTag {
- * 		signature.FunctionLikeData().TypeParameters = p.gatherTypeParameters(jsDoc, tag)
+ * 		signature.FunctionLikeData().TypeParameters = p.gatherTypeParameters(jsDoc, false /*typedefOrCallback* /)
  * 	}
  * 	parameters := p.nodeSliceArena.NewSlice(0)
- * 	for _, param := range jsSignature.Parameters() {
+ * 	for pi, param := range jsSignature.Parameters() {
  * 		var parameter *ast.Node
  * 		if param.Kind == ast.KindJSDocThisTag {
  * 			thisTag := param.AsJSDocThisTag()
@@ -424,30 +513,60 @@ export function Parser_reparseUnhosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>
  * 			}
  * 		} else if param.Kind == ast.KindJSDocParameterTag || param.Kind == ast.KindJSDocPropertyTag {
  * 			jsparam := param.AsJSDocParameterOrPropertyTag()
+ * 			// Skip sub-property parameters (e.g., @param x.y) - these have QualifiedNames
+ * 			// and describe properties of a parent parameter, not standalone parameters.
+ * 			if ast.IsQualifiedName(jsparam.Name()) {
+ * 				continue
+ * 			}
  * 			var dotDotDotToken *ast.Node
  * 			var paramType *ast.TypeNode
- * 
+ *
  * 			if jsparam.TypeExpression != nil {
  * 				if jsparam.TypeExpression.Type().Kind == ast.KindJSDocVariadicType {
  * 					dotDotDotToken = p.factory.NewToken(ast.KindDotDotDotToken)
  * 					dotDotDotToken.Loc = jsparam.Loc
  * 					dotDotDotToken.Flags = p.contextFlags | ast.NodeFlagsReparsed
- * 
+ *
  * 					variadicType := jsparam.TypeExpression.Type().AsJSDocVariadicType()
  * 					paramType = p.reparseJSDocTypeLiteral(variadicType.Type)
  * 				} else {
  * 					paramType = p.reparseJSDocTypeLiteral(jsparam.TypeExpression.Type())
  * 				}
  * 			}
- * 
- * 			parameter = p.factory.NewParameterDeclaration(nil, dotDotDotToken, p.addDeepCloneReparse(jsparam.Name()), p.makeQuestionIfOptional(jsparam), paramType, nil)
+ * 			name := jsparam.Name()
+ * 			if ast.IsIdentifier(name) && !scanner.IsValidIdentifier(name.AsIdentifier().Text) {
+ * 				// drop invalid chars for _, if empty, write _0, etc., so we have a valid param name to emit later
+ * 				result := strings.Builder{}
+ * 				for i, ch := range name.AsIdentifier().Text {
+ * 					if i == 0 {
+ * 						if !scanner.IsIdentifierStart(ch) {
+ * 							result.WriteRune('_')
+ * 						} else {
+ * 							result.WriteRune(ch)
+ * 						}
+ * 						continue
+ * 					} else if !scanner.IsIdentifierPart(ch) {
+ * 						result.WriteRune('_')
+ * 					} else {
+ * 						result.WriteRune(ch)
+ * 					}
+ * 				}
+ * 				if result.Len() == 0 {
+ * 					result.WriteRune('_')
+ * 					result.WriteString(strconv.Itoa(pi))
+ * 				}
+ * 				name = p.addTransformedReparse(p.factory.NewIdentifier(result.String()), name)
+ * 			} else {
+ * 				name = p.addDeepCloneReparse(name)
+ * 			}
+ * 			parameter = p.factory.NewParameterDeclaration(nil, dotDotDotToken, name, p.makeQuestionIfOptional(jsparam), paramType, nil)
  * 		}
  * 		p.finishReparsedNode(parameter, param)
  * 		parameters = append(parameters, parameter)
  * 		p.reparseJSDocComment(parameter, param)
  * 	}
  * 	signature.FunctionLikeData().Parameters = p.newNodeList(jsSignature.AsJSDocSignature().Parameters.Loc, parameters)
- * 
+ *
  * 	if jsSignature.Type() != nil && jsSignature.Type().TypeExpression() != nil {
  * 		signature.FunctionLikeData().Type = p.addDeepCloneReparse(jsSignature.Type().TypeExpression().Type())
  * 	}
@@ -464,10 +583,10 @@ export function Parser_reparseJSDocSignature(receiver: GoPtr<Parser>, jsSignatur
   const clonedModifiers = NodeFactory_DeepCloneReparseModifiers(receiver!.factory, modifiers);
   switch (fun!.Kind) {
     case KindFunctionDeclaration:
-      signature = NewFunctionDeclaration(receiver!.factory, clonedModifiers, undefined, NodeFactory_DeepCloneReparse(receiver!.factory, Node_Name(fun)), undefined, undefined, undefined, undefined, undefined);
+      signature = NewFunctionDeclaration(receiver!.factory, clonedModifiers, undefined, NodeFactory_DeepCloneReparse(receiver!.factory, Parser_checkNonIdentifierName(receiver, Node_Name(fun))), undefined, undefined, undefined, undefined, undefined);
       break;
     case KindMethodDeclaration:
-      signature = NewMethodDeclaration(receiver!.factory, clonedModifiers, undefined, NodeFactory_DeepCloneReparse(receiver!.factory, Node_Name(fun)), undefined, undefined, undefined, undefined, undefined, undefined);
+      signature = NewMethodDeclaration(receiver!.factory, clonedModifiers, undefined, NodeFactory_DeepCloneReparse(receiver!.factory, Parser_checkNonIdentifierName(receiver, Node_Name(fun))), undefined, undefined, undefined, undefined, undefined, undefined);
       break;
     case KindConstructor:
       signature = NewConstructorDeclaration(receiver!.factory, clonedModifiers, undefined, undefined, undefined, undefined, undefined);
@@ -480,10 +599,12 @@ export function Parser_reparseJSDocSignature(receiver: GoPtr<Parser>, jsSignatur
   }
 
   if (tag!.Kind !== KindJSDocCallbackTag) {
-    Node_FunctionLikeData(signature)!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, tag);
+    Node_FunctionLikeData(signature)!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, false as bool);
   }
   let parameters = Arena_NewSlice(receiver!.nodeSliceArena, 0) as GoSlice<GoPtr<Node>>;
-  for (const param of Node_Parameters(jsSignature)) {
+  const jsSignatureParameters = Node_Parameters(jsSignature);
+  for (let pi: int = 0; pi < jsSignatureParameters.length; pi++) {
+    const param = jsSignatureParameters[pi];
     let parameter: GoPtr<Node>;
     if (param!.Kind === KindJSDocThisTag) {
       const thisTag = AsJSDocThisTag(param);
@@ -496,7 +617,8 @@ export function Parser_reparseJSDocSignature(receiver: GoPtr<Parser>, jsSignatur
       }
     } else if (param!.Kind === KindJSDocParameterTag || param!.Kind === KindJSDocPropertyTag) {
       const jsparam = AsJSDocParameterOrPropertyTag(param);
-      // Skip sub-property parameters (e.g., @param x.y)
+      // Skip sub-property parameters (e.g., @param x.y) - these have QualifiedNames
+      // and describe properties of a parent parameter, not standalone parameters.
       if (IsQualifiedName(Node_Name(param))) {
         continue;
       }
@@ -515,8 +637,42 @@ export function Parser_reparseJSDocSignature(receiver: GoPtr<Parser>, jsSignatur
           paramType = Parser_reparseJSDocTypeLiteral(receiver, Node_Type(jsparam!.TypeExpression));
         }
       }
-
-      parameter = NewParameterDeclaration(receiver!.factory, undefined, dotDotDotToken, Parser_addDeepCloneReparse(receiver, Node_Name(param)), Parser_makeQuestionIfOptional(receiver, jsparam), paramType, undefined);
+      let name = Node_Name(param);
+      if (IsIdentifier(name) && !IsValidIdentifier(AsIdentifier(name)!.Text)) {
+        // drop invalid chars for _, if empty, write _0, etc., so we have a valid param name to emit later
+        const result = new Builder();
+        // `for i, ch := range s` iterates Unicode code points with their byte index.
+        const nameText = AsIdentifier(name)!.Text;
+        let i = 0;
+        for (;;) {
+          if (i >= byteLen(nameText)) {
+            break;
+          }
+          const [ch, size] = DecodeRuneInStringAt(nameText, i);
+          if (i === 0) {
+            if (!IsIdentifierStart(ch)) {
+              result.WriteRune("_".charCodeAt(0) as GoRune);
+            } else {
+              result.WriteRune(ch);
+            }
+            i += size;
+            continue;
+          } else if (!IsIdentifierPart(ch)) {
+            result.WriteRune("_".charCodeAt(0) as GoRune);
+          } else {
+            result.WriteRune(ch);
+          }
+          i += size;
+        }
+        if (result.Len() === 0) {
+          result.WriteRune("_".charCodeAt(0) as GoRune);
+          result.WriteString(Itoa(pi));
+        }
+        name = Parser_addTransformedReparse(receiver, NewIdentifier(receiver!.factory, result.String()), name);
+      } else {
+        name = Parser_addDeepCloneReparse(receiver, name);
+      }
+      parameter = NewParameterDeclaration(receiver!.factory, undefined, dotDotDotToken, name, Parser_makeQuestionIfOptional(receiver, jsparam), paramType, undefined);
     } else {
       continue;
     }
@@ -539,7 +695,7 @@ export function Parser_reparseJSDocSignature(receiver: GoPtr<Parser>, jsSignatur
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.reparseJSDocTypeLiteral","kind":"method","status":"implemented","sigHash":"a4682e2befe712409f58292eb3e2e7bdfcd956b87fb6e48257915874b23e5898","bodyHash":"0f8aebd63293dfc9d9c47fe3719579a5de0aa194bbefd1ab361d4e1487fc780c"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.reparseJSDocTypeLiteral","kind":"method","status":"implemented","sigHash":"a4682e2befe712409f58292eb3e2e7bdfcd956b87fb6e48257915874b23e5898","bodyHash":"9b26e4ad8c1d080ea6e5846d1ab07748cd71de94fda3fda00fccdbe5d11c5659"}
  *
  * Go source:
  * func (p *Parser) reparseJSDocTypeLiteral(t *ast.TypeNode) *ast.Node {
@@ -551,12 +707,20 @@ export function Parser_reparseJSDocSignature(receiver: GoPtr<Parser>, jsSignatur
  * 		isArrayType := jstypeliteral.IsArrayType
  * 		properties := p.nodeSliceArena.NewSlice(0)
  * 		for _, prop := range jstypeliteral.JSDocPropertyTags {
+ * 			if prop.Kind != ast.KindJSDocPropertyTag && prop.Kind != ast.KindJSDocParameterTag {
+ * 				continue
+ * 			}
  * 			jsprop := prop.AsJSDocParameterOrPropertyTag()
  * 			name := prop.Name()
  * 			if name.Kind == ast.KindQualifiedName {
  * 				name = name.AsQualifiedName().Right
  * 			}
- * 			property := p.factory.NewPropertySignatureDeclaration(nil, p.addDeepCloneReparse(name), p.makeQuestionIfOptional(jsprop), nil, nil)
+ * 			if ast.IsIdentifier(name) && !scanner.IsValidIdentifier(name.AsIdentifier().Text) {
+ * 				name = p.addTransformedReparse(p.factory.NewStringLiteral(name.AsIdentifier().Text, ast.TokenFlagsNone), name)
+ * 			} else {
+ * 				name = p.addDeepCloneReparse(name)
+ * 			}
+ * 			property := p.factory.NewPropertySignatureDeclaration(nil, name, p.makeQuestionIfOptional(jsprop), nil, nil)
  * 			if jsprop.TypeExpression != nil {
  * 				property.AsPropertySignatureDeclaration().Type = p.reparseJSDocTypeLiteral(jsprop.TypeExpression.Type())
  * 			}
@@ -592,7 +756,12 @@ export function Parser_reparseJSDocTypeLiteral(receiver: GoPtr<Parser>, t: GoPtr
       if (IsQualifiedName(name)) {
         name = AsQualifiedName(name)!.Right;
       }
-      const property = NewPropertySignatureDeclaration(receiver!.factory, undefined, Parser_addDeepCloneReparse(receiver, name), Parser_makeQuestionIfOptional(receiver, jsprop), undefined, undefined);
+      if (IsIdentifier(name) && !IsValidIdentifier(AsIdentifier(name)!.Text)) {
+        name = Parser_addTransformedReparse(receiver, NewStringLiteral(receiver!.factory, AsIdentifier(name)!.Text, TokenFlagsNone), name);
+      } else {
+        name = Parser_addDeepCloneReparse(receiver, name);
+      }
+      const property = NewPropertySignatureDeclaration(receiver!.factory, undefined, name, Parser_makeQuestionIfOptional(receiver, jsprop), undefined, undefined);
       if (jsprop!.TypeExpression !== undefined) {
         AsPropertySignatureDeclaration(property)!.Type = Parser_reparseJSDocTypeLiteral(receiver, Node_Type(jsprop!.TypeExpression));
       }
@@ -641,29 +810,21 @@ export function Parser_reparseJSDocComment(receiver: GoPtr<Parser>, node: GoPtr<
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.gatherTypeParameters","kind":"method","status":"implemented","sigHash":"4f31726282c81734ddd3254fd10f835dd6456ff4baebd465a11f97a7c1bb2328","bodyHash":"ff6857a16be9a1df407b75173f07dbfc53e1165a86d91cc9cbaefbd432deba39"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.gatherTypeParameters","kind":"method","status":"implemented","sigHash":"43f0d6f493087eed5129a7a79dffa8a85837816d7f074838dfcd6cd082d5f4b0","bodyHash":"f23172ee546112dd23feff6c047e13965a514f1a29ff077532fbce8afad1ac38"}
  *
  * Go source:
- * func (p *Parser) gatherTypeParameters(j *ast.Node, tagWithTypeParameters *ast.Node) *ast.NodeList {
+ * func (p *Parser) gatherTypeParameters(j *ast.Node, typedefOrCallback bool) *ast.NodeList {
  * 	var typeParameters []*ast.Node
  * 	pos := -1
  * 	endPos := -1
  * 	firstTemplate := true
- * 	// type parameters only apply to the tag or node they occur before, so record a place to stop
- * 	start := 0
- * 	for i, other := range j.AsJSDoc().Tags.Nodes {
- * 		if other == tagWithTypeParameters {
- * 			break
+ * 	for _, tag := range j.AsJSDoc().Tags.Nodes {
+ * 		// When a JSDoc comment contains an `@typedef` or `@callback` tag, `@template` type parameter
+ * 		// declarations apply to the type being defined.
+ * 		if !typedefOrCallback && (ast.IsJSDocTypedefTag(tag) || ast.IsJSDocCallbackTag(tag)) {
+ * 			return nil
  * 		}
- * 		if other.Kind == ast.KindJSDocTypedefTag || other.Kind == ast.KindJSDocCallbackTag || other.Kind == ast.KindJSDocOverloadTag {
- * 			start = i + 1
- * 		}
- * 	}
- * 	for i, tag := range j.AsJSDoc().Tags.Nodes {
- * 		if tag == tagWithTypeParameters {
- * 			break
- * 		}
- * 		if i < start || tag.Kind != ast.KindJSDocTemplateTag {
+ * 		if !ast.IsJSDocTemplateTag(tag) {
  * 			continue
  * 		}
  * 		if firstTemplate {
@@ -671,7 +832,6 @@ export function Parser_reparseJSDocComment(receiver: GoPtr<Parser>, node: GoPtr<
  * 			firstTemplate = false
  * 		}
  * 		endPos = tag.End()
- * 
  * 		constraint := tag.AsJSDocTemplateTag().Constraint
  * 		firstTypeParameter := true
  * 		for _, tp := range tag.TypeParameters() {
@@ -679,7 +839,7 @@ export function Parser_reparseJSDocComment(receiver: GoPtr<Parser>, node: GoPtr<
  * 			if constraint != nil && firstTypeParameter {
  * 				reparse = p.factory.NewTypeParameterDeclaration(
  * 					p.factory.DeepCloneReparseModifiers(tp.Modifiers()),
- * 					p.addDeepCloneReparse(tp.Name()),
+ * 					p.addDeepCloneReparse(p.checkNonIdentifierName(tp.Name())),
  * 					p.addDeepCloneReparse(constraint.Type()),
  * 					nil, // expression
  * 					p.addDeepCloneReparse(tp.AsTypeParameterDeclaration().DefaultType),
@@ -702,29 +862,18 @@ export function Parser_reparseJSDocComment(receiver: GoPtr<Parser>, node: GoPtr<
  * 	}
  * }
  */
-export function Parser_gatherTypeParameters(receiver: GoPtr<Parser>, j: GoPtr<Node>, tagWithTypeParameters: GoPtr<Node>): GoPtr<NodeList> {
+export function Parser_gatherTypeParameters(receiver: GoPtr<Parser>, j: GoPtr<Node>, typedefOrCallback: bool): GoPtr<NodeList> {
   let typeParameters: GoSlice<GoPtr<Node>> | undefined;
   let pos: int = -1;
   let endPos: int = -1;
   let firstTemplate = true;
-  // type parameters only apply to the tag or node they occur before, so record a place to stop
-  let start: int = 0;
-  const jsTags = AsJSDoc(j)!.Tags!.Nodes;
-  for (let i: int = 0; i < jsTags.length; i++) {
-    const other = jsTags[i];
-    if (other === tagWithTypeParameters) {
-      break;
+  for (const tag of AsJSDoc(j)!.Tags!.Nodes) {
+    // When a JSDoc comment contains an `@typedef` or `@callback` tag, `@template` type parameter
+    // declarations apply to the type being defined.
+    if (!typedefOrCallback && (IsJSDocTypedefTag(tag) || IsJSDocCallbackTag(tag))) {
+      return undefined;
     }
-    if (other!.Kind === KindJSDocTypedefTag || other!.Kind === KindJSDocCallbackTag || other!.Kind === KindJSDocOverloadTag) {
-      start = i + 1;
-    }
-  }
-  for (let i: int = 0; i < jsTags.length; i++) {
-    const tag = jsTags[i];
-    if (tag === tagWithTypeParameters) {
-      break;
-    }
-    if (i < start || tag!.Kind !== KindJSDocTemplateTag) {
+    if (!IsJSDocTemplateTag(tag)) {
       continue;
     }
     if (firstTemplate) {
@@ -732,7 +881,6 @@ export function Parser_gatherTypeParameters(receiver: GoPtr<Parser>, j: GoPtr<No
       firstTemplate = false;
     }
     endPos = Node_End(tag);
-
     const constraint = AsJSDocTemplateTag(tag)!.Constraint;
     let firstTypeParameter = true;
     for (const tp of Node_TypeParameters(tag)!) {
@@ -741,7 +889,7 @@ export function Parser_gatherTypeParameters(receiver: GoPtr<Parser>, j: GoPtr<No
         reparse = NewTypeParameterDeclaration(
           receiver!.factory,
           NodeFactory_DeepCloneReparseModifiers(receiver!.factory, Node_Modifiers(tp)),
-          Parser_addDeepCloneReparse(receiver, Node_Name(tp)),
+          Parser_addDeepCloneReparse(receiver, Parser_checkNonIdentifierName(receiver, Node_Name(tp))),
           Parser_addDeepCloneReparse(receiver, Node_Type(constraint)),
           undefined, // expression
           Parser_addDeepCloneReparse(receiver, AsTypeParameterDeclaration(tp)!.DefaultType),
@@ -765,7 +913,7 @@ export function Parser_gatherTypeParameters(receiver: GoPtr<Parser>, j: GoPtr<No
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.reparseHosted","kind":"method","status":"implemented","sigHash":"58c0beaf2d77b4b5417d21aa21df5af9e683885ced520fefffc94702c21dffea","bodyHash":"30d98fe8662a97e2ad03f4dd6cd361aab14e4bd3c1bc9d2e7c27a9e7a7f7900a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.reparseHosted","kind":"method","status":"implemented","sigHash":"58c0beaf2d77b4b5417d21aa21df5af9e683885ced520fefffc94702c21dffea","bodyHash":"1bddc6b90c90af2ad1fab460f1ba8c89e0366ffe709f13ba5a123fc2bbec02dc"}
  *
  * Go source:
  * func (p *Parser) reparseHosted(tag *ast.Node, parent *ast.Node, jsDoc *ast.Node) {
@@ -783,7 +931,7 @@ export function Parser_gatherTypeParameters(receiver: GoPtr<Parser>, j: GoPtr<No
  * 				}
  * 			}
  * 		case ast.KindVariableDeclaration, ast.KindExportAssignment, ast.KindPropertyDeclaration, ast.KindPropertyAssignment,
- * 			ast.KindShorthandPropertyAssignment:
+ * 			ast.KindShorthandPropertyAssignment, ast.KindGetAccessor:
  * 			if parent.Type() == nil && tag.TypeExpression() != nil {
  * 				parent.AsMutable().SetType(p.addDeepCloneReparse(tag.TypeExpression().Type()))
  * 				p.finishMutatedNode(parent)
@@ -876,19 +1024,19 @@ export function Parser_gatherTypeParameters(receiver: GoPtr<Parser>, j: GoPtr<No
  * 	case ast.KindJSDocTemplateTag:
  * 		if fun := getFunctionLikeHost(parent); fun != nil {
  * 			if fun.TypeParameters() == nil && fun.FunctionLikeData().FullSignature == nil {
- * 				fun.FunctionLikeData().TypeParameters = p.gatherTypeParameters(jsDoc, nil /*tagWithTypeParameters* /)
+ * 				fun.FunctionLikeData().TypeParameters = p.gatherTypeParameters(jsDoc, false /*typedefOrCallback* /)
  * 				p.finishMutatedNode(fun)
  * 			}
  * 		} else if parent.Kind == ast.KindClassDeclaration {
  * 			class := parent.AsClassDeclaration()
  * 			if class.TypeParameters == nil {
- * 				class.TypeParameters = p.gatherTypeParameters(jsDoc, nil /*tagWithTypeParameters* /)
+ * 				class.TypeParameters = p.gatherTypeParameters(jsDoc, false /*typedefOrCallback* /)
  * 				p.finishMutatedNode(parent)
  * 			}
  * 		} else if parent.Kind == ast.KindClassExpression {
  * 			class := parent.AsClassExpression()
  * 			if class.TypeParameters == nil {
- * 				class.TypeParameters = p.gatherTypeParameters(jsDoc, nil /*tagWithTypeParameters* /)
+ * 				class.TypeParameters = p.gatherTypeParameters(jsDoc, false /*typedefOrCallback* /)
  * 				p.finishMutatedNode(parent)
  * 			}
  * 		}
@@ -899,7 +1047,7 @@ export function Parser_gatherTypeParameters(receiver: GoPtr<Parser>, j: GoPtr<No
  * 				if param.Type == nil && parameterTag.TypeExpression != nil {
  * 					param.AsParameterDeclaration().Type = p.reparseJSDocTypeLiteral(parameterTag.TypeExpression.Type())
  * 				}
- * 				if param.QuestionToken == nil && param.Initializer == nil {
+ * 				if param.QuestionToken == nil {
  * 					if question := p.makeQuestionIfOptional(parameterTag); question != nil {
  * 						param.QuestionToken = question
  * 					}
@@ -910,7 +1058,7 @@ export function Parser_gatherTypeParameters(receiver: GoPtr<Parser>, j: GoPtr<No
  * 	case ast.KindJSDocThisTag:
  * 		if fun := getFunctionLikeHost(parent); fun != nil {
  * 			params := fun.Parameters()
- * 			if len(params) == 0 || params[0].Name().Kind != ast.KindThisKeyword {
+ * 			if len(params) == 0 || (params[0].Name().Kind != ast.KindThisKeyword && !ast.IsThisIdentifier(params[0].Name())) {
  * 				thisParam := p.factory.NewParameterDeclaration(
  * 					nil, /* decorators * /
  * 					nil, /* modifiers * /
@@ -946,7 +1094,7 @@ export function Parser_gatherTypeParameters(receiver: GoPtr<Parser>, j: GoPtr<No
  * 			parent = parent.Expression()
  * 		}
  * 		switch parent.Kind {
- * 		case ast.KindPropertyDeclaration, ast.KindMethodDeclaration, ast.KindGetAccessor, ast.KindSetAccessor, ast.KindBinaryExpression:
+ * 		case ast.KindPropertyDeclaration, ast.KindMethodDeclaration, ast.KindConstructor, ast.KindGetAccessor, ast.KindSetAccessor, ast.KindBinaryExpression:
  * 			var keyword ast.Kind
  * 			switch tag.Kind {
  * 			case ast.KindJSDocReadonlyTag:
@@ -1044,7 +1192,8 @@ export function Parser_reparseHosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>, 
         case KindExportAssignment:
         case KindPropertyDeclaration:
         case KindPropertyAssignment:
-        case KindShorthandPropertyAssignment: {
+        case KindShorthandPropertyAssignment:
+        case KindGetAccessor: {
           if (Node_Type(parent) === undefined && Node_TypeExpression(tag) !== undefined) {
             MutableNode_SetType(Node_AsMutable(parent), Parser_addDeepCloneReparse(receiver, Node_Type(Node_TypeExpression(tag))));
             Parser_finishMutatedNode(receiver, parent);
@@ -1178,19 +1327,19 @@ export function Parser_reparseHosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>, 
       const fun = getFunctionLikeHost(parent);
       if (fun !== undefined) {
         if (Node_TypeParameters(fun) === undefined && Node_FunctionLikeData(fun)!.FullSignature === undefined) {
-          Node_FunctionLikeData(fun)!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, undefined);
+          Node_FunctionLikeData(fun)!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, false as bool);
           Parser_finishMutatedNode(receiver, fun);
         }
       } else if (parent!.Kind === KindClassDeclaration) {
         const cls = AsClassDeclaration(parent);
         if (cls!.TypeParameters === undefined) {
-          cls!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, undefined);
+          cls!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, false as bool);
           Parser_finishMutatedNode(receiver, parent);
         }
       } else if (parent!.Kind === KindClassExpression) {
         const cls = AsClassExpression(parent);
         if (cls!.TypeParameters === undefined) {
-          cls!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, undefined);
+          cls!.TypeParameters = Parser_gatherTypeParameters(receiver, jsDoc, false as bool);
           Parser_finishMutatedNode(receiver, parent);
         }
       }
@@ -1205,7 +1354,7 @@ export function Parser_reparseHosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>, 
           if (param!.Type === undefined && parameterTag!.TypeExpression !== undefined) {
             param!.Type = Parser_reparseJSDocTypeLiteral(receiver, Node_Type(parameterTag!.TypeExpression));
           }
-          if (param!.QuestionToken === undefined && param!.Initializer === undefined) {
+          if (param!.QuestionToken === undefined) {
             const question = Parser_makeQuestionIfOptional(receiver, parameterTag);
             if (question !== undefined) {
               param!.QuestionToken = question;
@@ -1220,7 +1369,7 @@ export function Parser_reparseHosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>, 
       const fun = getFunctionLikeHost(parent);
       if (fun !== undefined) {
         const params = Node_Parameters(fun);
-        if (params.length === 0 || Node_Name(params[0])!.Kind !== KindThisKeyword) {
+        if (params.length === 0 || (Node_Name(params[0])!.Kind !== KindThisKeyword && !IsThisIdentifier(Node_Name(params[0])))) {
           const thisParam = NewParameterDeclaration(
             receiver!.factory,
             undefined, // decorators
@@ -1269,6 +1418,7 @@ export function Parser_reparseHosted(receiver: GoPtr<Parser>, tag: GoPtr<Node>, 
       switch (p!.Kind) {
         case KindPropertyDeclaration:
         case KindMethodDeclaration:
+        case KindConstructor:
         case KindGetAccessor:
         case KindSetAccessor:
         case KindBinaryExpression: {
@@ -1442,29 +1592,43 @@ export function findMatchingParameter(fun: GoPtr<Node>, parameterTag: GoPtr<JSDo
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::func::getFunctionLikeHost","kind":"func","status":"implemented","sigHash":"e903b09f9d78eb4f62c4bd055e03147abe72b6be14628ae8746d6b00f18265c6","bodyHash":"50cdc7588123899466cf0ce2a084dc8728a58f0f7161dbf217c413c235a0e307"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::func::skipSatisfiesExpressions","kind":"func","status":"implemented","sigHash":"3f87a14e41b7b52a06015c68a0acf5ff4c16ae9bb20e0bceb2e16d7b09749439","bodyHash":"fc17517ef51da3dcfb786819ddc77945c4eb4286e6781f2af51d85e52e3b8999"}
+ *
+ * Go source:
+ * func skipSatisfiesExpressions(node *ast.Node) *ast.Node {
+ * 	for node != nil && node.Kind == ast.KindSatisfiesExpression {
+ * 		node = node.Expression()
+ * 	}
+ * 	return node
+ * }
+ */
+export function skipSatisfiesExpressions(node: GoPtr<Node>): GoPtr<Node> {
+  let current: GoPtr<Node> = node;
+  while (current !== undefined && current!.Kind === KindSatisfiesExpression) {
+    current = Node_Expression(current);
+  }
+  return current;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::func::getFunctionLikeHost","kind":"func","status":"implemented","sigHash":"e903b09f9d78eb4f62c4bd055e03147abe72b6be14628ae8746d6b00f18265c6","bodyHash":"7dd18a633975138053d6210cf50aa006dd94cd2a841604c2fe829741407c0fd9"}
  *
  * Go source:
  * func getFunctionLikeHost(host *ast.Node) *ast.Node {
  * 	fun := host
- * 	if host.Kind == ast.KindVariableStatement && host.AsVariableStatement().DeclarationList != nil {
- * 		for _, declaration := range host.AsVariableStatement().DeclarationList.AsVariableDeclarationList().Declarations.Nodes {
- * 			if ast.IsFunctionLike(declaration.Initializer()) {
- * 				fun = declaration.Initializer()
- * 				break
- * 			}
+ * 	switch host.Kind {
+ * 	case ast.KindVariableStatement:
+ * 		if nodes := host.AsVariableStatement().DeclarationList.AsVariableDeclarationList().Declarations.Nodes; len(nodes) != 0 {
+ * 			fun = nodes[0].Initializer()
  * 		}
- * 	} else if host.Kind == ast.KindPropertyAssignment {
+ * 	case ast.KindPropertyAssignment, ast.KindPropertyDeclaration:
  * 		fun = host.Initializer()
- * 	} else if host.Kind == ast.KindPropertyDeclaration {
- * 		fun = host.Initializer()
- * 	} else if host.Kind == ast.KindExportAssignment {
+ * 	case ast.KindExportAssignment, ast.KindReturnStatement:
  * 		fun = host.Expression()
- * 	} else if host.Kind == ast.KindReturnStatement {
- * 		fun = host.Expression()
- * 	} else if host.Kind == ast.KindExpressionStatement {
+ * 	case ast.KindExpressionStatement:
  * 		fun = ast.GetRightMostAssignedExpression(host.Expression())
  * 	}
+ * 	fun = skipSatisfiesExpressions(fun)
  * 	if ast.IsFunctionLike(fun) {
  * 		return fun
  * 	}
@@ -1472,28 +1636,28 @@ export function findMatchingParameter(fun: GoPtr<Node>, parameterTag: GoPtr<JSDo
  * }
  */
 export function getFunctionLikeHost(host: GoPtr<Node>): GoPtr<Node> {
-  // Faithful to Go: NO skipping of satisfies/as wrappers — once a @satisfies
-  // tag has wrapped an initializer in a SatisfiesExpression, later tags (e.g.
-  // @param) no longer find a function-like host and intentionally no-op.
   let fun: GoPtr<Node> = host;
-  if (host!.Kind === KindVariableStatement && AsVariableStatement(host)!.DeclarationList !== undefined) {
-    for (const declaration of AsVariableDeclarationList(AsVariableStatement(host)!.DeclarationList)!.Declarations!.Nodes) {
-      if (IsFunctionLike(Node_Initializer(declaration))) {
-        fun = Node_Initializer(declaration);
-        break;
+  switch (host!.Kind) {
+    case KindVariableStatement: {
+      const nodes = AsVariableDeclarationList(AsVariableStatement(host)!.DeclarationList)!.Declarations!.Nodes;
+      if (nodes.length !== 0) {
+        fun = Node_Initializer(nodes[0]);
       }
+      break;
     }
-  } else if (host!.Kind === KindPropertyAssignment) {
-    fun = Node_Initializer(host);
-  } else if (host!.Kind === KindPropertyDeclaration) {
-    fun = Node_Initializer(host);
-  } else if (host!.Kind === KindExportAssignment) {
-    fun = Node_Expression(host);
-  } else if (host!.Kind === KindReturnStatement) {
-    fun = Node_Expression(host);
-  } else if (host!.Kind === KindExpressionStatement) {
-    fun = GetRightMostAssignedExpression(Node_Expression(host));
+    case KindPropertyAssignment:
+    case KindPropertyDeclaration:
+      fun = Node_Initializer(host);
+      break;
+    case KindExportAssignment:
+    case KindReturnStatement:
+      fun = Node_Expression(host);
+      break;
+    case KindExpressionStatement:
+      fun = GetRightMostAssignedExpression(Node_Expression(host));
+      break;
   }
+  fun = skipSatisfiesExpressions(fun);
   if (IsFunctionLike(fun)) {
     return fun;
   }
@@ -1554,22 +1718,53 @@ export function getClassLikeData(parent: GoPtr<Node>): GoPtr<ClassLikeBase> {
   return cls;
 }
 
-// Helper: create an export modifier node attached to locationNode
-function Parser_createExportModifier(receiver: GoPtr<Parser>, locationNode: GoPtr<Node>): GoPtr<ModifierList> {
-  const exportModifier = NewToken(receiver!.factory, KindExportKeyword);
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.createExportModifier","kind":"method","status":"implemented","sigHash":"8a681798c73d7510f8f21da461a1904d3a7f52cf3cf7087e256ee55e6f18b73a","bodyHash":"d8e6bac71751d0624d3fa6f5d5ec0bf88faa2afeeda615e3cd37e335b785c03f"}
+ *
+ * Go source:
+ * func (p *Parser) createExportModifier(locationNode *ast.Node) *ast.ModifierList {
+ * 	exportModifier := p.factory.NewModifier(ast.KindExportKeyword)
+ * 	exportModifier.Loc = locationNode.Loc
+ * 	exportModifier.Flags = p.contextFlags | ast.NodeFlagsReparsed
+ * 	nodes := p.nodeSliceArena.NewSlice1(exportModifier)
+ * 	return p.newModifierList(locationNode.Loc, nodes)
+ * }
+ */
+export function Parser_createExportModifier(receiver: GoPtr<Parser>, locationNode: GoPtr<Node>): GoPtr<ModifierList> {
+  const exportModifier = NodeFactory_NewModifier(receiver!.factory, KindExportKeyword);
   exportModifier!.Loc = locationNode!.Loc;
   exportModifier!.Flags = receiver!.contextFlags | NodeFlagsReparsed;
   const nodes = Arena_NewSlice1(receiver!.nodeSliceArena, exportModifier) as GoSlice<GoPtr<Node>>;
   return Parser_newModifierList(receiver, locationNode!.Loc, nodes);
 }
 
-// Helper: return the innermost identifier from a JSDoc namespace chain
-function Parser_getInnermostNameOfJSDocNamespace(receiver: GoPtr<Parser>, fullName: GoPtr<Node>): GoPtr<Node> {
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.getInnermostNameOfJSDocNamespace","kind":"method","status":"implemented","sigHash":"ac1b9ba70652d045ff6c6e6f9b99e1b2cbb117e9323300ac25e0add5536bb129","bodyHash":"41258fda59e760f5323bfc18738496739710358aeb64a87f6c281ff29e8f2890"}
+ *
+ * Go source:
+ * // getInnermostNameOfJSDocNamespace returns the innermost identifier from a
+ * // JSDoc namespace chain (ModuleDeclaration). For a simple identifier, it returns
+ * // the identifier itself. For "A.B.C", it returns the identifier "C".
+ * func (p *Parser) getInnermostNameOfJSDocNamespace(fullName *ast.Node) *ast.Node {
+ * 	if fullName == nil {
+ * 		return nil
+ * 	}
+ * 	for fullName.Kind == ast.KindModuleDeclaration {
+ * 		body := fullName.AsModuleDeclaration().Body
+ * 		if body == nil {
+ * 			return fullName.Name()
+ * 		}
+ * 		fullName = body
+ * 	}
+ * 	return fullName
+ * }
+ */
+export function Parser_getInnermostNameOfJSDocNamespace(receiver: GoPtr<Parser>, fullName: GoPtr<Node>): GoPtr<Node> {
   if (fullName === undefined) {
     return undefined;
   }
   let current: GoPtr<Node> = fullName;
-  while (IsModuleDeclaration(current)) {
+  while (current!.Kind === KindModuleDeclaration) {
     const body: GoPtr<Node> = AsModuleDeclaration(current)!.Body;
     if (body === undefined) {
       return Node_Name(current);
@@ -1579,12 +1774,48 @@ function Parser_getInnermostNameOfJSDocNamespace(receiver: GoPtr<Parser>, fullNa
   return current;
 }
 
-// Helper: wrap a statement in namespace declarations corresponding to a JSDoc dotted name
-function Parser_wrapInJSDocNamespace(receiver: GoPtr<Parser>, fullName: GoPtr<Node>, statement: GoPtr<Node>, nested: bool): GoPtr<Node> {
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/reparser.go::method::Parser.wrapInJSDocNamespace","kind":"method","status":"implemented","sigHash":"66d23f1be67c8b2184d47d435b7bc7e9e411183490c9ac6a3f118c9f44a656c1","bodyHash":"f1eaf1d3f144a5b3585bd35be8695a77eecd8276f9908089bdcf270671188c70"}
+ *
+ * Go source:
+ * // wrapInJSDocNamespace wraps a statement (typically a type alias) in namespace
+ * // declarations corresponding to a JSDoc dotted name. For example, given name
+ * // "A.B.C" and a type alias for C, this produces:
+ * //
+ * //	namespace A { namespace B { type C = ... } }
+ * //
+ * // If the name is a simple identifier (not a ModuleDeclaration), it returns the
+ * // statement as-is.
+ * func (p *Parser) wrapInJSDocNamespace(fullName *ast.Node, statement *ast.Node, nested bool) *ast.Node {
+ * 	if fullName == nil || !ast.IsModuleDeclaration(fullName) {
+ * 		return statement
+ * 	}
+ * 	// Recursively wrap from outermost to innermost. Inner namespaces always get an export modifier
+ * 	// so members are accessible via dotted access from outside. The outermost namespace is treated as
+ * 	// exported only in module files via IsImplicitlyExportedJSDocDeclaration (in the binder), so it
+ * 	// does not get an explicit export modifier here.
+ * 	wrapped := p.wrapInJSDocNamespace(fullName.Body(), statement, true /*nested* /)
+ * 	block := p.factory.NewModuleBlock(p.newNodeList(fullName.Loc, p.nodeSliceArena.NewSlice1(wrapped)))
+ * 	p.finishReparsedNode(block, fullName)
+ * 	var modifiers *ast.ModifierList
+ * 	if nested {
+ * 		modifiers = p.createExportModifier(fullName)
+ * 	}
+ * 	result := p.factory.NewModuleDeclaration(modifiers, ast.KindNamespaceKeyword, p.addDeepCloneReparse(fullName.Name()), block)
+ * 	p.finishReparsedNode(result, fullName)
+ * 	p.reparsedClones = append(p.reparsedClones, result)
+ * 	return result
+ * }
+ */
+export function Parser_wrapInJSDocNamespace(receiver: GoPtr<Parser>, fullName: GoPtr<Node>, statement: GoPtr<Node>, nested: bool): GoPtr<Node> {
   if (fullName === undefined || !IsModuleDeclaration(fullName)) {
     return statement;
   }
-  const wrapped = Parser_wrapInJSDocNamespace(receiver, Node_Body(fullName), statement, true);
+  // Recursively wrap from outermost to innermost. Inner namespaces always get an export modifier
+  // so members are accessible via dotted access from outside. The outermost namespace is treated as
+  // exported only in module files via IsImplicitlyExportedJSDocDeclaration (in the binder), so it
+  // does not get an explicit export modifier here.
+  const wrapped = Parser_wrapInJSDocNamespace(receiver, Node_Body(fullName), statement, true as bool);
   const block = NewModuleBlock(receiver!.factory, Parser_newNodeList(receiver, fullName!.Loc, Arena_NewSlice1(receiver!.nodeSliceArena, wrapped) as GoSlice<GoPtr<Node>>));
   Parser_finishReparsedNode(receiver, block, fullName);
   let modifiers: GoPtr<ModifierList> = undefined;

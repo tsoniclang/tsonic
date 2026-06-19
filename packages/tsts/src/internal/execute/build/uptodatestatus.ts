@@ -1,4 +1,4 @@
-import type { bool, ushort } from "@tsonic/core/types.js";
+import type { bool, ushort } from "../../../go/scalars.js";
 import type { GoPtr } from "../../../go/compat.js";
 import type { Time } from "../../../go/time.js";
 

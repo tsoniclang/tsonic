@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import * as fmt from "../../go/fmt.js";
 import * as strings from "../../go/strings.js";
@@ -141,8 +141,18 @@ export function PackageId_PackageName(receiver: GoPtr<PackageId>): string {
   return p.Name;
 }
 
+export const ResolvedModuleExtensionProviderVirtual = "provider-virtual";
+
+export interface ResolvedModuleProviderVirtual {
+  ProviderId: string;
+  ProviderTarget: string;
+  ProviderModuleId: string;
+  ModuleSpecifier: string;
+}
+
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/module/types.go::type::ResolvedModule","kind":"type","status":"implemented","sigHash":"86923a570fd3708e4c78e62b1f475230e820af5a107a97dc52cada12a7c05dd2","bodyHash":"53e708be8a4f3098f19f5add396ef4ec4dc8314f1b210ded9411bb8baf7c40df"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Provider virtual modules need first-class internal module-resolution identity instead of pretending to be physical .d.ts files; physical resolutions preserve the exact TS-Go fields.","goSignature":"interface{AlternateResult:string;Extension:string;IsExternalLibraryImport:packages/tsts/src/go/scalars.ts::bool;IsResolved?:()=>packages/tsts/src/go/scalars.ts::bool;OriginalPath:string;PackageId:packages/tsts/src/internal/module/types.ts::PackageId;ResolutionDiagnostics:packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>>;ResolvedFileName:string;ResolvedUsingTsExtension:packages/tsts/src/go/scalars.ts::bool}","tsSignature":"interface{AlternateResult:string;Extension:string;IsExternalLibraryImport:packages/tsts/src/go/scalars.ts::bool;OriginalPath:string;PackageId:packages/tsts/src/internal/module/types.ts::PackageId;ProviderVirtual?:packages/tsts/src/internal/module/types.ts::ResolvedModuleProviderVirtual;ResolutionDiagnostics:packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>>;ResolvedFileName:string;ResolvedUsingTsExtension:packages/tsts/src/go/scalars.ts::bool}"}
  *
  * Go source:
  * ResolvedModule struct {
@@ -165,6 +175,7 @@ export interface ResolvedModule {
   PackageId: PackageId;
   IsExternalLibraryImport: bool;
   AlternateResult: string;
+  ProviderVirtual?: ResolvedModuleProviderVirtual;
 }
 
 /**
@@ -177,6 +188,10 @@ export interface ResolvedModule {
  */
 export function ResolvedModule_IsResolved(receiver: GoPtr<ResolvedModule>): bool {
   return receiver !== undefined && receiver.ResolvedFileName !== "";
+}
+
+export function ResolvedModule_IsProviderVirtual(receiver: GoPtr<ResolvedModule>): bool {
+  return receiver !== undefined && receiver.ProviderVirtual !== undefined;
 }
 
 /**

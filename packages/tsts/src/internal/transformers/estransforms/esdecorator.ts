@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSeq2, GoSlice } from "../../../go/compat.js";
 import type { SourceFile } from "../../ast/ast.js";
 import { Node_Members, Node_Initializer, Node_Expression, Node_Text, Node_Body, Node_ParameterList, Node_MemberList, Node_Decorators, NodeFactory_UpdateBinaryExpression, NodeFactory_UpdateSpreadElement, NodeFactory_UpdateSpreadAssignment, NodeFactory_UpdateParenthesizedExpression, NodeFactory_UpdateArrayLiteralExpression, NodeFactory_UpdateObjectLiteralExpression, NodeFactory_UpdatePropertyAssignment, NodeFactory_UpdateClassDeclaration, NodeFactory_UpdateClassExpression, NodeFactory_UpdateComputedPropertyName, NodeFactory_UpdateExpressionWithTypeArguments, NodeFactory_UpdateForStatement, NodeFactory_UpdateHeritageClause, NodeFactory_UpdateTaggedTemplateExpression, NodeFactory_UpdateTryStatement, NodeFactory_UpdateConstructorDeclaration, NodeFactory_UpdatePropertyDeclaration, NodeFactory_UpdateMethodDeclaration, NodeFactory_UpdateGetAccessorDeclaration, NodeFactory_UpdateSetAccessorDeclaration, NodeFactory_UpdateParameterDeclaration, NodeFactory_UpdatePartiallyEmittedExpression } from "../../ast/ast.js";
@@ -372,7 +372,7 @@ export interface classInfo {
   classThis: GoPtr<IdentifierNode>;
   classSuper: GoPtr<IdentifierNode>;
   metadataReference: GoPtr<IdentifierNode>;
-  memberInfos: OrderedMap;
+  memberInfos: OrderedMap<GoPtr<Node>, GoPtr<memberInfo>>;
   instanceMethodExtraInitializersName: GoPtr<IdentifierNode>;
   staticMethodExtraInitializersName: GoPtr<IdentifierNode>;
   staticNonFieldDecorationStatements: GoSlice<GoPtr<Statement>>;

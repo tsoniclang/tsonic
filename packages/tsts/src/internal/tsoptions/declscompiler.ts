@@ -1,7 +1,7 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
-import { DeepEqual as reflect_DeepEqual, ValueOf as reflect_ValueOf } from "../../go/reflect.js";
-import type { Value } from "../../go/reflect.js";
+import { DeepEqual as reflect_DeepEqual, TypeFor as reflect_TypeFor, ValueOf as reflect_ValueOf } from "../../go/reflect.js";
+import type { Type, Value } from "../../go/reflect.js";
 import { Concat } from "../../go/slices.js";
 import { CompilerOptions_GetAllowJS, CompilerOptions_GetStrictOptionValue, ScriptTargetLatestStandard } from "../core/compileroptions.js";
 import type { CompilerOptions } from "../core/compileroptions.js";
@@ -2431,7 +2431,8 @@ OptionsDeclarations = Concat(commonOptionsWithBuild, optionsForCompiler);
  * Go source:
  * var optionsType = reflect.TypeFor[core.CompilerOptions]()
  */
-export const optionsType: ReadonlyMap<string, GoPtr<CommandLineOption>> = buildCompilerOptionFieldMap();
+export const optionsType: Type = reflect_TypeFor<CompilerOptions>();
+const compilerOptionFieldMap: ReadonlyMap<string, GoPtr<CommandLineOption>> = buildCompilerOptionFieldMap();
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/declscompiler.go::func::optionsHaveChanges","kind":"func","status":"implemented","sigHash":"8f8f7713f04420647b7a1527c6c51ba7240f567a9749f7e8dd55855f20013b78","bodyHash":"348d3e9cc9eddf323b8cd92d8978c61042f5c378c468e2405af468d846b6d020"}
@@ -2505,7 +2506,7 @@ export function ForEachCompilerOptionValue(options: GoPtr<CompilerOptions>, decl
   }
   const values = options as unknown as Record<string, unknown>;
   let index = 0;
-  for (const [fieldName, optionDeclaration] of optionsType) {
+  for (const [fieldName, optionDeclaration] of compilerOptionFieldMap) {
     if (optionDeclaration !== undefined && declFilter(optionDeclaration)) {
       if (fn(optionDeclaration, reflect_ValueOf(values[fieldName]), index as int)) {
         return true;

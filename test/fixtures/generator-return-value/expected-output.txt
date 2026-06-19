@@ -1,4 +1,0 @@
-Yield: 5
-Yield: 3
-Yield: 1
-Done: True

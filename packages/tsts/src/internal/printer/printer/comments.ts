@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 // CommentRange, FileReference, SourceFile are hand-written AST struct types that are
 // not yet ported into the spine/generated split; they live in the canonical ../../ast/ast.js
@@ -24,6 +24,8 @@ import type { Tristate } from "../../core/tristate.js";
 import { ResolutionModeESM, ResolutionModeNone } from "../../core/compileroptions.js";
 import { ComputeLineOfPosition, GetLeadingCommentRanges, GetTrailingCommentRanges, SkipTrivia } from "../../scanner/scanner.js";
 import { Collect } from "../../../go/slices.js";
+import { DecodeRuneInString } from "../../../go/unicode/utf8.js";
+import { IsLineBreak } from "../../stringutil/util.js";
 import { TrimSpace } from "../../../go/strings.js";
 import { EmitContext_CommentRange, EmitContext_EmitFlags, EmitContext_GetSyntheticLeadingComments, EmitContext_GetSyntheticTrailingComments, EmitContext_GetTypeNode, EmitContext_ParseNode } from "../emitcontext.js";
 import type { SynthesizedComment } from "../emitcontext.js";
@@ -76,7 +78,7 @@ export function Printer_writeCommentRange(receiver: GoPtr<Printer>, comment: Com
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.writeCommentRangeWorker","kind":"method","status":"implemented","sigHash":"f978eed47ae2f82119e024b7f69fe0c5b38c3315ffab8cd8af1a6608ba2e1fa4","bodyHash":"50f1ee320659ca782e9102468f061bfef8d13a20aa7349c8733db115b8c53064"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.writeCommentRangeWorker","kind":"method","status":"implemented","sigHash":"f978eed47ae2f82119e024b7f69fe0c5b38c3315ffab8cd8af1a6608ba2e1fa4","bodyHash":"4f5404a76b44587b30dd11f19e42eefe9dc30f663af2f4504c6d7079fa2c4ba0"}
  *
  * Go source:
  * func (p *Printer) writeCommentRangeWorker(text string, lineMap []core.TextPos, kind ast.Kind, loc core.TextRange) {
@@ -138,7 +140,18 @@ export function Printer_writeCommentRange(receiver: GoPtr<Printer>, comment: Com
  * 			}
  * 
  * 			// Write the comment line text
- * 			end := min(loc.End(), nextLineStart-1)
+ * 			end := min(loc.End(), nextLineStart)
+ * 			for scan := pos; scan < end; {
+ * 				ch, size := utf8.DecodeRuneInString(text[scan:end])
+ * 				if size == 0 {
+ * 					break
+ * 				}
+ * 				if stringutil.IsLineBreak(ch) {
+ * 					end = scan
+ * 					break
+ * 				}
+ * 				scan += size
+ * 			}
  * 			currentLineText := strings.TrimSpace(text[pos:end])
  * 			if len(currentLineText) > 0 {
  * 				p.writeComment(currentLineText)
@@ -213,7 +226,18 @@ export function Printer_writeCommentRangeWorker(receiver: GoPtr<Printer>, text: 
       }
 
       // Write the comment line text
-      const end = globalThis.Math.min(TextRange_End(loc), nextLineStart - 1);
+      let end = globalThis.Math.min(TextRange_End(loc), nextLineStart);
+      for (let scan = pos; scan < end; ) {
+        const [ch, size] = DecodeRuneInString(byteSlice(text, scan, end));
+        if (size === 0) {
+          break;
+        }
+        if (IsLineBreak(ch)) {
+          end = scan;
+          break;
+        }
+        scan += size;
+      }
       const currentLineText = TrimSpace(byteSlice(text, pos, end));
       if (currentLineText.length > 0) {
         Printer_writeComment(receiver, currentLineText);
@@ -1321,7 +1345,7 @@ export function Printer_emitDetachedCommentsAndUpdateCommentsInfo(receiver: GoPt
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitDetachedComments","kind":"method","status":"implemented","sigHash":"7531fa69d5938caf08c9f867369da9e2788fec366ed37ba09f8843def4e3acc7","bodyHash":"8366c4482a7b74f49510a66a5090b4fcf57c44b9d22ce2eac410df11a309d685"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitDetachedComments","kind":"method","status":"implemented","sigHash":"7531fa69d5938caf08c9f867369da9e2788fec366ed37ba09f8843def4e3acc7","bodyHash":"61e62e8362d1b42e78b26f5d75f289e6bf471bc93c8ad76769628277381923c4"}
  *
  * Go source:
  * func (p *Printer) emitDetachedComments(textRange core.TextRange) (result detachedCommentsInfo, hasResult bool) {
@@ -1367,10 +1391,7 @@ export function Printer_emitDetachedCommentsAndUpdateCommentsInfo(receiver: GoPt
  * 				}
  * 			}
  * 
- * 			if p.shouldWriteComment(comment) {
- * 				detachedComments = append(detachedComments, comment)
- * 			}
- * 
+ * 			detachedComments = append(detachedComments, comment)
  * 			lastComment = comment
  * 		}
  * 
@@ -1382,12 +1403,22 @@ export function Printer_emitDetachedCommentsAndUpdateCommentsInfo(receiver: GoPt
  * 			nodeLine := scanner.ComputeLineOfPosition(lineMap, scanner.SkipTrivia(text, textRange.Pos()))
  * 			if nodeLine >= lastCommentLine+2 {
  * 				// Valid detachedComments
- * 
- * 				if len(leadingComments) > 0 && p.shouldEmitNewLineBeforeLeadingCommentOfPosition(textRange.Pos(), leadingComments[0].Pos()) {
- * 					p.writeLine()
+ *
+ * 				// Filter to only comments that should be written (e.g., JSDoc-style in declaration emit)
+ * 				var commentsToEmit []ast.CommentRange
+ * 				for _, comment := range detachedComments {
+ * 					if p.shouldWriteComment(comment) {
+ * 						commentsToEmit = append(commentsToEmit, comment)
+ * 					}
  * 				}
- * 
- * 				p.emitComments(detachedComments, commentSeparatorAfter)
+ *
+ * 				if len(commentsToEmit) > 0 {
+ * 					if p.shouldEmitNewLineBeforeLeadingCommentOfPosition(textRange.Pos(), commentsToEmit[0].Pos()) {
+ * 						p.writeLine()
+ * 					}
+ *
+ * 					p.emitComments(commentsToEmit, commentSeparatorAfter)
+ * 				}
  * 				result = detachedCommentsInfo{nodePos: textRange.Pos(), detachedCommentEndPos: core.LastOrNil(detachedComments).End()}
  * 				hasResult = true
  * 			}
@@ -1442,10 +1473,7 @@ export function Printer_emitDetachedComments(receiver: GoPtr<Printer>, textRange
         }
       }
 
-      if (Printer_shouldWriteComment(receiver, comment)) {
-        detachedComments.push(comment);
-      }
-
+      detachedComments.push(comment);
       lastComment = comment;
     }
 
@@ -1459,11 +1487,21 @@ export function Printer_emitDetachedComments(receiver: GoPtr<Printer>, textRange
       if (nodeLine >= lastCommentLine + 2) {
         // Valid detachedComments
 
-        if (leadingComments.length > 0 && Printer_shouldEmitNewLineBeforeLeadingCommentOfPosition(receiver, TextRange_Pos(textRange), TextRange_Pos(leadingComments[0]!))) {
-          Printer_writeLine(receiver);
+        // Filter to only comments that should be written (e.g., JSDoc-style in declaration emit)
+        const commentsToEmit: CommentRange[] = [];
+        for (const comment of detachedComments) {
+          if (Printer_shouldWriteComment(receiver, comment)) {
+            commentsToEmit.push(comment);
+          }
         }
 
-        Printer_emitComments(receiver, detachedComments, commentSeparatorAfter);
+        if (commentsToEmit.length > 0) {
+          if (Printer_shouldEmitNewLineBeforeLeadingCommentOfPosition(receiver, TextRange_Pos(textRange), TextRange_Pos(commentsToEmit[0]!))) {
+            Printer_writeLine(receiver);
+          }
+
+          Printer_emitComments(receiver, commentsToEmit, commentSeparatorAfter);
+        }
         result.nodePos = TextRange_Pos(textRange);
         result.detachedCommentEndPos = TextRange_End(lastDetachedComment);
         hasResult = true as bool;

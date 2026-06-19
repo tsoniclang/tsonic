@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../../../scalars.js";
 import type { GoError, GoSlice } from "../../../../compat.js";
 import * as nodeChildProcess from "node:child_process";
 

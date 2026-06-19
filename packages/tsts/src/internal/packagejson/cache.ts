@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import { Map as SyncGoMap, Once } from "../../go/sync.js";
 import { NewOrderedMapWithSizeHint, OrderedMap_Entries, OrderedMap_Set } from "../collections/ordered_map.js";
@@ -267,8 +267,8 @@ export function PackageJson_GetVersionPaths(receiver: GoPtr<PackageJson>, trace:
  */
 export interface VersionPaths {
   Version: string;
-  pathsJSON: GoPtr<OrderedMap>;
-  paths: GoPtr<OrderedMap>;
+  pathsJSON: GoPtr<OrderedMap<string, JSONValue>>;
+  paths: GoPtr<OrderedMap<string, GoSlice<string>>>;
 }
 
 /**
@@ -312,7 +312,7 @@ export function VersionPaths_Exists(receiver: GoPtr<VersionPaths>): bool {
  * 	return v.paths
  * }
  */
-export function VersionPaths_GetPaths(receiver: GoPtr<VersionPaths>): GoPtr<OrderedMap> {
+export function VersionPaths_GetPaths(receiver: GoPtr<VersionPaths>): GoPtr<OrderedMap<string, GoSlice<string>>> {
   if (!VersionPaths_Exists(receiver)) {
     return undefined;
   }
@@ -369,6 +369,44 @@ export function InfoCacheEntry_Exists(receiver: GoPtr<InfoCacheEntry>): bool {
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/packagejson/cache.go::method::InfoCacheEntry.WithPackageDirectory","kind":"method","status":"implemented","sigHash":"67a7659d59de1273dd1aa7e9f4bd0f8dda9df4f8ff2fa73c1414608dfedd6671","bodyHash":"c9a953489878ea04215e409ca50cadbb6d4ac7bc3b2418f75ea2d4135745ee6e"}
+ *
+ * Go source:
+ * // WithPackageDirectory returns an entry whose PackageDirectory matches the
+ * // caller's value. The package.json info cache is keyed by the canonical
+ * // path of the package.json file, but multiple callers may look up the same
+ * // package.json using directory paths that differ only by a trailing
+ * // separator (e.g. "node_modules/preact/compat" vs
+ * // "node_modules/preact/compat/"). Because the cache uses first-writer-wins
+ * // semantics, a later caller may receive an entry whose PackageDirectory
+ * // doesn't match its own candidate path. Downstream code compares the
+ * // candidate against PackageDirectory, so we must return a corrected
+ * // shallow copy when they diverge.
+ * // See https://github.com/microsoft/TypeScript/pull/50740.
+ * func (p *InfoCacheEntry) WithPackageDirectory(packageDirectory string) *InfoCacheEntry {
+ * 	if p.PackageDirectory == packageDirectory {
+ * 		return p
+ * 	}
+ * 	return &InfoCacheEntry{
+ * 		PackageDirectory: packageDirectory,
+ * 		DirectoryExists:  p.DirectoryExists,
+ * 		Contents:         p.Contents,
+ * 	}
+ * }
+ */
+export function InfoCacheEntry_WithPackageDirectory(receiver: GoPtr<InfoCacheEntry>, packageDirectory: string): GoPtr<InfoCacheEntry> {
+  const p = receiver!;
+  if (p.PackageDirectory === packageDirectory) {
+    return p;
+  }
+  return {
+    PackageDirectory: packageDirectory,
+    DirectoryExists: p.DirectoryExists,
+    Contents: p.Contents,
+  };
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/packagejson/cache.go::method::InfoCacheEntry.GetContents","kind":"method","status":"implemented","sigHash":"24f53032da88827fc763766ed857de00a754f6985aa44ff54493943dd2b19aa1","bodyHash":"9b25eff7b6c0289d52a7e76126e76f181c89b7ade589c82bc699d846765e4b4f"}
  *
  * Go source:
@@ -415,7 +453,7 @@ export function InfoCacheEntry_GetDirectory(receiver: GoPtr<InfoCacheEntry>): st
  * }
  */
 export interface InfoCache {
-  cache: SyncMap;
+  cache: SyncMap<Path, GoPtr<InfoCacheEntry>>;
   currentDirectory: string;
   useCaseSensitiveFileNames: bool;
 }

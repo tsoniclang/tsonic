@@ -62,3 +62,33 @@ test("RuneLen", () => {
   assert.equal(utf8.RuneLen(-1), -1);
   assert.equal(utf8.RuneLen(0xd800), -1);
 });
+
+test("String byte-view helpers preserve Go byte offsets", () => {
+  const text = "aé𝄞z";
+  assert.equal(utf8.StringByteLen(text), 8);
+  assert.equal(utf8.StringByteAt(text, 0), "a".charCodeAt(0));
+  assert.equal(utf8.StringByteAt(text, 1), 0xc3);
+  assert.equal(utf8.StringByteSlice(text, 1, 3), "é");
+  assert.equal(utf8.StringByteSlice(text, 3, 7), "𝄞");
+  assert.deepEqual(utf8.DecodeRuneInStringAt(text, 3), [0x1d11e, 4]);
+  assert.deepEqual(utf8.DecodeLastRuneInStringBefore(text, 7), [0x1d11e, 4]);
+});
+
+test("String byte-view slicing preserves BOM code points", () => {
+  const text = "a\uFEFFb";
+  assert.equal(utf8.StringByteLen(text), 5);
+  assert.equal(utf8.StringByteSlice(text, 1, 4), "\uFEFF");
+  assert.equal(utf8.StringByteSlice(text, 1), "\uFEFFb");
+  assert.deepEqual(utf8.DecodeRuneInStringAt(text, 1), [0xfeff, 3]);
+});
+
+test("String byte-view helpers preserve lone surrogate sentinel bytes", () => {
+  const text = "a\uD800x\uDE03z";
+  assert.equal(utf8.StringByteLen(text), 9);
+  assert.equal(utf8.StringByteAt(text, 1), 0xed);
+  assert.equal(utf8.StringByteAt(text, 2), 0xa0);
+  assert.equal(utf8.StringByteAt(text, 3), 0x80);
+  assert.equal(utf8.StringByteSlice(text, 1, 4), "\uD800");
+  assert.equal(utf8.StringByteSlice(text, 5, 8), "\uDE03");
+  assert.deepEqual(utf8.DecodeRuneInStringAt(text, 1), [utf8.RuneError, 1]);
+});

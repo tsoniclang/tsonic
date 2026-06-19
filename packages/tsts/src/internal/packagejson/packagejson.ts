@@ -1,4 +1,4 @@
-import type { bool, byte } from "@tsonic/core/types.js";
+import type { bool, byte } from "../../go/scalars.js";
 import type { GoError, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { NewOrderedMapWithSizeHint, OrderedMap_Set } from "../collections/ordered_map.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
@@ -213,7 +213,7 @@ export function DependencyFields_RangeDependencies(receiver: GoPtr<DependencyFie
  * 	return names
  * }
  */
-export function DependencyFields_GetRuntimeDependencyNames(receiver: GoPtr<DependencyFields>): GoPtr<Set> {
+export function DependencyFields_GetRuntimeDependencyNames(receiver: GoPtr<DependencyFields>): GoPtr<Set<string>> {
   const [deps, depsOk] = Expected_GetValue<GoMap<string, string>>(receiver!.Dependencies);
   const [peerDeps, peerDepsOk] = Expected_GetValue<GoMap<string, string>>(receiver!.PeerDependencies);
   const [optDeps, optDepsOk] = Expected_GetValue<GoMap<string, string>>(receiver!.OptionalDependencies);

@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr } from "../../../go/compat.js";
 import { Every, Some } from "../../core/core.js";
 import type { Node } from "../../ast/spine.js";
@@ -39,6 +39,7 @@ import {
 import {
   IsBinaryExpression,
   IsBindingElement,
+  IsCallExpression,
   IsCallSignatureDeclaration,
   IsClassDeclaration,
   IsConstructSignatureDeclaration,
@@ -74,6 +75,7 @@ import {
   IsBindingPattern,
   IsFunctionLike,
   HasSyntacticModifier,
+  GetCombinedModifierFlags,
 } from "../../ast/utilities.js";
 import type { EmitContext } from "../../printer/emitcontext.js";
 import { EmitContext_ParseNode } from "../../printer/emitcontext.js";
@@ -121,7 +123,7 @@ export function canHaveLiteralInitializer(host: DeclarationEmitHost, node: GoPtr
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/util.go::func::canProduceDiagnostics","kind":"func","status":"implemented","sigHash":"e23aba0a5f9955eeb93bbcb851c626c720ea88b6305bb26f6c78876d1c238266","bodyHash":"d7b56a0c1bed24ec138980b2cebcef5f9ac60510526d38e35b389154f986838c"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/util.go::func::canProduceDiagnostics","kind":"func","status":"implemented","sigHash":"e23aba0a5f9955eeb93bbcb851c626c720ea88b6305bb26f6c78876d1c238266","bodyHash":"e4567f4c2e67fb9ae439aca33d8526870696723ed3269b77261816089384e7fd"}
  *
  * Go source:
  * func canProduceDiagnostics(node *ast.Node) bool {
@@ -146,7 +148,8 @@ export function canHaveLiteralInitializer(host: DeclarationEmitHost, node: GoPtr
  * 		ast.IsIndexSignatureDeclaration(node) ||
  * 		ast.IsPropertyAccessExpression(node) ||
  * 		ast.IsElementAccessExpression(node) ||
- * 		ast.IsBinaryExpression(node) // || // !!! TODO: JSDoc support
+ * 		ast.IsBinaryExpression(node) ||
+ * 		ast.IsCallExpression(node) // || // !!! TODO: JSDoc support
  * 	/* ast.IsJSDocTypeAlias(node); * /
  * }
  */
@@ -172,7 +175,8 @@ export function canProduceDiagnostics(node: GoPtr<Node>): bool {
     IsIndexSignatureDeclaration(node) ||
     IsPropertyAccessExpression(node) ||
     IsElementAccessExpression(node) ||
-    IsBinaryExpression(node)) as bool;
+    IsBinaryExpression(node) ||
+    IsCallExpression(node)) as bool;
 }
 
 /**
@@ -326,11 +330,11 @@ export function isAlwaysType(node: GoPtr<Node>): bool {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/util.go::func::maskModifierFlags","kind":"func","status":"implemented","sigHash":"72f75faecd675b876bc902828acb45b75af78d040f1f0b9933e50f6364443f1e","bodyHash":"6cb7b25b169efdbe5c9bedd89d2f1e868c415e4357d56fe244866c5a003a982d"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/util.go::func::maskModifierFlags","kind":"func","status":"implemented","sigHash":"d52749acacff48feaf8f008c345fad6c60ee42d366c6697eba3bc55079f6f976","bodyHash":"33980b7e7e0efd22ef8072c1efffa8bd752d5bd4b10962cf041e02ae4c9ac26c"}
  *
  * Go source:
- * func maskModifierFlags(host DeclarationEmitHost, node *ast.Node, modifierMask ast.ModifierFlags, modifierAdditions ast.ModifierFlags) ast.ModifierFlags {
- * 	flags := host.GetEffectiveDeclarationFlags(node, modifierMask) | modifierAdditions
+ * func maskModifierFlags(node *ast.Node, modifierMask ast.ModifierFlags, modifierAdditions ast.ModifierFlags) ast.ModifierFlags {
+ * 	flags := (ast.GetCombinedModifierFlags(node) & modifierMask) | modifierAdditions
  * 	if flags&ast.ModifierFlagsDefault != 0 && (flags&ast.ModifierFlagsExport == 0) {
  * 		// A non-exported default is a nonsequitor - we usually try to remove all export modifiers
  * 		// from statements in ambient declarations; but a default export must retain its export modifier to be syntactically valid
@@ -342,8 +346,8 @@ export function isAlwaysType(node: GoPtr<Node>): bool {
  * 	return flags
  * }
  */
-export function maskModifierFlags(host: DeclarationEmitHost, node: GoPtr<Node>, modifierMask: ModifierFlags, modifierAdditions: ModifierFlags): ModifierFlags {
-  let flags: ModifierFlags = (host.GetEffectiveDeclarationFlags(node, modifierMask) | modifierAdditions) >>> 0;
+export function maskModifierFlags(node: GoPtr<Node>, modifierMask: ModifierFlags, modifierAdditions: ModifierFlags): ModifierFlags {
+  let flags: ModifierFlags = (((GetCombinedModifierFlags(node) & modifierMask) >>> 0) | modifierAdditions) >>> 0;
   if ((flags & ModifierFlagsDefault) !== 0 && ((flags & ModifierFlagsExport) === 0)) {
     // A non-exported default is a nonsequitor - we usually try to remove all export modifiers
     // from statements in ambient declarations; but a default export must retain its export modifier to be syntactically valid

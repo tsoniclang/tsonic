@@ -1,4 +1,4 @@
-import type { int, uint } from "@tsonic/core/types.js";
+import type { int, uint } from "../scalars.js";
 
 export function OnesCount(x: uint): int {
   let value = BigInt(x as number);

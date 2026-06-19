@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import type { SourceFile } from "../../ast/ast.js";
@@ -20,7 +20,6 @@ import {
 import {
   GetNameOfDeclaration,
   GetSourceFileOfNode,
-  IsSourceFileJS,
 } from "../../ast/utilities.js";
 import { GetTextOfNode, DeclarationNameToString } from "../../scanner/utilities.js";
 import { NewDiagnosticForNode } from "../../checker/utilities.js";
@@ -130,35 +129,33 @@ export function SymbolTrackerImpl_ReportInaccessibleUniqueSymbolError(receiver: 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/tracker.go::method::SymbolTrackerImpl.ReportInferenceFallback","kind":"method","status":"implemented","sigHash":"92bafb5160ac66ce9bd3375d617e051f77766199a8d55bce6a938f3f88f35f9a","bodyHash":"ddbb835fa94adabf03f5ea4e48d6d9cdbad82a428114898b8cfb8d51d1601447"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/tracker.go::method::SymbolTrackerImpl.ReportInferenceFallback","kind":"method","status":"implemented","sigHash":"92bafb5160ac66ce9bd3375d617e051f77766199a8d55bce6a938f3f88f35f9a","bodyHash":"f9bf8eb6ff022ca5258a94818d8b8ea0266bd37802dd69cd866fb88c2298749c"}
  *
  * Go source:
  * func (s *SymbolTrackerImpl) ReportInferenceFallback(node *ast.Node) {
- * 	if !s.state.isolatedDeclarations || ast.IsSourceFileJS(s.state.currentSourceFile) {
+ * 	if !s.state.isolatedDeclarations {
  * 		return
  * 	}
  * 	if ast.GetSourceFileOfNode(node) != s.state.currentSourceFile {
  * 		return // Nested error on a declaration in another file - ignore, will be reemitted if file is in the output file set
  * 	}
- * 	if ast.IsVariableDeclaration(node) && s.state.resolver.IsExpandoFunctionDeclarationUnsafe(node) { // within a node builder call that should already lock the checker, use the unsafe call
+ * 	if s.state.resolver.IsExpandoFunctionDeclarationUnsafe(node) { // within a node builder call that should already lock the checker, use the unsafe call
  * 		s.state.reportExpandoFunctionErrors(node)
- * 	} else {
- * 		s.state.addDiagnostic(s.getIsolatedDeclarationError(node))
  * 	}
+ * 	s.state.addDiagnostic(s.getIsolatedDeclarationError(node))
  * }
  */
 export function SymbolTrackerImpl_ReportInferenceFallback(receiver: GoPtr<SymbolTrackerImpl>, node: GoPtr<Node>): void {
-  if (!receiver!.state!.isolatedDeclarations || IsSourceFileJS(receiver!.state!.currentSourceFile)) {
+  if (!receiver!.state!.isolatedDeclarations) {
     return;
   }
   if (GetSourceFileOfNode(node) !== receiver!.state!.currentSourceFile) {
     return; // Nested error on a declaration in another file - ignore, will be reemitted if file is in the output file set
   }
-  if (IsVariableDeclaration(node) && receiver!.state!.resolver.IsExpandoFunctionDeclarationUnsafe(node)) { // within a node builder call that should already lock the checker, use the unsafe call
+  if (receiver!.state!.resolver.IsExpandoFunctionDeclarationUnsafe(node)) { // within a node builder call that should already lock the checker, use the unsafe call
     receiver!.state!.reportExpandoFunctionErrors(node);
-  } else {
-    SymbolTrackerSharedState_addDiagnostic(receiver!.state, receiver!.getIsolatedDeclarationError(node));
   }
+  SymbolTrackerSharedState_addDiagnostic(receiver!.state, receiver!.getIsolatedDeclarationError(node));
 }
 
 /**

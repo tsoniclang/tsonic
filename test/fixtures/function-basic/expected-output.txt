@@ -1,4 +1,0 @@
-Hello World
-Add: 10
-Is 4 even: True
-Is 5 even: False

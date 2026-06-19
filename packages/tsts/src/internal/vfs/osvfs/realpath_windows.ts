@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../../go/scalars.js";
 import type { GoError } from "../../../go/compat.js";
 import * as goErrors from "../../../go/errors.js";
 import * as goOs from "../../../go/os.js";

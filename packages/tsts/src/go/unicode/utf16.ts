@@ -1,7 +1,7 @@
 // Faithful TypeScript port of Go's `unicode/utf16` package (the subset that
 // typescript-go references).
 
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../scalars.js";
 import type { GoRune, GoSlice } from "../compat.js";
 
 // replacementChar is U+FFFD, the Unicode replacement character.

@@ -48,9 +48,11 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 - If temporary instrumentation or debug code is necessary during investigation, keep it under `.temp/` and out of product codepaths.
 - When a test fails, fix the underlying compiler/runtime/package root cause or remove the invalid assumption from the test.
 
-## NativeAOT First (IMPORTANT)
+## Source-To-Source First (IMPORTANT)
 
-- Tsonic is strict compile-time native-binary-first. Emitting/debugging MSIL is allowed only as a secondary path; every product compiler/runtime/codegen design must remain compatible with publishing to pure native code.
+- Tsonic is source-to-source first. It compiles TypeScript to target source projects such as C# or Rust, then lets the target ecosystem own build, publish, NativeAOT, Cargo, deployment, and platform configuration.
+- NativeAOT remains a first-class C# output path, but it is a target toolchain/project setting, not the generic compiler architecture. Do not design the compiler as if it must hide or replace the target toolchain.
+- Every product compiler/runtime/codegen design must remain compatible with publishing to pure native code when the selected target/toolchain supports it.
 - Do not use runtime reflection, member discovery, dynamic invocation, generated `dynamic`, `System.Reflection` fallbacks, `GetProperty`/`GetProperties`, `GetMethod`/`GetMethods`, `MethodInfo.Invoke`, `MakeGenericMethod`, `Activator.CreateInstance`, or `Assembly.Load` as language/runtime semantics.
 - If a feature needs member access, method dispatch, object projection, serialization metadata, or structural conversion, the compiler must prove it statically and emit closed generated code, source-generated metadata, or calls into closed runtime-owned carriers.
 - Broad carriers such as `unknown`, `object`, `JsValue`, dictionaries, and dynamic JSON objects may only use deterministic closed-carrier operations; they must not reflect over arbitrary CLR objects.

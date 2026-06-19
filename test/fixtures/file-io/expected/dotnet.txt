@@ -1,3 +1,0 @@
-File content: Hello from Tsonic with BCL!
-File exists: True
-File deleted

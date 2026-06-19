@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoError, GoPtr, GoSlice } from "../../go/compat.js";
 import type { Context } from "../../go/context.js";
 import type { FileReference, HasFileName, Node, SourceFile, StringLiteralLike } from "../ast/ast.js";

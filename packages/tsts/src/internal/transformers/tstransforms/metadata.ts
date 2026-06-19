@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { ModifierList, Node } from "../../ast/spine.js";
 import { NodeFactory_NewModifierList, NodeFactory_NewNodeList } from "../../ast/spine.js";
@@ -12,6 +12,7 @@ import { Node_SubtreeFacts } from "../../ast/spine.js";
 import { SubtreeContainsDecorators } from "../../ast/subtreefacts.js";
 import { Filter } from "../../core/core.js";
 import { CompilerOptions_GetEmitScriptTarget, CompilerOptions_GetStrictOptionValue } from "../../core/compileroptions.js";
+import type { ScriptTarget } from "../../core/compileroptions.js";
 import { Tristate_IsTrue } from "../../core/tristate.js";
 import { EmitContext_AddEmitHelper, EmitContext_ReadEmitHelpers } from "../../printer/emitcontext.js";
 import type { EmitResolver } from "../../printer/emitresolver.js";
@@ -35,7 +36,7 @@ import { getDecoratorsOfParameters } from "./legacydecorators.js";
 export const USE_NEW_TYPE_METADATA_FORMAT: bool = false;
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/metadata.go::type::MetadataTransformer","kind":"type","status":"implemented","sigHash":"f9d49b88053dd59d91367a47d26bcedaaa2e7a18d5e57a2dc3e300438c166f2b","bodyHash":"0c5fdc783a81d47ec35c75dbf2da31b14f66586d964b063c8ac7ac3ae579e2af"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/metadata.go::type::MetadataTransformer","kind":"type","status":"implemented","sigHash":"f9d49b88053dd59d91367a47d26bcedaaa2e7a18d5e57a2dc3e300438c166f2b","bodyHash":"d6679af0816e053c4df3bdb0a1958133b76480ce6eb12bf3f8e2f704be44e59e"}
  *
  * Go source:
  * MetadataTransformer struct {
@@ -44,6 +45,7 @@ export const USE_NEW_TYPE_METADATA_FORMAT: bool = false;
  * 	resolver         printer.EmitResolver
  *
  * 	serializer          *metadataSerializer
+ * 	languageVersion     core.ScriptTarget
  * 	strictNullChecks    bool
  * 	parent              *ast.Node
  * 	currentLexicalScope *ast.Node
@@ -54,19 +56,21 @@ export interface MetadataTransformer {
   legacyDecorators: bool;
   resolver: EmitResolver;
   serializer: GoPtr<metadataSerializer>;
+  languageVersion: ScriptTarget;
   strictNullChecks: bool;
   parent: GoPtr<Node>;
   currentLexicalScope: GoPtr<Node>;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/metadata.go::func::NewMetadataTransformer","kind":"func","status":"implemented","sigHash":"ded46d7397187561b63f38a4e609ea34fab1e7a3a80471cef2632d8fa1c5ec5c","bodyHash":"d3593ece354042d55b1942b22d4ebd695185bd5927e229ebf820730aa1487d82"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/metadata.go::func::NewMetadataTransformer","kind":"func","status":"implemented","sigHash":"ded46d7397187561b63f38a4e609ea34fab1e7a3a80471cef2632d8fa1c5ec5c","bodyHash":"761c3fa6bf142eb0d2048fd8f6c1a1ba59bd5786e3f4aa15d73905cccea64026"}
  *
  * Go source:
  * func NewMetadataTransformer(opt *transformers.TransformOptions) *transformers.Transformer {
  * 	tx := &MetadataTransformer{
  * 		legacyDecorators: opt.CompilerOptions.ExperimentalDecorators.IsTrue(),
  * 		resolver:         opt.EmitResolver,
+ * 		languageVersion:  opt.CompilerOptions.GetEmitScriptTarget(),
  * 		strictNullChecks: opt.CompilerOptions.GetStrictOptionValue(opt.CompilerOptions.StrictNullChecks),
  * 	}
  * 	return tx.NewTransformer(tx.visit, opt.Context)
@@ -78,6 +82,7 @@ export function NewMetadataTransformer(opt: GoPtr<TransformOptions>): GoPtr<Tran
     legacyDecorators: Tristate_IsTrue(opt!.CompilerOptions!.ExperimentalDecorators) as bool,
     resolver: opt!.EmitResolver,
     serializer: undefined,
+    languageVersion: CompilerOptions_GetEmitScriptTarget(opt!.CompilerOptions),
     strictNullChecks: CompilerOptions_GetStrictOptionValue(opt!.CompilerOptions, opt!.CompilerOptions!.StrictNullChecks) as bool,
     parent: undefined,
     currentLexicalScope: undefined,
@@ -86,7 +91,7 @@ export function NewMetadataTransformer(opt: GoPtr<TransformOptions>): GoPtr<Tran
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/metadata.go::method::MetadataTransformer.visit","kind":"method","status":"implemented","sigHash":"6a725d7bfb78b92078fb10e6132a5e66bf179077ef4c6ac427734c98f4df72fe","bodyHash":"5078f8225051e8183e22d1333c86ac4a7f5cba77c89ee89d96756d2d58a9c699"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/metadata.go::method::MetadataTransformer.visit","kind":"method","status":"implemented","sigHash":"6a725d7bfb78b92078fb10e6132a5e66bf179077ef4c6ac427734c98f4df72fe","bodyHash":"0f77098237b711b845dae1c658fe98c6adc1a2b6124c47ffdb7ac19631dff1f0"}
  *
  * Go source:
  * func (tx *MetadataTransformer) visit(node *ast.Node) *ast.Node {
@@ -112,7 +117,7 @@ export function NewMetadataTransformer(opt: GoPtr<TransformOptions>): GoPtr<Tran
  * 		defer tx.setParent(nil)
  * 		tx.currentLexicalScope = node
  * 		defer tx.setCurrentLexicalScope(nil)
- * 		tx.serializer = newMetadataSerializer(tx.resolver, tx.Factory(), tx.EmitContext(), tx.strictNullChecks)
+ * 		tx.serializer = newMetadataSerializer(tx.resolver, tx.Factory(), tx.EmitContext(), tx.languageVersion, tx.strictNullChecks)
  * 		updated := tx.Visitor().VisitEachChild(node)
  * 		tx.EmitContext().AddEmitHelper(updated, tx.EmitContext().ReadEmitHelpers()...)
  * 		return updated
@@ -148,7 +153,7 @@ export function MetadataTransformer_visit(receiver: GoPtr<MetadataTransformer>, 
       tx.parent = undefined;
       const savedScope0 = tx.currentLexicalScope;
       tx.currentLexicalScope = node;
-      tx.serializer = newMetadataSerializer(tx.resolver, Transformer_Factory(tx.__tsgoEmbedded0), Transformer_EmitContext(tx.__tsgoEmbedded0), tx.strictNullChecks);
+      tx.serializer = newMetadataSerializer(tx.resolver, Transformer_Factory(tx.__tsgoEmbedded0), Transformer_EmitContext(tx.__tsgoEmbedded0), tx.languageVersion, tx.strictNullChecks);
       let updated: GoPtr<Node>;
       try {
         updated = NodeVisitor_VisitEachChild(visitor, node);

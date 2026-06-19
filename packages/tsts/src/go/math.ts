@@ -1,4 +1,4 @@
-import type { int, double, ulong } from "@tsonic/core/types.js";
+import type { int, double, ulong } from "./scalars.js";
 
 // Go: package math
 //

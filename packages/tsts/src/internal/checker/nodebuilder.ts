@@ -1,5 +1,6 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
+import { NewGoStructMap } from "../../go/compat.js";
 import type { Node } from "../ast/spine.js";
 import type { Kind } from "../ast/generated/kinds.js";
 import { KindClassDeclaration, KindEnumDeclaration, KindInterfaceDeclaration, KindModuleDeclaration } from "../ast/generated/kinds.js";
@@ -37,9 +38,10 @@ import {
   NodeBuilderImpl_typePredicateToTypePredicateNode,
   NodeBuilderImpl_typeToTypeNode,
 } from "./nodebuilderimpl.js";
+import { NodeBuilderImpl_enterSignatureScope } from "./nodebuilderscopes.js";
 import { NodeBuilderImpl_expandSymbolForHover } from "./nodebuilder_hover.js";
 import { NodeBuilderImpl_tryJSTypeNodeToTypeNode } from "./nodecopy.js";
-import { Node_ModifierFlags, NodeFactory_NewModifier, NodeFactory_UpdateClassDeclaration } from "../ast/ast.js";
+import { Node_ModifierFlags, NodeFactory_NewModifier, NodeFactory_ReleaseArenas, NodeFactory_UpdateClassDeclaration } from "../ast/ast.js";
 import { AsClassDeclaration } from "../ast/generated/casts.js";
 import { IsClassExpression, IsEnumDeclaration, IsInterfaceDeclaration, IsModuleDeclaration } from "../ast/generated/predicates.js";
 import { NodeFactory_NewModifierList, Node_Modifiers } from "../ast/spine.js";
@@ -163,19 +165,17 @@ export function NodeBuilder_enterContext(receiver: GoPtr<NodeBuilder>, enclosing
     enclosingFile: GetSourceFileOfNode(enclosingDeclaration),
     inferTypeParameters: [],
     visitedTypes: { M: new globalThis.Map() },
-    symbolDepth: new globalThis.Map(),
+    symbolDepth: NewGoStructMap(),
     trackedSymbols: [],
     mapper: undefined,
     reverseMappedStack: [],
     enclosingSymbolTypes: new globalThis.Map(),
     suppressReportInferenceFallback: false as bool,
     remappedSymbolReferences: new globalThis.Map(),
-    hasCreatedTypeParameterSymbolList: false as bool,
-    hasCreatedTypeParametersNamesLookups: false as bool,
-    typeParameterNames: new globalThis.Map(),
-    typeParameterNamesByText: new globalThis.Map(),
-    typeParameterNamesByTextNextNameCount: new globalThis.Map(),
-    typeParameterSymbolList: new globalThis.Map(),
+    typeParameterNames: { m: new globalThis.Map(), owned: false as bool },
+    typeParameterNamesByText: { m: { m: new globalThis.Map(), owned: false as bool } },
+    typeParameterNamesByTextNextNameCount: { m: new globalThis.Map(), owned: false as bool },
+    typeParameterSymbolList: { m: { m: new globalThis.Map(), owned: false as bool } },
   };
   const newTracker = NewSymbolTrackerImpl(b.impl!.ctx, tracker);
   b.impl!.ctx.tracker = SymbolTrackerImpl_as_SymbolTracker(newTracker);
@@ -324,20 +324,26 @@ export function NodeBuilder_IndexInfoToIndexSignatureDeclaration(receiver: GoPtr
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilder.go::method::NodeBuilder.SerializeReturnTypeForSignature","kind":"method","status":"implemented","sigHash":"dc877bc065bd8890f1e87d7e4c4564e09187eb849ed01bb3e5993e90ca1bd754","bodyHash":"122ee788bcc2b4fb2c66f2a283f3eb4fffdfa2a929b17df797a22b8b17035cad"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilder.go::method::NodeBuilder.SerializeReturnTypeForSignature","kind":"method","status":"implemented","sigHash":"dc877bc065bd8890f1e87d7e4c4564e09187eb849ed01bb3e5993e90ca1bd754","bodyHash":"35f9e1859d230ea7508066125726800e1dd2209704c8f865cf108232510d09ca"}
  *
  * Go source:
  * func (b *NodeBuilder) SerializeReturnTypeForSignature(signatureDeclaration *ast.Node, enclosingDeclaration *ast.Node, flags nodebuilder.Flags, internalFlags nodebuilder.InternalFlags, tracker nodebuilder.SymbolTracker) *ast.Node {
  * 	b.enterContext(enclosingDeclaration, flags, internalFlags, tracker)
  * 	signature := b.impl.ch.getSignatureFromDeclaration(signatureDeclaration)
- * 	return b.exitContext(b.impl.serializeReturnTypeForSignature(signature, true))
+ * 	_, cleanup := b.impl.enterSignatureScope(signature)
+ * 	result := b.impl.serializeReturnTypeForSignature(signature, true)
+ * 	cleanup()
+ * 	return b.exitContext(result)
  * }
  */
 export function NodeBuilder_SerializeReturnTypeForSignature(receiver: GoPtr<NodeBuilder>, signatureDeclaration: GoPtr<Node>, enclosingDeclaration: GoPtr<Node>, flags: Flags, internalFlags: InternalFlags, tracker: GoPtr<SymbolTracker>): GoPtr<Node> {
   const b = receiver!;
   NodeBuilder_enterContext(b, enclosingDeclaration, flags, internalFlags, tracker);
   const signature = Checker_getSignatureFromDeclaration(b.impl!.ch, signatureDeclaration);
-  return NodeBuilder_exitContext(b, NodeBuilderImpl_serializeReturnTypeForSignature(b.impl, signature, true));
+  const [, cleanup] = NodeBuilderImpl_enterSignatureScope(b.impl, signature);
+  const result = NodeBuilderImpl_serializeReturnTypeForSignature(b.impl, signature, true);
+  cleanup();
+  return NodeBuilder_exitContext(b, result);
 }
 
 /**
@@ -718,15 +724,29 @@ export function NewNodeBuilderEx(ch: GoPtr<Checker>, e: GoPtr<EmitContext_3f6f58
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilder.go::method::Checker.getNodeBuilder","kind":"method","status":"implemented","sigHash":"edda71033b2e42b9e4df5df19ec4868057afacb05bdfa47dcd6124225000a4f9","bodyHash":"3907fd354632cf5b05aacd5bc7172046670b2762c2dceb3a6835082396877676"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilder.go::method::Checker.getNodeBuilder","kind":"method","status":"implemented","sigHash":"0f65596090092dce318a6048e2eddba4fe1bc58ff3308455575c96cd36759d4b","bodyHash":"f51ac1e66f8b3c07710412d0f975205a98d2f302cb623ea3c51cd7c4cde70b15"}
  *
  * Go source:
- * func (c *Checker) getNodeBuilder() *NodeBuilder {
- * 	return c.getNodeBuilderEx(nil /*idToSymbol* /)
+ * func (c *Checker) getNodeBuilder() (*NodeBuilder, func()) {
+ * 	releaseNodes := func() {
+ * 		c.typeToStringNodebuilder.EmitContext().Factory.ReleaseArenas() // Allow any allocated nodes to be freed if they're no longer in a cache
+ * 	}
+ * 	if c.typeToStringNodebuilder != nil {
+ * 		return c.typeToStringNodebuilder, releaseNodes
+ * 	}
+ * 	c.typeToStringNodebuilder = c.getNodeBuilderEx(nil /*idToSymbol* /)
+ * 	return c.typeToStringNodebuilder, releaseNodes
  * }
  */
-export function Checker_getNodeBuilder(receiver: GoPtr<Checker>): GoPtr<NodeBuilder> {
-  return Checker_getNodeBuilderEx(receiver, new globalThis.Map() as GoMap<GoPtr<IdentifierNode>, GoPtr<Symbol>>);
+export function Checker_getNodeBuilder(receiver: GoPtr<Checker>): [GoPtr<NodeBuilder>, () => void] {
+  const releaseNodes = (): void => {
+    NodeFactory_ReleaseArenas(NodeBuilder_EmitContext(receiver!.typeToStringNodebuilder)!.Factory!.AsNodeFactory()); // Allow any allocated nodes to be freed if they're no longer in a cache
+  };
+  if (receiver!.typeToStringNodebuilder !== undefined) {
+    return [receiver!.typeToStringNodebuilder, releaseNodes];
+  }
+  receiver!.typeToStringNodebuilder = Checker_getNodeBuilderEx(receiver, new globalThis.Map() as GoMap<GoPtr<IdentifierNode>, GoPtr<Symbol>>);
+  return [receiver!.typeToStringNodebuilder, releaseNodes];
 }
 
 /**

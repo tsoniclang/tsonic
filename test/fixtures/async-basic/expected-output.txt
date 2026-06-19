@@ -1,1 +1,0 @@
-Result: Hello from async

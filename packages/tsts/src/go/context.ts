@@ -17,7 +17,7 @@
 // use. Multiple Go return values map to tuples, so `Deadline()` returns
 // `[Time, bool]`.
 
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "./scalars.js";
 import type { GoChan, GoError } from "./compat.js";
 import { New } from "./errors.js";
 import { Time } from "./time.js";

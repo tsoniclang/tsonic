@@ -260,7 +260,7 @@ export function emitKinds(schema) {
   const elements = schema.ast.kinds?.elements ?? [];
   const markers = schema.ast.kinds?.markers ?? [];
   const lines = [];
-  lines.push(`import type { short } from "@tsonic/core/types.js";`);
+  lines.push(`import type { short } from "../../../go/scalars.js";`);
   lines.push("");
   lines.push("// SyntaxKind constants. Go: type Kind int16 (iota-sequential).");
   lines.push("export type Kind = short;");
@@ -299,6 +299,15 @@ export function emitKinds(schema) {
     }
   }
 
+  const aliases = Object.keys(schema.ast.kinds?.aliases ?? {}).sort();
+  if (aliases.length > 0) {
+    lines.push("");
+    lines.push("// Kind aliases. Go: type X = Kind.");
+    for (const alias of aliases) {
+      lines.push(`export type ${alias} = Kind;`);
+    }
+  }
+
   // Faithful analogue of the Go stringer: returns the constant name, or
   // `Kind(n)` for out-of-range values.
   lines.push("");
@@ -321,7 +330,7 @@ function emitFlags(schema) {
   const nodeFlags = parseGoFlagFile(schema.nodeFlagsSource, "NodeFlags");
   const symbolFlags = parseGoFlagFile(schema.symbolFlagsSource, "SymbolFlags");
   const lines = [];
-  lines.push(`import type { uint } from "@tsonic/core/types.js";`);
+  lines.push(`import type { uint } from "../../../go/scalars.js";`);
   lines.push("");
   emitFlagGroup(lines, "NodeFlags", "Go: type NodeFlags uint32", nodeFlags);
   lines.push("");
@@ -395,7 +404,7 @@ const BASE_METHOD_PROVIDERS = {
   DeclarationData: ["NamedMemberBase", "DeclarationBase"],
   ExportableData: ["ExportableBase"],
   Modifiers: ["NamedMemberBase", "ModifiersBase"],
-  setModifiers: ["NamedMemberBase"],
+  setModifiers: ["NamedMemberBase", "ModifiersBase"],
   Name: ["NamedMemberBase", "ClassLikeBase"],
   LocalsContainerData: ["FunctionLikeWithBodyBase", "FunctionLikeBase", "LocalsContainerBase"],
   FunctionLikeData: ["FunctionLikeWithBodyBase", "FunctionLikeBase"],
@@ -653,7 +662,7 @@ function emitUnions(schema) {
 
 function emitNode(schema) {
   const lines = [];
-  lines.push(`import type { bool, int } from "@tsonic/core/types.js";`);
+  lines.push(`import type { bool, int } from "../../../go/scalars.js";`);
   lines.push(`import type { GoPtr, GoSlice } from "../../../go/compat.js";`);
   lines.push(`import { Uint32 } from "../../../go/sync/atomic.js";`);
   lines.push(`import type { ModifierList, Node, NodeBase, NodeList } from "../spine.js";`);
@@ -731,7 +740,7 @@ function addRefsFromTsType(tsRef, out) {
 
 function emitData(schema) {
   const lines = [];
-  lines.push(`import type { bool, int } from "@tsonic/core/types.js";`);
+  lines.push(`import type { bool, int } from "../../../go/scalars.js";`);
   lines.push(`import type { GoPtr, GoSlice } from "../../../go/compat.js";`);
   lines.push(`import type { ModifierFlags } from "../modifierflags.js";`);
   lines.push(`import type { NodeFlags } from "./flags.js";`);
@@ -771,7 +780,7 @@ function emitData(schema) {
   lines.push(`  propagateObjectBindingElementSubtreeFacts,`);
   lines.push(`  propagateSubtreeFacts,`);
   lines.push(`} from "../subtreefacts.js";`);
-  lines.push(`import type * as Kinds from "./kinds.js";`);
+  lines.push(`import * as Kinds from "./kinds.js";`);
   lines.push(`import * as Factory from "./factory.js";`);
   lines.push(`import * as AstManual from "../ast.js";`);
   // base interfaces and node-unions referenced by concrete fields / extends
@@ -1028,7 +1037,11 @@ function emitGeneratedVisitHelpers(lines) {
   lines.push(`  if (node === undefined || receiver!.Visit === undefined) {`);
   lines.push(`    return node;`);
   lines.push(`  }`);
-  lines.push(`  return generatedLiftToBlock(v, receiver!.Visit(node));`);
+  lines.push(`  const visited = receiver!.Visit(node);`);
+  lines.push(`  if (visited === undefined) {`);
+  lines.push(`    return undefined;`);
+  lines.push(`  }`);
+  lines.push(`  return generatedLiftToBlock(v, visited);`);
   lines.push(`}`);
   lines.push("");
   lines.push(`function generatedVisitEmbeddedStatement(v: GoPtr<NodeVisitor>, node: GoPtr<Statement>): GoPtr<Statement> {`);
@@ -1127,7 +1140,21 @@ function cloneArgList(schema, node) {
 function emitCloneFreeFn(schema, node, lines) {
   const args = cloneArgList(schema, node).join(", ");
   lines.push(`export function ${node}_Clone(receiver: GoPtr<${node}>, f: NodeFactoryCoercible): GoPtr<Node> {`);
-  lines.push(`  return cloneNode(Factory.New${node}(f.AsNodeFactory()!, ${args}), receiver, f.AsNodeFactory()!.hooks);`);
+  const aliases = schema.kindAliasesOf(node);
+  if (aliases.length === 0) {
+    lines.push(`  return cloneNode(Factory.New${node}(f.AsNodeFactory()!, ${args}), receiver, f.AsNodeFactory()!.hooks);`);
+  } else {
+    lines.push(`  switch (NodeDefault_AsNode(receiver)!.Kind) {`);
+    lines.push(`    case Kinds.Kind${schema.syntaxKindName(node)}:`);
+    lines.push(`      return cloneNode(Factory.New${node}(f.AsNodeFactory()!, ${args}), receiver, f.AsNodeFactory()!.hooks);`);
+    for (const alias of aliases) {
+      lines.push(`    case Kinds.Kind${alias}:`);
+      lines.push(`      return cloneNode(Factory.New${alias}(f.AsNodeFactory()!, ${args}), receiver, f.AsNodeFactory()!.hooks);`);
+    }
+    lines.push(`    default:`);
+    lines.push(`      throw new globalThis.Error("unexpected kind in ${node}_Clone: " + NodeDefault_AsNode(receiver)!.Kind);`);
+    lines.push(`  }`);
+  }
   lines.push(`}`);
   lines.push("");
 }
@@ -1208,52 +1235,59 @@ function emitComputeSubtreeFactsFreeFn(schema, node, lines) {
 }
 
 function emitAdapter(schema, node, lines) {
-  lines.push(`export function ${node}_as_nodeData(receiver: GoPtr<${node}>): nodeData {`);
-  lines.push(`  return {`);
-  lines.push(`    [goReceiverKey]: receiver,`);
+  lines.push(`const ${node}_nodeDataPrototype: nodeData & ThisType<GoPtr<${node}>> = {`);
+  lines.push(`  get [goReceiverKey](): GoPtr<${node}> { return this; },`);
   for (const method of NODE_DATA_METHODS) {
     const t = resolveAdapterTarget(schema, node, method);
-    const slot = adapterSlot(method, t);
-    lines.push(`    ${slot}`);
+    const slot = adapterSlot(node, method, t);
+    lines.push(`  ${slot}`);
   }
-  lines.push(`  };`);
+  lines.push(`};`);
+  lines.push("");
+  lines.push(`export function ${node}_as_nodeData(receiver: GoPtr<${node}>): nodeData {`);
+  lines.push(`  return globalThis.Object.setPrototypeOf(receiver!, ${node}_nodeDataPrototype) as nodeData;`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`export function create${node}Data(): ${node} & nodeData {`);
+  lines.push(`  return globalThis.Object.create(${node}_nodeDataPrototype) as ${node} & nodeData;`);
   lines.push(`}`);
   lines.push("");
 }
 
-function adapterSlot(method, t) {
+function adapterSlot(node, method, t) {
+  const receiver = `this`;
   if (method === "Clone") {
-    return `Clone: (f: NodeFactoryCoercible): GoPtr<Node> => ${t.fn}(receiver, f),`;
+    return `Clone(f: NodeFactoryCoercible): GoPtr<Node> { return ${t.fn}(${receiver}, f); },`;
   }
   if (method === "ForEachChild") {
-    return `ForEachChild: (v: Visitor): bool => ${t.fn}(receiver, v),`;
+    return `ForEachChild(v: Visitor): bool { return ${t.fn}(${receiver}, v); },`;
   }
   if (method === "VisitEachChild") {
     if (t.takesConcreteNodeVisitor) {
-      return `VisitEachChild: (v) => ${t.fn}(receiver, v as GoPtr<ConcreteNodeVisitor>),`;
+      return `VisitEachChild(v: GoPtr<NodeVisitor>): GoPtr<Node> { return ${t.fn}(${receiver}, v as GoPtr<ConcreteNodeVisitor>); },`;
     }
-    return `VisitEachChild: (v) => ${t.fn}(receiver, v),`;
+    return `VisitEachChild(v: GoPtr<NodeVisitor>): GoPtr<Node> { return ${t.fn}(${receiver}, v); },`;
   }
   if (method === "IterChildren") {
-    return `IterChildren: (): NodeIter => NodeDefault_IterChildren(receiver),`;
+    return `IterChildren(): NodeIter { return NodeDefault_IterChildren(${receiver}); },`;
   }
   if (method === "setModifiers") {
-    return `setModifiers: (modifiers): void => ${t.fn}(receiver, modifiers),`;
+    return `setModifiers(modifiers: GoPtr<ModifierList>): void { ${t.fn}(${receiver}, modifiers); },`;
   }
   if (method === "subtreeFactsWorker") {
-    return `subtreeFactsWorker: (self): SubtreeFacts => ${t.fn}(receiver, self),`;
+    return `subtreeFactsWorker(self: nodeData): SubtreeFacts { return ${t.fn}(${receiver}, self); },`;
   }
   if (method === "AsNode") {
-    return `AsNode: (): GoPtr<Node> => ${t.fn}(receiver),`;
+    return `AsNode(): GoPtr<Node> { return ${t.fn}(${receiver}); },`;
   }
-  return `${method}: () => ${t.fn}(receiver),`;
+  return `${method}() { return ${t.fn}(${receiver}); },`;
 }
 
 // ── factory.ts (NodeFactory struct + New/Clone factories) ────────────────────
 
 function emitFactory(schema) {
   const lines = [];
-  lines.push(`import type { bool, int } from "@tsonic/core/types.js";`);
+  lines.push(`import type { bool, int } from "../../../go/scalars.js";`);
   lines.push(`import type { GoPtr, GoSlice } from "../../../go/compat.js";`);
   lines.push(`import type { Arena } from "../../core/arena.js";`);
   lines.push(`import { NodeDefault_AsNode, NodeFactory_newNode, updateNode } from "../spine.js";`);
@@ -1264,7 +1298,7 @@ function emitFactory(schema) {
   lines.push(`import {`);
   for (const node of schema.nodeNames()) {
     if (schema.definitions[node].handWritten) continue;
-    lines.push(`  ${node}_as_nodeData,`);
+    lines.push(`  create${node}Data,`);
   }
   lines.push(`} from "./data.js";`);
   lines.push(`import type {`);
@@ -1395,7 +1429,7 @@ function emitNewFactory(schema, funcName, kindName, node, members, kindMember, n
   const params = members.map((m) => `${m.goParamName()}: ${m.tsReference()}`);
   const paramList = ["receiver: GoPtr<NodeFactory>", ...params].join(", ");
   lines.push(`export function ${funcName}(${paramList}): GoPtr<Node> {`);
-  lines.push(`  const data: ${node} = {} as ${node};`);
+  lines.push(`  const data = create${node}Data();`);
   for (const m of members) {
     if (m.isKindParam()) continue;
     if (!Array.isArray(m.rawType) && m.rawType === "NodeFlags") continue;
@@ -1415,7 +1449,7 @@ function emitNewFactory(schema, funcName, kindName, node, members, kindMember, n
   }
   const kindArg = kindMember ? kindMember.goParamName() : `Kind${kindName}`;
   if (nodeFlagsMembers.length > 0) {
-    lines.push(`  const node = NodeFactory_newNode(receiver, ${kindArg}, ${node}_as_nodeData(data));`);
+    lines.push(`  const node = NodeFactory_newNode(receiver, ${kindArg}, data);`);
     for (const m of nodeFlagsMembers) {
       const p = m.goParamName();
       if (m.bitmask) lines.push(`  node!.Flags = (node!.Flags | (${p} & ${m.bitmask})) >>> 0;`);
@@ -1423,7 +1457,7 @@ function emitNewFactory(schema, funcName, kindName, node, members, kindMember, n
     }
     lines.push(`  return node;`);
   } else {
-    lines.push(`  return NodeFactory_newNode(receiver, ${kindArg}, ${node}_as_nodeData(data));`);
+    lines.push(`  return NodeFactory_newNode(receiver, ${kindArg}, data);`);
   }
   lines.push(`}`);
   lines.push("");
@@ -1438,7 +1472,21 @@ function emitUpdateFactory(schema, node, lines) {
   const comparisons = updateMembers.map((m) => `${m.goParamName()} !== ${updateCompareAccess(m)}`);
   lines.push(`  if (${comparisons.join(" || ")}) {`);
   const newArgs = members.map((m) => (m.isKindParam() ? "node!.Kind" : m.goParamName())).join(", ");
-  lines.push(`    return updateNode(New${node}(receiver, ${newArgs}), NodeDefault_AsNode(node), receiver!.hooks);`);
+  const aliases = schema.kindAliasesOf(node);
+  if (aliases.length === 0) {
+    lines.push(`    return updateNode(New${node}(receiver, ${newArgs}), NodeDefault_AsNode(node), receiver!.hooks);`);
+  } else {
+    lines.push(`    switch (NodeDefault_AsNode(node)!.Kind) {`);
+    lines.push(`      case Kind${schema.syntaxKindName(node)}:`);
+    lines.push(`        return updateNode(New${node}(receiver, ${newArgs}), NodeDefault_AsNode(node), receiver!.hooks);`);
+    for (const alias of aliases) {
+      lines.push(`      case Kind${alias}:`);
+      lines.push(`        return updateNode(New${alias}(receiver, ${newArgs}), NodeDefault_AsNode(node), receiver!.hooks);`);
+    }
+    lines.push(`      default:`);
+    lines.push(`        throw new globalThis.Error("unexpected kind in NodeFactory_Update${node}: " + NodeDefault_AsNode(node)!.Kind);`);
+    lines.push(`    }`);
+  }
   lines.push(`  }`);
   lines.push(`  return NodeDefault_AsNode(node);`);
   lines.push(`}`);
@@ -1454,7 +1502,7 @@ function updateCompareAccess(m) {
 
 function emitPredicates(schema) {
   const lines = [];
-  lines.push(`import type { bool } from "@tsonic/core/types.js";`);
+  lines.push(`import type { bool } from "../../../go/scalars.js";`);
   lines.push(`import type { GoPtr, GoSlice } from "../../../go/compat.js";`);
   lines.push(`import type { Node } from "../spine.js";`);
   lines.push(`import type { Kind } from "./kinds.js";`);
@@ -1567,28 +1615,21 @@ function emitKindAliasGuards(schema, lines) {
 
 function emitCasts(schema) {
   const lines = [];
-  const nodes = schema.nodeNames().filter((node) => !schema.definitions[node].handWritten);
-  const kindImports = new Set();
-  for (const node of nodes) {
-    for (const kindName of schema.kindTypesOf(node).kindNames) {
-      kindImports.add(`Kind${kindName}`);
-    }
-  }
-
   lines.push(`import type { GoPtr } from "../../../go/compat.js";`);
   lines.push(`import { goReceiverKey } from "../spine.js";`);
   lines.push(`import type { Node } from "../spine.js";`);
-  lines.push(`import {`);
-  for (const kindName of Array.from(kindImports).sort()) lines.push(`  ${kindName},`);
-  lines.push(`} from "./kinds.js";`);
   lines.push(`import type {`);
-  for (const d of [...nodes].sort()) lines.push(`  ${d},`);
+  const dataImports = [];
+  for (const node of schema.nodeNames()) {
+    if (schema.definitions[node].handWritten) continue;
+    dataImports.push(node);
+  }
+  for (const d of dataImports.sort()) lines.push(`  ${d},`);
   lines.push(`} from "./data.js";`);
   lines.push("");
   lines.push(`// Recovers the concrete receiver behind a Node's nodeData interface value`);
-  lines.push(`// (Go: n.data.(*Concrete)). The public TS API is nilable because frontend`);
-  lines.push(`// consumers frequently use AsXxx as a probe; return undefined on kind mismatch`);
-  lines.push(`// instead of reinterpreting a different concrete receiver as the requested node.`);
+  lines.push(`// (Go: n.data.(*Concrete)). Panics (throws) on kind mismatch, matching Go's`);
+  lines.push(`// single-return type assertion.`);
   lines.push("");
   for (const node of schema.nodeNames()) {
     if (schema.definitions[node].handWritten) {
@@ -1596,20 +1637,8 @@ function emitCasts(schema) {
       lines.push("");
       continue;
     }
-    const kindNames = schema.kindTypesOf(node).kindNames;
     lines.push(`export function As${node}(n: GoPtr<Node>): GoPtr<${node}> {`);
-    if (kindNames.length === 1) {
-      lines.push(`  return n?.Kind === Kind${kindNames[0]} ? n.data[goReceiverKey] as GoPtr<${node}> : undefined;`);
-    } else {
-      lines.push(`  switch (n?.Kind) {`);
-      for (const kindName of kindNames) {
-        lines.push(`    case Kind${kindName}:`);
-      }
-      lines.push(`      return n!.data[goReceiverKey] as GoPtr<${node}>;`);
-      lines.push(`    default:`);
-      lines.push(`      return undefined;`);
-      lines.push(`  }`);
-    }
+    lines.push(`  return n!.data[goReceiverKey] as GoPtr<${node}>;`);
     lines.push(`}`);
     lines.push("");
   }

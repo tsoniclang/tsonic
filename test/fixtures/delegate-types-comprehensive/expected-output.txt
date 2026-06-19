@@ -1,5 +1,0 @@
-Action ran
-Got: 42
-Result: 42
-Sum: 30
-Composed: 30

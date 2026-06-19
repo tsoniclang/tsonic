@@ -1,4 +1,4 @@
-import type { bool, int, uint } from "@tsonic/core/types.js";
+import type { bool, int, uint } from "../../../go/scalars.js";
 import type { GoChan, GoError, GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Writer } from "../../../go/io.js";
 import { Builder } from "../../../go/strings.js";
@@ -1552,7 +1552,7 @@ export function BuildTask_cleanProjectOutput(receiver: GoPtr<BuildTask>, orchest
  * 	}
  * }
  */
-export function BuildTask_updateWatch(receiver: GoPtr<BuildTask>, orchestrator: GoPtr<Orchestrator>, oldCache: GoPtr<SyncMap>): void {
+export function BuildTask_updateWatch(receiver: GoPtr<BuildTask>, orchestrator: GoPtr<Orchestrator>, oldCache: GoPtr<SyncMap<Path, Time>>): void {
   receiver!.configTime = host_loadOrStoreMTime(orchestrator!.host, receiver!.config, oldCache, false as bool);
   if (receiver!.resolved !== undefined) {
     receiver!.extendedConfigTimes = core_Map(ParsedCommandLine_ExtendedSourceFiles(receiver!.resolved), (p: string): Time => {

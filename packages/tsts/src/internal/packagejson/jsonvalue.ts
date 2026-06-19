@@ -1,4 +1,4 @@
-import type { bool, byte, int, sbyte } from "@tsonic/core/types.js";
+import type { bool, byte, int, sbyte } from "../../go/scalars.js";
 import type { GoError, GoPtr, GoSlice } from "../../go/compat.js";
 import { NewOrderedMapWithSizeHint, OrderedMap_Set } from "../collections/ordered_map.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
@@ -152,11 +152,11 @@ export function JSONValue_IsFalsy(receiver: GoPtr<JSONValue>): bool {
  * 	return v.Value.(*collections.OrderedMap[string, JSONValue])
  * }
  */
-export function JSONValue_AsObject<T = JSONValue>(receiver: JSONValue): GoPtr<OrderedMap<string, T>> {
+export function JSONValue_AsObject(receiver: JSONValue): GoPtr<OrderedMap<string, JSONValue>> {
   if (receiver.Type !== JSONValueTypeObject) {
     throw new globalThis.Error(`expected object, got ${JSONValueType_String(receiver.Type)}`);
   }
-  return receiver.Value as GoPtr<OrderedMap<string, T>>;
+  return receiver.Value as GoPtr<OrderedMap<string, JSONValue>>;
 }
 
 /**
@@ -258,7 +258,11 @@ export function JSONValue_UnmarshalJSONFrom(receiver: GoPtr<JSONValue>, dec: GoP
  * 	return nil
  * }
  */
-export function unmarshalJSONValue<T>(v: GoPtr<JSONValue>, data: GoSlice<byte>, elementFactory: JSONValueElementFactory<T> = identityJSONValueElement): GoError {
+export function unmarshalJSONValue<T>(v: GoPtr<JSONValue>, data: GoSlice<byte>): GoError {
+  return unmarshalJSONValueWithFactory(v, data, (value: JSONValue): T => identityJSONValueElement<T>(value));
+}
+
+export function unmarshalJSONValueWithFactory<T>(v: GoPtr<JSONValue>, data: GoSlice<byte>, elementFactory: JSONValueElementFactory<T>): GoError {
   try {
     assignJSONValue(v, JSON.parse(textDecoder.decode(globalThis.Uint8Array.from(data as Array<number>))), elementFactory);
     return undefined;
@@ -323,7 +327,11 @@ export function unmarshalJSONValue<T>(v: GoPtr<JSONValue>, data: GoSlice<byte>, 
  * 	return nil
  * }
  */
-export function unmarshalJSONValueV2<T>(v: GoPtr<JSONValue>, dec: GoPtr<Decoder>, elementFactory: JSONValueElementFactory<T> = identityJSONValueElement): GoError {
+export function unmarshalJSONValueV2<T>(v: GoPtr<JSONValue>, dec: GoPtr<Decoder>): GoError {
+  return unmarshalJSONValueV2WithFactory(v, dec, (value: JSONValue): T => identityJSONValueElement<T>(value));
+}
+
+export function unmarshalJSONValueV2WithFactory<T>(v: GoPtr<JSONValue>, dec: GoPtr<Decoder>, elementFactory: JSONValueElementFactory<T>): GoError {
   if (dec === undefined) {
     return new globalThis.Error("nil json decoder");
   }

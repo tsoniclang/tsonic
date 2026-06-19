@@ -114,7 +114,7 @@ export interface toSnapshot {
   buildInfoDirectory: string;
   snapshot: snapshot;
   filePaths: GoSlice<Path>;
-  filePathSet: GoSlice<GoPtr<Set>>;
+  filePathSet: GoSlice<GoPtr<Set<Path>>>;
 }
 
 /**
@@ -149,7 +149,7 @@ export function toSnapshot_toFilePath(receiver: GoPtr<toSnapshot>, fileId: Build
  * 	return t.filePathSet[fileIdListId-1]
  * }
  */
-export function toSnapshot_toFilePathSet(receiver: GoPtr<toSnapshot>, fileIdListId: BuildInfoFileIdListId): GoPtr<Set> {
+export function toSnapshot_toFilePathSet(receiver: GoPtr<toSnapshot>, fileIdListId: BuildInfoFileIdListId): GoPtr<Set<Path>> {
   return receiver!.filePathSet[fileIdListId - 1];
 }
 
@@ -298,15 +298,15 @@ export function toSnapshot_setFileInfoAndEmitSignatures(receiver: GoPtr<toSnapsh
     const info = BuildInfoFileInfo_GetFileInfo(buildInfoFileInfo);
     SyncMap_Store(receiver!.snapshot.fileInfos as SyncMap<Path, FileInfo>, path, info);
     if (info!.signature !== "" && isComposite) {
-      SyncMap_Store(receiver!.snapshot.emitSignatures as SyncMap<Path, emitSignature>, path, { signature: info!.signature, signatureWithDifferentOptions: [] });
+      SyncMap_Store(receiver!.snapshot.emitSignatures, path, { signature: info!.signature, signatureWithDifferentOptions: [] });
     }
   }
   for (const value of receiver!.buildInfo!.EmitSignatures) {
     if (BuildInfoEmitSignature_noEmitSignature(value)) {
-      SyncMap_Delete(receiver!.snapshot.emitSignatures as SyncMap<Path, emitSignature>, toSnapshot_toFilePath(receiver, value!.FileId));
+      SyncMap_Delete(receiver!.snapshot.emitSignatures, toSnapshot_toFilePath(receiver, value!.FileId));
     } else {
       const path = toSnapshot_toFilePath(receiver, value!.FileId);
-      SyncMap_Store(receiver!.snapshot.emitSignatures as SyncMap<Path, emitSignature>, path, BuildInfoEmitSignature_toEmitSignature(value, path, receiver!.snapshot.emitSignatures as SyncMap));
+      SyncMap_Store(receiver!.snapshot.emitSignatures, path, BuildInfoEmitSignature_toEmitSignature(value, path, receiver!.snapshot.emitSignatures));
     }
   }
 }

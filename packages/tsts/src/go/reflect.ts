@@ -1,4 +1,4 @@
-import type { int, uint, bool } from "@tsonic/core/types.js";
+import type { int, uint, bool } from "./scalars.js";
 import type { GoSlice } from "./compat.js";
 
 // Go: package reflect

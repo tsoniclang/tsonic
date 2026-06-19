@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import * as fmt from "../../go/fmt.js";
 import type { GoPtr } from "../../go/compat.js";
 import { Node_ArgumentList, Node_Expression } from "./ast.js";
@@ -1152,7 +1152,7 @@ export const TypePrecedenceLowest: TypePrecedence = TypePrecedenceConditional;
 export const TypePrecedenceHighest: TypePrecedence = TypePrecedenceNonArray;
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/precedence.go::func::GetTypeNodePrecedence","kind":"func","status":"implemented","sigHash":"47125c65cfce820cff19d4e3df24699ba8d458939db5530e5069630ffb70e197","bodyHash":"6fbf7c37c94dc60458188ff0a8b801a106aea9e94d6fae15b957f43e08a54787"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/precedence.go::func::GetTypeNodePrecedence","kind":"func","status":"implemented","sigHash":"47125c65cfce820cff19d4e3df24699ba8d458939db5530e5069630ffb70e197","bodyHash":"a0b697f4e54deb9eb94e805ed79690fdc05629d629975427645e511996527e35"}
  *
  * Go source:
  * func GetTypeNodePrecedence(n *TypeNode) TypePrecedence {
@@ -1201,7 +1201,6 @@ export const TypePrecedenceHighest: TypePrecedence = TypePrecedenceNonArray;
  * 		KindLiteralType,
  * 		KindTypePredicate,
  * 		KindTypeReference,
- * 		KindExpressionWithTypeArguments,
  * 		KindTypeLiteral,
  * 		KindTupleType,
  * 		KindRestType,
@@ -1210,7 +1209,10 @@ export const TypePrecedenceHighest: TypePrecedence = TypePrecedenceNonArray;
  * 		KindMappedType,
  * 		KindNamedTupleMember,
  * 		KindTemplateLiteralType,
- * 		KindImportType:
+ * 		KindImportType,
+ * 		// These occur in pseudo-types like `f<T>.C`, where `f` is a generic function and `C` is a local type
+ * 		KindPropertyAccessExpression,
+ * 		KindExpressionWithTypeArguments:
  * 		return TypePrecedenceNonArray
  * 	default:
  * 		panic(fmt.Sprintf("unhandled TypeNode: %v", n.Kind))
@@ -1268,7 +1270,6 @@ export function GetTypeNodePrecedence(n: GoPtr<TypeNode>): TypePrecedence {
     case KindLiteralType:
     case KindTypePredicate:
     case KindTypeReference:
-    case KindExpressionWithTypeArguments:
     case KindTypeLiteral:
     case KindTupleType:
     case KindRestType:
@@ -1278,6 +1279,9 @@ export function GetTypeNodePrecedence(n: GoPtr<TypeNode>): TypePrecedence {
     case KindNamedTupleMember:
     case KindTemplateLiteralType:
     case KindImportType:
+    // These occur in pseudo-types like `f<T>.C`, where `f` is a generic function and `C` is a local type
+    case KindPropertyAccessExpression:
+    case KindExpressionWithTypeArguments:
       return TypePrecedenceNonArray;
     default:
       throw new globalThis.Error(fmt.Sprintf("unhandled TypeNode: %v", KindString(n!.Kind)));

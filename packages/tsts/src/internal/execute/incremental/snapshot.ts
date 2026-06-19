@@ -1,4 +1,4 @@
-import type { bool, int, uint } from "@tsonic/core/types.js";
+import type { bool, int, uint } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import * as strings from "../../../go/strings.js";
 import type { Builder } from "../../../go/strings.js";
@@ -740,15 +740,15 @@ export function DiagnosticsOrBuildInfoDiagnosticsWithFileName_getDiagnostics(rec
  * }
  */
 export interface snapshot {
-  fileInfos: SyncMap;
+  fileInfos: SyncMap<Path, GoPtr<FileInfo>>;
   options: GoPtr<CompilerOptions>;
   referencedMap: referenceMap;
-  semanticDiagnosticsPerFile: SyncMap;
-  emitDiagnosticsPerFile: SyncMap;
-  changedFilesSet: SyncSet;
-  affectedFilesPendingEmit: SyncMap;
+  semanticDiagnosticsPerFile: SyncMap<Path, GoPtr<DiagnosticsOrBuildInfoDiagnosticsWithFileName>>;
+  emitDiagnosticsPerFile: SyncMap<Path, GoPtr<DiagnosticsOrBuildInfoDiagnosticsWithFileName>>;
+  changedFilesSet: SyncSet<Path>;
+  affectedFilesPendingEmit: SyncMap<Path, FileEmitKind>;
   latestChangedDtsFile: string;
-  emitSignatures: SyncMap;
+  emitSignatures: SyncMap<Path, GoPtr<emitSignature>>;
   hasErrors: Tristate;
   hasSemanticErrors: bool;
   checkPending: bool;

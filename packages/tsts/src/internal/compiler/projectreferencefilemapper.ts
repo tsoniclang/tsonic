@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import * as strings from "../../go/strings.js";
 import { SourceFile_Path } from "../ast/ast.js";
@@ -45,7 +45,7 @@ export interface projectReferenceFileMapper {
   referencesInConfigFile: GoMap<Path, GoSlice<Path>>;
   sourceToProjectReference: GoMap<Path, GoPtr<SourceOutputAndProjectReference>>;
   outputDtsToProjectReference: GoMap<Path, GoPtr<SourceOutputAndProjectReference>>;
-  realpathDtsToSource: SyncMap;
+  realpathDtsToSource: SyncMap<Path, GoPtr<SourceOutputAndProjectReference>>;
 }
 
 /**
@@ -309,7 +309,7 @@ export function projectReferenceFileMapper_rangeResolvedProjectReference(receive
  * 	return true
  * }
  */
-export function projectReferenceFileMapper_rangeResolvedReferenceWorker(receiver: GoPtr<projectReferenceFileMapper>, references: GoSlice<Path>, f: (path: Path, config: GoPtr<ParsedCommandLine>, parent: GoPtr<ParsedCommandLine>, index: int) => bool, parent: GoPtr<ParsedCommandLine>, seenRef: GoPtr<Set>): bool {
+export function projectReferenceFileMapper_rangeResolvedReferenceWorker(receiver: GoPtr<projectReferenceFileMapper>, references: GoSlice<Path>, f: (path: Path, config: GoPtr<ParsedCommandLine>, parent: GoPtr<ParsedCommandLine>, index: int) => bool, parent: GoPtr<ParsedCommandLine>, seenRef: GoPtr<Set<Path>>): bool {
   for (let index = 0; index < references.length; index++) {
     const path = references[index]!;
     if (!Set_AddIfAbsent(seenRef as GoPtr<Set<Path>>, path)) {

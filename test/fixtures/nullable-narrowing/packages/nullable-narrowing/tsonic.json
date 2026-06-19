@@ -1,8 +1,0 @@
-{
-  "$schema": "https://tsonic.org/schema/v1.json",
-  "rootNamespace": "NullableNarrowing",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "nullable-narrowing"
-}

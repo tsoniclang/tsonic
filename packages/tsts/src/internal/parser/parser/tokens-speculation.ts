@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import { NewDiagnostic } from "../../ast/diagnostic.js";
@@ -1005,6 +1005,7 @@ export function Parser_createIdentifier(receiver: GoPtr<Parser>, isIdentifier: b
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.internIdentifier","kind":"method","status":"implemented","sigHash":"c15ecffe0c2c1ec045b943a5c2478888baf2de40d37e997a4c09a8c5c2c56ef4","bodyHash":"7b7ba05fcc425616aee78a8fc3e9d9e5c68e4fbeb485614d4ca34005007e7ff3"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"TSTS stores each interned identifier string as its own map value, so a single Map.get distinguishes cached identifiers from misses; this preserves Go's intern table semantics while avoiding a has+get double lookup on every repeated identifier."}
  *
  * Go source:
  * func (p *Parser) internIdentifier(text string) string {
@@ -1020,15 +1021,19 @@ export function Parser_createIdentifier(receiver: GoPtr<Parser>, isIdentifier: b
  * }
  */
 export function Parser_internIdentifier(receiver: GoPtr<Parser>, text: string): string {
-  if (receiver!.identifiers !== undefined && receiver!.identifiers.has(text)) {
-    return receiver!.identifiers.get(text)!;
+  const identifiers = receiver!.identifiers;
+  if (identifiers !== undefined) {
+    const cached = identifiers.get(text);
+    if (cached !== undefined) {
+      return cached;
+    }
+    identifiers.set(text, text);
+    return text;
   }
-  const identifier = text;
-  if (receiver!.identifiers === undefined) {
-    receiver!.identifiers = new globalThis.Map<string, string>();
-  }
-  receiver!.identifiers.set(identifier, identifier);
-  return identifier;
+  const newIdentifiers = new globalThis.Map<string, string>();
+  newIdentifiers.set(text, text);
+  receiver!.identifiers = newIdentifiers;
+  return text;
 }
 
 /**
@@ -1130,7 +1135,7 @@ export function Parser_nextTokenIsEqualsOrSemicolonOrColonToken(receiver: GoPtr<
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine","kind":"method","status":"implemented","sigHash":"8dc13add40cf6df70a91c27cc80641041a87a33bbebcb540574b2c605a763ecc","bodyHash":"9f5492b8dca8f0e375685cd9ca4001ca6ecad308819b66610ce0c7124edd2316"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine","kind":"method","status":"implemented","sigHash":"8dc13add40cf6df70a91c27cc80641041a87a33bbebcb540574b2c605a763ecc","bodyHash":"7637d73bb3ae3604e8b0e650eb638c7942bf4bec79100fb5b7825e01765f015b"}
  *
  * Go source:
  * func (p *Parser) nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine(disallowOf bool) bool {
@@ -1138,7 +1143,7 @@ export function Parser_nextTokenIsEqualsOrSemicolonOrColonToken(receiver: GoPtr<
  * 	if disallowOf && p.token == ast.KindOfKeyword {
  * 		return p.lookAhead((*Parser).nextTokenIsEqualsOrSemicolonOrColonToken)
  * 	}
- * 	return p.isBindingIdentifier() || p.token == ast.KindOpenBraceToken && !p.hasPrecedingLineBreak()
+ * 	return (p.isBindingIdentifier() || p.token == ast.KindOpenBraceToken) && !p.hasPrecedingLineBreak()
  * }
  */
 export function Parser_nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine(receiver: GoPtr<Parser>, disallowOf: bool): bool {
@@ -1146,7 +1151,7 @@ export function Parser_nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameL
   if (disallowOf && receiver!.token === KindOfKeyword) {
     return Parser_lookAhead(receiver, Parser_nextTokenIsEqualsOrSemicolonOrColonToken);
   }
-  return (Parser_isBindingIdentifier(receiver) || (receiver!.token === KindOpenBraceToken && !Parser_hasPrecedingLineBreak(receiver))) as bool;
+  return ((Parser_isBindingIdentifier(receiver) || receiver!.token === KindOpenBraceToken) && !Parser_hasPrecedingLineBreak(receiver)) as bool;
 }
 
 /**

@@ -1,5 +1,5 @@
-import type { bool, int } from "@tsonic/core/types.js";
-import type { GoPtr, GoSlice } from "../../go/compat.js";
+import type { bool, int } from "../../go/scalars.js";
+import type { GoConstraint, GoPtr, GoSlice } from "../../go/compat.js";
 import type { Diagnostic } from "../ast/diagnostic.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
 import {
@@ -36,7 +36,7 @@ import {
   CommandLineOption_Elements,
   CommandLineOptionTypeList,
 } from "./commandlineoption.js";
-import { extraKeyDiagnostics } from "./errors.js";
+import { extraKeyDiagnostics, extraKeyDidYouMeanDiagnostics } from "./errors.js";
 import type { CommandLineOptionNameMap } from "./tsconfigparsing.js";
 import {
   CommandLineCompilerOptionsMap,
@@ -145,7 +145,7 @@ export function ParseStringArray(value: unknown): GoSlice<string> {
  * 	return nil
  * }
  */
-export function parseStringMap(value: unknown): GoPtr<OrderedMap> {
+export function parseStringMap(value: unknown): GoPtr<OrderedMap<string, GoSlice<string>>> {
   const m = asOrderedMap(value);
   if (m !== undefined) {
     const result = NewOrderedMapWithSizeHint<string, GoSlice<string>>(OrderedMap_Size(m));
@@ -153,7 +153,7 @@ export function parseStringMap(value: unknown): GoPtr<OrderedMap> {
       OrderedMap_Set(result, k, ParseStringArray(v));
       return true;
     });
-    return result as GoPtr<OrderedMap>;
+    return result;
   }
   return undefined;
 }
@@ -178,20 +178,31 @@ export function ParseString(value: unknown): string {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsinghelpers.go::func::parseNumber","kind":"func","status":"implemented","sigHash":"c8e2c76e517fa4a8fa061e2c3ce415d7652cdc1d3b38ebea5097e0d79fe4d3e4","bodyHash":"1fb2d86b5af369c918fd799703c772e5ee8f5c0e13108e53e555edbbed7af941"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsinghelpers.go::func::parseNumber","kind":"func","status":"implemented","sigHash":"c8e2c76e517fa4a8fa061e2c3ce415d7652cdc1d3b38ebea5097e0d79fe4d3e4","bodyHash":"b00067537e686113ed8b821c9f3351b1c44129238827f4c5deadb4327bb529d5"}
  *
  * Go source:
  * func parseNumber(value any) *int {
  * 	if num, ok := value.(int); ok {
  * 		return &num
  * 	}
+ * 	if num, ok := value.(float64); ok {
+ * 		n := int(num)
+ * 		return &n
+ * 	}
  * 	return nil
  * }
  */
 export function parseNumber(value: unknown): GoPtr<int> {
+  // Go distinguishes `int` (returned as-is) from `float64` (truncated via `int(num)`).
+  // TS/JS has a single number type; JSON-sourced values arrive as float64 in Go, so
+  // truncate toward zero to match `int(num)` (a no-op for integer-valued numbers).
   if (typeof value === "number") {
-    const num: int = value as int;
-    return num;
+    if (globalThis.Number.isInteger(value)) {
+      const num: int = value as int;
+      return num;
+    }
+    const n: int = globalThis.Math.trunc(value) as int;
+    return n;
   }
   return undefined;
 }
@@ -275,7 +286,7 @@ export function parseProjectReference(json: unknown): GoSlice<GoPtr<ProjectRefer
  * 	return result
  * }
  */
-export function parseJsonToStringKey(json: unknown): GoPtr<OrderedMap> {
+export function parseJsonToStringKey(json: unknown): GoPtr<OrderedMap<string, unknown>> {
   const result = NewOrderedMapWithSizeHint<string, unknown>(6 as int);
   const m = asOrderedMap(json) as GoPtr<OrderedMap<string, unknown>>;
   if (m !== undefined) {
@@ -332,21 +343,23 @@ export function parseJsonToStringKey(json: unknown): GoPtr<OrderedMap> {
       }
     }
   }
-  return result as GoPtr<OrderedMap>;
+  return result;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsinghelpers.go::type::optionParser","kind":"type","status":"implemented","sigHash":"c409b167b74b0de7c2af5d5f47c3892bfb9612c524b3037b334afec6938063d7","bodyHash":"a8483338fc516ce3921925279ba914fcfee691b68093e177d038288ebbb53758"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsinghelpers.go::type::optionParser","kind":"type","status":"implemented","sigHash":"c409b167b74b0de7c2af5d5f47c3892bfb9612c524b3037b334afec6938063d7","bodyHash":"76bebf033feb06eb908a40f0dadd8562faf33be1877c89ab3bcb91043dd0a47e"}
  *
  * Go source:
  * optionParser interface {
  * 	ParseOption(key string, value any) []*ast.Diagnostic
  * 	UnknownOptionDiagnostic() *diagnostics.Message
+ * 	UnknownDidYouMeanDiagnostic() *diagnostics.Message
  * }
  */
 export interface optionParser {
   ParseOption(key: string, value: unknown): GoSlice<GoPtr<Diagnostic>>;
   UnknownOptionDiagnostic(): GoPtr<Message>;
+  UnknownDidYouMeanDiagnostic(): GoPtr<Message>;
 }
 
 /**
@@ -386,10 +399,23 @@ export function compilerOptionsParser_UnknownOptionDiagnostic(receiver: GoPtr<co
   return extraKeyDiagnostics("compilerOptions");
 }
 
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsinghelpers.go::method::compilerOptionsParser.UnknownDidYouMeanDiagnostic","kind":"method","status":"implemented","sigHash":"600d8c4e070559eeb11c56c6ab4520f80e829d22dc087bb193e74c0d8b1642e5","bodyHash":"1d8011c92f7bc7a8e6bc006c10d57c4d93c3a267c76ca4480fed95795c470b3e"}
+ *
+ * Go source:
+ * func (o *compilerOptionsParser) UnknownDidYouMeanDiagnostic() *diagnostics.Message {
+ * 	return extraKeyDidYouMeanDiagnostics("compilerOptions")
+ * }
+ */
+export function compilerOptionsParser_UnknownDidYouMeanDiagnostic(receiver: GoPtr<compilerOptionsParser>): GoPtr<Message> {
+  return extraKeyDidYouMeanDiagnostics("compilerOptions");
+}
+
 export function compilerOptionsParser_as_optionParser(receiver: GoPtr<compilerOptionsParser>): optionParser {
   return {
     ParseOption: (key: string, value: unknown): GoSlice<GoPtr<Diagnostic>> => compilerOptionsParser_ParseOption(receiver, key, value),
     UnknownOptionDiagnostic: (): GoPtr<Message> => compilerOptionsParser_UnknownOptionDiagnostic(receiver),
+    UnknownDidYouMeanDiagnostic: (): GoPtr<Message> => compilerOptionsParser_UnknownDidYouMeanDiagnostic(receiver),
   };
 }
 
@@ -430,10 +456,23 @@ export function watchOptionsParser_UnknownOptionDiagnostic(receiver: GoPtr<watch
   return extraKeyDiagnostics("watchOptions");
 }
 
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsinghelpers.go::method::watchOptionsParser.UnknownDidYouMeanDiagnostic","kind":"method","status":"implemented","sigHash":"e3a95bc3f94b4b568bc7614455cbafed4cc687e33f80f2f764b558b872c6457d","bodyHash":"60d5c228919604de31526837270f0b06d50f362f5a23f462ca8182cc97acd5a3"}
+ *
+ * Go source:
+ * func (o *watchOptionsParser) UnknownDidYouMeanDiagnostic() *diagnostics.Message {
+ * 	return extraKeyDidYouMeanDiagnostics("watchOptions")
+ * }
+ */
+export function watchOptionsParser_UnknownDidYouMeanDiagnostic(receiver: GoPtr<watchOptionsParser>): GoPtr<Message> {
+  return extraKeyDidYouMeanDiagnostics("watchOptions");
+}
+
 export function watchOptionsParser_as_optionParser(receiver: GoPtr<watchOptionsParser>): optionParser {
   return {
     ParseOption: (key: string, value: unknown): GoSlice<GoPtr<Diagnostic>> => watchOptionsParser_ParseOption(receiver, key, value),
     UnknownOptionDiagnostic: (): GoPtr<Message> => watchOptionsParser_UnknownOptionDiagnostic(receiver),
+    UnknownDidYouMeanDiagnostic: (): GoPtr<Message> => watchOptionsParser_UnknownDidYouMeanDiagnostic(receiver),
   };
 }
 
@@ -474,10 +513,23 @@ export function typeAcquisitionParser_UnknownOptionDiagnostic(receiver: GoPtr<ty
   return extraKeyDiagnostics("typeAcquisition");
 }
 
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsinghelpers.go::method::typeAcquisitionParser.UnknownDidYouMeanDiagnostic","kind":"method","status":"implemented","sigHash":"f5d369b9e515a178f4c19ed221b47f064fd534f030cfd279ae81e0b64fa77856","bodyHash":"56eb4f434cd55edba887f5c78f17da84da8e39d48e69cd9beef0025d18f77e9a"}
+ *
+ * Go source:
+ * func (o *typeAcquisitionParser) UnknownDidYouMeanDiagnostic() *diagnostics.Message {
+ * 	return extraKeyDidYouMeanDiagnostics("typeAcquisition")
+ * }
+ */
+export function typeAcquisitionParser_UnknownDidYouMeanDiagnostic(receiver: GoPtr<typeAcquisitionParser>): GoPtr<Message> {
+  return extraKeyDidYouMeanDiagnostics("typeAcquisition");
+}
+
 export function typeAcquisitionParser_as_optionParser(receiver: GoPtr<typeAcquisitionParser>): optionParser {
   return {
     ParseOption: (key: string, value: unknown): GoSlice<GoPtr<Diagnostic>> => typeAcquisitionParser_ParseOption(receiver, key, value),
     UnknownOptionDiagnostic: (): GoPtr<Message> => typeAcquisitionParser_UnknownOptionDiagnostic(receiver),
+    UnknownDidYouMeanDiagnostic: (): GoPtr<Message> => typeAcquisitionParser_UnknownDidYouMeanDiagnostic(receiver),
   };
 }
 
@@ -518,10 +570,23 @@ export function buildOptionsParser_UnknownOptionDiagnostic(receiver: GoPtr<build
   return extraKeyDiagnostics("buildOptions");
 }
 
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsinghelpers.go::method::buildOptionsParser.UnknownDidYouMeanDiagnostic","kind":"method","status":"implemented","sigHash":"cf3326644424e4708bff1d8fd98c0ae5aea7a4d933ef171f3313e9f9d32f1b08","bodyHash":"3930cd123ded1785611a3c0bdbbca2a9e758c0112d139a839db44dd235aa4a28"}
+ *
+ * Go source:
+ * func (o *buildOptionsParser) UnknownDidYouMeanDiagnostic() *diagnostics.Message {
+ * 	return extraKeyDidYouMeanDiagnostics("buildOptions")
+ * }
+ */
+export function buildOptionsParser_UnknownDidYouMeanDiagnostic(receiver: GoPtr<buildOptionsParser>): GoPtr<Message> {
+  return extraKeyDidYouMeanDiagnostics("buildOptions");
+}
+
 export function buildOptionsParser_as_optionParser(receiver: GoPtr<buildOptionsParser>): optionParser {
   return {
     ParseOption: (key: string, value: unknown): GoSlice<GoPtr<Diagnostic>> => buildOptionsParser_ParseOption(receiver, key, value),
     UnknownOptionDiagnostic: (): GoPtr<Message> => buildOptionsParser_UnknownOptionDiagnostic(receiver),
+    UnknownDidYouMeanDiagnostic: (): GoPtr<Message> => buildOptionsParser_UnknownDidYouMeanDiagnostic(receiver),
   };
 }
 
@@ -991,7 +1056,7 @@ export function parseCompilerOptions(key: string, value: unknown, allOptions: Go
  * 	return T(value.(float64))
  * }
  */
-export function floatOrInt32ToFlag<T>(value: unknown): T {
+export function floatOrInt32ToFlag<T extends GoConstraint<"~int32"> & number>(value: unknown): T {
   // The flag types (JsxEmit, ModuleKind, ...) are all int32-backed; a number
   // value either already is the flag (`value.(T)`) or is a float64 to convert.
   // In both branches the dynamic value is the same number cast to the flag type.
@@ -1310,7 +1375,7 @@ function compilerOptionFieldNameToJsonKey(fieldName: string): string {
  * 	return optionsBase
  * }
  */
-export function convertToOptionsWithAbsolutePaths(optionsBase: GoPtr<OrderedMap>, optionMap: CommandLineOptionNameMap, cwd: string): GoPtr<OrderedMap> {
+export function convertToOptionsWithAbsolutePaths(optionsBase: GoPtr<OrderedMap<string, unknown>>, optionMap: CommandLineOptionNameMap, cwd: string): GoPtr<OrderedMap<string, unknown>> {
   // !!! convert to options with absolute paths was previously done with `CompilerOptions` object, but for ease of implementation, we do it pre-conversion.
   // !!! Revisit this choice if/when refactoring when conversion is done in tsconfig parsing
   if (optionsBase === undefined) {
@@ -1328,7 +1393,7 @@ export function convertToOptionsWithAbsolutePaths(optionsBase: GoPtr<OrderedMap>
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsinghelpers.go::func::ConvertOptionToAbsolutePath","kind":"func","status":"implemented","sigHash":"a296fdd3a0da9cd23b4001dcceeb1fcb500c53d239df1bb01761c7a0c3d75ad6","bodyHash":"4289fe60db4f32daa6adbd477efc555e4794df123325ac79618cffa644c8e14a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsinghelpers.go::func::ConvertOptionToAbsolutePath","kind":"func","status":"implemented","sigHash":"a296fdd3a0da9cd23b4001dcceeb1fcb500c53d239df1bb01761c7a0c3d75ad6","bodyHash":"71ddad65eed23c562994b4c8d364a6e30ab3780024c2d7c7a486744d3a5247c8"}
  *
  * Go source:
  * func ConvertOptionToAbsolutePath(o string, v any, optionMap CommandLineOptionNameMap, cwd string) (any, bool) {
@@ -1341,6 +1406,14 @@ export function convertToOptionsWithAbsolutePaths(optionsBase: GoPtr<OrderedMap>
  * 			if arr, ok := v.([]string); ok {
  * 				return core.Map(arr, func(item string) string {
  * 					return tspath.GetNormalizedAbsolutePath(item, cwd)
+ * 				}), true
+ * 			}
+ * 			if arr, ok := v.([]any); ok {
+ * 				return core.Map(arr, func(item any) any {
+ * 					if s, isStr := item.(string); isStr {
+ * 						return tspath.GetNormalizedAbsolutePath(s, cwd)
+ * 					}
+ * 					return item
  * 				}), true
  * 			}
  * 		}
@@ -1364,6 +1437,19 @@ export function ConvertOptionToAbsolutePath(o: string, v: unknown, optionMap: Co
         return [
           core_Map(arr, (item: string): string => {
             return GetNormalizedAbsolutePath(item, cwd);
+          }),
+          true,
+        ];
+      }
+      if (globalThis.Array.isArray(v)) {
+        const arr: GoSlice<unknown> = v;
+        return [
+          core_Map(arr, (item: unknown): unknown => {
+            if (typeof item === "string") {
+              const s: string = item;
+              return GetNormalizedAbsolutePath(s, cwd);
+            }
+            return item;
           }),
           true,
         ];

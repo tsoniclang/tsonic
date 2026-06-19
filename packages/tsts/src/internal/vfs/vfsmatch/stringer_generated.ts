@@ -1,4 +1,4 @@
-import type { byte } from "@tsonic/core/types.js";
+import type { byte } from "../../../go/scalars.js";
 import type { GoArray } from "../../../go/compat.js";
 import type { Usage } from "./vfsmatch.js";
 

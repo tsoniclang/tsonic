@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import { Mutex } from "../../../go/sync.js";
 import type { SyncMap } from "../../collections/syncmap.js";
@@ -43,16 +43,16 @@ export let __a568fcce_0: ExtendedConfigCache_f02f7376 = ExtendedConfigCache_as_t
 
 export function ExtendedConfigCache_as_tsoptions_ExtendedConfigCache(receiver: GoPtr<ExtendedConfigCache>): ExtendedConfigCache_f02f7376 {
   return {
-    GetExtendedConfig: (fileName: string, path: Path, resolutionStack: GoSlice<string>, host: ParseConfigHost): GoPtr<ExtendedConfigCacheEntry> =>
+    GetExtendedConfig: (fileName: string, path: Path, resolutionStack: GoSlice<Path>, host: ParseConfigHost): GoPtr<ExtendedConfigCacheEntry> =>
       ExtendedConfigCache_GetExtendedConfig(receiver, fileName, path, resolutionStack, host),
   };
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/execute/tsc/extendedconfigcache.go::method::ExtendedConfigCache.GetExtendedConfig","kind":"method","status":"implemented","sigHash":"342a3b886bfc1e80e056264bcc745ac2adf85e0f9513581e058fde8934fa6dbf","bodyHash":"437779406ea0323ad1a80d546e49f9c85af904ede419108d463643d30a4183ef"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/execute/tsc/extendedconfigcache.go::method::ExtendedConfigCache.GetExtendedConfig","kind":"method","status":"implemented","sigHash":"8e57132a1193eeffdb2a9ec5d5afe5e80ec35eec864063ee085f3613b4e87015","bodyHash":"e3c5e1e9c0eeb39d38c8e2f90c2dd976f7810d53798257858b0fc2a10092f8a3"}
  *
  * Go source:
- * func (e *ExtendedConfigCache) GetExtendedConfig(fileName string, path tspath.Path, resolutionStack []string, host tsoptions.ParseConfigHost) *tsoptions.ExtendedConfigCacheEntry {
+ * func (e *ExtendedConfigCache) GetExtendedConfig(fileName string, path tspath.Path, resolutionStack []tspath.Path, host tsoptions.ParseConfigHost) *tsoptions.ExtendedConfigCacheEntry {
  * 	entry, loaded := e.loadOrStoreNewLockedEntry(path)
  * 	defer entry.mu.Unlock()
  * 	if !loaded {
@@ -61,7 +61,7 @@ export function ExtendedConfigCache_as_tsoptions_ExtendedConfigCache(receiver: G
  * 	return entry.ExtendedConfigCacheEntry
  * }
  */
-export function ExtendedConfigCache_GetExtendedConfig(receiver: GoPtr<ExtendedConfigCache>, fileName: string, path: Path, resolutionStack: GoSlice<string>, host: ParseConfigHost): GoPtr<ExtendedConfigCacheEntry> {
+export function ExtendedConfigCache_GetExtendedConfig(receiver: GoPtr<ExtendedConfigCache>, fileName: string, path: Path, resolutionStack: GoSlice<Path>, host: ParseConfigHost): GoPtr<ExtendedConfigCacheEntry> {
   const [entry, loaded] = ExtendedConfigCache_loadOrStoreNewLockedEntry(receiver, path);
   try {
     if (!loaded) {

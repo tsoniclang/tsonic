@@ -1,0 +1,27 @@
+{
+  "name": "@tsonic/target-csharp",
+  "version": "0.0.1",
+  "description": "C# target pack for Tsonic",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "node --test \"dist/**/*.test.js\""
+  },
+  "dependencies": {
+    "@tsonic/target-api": "0.0.1",
+    "@tsonic/tsts": "0.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

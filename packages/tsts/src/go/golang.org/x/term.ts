@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../scalars.js";
 import process from "node:process";
 import type { GoError } from "../../compat.js";
 import type { File } from "../../os.js";

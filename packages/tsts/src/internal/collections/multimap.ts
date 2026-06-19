@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoComparable, GoMap, GoPtr, GoSeq, GoSlice } from "../../go/compat.js";
 import * as maps from "../../go/maps.js";
 import * as slices from "../../go/slices.js";
@@ -60,7 +60,7 @@ export function GroupBy<K extends GoComparable, V extends GoComparable>(items: G
  * 	return ok
  * }
  */
-export function MultiMap_Has<K, V>(receiver: GoPtr<MultiMap<K, V>>, key: K): bool {
+export function MultiMap_Has<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<MultiMap<K, V>>, key: K): bool {
   const ok = receiver!.M.has(key);
   return ok;
 }
@@ -73,7 +73,7 @@ export function MultiMap_Has<K, V>(receiver: GoPtr<MultiMap<K, V>>, key: K): boo
  * 	return s.M[key]
  * }
  */
-export function MultiMap_Get<K, V>(receiver: GoPtr<MultiMap<K, V>>, key: K): GoSlice<V> {
+export function MultiMap_Get<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<MultiMap<K, V>>, key: K): GoSlice<V> {
   return receiver!.M.get(key) ?? [];
 }
 
@@ -88,7 +88,7 @@ export function MultiMap_Get<K, V>(receiver: GoPtr<MultiMap<K, V>>, key: K): GoS
  * 	s.M[key] = append(s.M[key], value)
  * }
  */
-export function MultiMap_Add<K, V>(receiver: GoPtr<MultiMap<K, V>>, key: K, value: V): void {
+export function MultiMap_Add<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<MultiMap<K, V>>, key: K, value: V): void {
   const existing = receiver!.M.get(key) ?? [];
   existing.push(value);
   receiver!.M.set(key, existing);
@@ -112,7 +112,7 @@ export function MultiMap_Add<K, V>(receiver: GoPtr<MultiMap<K, V>>, key: K, valu
  * 	}
  * }
  */
-export function MultiMap_Remove<K, V>(receiver: GoPtr<MultiMap<K, V>>, key: K, value: V): void {
+export function MultiMap_Remove<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<MultiMap<K, V>>, key: K, value: V): void {
   const values0 = receiver!.M.get(key);
   if (values0 !== undefined) {
     const i = slices.Index(values0, value);
@@ -134,7 +134,7 @@ export function MultiMap_Remove<K, V>(receiver: GoPtr<MultiMap<K, V>>, key: K, v
  * 	delete(s.M, key)
  * }
  */
-export function MultiMap_RemoveAll<K, V>(receiver: GoPtr<MultiMap<K, V>>, key: K): void {
+export function MultiMap_RemoveAll<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<MultiMap<K, V>>, key: K): void {
   receiver!.M.delete(key);
 }
 
@@ -146,7 +146,7 @@ export function MultiMap_RemoveAll<K, V>(receiver: GoPtr<MultiMap<K, V>>, key: K
  * 	return len(s.M)
  * }
  */
-export function MultiMap_Len<K, V>(receiver: GoPtr<MultiMap<K, V>>): int {
+export function MultiMap_Len<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<MultiMap<K, V>>): int {
   return receiver!.M.size;
 }
 
@@ -158,7 +158,7 @@ export function MultiMap_Len<K, V>(receiver: GoPtr<MultiMap<K, V>>): int {
  * 	return maps.Keys(s.M)
  * }
  */
-export function MultiMap_Keys<K, V>(receiver: GoPtr<MultiMap<K, V>>): GoSeq<K> {
+export function MultiMap_Keys<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<MultiMap<K, V>>): GoSeq<K> {
   return maps.Keys(receiver!.M);
 }
 
@@ -170,7 +170,7 @@ export function MultiMap_Keys<K, V>(receiver: GoPtr<MultiMap<K, V>>): GoSeq<K> {
  * 	return maps.Values(s.M)
  * }
  */
-export function MultiMap_Values<K, V>(receiver: GoPtr<MultiMap<K, V>>): GoSeq<GoSlice<V>> {
+export function MultiMap_Values<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<MultiMap<K, V>>): GoSeq<GoSlice<V>> {
   return maps.Values(receiver!.M);
 }
 
@@ -182,6 +182,6 @@ export function MultiMap_Values<K, V>(receiver: GoPtr<MultiMap<K, V>>): GoSeq<Go
  * 	clear(s.M)
  * }
  */
-export function MultiMap_Clear<K, V>(receiver: GoPtr<MultiMap<K, V>>): void {
+export function MultiMap_Clear<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<MultiMap<K, V>>): void {
   receiver!.M.clear();
 }

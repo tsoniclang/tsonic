@@ -1,4 +1,4 @@
-import type { byte, int } from "@tsonic/core/types.js";
+import type { byte, int } from "../scalars.js";
 import type { GoError, GoSlice } from "../compat.js";
 
 const offset64 = 14695981039346656037n;

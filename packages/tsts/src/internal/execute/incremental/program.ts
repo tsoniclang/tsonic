@@ -1,4 +1,4 @@
-import type { bool, byte } from "@tsonic/core/types.js";
+import type { bool, byte } from "../../../go/scalars.js";
 import type { GoError, GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Context } from "../../../go/context.js";
 import { Map as SyncMapImpl } from "../../../go/sync.js";
@@ -150,10 +150,10 @@ export function NewProgram(program: GoPtr<Program_22a0a6ce>, oldProgram: GoPtr<P
 
   if (testing) {
     incrementalProgram.testingData = {
-      SemanticDiagnosticsPerFile: incrementalProgram.snapshot!.semanticDiagnosticsPerFile as GoPtr<SyncMap>,
+      SemanticDiagnosticsPerFile: incrementalProgram.snapshot!.semanticDiagnosticsPerFile as GoPtr<SyncMap<Path, GoPtr<DiagnosticsOrBuildInfoDiagnosticsWithFileName>>>,
       OldProgramSemanticDiagnosticsPerFile: oldProgram !== undefined
-        ? oldProgram.snapshot!.semanticDiagnosticsPerFile as GoPtr<SyncMap>
-        : { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as GoPtr<SyncMap>,
+        ? oldProgram.snapshot!.semanticDiagnosticsPerFile as GoPtr<SyncMap<Path, GoPtr<DiagnosticsOrBuildInfoDiagnosticsWithFileName>>>
+        : { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as GoPtr<SyncMap<Path, GoPtr<DiagnosticsOrBuildInfoDiagnosticsWithFileName>>>,
       UpdatedSignatureKinds: new Map<Path, SignatureUpdateKind>(),
     };
   }
@@ -171,8 +171,8 @@ export function NewProgram(program: GoPtr<Program_22a0a6ce>, oldProgram: GoPtr<P
  * }
  */
 export interface TestingData {
-  SemanticDiagnosticsPerFile: GoPtr<SyncMap>;
-  OldProgramSemanticDiagnosticsPerFile: GoPtr<SyncMap>;
+  SemanticDiagnosticsPerFile: GoPtr<SyncMap<Path, GoPtr<DiagnosticsOrBuildInfoDiagnosticsWithFileName>>>;
+  OldProgramSemanticDiagnosticsPerFile: GoPtr<SyncMap<Path, GoPtr<DiagnosticsOrBuildInfoDiagnosticsWithFileName>>>;
   UpdatedSignatureKinds: GoMap<Path, SignatureUpdateKind>;
 }
 

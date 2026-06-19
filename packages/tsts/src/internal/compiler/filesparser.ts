@@ -1,10 +1,11 @@
-import type { bool, int } from "@tsonic/core/types.js";
-import type { GoMap, GoPtr, GoSlice, GoUnresolved } from "../../go/compat.js";
+import type { bool, int } from "../../go/scalars.js";
+import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { NewGoStructMap } from "../../go/compat.js";
 import { Pool, Mutex, Once } from "../../go/sync.js";
 import { Join as strings_Join } from "../../go/strings.js";
 import type { SourceFile, SourceFileMetaData } from "../ast/ast.js";
 import type { Diagnostic } from "../ast/diagnostic.js";
+import type { StringLiteralNode } from "../ast/generated/unions.js";
 import { SyncMap_Load, SyncMap_Store } from "../collections/syncmap.js";
 import type { SyncMap } from "../collections/syncmap.js";
 import { IfElse, Flatten } from "../core/core.js";
@@ -58,6 +59,7 @@ import {
   includeProcessor_addProcessingDiagnosticsForFileCasing,
 } from "./includeprocessor.js";
 import * as strings from "../../go/strings.js";
+import { getExtensionHost } from "../../extensions/host.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/filesparser.go::type::parseTask","kind":"type","status":"implemented","sigHash":"b84c8bb585614968edfb61e882ab726f44a17b5de567af8dfc0e7ce09ac3dab5","bodyHash":"9037201e00d4b8ede35c542bf33697833860bf8d7e56f1f769452cde2fc18c1f"}
@@ -106,13 +108,13 @@ export interface parseTask {
   includeReason: GoPtr<FileIncludeReason>;
   packageId: PackageId;
   metadata: SourceFileMetaData;
-  resolutionsInFile: ModeAwareCache;
+  resolutionsInFile: ModeAwareCache<GoPtr<ResolvedModule>>;
   resolutionsTrace: GoSlice<DiagAndArgs>;
-  typeResolutionsInFile: ModeAwareCache;
+  typeResolutionsInFile: ModeAwareCache<GoPtr<ResolvedTypeReferenceDirective>>;
   typeResolutionsTrace: GoSlice<DiagAndArgs>;
   resolutionDiagnostics: GoSlice<GoPtr<Diagnostic>>;
   processingDiagnostics: GoSlice<GoPtr<processingDiagnostic>>;
-  importHelpersImportSpecifier: GoPtr<GoUnresolved<"github.com/microsoft/typescript-go/internal/ast.StringLiteralNode">>;
+  importHelpersImportSpecifier: GoPtr<StringLiteralNode>;
   jsxRuntimeImportSpecifier: GoPtr<jsxRuntimeImportSpecifier>;
   increaseDepth: bool;
   elideOnDepth: bool;
@@ -146,6 +148,7 @@ export function parseTask_Path(receiver: GoPtr<parseTask>): Path_65a900c3 {
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/filesparser.go::method::parseTask.load","kind":"method","status":"implemented","sigHash":"af7c55efe5242848312d3c1b0508d2b9ec9c78063b2547aea4383cb82d2555ac","bodyHash":"07b7219142d8ecc72292b82bd9f7692c5b2b7aee8f66b4283d2100e4795ebb9e"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"New Hope provider virtual modules are compiler-owned in-memory source files; when no extension host owns the path this remains the direct TS-Go load path."}
  *
  * Go source:
  * func (t *parseTask) load(loader *fileLoader) {
@@ -269,7 +272,8 @@ export function parseTask_load(receiver: GoPtr<parseTask>, loader: GoPtr<fileLoa
     return;
   }
 
-  if (HasExtension(receiver!.normalizedFilePath)) {
+  const providerVirtualModule = getExtensionHost(loader!.opts)?.providers.getVirtualModuleByFileName(receiver!.normalizedFilePath);
+  if (providerVirtualModule === undefined && HasExtension(receiver!.normalizedFilePath)) {
     const compilerOptions = ParsedCommandLine_CompilerOptions(loader!.opts.Config);
     const allowNonTsExtensions = Tristate_IsTrue(compilerOptions!.AllowNonTsExtensions);
     if (!allowNonTsExtensions) {
@@ -303,6 +307,8 @@ export function parseTask_load(receiver: GoPtr<parseTask>, loader: GoPtr<fileLoa
   if (receiver!.libFile !== undefined) {
     loader!.libFileCount.Add(1);
     // Default lib files are all scripts; skip looking up their package.json
+    receiver!.metadata = { ImpliedNodeFormat: ResolutionModeCommonJS, PackageJsonType: "", PackageJsonDirectory: "" };
+  } else if (providerVirtualModule !== undefined) {
     receiver!.metadata = { ImpliedNodeFormat: ResolutionModeCommonJS, PackageJsonType: "", PackageJsonDirectory: "" };
   } else {
     receiver!.metadata = fileLoader_loadSourceFileMetaData(loader, receiver!.normalizedFilePath);
@@ -395,9 +401,9 @@ export function parseTask_redirect(receiver: GoPtr<parseTask>, loader: GoPtr<fil
     includeReason: receiver!.includeReason,
     packageId: { Name: "", SubModuleName: "", Version: "", PeerDependencies: "" },
     metadata: {} as SourceFileMetaData,
-    resolutionsInFile: undefined as unknown as ModeAwareCache,
+    resolutionsInFile: undefined as unknown as ModeAwareCache<GoPtr<ResolvedModule>>,
     resolutionsTrace: [],
-    typeResolutionsInFile: undefined as unknown as ModeAwareCache,
+    typeResolutionsInFile: undefined as unknown as ModeAwareCache<GoPtr<ResolvedTypeReferenceDirective>>,
     typeResolutionsTrace: [],
     resolutionDiagnostics: [],
     processingDiagnostics: [],
@@ -492,9 +498,9 @@ export function parseTask_addSubTask(receiver: GoPtr<parseTask>, ref: resolvedRe
     includeReason: ref.includeReason,
     packageId: ref.packageId ?? { Name: "", SubModuleName: "", Version: "", PeerDependencies: "" },
     metadata: {} as SourceFileMetaData,
-    resolutionsInFile: undefined as unknown as ModeAwareCache,
+    resolutionsInFile: undefined as unknown as ModeAwareCache<GoPtr<ResolvedModule>>,
     resolutionsTrace: [],
-    typeResolutionsInFile: undefined as unknown as ModeAwareCache,
+    typeResolutionsInFile: undefined as unknown as ModeAwareCache<GoPtr<ResolvedTypeReferenceDirective>>,
     typeResolutionsTrace: [],
     resolutionDiagnostics: [],
     processingDiagnostics: [],
@@ -520,7 +526,7 @@ export function parseTask_addSubTask(receiver: GoPtr<parseTask>, ref: resolvedRe
  */
 export interface filesParser {
   wg: WorkGroup;
-  taskDataByPath: SyncMap;
+  taskDataByPath: SyncMap<Path_65a900c3, GoPtr<parseTaskData>>;
   maxDepth: int;
 }
 
@@ -1008,9 +1014,9 @@ export function filesParser_getProcessedFiles(receiver: GoPtr<filesParser>, load
   const inclProcessor: includeProcessor = {
     fileIncludeReasons: new globalThis.Map<Path_65a900c3, GoSlice<GoPtr<FileIncludeReason>>>(),
     processingDiagnostics: [],
-    reasonToReferenceLocation: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap,
-    includeReasonToRelatedInfo: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap,
-    redirectAndFileFormat: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap,
+    reasonToReferenceLocation: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap<GoPtr<FileIncludeReason>, GoPtr<import("./fileInclude.js").referenceFileLocation>>,
+    includeReasonToRelatedInfo: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap<GoPtr<FileIncludeReason>, GoPtr<Diagnostic>>,
+    redirectAndFileFormat: { __tsgoBlank0: [], __tsgoBlank1: [], m: new sync_Map() } as unknown as import("../collections/syncmap.js").SyncMap<Path_65a900c3, GoSlice<GoPtr<Diagnostic>>>,
     computedDiagnostics: undefined,
     computedDiagnosticsOnce: new Once(),
     compilerOptionsSyntax: undefined,
@@ -1022,11 +1028,11 @@ export function filesParser_getProcessedFiles(receiver: GoPtr<filesParser>, load
     outputFileToProjectReferenceSource = new globalThis.Map<Path_65a900c3, string>();
   }
 
-  const resolvedModules = new globalThis.Map<Path_65a900c3, ModeAwareCache>();
-  const typeResolutionsInFile = new globalThis.Map<Path_65a900c3, ModeAwareCache>();
+  const resolvedModules = new globalThis.Map<Path_65a900c3, ModeAwareCache<GoPtr<ResolvedModule>>>();
+  const typeResolutionsInFile = new globalThis.Map<Path_65a900c3, ModeAwareCache<GoPtr<ResolvedTypeReferenceDirective>>>();
   const sourceFileMetaDatas = new globalThis.Map<Path_65a900c3, SourceFileMetaData>();
   let jsxRuntimeImportSpecifiers: GoMap<Path_65a900c3, GoPtr<jsxRuntimeImportSpecifier>> | undefined = undefined;
-  let importHelpersImportSpecifiers: GoMap<Path_65a900c3, GoPtr<GoUnresolved<"github.com/microsoft/typescript-go/internal/ast.StringLiteralNode">>> | undefined = undefined;
+  let importHelpersImportSpecifiers: GoMap<Path_65a900c3, GoPtr<StringLiteralNode>> | undefined = undefined;
   const sourceFilesFoundSearchingNodeModules: Set_collections<Path_65a900c3> = { M: new globalThis.Map<Path_65a900c3, { readonly __tsgoEmpty?: never }>() };
   const libFilesMap = new globalThis.Map<Path_65a900c3, GoPtr<LibFile>>();
 
@@ -1177,7 +1183,7 @@ export function filesParser_getProcessedFiles(receiver: GoPtr<filesParser>, load
       }
       if (task!.importHelpersImportSpecifier !== undefined) {
         if (importHelpersImportSpecifiers === undefined) {
-          importHelpersImportSpecifiers = new globalThis.Map<Path_65a900c3, GoPtr<GoUnresolved<"github.com/microsoft/typescript-go/internal/ast.StringLiteralNode">>>();
+          importHelpersImportSpecifiers = new globalThis.Map<Path_65a900c3, GoPtr<StringLiteralNode>>();
         }
         importHelpersImportSpecifiers.set(path, task!.importHelpersImportSpecifier);
       }
@@ -1209,7 +1215,7 @@ export function filesParser_getProcessedFiles(receiver: GoPtr<filesParser>, load
     );
     const modeAwareCache = NewGoStructMap<ModeAwareCacheKey, GoPtr<ResolvedModule>>();
     modeAwareCache.set({ Name: value!.libraryName, Mode: ModuleKindCommonJS }, value!.resolution);
-    resolvedModules.set(key, modeAwareCache as ModeAwareCache);
+    resolvedModules.set(key, modeAwareCache as ModeAwareCache<GoPtr<ResolvedModule>>);
     for (const trace of value!.trace) {
       loader!.opts.Host.Trace(trace.Message, ...trace.Args);
     }

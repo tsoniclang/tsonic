@@ -1,18 +1,19 @@
 import type { GoPtr } from "../../../go/compat.js";
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { Node } from "../../ast/spine.js";
 import { NodeDefault_AsNode, Node_End, Node_Modifiers, Node_Name, Node_Pos, NodeList_End } from "../../ast/spine.js";
-import type { ArrayTypeNode, ConditionalTypeNode, ConstructorTypeNode, ExpressionWithTypeArguments, FunctionTypeNode, HeritageClause, ImportAttributes, ImportTypeNode, IndexedAccessTypeNode, InferTypeNode, IntersectionTypeNode, JSDocNonNullableType, JSDocNullableType, JSDocOptionalType, JSDocVariadicType, KeywordTypeNode, LiteralTypeNode, MappedTypeNode, NamedTupleMember, NotEmittedTypeElement, OptionalTypeNode, ParenthesizedTypeNode, RestTypeNode, TemplateLiteralTypeNode, TemplateLiteralTypeSpan, ThisTypeNode, TupleTypeNode, TypeAliasDeclaration, TypeAssertion, TypeLiteralNode, TypeOfExpression, TypeOperatorNode, TypeParameterDeclaration, TypePredicateNode, TypeQueryNode, TypeReferenceNode, UnionTypeNode } from "../../ast/generated/data.js";
+import type { ArrayTypeNode, ConditionalTypeNode, ConstructorTypeNode, ExpressionWithTypeArguments, FunctionTypeNode, HeritageClause, ImportAttributes, ImportTypeNode, IndexedAccessTypeNode, InferTypeNode, IntersectionTypeNode, JSDocNonNullableType, JSDocNullableType, JSDocOptionalType, JSDocVariadicType, KeywordTypeNode, LiteralTypeNode, MappedTypeNode, NamedTupleMember, NotEmittedTypeElement, OptionalTypeNode, ParenthesizedTypeNode, PropertyAccessExpression, RestTypeNode, TemplateLiteralTypeNode, TemplateLiteralTypeSpan, ThisTypeNode, TupleTypeNode, TypeAliasDeclaration, TypeAssertion, TypeLiteralNode, TypeOfExpression, TypeOperatorNode, TypeParameterDeclaration, TypePredicateNode, TypeQueryNode, TypeReferenceNode, UnionTypeNode } from "../../ast/generated/data.js";
 import type { ExpressionWithTypeArgumentsNode, HeritageClauseNode, TypeArgumentList, TypeElement, TypeNode, TypeParameterDeclarationNode, TypeParameterList, TypePredicateParameterName } from "../../ast/generated/unions.js";
-import { KindAnyKeyword, KindArrayType, KindAssertKeyword, KindBigIntKeyword, KindBooleanKeyword, KindCallSignature, KindCloseBracketToken, KindColonToken, KindConditionalType, KindConstructorType, KindConstructSignature, KindExpressionWithTypeArguments, KindFunctionType, KindGetAccessor, KindIdentifier, KindIndexedAccessType, KindIndexSignature, KindInferType, KindIntersectionType, KindIntrinsicKeyword, KindImportType, KindJSDocAllType, KindJSDocNonNullableType, KindJSDocNullableType, KindJSDocOptionalType, KindJSDocVariadicType, KindLiteralType, KindMappedType, KindMethodSignature, KindNamedTupleMember, KindNeverKeyword, KindNotEmittedTypeElement, KindNumberKeyword, KindObjectKeyword, KindOpenBracketToken, KindOptionalType, KindParenthesizedType, KindPropertySignature, KindQuestionToken, KindReadonlyKeyword, KindRestType, KindSetAccessor, KindStringKeyword, KindSymbolKeyword, KindTemplateLiteralType, KindTemplateLiteralTypeSpan, KindThisType, KindTupleType, KindTypeOfKeyword, KindTypeOperator, KindTypePredicate, KindTypeQuery, KindTypeReference, KindTypeLiteral, KindUndefinedKeyword, KindUnionType, KindUnknownKeyword, KindVoidKeyword } from "../../ast/generated/kinds.js";
-import { AsArrayTypeNode, AsCallSignatureDeclaration, AsConditionalTypeNode, AsConstructorTypeNode, AsConstructSignatureDeclaration, AsExpressionWithTypeArguments, AsFunctionTypeNode, AsGetAccessorDeclaration, AsHeritageClause, AsIdentifier, AsImportAttributes, AsImportTypeNode, AsIndexedAccessTypeNode, AsIndexSignatureDeclaration, AsInferTypeNode, AsIntersectionTypeNode, AsJSDocNonNullableType, AsJSDocNullableType, AsJSDocOptionalType, AsJSDocVariadicType, AsKeywordTypeNode, AsLiteralTypeNode, AsMappedTypeNode, AsMethodSignatureDeclaration, AsNamedTupleMember, AsNotEmittedTypeElement, AsOptionalTypeNode, AsParenthesizedTypeNode, AsPropertySignatureDeclaration, AsRestTypeNode, AsSetAccessorDeclaration, AsTemplateHead, AsTemplateLiteralTypeNode, AsTemplateLiteralTypeSpan, AsThisTypeNode, AsTypeAliasDeclaration, AsTypeAssertion, AsTypeLiteralNode, AsTypeOfExpression, AsTypeOperatorNode, AsTypeParameterDeclaration, AsTypePredicateNode, AsTypeQueryNode, AsTypeReferenceNode, AsTupleTypeNode, AsUnionTypeNode } from "../../ast/generated/casts.js";
+import { KindAnyKeyword, KindArrayType, KindAssertKeyword, KindBigIntKeyword, KindBooleanKeyword, KindCallSignature, KindCloseBracketToken, KindColonToken, KindConditionalType, KindConstructorType, KindConstructSignature, KindExpressionWithTypeArguments, KindFunctionType, KindGetAccessor, KindIdentifier, KindIndexedAccessType, KindIndexSignature, KindInferType, KindIntersectionType, KindIntrinsicKeyword, KindImportType, KindJSDocAllType, KindJSDocNonNullableType, KindJSDocNullableType, KindJSDocOptionalType, KindJSDocVariadicType, KindLiteralType, KindMappedType, KindMethodSignature, KindNamedTupleMember, KindNeverKeyword, KindNotEmittedTypeElement, KindNumberKeyword, KindObjectKeyword, KindOpenBracketToken, KindOptionalType, KindParenthesizedType, KindPropertyAccessExpression, KindPropertySignature, KindQuestionToken, KindReadonlyKeyword, KindRestType, KindSetAccessor, KindStringKeyword, KindSymbolKeyword, KindTemplateLiteralType, KindTemplateLiteralTypeSpan, KindThisType, KindTupleType, KindTypeOfKeyword, KindTypeOperator, KindTypePredicate, KindTypeQuery, KindTypeReference, KindTypeLiteral, KindUndefinedKeyword, KindUnionType, KindUnknownKeyword, KindVoidKeyword } from "../../ast/generated/kinds.js";
+import { AsArrayTypeNode, AsCallSignatureDeclaration, AsConditionalTypeNode, AsConstructorTypeNode, AsConstructSignatureDeclaration, AsExpressionWithTypeArguments, AsFunctionTypeNode, AsGetAccessorDeclaration, AsHeritageClause, AsIdentifier, AsImportAttributes, AsImportTypeNode, AsIndexedAccessTypeNode, AsIndexSignatureDeclaration, AsInferTypeNode, AsIntersectionTypeNode, AsJSDocNonNullableType, AsJSDocNullableType, AsJSDocOptionalType, AsJSDocVariadicType, AsKeywordTypeNode, AsLiteralTypeNode, AsMappedTypeNode, AsMethodSignatureDeclaration, AsNamedTupleMember, AsNotEmittedTypeElement, AsOptionalTypeNode, AsParenthesizedTypeNode, AsPropertyAccessExpression, AsPropertySignatureDeclaration, AsRestTypeNode, AsSetAccessorDeclaration, AsTemplateHead, AsTemplateLiteralTypeNode, AsTemplateLiteralTypeSpan, AsThisTypeNode, AsTypeAliasDeclaration, AsTypeAssertion, AsTypeLiteralNode, AsTypeOfExpression, AsTypeOperatorNode, AsTypeParameterDeclaration, AsTypePredicateNode, AsTypeQueryNode, AsTypeReferenceNode, AsTupleTypeNode, AsUnionTypeNode } from "../../ast/generated/casts.js";
 import { IsArrowFunction, IsTypeParameterDeclaration } from "../../ast/generated/predicates.js";
+import { IsParseTreeNode } from "../../ast/utilities.js";
 import { IfElse } from "../../core/core.js";
 import { greatestEnd } from "../utilities.js";
 import { GetTypeNodePrecedence, OperatorPrecedenceComma, OperatorPrecedenceMember, OperatorPrecedenceUnary, OperatorPrecedenceUpdate, TypePrecedenceConditional, TypePrecedenceFunction, TypePrecedenceHighest, TypePrecedenceJSDoc, TypePrecedenceLowest, TypePrecedenceNonArray, TypePrecedencePostfix, TypePrecedenceTypeOperator, TypePrecedenceUnion } from "../../ast/precedence.js";
 import type { TypePrecedence } from "../../ast/precedence.js";
 import { Printer_emitBindingIdentifier, Printer_emitConstructSignature, Printer_emitEntityName, Printer_emitGetAccessorDeclaration, Printer_emitIdentifierName, Printer_emitIdentifierReference, Printer_emitIndexSignature, Printer_emitKeywordNode, Printer_emitList, Printer_emitMethodSignature, Printer_emitModifierList, Printer_emitParameters, Printer_emitPropertySignature, Printer_emitPunctuationNode, Printer_emitSetAccessorDeclaration, Printer_emitToken, Printer_emitTokenNode, Printer_enterNode, Printer_exitNode, Printer_decreaseIndent, Printer_increaseIndent, Printer_popNameGenerationScope, Printer_pushNameGenerationScope, Printer_shouldEmitIndented, Printer_writeKeyword, Printer_writeOperator, Printer_writePunctuation, Printer_writeSpace, Printer_writeTrailingSemicolon } from "./emit-core.js";
-import { Printer_emitCallSignature, Printer_emitExpression, Printer_emitTemplateHead, Printer_generateAllMemberNames } from "./expressions.js";
+import { Printer_emitCallSignature, Printer_emitExpression, Printer_emitPropertyAccessExpression, Printer_emitTemplateHead, Printer_generateAllMemberNames } from "./expressions.js";
 import { Printer_emitTemplateTypeSpan, Printer_emitTemplateTypeSpanNode, Printer_shouldEmitOnSingleLine, Printer_writeLine } from "./source-maps.js";
 import { Printer_decreaseIndentIf, Printer_emitImportAttributeNode, Printer_increaseIndentIf } from "./statements-declarations.js";
 import type { Printer } from "./state.js";
@@ -273,21 +274,21 @@ export function Printer_emitTypeArgument(receiver: GoPtr<Printer>, node: GoPtr<T
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitTypeArguments","kind":"method","status":"implemented","sigHash":"08964d8276fc233511ebad6862257c3ed585bd04a6b367c077f95c3e345fb89a","bodyHash":"27e22fd58bde851ef21d466cafb58ad07a0dfd8a1e82b31abe75757efa8bbf06"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitTypeArguments","kind":"method","status":"implemented","sigHash":"08964d8276fc233511ebad6862257c3ed585bd04a6b367c077f95c3e345fb89a","bodyHash":"654953961dbe8568b230be098e61c22c5af488b6184cc6484412d74cd11d2f09"}
  *
  * Go source:
  * func (p *Printer) emitTypeArguments(parentNode *ast.Node, nodes *ast.TypeArgumentList) {
  * 	if nodes == nil {
  * 		return
  * 	}
- * 	p.emitList((*Printer).emitTypeArgument, parentNode, nodes, LFTypeArguments /*|core.IfElse(p.shouldAllowTrailingComma(parentNode, nodes), LFAllowTrailingComma, LFNone)* /) // TODO: preserve trailing comma after Strada migration
+ * 	p.emitList((*Printer).emitTypeParameterDeclarationNode, parentNode, nodes, LFTypeArguments /*|core.IfElse(p.shouldAllowTrailingComma(parentNode, nodes), LFAllowTrailingComma, LFNone)* /) // TODO: preserve trailing comma after Strada migration
  * }
  */
 export function Printer_emitTypeArguments(receiver: GoPtr<Printer>, parentNode: GoPtr<Node>, nodes: GoPtr<TypeArgumentList>): void {
   if (nodes === undefined) {
     return;
   }
-  Printer_emitList(receiver, Printer_emitTypeArgument, parentNode, nodes, LFTypeArguments /*|IfElse(p.shouldAllowTrailingComma(parentNode, nodes), LFAllowTrailingComma, LFNone)*/); // TODO: preserve trailing comma after Strada migration
+  Printer_emitList(receiver, Printer_emitTypeParameterDeclarationNode, parentNode, nodes, LFTypeArguments /*|IfElse(p.shouldAllowTrailingComma(parentNode, nodes), LFAllowTrailingComma, LFNone)*/); // TODO: preserve trailing comma after Strada migration
 }
 
 /**
@@ -473,12 +474,12 @@ export function Printer_emitTypeLiteral(receiver: GoPtr<Printer>, node: GoPtr<Ty
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitArrayType","kind":"method","status":"implemented","sigHash":"2ea4f340ccf08b1769ee23444aeba14157dbefb2bff9db604a1d727d71dd900d","bodyHash":"92451d13c0a6fe7f3ffebb6f4fe697d264638a6005ae134c341087c145445d72"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitArrayType","kind":"method","status":"implemented","sigHash":"2ea4f340ccf08b1769ee23444aeba14157dbefb2bff9db604a1d727d71dd900d","bodyHash":"9e510adcbe42225b632615e9182c85839d24ef002771713354f424c7aa766c04"}
  *
  * Go source:
  * func (p *Printer) emitArrayType(node *ast.ArrayTypeNode) {
  * 	state := p.enterNode(node.AsNode())
- * 	p.emitTypeNode(node.ElementType, ast.TypePrecedencePostfix)
+ * 	p.emitPostfixTypeOperand(node.ElementType, node.AsNode())
  * 	p.writePunctuation("[")
  * 	p.writePunctuation("]")
  * 	p.exitNode(node.AsNode(), state)
@@ -486,10 +487,37 @@ export function Printer_emitTypeLiteral(receiver: GoPtr<Printer>, node: GoPtr<Ty
  */
 export function Printer_emitArrayType(receiver: GoPtr<Printer>, node: GoPtr<ArrayTypeNode>): void {
   const state = Printer_enterNode(receiver, NodeDefault_AsNode(node));
-  Printer_emitTypeNode(receiver, node!.ElementType, TypePrecedencePostfix);
+  Printer_emitPostfixTypeOperand(receiver, node!.ElementType, NodeDefault_AsNode(node));
   Printer_writePunctuation(receiver, "[");
   Printer_writePunctuation(receiver, "]");
   Printer_exitNode(receiver, NodeDefault_AsNode(node), state);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitPostfixTypeOperand","kind":"method","status":"implemented","sigHash":"6b87ec35b5240d571d72503510269e86a4da826cd7f4c87681e5d601286776e9","bodyHash":"925447b6507a051fbfd0d833d131526647d84e448d27c1da66b69e687a64ff67"}
+ *
+ * Go source:
+ * // emitPostfixTypeOperand emits the operand of a postfix type (ArrayType, IndexedAccessType,
+ * // OptionalType). It is equivalent to `emitTypeNode(operand, TypePrecedencePostfix)` except
+ * // that it preserves a parsed `typeof X` operand without adding parentheses (e.g.,
+ * // `typeof C[K]` instead of `(typeof C)[K]`). TypeScript's `parenthesizeNonArrayTypeOfPostfixType`
+ * // factory rule wraps `TypeQuery` in `ParenthesizedType` only when a postfix type is constructed
+ * // via the factory, so parsed postfix types preserve the source as written during round-trip
+ * // emit while synthesized postfix types (e.g., from declaration emit) still get the parentheses.
+ * func (p *Printer) emitPostfixTypeOperand(operand *ast.TypeNode, parent *ast.Node) {
+ * 	if ast.IsParseTreeNode(parent) && operand.Kind == ast.KindTypeQuery {
+ * 		p.emitTypeNode(operand, ast.TypePrecedenceTypeOperator)
+ * 		return
+ * 	}
+ * 	p.emitTypeNode(operand, ast.TypePrecedencePostfix)
+ * }
+ */
+export function Printer_emitPostfixTypeOperand(receiver: GoPtr<Printer>, operand: GoPtr<TypeNode>, parent: GoPtr<Node>): void {
+  if (IsParseTreeNode(parent) && operand!.Kind === KindTypeQuery) {
+    Printer_emitTypeNode(receiver, operand, TypePrecedenceTypeOperator);
+    return;
+  }
+  Printer_emitTypeNode(receiver, operand, TypePrecedencePostfix);
 }
 
 /**
@@ -545,13 +573,13 @@ export function Printer_emitRestType(receiver: GoPtr<Printer>, node: GoPtr<RestT
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitOptionalType","kind":"method","status":"implemented","sigHash":"82dddde3fe1a15696b1cbea2746ee9dd482a3fb279a828c43f9b4cfecfb239e0","bodyHash":"e5e43d2bbf32ad81e56db844fdf230a470497afee08aa6ffe98be961d29b1822"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitOptionalType","kind":"method","status":"implemented","sigHash":"82dddde3fe1a15696b1cbea2746ee9dd482a3fb279a828c43f9b4cfecfb239e0","bodyHash":"c1cd8f1480f128c0ad6d33a6806b540d3990e089d597942bc849cdf8beaed509"}
  *
  * Go source:
  * func (p *Printer) emitOptionalType(node *ast.OptionalTypeNode) {
  * 	state := p.enterNode(node.AsNode())
  * 	// !!! May need extra parenthesization if we also have JSDocNullableType
- * 	p.emitTypeNode(node.Type, ast.TypePrecedencePostfix)
+ * 	p.emitPostfixTypeOperand(node.Type, node.AsNode())
  * 	p.writePunctuation("?")
  * 	p.exitNode(node.AsNode(), state)
  * }
@@ -559,7 +587,7 @@ export function Printer_emitRestType(receiver: GoPtr<Printer>, node: GoPtr<RestT
 export function Printer_emitOptionalType(receiver: GoPtr<Printer>, node: GoPtr<OptionalTypeNode>): void {
   const state = Printer_enterNode(receiver, NodeDefault_AsNode(node));
   // !!! May need extra parenthesization if we also have JSDocNullableType
-  Printer_emitTypeNode(receiver, node!.Type, TypePrecedencePostfix);
+  Printer_emitPostfixTypeOperand(receiver, node!.Type, NodeDefault_AsNode(node));
   Printer_writePunctuation(receiver, "?");
   Printer_exitNode(receiver, NodeDefault_AsNode(node), state);
 }
@@ -791,12 +819,12 @@ export function Printer_emitTypeOperator(receiver: GoPtr<Printer>, node: GoPtr<T
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitIndexedAccessType","kind":"method","status":"implemented","sigHash":"dea61c17168bcc6d3f2d4bb634064cb031d4b0bfa086739c7f07821016f3f20c","bodyHash":"5317237bd5b02ea3aa4fba4f535ffa2d15c83de6c7bca4a5a347bf152e313561"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitIndexedAccessType","kind":"method","status":"implemented","sigHash":"dea61c17168bcc6d3f2d4bb634064cb031d4b0bfa086739c7f07821016f3f20c","bodyHash":"951963c0d7dc49c50c28b9b418d93c1e1b0178b60c0a09d880a6387beb7395f3"}
  *
  * Go source:
  * func (p *Printer) emitIndexedAccessType(node *ast.IndexedAccessTypeNode) {
  * 	state := p.enterNode(node.AsNode())
- * 	p.emitTypeNode(node.ObjectType, ast.TypePrecedencePostfix)
+ * 	p.emitPostfixTypeOperand(node.ObjectType, node.AsNode())
  * 	p.writePunctuation("[")
  * 	p.emitTypeNodeOutsideExtends(node.IndexType)
  * 	p.writePunctuation("]")
@@ -805,7 +833,7 @@ export function Printer_emitTypeOperator(receiver: GoPtr<Printer>, node: GoPtr<T
  */
 export function Printer_emitIndexedAccessType(receiver: GoPtr<Printer>, node: GoPtr<IndexedAccessTypeNode>): void {
   const state = Printer_enterNode(receiver, NodeDefault_AsNode(node));
-  Printer_emitTypeNode(receiver, node!.ObjectType, TypePrecedencePostfix);
+  Printer_emitPostfixTypeOperand(receiver, node!.ObjectType, NodeDefault_AsNode(node));
   Printer_writePunctuation(receiver, "[");
   Printer_emitTypeNodeOutsideExtends(receiver, node!.IndexType);
   Printer_writePunctuation(receiver, "]");
@@ -1115,7 +1143,7 @@ export function Printer_emitTypeNodePreservingExtends(receiver: GoPtr<Printer>, 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitTypeNode","kind":"method","status":"implemented","sigHash":"2fc529beff3ea04e90f8fab333e05d30c187d646370a9e690096f48de95cedda","bodyHash":"6a600aa2a60e33595a57db258a5566cbbc21aeb5c870c321939e79aa21a41669"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitTypeNode","kind":"method","status":"implemented","sigHash":"2fc529beff3ea04e90f8fab333e05d30c187d646370a9e690096f48de95cedda","bodyHash":"afe9a5afc357a0e87939f7ec6328f88e1e59ff529ef14f2c19c5775ea6ee22ee"}
  *
  * Go source:
  * func (p *Printer) emitTypeNode(node *ast.TypeNode, precedence ast.TypePrecedence) {
@@ -1197,6 +1225,9 @@ export function Printer_emitTypeNodePreservingExtends(receiver: GoPtr<Printer>, 
  * 	case ast.KindImportType:
  * 		p.emitImportTypeNode(node.AsImportTypeNode())
  *
+ * 	case ast.KindPropertyAccessExpression:
+ * 		// Occurs in pseudo-types such as `f<T>.C`, where `f` is a generic function and `C` is a local type
+ * 		p.emitPropertyAccessExpression(node.AsPropertyAccessExpression())
  * 	case ast.KindExpressionWithTypeArguments:
  * 		// !!! Should this actually be considered a type?
  * 		p.emitExpressionWithTypeArguments(node.AsExpressionWithTypeArguments())
@@ -1322,6 +1353,11 @@ export function Printer_emitTypeNode(receiver: GoPtr<Printer>, node: GoPtr<TypeN
       break;
     case KindImportType:
       Printer_emitImportTypeNode(receiver, AsImportTypeNode(node as unknown as GoPtr<Node>));
+      break;
+
+    case KindPropertyAccessExpression:
+      // Occurs in pseudo-types such as `f<T>.C`, where `f` is a generic function and `C` is a local type
+      Printer_emitPropertyAccessExpression(receiver, AsPropertyAccessExpression(node as unknown as GoPtr<Node>));
       break;
     case KindExpressionWithTypeArguments:
       // !!! Should this actually be considered a type?

@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr } from "../../go/compat.js";
 import { Builder } from "../../go/strings.js";
 import { goReceiverKey } from "../ast/spine.js";
@@ -65,11 +65,8 @@ const byteLen = (s: string): int => utf8Encoder.encode(s).length as int;
 export interface ChangeTrackerWriter {
   readonly __tsgoEmbedded0?: textWriter;
   lastNonTriviaPosition: int;
-  // Go's `map[triviaPositionKey]int` is keyed by the boxed interface value, whose
-  // identity is the underlying `*ast.Node`/`*ast.NodeList` pointer. We key the JS
-  // map by that recovered receiver to preserve Go's pointer-identity semantics.
-  pos: GoMap<GoPtr<Node> | GoPtr<NodeList>, int>;
-  end: GoMap<GoPtr<Node> | GoPtr<NodeList>, int>;
+  pos: GoMap<triviaPositionKey, int>;
+  end: GoMap<triviaPositionKey, int>;
 }
 
 /**
@@ -89,21 +86,32 @@ export interface triviaPositionKey extends GoInterfaceValue<GoPtr<Node> | GoPtr<
 // `*ast.Node` satisfies `triviaPositionKey` (it has Pos()/End()). The method-bearing
 // adapter carries the underlying receiver via the goReceiver brand so the change
 // tracker's maps can key on pointer identity.
+const nodeTriviaPositionKeys = new WeakMap<Node, triviaPositionKey>();
+const nodeListTriviaPositionKeys = new WeakMap<NodeList, triviaPositionKey>();
+
 function Node_as_triviaPositionKey(receiver: GoPtr<Node>): triviaPositionKey {
-  return {
+  let value = nodeTriviaPositionKeys.get(receiver!);
+  if (value !== undefined) return value;
+  value = {
     [goReceiverKey]: receiver,
     Pos: (): int => Node_Pos(receiver),
     End: (): int => Node_End(receiver),
   };
+  nodeTriviaPositionKeys.set(receiver!, value);
+  return value;
 }
 
 // `*ast.NodeList` satisfies `triviaPositionKey` as well.
 function NodeList_as_triviaPositionKey(receiver: GoPtr<NodeList>): triviaPositionKey {
-  return {
+  let value = nodeListTriviaPositionKeys.get(receiver!);
+  if (value !== undefined) return value;
+  value = {
     [goReceiverKey]: receiver,
     Pos: (): int => NodeList_Pos(receiver),
     End: (): int => NodeList_End(receiver),
   };
+  nodeListTriviaPositionKeys.set(receiver!, value);
+  return value;
 }
 
 /**
@@ -139,14 +147,13 @@ export function NewChangeTrackerWriter(newline: string, indentSize: int): GoPtr<
     lineStart: false as bool,
     lineCount: 0 as int,
     linePos: 0 as int,
-    column: 0 as int,
     hasTrailingCommentState: false as bool,
   };
   const ctw: ChangeTrackerWriter = {
     __tsgoEmbedded0: embedded,
     lastNonTriviaPosition: 0 as int,
-    pos: new globalThis.Map<GoPtr<Node> | GoPtr<NodeList>, int>(),
-    end: new globalThis.Map<GoPtr<Node> | GoPtr<NodeList>, int>(),
+    pos: new globalThis.Map<triviaPositionKey, int>(),
+    end: new globalThis.Map<triviaPositionKey, int>(),
   };
   textWriter_Clear(ctw.__tsgoEmbedded0);
   return ctw;
@@ -236,7 +243,7 @@ export function ChangeTrackerWriter_GetPrintHandlers(receiver: GoPtr<ChangeTrack
  * }
  */
 export function ChangeTrackerWriter_setPos(receiver: GoPtr<ChangeTrackerWriter>, node: triviaPositionKey): void {
-  receiver!.pos.set(node[goReceiverKey], receiver!.lastNonTriviaPosition);
+  receiver!.pos.set(node, receiver!.lastNonTriviaPosition);
 }
 
 /**
@@ -248,7 +255,7 @@ export function ChangeTrackerWriter_setPos(receiver: GoPtr<ChangeTrackerWriter>,
  * }
  */
 export function ChangeTrackerWriter_setEnd(receiver: GoPtr<ChangeTrackerWriter>, node: triviaPositionKey): void {
-  receiver!.end.set(node[goReceiverKey], receiver!.lastNonTriviaPosition);
+  receiver!.end.set(node, receiver!.lastNonTriviaPosition);
 }
 
 /**
@@ -261,7 +268,7 @@ export function ChangeTrackerWriter_setEnd(receiver: GoPtr<ChangeTrackerWriter>,
  */
 export function ChangeTrackerWriter_getPos(receiver: GoPtr<ChangeTrackerWriter>, node: triviaPositionKey): int {
   // Go's map read of a missing key yields the int zero value.
-  const value = receiver!.pos.get(node[goReceiverKey]);
+  const value = receiver!.pos.get(node);
   return value !== undefined ? value : (0 as int);
 }
 
@@ -275,12 +282,12 @@ export function ChangeTrackerWriter_getPos(receiver: GoPtr<ChangeTrackerWriter>,
  */
 export function ChangeTrackerWriter_getEnd(receiver: GoPtr<ChangeTrackerWriter>, node: triviaPositionKey): int {
   // Go's map read of a missing key yields the int zero value.
-  const value = receiver!.end.get(node[goReceiverKey]);
+  const value = receiver!.end.get(node);
   return value !== undefined ? value : (0 as int);
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/changetrackerwriter.go::method::ChangeTrackerWriter.setLastNonTriviaPosition","kind":"method","status":"implemented","sigHash":"f0504bc73374f407635e845c2cb871b9b2d0d37fe33b9def0654cc11171acb70","bodyHash":"fa1dfb884a57689c1ba83f63792f3a6f48f8b10297c4417726e152dfa50f2115"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/changetrackerwriter.go::method::ChangeTrackerWriter.setLastNonTriviaPosition","kind":"method","status":"implemented","sigHash":"f0504bc73374f407635e845c2cb871b9b2d0d37fe33b9def0654cc11171acb70","bodyHash":"7f51cd89bb7d3298d5202991b76d5c8b867fcdd6691a47a7fc5674f4f8dfb698"}
  *
  * Go source:
  * func (ct *ChangeTrackerWriter) setLastNonTriviaPosition(s string, force bool) {

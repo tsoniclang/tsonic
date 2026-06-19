@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { ReplaceAll } from "../../go/strings.js";
 import type { Uint64 } from "../../go/sync/atomic.js";

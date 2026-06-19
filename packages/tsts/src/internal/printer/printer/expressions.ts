@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr } from "../../../go/compat.js";
 import type { Node, NodeList } from "../../ast/spine.js";
 import type { SourceFile } from "../../ast/ast.js";
@@ -220,6 +220,7 @@ export function NewPrinter(options: PrinterOptions, handlers: PrintHandlers, emi
     makeFileLevelOptimisticUniqueName: undefined!,
     commentStateArena: { data: [] },
     sourceMapStateArena: { data: [] },
+    IdToSymbol: undefined,
   };
   printer.emitContext = printer.emitContext ?? NewEmitContext();
   printer.nameGenerator.Context = printer.emitContext;

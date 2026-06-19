@@ -1,6 +1,7 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoComparable, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
-import type { Node, NodeFactoryCoercible, NodeList, NodeVisitor } from "../ast/spine.js";
+import { NewGoStructMap } from "../../go/compat.js";
+import type { ModifierList, Node, NodeFactoryCoercible, NodeList, NodeVisitor } from "../ast/spine.js";
 import type { Identifier, IndexedAccessTypeNode } from "../ast/generated/data.js";
 import type { SourceFile } from "../ast/ast.js";
 import type { NodeFactory } from "../ast/generated/factory.js";
@@ -108,6 +109,8 @@ import {
   GetSourceFileOfNode,
   GetSymbolId,
   IsAmbientModule,
+  IsAmbientModuleSymbolName,
+  IsEntityNameExpression,
   CanHaveModifiers,
   CreateModifiersFromModifierFlags,
   IsClassLike,
@@ -188,14 +191,14 @@ import {
   NewUnionTypeNode,
   NewIndexSignatureDeclaration,
 } from "../ast/generated/factory.js";
-import { Node_Arguments, Node_Expression, Node_Initializer, Node_Type, Node_ModifierNodes, Node_ModuleSpecifier, Node_TypeArgumentList, Node_TypeArguments, NodeFactory_NewModifier, NodeFactory_UpdateBindingElement, SourceFile_FileName, SourceFile_Imports, SourceFile_IsJS, SourceFile_Path } from "../ast/ast.js";
+import { Node_Arguments, Node_Expression, Node_Initializer, Node_PostfixToken, Node_Symbol, Node_Type, Node_ModifierNodes, Node_ModuleSpecifier, Node_TypeArgumentList, Node_TypeArguments, NodeFactory_NewModifier, NodeFactory_UpdateBindingElement, SourceFile_FileName, SourceFile_Imports, SourceFile_IsJS, SourceFile_Path } from "../ast/ast.js";
 import { NodeFactory_DeepCloneNode } from "../ast/deepclone.js";
 import { Node_Clone, Node_Name, NodeDefault_AsNode, NodeFactory_AsNodeFactory, NodeFactory_NewModifierList, NodeFactory_NewNodeList, updateNode } from "../ast/spine.js";
 import { NewTextRange } from "../core/text.js";
 import type { Set } from "../collections/set.js";
 import type { MultiMap } from "../collections/multimap.js";
 import { MultiMap_Add, MultiMap_Values } from "../collections/multimap.js";
-import { Every, Filter, FirstNonNil, FirstOrNil, IfElse, Map as CoreMap, MapIndex, Some } from "../core/core.js";
+import { Every, Filter, Find, FirstNonNil, FirstOrNil, IfElse, Map as CoreMap, MapIndex, Some } from "../core/core.js";
 import { LanguageVariantStandard } from "../core/languagevariant.js";
 import { DeclarationNameToString, IsIdentifierText } from "../scanner/utilities.js";
 import type { ResolutionMode } from "../core/compileroptions.js";
@@ -242,6 +245,7 @@ import type { EmitContext } from "../printer/emitcontext.js";
 import {
   EmitContext_AddEmitFlags,
   EmitContext_AddSyntheticLeadingComment,
+  EmitContext_AddSyntheticTrailingComment,
   EmitContext_AssignCommentRange,
   EmitContext_MostOriginal,
   EmitContext_Original,
@@ -339,7 +343,7 @@ import {
 import { Checker_getTypeParameterModifiers, Checker_isTypeIdenticalTo } from "./relater.js";
 import { Checker_GetEmitResolver } from "./checker/support.js";
 import { Checker_isErrorType } from "./checker/diagnostics.js";
-import { EmitResolver_requiresAddingImplicitUndefined } from "./emitresolver.js";
+import { EmitResolver_isEntityNameVisible, EmitResolver_requiresAddingImplicitUndefined } from "./emitresolver.js";
 import { Checker_getTupleElementLabel, Checker_getTypePredicateOfSignature, Checker_instantiateTypePredicate } from "./relater.js";
 import type { TypeMapper } from "./mapper.js";
 import { newTypeMapper, prependTypeMapping, TypeMapper_Map } from "./mapper.js";
@@ -354,17 +358,19 @@ import { ImportModuleSpecifierEndingPreferenceJs, ImportModuleSpecifierEndingPre
 import { GetModuleSpecifiers } from "../modulespecifiers/specifiers.js";
 import type { ModeAwareCacheKey } from "../module/types.js";
 import type { SymbolAccessibilityResult } from "../printer/emitresolver.js";
-import { NodeBuilderImpl_tryReuseExistingNodeHelper } from "./nodecopy.js";
+import { NodeBuilderImpl_reuseNode, NodeBuilderImpl_tryReuseExistingNodeHelper } from "./nodecopy.js";
 import { Checker_checkExpression } from "./checker/syntax-checking.js";
 import { FromString, Number_String } from "../jsnum/string.js";
 import type { Number as JsNumber } from "../jsnum/jsnum.js";
 import { StripQuotes, UnquoteString } from "../stringutil/util.js";
 import { Set_Add, Set_Delete, Set_Has } from "../collections/set.js";
+import type { CopyOnWriteMap, CopyOnWriteSet } from "../collections/cow.js";
+import { CopyOnWriteMap_Get, CopyOnWriteMap_Set, CopyOnWriteSet_Add, CopyOnWriteSet_Has } from "../collections/cow.js";
 import { NodeBuilderImpl_pseudoReturnTypeMatchesPredicate, NodeBuilderImpl_pseudoTypeEquivalentToType, NodeBuilderImpl_pseudoTypeToNodeWithCheckerFallback, NodeBuilderImpl_pseudoTypeToType } from "./pseudotypenodebuilder.js";
-import { NodeBuilderImpl_addSymbolTypeToContext, NodeBuilderImpl_enterNewScope } from "./nodebuilderscopes.js";
+import { NodeBuilderImpl_addSymbolTypeToContext, NodeBuilderImpl_enterNewScope, NodeBuilderImpl_enterSignatureScope } from "./nodebuilderscopes.js";
 import { PseudoChecker_GetReturnTypeOfSignature, PseudoChecker_GetTypeOfAccessor, PseudoChecker_GetTypeOfDeclaration } from "../pseudochecker/lookup.js";
 import type { PseudoType } from "../pseudochecker/type.js";
-import { NewPseudoTypeUnion, PseudoType_AsPseudoTypeInferred, PseudoTypeKindInferred, PseudoTypeUndefined } from "../pseudochecker/type.js";
+import { NewPseudoTypeUnion, PseudoType_AsPseudoTypeInferred, PseudoTypeKindInferred, PseudoTypeKindNoResult, PseudoTypeUndefined } from "../pseudochecker/type.js";
 import { isExpanding } from "./nodebuilder_hover.js";
 import * as slices from "../../go/slices.js";
 
@@ -444,7 +450,7 @@ export interface CompositeTypeCacheIdentity {
  * }
  */
 export interface NodeBuilderLinks {
-  serializedTypes: GoMap<string, GoPtr<SerializedTypeEntry>>;
+  serializedTypes: GoMap<CompositeTypeCacheIdentity, GoPtr<SerializedTypeEntry>>;
   fakeScopeForSignatureDeclaration: GoPtr<string>;
 }
 
@@ -457,11 +463,11 @@ export interface NodeBuilderLinks {
  * }
  */
 export interface NodeBuilderSymbolLinks {
-  specifierCache: ModeAwareCache;
+  specifierCache: ModeAwareCache<string>;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::type::NodeBuilderContext","kind":"type","status":"implemented","sigHash":"4012a0428038ee5734a8ff96ce9b0f1f45dfaad9789ee658eeefe61d99accb37","bodyHash":"8314a737bc3e0bfdbc33a3f05ab2820b7b7b6a028476c6f186f9aedcb9a98d59"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::type::NodeBuilderContext","kind":"type","status":"implemented","sigHash":"4012a0428038ee5734a8ff96ce9b0f1f45dfaad9789ee658eeefe61d99accb37","bodyHash":"610a5764c48c995dd942afe77bd62c70566c0262afce6ab6ae282f3604dcabae"}
  *
  * Go source:
  * NodeBuilderContext struct {
@@ -490,14 +496,12 @@ export interface NodeBuilderSymbolLinks {
  * 	enclosingSymbolTypes            map[ast.SymbolId]*Type
  * 	suppressReportInferenceFallback bool
  * 	remappedSymbolReferences        map[ast.SymbolId]*ast.Symbol
- * 
+ *
  * 	// per signature scope state
- * 	hasCreatedTypeParameterSymbolList     bool
- * 	hasCreatedTypeParametersNamesLookups  bool
- * 	typeParameterNames                    map[TypeId]*ast.Identifier
- * 	typeParameterNamesByText              map[string]struct{}
- * 	typeParameterNamesByTextNextNameCount map[string]int
- * 	typeParameterSymbolList               map[ast.SymbolId]struct{}
+ * 	typeParameterNames                    collections.CopyOnWriteMap[TypeId, *ast.Identifier]
+ * 	typeParameterNamesByText              collections.CopyOnWriteSet[string]
+ * 	typeParameterNamesByTextNextNameCount collections.CopyOnWriteMap[string, int]
+ * 	typeParameterSymbolList               collections.CopyOnWriteSet[ast.SymbolId]
  * }
  */
 export interface NodeBuilderContext {
@@ -518,20 +522,18 @@ export interface NodeBuilderContext {
   enclosingDeclaration: GoPtr<Node>;
   enclosingFile: GoPtr<SourceFile>;
   inferTypeParameters: GoSlice<GoPtr<Type>>;
-  visitedTypes: Set;
-  symbolDepth: GoMap<string, int>;
+  visitedTypes: Set<TypeId>;
+  symbolDepth: GoMap<CompositeSymbolIdentity, int>;
   trackedSymbols: GoSlice<GoPtr<TrackedSymbolArgs>>;
   mapper: GoPtr<TypeMapper>;
   reverseMappedStack: GoSlice<GoPtr<Symbol>>;
   enclosingSymbolTypes: GoMap<SymbolId, GoPtr<Type>>;
   suppressReportInferenceFallback: bool;
   remappedSymbolReferences: GoMap<SymbolId, GoPtr<Symbol>>;
-  hasCreatedTypeParameterSymbolList: bool;
-  hasCreatedTypeParametersNamesLookups: bool;
-  typeParameterNames: GoMap<TypeId, GoPtr<Identifier>>;
-  typeParameterNamesByText: GoMap<string, { readonly __tsgoEmpty?: never }>;
-  typeParameterNamesByTextNextNameCount: GoMap<string, int>;
-  typeParameterSymbolList: GoMap<SymbolId, { readonly __tsgoEmpty?: never }>;
+  typeParameterNames: CopyOnWriteMap<TypeId, GoPtr<Identifier>>;
+  typeParameterNamesByText: CopyOnWriteSet<string>;
+  typeParameterNamesByTextNextNameCount: CopyOnWriteMap<string, int>;
+  typeParameterSymbolList: CopyOnWriteSet<SymbolId>;
 }
 
 /**
@@ -564,8 +566,8 @@ export interface NodeBuilderImpl {
   ch: GoPtr<Checker>;
   e: GoPtr<EmitContext>;
   pc: GoPtr<PseudoChecker>;
-  links: LinkStore;
-  symbolLinks: LinkStore;
+  links: LinkStore<GoPtr<Node>, NodeBuilderLinks>;
+  symbolLinks: LinkStore<GoPtr<Symbol>, NodeBuilderSymbolLinks>;
   ctx: GoPtr<NodeBuilderContext>;
   cloneBindingNameVisitor: GoPtr<NodeVisitor>;
   idToSymbol: GoMap<GoPtr<IdentifierNode>, GoPtr<Symbol>>;
@@ -603,22 +605,14 @@ export function newNodeBuilderImpl(ch: GoPtr<Checker>, e: GoPtr<EmitContext>, id
     ch,
     e,
     pc: NewPseudoChecker(ch!.strictNullChecks, ch!.exactOptionalPropertyTypes),
-    links: { entries: new globalThis.Map(), arena: { data: [] } } as unknown as LinkStore,
-    symbolLinks: { entries: new globalThis.Map(), arena: { data: [] } } as unknown as LinkStore,
+    links: { entries: new globalThis.Map(), arena: { data: [] } } as unknown as LinkStore<GoPtr<Node>, NodeBuilderLinks>,
+    symbolLinks: { entries: new globalThis.Map(), arena: { data: [] } } as unknown as LinkStore<GoPtr<Symbol>, NodeBuilderSymbolLinks>,
     ctx: undefined,
     cloneBindingNameVisitor: undefined,
     idToSymbol: resolvedIdToSymbol,
   };
   b.cloneBindingNameVisitor = NewNodeVisitor((node) => NodeBuilderImpl_cloneBindingName(b, node), b.f, {} as NodeVisitorHooks);
   return b;
-}
-
-function compositeSymbolIdentityKey(id: CompositeSymbolIdentity): string {
-  return `${id.isConstructorNode ? 1 : 0}:${id.symbolId}:${id.nodeId}`;
-}
-
-function compositeTypeCacheIdentityKey(id: CompositeTypeCacheIdentity): string {
-  return `${id.typeId}:${id.flags}:${id.internalFlags}`;
 }
 
 /**
@@ -1035,7 +1029,7 @@ export function NodeBuilderImpl_createElidedInformationPlaceholder(receiver: GoP
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.mapToTypeNodes","kind":"method","status":"implemented","sigHash":"358c87c81519e49d1ca70ffc89d7fe092a67bf0ebb47d305a2bee61b6fe5baca","bodyHash":"447dffbfd088407ae77d3d3fc8b1db29250a28a1082a4ede7d86981a07a0b4b8"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.mapToTypeNodes","kind":"method","status":"implemented","sigHash":"358c87c81519e49d1ca70ffc89d7fe092a67bf0ebb47d305a2bee61b6fe5baca","bodyHash":"2a303dc32bfb2202a13e0dd996ba99383b3d3578a1558a76b9aeb45478debdd6"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) mapToTypeNodes(list []*Type, isBareList bool) *ast.NodeList {
@@ -1082,11 +1076,12 @@ export function NodeBuilderImpl_createElidedInformationPlaceholder(receiver: GoP
  * 	result := make([]*ast.Node, 0, len(list))
  * 
  * 	for i, t := range list {
- * 		if b.checkTruncationLength() && (i+2 < len(list)-1) {
+ * 		displayIndex := i + 1
+ * 		if b.checkTruncationLength() && (displayIndex+2 < len(list)-1) {
  * 			if b.ctx.flags&nodebuilder.FlagsNoTruncation != 0 {
- * 				result = append(result, b.e.AddSyntheticLeadingComment(b.f.NewKeywordTypeNode(ast.KindAnyKeyword), ast.KindMultiLineCommentTrivia, fmt.Sprintf("... %d more elided ...", len(list)-i), false /*hasTrailingNewLine* /))
+ * 				result = append(result, b.e.AddSyntheticLeadingComment(b.f.NewKeywordTypeNode(ast.KindAnyKeyword), ast.KindMultiLineCommentTrivia, fmt.Sprintf("... %d more elided ...", len(list)-displayIndex), false /*hasTrailingNewLine* /))
  * 			} else {
- * 				text := fmt.Sprintf("... %d more ...", len(list)-i)
+ * 				text := fmt.Sprintf("... %d more ...", len(list)-displayIndex)
  * 				result = append(result, b.f.NewTypeReferenceNode(b.f.NewIdentifier(text), nil /*typeArguments* /))
  * 			}
  * 			typeNode := b.typeToTypeNode(list[len(list)-1])
@@ -1157,10 +1152,11 @@ export function NodeBuilderImpl_mapToTypeNodes(receiver: GoPtr<NodeBuilderImpl>,
   const result: GoSlice<GoPtr<Node>> = [];
   let i = 0;
   for (const t of list) {
-    if (NodeBuilderImpl_checkTruncationLength(receiver) && (i + 2 < list.length - 1)) {
+    const displayIndex = i + 1;
+    if (NodeBuilderImpl_checkTruncationLength(receiver) && (displayIndex + 2 < list.length - 1)) {
       const truncNode = (receiver!.ctx!.flags & FlagsNoTruncation) !== 0
-        ? EmitContext_AddSyntheticLeadingComment(receiver!.e, NewKeywordTypeNode(receiver!.f, KindAnyKeyword), KindMultiLineCommentTrivia, `... ${list.length - i} more elided ...`, false)
-        : NewTypeReferenceNode(receiver!.f, NewIdentifier(receiver!.f, `... ${list.length - i} more ...`), undefined);
+        ? EmitContext_AddSyntheticLeadingComment(receiver!.e, NewKeywordTypeNode(receiver!.f, KindAnyKeyword), KindMultiLineCommentTrivia, `... ${list.length - displayIndex} more elided ...`, false)
+        : NewTypeReferenceNode(receiver!.f, NewIdentifier(receiver!.f, `... ${list.length - displayIndex} more ...`), undefined);
       result.push(truncNode);
       const lastTypeNode = NodeBuilderImpl_typeToTypeNode(receiver, list[list.length - 1]);
       if (lastTypeNode !== undefined) {
@@ -2454,23 +2450,18 @@ export function NodeBuilderImpl_getTypeParametersOfClassOrInterface(receiver: Go
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.lookupTypeParameterNodes","kind":"method","status":"implemented","sigHash":"bf8682000405da9e9fc02f2f43d209116ca30a312154a84dd2a46af956b346b3","bodyHash":"c5c81d3639cbc75b7fb7f15cd52fed938ebc3bd6359f40392a0d49568d3e6aff"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.lookupTypeParameterNodes","kind":"method","status":"implemented","sigHash":"bf8682000405da9e9fc02f2f43d209116ca30a312154a84dd2a46af956b346b3","bodyHash":"11d75d3ec1f18d6221620e0448f8d737f23a46a6c18d4d04557999ac08667394"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) lookupTypeParameterNodes(chain []*ast.Symbol, index int) *ast.TypeParameterList {
  * 	debug.Assert(chain != nil && 0 <= index && index < len(chain))
  * 	symbol := chain[index]
  * 	symbolId := ast.GetSymbolId(symbol)
- * 	if !b.ctx.hasCreatedTypeParameterSymbolList {
- * 		b.ctx.hasCreatedTypeParameterSymbolList = true
- * 		b.ctx.typeParameterSymbolList = make(map[ast.SymbolId]struct{})
- * 	}
- * 	_, ok := b.ctx.typeParameterSymbolList[symbolId]
- * 	if ok {
+ * 	if b.ctx.typeParameterSymbolList.Has(symbolId) {
  * 		return nil
  * 	}
- * 	b.ctx.typeParameterSymbolList[symbolId] = struct{}{}
- * 
+ * 	b.ctx.typeParameterSymbolList.Add(symbolId)
+ *
  * 	if b.ctx.flags&nodebuilder.FlagsWriteTypeParametersInQualifiedName != 0 && index < (len(chain)-1) {
  * 		if typeArgumentNodes := b.lookupInstantiatedTypeArgumentNodes(chain, index); typeArgumentNodes != nil {
  * 			return typeArgumentNodes
@@ -2482,21 +2473,17 @@ export function NodeBuilderImpl_getTypeParametersOfClassOrInterface(receiver: Go
  * 			return nil
  * 		}
  * 	}
- * 
+ *
  * 	return nil
  * }
  */
 export function NodeBuilderImpl_lookupTypeParameterNodes(receiver: GoPtr<NodeBuilderImpl>, chain: GoSlice<GoPtr<Symbol>>, index: int): GoPtr<TypeParameterList> {
   const symbol_ = chain[index];
   const symbolId = GetSymbolId(symbol_);
-  if (!receiver!.ctx!.hasCreatedTypeParameterSymbolList) {
-    receiver!.ctx!.hasCreatedTypeParameterSymbolList = true;
-    receiver!.ctx!.typeParameterSymbolList = new globalThis.Map();
-  }
-  if (receiver!.ctx!.typeParameterSymbolList!.has(symbolId)) {
+  if (CopyOnWriteSet_Has(receiver!.ctx!.typeParameterSymbolList, symbolId)) {
     return undefined;
   }
-  receiver!.ctx!.typeParameterSymbolList!.set(symbolId, {} as { readonly __tsgoEmpty?: never });
+  CopyOnWriteSet_Add(receiver!.ctx!.typeParameterSymbolList, symbolId);
   if ((receiver!.ctx!.flags & FlagsWriteTypeParametersInQualifiedName) !== 0 && index < chain.length - 1) {
     const typeArgumentNodes = NodeBuilderImpl_lookupInstantiatedTypeArgumentNodes(receiver, chain, index);
     if (typeArgumentNodes !== undefined) {
@@ -2743,18 +2730,6 @@ export function NodeBuilderImpl_sortByBestName(receiver: GoPtr<NodeBuilderImpl>,
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::func::isAmbientModuleSymbolName","kind":"func","status":"implemented","sigHash":"7e53d9cee121ccaebce1cbd4375a7c2c2b2b414c825a5b7ab643d0707a61d62c","bodyHash":"96fd08852be6ca21a12b4ba4b34ecb371b64621bef21df30805a50d464d5644e"}
- *
- * Go source:
- * func isAmbientModuleSymbolName(s string) bool {
- * 	return strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")
- * }
- */
-export function isAmbientModuleSymbolName(s: string): bool {
-  return s.startsWith("\"") && s.endsWith("\"");
-}
-
-/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::func::canHaveModuleSpecifier","kind":"func","status":"implemented","sigHash":"9c3c84372e6e3ee9708b3f082d9b28825eda6a5c26f571154d20ea48ee1a98c4","bodyHash":"f7e072038bf225503f91d471fd0d1a7e6abb9f63e10c8d7e6b1b092cf3491afb"}
  *
  * Go source:
@@ -2914,7 +2889,7 @@ export function tryGetModuleSpecifierFromDeclarationWorker(node: GoPtr<Node>): G
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.getSpecifierForModuleSymbol","kind":"method","status":"implemented","sigHash":"35c5e29a10beb2a0e48afb6513d6865f7f693d6d0f921710d4a6ba2d3040affc","bodyHash":"9299314269e608b2a9a21809e1fb17e7681678be3dd2c14cb6efe579da0f9c3f"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.getSpecifierForModuleSymbol","kind":"method","status":"implemented","sigHash":"35c5e29a10beb2a0e48afb6513d6865f7f693d6d0f921710d4a6ba2d3040affc","bodyHash":"4629aa40c107b22a5cc05d9dcdb382d0c5a11b70c78aa682f29cbf1a59b7dfe5"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) getSpecifierForModuleSymbol(symbol *ast.Symbol, overrideImportMode core.ResolutionMode) string {
@@ -2929,12 +2904,12 @@ export function tryGetModuleSpecifierFromDeclarationWorker(node: GoPtr<Node>): G
  * 	}
  * 
  * 	if file == nil {
- * 		if isAmbientModuleSymbolName(symbol.Name) {
+ * 		if ast.IsAmbientModuleSymbolName(symbol.Name) {
  * 			return stringutil.StripQuotes(symbol.Name)
  * 		}
  * 	}
  * 	if b.ctx.enclosingFile == nil {
- * 		if isAmbientModuleSymbolName(symbol.Name) {
+ * 		if ast.IsAmbientModuleSymbolName(symbol.Name) {
  * 			return stringutil.StripQuotes(symbol.Name)
  * 		}
  * 		return ast.GetSourceFileOfModule(symbol).FileName()
@@ -3005,11 +2980,11 @@ export function NodeBuilderImpl_getSpecifierForModuleSymbol(receiver: GoPtr<Node
       file = GetDeclarationOfKind(equivalentSymbol as GoPtr<Symbol>, KindSourceFile);
     }
   }
-  if (file === undefined && isAmbientModuleSymbolName(symbol_!.Name)) {
+  if (file === undefined && IsAmbientModuleSymbolName(symbol_!.Name)) {
     return StripQuotes(symbol_!.Name);
   }
   if (receiver!.ctx!.enclosingFile === undefined) {
-    if (isAmbientModuleSymbolName(symbol_!.Name)) {
+    if (IsAmbientModuleSymbolName(symbol_!.Name)) {
       return StripQuotes(symbol_!.Name);
     }
     return SourceFile_FileName(GetSourceFileOfModule(symbol_)!);
@@ -3222,13 +3197,12 @@ export function NodeBuilderImpl_typeParameterShadowsOtherTypeParameterInScope(re
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.typeParameterToName","kind":"method","status":"implemented","sigHash":"f9e5c03ce066276cea28594e05a343f049cbfe1eb11e8995b51a7e038bb13a88","bodyHash":"7745efdb52a933ad841c01938b06d5728637b108fe8fae978536fbbbf3ccfefa"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.typeParameterToName","kind":"method","status":"implemented","sigHash":"f9e5c03ce066276cea28594e05a343f049cbfe1eb11e8995b51a7e038bb13a88","bodyHash":"1e07a9d4424d30b2dd3528a659ab57108c2c4ed1f903af8cdb7ac172025a73ba"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) typeParameterToName(typeParameter *Type) *ast.Identifier {
- * 	if b.ctx.flags&nodebuilder.FlagsGenerateNamesForShadowedTypeParams != 0 && b.ctx.typeParameterNames != nil {
- * 		cached, ok := b.ctx.typeParameterNames[typeParameter.id]
- * 		if ok {
+ * 	if b.ctx.flags&nodebuilder.FlagsGenerateNamesForShadowedTypeParams != 0 {
+ * 		if cached, ok := b.ctx.typeParameterNames.Get(typeParameter.id); ok {
  * 			return cached
  * 		}
  * 	}
@@ -3243,51 +3217,39 @@ export function NodeBuilderImpl_typeParameterShadowsOtherTypeParameterInScope(re
  * 		}
  * 	}
  * 	if b.ctx.flags&nodebuilder.FlagsGenerateNamesForShadowedTypeParams != 0 {
- * 		if !b.ctx.hasCreatedTypeParametersNamesLookups {
- * 			b.ctx.hasCreatedTypeParametersNamesLookups = true
- * 			b.ctx.typeParameterNames = make(map[TypeId]*ast.Identifier)
- * 			b.ctx.typeParameterNamesByText = make(map[string]struct{})
- * 			b.ctx.typeParameterNamesByTextNextNameCount = make(map[string]int)
- * 		}
- * 
  * 		rawText := result.Text()
- * 		i := 0
- * 		cached, ok := b.ctx.typeParameterNamesByTextNextNameCount[rawText]
- * 		if ok {
- * 			i = cached
- * 		}
+ * 		i, _ := b.ctx.typeParameterNamesByTextNextNameCount.Get(rawText)
  * 		text := rawText
- * 
+ *
  * 		for true {
- * 			_, present := b.ctx.typeParameterNamesByText[text]
- * 			if !present && !b.typeParameterShadowsOtherTypeParameterInScope(text, typeParameter) {
+ * 			if !b.ctx.typeParameterNamesByText.Has(text) && !b.typeParameterShadowsOtherTypeParameterInScope(text, typeParameter) {
  * 				break
  * 			}
  * 			i++
  * 			text = fmt.Sprintf("%s_%d", rawText, i)
  * 		}
- * 
+ *
  * 		if text != rawText {
  * 			// !!! TODO: smuggle type arguments out
  * 			// const typeArguments = getIdentifierTypeArguments(result);
  * 			result = b.newIdentifier(text, typeParameter.symbol)
  * 			// setIdentifierTypeArguments(result, typeArguments);
  * 		}
- * 
+ *
  * 		// avoiding iterations of the above loop turns out to be worth it when `i` starts to get large, so we cache the max
  * 		// `i` we've used thus far, to save work later
- * 		b.ctx.typeParameterNamesByTextNextNameCount[rawText] = i
- * 		b.ctx.typeParameterNames[typeParameter.id] = result.AsIdentifier()
- * 		b.ctx.typeParameterNamesByText[text] = struct{}{}
+ * 		b.ctx.typeParameterNamesByTextNextNameCount.Set(rawText, i)
+ * 		b.ctx.typeParameterNames.Set(typeParameter.id, result.AsIdentifier())
+ * 		b.ctx.typeParameterNamesByText.Add(text)
  * 	}
- * 
+ *
  * 	return result.AsIdentifier()
  * }
  */
 export function NodeBuilderImpl_typeParameterToName(receiver: GoPtr<NodeBuilderImpl>, typeParameter: GoPtr<Type>): GoPtr<Identifier> {
-  if ((receiver!.ctx!.flags & FlagsGenerateNamesForShadowedTypeParams) !== 0 && receiver!.ctx!.typeParameterNames !== undefined) {
-    const cached = receiver!.ctx!.typeParameterNames.get(typeParameter!.id);
-    if (cached !== undefined) {
+  if ((receiver!.ctx!.flags & FlagsGenerateNamesForShadowedTypeParams) !== 0) {
+    const [cached, ok] = CopyOnWriteMap_Get(receiver!.ctx!.typeParameterNames, typeParameter!.id);
+    if (ok) {
       return cached;
     }
   }
@@ -3302,18 +3264,13 @@ export function NodeBuilderImpl_typeParameterToName(receiver: GoPtr<NodeBuilderI
     }
   }
   if ((receiver!.ctx!.flags & FlagsGenerateNamesForShadowedTypeParams) !== 0) {
-    if (!receiver!.ctx!.hasCreatedTypeParametersNamesLookups) {
-      receiver!.ctx!.hasCreatedTypeParametersNamesLookups = true;
-      receiver!.ctx!.typeParameterNames = new globalThis.Map();
-      receiver!.ctx!.typeParameterNamesByText = new globalThis.Map();
-      receiver!.ctx!.typeParameterNamesByTextNextNameCount = new globalThis.Map();
-    }
     const rawText = AsIdentifier(result)!.Text;
-    const prevI = receiver!.ctx!.typeParameterNamesByTextNextNameCount!.get(rawText) ?? 0;
-    let i = prevI;
+    // Go's `i, _ := ...Get(rawText)` yields the zero value (0) when the key is absent.
+    const [prevI] = CopyOnWriteMap_Get(receiver!.ctx!.typeParameterNamesByTextNextNameCount, rawText);
+    let i = prevI ?? 0;
     let text = rawText;
     while (true) {
-      if (!receiver!.ctx!.typeParameterNamesByText!.has(text) && !NodeBuilderImpl_typeParameterShadowsOtherTypeParameterInScope(receiver, text, typeParameter)) {
+      if (!CopyOnWriteSet_Has(receiver!.ctx!.typeParameterNamesByText, text) && !NodeBuilderImpl_typeParameterShadowsOtherTypeParameterInScope(receiver, text, typeParameter)) {
         break;
       }
       i++;
@@ -3322,9 +3279,9 @@ export function NodeBuilderImpl_typeParameterToName(receiver: GoPtr<NodeBuilderI
     if (text !== rawText) {
       result = NodeBuilderImpl_newIdentifier(receiver, text, typeParameter!["symbol"]);
     }
-    receiver!.ctx!.typeParameterNamesByTextNextNameCount!.set(rawText, i);
-    receiver!.ctx!.typeParameterNames!.set(typeParameter!.id, AsIdentifier(result)!);
-    receiver!.ctx!.typeParameterNamesByText!.set(text, {} as { readonly __tsgoEmpty?: never });
+    CopyOnWriteMap_Set(receiver!.ctx!.typeParameterNamesByTextNextNameCount, rawText, i);
+    CopyOnWriteMap_Set(receiver!.ctx!.typeParameterNames, typeParameter!.id, AsIdentifier(result)!);
+    CopyOnWriteSet_Add(receiver!.ctx!.typeParameterNamesByText, text);
   }
   return AsIdentifier(result)!;
 }
@@ -4059,14 +4016,13 @@ export interface SignatureToSignatureDeclarationOptions {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.signatureToSignatureDeclarationHelper","kind":"method","status":"implemented","sigHash":"54f5d2e76ec9e9be664e33675829c85912de62a9bc617473328534583db7cd03","bodyHash":"c3e80e67d00e08b2533d81dddcb6c16a7f771b9583ec2c6e125509f0bd8bdca0"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.signatureToSignatureDeclarationHelper","kind":"method","status":"implemented","sigHash":"54f5d2e76ec9e9be664e33675829c85912de62a9bc617473328534583db7cd03","bodyHash":"35319c1886cddfcf506858be52d465d004556abf73beeb6457f6e2272523d500"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) signatureToSignatureDeclarationHelper(signature *Signature, kind ast.Kind, options *SignatureToSignatureDeclarationOptions) *ast.Node {
  * 	var typeParameters []*ast.Node
- * 
- * 	expandedParams := b.ch.getExpandedParameters(signature, true /*skipUnionExpanding* /)[0]
- * 	cleanup := b.enterNewScope(signature.declaration, expandedParams, signature.typeParameters, signature.parameters, signature.mapper)
+ *
+ * 	expandedParams, cleanup := b.enterSignatureScope(signature)
  * 	b.ctx.approximateLength += 3
  * 	// Usually a signature contributes a few more characters than this, but 3 is the minimum
  * 
@@ -4185,10 +4141,9 @@ export interface SignatureToSignatureDeclarationOptions {
  */
 export function NodeBuilderImpl_signatureToSignatureDeclarationHelper(receiver: GoPtr<NodeBuilderImpl>, signature: GoPtr<Signature>, kind: Kind, options: GoPtr<SignatureToSignatureDeclarationOptions>): GoPtr<Node> {
   const typeParameters: GoSlice<GoPtr<Node>> = [];
-  const expandedParams = Checker_getExpandedParameters(receiver!.ch, signature, true)[0] ?? [];
+  const [expandedParams, cleanup] = NodeBuilderImpl_enterSignatureScope(receiver, signature);
   const signatureParameters = signature!.parameters ?? [];
   const signatureTypeParameters = signature!.typeParameters ?? [];
-  const cleanup = NodeBuilderImpl_enterNewScope(receiver, signature!.declaration, expandedParams, signatureTypeParameters, signatureParameters, signature!.mapper);
   receiver!.ctx!.approximateLength += 3;
   if ((receiver!.ctx!.flags & FlagsWriteTypeArgumentsOfSignature) !== 0 && signature!.target !== undefined && signature!.mapper !== undefined && signature!.target!.typeParameters.length !== 0) {
     for (const parameter of signature!.target!.typeParameters) {
@@ -4573,6 +4528,135 @@ export function NodeBuilderImpl_serializeReturnTypeForSignature(receiver: GoPtr<
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.isTriviallySerializableComputedName","kind":"method","status":"implemented","sigHash":"61ce3aa7e76882aab302040bd3a81935d418227c2cee29101a7b5a029adf9aef","bodyHash":"b3f9c4ca1589275f29194db4c592144328b4001d54c99538e8f4ec24d798c97b"}
+ *
+ * Go source:
+ * func (b *NodeBuilderImpl) isTriviallySerializableComputedName(e *ast.Node) bool {
+ * 	shapeGood := e != nil && e.Name() != nil && ast.IsComputedPropertyName(e.Name()) && ast.IsEntityNameExpression(e.Name().Expression())
+ * 	if !shapeGood {
+ * 		return false
+ * 	}
+ * 	// TODO: going through emit resolver here is weird. Relayer these APIs.
+ * 	return b.ch.GetEmitResolver().isEntityNameVisible(e.Name().Expression(), b.ctx.enclosingDeclaration, false).Accessibility == printer.SymbolAccessibilityAccessible
+ * }
+ */
+export function NodeBuilderImpl_isTriviallySerializableComputedName(receiver: GoPtr<NodeBuilderImpl>, e: GoPtr<Node>): bool {
+  const shapeGood = e !== undefined && Node_Name(e) !== undefined && IsComputedPropertyName(Node_Name(e)) && IsEntityNameExpression(Node_Expression(Node_Name(e)));
+  if (!shapeGood) {
+    return false;
+  }
+  // TODO: going through emit resolver here is weird. Relayer these APIs.
+  return EmitResolver_isEntityNameVisible(Checker_GetEmitResolver(receiver!.ch), Node_Expression(Node_Name(e)), receiver!.ctx!.enclosingDeclaration, false as bool).Accessibility === SymbolAccessibilityAccessible;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.indexInfoToObjectComputedNamesOrSignatureDeclaration","kind":"method","status":"implemented","sigHash":"4c94d20e16103396df21120045ba89362d5c2cfd3e6c538bebad3552b5fb9bc0","bodyHash":"e73a7b8627492b9a3f08110bfba2542f83069b33c8419a7aa353bc43e5b5a828"}
+ *
+ * Go source:
+ * func (b *NodeBuilderImpl) indexInfoToObjectComputedNamesOrSignatureDeclaration(indexInfo *IndexInfo, typeNode *ast.TypeNode) []*ast.Node {
+ * 	if len(indexInfo.components) > 0 {
+ * 		// Index info is derived from object or class computed property names (plus explicit named members) - we can clone those instead of writing out the result computed index signature
+ * 		allComponentComputedNamesSerializable := b.ctx.enclosingDeclaration != nil && core.Every(indexInfo.components, b.isTriviallySerializableComputedName)
+ * 		if allComponentComputedNamesSerializable {
+ * 			// Only use computed name serialization form if all components are visible and take the `a.b.c` form
+ * 			newComponents := core.Filter(indexInfo.components, func(c *ast.Node) bool {
+ * 				// skip late bound props that contribute to the index signature - they'll be created by property creation anyway
+ * 				return !b.ch.hasLateBindableName(c)
+ * 			})
+ * 			bailed := false
+ * 			results := core.Map(newComponents, func(e *ast.Node) *ast.Node {
+ * 				name := b.reuseNode(e.Name())
+ * 				if name != nil {
+ * 					// Still need to track visibility even if we've already checked it to paint references as used
+ * 					b.trackComputedName(e.Name().Expression(), b.ctx.enclosingDeclaration)
+ * 					var mods *ast.ModifierList
+ * 					if indexInfo.isReadonly {
+ * 						mods = b.f.NewModifierList([]*ast.Node{b.f.NewModifier(ast.KindReadonlyKeyword)})
+ * 					}
+ * 					var postfixToken *ast.Node
+ * 					if e.PostfixToken() != nil {
+ * 						postfixToken = e.PostfixToken().Clone(b.f)
+ * 					}
+ * 					var currentTypeNode *ast.TypeNode
+ * 					if typeNode != nil {
+ * 						currentTypeNode = b.f.DeepCloneNode(typeNode)
+ * 					} else {
+ * 						currentTypeNode = b.typeToTypeNode(b.ch.getTypeOfSymbol(e.Symbol()))
+ * 					}
+ * 					sig := b.f.NewPropertySignatureDeclaration(
+ * 						mods,
+ * 						name,
+ * 						postfixToken,
+ * 						currentTypeNode,
+ * 						nil,
+ * 					)
+ * 					sig.Loc = e.Loc
+ * 					return sig
+ * 				}
+ * 				bailed = true
+ * 				return nil
+ * 			})
+ * 			if !bailed {
+ * 				return results
+ * 			}
+ * 		}
+ * 	}
+ * 	return []*ast.Node{b.indexInfoToIndexSignatureDeclarationHelper(indexInfo, typeNode)}
+ * }
+ */
+export function NodeBuilderImpl_indexInfoToObjectComputedNamesOrSignatureDeclaration(receiver: GoPtr<NodeBuilderImpl>, indexInfo: GoPtr<IndexInfo>, typeNode: GoPtr<TypeNode>): GoSlice<GoPtr<Node>> {
+  if ((indexInfo!.components ?? []).length > 0) {
+    // Index info is derived from object or class computed property names (plus explicit named members) - we can clone those instead of writing out the result computed index signature
+    const allComponentComputedNamesSerializable = receiver!.ctx!.enclosingDeclaration !== undefined && Every(indexInfo!.components, (e) => NodeBuilderImpl_isTriviallySerializableComputedName(receiver, e));
+    if (allComponentComputedNamesSerializable) {
+      // Only use computed name serialization form if all components are visible and take the `a.b.c` form
+      const newComponents = Filter(indexInfo!.components, (c) => {
+        // skip late bound props that contribute to the index signature - they'll be created by property creation anyway
+        return !Checker_hasLateBindableName(receiver!.ch, c);
+      });
+      let bailed = false;
+      const results = CoreMap(newComponents, (e) => {
+        const name = NodeBuilderImpl_reuseNode(receiver, Node_Name(e));
+        if (name !== undefined) {
+          // Still need to track visibility even if we've already checked it to paint references as used
+          NodeBuilderImpl_trackComputedName(receiver, Node_Expression(Node_Name(e)), receiver!.ctx!.enclosingDeclaration);
+          let mods: GoPtr<ModifierList>;
+          if (indexInfo!.isReadonly) {
+            mods = NodeFactory_NewModifierList(receiver!.f, [NodeFactory_NewModifier(receiver!.f, KindReadonlyKeyword)]);
+          }
+          let postfixToken: GoPtr<Node>;
+          if (Node_PostfixToken(e) !== undefined) {
+            postfixToken = Node_Clone(Node_PostfixToken(e), receiver!.f as unknown as NodeFactoryCoercible);
+          }
+          let currentTypeNode: GoPtr<TypeNode>;
+          if (typeNode !== undefined) {
+            currentTypeNode = NodeFactory_DeepCloneNode(receiver!.f, typeNode);
+          } else {
+            currentTypeNode = NodeBuilderImpl_typeToTypeNode(receiver, Checker_getTypeOfSymbol(receiver!.ch, Node_Symbol(e)));
+          }
+          const sig = NewPropertySignatureDeclaration(
+            receiver!.f,
+            mods as GoPtr<ModifierList>,
+            name as GoPtr<PropertyName>,
+            postfixToken,
+            currentTypeNode,
+            undefined,
+          );
+          sig!.Loc = e!.Loc;
+          return sig;
+        }
+        bailed = true;
+        return undefined;
+      });
+      if (!bailed) {
+        return results;
+      }
+    }
+  }
+  return [NodeBuilderImpl_indexInfoToIndexSignatureDeclarationHelper(receiver, indexInfo, typeNode)];
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.indexInfoToIndexSignatureDeclarationHelper","kind":"method","status":"implemented","sigHash":"8ea9817652ce8aa095a17630f1e7a34f96e7762958efa796541a9ea0c0910ac8","bodyHash":"da1ecbca33ebcdcdc89cd4143d0d58a759fbe34504c6a2599556d5d805e3f627"}
  *
  * Go source:
@@ -4625,7 +4709,19 @@ export function NodeBuilderImpl_indexInfoToIndexSignatureDeclarationHelper(recei
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.serializeTypeForDeclaration","kind":"method","status":"implemented","sigHash":"0b470c8019e7b8bda5ee206173271b4dbccb11a8d882dc517442fbc69fd6a55a","bodyHash":"11ac27288a1ce94b23cc16d248063eb2b61fff2210e7d43f88af417906a9d931"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::func::hasTypeAnnotation","kind":"func","status":"implemented","sigHash":"f0b0aa9194f7f2e3a7588139f0144c89068b5e903395fecdb04d1cc86c78249a","bodyHash":"a413c1b4922091dae74a489e0229b142e9bac62b5040070636277644dff77d51"}
+ *
+ * Go source:
+ * func hasTypeAnnotation(declaration *ast.Declaration) bool {
+ * 	return declaration != nil && declaration.Type() != nil
+ * }
+ */
+export function hasTypeAnnotation(declaration: GoPtr<Declaration>): bool {
+  return (declaration !== undefined && Node_Type(declaration) !== undefined) as bool;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.serializeTypeForDeclaration","kind":"method","status":"implemented","sigHash":"0b470c8019e7b8bda5ee206173271b4dbccb11a8d882dc517442fbc69fd6a55a","bodyHash":"f20eede70aea86325699b368d25d3df38579488752649bb957ef154370b7b80d"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) serializeTypeForDeclaration(declaration *ast.Declaration, t *Type, symbol *ast.Symbol, tryReuse bool) *ast.Node {
@@ -4677,6 +4773,12 @@ export function NodeBuilderImpl_indexInfoToIndexSignatureDeclarationHelper(recei
  * 			pt = b.pc.GetTypeOfAccessor(declaration)
  * 		} else {
  * 			pt = b.pc.GetTypeOfDeclaration(declaration)
+ * 		}
+ * 		if (pt == nil || pt.Kind == pseudochecker.PseudoTypeKindNoResult) && ast.IsBinaryExpression(declaration) {
+ * 			if decl := core.Find(symbol.Declarations, hasTypeAnnotation); decl != nil {
+ * 				// Binary expressions have a first-in-wins type annotation system. The first one with an annotation supplies the type for the rest.
+ * 				pt = b.pc.GetTypeOfDeclaration(decl)
+ * 			}
  * 		}
  * 		reportErrors := !b.ctx.suppressReportInferenceFallback
  * 		if b.pseudoTypeEquivalentToType(pt, t, !requiresAddingUndefined && (ast.IsParameterDeclaration(declaration) || ast.IsPropertySignatureDeclaration(declaration) || ast.IsPropertyDeclaration(declaration)) && isOptionalDeclaration(declaration), reportErrors) {
@@ -4773,6 +4875,13 @@ export function NodeBuilderImpl_serializeTypeForDeclaration(receiver: GoPtr<Node
       pt = PseudoChecker_GetTypeOfAccessor(receiver!.pc, declaration);
     } else {
       pt = PseudoChecker_GetTypeOfDeclaration(receiver!.pc, declaration);
+    }
+    if ((pt === undefined || pt!.Kind === PseudoTypeKindNoResult) && IsBinaryExpression(declaration)) {
+      const decl = Find(symbol_!.Declarations ?? [], hasTypeAnnotation);
+      if (decl !== undefined) {
+        // Binary expressions have a first-in-wins type annotation system. The first one with an annotation supplies the type for the rest.
+        pt = PseudoChecker_GetTypeOfDeclaration(receiver!.pc, decl as GoPtr<Declaration>);
+      }
     }
     const reportErrors = !receiver!.ctx!.suppressReportInferenceFallback;
     if (pt !== undefined && NodeBuilderImpl_pseudoTypeEquivalentToType(
@@ -4972,30 +5081,75 @@ export function NodeBuilderImpl_trackComputedName(receiver: GoPtr<NodeBuilderImp
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.createPropertyNameNodeForIdentifierOrLiteral","kind":"method","status":"implemented","sigHash":"b296ac50b6b130b1e1819e126963f957753132e87b8c167ccfd2ea33dc06e494","bodyHash":"ebd4f76f2747e45ac2bc80f51d0cc2a5cca60d0eb065160376ac217ed67e2371"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::type::propertyNameNodeKind","kind":"type","status":"implemented","sigHash":"13adc31bd574420ba8915f59ecbc9ac385a03d9c7a0449d3e1be67e4a3906c68","bodyHash":"fa7dbf4d10a7b20edb16178429d2bfcb0fb05ac5c41930a8a96740ecba5c08bd"}
+ *
+ * Go source:
+ * propertyNameNodeKind int
+ */
+export type propertyNameNodeKind = int;
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::constGroup::propertyNameNodeKindIdentifier+propertyNameNodeKindNumericLiteral+propertyNameNodeKindStringLiteral","kind":"constGroup","status":"implemented","sigHash":"65e788682b53fe37823ecea2f285df55342b0a2e07af90340f1ba91ce3b3d83f","bodyHash":"3ddc06620981a580d9f760ecad7cf7052e60875288b19a3f1f985d95eb843eb1"}
+ *
+ * Go source:
+ * const (
+ * 	propertyNameNodeKindIdentifier propertyNameNodeKind = iota
+ * 	propertyNameNodeKindNumericLiteral
+ * 	propertyNameNodeKindStringLiteral
+ * )
+ */
+export const propertyNameNodeKindIdentifier: propertyNameNodeKind = 0 as int;
+export const propertyNameNodeKindNumericLiteral: propertyNameNodeKind = 1 as int;
+export const propertyNameNodeKindStringLiteral: propertyNameNodeKind = 2 as int;
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::func::classifyPropertyName","kind":"func","status":"implemented","sigHash":"27c752b7e3034577697eb275b7b8f12a413f917d70b59f56c3634dd2572f3cd7","bodyHash":"cded99e9b74710c0b622e3bd6b6716550041df2cb263cbfd378bd489b4b4293b"}
+ *
+ * Go source:
+ * func classifyPropertyName(name string, stringNamed bool, isMethod bool) propertyNameNodeKind {
+ * 	if isMethod && name == "new" {
+ * 		return propertyNameNodeKindStringLiteral
+ * 	}
+ * 	if scanner.IsIdentifierText(name, core.LanguageVariantStandard) {
+ * 		return propertyNameNodeKindIdentifier
+ * 	}
+ * 	return core.IfElse(!stringNamed && isNumericLiteralName(name) && jsnum.FromString(name) >= 0, propertyNameNodeKindNumericLiteral, propertyNameNodeKindStringLiteral)
+ * }
+ */
+export function classifyPropertyName(name: string, stringNamed: bool, isMethod: bool): propertyNameNodeKind {
+  if (isMethod && name === "new") {
+    return propertyNameNodeKindStringLiteral;
+  }
+  if (IsIdentifierText(name, LanguageVariantStandard)) {
+    return propertyNameNodeKindIdentifier;
+  }
+  return IfElse(!stringNamed && isNumericLiteralName(name) && FromString(name) >= 0, propertyNameNodeKindNumericLiteral, propertyNameNodeKindStringLiteral);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.createPropertyNameNodeForIdentifierOrLiteral","kind":"method","status":"implemented","sigHash":"b296ac50b6b130b1e1819e126963f957753132e87b8c167ccfd2ea33dc06e494","bodyHash":"e7a9800fe1f48a7f9570cc0e9bd846061e9092acf904ad478b7423a13af72854"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) createPropertyNameNodeForIdentifierOrLiteral(name string, singleQuote bool, stringNamed bool, isMethod bool, symbol *ast.Symbol) *ast.Node {
- * 	isMethodNamedNew := isMethod && name == "new"
- * 	if !isMethodNamedNew && scanner.IsIdentifierText(name, core.LanguageVariantStandard) {
+ * 	switch classifyPropertyName(name, stringNamed, isMethod) {
+ * 	case propertyNameNodeKindIdentifier:
  * 		return b.newIdentifier(name, symbol)
- * 	}
- * 	if !stringNamed && !isMethodNamedNew && isNumericLiteralName(name) && jsnum.FromString(name) >= 0 {
+ * 	case propertyNameNodeKindNumericLiteral:
  * 		return b.f.NewNumericLiteral(name, ast.TokenFlagsNone)
+ * 	default:
+ * 		return b.f.NewStringLiteral(name, core.IfElse(singleQuote, ast.TokenFlagsSingleQuote, ast.TokenFlagsNone))
  * 	}
- * 	result := b.f.NewStringLiteral(name, core.IfElse(singleQuote, ast.TokenFlagsSingleQuote, ast.TokenFlagsNone))
- * 	return result
  * }
  */
 export function NodeBuilderImpl_createPropertyNameNodeForIdentifierOrLiteral(receiver: GoPtr<NodeBuilderImpl>, name: string, singleQuote: bool, stringNamed: bool, isMethod: bool, symbol_: GoPtr<Symbol>): GoPtr<Node> {
-  const isMethodNamedNew = isMethod && name === "new";
-  if (!isMethodNamedNew && IsIdentifierText(name, LanguageVariantStandard)) {
-    return NodeBuilderImpl_newIdentifier(receiver, name, symbol_);
+  switch (classifyPropertyName(name, stringNamed, isMethod)) {
+    case propertyNameNodeKindIdentifier:
+      return NodeBuilderImpl_newIdentifier(receiver, name, symbol_);
+    case propertyNameNodeKindNumericLiteral:
+      return NewNumericLiteral(receiver!.f, name, TokenFlagsNone);
+    default:
+      return NewStringLiteral(receiver!.f, name, singleQuote ? TokenFlagsSingleQuote : TokenFlagsNone);
   }
-  if (!stringNamed && !isMethodNamedNew && isNumericLiteralName(name) && FromString(name) >= 0) {
-    return NewNumericLiteral(receiver!.f, name, TokenFlagsNone);
-  }
-  return NewStringLiteral(receiver!.f, name, singleQuote ? TokenFlagsSingleQuote : TokenFlagsNone);
 }
 
 /**
@@ -5469,14 +5623,14 @@ export function NodeBuilderImpl_addPropertyToElementList(receiver: GoPtr<NodeBui
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.createTypeNodesFromResolvedType","kind":"method","status":"implemented","sigHash":"be0db50174cf167e5b5b2b59c34f6f8b2227ce79bde646637f1c49f79ba2b14b","bodyHash":"1df256817cb198ee00437f8195f346b252757d37cef0b56c9861fbd5ccede826"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.createTypeNodesFromResolvedType","kind":"method","status":"implemented","sigHash":"be0db50174cf167e5b5b2b59c34f6f8b2227ce79bde646637f1c49f79ba2b14b","bodyHash":"0ab0fee4037e4627b510de5e54231d297c49109cfbe31630d19e0d95e5c533e0"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) createTypeNodesFromResolvedType(resolvedType *StructuredType) *ast.NodeList {
  * 	if b.checkTruncationLength() {
  * 		if b.ctx.flags&nodebuilder.FlagsNoTruncation != 0 {
  * 			elem := b.f.NewNotEmittedTypeElement()
- * 			return b.f.NewNodeList([]*ast.TypeElement{b.e.AddSyntheticLeadingComment(elem, ast.KindMultiLineCommentTrivia, "elided", false /*hasTrailingNewLine* /)})
+ * 			return b.f.NewNodeList([]*ast.TypeElement{b.e.AddSyntheticTrailingComment(elem, ast.KindMultiLineCommentTrivia, "elided", false /*hasTrailingNewLine* /)})
  * 		}
  * 		return b.f.NewNodeList([]*ast.Node{b.f.NewPropertySignatureDeclaration(nil, b.f.NewIdentifier("..."), nil, nil, nil)})
  * 	}
@@ -5491,9 +5645,9 @@ export function NodeBuilderImpl_addPropertyToElementList(receiver: GoPtr<NodeBui
  * 		typeElements = append(typeElements, b.signatureToSignatureDeclarationHelper(signature, ast.KindConstructSignature, nil))
  * 	}
  * 	for _, info := range resolvedType.indexInfos {
- * 		typeElements = append(typeElements, b.indexInfoToIndexSignatureDeclarationHelper(info, core.IfElse(resolvedType.objectFlags&ObjectFlagsReverseMapped != 0, b.createElidedInformationPlaceholder(), nil)))
+ * 		typeElements = slices.Concat(typeElements, b.indexInfoToObjectComputedNamesOrSignatureDeclaration(info, core.IfElse(resolvedType.objectFlags&ObjectFlagsReverseMapped != 0, b.createElidedInformationPlaceholder(), nil)))
  * 	}
- * 
+ *
  * 	properties := resolvedType.properties
  * 	if len(properties) == 0 {
  * 		return b.f.NewNodeList(typeElements)
@@ -5518,7 +5672,7 @@ export function NodeBuilderImpl_addPropertyToElementList(receiver: GoPtr<NodeBui
  * 		}
  * 		if b.checkTruncationLength() && (i+2 < len(properties)-1) {
  * 			if b.ctx.flags&nodebuilder.FlagsNoTruncation != 0 {
- * 				typeElements[len(typeElements)-1] = b.e.AddSyntheticLeadingComment(typeElements[len(typeElements)-1], ast.KindMultiLineCommentTrivia, fmt.Sprintf("... %d more elided ...", len(properties)-i), false /*hasTrailingNewLine* /)
+ * 				typeElements[len(typeElements)-1] = b.e.AddSyntheticTrailingComment(typeElements[len(typeElements)-1], ast.KindMultiLineCommentTrivia, fmt.Sprintf("... %d more elided ...", len(properties)-i), false /*hasTrailingNewLine* /)
  * 			} else {
  * 				text := fmt.Sprintf("... %d more ...", len(properties)-i)
  * 				typeElements = append(typeElements, b.f.NewPropertySignatureDeclaration(nil, b.f.NewIdentifier(text), nil, nil, nil))
@@ -5539,7 +5693,7 @@ export function NodeBuilderImpl_createTypeNodesFromResolvedType(receiver: GoPtr<
   if (NodeBuilderImpl_checkTruncationLength(receiver)) {
     if ((receiver!.ctx!.flags & FlagsNoTruncation) !== 0) {
       const elem = NewNotEmittedTypeElement(receiver!.f);
-      return NodeFactory_NewNodeList(receiver!.f, [EmitContext_AddSyntheticLeadingComment(receiver!.e, elem, KindMultiLineCommentTrivia, "elided", false) as GoPtr<TypeElement>]);
+      return NodeFactory_NewNodeList(receiver!.f, [EmitContext_AddSyntheticTrailingComment(receiver!.e, elem, KindMultiLineCommentTrivia, "elided", false) as GoPtr<TypeElement>]);
     }
     return NodeFactory_NewNodeList(receiver!.f, [NewPropertySignatureDeclaration(receiver!.f, undefined, NewIdentifier(receiver!.f, "..."), undefined, undefined, undefined) as GoPtr<TypeElement>]);
   }
@@ -5555,7 +5709,10 @@ export function NodeBuilderImpl_createTypeNodesFromResolvedType(receiver: GoPtr<
   }
   const resolvedObjectFlags = (resolvedType as unknown as TypeData).AsType()!.objectFlags;
   for (const info of resolvedType!.indexInfos ?? []) {
-    typeElements.push(NodeBuilderImpl_indexInfoToIndexSignatureDeclarationHelper(receiver, info, (resolvedObjectFlags & ObjectFlagsReverseMapped) !== 0 ? NodeBuilderImpl_createElidedInformationPlaceholder(receiver) : undefined) as GoPtr<TypeElement>);
+    typeElements = slices.Concat<GoPtr<TypeElement>>(
+      typeElements,
+      NodeBuilderImpl_indexInfoToObjectComputedNamesOrSignatureDeclaration(receiver, info, (resolvedObjectFlags & ObjectFlagsReverseMapped) !== 0 ? NodeBuilderImpl_createElidedInformationPlaceholder(receiver) : undefined) as GoSlice<GoPtr<TypeElement>>,
+    );
   }
   const properties = resolvedType!.properties ?? [];
   if (properties.length === 0) {
@@ -5580,7 +5737,7 @@ export function NodeBuilderImpl_createTypeNodesFromResolvedType(receiver: GoPtr<
     }
     if (NodeBuilderImpl_checkTruncationLength(receiver) && (i + 2 < properties.length - 1)) {
       if ((receiver!.ctx!.flags & FlagsNoTruncation) !== 0) {
-        typeElements[typeElements.length - 1] = EmitContext_AddSyntheticLeadingComment(receiver!.e, typeElements[typeElements.length - 1], KindMultiLineCommentTrivia, `... ${properties.length - i} more elided ...`, false) as GoPtr<TypeElement>;
+        typeElements[typeElements.length - 1] = EmitContext_AddSyntheticTrailingComment(receiver!.e, typeElements[typeElements.length - 1], KindMultiLineCommentTrivia, `... ${properties.length - i} more elided ...`, false) as GoPtr<TypeElement>;
       } else {
         const text = `... ${properties.length - i} more ...`;
         typeElements.push(NewPropertySignatureDeclaration(receiver!.f, undefined, NewIdentifier(receiver!.f, text), undefined, undefined, undefined) as GoPtr<TypeElement>);
@@ -5594,7 +5751,7 @@ export function NodeBuilderImpl_createTypeNodesFromResolvedType(receiver: GoPtr<
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.createTypeNodeFromObjectType","kind":"method","status":"implemented","sigHash":"7b59a9696a22f521ee99cb6bcf857b48d222d0e01955a3a7bc33ba174d45f28a","bodyHash":"b933a59b3079fab9654b1c478565073a6089a8397c0932db7fbb698bbe0eaa6f"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.createTypeNodeFromObjectType","kind":"method","status":"implemented","sigHash":"7b59a9696a22f521ee99cb6bcf857b48d222d0e01955a3a7bc33ba174d45f28a","bodyHash":"dcd295993e8f1000173d46a8c35eae9e69f13c5314bdf25db78a6f77f47ed59c"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) createTypeNodeFromObjectType(t *Type) *ast.TypeNode {
@@ -5634,9 +5791,9 @@ export function NodeBuilderImpl_createTypeNodesFromResolvedType(receiver: GoPtr<
  * 			return b.ch.getOrCreateTypeFromSignature(s)
  * 		})
  * 		// count the number of type elements excluding abstract constructors
- * 		typeElementCount := len(callSigs) + (len(ctorSigs) - len(abstractSignatures)) + len(resolved.indexInfos) + (core.IfElse(b.ctx.flags&nodebuilder.FlagsWriteClassExpressionAsTypeLiteral != 0, core.CountWhere(resolved.properties, func(p *ast.Symbol) bool {
+ * 		typeElementCount := len(callSigs) + (len(ctorSigs) - len(abstractSignatures)) + len(resolved.indexInfos) + core.IfElse(b.ctx.flags&nodebuilder.FlagsWriteClassExpressionAsTypeLiteral != 0, core.CountWhere(resolved.properties, func(p *ast.Symbol) bool {
  * 			return p.Flags&ast.SymbolFlagsPrototype == 0
- * 		}), len(resolved.properties)))
+ * 		}), len(resolved.properties))
  * 		// don't include an empty object literal if there were no other static-side
  * 		// properties to write, i.e. `abstract class C { }` becomes `abstract new () => {}`
  * 		// and not `(abstract new () => {}) & {}`
@@ -5789,7 +5946,7 @@ export function NodeBuilderImpl_createAnonymousTypeNode(receiver: GoPtr<NodeBuil
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.createAnonymousTypeNodeEx","kind":"method","status":"implemented","sigHash":"f2bebebe80ca443db938b805e7ceb3358bd919e216ebbd92158f42e37ee64222","bodyHash":"2de24a242edd377879d9089f668f1f0b16267066942f7c2d9a6b470301181c92"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.createAnonymousTypeNodeEx","kind":"method","status":"implemented","sigHash":"f2bebebe80ca443db938b805e7ceb3358bd919e216ebbd92158f42e37ee64222","bodyHash":"b3a68fac9f8011067d9c483b84a0196d033ccee1b3e472b53380be04eadb0d46"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) createAnonymousTypeNodeEx(t *Type, forceClassExpansion bool, forceExpansion bool) *ast.TypeNode {
@@ -5808,7 +5965,17 @@ export function NodeBuilderImpl_createAnonymousTypeNode(receiver: GoPtr<NodeBuil
  * 			// The problem is each constituent of the intersection will be associated with typeof Err<number>
  * 			// And when extracting a type for typeof ErrImpl from typeof Err<number> does not make sense.
  * 			if ast.IsTypeQueryNode(existing) && b.getTypeFromTypeNode(existing, false) == t {
+ * 				// Guard against unbounded recursion when the existing typeof node fails to be reused
+ * 				// (e.g. its entity name isn't accessible from this scope) and the recovery boundary's
+ * 				// fallback re-enters typeToTypeNode with the very same instantiation type, which would
+ * 				// in turn try to reuse the same node again. Mark the type as visited around the reuse
+ * 				// attempt so the inner recursion bottoms out via the visitedTypes guard below.
+ * 				if b.ctx.visitedTypes.Has(typeId) {
+ * 					return b.createElidedInformationPlaceholder()
+ * 				}
+ * 				b.ctx.visitedTypes.Add(typeId)
  * 				typeNode := b.tryReuseExistingNonParameterTypeNode(existing, t, nil, nil)
+ * 				b.ctx.visitedTypes.Delete(typeId)
  * 				if typeNode != nil {
  * 					return typeNode
  * 				}
@@ -5865,7 +6032,17 @@ export function NodeBuilderImpl_createAnonymousTypeNodeEx(receiver: GoPtr<NodeBu
       const instantiationExpressionType = Type_AsInstantiationExpressionType(t);
       const existing = instantiationExpressionType!.node;
       if (IsTypeQueryNode(existing) && NodeBuilderImpl_getTypeFromTypeNode(receiver, existing as GoPtr<TypeNode>, false) === t) {
+        // Guard against unbounded recursion when the existing typeof node fails to be reused
+        // (e.g. its entity name isn't accessible from this scope) and the recovery boundary's
+        // fallback re-enters typeToTypeNode with the very same instantiation type, which would
+        // in turn try to reuse the same node again. Mark the type as visited around the reuse
+        // attempt so the inner recursion bottoms out via the visitedTypes guard below.
+        if (Set_Has(receiver!.ctx!.visitedTypes, typeId)) {
+          return NodeBuilderImpl_createElidedInformationPlaceholder(receiver);
+        }
+        Set_Add(receiver!.ctx!.visitedTypes, typeId);
         const typeNode = NodeBuilderImpl_tryReuseExistingNonParameterTypeNode(receiver, existing as GoPtr<TypeNode>, t, undefined, undefined);
+        Set_Delete(receiver!.ctx!.visitedTypes, typeId);
         if (typeNode !== undefined) {
           return typeNode;
         }
@@ -6369,7 +6546,7 @@ export function NodeBuilderImpl_typeReferenceToTypeNode(receiver: GoPtr<NodeBuil
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.visitAndTransformType","kind":"method","status":"implemented","sigHash":"6169f16b8e28d2538d50d731b6f58bd23164b9ed76ca11f895219b7521db10bc","bodyHash":"9ee307a70b7d312c82d23549d7c252196704db1d947b1b58f7580ff9ec775481"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.visitAndTransformType","kind":"method","status":"implemented","sigHash":"6169f16b8e28d2538d50d731b6f58bd23164b9ed76ca11f895219b7521db10bc","bodyHash":"4b518b95f334243d3f6c144c0b26a35b36a195dd8ec09ff6f4f1475bd73f7236"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) visitAndTransformType(t *Type, transform func(b *NodeBuilderImpl, t *Type) *ast.TypeNode) *ast.TypeNode {
@@ -6390,7 +6567,9 @@ export function NodeBuilderImpl_typeReferenceToTypeNode(receiver: GoPtr<NodeBuil
  * 	// of types allows us to catch circular references to instantiations of the same anonymous type
  * 
  * 	key := CompositeTypeCacheIdentity{typeId, b.ctx.flags, b.ctx.internalFlags}
- * 	if b.ctx.enclosingDeclaration != nil && b.links.Has(b.ctx.enclosingDeclaration) {
+ * 	// Don't rely on type cache if we're expanding a type, because we need to compute `canIncreaseExpansionDepth`.
+ * 	canUseCache := b.ctx.maxExpansionDepth < 0
+ * 	if canUseCache && b.ctx.enclosingDeclaration != nil && b.links.Has(b.ctx.enclosingDeclaration) {
  * 		links := b.links.Get(b.ctx.enclosingDeclaration)
  * 		cachedResult, ok := links.serializedTypes[key]
  * 		if ok {
@@ -6420,7 +6599,7 @@ export function NodeBuilderImpl_typeReferenceToTypeNode(receiver: GoPtr<NodeBuil
  * 	startLength := b.ctx.approximateLength
  * 	result := transform(b, t)
  * 	addedLength := b.ctx.approximateLength - startLength
- * 	if !b.ctx.reportedDiagnostic && !b.ctx.encounteredError {
+ * 	if canUseCache && !b.ctx.reportedDiagnostic && !b.ctx.encounteredError {
  * 		links := b.links.Get(b.ctx.enclosingDeclaration)
  * 		if links.serializedTypes == nil {
  * 			links.serializedTypes = make(map[CompositeTypeCacheIdentity]*SerializedTypeEntry)
@@ -6468,8 +6647,10 @@ export function NodeBuilderImpl_visitAndTransformType(receiver: GoPtr<NodeBuilde
   } else if (t!.symbol !== undefined) {
     id = { isConstructorNode: isConstructorObject, symbolId: GetSymbolId(t!.symbol), nodeId: 0 as NodeId };
   }
-  const key = compositeTypeCacheIdentityKey({ typeId: typeId, flags: receiver!.ctx!.flags, internalFlags: receiver!.ctx!.internalFlags });
-  if (receiver!.ctx!.enclosingDeclaration !== undefined && LinkStore_Has(receiver!.links as LinkStore<GoPtr<Node>, NodeBuilderLinks>, receiver!.ctx!.enclosingDeclaration)) {
+  const key: CompositeTypeCacheIdentity = { typeId: typeId, flags: receiver!.ctx!.flags, internalFlags: receiver!.ctx!.internalFlags };
+  // Don't rely on type cache if we're expanding a type, because we need to compute `canIncreaseExpansionDepth`.
+  const canUseCache = receiver!.ctx!.maxExpansionDepth < 0;
+  if (canUseCache && receiver!.ctx!.enclosingDeclaration !== undefined && LinkStore_Has(receiver!.links as LinkStore<GoPtr<Node>, NodeBuilderLinks>, receiver!.ctx!.enclosingDeclaration)) {
     const links = LinkStore_Get(receiver!.links as LinkStore<GoPtr<Node>, NodeBuilderLinks>, receiver!.ctx!.enclosingDeclaration);
     const cachedResult = links!.serializedTypes?.get(key);
     if (cachedResult !== undefined) {
@@ -6485,12 +6666,11 @@ export function NodeBuilderImpl_visitAndTransformType(receiver: GoPtr<NodeBuilde
   }
   let depth = 0;
   if (id !== undefined) {
-    const symbolDepthKey = compositeSymbolIdentityKey(id);
-    depth = receiver!.ctx!.symbolDepth.get(symbolDepthKey) ?? 0;
+    depth = receiver!.ctx!.symbolDepth.get(id) ?? 0;
     if (depth > 10) {
       return NodeBuilderImpl_createElidedInformationPlaceholder(receiver);
     }
-    receiver!.ctx!.symbolDepth.set(symbolDepthKey, depth + 1);
+    receiver!.ctx!.symbolDepth.set(id, depth + 1);
   }
   Set_Add(receiver!.ctx!.visitedTypes, typeId);
   const prevTrackedSymbols = receiver!.ctx!.trackedSymbols;
@@ -6498,10 +6678,10 @@ export function NodeBuilderImpl_visitAndTransformType(receiver: GoPtr<NodeBuilde
   const startLength = receiver!.ctx!.approximateLength;
   const result = transform(receiver, t);
   const addedLength = receiver!.ctx!.approximateLength - startLength;
-  if (!receiver!.ctx!.reportedDiagnostic && !receiver!.ctx!.encounteredError) {
+  if (canUseCache && !receiver!.ctx!.reportedDiagnostic && !receiver!.ctx!.encounteredError) {
     const links = LinkStore_Get(receiver!.links as LinkStore<GoPtr<Node>, NodeBuilderLinks>, receiver!.ctx!.enclosingDeclaration);
     if (links!.serializedTypes === undefined) {
-      links!.serializedTypes = new globalThis.Map();
+      links!.serializedTypes = NewGoStructMap<CompositeTypeCacheIdentity, GoPtr<SerializedTypeEntry>>();
     }
     links!.serializedTypes.set(key, {
       node: result,
@@ -6512,14 +6692,14 @@ export function NodeBuilderImpl_visitAndTransformType(receiver: GoPtr<NodeBuilde
   }
   Set_Delete(receiver!.ctx!.visitedTypes, typeId);
   if (id !== undefined) {
-    receiver!.ctx!.symbolDepth.set(compositeSymbolIdentityKey(id), depth);
+    receiver!.ctx!.symbolDepth.set(id, depth);
   }
   receiver!.ctx!.trackedSymbols = prevTrackedSymbols;
   return result;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.typeToTypeNode","kind":"method","status":"implemented","sigHash":"1e623e4e46ce3fa9fbf005b69ae03009a55e8cfcd0cb7f28722491040f2cd115","bodyHash":"757dcdfe713a26b3c0be06e9f03e5207909ba7450a6f0773f5a4e5746861337b"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.typeToTypeNode","kind":"method","status":"implemented","sigHash":"1e623e4e46ce3fa9fbf005b69ae03009a55e8cfcd0cb7f28722491040f2cd115","bodyHash":"5c732605b13897b3b16fefb3273a8038200e9c1b145b539741a04b9a4fb92807"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) typeToTypeNode(t *Type) *ast.TypeNode {
@@ -6749,7 +6929,7 @@ export function NodeBuilderImpl_visitAndTransformType(receiver: GoPtr<NodeBuilde
  * 		}
  * 		var name string
  * 		if (t == b.ch.markerSuperTypeForCheck || t == b.ch.markerSubTypeForCheck) && b.ch.varianceTypeParameter != nil && b.ch.varianceTypeParameter.symbol != nil {
- * 			name = (core.IfElse(t == b.ch.markerSubTypeForCheck, "sub-", "super-")) + ast.SymbolName(b.ch.varianceTypeParameter.symbol)
+ * 			name = core.IfElse(t == b.ch.markerSubTypeForCheck, "sub-", "super-") + ast.SymbolName(b.ch.varianceTypeParameter.symbol)
  * 		} else {
  * 			name = "?"
  * 		}
@@ -6798,6 +6978,7 @@ export function NodeBuilderImpl_visitAndTransformType(receiver: GoPtr<NodeBuilde
  * 		texts := t.AsTemplateLiteralType().texts
  * 		types := t.AsTemplateLiteralType().types
  * 		templateHead := b.f.NewTemplateHead(texts[0], "", ast.TokenFlagsNone)
+ * 		b.e.AddEmitFlags(templateHead, printer.EFNoAsciiEscaping)
  * 		templateSpans := b.f.NewNodeList(core.MapIndex(types, func(t *Type, i int) *ast.Node {
  * 			var res *ast.TemplateMiddleOrTail
  * 			if i < len(types)-1 {
@@ -6805,6 +6986,7 @@ export function NodeBuilderImpl_visitAndTransformType(receiver: GoPtr<NodeBuilde
  * 			} else {
  * 				res = b.f.NewTemplateTail(texts[i+1], "", ast.TokenFlagsNone)
  * 			}
+ * 			b.e.AddEmitFlags(res, printer.EFNoAsciiEscaping)
  * 			return b.f.NewTemplateLiteralTypeSpan(b.typeToTypeNode(t), res)
  * 		}))
  * 		b.ctx.approximateLength += 2
@@ -7089,10 +7271,12 @@ export function NodeBuilderImpl_typeToTypeNode(receiver: GoPtr<NodeBuilderImpl>,
       const texts = templateType!.texts;
       const types = templateType!.types;
       const templateHead = NewTemplateHead(receiver!.f, texts[0] ?? "", "", TokenFlagsNone);
+      EmitContext_AddEmitFlags(receiver!.e, templateHead, EFNoAsciiEscaping);
       const templateSpans = NodeFactory_NewNodeList(receiver!.f, MapIndex(types, (typePart: GoPtr<Type>, index: int): GoPtr<Node> => {
         const literal = index < types.length - 1
           ? NewTemplateMiddle(receiver!.f, texts[index + 1] ?? "", "", TokenFlagsNone)
           : NewTemplateTail(receiver!.f, texts[index + 1] ?? "", "", TokenFlagsNone);
+        EmitContext_AddEmitFlags(receiver!.e, literal, EFNoAsciiEscaping);
         return NewTemplateLiteralTypeSpan(receiver!.f, NodeBuilderImpl_typeToTypeNode(receiver, typePart), literal as GoPtr<Node>);
       }));
       receiver!.ctx!.approximateLength += 2;
@@ -7287,24 +7471,25 @@ export function NodeBuilderImpl_lookupInstantiatedTypeArgumentNodes(receiver: Go
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.lookupExpressionChainTypeArgumentNodes","kind":"method","status":"implemented","sigHash":"8e5f7188bc4fb046d762d3c0430bbb819f67804a39abeeb3f1dabf3ddc20649f","bodyHash":"9da36aaac153c8ee95aaea607088637ee69f469af46398d6db6e4dffb92062c3"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodebuilderimpl.go::method::NodeBuilderImpl.lookupExpressionChainTypeArgumentNodes","kind":"method","status":"implemented","sigHash":"8e5f7188bc4fb046d762d3c0430bbb819f67804a39abeeb3f1dabf3ddc20649f","bodyHash":"3766a6a6d058ade253d889b2e20354278169021ef00356b7bfbd90f8f914663f"}
  *
  * Go source:
  * func (b *NodeBuilderImpl) lookupExpressionChainTypeArgumentNodes(chain []*ast.Symbol, index int) *ast.TypeParameterList {
  * 	if b.shouldWriteTypeParametersInQualifiedName(chain, index) {
  * 		symbol := chain[index]
  * 		symbolId := ast.GetSymbolId(symbol)
- * 		if !b.ctx.hasCreatedTypeParameterSymbolList {
- * 			b.ctx.hasCreatedTypeParameterSymbolList = true
- * 			b.ctx.typeParameterSymbolList = make(map[ast.SymbolId]struct{})
- * 		}
- * 
- * 		if _, ok := b.ctx.typeParameterSymbolList[symbolId]; ok {
+ * 		if b.ctx.typeParameterSymbolList.Has(symbolId) {
  * 			return nil
  * 		}
- * 
- * 		b.ctx.typeParameterSymbolList[symbolId] = struct{}{}
- * 		return b.lookupInstantiatedTypeArgumentNodes(chain, index)
+ *
+ * 		b.ctx.typeParameterSymbolList.Add(symbolId)
+ * 		if typeArgumentNodes := b.lookupInstantiatedTypeArgumentNodes(chain, index); typeArgumentNodes != nil {
+ * 			return typeArgumentNodes
+ * 		}
+ * 		typeParameterNodes := b.typeParametersToTypeParameterDeclarations(symbol)
+ * 		if len(typeParameterNodes) > 0 {
+ * 			return b.f.NewNodeList(typeParameterNodes)
+ * 		}
  * 	}
  * 	return nil
  * }
@@ -7313,15 +7498,18 @@ export function NodeBuilderImpl_lookupExpressionChainTypeArgumentNodes(receiver:
   if (NodeBuilderImpl_shouldWriteTypeParametersInQualifiedName(receiver, chain, index)) {
     const symbol_ = chain[index];
     const symbolId = GetSymbolId(symbol_);
-    if (!receiver!.ctx!.hasCreatedTypeParameterSymbolList) {
-      receiver!.ctx!.hasCreatedTypeParameterSymbolList = true;
-      receiver!.ctx!.typeParameterSymbolList = new globalThis.Map();
-    }
-    if (receiver!.ctx!.typeParameterSymbolList!.has(symbolId)) {
+    if (CopyOnWriteSet_Has(receiver!.ctx!.typeParameterSymbolList, symbolId)) {
       return undefined;
     }
-    receiver!.ctx!.typeParameterSymbolList!.set(symbolId, {} as { readonly __tsgoEmpty?: never });
-    return NodeBuilderImpl_lookupInstantiatedTypeArgumentNodes(receiver, chain, index);
+    CopyOnWriteSet_Add(receiver!.ctx!.typeParameterSymbolList, symbolId);
+    const typeArgumentNodes = NodeBuilderImpl_lookupInstantiatedTypeArgumentNodes(receiver, chain, index);
+    if (typeArgumentNodes !== undefined) {
+      return typeArgumentNodes;
+    }
+    const typeParameterNodes = NodeBuilderImpl_typeParametersToTypeParameterDeclarations(receiver, symbol_);
+    if (typeParameterNodes !== undefined && typeParameterNodes.length > 0) {
+      return NodeFactory_NewNodeList(receiver!.f, typeParameterNodes);
+    }
   }
   return undefined;
 }

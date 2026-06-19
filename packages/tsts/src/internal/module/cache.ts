@@ -1,8 +1,8 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoMap, GoPtr } from "../../go/compat.js";
 import { Map, Once } from "../../go/sync.js";
 import type { SyncMap } from "../collections/syncmap.js";
-import { SyncMap_Load, SyncMap_Store } from "../collections/syncmap.js";
+import { SyncMap_Load, SyncMap_LoadOrStore, SyncMap_Store } from "../collections/syncmap.js";
 import type { CompilerOptions, ResolutionMode } from "../core/compileroptions.js";
 import type { InfoCache } from "../packagejson/cache.js";
 import { NewInfoCache } from "../packagejson/cache.js";
@@ -60,15 +60,15 @@ export function moduleResolutionCache_Get(receiver: GoPtr<moduleResolutionCache>
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/module/cache.go::method::moduleResolutionCache.Set","kind":"method","status":"implemented","sigHash":"e06f4591536431344b2f2372edf63bd6fd38978018999a1d176025a05e091cc8","bodyHash":"c6465ff8ac1404996f6e4eda160c9c92028248db5b8696448f65914d6ce73d8d"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/module/cache.go::method::moduleResolutionCache.Set","kind":"method","status":"implemented","sigHash":"e06f4591536431344b2f2372edf63bd6fd38978018999a1d176025a05e091cc8","bodyHash":"26ea61363acf1f3c63fb3e455e3f14223fd0ec609df2777031373fd6bffbe58a"}
  *
  * Go source:
  * func (c *moduleResolutionCache) Set(key moduleResolutionCacheKey, value *ResolvedModule) {
- * 	c.cache.Store(key, value)
+ * 	c.cache.LoadOrStore(key, value)
  * }
  */
 export function moduleResolutionCache_Set(receiver: GoPtr<moduleResolutionCache>, key: moduleResolutionCacheKey, value: GoPtr<ResolvedModule>): void {
-  SyncMap_Store(receiver!.cache, key, value);
+  SyncMap_LoadOrStore(receiver!.cache, key, value);
 }
 
 /**

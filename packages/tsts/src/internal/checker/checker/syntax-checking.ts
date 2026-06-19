@@ -1,5 +1,6 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice, GoMap } from "../../../go/compat.js";
+import { recordExtensionOperatorResolution } from "../../../extensions/checker-integration.js";
 import type { Context } from "../../../go/context.js";
 import { Node_AsNode, Node_Pos, Node_End, Node_Name, Node_BodyData } from "../../ast/spine.js";
 import type { Node } from "../../ast/spine.js";
@@ -56,9 +57,11 @@ import {
   GetExtendsHeritageClauseElement, GetEnclosingBlockScopeContainer, NodeKindIs, IsStatic,
 } from "../../ast/utilities.js";
 import type { OuterExpressionKinds } from "../../ast/utilities.js";
-import { FunctionFlagsAsync, FunctionFlagsGenerator, GetFunctionFlags } from "../../ast/functionflags.js";
+import { FunctionFlagsAsync, FunctionFlagsGenerator, FunctionFlagsInvalid, GetFunctionFlags } from "../../ast/functionflags.js";
 import { ModifierFlagsAbstract } from "../../ast/modifierflags.js";
-import { ScriptTargetES2016, ScriptTargetES2021 } from "../../core/compileroptions.js";
+import { ScriptTargetES2016, ScriptTargetES2021, CompilerOptions_GetUseDefineForClassFields } from "../../core/compileroptions.js";
+import { Checker_checkExternalEmitHelpers } from "../checker.js";
+import { LanguageFeatureMinimumTarget, ExternalEmitHelpersForAwaitOfIncludes, ExternalEmitHelpersAsyncDelegatorIncludes, ExternalEmitHelpersClassPrivateFieldIn } from "../types.js";
 import { Checker_checkSourceElements, Checker_checkSourceElement, Checker_checkUnusedRenamedBindingElements, Checker_error, Checker_errorOrSuggestion, Checker_reportUnused, Checker_checkNaNEquality, Checker_checkAssertionDeferred, keyBuilder_writeInt, Checker_checkThisBeforeSuper, Checker_checkAssertion } from "./support.js";
 import { Checker_checkReflectCollision, Checker_checkWeakMapSetCollision } from "./support.js";
 import { Checker_getSuggestedBooleanOperator, Checker_isSideEffectFree, Checker_isContextSensitive, Checker_isConstContext, Checker_getThisContainer } from "./support-queries.js";
@@ -689,7 +692,7 @@ export function Checker_checkForInStatement(receiver: GoPtr<Checker>, node: GoPt
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkForOfStatement","kind":"method","status":"implemented","sigHash":"e566e597fa7d439638d7e79f7f6a58beadd26a29858a11cc0387de04ffb22181","bodyHash":"18f7d2b94e8191b806bcb52f922e8e8422e4950a5bea55c6aae6484022926b31"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkForOfStatement","kind":"method","status":"implemented","sigHash":"e566e597fa7d439638d7e79f7f6a58beadd26a29858a11cc0387de04ffb22181","bodyHash":"f6328f542ab5a70b49442a84232412dc6cab6f7c4c95af06a08d922482124273"}
  *
  * Go source:
  * func (c *Checker) checkForOfStatement(node *ast.Node) {
@@ -699,6 +702,12 @@ export function Checker_checkForInStatement(receiver: GoPtr<Checker>, node: GoPt
  * 	if data.AwaitModifier != nil {
  * 		if container != nil && ast.IsClassStaticBlockDeclaration(container) {
  * 			c.grammarErrorOnNode(data.AwaitModifier, diagnostics.X_for_await_loops_cannot_be_used_inside_a_class_static_block)
+ * 		} else {
+ * 			functionFlags := ast.GetFunctionFlags(container)
+ * 			if functionFlags&(ast.FunctionFlagsInvalid|ast.FunctionFlagsAsync) == ast.FunctionFlagsAsync && c.languageVersion < LanguageFeatureMinimumTarget.ForAwaitOf {
+ * 				// for..await..of in an async function or async generator function prior to ESNext requires the __asyncValues helper
+ * 				c.checkExternalEmitHelpers(node, ExternalEmitHelpersForAwaitOfIncludes)
+ * 			}
  * 		}
  * 	} // Check the LHS and RHS
  * 	// If the LHS is a declaration, just check it as a variable declaration, which will in turn check the RHS
@@ -741,6 +750,12 @@ export function Checker_checkForOfStatement(receiver: GoPtr<Checker>, node: GoPt
   if (data!.AwaitModifier !== undefined) {
     if (container !== undefined && IsClassStaticBlockDeclaration(container)) {
       Checker_grammarErrorOnNode(receiver, data!.AwaitModifier, X_for_await_loops_cannot_be_used_inside_a_class_static_block);
+    } else {
+      const functionFlags = GetFunctionFlags(container);
+      if ((functionFlags & (FunctionFlagsInvalid | FunctionFlagsAsync)) === FunctionFlagsAsync && receiver!.languageVersion < LanguageFeatureMinimumTarget.ForAwaitOf) {
+        // for..await..of in an async function or async generator function prior to ESNext requires the __asyncValues helper
+        Checker_checkExternalEmitHelpers(receiver, node, ExternalEmitHelpersForAwaitOfIncludes);
+      }
     }
   }
   if (IsVariableDeclarationList(data!.Initializer)) {
@@ -2437,7 +2452,7 @@ export function Checker_checkSpreadExpression(receiver: GoPtr<Checker>, node: Go
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkYieldExpression","kind":"method","status":"implemented","sigHash":"ca5351ce5b1396a25f75d6b3f3665519cc09ba0f1c550fec2775a1fa0cd8b7e8","bodyHash":"4d383992c6d71519e116ad92d0292a7a68e70065ee412139c02d0dd1668eab20"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkYieldExpression","kind":"method","status":"implemented","sigHash":"ca5351ce5b1396a25f75d6b3f3665519cc09ba0f1c550fec2775a1fa0cd8b7e8","bodyHash":"f74258dfa6dabc87032d5f3162d9e7cdb7e79fffda3d5920dc3f9b8f2711db4d"}
  *
  * Go source:
  * func (c *Checker) checkYieldExpression(node *ast.Node) *Type {
@@ -2452,6 +2467,13 @@ export function Checker_checkSpreadExpression(receiver: GoPtr<Checker>, node: Go
  * 		return c.anyType
  * 	}
  * 	isAsync := (functionFlags & ast.FunctionFlagsAsync) != 0
+ * 	if node.AsYieldExpression().AsteriskToken != nil {
+ * 		// Async generator functions prior to ES2018 require the __await, __asyncDelegator,
+ * 		// and __asyncValues helpers
+ * 		if isAsync && c.languageVersion < LanguageFeatureMinimumTarget.AsyncGenerators {
+ * 			c.checkExternalEmitHelpers(node, ExternalEmitHelpersAsyncDelegatorIncludes)
+ * 		}
+ * 	}
  * 	// There is no point in doing an assignability check if the function
  * 	// has no explicit return type because the return type is directly computed
  * 	// from the yield expressions.
@@ -2508,6 +2530,13 @@ export function Checker_checkYieldExpression(receiver: GoPtr<Checker>, node: GoP
     return receiver!.anyType;
   }
   const isAsync = (functionFlags & FunctionFlagsAsync) !== 0;
+  if (AsYieldExpression(node)!.AsteriskToken !== undefined) {
+    // Async generator functions prior to ES2018 require the __await, __asyncDelegator,
+    // and __asyncValues helpers
+    if (isAsync && receiver!.languageVersion < LanguageFeatureMinimumTarget.AsyncGenerators) {
+      Checker_checkExternalEmitHelpers(receiver, node, ExternalEmitHelpersAsyncDelegatorIncludes);
+    }
+  }
   let returnType = Checker_getReturnTypeFromAnnotation(receiver, fn);
   if (returnType !== undefined && (returnType!.flags & TypeFlagsUnion) !== 0) {
     returnType = Checker_filterType(
@@ -2732,6 +2761,7 @@ export function Checker_checkThisExpression(receiver: GoPtr<Checker>, node: GoPt
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkBinaryExpression","kind":"method","status":"implemented","sigHash":"7789a2bf27bb77f18361e12bbc4e9dd02304e6f162df1c874f94945d2d4b1bcf","bodyHash":"9faf599e69844635f35db6e35e11439ef3ffa75966c09b3c8e952309b3251d42"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go binary expression checking, extension-enabled programs may record provider-selected target operator facts for consumers; no-extension programs and unowned operators remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkBinaryExpression(node *ast.Node, checkMode CheckMode) *Type {
@@ -2740,11 +2770,15 @@ export function Checker_checkThisExpression(receiver: GoPtr<Checker>, node: GoPt
  * }
  */
 export function Checker_checkBinaryExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type> {
-  if (isIterativelyCheckableNonLogicalBinaryExpression(node)) {
-    return Checker_checkNonLogicalBinaryExpressionIterative(receiver, node, checkMode);
-  }
   const binary = AsBinaryExpression(node);
-  return Checker_checkBinaryLikeExpression(receiver, binary!.Left, binary!.OperatorToken, binary!.Right, checkMode, node);
+  if (isIterativelyCheckableNonLogicalBinaryExpression(node)) {
+    const result = Checker_checkNonLogicalBinaryExpressionIterative(receiver, node, checkMode);
+    recordExtensionOperatorResolution(receiver, node, binary!.OperatorToken, binary!.Left, binary!.Right);
+    return result;
+  }
+  const result = Checker_checkBinaryLikeExpression(receiver, binary!.Left, binary!.OperatorToken, binary!.Right, checkMode, node);
+  recordExtensionOperatorResolution(receiver, node, binary!.OperatorToken, binary!.Left, binary!.Right);
+  return result;
 }
 
 function Checker_checkNonLogicalBinaryExpressionIterative(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type> {
@@ -3328,7 +3362,7 @@ export function Checker_checkInstanceOfExpression(receiver: GoPtr<Checker>, left
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkInExpression","kind":"method","status":"implemented","sigHash":"67490d91e8813d5f282efb3b653e098348f6422749ee9862664626ce9054f7f1","bodyHash":"9513c98292edd24318d792f4e83f5455a9f4493914809a587896b675eee79175"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkInExpression","kind":"method","status":"implemented","sigHash":"67490d91e8813d5f282efb3b653e098348f6422749ee9862664626ce9054f7f1","bodyHash":"1dc7797a0a0ef2f53bf50a1cf9e22f76700574a0a4589e5f37456a5b4ab532e3"}
  *
  * Go source:
  * func (c *Checker) checkInExpression(left *ast.Expression, right *ast.Expression, leftType *Type, rightType *Type) *Type {
@@ -3336,6 +3370,11 @@ export function Checker_checkInstanceOfExpression(receiver: GoPtr<Checker>, left
  * 		return c.silentNeverType
  * 	}
  * 	if ast.IsPrivateIdentifier(left) {
+ * 		if c.languageVersion < LanguageFeatureMinimumTarget.PrivateNamesAndClassStaticBlocks ||
+ * 			c.languageVersion < LanguageFeatureMinimumTarget.ClassAndClassElementDecorators ||
+ * 			!c.compilerOptions.GetUseDefineForClassFields() {
+ * 			c.checkExternalEmitHelpers(left, ExternalEmitHelpersClassPrivateFieldIn)
+ * 		}
  * 		// Unlike in 'checkPrivateIdentifierExpression' we now have access to the RHS type
  * 		// which provides us with the opportunity to emit more detailed errors
  * 		if c.symbolNodeLinks.Get(left).resolvedSymbol == nil && ast.GetContainingClass(left) != nil {
@@ -3365,6 +3404,13 @@ export function Checker_checkInExpression(receiver: GoPtr<Checker>, left: GoPtr<
     return receiver!.silentNeverType;
   }
   if (IsPrivateIdentifier(left as unknown as GoPtr<Node>)) {
+    if (
+      receiver!.languageVersion < LanguageFeatureMinimumTarget.PrivateNamesAndClassStaticBlocks ||
+      receiver!.languageVersion < LanguageFeatureMinimumTarget.ClassAndClassElementDecorators ||
+      !CompilerOptions_GetUseDefineForClassFields(receiver!.compilerOptions)
+    ) {
+      Checker_checkExternalEmitHelpers(receiver, left, ExternalEmitHelpersClassPrivateFieldIn);
+    }
     const links = LinkStore_Get(receiver!.symbolNodeLinks, left as unknown as GoPtr<Node>) as GoPtr<SymbolNodeLinks>;
     if (links!.resolvedSymbol === undefined && GetContainingClass(left as unknown as GoPtr<Node>) !== undefined) {
       const isUncheckedJS = Checker_isUncheckedJSSuggestion(receiver, left as unknown as GoPtr<Node>, rightType!.symbol, true);

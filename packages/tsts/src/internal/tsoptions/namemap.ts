@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
 import { NewOrderedMapWithSizeHint, OrderedMap_GetOrZero, OrderedMap_Set } from "../collections/ordered_map.js";
@@ -69,7 +69,7 @@ export function GetNameMapFromList(optDecls: GoSlice<GoPtr<CommandLineOption>>):
  * }
  */
 export interface NameMap {
-  optionsNames: GoPtr<OrderedMap>;
+  optionsNames: GoPtr<OrderedMap<string, GoPtr<CommandLineOption>>>;
   shortOptionNames: GoMap<string, string>;
 }
 
