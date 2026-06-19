@@ -1385,6 +1385,55 @@ test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits TypeScript numeric enums as C# enums", async () => {
+  const projectDirectory = resolve(tempRoot, "numeric-enums");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedEnums",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export enum Direction {",
+      "  Up = 1,",
+      "  Down = 2,",
+      "  Left = 4,",
+      "  Right = Left << 1,",
+      "}",
+      "",
+      "export function turn(direction: Direction): Direction {",
+      "  return direction === Direction.Up ? Direction.Right : Direction.Up;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public enum Direction/);
+  assert.match(generatedSource, /Up = 1,/);
+  assert.match(generatedSource, /Down = 2,/);
+  assert.match(generatedSource, /Left = 4,/);
+  assert.match(generatedSource, /Right = Left << 1/);
+  assert.match(generatedSource, /public static Direction turn\(Direction direction\)/);
+  assert.match(generatedSource, /return direction == Direction\.Up \? Direction\.Right : Direction\.Up;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedEnums.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits interface index signatures as C# indexers", async () => {
   const projectDirectory = resolve(tempRoot, "interface-index-signature");
   await writeProject(projectDirectory, {
