@@ -604,6 +604,50 @@ test("CLI emits TypeScript rest parameters as C# params arrays", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rewrites mixed-type for initializers into C# prelude locals", async () => {
+  const projectDirectory = resolve(tempRoot, "mixed-for-initializers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedMixedForInitializers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function mixed(limit: number): number {",
+      "  let total = 0;",
+      "  for (let index = 0, active = true; index < limit; index++) {",
+      "    if (active) {",
+      "      total = total + index;",
+      "    }",
+      "  }",
+      "  return total;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /double index = 0;/);
+  assert.match(generatedSource, /bool active = true;/);
+  assert.match(generatedSource, /for \(; index < limit; index\+\+\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedMixedForInitializers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits standard JavaScript static class members", async () => {
   const projectDirectory = resolve(tempRoot, "static-class-members");
   await writeProject(projectDirectory, {
