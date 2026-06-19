@@ -98,6 +98,7 @@ export {
   AsSwitchStatement,
   AsThrowStatement,
   AsTryStatement,
+  AsTypeAliasDeclaration,
   AsTypeParameterDeclaration,
   AsTypeReferenceNode,
   AsExpressionWithTypeArguments,

@@ -20,7 +20,7 @@ import {
   Node_TypeArguments,
 } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
-import { AsCallExpression, AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
+import { AsCallExpression, AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeAliasDeclaration, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
 import {
   KindArrowFunction,
   KindCallExpression,
@@ -44,6 +44,7 @@ import {
   KindTypeKeyword,
   KindTypeReference,
   KindTupleType,
+  KindTypeAliasDeclaration,
   KindVariableDeclaration,
 } from "../internal/ast/generated/kinds.js";
 import { IsLeftHandSideExpression } from "../internal/ast/utilities.js";
@@ -271,6 +272,7 @@ function recordSourceSemanticsFacts(
   const attributeFacts: AttributeFactAccumulator = new Map();
   recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, modules, markerImportIndex, attributeFacts);
   recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerImportIndex);
+  recordSourceSemanticsTypeAliases(facts, sourceFile);
   flushAttributeFacts(facts, attributeFacts);
 }
 
@@ -987,6 +989,42 @@ function recordSourceSemanticsTypeReferences(
       facts.set(right, sourcePrimitiveFactKey, stripExportName(primitive.primitiveFact), evidence);
     }
   });
+}
+
+function recordSourceSemanticsTypeAliases(
+  facts: ExtensionFactStore,
+  sourceFile: GoPtr<SourceFile>,
+): void {
+  visitSourceSemanticsNode(sourceFile, (node) => {
+    if (node?.Kind !== KindTypeAliasDeclaration) {
+      return;
+    }
+    const alias = AsTypeAliasDeclaration(node)!;
+    const primitive = facts.get(alias.Type, sourcePrimitiveFactKey);
+    const identity = facts.get(alias.Type, canonicalIdentityFactKey);
+    if (primitive === undefined || identity === undefined || alias.name === undefined) {
+      return;
+    }
+    const evidence = createAliasEvidence(Node_Text(alias.name), identity.exportName ?? identity.id);
+    facts.set(alias.name, sourcePrimitiveFactKey, primitive, evidence);
+    facts.set(alias.name, canonicalIdentityFactKey, identity, evidence);
+    const nameSymbol = Node_Symbol(alias.name);
+    if (nameSymbol !== undefined) {
+      facts.set(nameSymbol, sourcePrimitiveFactKey, primitive, evidence);
+      facts.set(nameSymbol, canonicalIdentityFactKey, identity, evidence);
+    }
+    const declarationSymbol = Node_Symbol(node);
+    if (declarationSymbol !== undefined && declarationSymbol !== nameSymbol) {
+      facts.set(declarationSymbol, sourcePrimitiveFactKey, primitive, evidence);
+      facts.set(declarationSymbol, canonicalIdentityFactKey, identity, evidence);
+    }
+  });
+}
+
+function createAliasEvidence(aliasName: string, targetName: string): readonly ExtensionEvidence[] {
+  return [{
+    message: `Type alias '${aliasName}' preserves source primitive '${targetName}'.`,
+  }];
 }
 
 function recordSourceSemanticsTypeMarker(
