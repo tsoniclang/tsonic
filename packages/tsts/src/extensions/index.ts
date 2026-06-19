@@ -25,12 +25,14 @@ export {
   finalizeExtensionSemantics,
 } from "./compiler-integration.js";
 export {
+  getSingleTypeScriptCallSignatureInfo,
   getTypeScriptArrayElementType,
   getTypeScriptTypeReferenceInfo,
   isTypeScriptStringLikeType,
   isTypeScriptArrayType,
 } from "./type-helpers.js";
 export type {
+  TypeScriptCallSignatureInfo,
   TypeScriptTypeReferenceInfo,
 } from "./type-helpers.js";
 export {

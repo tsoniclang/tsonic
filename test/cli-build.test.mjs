@@ -7,7 +7,7 @@ import test from "node:test";
 
 const repoRoot = process.cwd();
 const cliPath = resolve(repoRoot, "packages/cli/dist/src/index.js");
-const tempRoot = resolve(repoRoot, ".temp/test-runs/cli-build");
+const tempRoot = resolve(repoRoot, ".temp/test-runs/cli-build", `${Date.now()}-${process.pid}`);
 
 test("CLI lists built-in target packs", () => {
   const result = runNode([cliPath, "targets"]);
@@ -2351,6 +2351,11 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
       "  return mapper(5);",
       "}",
       "",
+      "export function useInferredLocal(): number {",
+      "  const mapper = (input: number) => input + 3;",
+      "  return mapper(8);",
+      "}",
+      "",
       "export function useBlock(): number {",
       "  const mapper: (input: number) => number = (input) => {",
       "    const next = input + 1;",
@@ -2376,6 +2381,7 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
   assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
   assert.match(generatedSource, /return apply\(3, input => input \+ 4\);/);
   assert.match(generatedSource, /Func<double, double> mapper = input => input \* 2;/);
+  assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \+ 3;/);
   assert.match(generatedSource, /Func<double, double> mapper = input =>\n\s*\{/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) =>\n\s*\{/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
