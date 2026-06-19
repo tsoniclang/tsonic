@@ -9,7 +9,7 @@ import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Type } from "../internal/checker/types.js";
 import { ExtensionDecisionQuestion } from "./decisions.js";
 import type { AssignabilityRequest, ContextualTypeRequest, ContextualTypeResult, InferTypeArgumentsRequest, InferTypeArgumentsResult, ParameterModeRequest, ParameterModeResult, ResolveCallRequest, ResolveCallResult, ResolveConversionRequest, ResolveConversionResult, ResolveElementAccessRequest, ResolveOperationResult, ResolveOperatorRequest, ResolvePropertyAccessRequest, RuntimeCarrierRequest, RuntimeCarrierResult, SatisfiesConstraintRequest, ValidateFlowUseRequest, ValidateFlowUseResult } from "./decisions.js";
-import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
+import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetIterationFactKey, targetOperationFactKey } from "./facts.js";
 import type { ExtensionEvidence, ExtensionFactKey, ExtensionFactSubject, ExtensionHost } from "./host.js";
 import { getExtensionHost } from "./host.js";
 
@@ -181,6 +181,57 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
   }
 
   extensionHost.facts.set(expression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
+}
+
+export function recordExtensionIterationResolution(
+  checker: GoPtr<CheckerWithProgram>,
+  statement: GoPtr<Node>,
+  iterable: GoPtr<Node>,
+  iterableType: GoPtr<Type>,
+  iteratedType: GoPtr<Type>,
+  iterationKind: "sync" | "async",
+): void {
+  if (checker === undefined || statement === undefined || iterable === undefined) {
+    return;
+  }
+
+  const extensionHost = getExtensionHost(checker.program);
+  if (
+    extensionHost === undefined ||
+    (
+      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveIteration) === undefined &&
+      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolveIteration)
+    )
+  ) {
+    return;
+  }
+
+  const result = extensionHost.runDecision(
+    ExtensionDecisionQuestion.resolveIteration,
+    {
+      statement,
+      iterable,
+      ...(iterableType !== undefined ? { iterableType } : {}),
+      iterationKind,
+      ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
+    },
+    () => {
+      throw new Error("Optional extension iteration resolution unexpectedly reached core fallback.");
+    },
+    { deferWhenUnanswered: true },
+  );
+
+  if (result.kind !== "accept") {
+    return;
+  }
+
+  const iteration = result.value.iteration.elementType === undefined && result.value.elementType !== undefined
+    ? { ...result.value.iteration, elementType: result.value.elementType }
+    : result.value.iteration;
+  const fact = iteration.elementType === undefined && iteratedType !== undefined
+    ? { ...iteration, elementType: iteratedType }
+    : iteration;
+  extensionHost.facts.set(statement, targetIterationFactKey, fact, result.evidence ?? []);
 }
 
 export function recordExtensionTypeArgumentConstraintResolution(checker: GoPtr<CheckerWithProgram>, typeReference: GoPtr<Node>, symbol: GoPtr<Symbol>): boolean {

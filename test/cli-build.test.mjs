@@ -2221,6 +2221,32 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects string for-of until provider iteration facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "string-for-of");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function totalLength(value: string): number {",
+      "  let total = 0;",
+      "  for (const ch of value) {",
+      "    total = total + ch.length;",
+      "  }",
+      "  return total;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# for-of emission requires finalized TSTS\/provider iteration facts/);
+});
+
 test("CLI rejects primitive generic constraints until provider constraint facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "primitive-generic-constraints");
   await writeProject(projectDirectory, {

@@ -10,7 +10,7 @@ import { Node_End, Node_ForEachChild, Node_Pos } from "../internal/ast/spine.js"
 import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
 import { Diagnostic_Code, Diagnostic_End, Diagnostic_Pos, Diagnostic_String } from "../internal/ast/diagnostic.js";
 import { AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
-import { KindArrowFunction, KindBinaryExpression, KindCallExpression, KindElementAccessExpression, KindIdentifier, KindNumberKeyword, KindPropertyAccessExpression, KindTypeReference } from "../internal/ast/generated/kinds.js";
+import { KindArrowFunction, KindBinaryExpression, KindCallExpression, KindElementAccessExpression, KindForOfStatement, KindIdentifier, KindNumberKeyword, KindPropertyAccessExpression, KindTypeReference } from "../internal/ast/generated/kinds.js";
 import { LibPath, WrapFS } from "../internal/bundled/bundled.js";
 import type { CompilerOptions } from "../internal/core/compileroptions.js";
 import { ResolutionModeESM } from "../internal/core/compileroptions.js";
@@ -31,8 +31,8 @@ import type { ParseConfigHost } from "../internal/tsoptions/tsconfigparsing.js";
 import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
 import { FromMap } from "../internal/vfs/vfstest/vfstest.js";
 import { TstsProviderContractVersion, ExtensionDecisionQuestion, ExtensionHostDiagnosticCode, acceptDecision, argumentPassingFactKey, attachExtensionHost, createExtensionConsumerQueries, createSourceSemanticsExtension, deferDecision, finalizeExtensionSemantics, getExtensionHost, rejectDecision, runtimeCarrierFactKey, sourcePrimitive, sourcePrimitiveFactKey, targetConversionFactKey } from "./index.js";
-import { canonicalIdentityFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, selectedTargetSignatureFactKey, targetOperationFactKey, targetBindingFactKey } from "./index.js";
-import type { CompilerExtension, ExtensionDecisionContext, ExtensionFactSubject, ResolveCallRequest, SatisfiesConstraintRequest, SourcePrimitiveFact, SelectedTargetSignatureFact, TargetOperationFact, TargetBindingProvider, TargetIdentity, TargetMember, TargetSemanticProvider } from "./index.js";
+import { canonicalIdentityFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, selectedTargetSignatureFactKey, targetIterationFactKey, targetOperationFactKey, targetBindingFactKey } from "./index.js";
+import type { CompilerExtension, ExtensionDecisionContext, ExtensionFactSubject, ResolveCallRequest, SatisfiesConstraintRequest, SourcePrimitiveFact, SelectedTargetSignatureFact, TargetIterationFact, TargetOperationFact, TargetBindingProvider, TargetIdentity, TargetMember, TargetSemanticProvider } from "./index.js";
 
 function createExampleSourceSemanticsExtension(): CompilerExtension {
   return createSourceSemanticsExtension({
@@ -889,6 +889,72 @@ test("checker records provider-owned member element and operator facts for consu
   assert.equal(consumer.getSelectedTargetOperator(binaryExpression)?.targetOperation, "System.Int32.op_Addition");
 });
 
+test("checker records provider-owned iteration facts for consumers", () => {
+  let fs = FromMap(new Map<string, string>([
+    ["/src/index.ts", `
+      declare const Symbol: { readonly iterator: unique symbol };
+      interface IteratorResult<T> {
+        value: T;
+        done: boolean;
+      }
+      interface Iterator<T> {
+        next(): IteratorResult<T>;
+      }
+      interface Iterable<T> {
+        [Symbol.iterator](): Iterator<T>;
+      }
+
+      export function sum(values: Iterable<number>): number {
+        let total = 0;
+        for (const value of values) {
+          total = total + value;
+        }
+        return total;
+      }
+    `],
+    ["/src/tsconfig.json", JSON.stringify({
+      compilerOptions: {
+        noLib: true,
+        module: "esnext",
+        moduleResolution: "bundler",
+      },
+      files: ["index.ts"],
+    })],
+  ]), false as bool);
+  fs = WrapFS(fs);
+
+  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
+  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
+  assert.equal((configErrors ?? []).length, 0);
+
+  const options = {
+    Config: parsed,
+    Host: host,
+  } satisfies ProgramOptions;
+  const capture = {
+    iterableTypeSeen: false,
+    iterationKind: "",
+  };
+  const extended = attachExtensionHost(options, {
+    activeTarget: "dotnet",
+    extensions: [semanticOnlyExtension("dotnet-iteration-extension", iterationSemanticProvider(capture))],
+  });
+
+  const program = NewProgram(options);
+  const index = Program_GetSourceFile(program, "/src/index.ts");
+  assert.ok(index !== undefined);
+  assertCleanProgram(program, index);
+
+  const forOf = findFirstNodeByKind(index, KindForOfStatement);
+  assert.equal(capture.iterableTypeSeen, true);
+  assert.equal(capture.iterationKind, "sync");
+  assert.equal(extended.extensionHost.facts.get(forOf, targetIterationFactKey)?.operationId, "System.Array.Enumerate");
+
+  assert.equal(finalizeExtensionSemantics(options), extended.extensionHost);
+  const consumer = createExtensionConsumerQueries(extended.extensionHost, "emitter");
+  assert.equal(consumer.getSelectedTargetIteration(forOf)?.targetOperation, "foreach");
+});
+
 test("optional member element and operator seams defer without fallback facts", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
@@ -1486,6 +1552,29 @@ function surfaceSemanticProvider(capture?: { propertyReceiverTypeSeen: boolean; 
       operation: targetOperation("System.Int32.op_Addition", "operator", "int32"),
       resultType: semanticSubject("int32"),
     }),
+  };
+}
+
+function iterationSemanticProvider(capture?: { iterableTypeSeen: boolean; iterationKind: string }): TargetSemanticProvider {
+  return {
+    identity: semanticProviderIdentity("dotnet-iteration-semantic-provider"),
+    resolveIteration: (request) => {
+      if (request.iterableType !== undefined && capture !== undefined) {
+        capture.iterableTypeSeen = true;
+      }
+      if (capture !== undefined) {
+        capture.iterationKind = request.iterationKind;
+      }
+      return acceptDecision({
+        iteration: {
+          operationId: "System.Array.Enumerate",
+          iterationKind: "sync",
+          targetOperation: "foreach",
+          elementType: semanticSubject("number"),
+        } satisfies TargetIterationFact,
+        elementType: semanticSubject("number"),
+      });
+    },
   };
 }
 

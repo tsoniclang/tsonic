@@ -16,6 +16,7 @@ import {
   sourcePrimitiveFactKey,
   targetConversionFactKey,
   targetBindingFactKey,
+  targetIterationFactKey,
   targetOperationFactKey,
   valueTypeFactKey,
 } from "./facts.js";
@@ -37,6 +38,7 @@ import type {
   SourcePrimitiveFact,
   TargetConversionFact,
   TargetBindingFact,
+  TargetIterationFact,
   TargetOperationFact,
   ValueTypeFact,
 } from "./facts.js";
@@ -153,6 +155,18 @@ export class ExtensionConsumerQueries {
 
   mustSelectedTargetOperator(subject: ExtensionFactSubject, purpose?: string): TargetOperationFact {
     return this.mustFact(subject, targetOperationFactKey, purpose);
+  }
+
+  getSelectedTargetIteration(subject: ExtensionFactSubject | undefined): TargetIterationFact | undefined {
+    return this.getFact(subject, targetIterationFactKey);
+  }
+
+  requireSelectedTargetIteration(subject: ExtensionFactSubject, purpose?: string): TargetIterationFact | undefined {
+    return this.requireFact(subject, targetIterationFactKey, purpose);
+  }
+
+  mustSelectedTargetIteration(subject: ExtensionFactSubject, purpose?: string): TargetIterationFact {
+    return this.mustFact(subject, targetIterationFactKey, purpose);
   }
 
   getRuntimeCarrierFact(subject: ExtensionFactSubject | undefined): RuntimeCarrierFact | undefined {

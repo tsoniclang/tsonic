@@ -5,6 +5,7 @@ import type {
   TargetConstraint,
   TargetTypeRef,
   TargetOperationFact,
+  TargetIterationFact,
 } from "./facts.js";
 import type { ExtensionDiagnostic, ExtensionDiagnosticStore, ExtensionEvidence, ExtensionFactResolver, ExtensionFactStore, ExtensionFactSubject, ExtensionHost } from "./host.js";
 
@@ -43,6 +44,7 @@ export const ExtensionDecisionQuestion = {
   resolveConversion: "type.resolveConversion",
   getParameterMode: "signature.getParameterMode",
   getRuntimeCarrier: "type.getRuntimeCarrier",
+  resolveIteration: "flow.resolveIteration",
   validateFlowUse: "flow.validateUse",
 } as const;
 
@@ -152,6 +154,19 @@ export interface RuntimeCarrierResult {
   readonly requiresAllocation?: boolean;
 }
 
+export interface ResolveIterationRequest {
+  readonly statement: ExtensionFactSubject;
+  readonly iterable: ExtensionFactSubject;
+  readonly iterableType?: ExtensionFactSubject;
+  readonly iterationKind: "sync" | "async";
+  readonly target?: string;
+}
+
+export interface ResolveIterationResult {
+  readonly iteration: TargetIterationFact;
+  readonly elementType?: ExtensionFactSubject;
+}
+
 export interface ContextualTypeRequest {
   readonly expression: ExtensionFactSubject;
   readonly context: ExtensionFactSubject;
@@ -220,6 +235,10 @@ export interface ExtensionDecisionMap {
   readonly [ExtensionDecisionQuestion.getRuntimeCarrier]: {
     readonly request: RuntimeCarrierRequest;
     readonly result: RuntimeCarrierResult;
+  };
+  readonly [ExtensionDecisionQuestion.resolveIteration]: {
+    readonly request: ResolveIterationRequest;
+    readonly result: ResolveIterationResult;
   };
   readonly [ExtensionDecisionQuestion.validateFlowUse]: {
     readonly request: ValidateFlowUseRequest;

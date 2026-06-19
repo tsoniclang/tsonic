@@ -1,6 +1,6 @@
 import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice, GoMap } from "../../../go/compat.js";
-import { recordExtensionOperatorResolution } from "../../../extensions/checker-integration.js";
+import { recordExtensionIterationResolution, recordExtensionOperatorResolution } from "../../../extensions/checker-integration.js";
 import type { Context } from "../../../go/context.js";
 import { Node_AsNode, Node_Pos, Node_End, Node_Name, Node_BodyData } from "../../ast/spine.js";
 import type { Node } from "../../ast/spine.js";
@@ -3588,7 +3588,18 @@ export function keyBuilder_writeNode(receiver: GoPtr<keyBuilder>, node: GoPtr<No
  */
 export function Checker_checkRightHandSideOfForOf(receiver: GoPtr<Checker>, statement: GoPtr<Node>): GoPtr<Type> {
   const use = IfElse(AsForInOrOfStatement(statement)!.AwaitModifier !== undefined, IterationUseForAwaitOf, IterationUseForOf);
-  return Checker_checkIteratedTypeOrElementType(receiver, use, Checker_checkNonNullExpression(receiver, Node_Expression(statement)), receiver!.undefinedType, Node_Expression(statement));
+  const expression = Node_Expression(statement);
+  const iterableType = Checker_checkNonNullExpression(receiver, expression);
+  const iteratedType = Checker_checkIteratedTypeOrElementType(receiver, use, iterableType, receiver!.undefinedType, expression);
+  recordExtensionIterationResolution(
+    receiver,
+    statement,
+    expression,
+    iterableType,
+    iteratedType,
+    AsForInOrOfStatement(statement)!.AwaitModifier !== undefined ? "async" : "sync",
+  );
+  return iteratedType;
 }
 
 /**

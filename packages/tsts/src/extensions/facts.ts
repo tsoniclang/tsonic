@@ -199,6 +199,14 @@ export interface TargetOperationFact {
   readonly evidence?: readonly ExtensionEvidence[];
 }
 
+export interface TargetIterationFact {
+  readonly operationId: string;
+  readonly iterationKind: "sync" | "async";
+  readonly targetOperation: string;
+  readonly elementType?: ExtensionFactSubject;
+  readonly evidence?: readonly ExtensionEvidence[];
+}
+
 export interface FlowStateFact {
   readonly state: "moved" | "borrowed-shared" | "borrowed-mut" | "initialized" | "uninitialized" | "target-validation-required";
   readonly targetCompiler?: string;
@@ -349,6 +357,12 @@ export const targetOperationFactKey = defineExtensionFactKey<TargetOperationFact
   extensionId: "tsts.target-bindings",
   name: "targetOperation",
   equals: targetOperationFactEquals,
+});
+
+export const targetIterationFactKey = defineExtensionFactKey<TargetIterationFact>({
+  extensionId: "tsts.target-bindings",
+  name: "targetIteration",
+  equals: targetIterationFactEquals,
 });
 
 export const flowStateFactKey = defineExtensionFactKey<FlowStateFact>({
@@ -540,6 +554,13 @@ function targetOperationFactEquals(left: TargetOperationFact, right: TargetOpera
     && left.operationKind === right.operationKind
     && left.targetOperation === right.targetOperation
     && left.resultType === right.resultType;
+}
+
+function targetIterationFactEquals(left: TargetIterationFact, right: TargetIterationFact): boolean {
+  return left.operationId === right.operationId
+    && left.iterationKind === right.iterationKind
+    && left.targetOperation === right.targetOperation
+    && left.elementType === right.elementType;
 }
 
 function targetTypeRefEquals(left: TargetTypeRef, right: TargetTypeRef): boolean {

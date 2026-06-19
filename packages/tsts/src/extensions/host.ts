@@ -366,6 +366,7 @@ export interface TargetSemanticProvider {
   resolveConversion?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.resolveConversion>;
   getParameterMode?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.getParameterMode>;
   getRuntimeCarrier?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.getRuntimeCarrier>;
+  resolveIteration?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.resolveIteration>;
   validateFlowUse?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.validateFlowUse>;
 }
 
@@ -1305,6 +1306,7 @@ export class ExtensionHost {
     registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.resolveConversion, provider.resolveConversion);
     registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.getParameterMode, provider.getParameterMode);
     registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.getRuntimeCarrier, provider.getRuntimeCarrier);
+    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.resolveIteration, provider.resolveIteration);
     registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.validateFlowUse, provider.validateFlowUse);
   }
 }
