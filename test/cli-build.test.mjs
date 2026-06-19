@@ -2513,8 +2513,39 @@ test("CLI rejects string enums until target enum-carrier facts are finalized", a
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
-  assert.match(build.stderr, /C# enum member initializers must be number-like constants/);
+  assert.match(build.stderr, /C# enum member initializers must be integer constants evaluated by TSTS/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringEnums.csproj")), false);
+});
+
+test("CLI rejects fractional numeric enum initializers before C# artifact generation", async () => {
+  const projectDirectory = resolve(tempRoot, "reject-fractional-enums");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedFractionalEnums",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export enum Ratio {",
+      "  Half = 0.5,",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stderr, /C# enum member initializers must be integer constants evaluated by TSTS/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedFractionalEnums.csproj")), false);
 });
 
 test("CLI emits interface index signatures as C# indexers", async () => {

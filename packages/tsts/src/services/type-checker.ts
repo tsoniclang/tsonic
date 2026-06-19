@@ -9,15 +9,23 @@ import type { Program } from "../internal/compiler/program.js";
 import { Checker_getResolvedSignature, Checker_getReturnTypeOfSignature, Checker_getSignatureFromDeclaration } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal } from "../internal/checker/checker/state.js";
 import type { Checker } from "../internal/checker/checker/state.js";
-import { Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getResolvedSymbol, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol } from "../internal/checker/checker/symbols.js";
+import { Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getEnumMemberValue, Checker_getResolvedSymbol, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol } from "../internal/checker/checker/symbols.js";
 import { Checker_getContextualType, Checker_getTypeFromTypeNode, Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import type { ContextFlags, Signature, Type } from "../internal/checker/types.js";
 import { ContextFlagsNone } from "../internal/checker/types.js";
+import { KindEnumMember } from "../internal/ast/generated/kinds.js";
 
 export interface TypeCheckerQueryOptions {
   readonly context?: Context;
   readonly sourceFile?: GoPtr<SourceFile>;
+}
+
+export interface TypeScriptEnumMemberValue {
+  readonly value: string | number | undefined;
+  readonly isSyntacticallyString: boolean;
+  readonly resolvedOtherFiles: boolean;
+  readonly hasExternalReferences: boolean;
 }
 
 export interface TypeCheckerQueries {
@@ -32,6 +40,7 @@ export interface TypeCheckerQueries {
   readonly getResolvedSignature: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Signature>;
   readonly getSignatureFromDeclaration: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Signature>;
   readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>, options?: TypeCheckerQueryOptions) => GoPtr<Type>;
+  readonly getEnumMemberValue: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => TypeScriptEnumMemberValue | undefined;
   readonly typeToString: (type: GoPtr<Type>, options?: TypeCheckerQueryOptions) => string | undefined;
 }
 
@@ -59,9 +68,27 @@ export function createTypeCheckerQueries(program: GoPtr<Program>, defaultOptions
       withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getSignatureFromDeclaration(checker, node)),
     getReturnTypeOfSignature: (signature, options = {}) =>
       withCheckerForSignature(program, signature, defaultOptions, options, (checker) => Checker_getReturnTypeOfSignature(checker, signature)),
+    getEnumMemberValue: (node, options = {}) =>
+      withCheckerForNode(program, node, defaultOptions, options, (checker) => getEnumMemberValue(checker, node)),
     typeToString: (type, options = {}) =>
       withChecker(program, options.sourceFile ?? defaultOptions.sourceFile, defaultOptions, options, (checker) =>
         type === undefined ? undefined : Checker_TypeToString(checker, type)),
+  };
+}
+
+function getEnumMemberValue(checker: GoPtr<Checker>, node: GoPtr<Node>): TypeScriptEnumMemberValue | undefined {
+  if (checker === undefined || node === undefined || node.Kind !== KindEnumMember) {
+    return undefined;
+  }
+  const result = Checker_getEnumMemberValue(checker, node);
+  const value = typeof result.Value === "number" || typeof result.Value === "string"
+    ? result.Value
+    : undefined;
+  return {
+    value,
+    isSyntacticallyString: result.IsSyntacticallyString,
+    resolvedOtherFiles: result.ResolvedOtherFiles,
+    hasExternalReferences: result.HasExternalReferences,
   };
 }
 

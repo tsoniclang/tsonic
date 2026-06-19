@@ -7,7 +7,7 @@ import { Node_Text } from "../internal/ast/ast.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { Diagnostic_String } from "../internal/ast/diagnostic.js";
-import { KindArrowFunction, KindCallExpression, KindExpressionStatement, KindFunctionDeclaration, KindIdentifier, KindPropertyAccessExpression } from "../internal/ast/generated/kinds.js";
+import { KindArrowFunction, KindCallExpression, KindEnumMember, KindExpressionStatement, KindFunctionDeclaration, KindIdentifier, KindPropertyAccessExpression } from "../internal/ast/generated/kinds.js";
 import { LibPath, WrapFS } from "../internal/bundled/bundled.js";
 import type { CompilerOptions } from "../internal/core/compileroptions.js";
 import { NewCompilerHost } from "../internal/compiler/host.js";
@@ -110,6 +110,27 @@ test("public type-checker queries expose flow-narrowed receiver member access", 
   assert.equal(queries.getSymbolAtLocation(Node_Name(valueAccess))?.Name, "value");
 });
 
+test("public type-checker queries expose TS-Go enum-member constant evaluation", () => {
+  const { program, index } = createProgram(`
+    enum Direction {
+      Up = 1,
+      Down = 2,
+      Left = 4,
+      Right = Left << 1,
+      Text = "text",
+    }
+  `);
+  assertCleanSemanticDiagnostics(program, index);
+
+  const queries = createTypeCheckerQueries(program);
+  assert.equal(queries.getEnumMemberValue(findEnumMemberByName(index, "Up"))?.value, 1);
+  assert.equal(queries.getEnumMemberValue(findEnumMemberByName(index, "Right"))?.value, 8);
+
+  const textValue = queries.getEnumMemberValue(findEnumMemberByName(index, "Text"));
+  assert.equal(textValue?.value, "text");
+  assert.equal(textValue?.isSyntacticallyString, true);
+});
+
 function createProgram(sourceText: string): { readonly program: GoPtr<Program>; readonly index: GoPtr<SourceFile> } {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", sourceText],
@@ -181,6 +202,17 @@ function findPropertyAccessByName(root: GoPtr<Node>, name: string, predicate: (n
   let found: GoPtr<Node>;
   visitNodes(root, (node) => {
     if (found === undefined && node?.Kind === KindPropertyAccessExpression && Node_Text(Node_Name(node)) === name && predicate(node)) {
+      found = node;
+    }
+  });
+  assert.ok(found !== undefined);
+  return found;
+}
+
+function findEnumMemberByName(root: GoPtr<Node>, name: string): GoPtr<Node> {
+  let found: GoPtr<Node>;
+  visitNodes(root, (node) => {
+    if (found === undefined && node?.Kind === KindEnumMember && Node_Text(Node_Name(node)) === name) {
       found = node;
     }
   });

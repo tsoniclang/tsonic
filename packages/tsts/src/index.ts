@@ -25,7 +25,7 @@ export type { FS as TstsFileSystem } from "./internal/vfs/vfs.js";
 export { barebonesLibContent, formatDiagnostics, transpile, transpileDeclaration, transpileModule } from "./services/transpile.js";
 export type { TranspileCompilerOptions, TranspileCompilerOptionValue, TranspileOptions, TranspileOutput } from "./services/transpile.js";
 export { createTypeCheckerQueries } from "./services/type-checker.js";
-export type { TypeCheckerQueries, TypeCheckerQueryOptions } from "./services/type-checker.js";
+export type { TypeCheckerQueries, TypeCheckerQueryOptions, TypeScriptEnumMemberValue } from "./services/type-checker.js";
 export {
   Node_Members,
   Node_Symbol,
