@@ -242,6 +242,58 @@ test("CLI rejects C# source aliases imported from neutral core modules", async (
   assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
 });
 
+test("CLI emits C# structs from neutral value-type facts and C# aliases", async () => {
+  const projectDirectory = resolve(tempRoot, "value-type-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedValueTypes",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { valueType, field } from \"@tsonic/core/lang.js\";",
+      "import { struct } from \"@tsonic/csharp/lang.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import type { int } from \"@tsonic/csharp/types.js\";",
+      "",
+      "export const Point = valueType({",
+      "  x: field<int32>(),",
+      "  y: field<int32>(),",
+      "});",
+      "",
+      "export const Counter = struct({",
+      "  value: field<int>(),",
+      "});",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public struct Point/);
+  assert.match(generatedSource, /public int x;/);
+  assert.match(generatedSource, /public int y;/);
+  assert.match(generatedSource, /public struct Counter/);
+  assert.match(generatedSource, /public int value;/);
+  assert.doesNotMatch(generatedSource, /valueType/);
+  assert.doesNotMatch(generatedSource, /struct\(/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedValueTypes.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits C# generic declarations from TSTS generic AST", async () => {
   const projectDirectory = resolve(tempRoot, "generic-declarations");
   await writeProject(projectDirectory, {
