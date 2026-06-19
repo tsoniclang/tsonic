@@ -557,6 +557,53 @@ test("CLI emits direct C# bitwise and compound operators from TSTS AST", async (
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits TypeScript rest parameters as C# params arrays", async () => {
+  const projectDirectory = resolve(tempRoot, "rest-parameters");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedRestParameters",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function sum(...values: number[]): number {",
+      "  let total = 0;",
+      "  for (const value of values) {",
+      "    total = total + value;",
+      "  }",
+      "  return total;",
+      "}",
+      "",
+      "export function callSum(): number {",
+      "  return sum(1, 2, 3);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double sum\(params double\[\] values\)/);
+  assert.match(generatedSource, /foreach \(double value in values\)/);
+  assert.match(generatedSource, /return sum\(1, 2, 3\);/);
+  assert.doesNotMatch(generatedSource, /object values/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRestParameters.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits standard JavaScript static class members", async () => {
   const projectDirectory = resolve(tempRoot, "static-class-members");
   await writeProject(projectDirectory, {
