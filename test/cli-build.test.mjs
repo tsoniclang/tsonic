@@ -3192,14 +3192,22 @@ test("CLI rejects structural binary operators without selected target facts", as
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI rejects non-source-owned calls without selected target signature facts", async () => {
-  const projectDirectory = resolve(tempRoot, "builtin-call-requires-target-facts");
+test("CLI emits string instance calls from selected target signature facts", async () => {
+  const projectDirectory = resolve(tempRoot, "string-call-target-facts");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
       outDir: "out",
-      targets: [{ id: "csharp" }],
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStringCalls",
+          },
+        },
+      ],
     }, null, 2),
     "src/index.ts": [
       "export function text(value: string): string {",
@@ -3210,9 +3218,15 @@ test("CLI rejects non-source-owned calls without selected target signature facts
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static string text\(string value\)/);
+  assert.match(generatedSource, /return value\.ToString\(\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStringCalls.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects non-source-owned constructors without selected target signature facts", async () => {
