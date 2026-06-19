@@ -25,8 +25,6 @@ export type {
   CsharpTypeNode,
   CsharpUsing,
 } from "./backend/ast/csharp-ast.js";
-export { createCsharpSemanticContext } from "./backend/semantic-context.js";
-export type { CsharpSemanticContext } from "./backend/semantic-context.js";
 export { printCsharpCompilationUnit, printCsharpExpression, printCsharpStatement, printCsharpType } from "./print/csharp-printer.js";
 export type {
   DotnetProviderDiagnostic,
