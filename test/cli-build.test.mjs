@@ -3058,6 +3058,41 @@ test("CLI emits string element access from selected provider index facts", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects element access with non-integral indexes until conversion facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "non-integral-element-index");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNonIntegralIndexes",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function stringAt(value: string, index: number): string {",
+      "  return value[index];",
+      "}",
+      "",
+      "export function arrayAt(value: string[], index: number): string {",
+      "  return value[index];",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# element access must be selected by TSTS\/provider facts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNonIntegralIndexes.csproj")), false);
+});
+
 test("CLI emits string for-of from provider code-point iteration facts", async () => {
   const projectDirectory = resolve(tempRoot, "string-for-of");
   await writeProject(projectDirectory, {

@@ -148,6 +148,9 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
   if (receiver === undefined || argument === undefined) {
     return;
   }
+  const argumentSymbol = Checker_GetSymbolAtLocation(checker, argument);
+  const resolvedArgumentSymbol = Checker_getResolvedSymbol(checker, argument);
+  const argumentType = Checker_getTypeOfExpression(checker, argument);
 
   const result = extensionHost.runDecision(
     ExtensionDecisionQuestion.resolveElementAccess,
@@ -156,6 +159,9 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
       receiver,
       ...(receiverType !== undefined ? { receiverType } : {}),
       argument,
+      ...(argumentSymbol !== undefined ? { argumentSymbol } : {}),
+      ...(resolvedArgumentSymbol !== undefined ? { resolvedArgumentSymbol } : {}),
+      ...(argumentType !== undefined ? { argumentType } : {}),
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {

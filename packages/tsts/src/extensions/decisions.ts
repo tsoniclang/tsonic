@@ -116,6 +116,9 @@ export interface ResolveElementAccessRequest {
   readonly receiver: ExtensionFactSubject;
   readonly receiverType?: ExtensionFactSubject;
   readonly argument: ExtensionFactSubject;
+  readonly argumentSymbol?: ExtensionFactSubject;
+  readonly resolvedArgumentSymbol?: ExtensionFactSubject;
+  readonly argumentType?: ExtensionFactSubject;
   readonly target?: string;
 }
 
