@@ -4,9 +4,17 @@
   "private": true,
   "description": "TypeScript-native TypeScript compiler targeting TS-Go contracts",
   "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./index.js": "./src/index.ts"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./index.js": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
   },
   "scripts": {
     "build": "../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false"

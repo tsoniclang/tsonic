@@ -9,6 +9,7 @@ export type { TargetId, TargetSelection, TsonicProjectConfig } from "./config.js
 export type {
   TargetBackend,
   TargetBackendContext,
+  TargetCompilationPaths,
   TargetCompileInput,
   TargetExtensionContext,
   TargetPack,

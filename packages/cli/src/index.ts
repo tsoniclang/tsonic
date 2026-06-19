@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { parseTsonicProjectConfig } from "@tsonic/host";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { compileProject, parseTsonicProjectConfig, resolveProjectPaths } from "@tsonic/host";
+import type { ProjectBuildResult } from "@tsonic/host";
 import { createTargetRegistry } from "@tsonic/target-api";
 import { createCsharpTargetPack } from "@tsonic/target-csharp";
 
@@ -15,7 +16,10 @@ const registry = createTargetRegistry([
   createCsharpTargetPack(),
 ]);
 
-const result = await run(process.argv.slice(2), process.cwd());
+const result = await run(process.argv.slice(2), process.cwd()).catch((error: unknown): CliResult => ({
+  exitCode: 1,
+  stderr: `${error instanceof Error ? error.message : String(error)}\n`,
+}));
 if (result.stdout !== undefined && result.stdout.length > 0) {
   process.stdout.write(result.stdout);
 }
@@ -45,21 +49,46 @@ async function runBuild(args: readonly string[], currentDirectory: string): Prom
   const projectPath = resolve(currentDirectory, readProjectPath(args));
   const text = await readFile(projectPath, "utf8");
   const config = parseTsonicProjectConfig(JSON.parse(text));
-  const targetSummaries = config.targets.map((target) => {
-    const pack = registry.require(target.id);
-    return `${target.id} (${pack.displayName})`;
+  const buildResult = compileProject({
+    project: config,
+    projectFilePath: projectPath,
+    registry,
   });
+  await writeBuildArtifacts(projectPath, config, buildResult);
+  const diagnostics = buildResult.diagnostics.filter((diagnostic) => diagnostic.category === "error");
   return {
-    exitCode: 0,
+    exitCode: diagnostics.length === 0 ? 0 : 1,
     stdout: [
-      "Tsonic clean-slate compiler host is installed.",
       `Project: ${projectPath}`,
       `Entry: ${config.entryPoint}`,
-      `Targets: ${targetSummaries.join(", ")}`,
-      "Semantic compilation is owned by packages/host and target packs; no legacy frontend path is present.",
+      `Targets: ${buildResult.targets.map((target) => target.target.id).join(", ")}`,
+      `Artifacts: ${buildResult.targets.reduce((count, target) => count + target.compileResult.artifacts.length, 0)}`,
       "",
     ].join("\n"),
+    ...(buildResult.diagnostics.length > 0
+      ? {
+          stderr: buildResult.diagnostics
+            .map((diagnostic) => `${diagnostic.category.toUpperCase()} ${diagnostic.source ?? "tsonic"}:${diagnostic.code}: ${diagnostic.message}`)
+            .join("\n") + "\n",
+        }
+      : {}),
   };
+}
+
+async function writeBuildArtifacts(
+  projectPath: string,
+  config: ReturnType<typeof parseTsonicProjectConfig>,
+  buildResult: ProjectBuildResult,
+): Promise<void> {
+  const paths = resolveProjectPaths({ project: config, projectFilePath: projectPath });
+  for (const targetResult of buildResult.targets) {
+    const targetRoot = resolve(paths.outputRoot, targetResult.target.id);
+    for (const artifact of targetResult.compileResult.artifacts) {
+      const outputPath = resolve(targetRoot, artifact.path);
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, artifact.text, "utf8");
+    }
+  }
 }
 
 function readProjectPath(args: readonly string[]): string {

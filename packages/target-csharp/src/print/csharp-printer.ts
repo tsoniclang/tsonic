@@ -2,7 +2,10 @@ import type {
   CsharpArgument,
   CsharpCompilationUnit,
   CsharpExpression,
+  CsharpMethodDeclaration,
   CsharpStatement,
+  CsharpTypeDeclaration,
+  CsharpTypeMember,
   CsharpTypeNode,
 } from "../backend/ast/csharp-ast.js";
 
@@ -17,17 +20,53 @@ export function printCsharpCompilationUnit(unit: CsharpCompilationUnit): string 
   for (const member of unit.members) {
     switch (member.kind) {
       case "namespace":
-        lines.push(`namespace ${member.name};`);
+        lines.push(`namespace ${member.name}`);
+        lines.push("{");
+        lines.push(...indentLines(member.members.flatMap((declaration) => printTypeDeclarationLines(declaration))));
+        lines.push("}");
         break;
       case "class":
       case "struct":
-        lines.push(`${member.modifiers.join(" ")} ${member.kind} ${member.name}`);
-        lines.push("{");
-        lines.push("}");
+        lines.push(...printTypeDeclarationLines(member));
         break;
     }
   }
   return `${lines.join("\n")}\n`;
+}
+
+function printTypeDeclarationLines(declaration: CsharpTypeDeclaration): string[] {
+  const modifiers = declaration.modifiers.length === 0 ? "" : `${declaration.modifiers.join(" ")} `;
+  return [
+    `${modifiers}${declaration.kind} ${declaration.name}`,
+    "{",
+    ...indentLines(declaration.members.flatMap(printTypeMemberLines)),
+    "}",
+  ];
+}
+
+function printTypeMemberLines(member: CsharpTypeMember): string[] {
+  switch (member.kind) {
+    case "field": {
+      const modifiers = member.modifiers.length === 0 ? "" : `${member.modifiers.join(" ")} `;
+      return [`${modifiers}${printCsharpType(member.type)} ${member.name};`];
+    }
+    case "method":
+      return printMethodLines(member);
+  }
+}
+
+function printMethodLines(method: CsharpMethodDeclaration): string[] {
+  const modifiers = method.modifiers.length === 0 ? "" : `${method.modifiers.join(" ")} `;
+  const parameters = method.parameters.map((parameter) => {
+    const passing = parameter.passing === undefined ? "" : `${parameter.passing} `;
+    return `${passing}${printCsharpType(parameter.type)} ${parameter.name}`;
+  }).join(", ");
+  return [
+    `${modifiers}${printCsharpType(method.returnType)} ${method.name}(${parameters})`,
+    "{",
+    ...indentLines(method.body.statements.map(printCsharpStatement)),
+    "}",
+  ];
 }
 
 export function printCsharpType(type: CsharpTypeNode): string {
@@ -66,6 +105,8 @@ export function printCsharpExpression(expression: CsharpExpression): string {
       return `${printCsharpExpression(expression.receiver)}.${expression.name}`;
     case "call":
       return `${printCsharpExpression(expression.callee)}(${expression.arguments.map(printCsharpArgument).join(", ")})`;
+    case "binary":
+      return `${printCsharpExpression(expression.left)} ${expression.operator} ${printCsharpExpression(expression.right)}`;
   }
 }
 
@@ -82,4 +123,8 @@ function printLiteral(value: string | number | boolean | null): string {
     return JSON.stringify(value);
   }
   return String(value);
+}
+
+function indentLines(lines: readonly string[]): string[] {
+  return lines.map((line) => line.length === 0 ? line : `    ${line}`);
 }

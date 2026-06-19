@@ -4,8 +4,8 @@ export function createDotnetToolchain(_context: TargetBackendContext): TargetToo
   return {
     prepare(input: TargetToolchainInput): TargetToolchainResult {
       return {
-        diagnostics: [`dotnet toolchain handoff is pending for target '${input.target.id}'.`],
-        producedArtifacts: [],
+        diagnostics: [],
+        producedArtifacts: input.compileResult.artifacts.map((artifact) => artifact.path),
       };
     },
   };

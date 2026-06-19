@@ -75,7 +75,8 @@ export type CsharpExpression =
   | { readonly kind: "identifier"; readonly name: string }
   | { readonly kind: "literal"; readonly value: string | number | boolean | null }
   | { readonly kind: "call"; readonly callee: CsharpExpression; readonly arguments: readonly CsharpArgument[] }
-  | { readonly kind: "member"; readonly receiver: CsharpExpression; readonly name: string };
+  | { readonly kind: "member"; readonly receiver: CsharpExpression; readonly name: string }
+  | { readonly kind: "binary"; readonly left: CsharpExpression; readonly operator: string; readonly right: CsharpExpression };
 
 export interface CsharpArgument {
   readonly expression: CsharpExpression;

@@ -1,6 +1,7 @@
 export { createCsharpTargetPack, csharpTargetId } from "./descriptor/csharp-target-pack.js";
 export {
   csharpTypesModule,
+  createCsharpCoreVirtualModulesExtension,
   createCsharpSourceSemanticsExtension,
   neutralLangModule,
   neutralTypesModule,
