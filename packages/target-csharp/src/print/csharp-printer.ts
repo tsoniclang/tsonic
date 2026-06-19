@@ -97,6 +97,12 @@ export function printCsharpType(type: CsharpTypeNode): string {
       return type.typeArguments === undefined || type.typeArguments.length === 0
         ? type.name
         : `${type.name}<${type.typeArguments.map(printCsharpType).join(", ")}>`;
+    case "qualified": {
+      const suffix = type.typeArguments === undefined || type.typeArguments.length === 0
+        ? type.name
+        : `${type.name}<${type.typeArguments.map(printCsharpType).join(", ")}>`;
+      return `${printCsharpType(type.left)}.${suffix}`;
+    }
     case "array":
       return `${printCsharpType(type.elementType)}[]`;
   }

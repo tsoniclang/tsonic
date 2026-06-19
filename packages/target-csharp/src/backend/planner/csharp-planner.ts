@@ -740,23 +740,11 @@ function expressionToCsharpType(
     case KindPropertyAccessExpression: {
       const expression = AsPropertyAccessExpression(node)!;
       const receiver = expressionToCsharpType(expression.Expression, sourceFile, input);
-      const prefix = csharpTypeName(receiver);
       const name = sanitizeIdentifier(Node_Text(expression.name!));
-      return { kind: "named", name: prefix.length === 0 ? name : `${prefix}.${name}` };
+      return { kind: "qualified", left: receiver, name };
     }
     default:
       return getCsharpTypeForNode(node, sourceFile, input);
-  }
-}
-
-function csharpTypeName(type: CsharpTypeNode): string {
-  switch (type.kind) {
-    case "predefined":
-      return type.name;
-    case "named":
-      return type.name;
-    case "array":
-      return `${csharpTypeName(type.elementType)}[]`;
   }
 }
 
@@ -859,6 +847,14 @@ function sameCsharpType(left: CsharpTypeNode, right: CsharpTypeNode): boolean {
       return right.kind === "predefined" && left.name === right.name;
     case "named": {
       if (right.kind !== "named" || left.name !== right.name) {
+        return false;
+      }
+      const leftArgs = left.typeArguments ?? [];
+      const rightArgs = right.typeArguments ?? [];
+      return leftArgs.length === rightArgs.length && leftArgs.every((arg, index) => sameCsharpType(arg, rightArgs[index]!));
+    }
+    case "qualified": {
+      if (right.kind !== "qualified" || left.name !== right.name || !sameCsharpType(left.left, right.left)) {
         return false;
       }
       const leftArgs = left.typeArguments ?? [];
