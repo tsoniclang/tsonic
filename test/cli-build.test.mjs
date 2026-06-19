@@ -1057,26 +1057,46 @@ test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects interface index signatures until target indexer facts are finalized", async () => {
+test("CLI emits interface index signatures as C# indexers", async () => {
   const projectDirectory = resolve(tempRoot, "interface-index-signature");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
       outDir: "out",
-      targets: [{ id: "csharp" }],
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedIndexSignatures",
+          },
+        },
+      ],
     }, null, 2),
     "src/index.ts": [
       "export interface Bag {",
       "  [key: string]: number;",
       "}",
       "",
+      "export function read(bag: Bag, key: string): number {",
+      "  return bag[key];",
+      "}",
+      "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Index signatures require finalized target indexer facts/);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public interface Bag/);
+  assert.match(generatedSource, /double this\[string key\] \{ get; \}/);
+  assert.match(generatedSource, /return bag\[key\];/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedIndexSignatures.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI emits named generic constraints as C# where clauses", async () => {
