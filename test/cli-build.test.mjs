@@ -1508,6 +1508,21 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
       "  return mapper(5);",
       "}",
       "",
+      "export function useBlock(): number {",
+      "  const mapper: (input: number) => number = (input) => {",
+      "    const next = input + 1;",
+      "    return next;",
+      "  };",
+      "  return mapper(6);",
+      "}",
+      "",
+      "export function useFunctionExpression(): number {",
+      "  const mapper: (input: number) => number = function(input: number): number {",
+      "    return input + 2;",
+      "  };",
+      "  return mapper(7);",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1518,6 +1533,8 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
   assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
   assert.match(generatedSource, /return apply\(3, input => input \+ 4\);/);
   assert.match(generatedSource, /Func<double, double> mapper = input => input \* 2;/);
+  assert.match(generatedSource, /Func<double, double> mapper = input =>\n\s*\{/);
+  assert.match(generatedSource, /Func<double, double> mapper = \(double input\) =>\n\s*\{/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDelegateLambdas.csproj"), "--nologo", "--v:minimal"]);
