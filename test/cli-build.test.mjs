@@ -677,6 +677,56 @@ test("CLI rejects attribute builder targets without provider target facts", asyn
   assert.match(build.stderr, /C# type expression emission requires a provider target binding or a project-source class\/interface declaration/);
 });
 
+test("CLI emits C# attributes from provider target identity facts", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-attribute-targets");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderAttributes",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { attributes as A } from \"@tsonic/core/lang.js\";",
+      "import { CLSCompliantAttribute } from \"@tsonic/csharp/lang.js\";",
+      "",
+      "export class Annotated {",
+      "  value: number = 1;",
+      "",
+      "  run(input: number): number {",
+      "    return input;",
+      "  }",
+      "}",
+      "",
+      "A<Annotated>().add(CLSCompliantAttribute, true);",
+      "A<Annotated>().property((target) => target.value).add(CLSCompliantAttribute, false);",
+      "A<Annotated>().method((target) => target.run).add(CLSCompliantAttribute, true);",
+      "A<Annotated>().method((target) => target.run).parameter(\"input\").add(CLSCompliantAttribute, false);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(true\)\]\s+public class Annotated/);
+  assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(false\)\]\s+public double value = 1;/);
+  assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(true\)\]\s+public double run\(\[System\.CLSCompliantAttribute\(false\)\] double input\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderAttributes.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits C# default expressions from neutral default facts and C# aliases", async () => {
   const projectDirectory = resolve(tempRoot, "default-value-facts");
   await writeProject(projectDirectory, {

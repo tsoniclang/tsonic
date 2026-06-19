@@ -1,6 +1,18 @@
 import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
-import { Node_Symbol, SourceFile_FileName } from "../internal/ast/ast.js";
+import {
+  Node_Elements,
+  Node_ImportClause,
+  Node_ModuleSpecifier,
+  Node_PropertyName,
+  Node_Statements,
+  Node_Symbol,
+  Node_Text,
+  SourceFile_FileName,
+} from "../internal/ast/ast.js";
+import { Node_Name } from "../internal/ast/spine.js";
+import { AsImportClause } from "../internal/ast/generated/casts.js";
+import { KindImportDeclaration, KindNamedImports } from "../internal/ast/generated/kinds.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import {
   canonicalIdentityFactKey,
@@ -47,6 +59,9 @@ export function recordBoundSourceFileExtensionFacts(program: object, file: GoPtr
     fileName,
     ...(virtualModule !== undefined ? { providerVirtualModule: virtualModule } : {}),
   });
+  if (virtualModule === undefined) {
+    recordProviderImportBindingFacts(extensionHost, file);
+  }
 }
 
 export function finalizeExtensionSemantics(program: object): ExtensionHost | undefined {
@@ -103,6 +118,62 @@ function recordProviderVirtualModuleFacts(extensionHost: ExtensionHost, file: So
     const targetBinding = getTargetBindingFact(virtualModule, declaration);
     if (targetBinding !== undefined) {
       extensionHost.facts.set(symbol, targetBindingFactKey, targetBinding, evidence);
+    }
+  }
+}
+
+function recordProviderImportBindingFacts(extensionHost: ExtensionHost, file: SourceFile): void {
+  const fileName = SourceFile_FileName(file);
+  const providerContext = {
+    containingFile: fileName,
+    ...(extensionHost.activeTarget !== undefined ? { activeTarget: extensionHost.activeTarget } : {}),
+    ...(extensionHost.activeSurface !== undefined ? { activeSurface: extensionHost.activeSurface } : {}),
+  };
+  for (const statement of Node_Statements(file) ?? []) {
+    if (statement?.Kind !== KindImportDeclaration) {
+      continue;
+    }
+    const moduleSpecifier = Node_ModuleSpecifier(statement);
+    if (moduleSpecifier === undefined) {
+      continue;
+    }
+    const resolved = extensionHost.providers.resolveVirtualModule(Node_Text(moduleSpecifier), providerContext);
+    if (resolved.kind !== "resolved") {
+      continue;
+    }
+    const importClause = AsImportClause(Node_ImportClause(statement));
+    const namedBindings = importClause?.NamedBindings;
+    if (namedBindings?.Kind !== KindNamedImports) {
+      continue;
+    }
+    const evidence = getProviderVirtualModuleEvidence(resolved.module);
+    for (const importSpecifier of Node_Elements(namedBindings) ?? []) {
+      if (importSpecifier === undefined) {
+        continue;
+      }
+      const localName = Node_Name(importSpecifier);
+      if (localName === undefined) {
+        continue;
+      }
+      const exportName = Node_Text(Node_PropertyName(importSpecifier) ?? localName);
+      const declaration = resolved.module.declarationModel.exports.find((candidate) => candidate.name === exportName);
+      if (declaration === undefined) {
+        continue;
+      }
+      const targetBinding = getTargetBindingFact(resolved.module, declaration);
+      if (targetBinding === undefined) {
+        continue;
+      }
+      extensionHost.facts.set(importSpecifier, targetBindingFactKey, targetBinding, evidence);
+      extensionHost.facts.set(localName, targetBindingFactKey, targetBinding, evidence);
+      const importSymbol = Node_Symbol(importSpecifier);
+      if (importSymbol !== undefined) {
+        extensionHost.facts.set(importSymbol, targetBindingFactKey, targetBinding, evidence);
+      }
+      const localSymbol = Node_Symbol(localName);
+      if (localSymbol !== undefined && localSymbol !== importSymbol) {
+        extensionHost.facts.set(localSymbol, targetBindingFactKey, targetBinding, evidence);
+      }
     }
   }
 }
