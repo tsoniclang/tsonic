@@ -148,6 +148,29 @@ test("CLI reports unsupported iteration semantics instead of guessing", async ()
   assert.match(build.stderr, /For-in\/for-of requires target collection iteration semantics/);
 });
 
+test("CLI does not emit target artifacts when TSTS rejects the source program", async () => {
+  const projectDirectory = resolve(tempRoot, "tsts-diagnostic-stop");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function invalid(): number {",
+      "  return \"not a number\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
+  assert.doesNotMatch(build.stdout, /Artifacts: [1-9]/);
+});
+
 async function writeProject(projectDirectory, files) {
   for (const [relativePath, text] of Object.entries(files)) {
     const outputPath = resolve(projectDirectory, relativePath);

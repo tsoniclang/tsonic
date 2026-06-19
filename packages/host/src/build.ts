@@ -45,6 +45,17 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     });
     const tstsDiagnostics = collectTstsDiagnostics(session.program, session.sourceFiles, paths.projectRoot);
     diagnostics.push(...tstsDiagnostics);
+    if (tstsDiagnostics.some((diagnostic) => diagnostic.category === "error")) {
+      targets.push({
+        target,
+        compileResult: {
+          artifacts: [],
+          diagnostics: [],
+        },
+        diagnostics: tstsDiagnostics,
+      });
+      continue;
+    }
     const compileResult = compileTargetFromSemanticSession(
       session,
       input.project,
