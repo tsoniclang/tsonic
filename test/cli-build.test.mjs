@@ -36,6 +36,7 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
       "",
       "export class Counter {",
       "  value: int = 0;",
+      "  history: int[] = [];",
       "",
       "  constructor(initial: int) {",
       "    this.value = initial;",
@@ -58,6 +59,7 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
       "",
       "export function sum(values: number[]): number {",
       "  let total = 0;",
+      "  let seen: number[] = [];",
       "  for (const value of values) {",
       "    total = total + value;",
       "  }",
@@ -104,6 +106,8 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
   const generatedSource = await readFile(generatedSourcePath, "utf8");
   assert.match(generatedSource, /public static int pick\(int\[\] values\)/);
   assert.match(generatedSource, /public static double sum\(double\[\] values\)/);
+  assert.match(generatedSource, /public int\[\] history = new int\[\] \{ \};/);
+  assert.match(generatedSource, /double\[\] seen = new double\[\] \{ \};/);
   assert.match(generatedSource, /foreach \(double value in values\)/);
   assert.match(generatedSource, /public static int control\(int value\)/);
   assert.match(generatedSource, /public Counter\(int initial\)/);
