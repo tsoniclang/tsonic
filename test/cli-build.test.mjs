@@ -15,6 +15,23 @@ test("CLI lists built-in target packs", () => {
   assert.match(result.stdout, /^csharp\tC#$/m);
 });
 
+test("CLI rejects duplicate target ids before compiling", async () => {
+  const projectDirectory = resolve(tempRoot, "duplicate-targets");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }, { id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /target 'csharp' is declared more than once/);
+});
+
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
   const projectDirectory = resolve(tempRoot, "wide-csharp");
   await writeProject(projectDirectory, {

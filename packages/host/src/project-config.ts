@@ -16,11 +16,16 @@ function readTargets(value: unknown): readonly TargetSelection[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("Project config requires a non-empty targets array.");
   }
+  const seen = new Set<string>();
   return value.map((target, index) => {
     if (!isRecord(target)) {
       throw new Error(`Target at index ${index} must be an object.`);
     }
     const id = readString(target, "id");
+    if (seen.has(id)) {
+      throw new Error(`Project config target '${id}' is declared more than once. Use one target entry per target id.`);
+    }
+    seen.add(id);
     const options = target.options;
     if (options !== undefined && !isRecord(options)) {
       throw new Error(`Target '${id}' options must be an object.`);
