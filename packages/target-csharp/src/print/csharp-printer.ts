@@ -2,8 +2,11 @@ import type {
   CsharpArgument,
   CsharpCompilationUnit,
   CsharpExpression,
+  CsharpForInitializer,
+  CsharpLocalDeclaration,
   CsharpMethodDeclaration,
   CsharpStatement,
+  CsharpConstructorDeclaration,
   CsharpTypeDeclaration,
   CsharpTypeMember,
   CsharpTypeNode,
@@ -51,9 +54,25 @@ function printTypeMemberLines(member: CsharpTypeMember): string[] {
       const initializer = member.initializer === undefined ? "" : ` = ${printCsharpExpression(member.initializer)}`;
       return [`${modifiers}${printCsharpType(member.type)} ${member.name}${initializer};`];
     }
+    case "constructor":
+      return printConstructorLines(member);
     case "method":
       return printMethodLines(member);
   }
+}
+
+function printConstructorLines(constructor: CsharpConstructorDeclaration): string[] {
+  const modifiers = constructor.modifiers.length === 0 ? "" : `${constructor.modifiers.join(" ")} `;
+  const parameters = constructor.parameters.map((parameter) => {
+    const passing = parameter.passing === undefined ? "" : `${parameter.passing} `;
+    return `${passing}${printCsharpType(parameter.type)} ${parameter.name}`;
+  }).join(", ");
+  return [
+    `${modifiers}${constructor.name}(${parameters})`,
+    "{",
+    ...indentLines(printCsharpStatements(constructor.body.statements)),
+    "}",
+  ];
 }
 
 function printMethodLines(method: CsharpMethodDeclaration): string[] {
@@ -90,9 +109,13 @@ export function printCsharpStatement(statement: CsharpStatement): string {
     case "expression":
       return `${printCsharpExpression(statement.expression)};`;
     case "local":
-      return statement.initializer === undefined
-        ? `${printCsharpType(statement.type)} ${statement.name};`
-        : `${printCsharpType(statement.type)} ${statement.name} = ${printCsharpExpression(statement.initializer)};`;
+      return `${printCsharpLocalDeclaration(statement)};`;
+    case "block":
+      return [
+        "{",
+        ...indentLines(printCsharpStatements(statement.body.statements)),
+        "}",
+      ].join("\n");
     case "if":
       return [
         `if (${printCsharpExpression(statement.condition)})`,
@@ -115,6 +138,21 @@ export function printCsharpStatement(statement: CsharpStatement): string {
         ...indentLines(printCsharpStatements(statement.body.statements)),
         "}",
       ].join("\n");
+    case "do":
+      return [
+        "do",
+        "{",
+        ...indentLines(printCsharpStatements(statement.body.statements)),
+        "}",
+        `while (${printCsharpExpression(statement.condition)});`,
+      ].join("\n");
+    case "for":
+      return [
+        `for (${printCsharpForInitializer(statement.initializer)}; ${statement.condition === undefined ? "" : printCsharpExpression(statement.condition)}; ${statement.incrementor === undefined ? "" : printCsharpExpression(statement.incrementor)})`,
+        "{",
+        ...indentLines(printCsharpStatements(statement.body.statements)),
+        "}",
+      ].join("\n");
   }
 }
 
@@ -128,13 +166,56 @@ export function printCsharpExpression(expression: CsharpExpression): string {
       return expression.name;
     case "literal":
       return printLiteral(expression.value);
+    case "parenthesized":
+      return `(${printCsharpExpression(expression.expression)})`;
     case "member":
       return `${printCsharpExpression(expression.receiver)}.${expression.name}`;
+    case "element":
+      return `${printCsharpExpression(expression.receiver)}[${printCsharpExpression(expression.argument)}]`;
     case "call":
       return `${printCsharpExpression(expression.callee)}(${expression.arguments.map(printCsharpArgument).join(", ")})`;
+    case "new":
+      return `new ${printCsharpType(expression.type)}(${expression.arguments.map(printCsharpArgument).join(", ")})`;
     case "binary":
       return `${printCsharpExpression(expression.left)} ${expression.operator} ${printCsharpExpression(expression.right)}`;
+    case "prefixUnary":
+      return `${expression.operator}${printCsharpExpression(expression.operand)}`;
+    case "postfixUnary":
+      return `${printCsharpExpression(expression.operand)}${expression.operator}`;
+    case "conditional":
+      return `${printCsharpExpression(expression.condition)} ? ${printCsharpExpression(expression.whenTrue)} : ${printCsharpExpression(expression.whenFalse)}`;
+    case "array":
+      return `new[] { ${expression.elements.map(printCsharpExpression).join(", ")} }`;
   }
+}
+
+function printCsharpLocalDeclaration(local: CsharpLocalDeclaration): string {
+  return local.initializer === undefined
+    ? `${printCsharpType(local.type)} ${local.name}`
+    : `${printCsharpType(local.type)} ${local.name} = ${printCsharpExpression(local.initializer)}`;
+}
+
+function printCsharpForInitializer(initializer: CsharpForInitializer | undefined): string {
+  if (initializer === undefined) {
+    return "";
+  }
+  switch (initializer.kind) {
+    case "expression":
+      return printCsharpExpression(initializer.expression);
+    case "locals": {
+      const first = initializer.locals[0];
+      if (first === undefined) {
+        return "";
+      }
+      return `${printCsharpType(first.type)} ${initializer.locals.map(printCsharpLocalDeclarator).join(", ")}`;
+    }
+  }
+}
+
+function printCsharpLocalDeclarator(local: CsharpLocalDeclaration): string {
+  return local.initializer === undefined
+    ? local.name
+    : `${local.name} = ${printCsharpExpression(local.initializer)}`;
 }
 
 function printCsharpArgument(argument: CsharpArgument): string {
