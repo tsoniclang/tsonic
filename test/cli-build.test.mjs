@@ -306,6 +306,54 @@ test("CLI emits provider-owned static C# properties from selected TSTS target fa
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits provider-owned instance C# members from receiver type facts", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-instance-members");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderInstanceMembers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Exception } from \"@tsonic/csharp/lang.js\";",
+      "",
+      "export function message(): string {",
+      "  const ex = new Exception(\"boom\");",
+      "  return ex.message;",
+      "}",
+      "",
+      "export function describe(): string {",
+      "  const ex = new Exception(\"boom\");",
+      "  return ex.toString();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /System\.Exception ex = new System\.Exception\("boom"\);/);
+  assert.match(generatedSource, /return ex\.Message;/);
+  assert.match(generatedSource, /return ex\.ToString\(\);/);
+  assert.doesNotMatch(generatedSource, /ex\.message/);
+  assert.doesNotMatch(generatedSource, /ex\.toString/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderInstanceMembers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits char16 string literals as C# char literals from expected TSTS type", async () => {
   const projectDirectory = resolve(tempRoot, "char16-literals");
   await writeProject(projectDirectory, {
@@ -2730,7 +2778,12 @@ test("CLI rejects provider-owned object literals until object-shape facts are fi
       "import { Exception } from \"@tsonic/csharp/lang.js\";",
       "",
       "export function create(): Exception {",
-      "  return {};",
+      "  return {",
+      "    message: \"boom\",",
+      "    toString() {",
+      "      return \"boom\";",
+      "    },",
+      "  };",
       "}",
       "",
     ].join("\n"),
