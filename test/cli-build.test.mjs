@@ -1638,6 +1638,54 @@ test("CLI erases re-export declarations and uses TSTS symbols for re-exported so
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits default export expression snapshots through TSTS module-export symbols", async () => {
+  const projectDirectory = resolve(tempRoot, "default-export-expression");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedDefaultExportExpression",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/other.ts": [
+      "let value = 1;",
+      "export default value;",
+      "value = 2;",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import value from \"./other.js\";",
+      "",
+      "export function read(): number {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const otherSource = await readFile(resolve(projectDirectory, "out/csharp/src/Other.cs"), "utf8");
+  assert.match(otherSource, /public static readonly double @default = value;/);
+  assert.doesNotMatch(otherSource, /__unsupported/);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Other\.@default;/);
+  assert.doesNotMatch(generatedSource, /return Other\.value;|return value;|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaultExportExpression.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects anonymous exported declarations instead of synthesizing C# names", async () => {
   const scenarios = [
     {

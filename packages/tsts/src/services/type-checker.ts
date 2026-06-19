@@ -2,10 +2,12 @@ import type { GoPtr } from "../go/compat.js";
 import type { Context } from "../go/context.js";
 import { Background } from "../go/context.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
+import { Node_Symbol, SourceFile_as_ast_HasFileName } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
-import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
-import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
+import { GetSourceFileOfNode, IsStringLiteralLike } from "../internal/ast/utilities.js";
+import { Program_GetResolvedModuleFromModuleSpecifier, Program_GetSourceFileForResolvedModule, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import type { Program } from "../internal/compiler/program.js";
+import { Checker_TryGetMemberInModuleExports } from "../internal/checker/services.js";
 import { Checker_getResolvedSignature, Checker_getReturnTypeOfSignature, Checker_getSignatureFromDeclaration } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal } from "../internal/checker/checker/state.js";
 import type { Checker } from "../internal/checker/checker/state.js";
@@ -37,6 +39,8 @@ export interface TypeCheckerQueries {
   readonly getResolvedSymbol: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
   readonly getResolvedSymbolOrNil: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
   readonly getAliasedSymbol: (symbol: GoPtr<Symbol>, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
+  readonly getResolvedModuleSourceFile: (containingSourceFile: GoPtr<SourceFile>, moduleSpecifier: GoPtr<Node>) => GoPtr<SourceFile>;
+  readonly getModuleExportSymbol: (moduleSourceFile: GoPtr<SourceFile>, exportName: string, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
   readonly getTypeOfSymbol: (symbol: GoPtr<Symbol>, options?: TypeCheckerQueryOptions) => GoPtr<Type>;
   readonly getDeclaredTypeOfSymbol: (symbol: GoPtr<Symbol>, options?: TypeCheckerQueryOptions) => GoPtr<Type>;
   readonly getResolvedSignature: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Signature>;
@@ -66,6 +70,15 @@ export function createTypeCheckerQueries(program: GoPtr<Program>, defaultOptions
       }
       return withCheckerForSymbol(program, symbol, defaultOptions, options, (checker) => Checker_GetAliasedSymbol(checker, symbol));
     },
+    getResolvedModuleSourceFile: (containingSourceFile, moduleSpecifier) =>
+      getResolvedModuleSourceFile(program, containingSourceFile, moduleSpecifier),
+    getModuleExportSymbol: (moduleSourceFile, exportName, options = {}) =>
+      withChecker(program, moduleSourceFile, defaultOptions, options, (checker) => {
+        const moduleSymbol = Node_Symbol(moduleSourceFile);
+        return moduleSymbol === undefined
+          ? undefined
+          : Checker_TryGetMemberInModuleExports(checker, exportName, moduleSymbol);
+      }),
     getTypeOfSymbol: (symbol, options = {}) =>
       withCheckerForSymbol(program, symbol, defaultOptions, options, (checker) => Checker_getTypeOfSymbol(checker, symbol)),
     getDeclaredTypeOfSymbol: (symbol, options = {}) =>
@@ -82,6 +95,29 @@ export function createTypeCheckerQueries(program: GoPtr<Program>, defaultOptions
       withChecker(program, options.sourceFile ?? defaultOptions.sourceFile, defaultOptions, options, (checker) =>
         type === undefined ? undefined : Checker_TypeToString(checker, type)),
   };
+}
+
+function getResolvedModuleSourceFile(
+  program: GoPtr<Program>,
+  containingSourceFile: GoPtr<SourceFile>,
+  moduleSpecifier: GoPtr<Node>,
+): GoPtr<SourceFile> {
+  if (
+    program === undefined ||
+    containingSourceFile === undefined ||
+    moduleSpecifier === undefined ||
+    !IsStringLiteralLike(moduleSpecifier)
+  ) {
+    return undefined;
+  }
+  const resolved = Program_GetResolvedModuleFromModuleSpecifier(
+    program,
+    SourceFile_as_ast_HasFileName(containingSourceFile),
+    moduleSpecifier,
+  );
+  return resolved === undefined || resolved.ResolvedFileName === ""
+    ? undefined
+    : Program_GetSourceFileForResolvedModule(program, resolved.ResolvedFileName);
 }
 
 function getEnumMemberValue(checker: GoPtr<Checker>, node: GoPtr<Node>): TypeScriptEnumMemberValue | undefined {

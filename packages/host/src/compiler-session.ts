@@ -2,6 +2,8 @@ import {
   attachExtensionHost,
   AsClassDeclaration,
   AsConstructorDeclaration,
+  AsImportClause,
+  AsImportSpecifier,
   Background,
   createExtensionConsumerQueries,
   createTypeCheckerQueries,
@@ -15,10 +17,17 @@ import {
   KindElementAccessExpression,
   KindEnumDeclaration,
   KindEnumMember,
+  KindExportAssignment,
   KindIdentifier,
+  KindImportClause,
   KindInterfaceDeclaration,
+  KindImportDeclaration,
+  KindImportSpecifier,
   KindPropertyAccessExpression,
   NewProgram,
+  Node_ModuleSpecifier,
+  Node_Name,
+  Node_Text,
   Program_BindSourceFiles,
   Program_GetConfigFileParsingDiagnostics,
   Program_GetProgramDiagnostics,
@@ -282,9 +291,14 @@ function getProjectSourceReferenceForNode(
   if (node === undefined) {
     return undefined;
   }
+  const directSymbol = getSymbolAtReferenceNode(checker, node, options);
+  const importedReference = getImportedProjectSourceReferenceForSymbol(checker, directSymbol, options, sourceFiles);
+  if (importedReference !== undefined) {
+    return importedReference;
+  }
   const symbols = [
     getResolvedSymbolForReferenceNode(checker, node, options),
-    getSymbolAtReferenceNode(checker, node, options),
+    directSymbol,
   ].flatMap((symbol) => symbol === undefined
     ? []
     : [checker.getAliasedSymbol(symbol, options), symbol]);
@@ -293,6 +307,93 @@ function getProjectSourceReferenceForNode(
     if (reference !== undefined) {
       return reference;
     }
+  }
+  return undefined;
+}
+
+function getImportedProjectSourceReferenceForSymbol(
+  checker: TypeCheckerQueries,
+  symbol: Symbol | undefined,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+): ReturnType<TargetSemanticQueries["getProjectSourceReferenceForNode"]> {
+  if (symbol === undefined) {
+    return undefined;
+  }
+  for (const declaration of symbol.Declarations ?? []) {
+    const imported = getImportedModuleExport(checker, declaration, options);
+    if (imported === undefined) {
+      continue;
+    }
+    const alias = checker.getAliasedSymbol(imported.symbol, { sourceFile: imported.sourceFile });
+    const candidates = getPrimaryDeclaration(imported.symbol)?.Kind === KindExportAssignment
+      ? [imported.symbol, alias]
+      : [alias, imported.symbol];
+    for (const candidate of candidates) {
+      const reference = getProjectSourceReferenceForSymbol(candidate, sourceFiles);
+      if (reference !== undefined) {
+        return reference;
+      }
+    }
+  }
+  return undefined;
+}
+
+function getImportedModuleExport(
+  checker: TypeCheckerQueries,
+  declaration: Node | undefined,
+  options: { readonly sourceFile: SourceFile },
+): { readonly symbol: Symbol; readonly sourceFile: SourceFile } | undefined {
+  const importBinding = normalizeImportBindingDeclaration(declaration);
+  if (importBinding === undefined) {
+    return undefined;
+  }
+  const exportName = getImportedExportName(importBinding);
+  if (exportName === undefined) {
+    return undefined;
+  }
+  const importDeclaration = findImportDeclaration(importBinding);
+  const moduleSpecifier = importDeclaration === undefined ? undefined : Node_ModuleSpecifier(importDeclaration);
+  const sourceFile = checker.getResolvedModuleSourceFile(options.sourceFile, moduleSpecifier);
+  if (sourceFile === undefined) {
+    return undefined;
+  }
+  const symbol = checker.getModuleExportSymbol(sourceFile, exportName, { sourceFile });
+  return symbol === undefined ? undefined : { symbol, sourceFile };
+}
+
+function normalizeImportBindingDeclaration(declaration: Node | undefined): Node | undefined {
+  if (declaration === undefined) {
+    return undefined;
+  }
+  if (declaration.Kind === KindImportClause || declaration.Kind === KindImportSpecifier) {
+    return declaration;
+  }
+  const parent = declaration.Parent;
+  return parent?.Kind === KindImportClause || parent?.Kind === KindImportSpecifier
+    ? parent
+    : undefined;
+}
+
+function getImportedExportName(importBinding: Node): string | undefined {
+  if (importBinding.Kind === KindImportClause) {
+    return AsImportClause(importBinding)?.name === undefined ? undefined : "default";
+  }
+  if (importBinding.Kind === KindImportSpecifier) {
+    const specifier = AsImportSpecifier(importBinding);
+    const exportNameNode = specifier?.PropertyName ?? Node_Name(importBinding);
+    return exportNameNode === undefined ? undefined : Node_Text(exportNameNode);
+  }
+  return undefined;
+}
+
+function findImportDeclaration(node: Node): Node | undefined {
+  let current = node.Parent;
+  while (current !== undefined) {
+    if (current.Kind === KindImportDeclaration) {
+      return current;
+    }
+    current = current.Parent;
   }
   return undefined;
 }
