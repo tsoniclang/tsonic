@@ -200,8 +200,8 @@ test("CLI keeps neutral and C# source semantics in separate virtual modules", as
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { valueType, field, defaultof } from \"@tsonic/core/lang.js\";",
-      "import { struct, attribute } from \"@tsonic/csharp/lang.js\";",
+      "import { valueType, field, defaultValue } from \"@tsonic/core/lang.js\";",
+      "import { struct, attribute, defaultof } from \"@tsonic/csharp/lang.js\";",
       "",
       "export function smoke(): number {",
       "  return 1;",
@@ -228,7 +228,7 @@ test("CLI rejects C# source aliases imported from neutral core modules", async (
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "import { attribute } from \"@tsonic/core/lang.js\";",
+      "import { attribute, out } from \"@tsonic/core/lang.js\";",
       "",
       "export function smoke(): number {",
       "  return 1;",
@@ -294,7 +294,7 @@ test("CLI emits C# structs from neutral value-type facts and C# aliases", async 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI emits C# default expressions from neutral default facts", async () => {
+test("CLI emits C# default expressions from neutral default facts and C# aliases", async () => {
   const projectDirectory = resolve(tempRoot, "default-value-facts");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -312,10 +312,15 @@ test("CLI emits C# default expressions from neutral default facts", async () => 
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { defaultof } from \"@tsonic/core/lang.js\";",
+      "import { defaultValue } from \"@tsonic/core/lang.js\";",
+      "import { defaultof } from \"@tsonic/csharp/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
       "export function zero(): int32 {",
+      "  return defaultValue<int32>();",
+      "}",
+      "",
+      "export function csharpZero(): int32 {",
       "  return defaultof<int32>();",
       "}",
       "",
@@ -327,14 +332,16 @@ test("CLI emits C# default expressions from neutral default facts", async () => 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return default\(int\);/);
+  assert.match(generatedSource, /public static int csharpZero\(\)/);
   assert.doesNotMatch(generatedSource, /defaultof/);
+  assert.doesNotMatch(generatedSource, /defaultValue/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaults.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI emits C# argument passing from neutral storage facts", async () => {
+test("CLI emits C# argument passing from neutral storage facts and C# aliases", async () => {
   const projectDirectory = resolve(tempRoot, "argument-passing-facts");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -344,13 +351,15 @@ test("CLI emits C# argument passing from neutral storage facts", async () => {
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "import { out, ref, inref } from \"@tsonic/core/lang.js\";",
+      "import { writeonlyRef, readwriteRef, readonlyRef } from \"@tsonic/core/lang.js\";",
+      "import { out, ref, inref } from \"@tsonic/csharp/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
       "export function consume(a: int32, b: int32, c: int32): void {",
       "}",
       "",
       "export function pass(value: int32): void {",
+      "  consume(writeonlyRef(value), readwriteRef(value), readonlyRef(value));",
       "  consume(out(value), ref(value), inref(value));",
       "}",
       "",
@@ -365,7 +374,56 @@ test("CLI emits C# argument passing from neutral storage facts", async () => {
   assert.doesNotMatch(generatedSource, /out\(value\)/);
   assert.doesNotMatch(generatedSource, /ref\(value\)/);
   assert.doesNotMatch(generatedSource, /inref\(value\)/);
+  assert.doesNotMatch(generatedSource, /writeonlyRef/);
+  assert.doesNotMatch(generatedSource, /readwriteRef/);
+  assert.doesNotMatch(generatedSource, /readonlyRef/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
+});
+
+test("CLI emits C# string literals and template expressions from TSTS AST", async () => {
+  const projectDirectory = resolve(tempRoot, "template-expressions");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedTemplates",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function plain(): string {",
+      "  return `plain`;",
+      "}",
+      "",
+      "export function greet(name: string, count: number): string {",
+      "  return `hello ${name} ${count}`;",
+      "}",
+      "",
+      "export function escaped(name: string): string {",
+      "  return `hello {${name}}`;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return "plain";/);
+  assert.match(generatedSource, /return \$"hello \{name\} \{count\}";/);
+  assert.match(generatedSource, /return \$"hello \{\{\{name\}\}\}";/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTemplates.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI emits C# generic declarations from TSTS generic AST", async () => {

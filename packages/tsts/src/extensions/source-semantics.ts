@@ -106,18 +106,18 @@ export interface SourcePrimitiveDeclaration extends Omit<SourcePrimitiveFact, "k
 }
 
 export type SourceCallMarkerKind =
-  | "out"
-  | "ref"
-  | "inref"
-  | "borrow"
-  | "borrowMut"
+  | "byrefReadonly"
+  | "byrefReadwrite"
+  | "byrefWriteonlyMustInit"
+  | "borrowShared"
+  | "borrowMutable"
   | "move"
   | "valueType"
   | "field"
   | "attribute"
-  | "defaultof";
+  | "defaultValue";
 
-type ArgumentPassingMarkerKind = Extract<SourceCallMarkerKind, "out" | "ref" | "inref">;
+type ArgumentPassingMarkerKind = Extract<SourceCallMarkerKind, "byrefReadonly" | "byrefReadwrite" | "byrefWriteonlyMustInit">;
 
 export interface SourceCallMarkerDeclaration {
   readonly kind: "call-marker";
@@ -125,7 +125,7 @@ export interface SourceCallMarkerDeclaration {
   readonly marker: SourceCallMarkerKind;
 }
 
-export type SourceTypeMarkerKind = "ptr" | "fnptr";
+export type SourceTypeMarkerKind = "pointer" | "functionPointer";
 
 export interface SourceTypeMarkerDeclaration {
   readonly kind: "type-marker";
@@ -353,9 +353,9 @@ function recordSourceSemanticsCallMarker(
 ): void {
   const evidence = createMarkerEvidence(marker.exportName);
   switch (marker.marker) {
-    case "out":
-    case "ref":
-    case "inref": {
+    case "byrefReadonly":
+    case "byrefReadwrite":
+    case "byrefWriteonlyMustInit": {
       const argument = (Node_Arguments(callExpression) ?? [])[0];
       if (argument === undefined) {
         return;
@@ -363,7 +363,7 @@ function recordSourceSemanticsCallMarker(
       recordArgumentPassingMarker(facts, diagnostics, extensionId, callExpression, argument, marker, evidence);
       return;
     }
-    case "borrow": {
+    case "borrowShared": {
       const argument = (Node_Arguments(callExpression) ?? [])[0];
       if (argument === undefined) {
         return;
@@ -371,7 +371,7 @@ function recordSourceSemanticsCallMarker(
       recordFlowMarker(facts, callExpression, argument, { state: "borrowed-shared" }, evidence);
       return;
     }
-    case "borrowMut": {
+    case "borrowMutable": {
       const argument = (Node_Arguments(callExpression) ?? [])[0];
       if (argument === undefined) {
         return;
@@ -396,7 +396,7 @@ function recordSourceSemanticsCallMarker(
     case "attribute":
       recordAttributeMarker(facts, callExpression, evidence);
       return;
-    case "defaultof":
+    case "defaultValue":
       recordDefaultValueMarker(facts, callExpression, evidence);
       return;
   }
@@ -435,12 +435,12 @@ function recordArgumentPassingMarker(
 
 function getArgumentPassingMode(kind: ArgumentPassingMarkerKind): ArgumentPassingFact["mode"] {
   switch (kind) {
-    case "out":
-      return "byref-writeonly-must-init";
-    case "ref":
-      return "byref-readwrite";
-    case "inref":
+    case "byrefReadonly":
       return "byref-readonly";
+    case "byrefReadwrite":
+      return "byref-readwrite";
+    case "byrefWriteonlyMustInit":
+      return "byref-writeonly-must-init";
   }
 }
 
@@ -634,7 +634,7 @@ function recordSourceSemanticsTypeMarker(
 ): void {
   const typeArguments = Node_TypeArguments(typeReference) ?? [];
   const evidence = createMarkerEvidence(marker.exportName);
-  if (marker.marker === "ptr") {
+  if (marker.marker === "pointer") {
     const pointee = typeArguments[0];
     if (pointee === undefined) {
       return;
