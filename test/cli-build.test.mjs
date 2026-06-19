@@ -2634,7 +2634,7 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI emits nullable C# storage for nullish unions from TSTS union facts", async () => {
+test("CLI emits nullable C# storage for nullish unions from provider runtime-carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "nullable-unions");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
