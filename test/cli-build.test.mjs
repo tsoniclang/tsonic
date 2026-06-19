@@ -1467,6 +1467,37 @@ test("CLI rejects catch variables until provider exception facts are finalized",
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedCatchFacts.csproj")), false);
 });
 
+test("CLI rejects array literals without expected target storage facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-literal-requires-expected-type");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArrayLiteralFacts",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function bare(): void {",
+      "  [1, 2];",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Array literal emission requires an expected target array or tuple type/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayLiteralFacts.csproj")), false);
+});
+
 test("CLI rejects local destructuring until provider object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "local-destructuring");
   await writeProject(projectDirectory, {
