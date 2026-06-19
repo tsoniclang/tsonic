@@ -1692,6 +1692,44 @@ test("CLI emits typed object literals as C# object initializers", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits explicit tuple types and tuple literals as C# value tuples", async () => {
+  const projectDirectory = resolve(tempRoot, "value-tuples");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedTuples",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function makePair(name: string, value: number): [string, number] {",
+      "  const pair: [string, number] = [name, value];",
+      "  return pair;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static \(string, double\) makePair\(string name, double value\)/);
+  assert.match(generatedSource, /\(string, double\) pair = \(name, value\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTuples.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects non-nullish unions until runtime-carrier facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "runtime-carrier-unions");
   await writeProject(projectDirectory, {
