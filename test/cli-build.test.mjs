@@ -706,6 +706,53 @@ test("CLI emits standard JavaScript private identifiers as private C# members", 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI lowers deterministic local destructuring from TSTS binding patterns", async () => {
+  const projectDirectory = resolve(tempRoot, "local-destructuring");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedDestructuring",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Point {",
+      "  x: number = 1;",
+      "  y: number = 2;",
+      "  values: number[] = [];",
+      "}",
+      "",
+      "export function local(point: Point): number {",
+      "  const { x } = point;",
+      "  const [first] = point.values;",
+      "  return x + first;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /var __destructure0 = point;/);
+  assert.match(generatedSource, /double x = __destructure0\.x;/);
+  assert.match(generatedSource, /var __destructure1 = point\.values;/);
+  assert.match(generatedSource, /double first = __destructure1\[0\];/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDestructuring.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits C# generic declarations from TSTS generic AST", async () => {
   const projectDirectory = resolve(tempRoot, "generic-declarations");
   await writeProject(projectDirectory, {
@@ -923,11 +970,6 @@ test("CLI reports unsupported binding patterns instead of synthesizing C# names"
       "  return value;",
       "}",
       "",
-      "export function fromLocal(point: { value: number }): number {",
-      "  const { value } = point;",
-      "  return value;",
-      "}",
-      "",
     ].join("\n"),
   });
 
@@ -935,7 +977,7 @@ test("CLI reports unsupported binding patterns instead of synthesizing C# names"
   assert.equal(build.status, 1);
   assert.match(build.stderr, /CSHARP_UNSUPPORTED_NAME/);
   assert.match(build.stderr, /Parameter name must be an identifier/);
-  assert.match(build.stderr, /Local binding name must be an identifier/);
+  assert.match(build.stderr, /Structural object type annotations require target object-shape semantics/);
 });
 
 test("CLI does not emit target artifacts when TSTS rejects the source program", async () => {
