@@ -1477,6 +1477,106 @@ test("CLI emits named generic constraints as C# where clauses", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits delegate function types and expression-bodied lambdas from TSTS AST", async () => {
+  const projectDirectory = resolve(tempRoot, "delegate-lambdas");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedDelegateLambdas",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function apply(value: number, mapper: (input: number) => number): number {",
+      "  return mapper(value);",
+      "}",
+      "",
+      "export function useInline(): number {",
+      "  return apply(3, (input) => input + 4);",
+      "}",
+      "",
+      "export function useLocal(): number {",
+      "  const mapper: (input: number) => number = (input) => input * 2;",
+      "  return mapper(5);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
+  assert.match(generatedSource, /return apply\(3, input => input \+ 4\);/);
+  assert.match(generatedSource, /Func<double, double> mapper = input => input \* 2;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDelegateLambdas.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits C# null-conditional access from TSTS optional-chain AST", async () => {
+  const projectDirectory = resolve(tempRoot, "optional-chain");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedOptionalChain",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Box {",
+      "  value: number = 1;",
+      "  read(): number {",
+      "    return this.value;",
+      "  }",
+      "}",
+      "",
+      "export function readValue(box: Box, fallback: number): number {",
+      "  return box?.value ?? fallback;",
+      "}",
+      "",
+      "export function readCall(box: Box, fallback: number): number {",
+      "  return box?.read() ?? fallback;",
+      "}",
+      "",
+      "export function readArray(values: number[], fallback: number): number {",
+      "  return values?.[0] ?? fallback;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return box\?\.value \?\? fallback;/);
+  assert.match(generatedSource, /return box\?\.read\(\) \?\? fallback;/);
+  assert.match(generatedSource, /return values\?\[0\] \?\? fallback;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOptionalChain.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects primitive generic constraints until provider constraint facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "primitive-generic-constraints");
   await writeProject(projectDirectory, {

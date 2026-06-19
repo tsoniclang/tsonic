@@ -47,6 +47,8 @@ export {
   AsForInOrOfStatement,
   AsForStatement,
   AsFunctionDeclaration,
+  AsFunctionExpression,
+  AsFunctionTypeNode,
   AsGetAccessorDeclaration,
   AsIdentifier,
   AsIfStatement,
@@ -97,6 +99,7 @@ export {
   AsSatisfiesExpression,
   AsSetAccessorDeclaration,
   AsTypeAssertion,
+  AsArrowFunction,
 } from "./internal/ast/generated/casts.js";
 export {
   KindAmpersandAmpersandToken,
@@ -114,6 +117,7 @@ export {
   KindArrayBindingPattern,
   KindArrayLiteralExpression,
   KindArrayType,
+  KindArrowFunction,
   KindAnyKeyword,
   KindBigIntKeyword,
   KindBindingElement,
@@ -146,6 +150,8 @@ export {
   KindForOfStatement,
   KindForStatement,
   KindFunctionDeclaration,
+  KindFunctionExpression,
+  KindFunctionType,
   KindGetAccessor,
   KindGreaterThanEqualsToken,
   KindGreaterThanGreaterThanEqualsToken,
