@@ -27,6 +27,7 @@ export {
 export {
   getTypeScriptArrayElementType,
   getTypeScriptTypeReferenceInfo,
+  isTypeScriptStringLikeType,
   isTypeScriptArrayType,
 } from "./type-helpers.js";
 export type {

@@ -1,6 +1,7 @@
 import type { GoPtr } from "../go/compat.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Type } from "../internal/checker/types.js";
+import { TypeFlagsStringLike } from "../internal/checker/types.js";
 import { Checker_getElementTypeOfArrayType, Checker_isArrayType } from "../internal/checker/checker/types.js";
 import { Type_AsTypeReference } from "../internal/checker/types.js";
 
@@ -21,6 +22,10 @@ export function getTypeScriptArrayElementType(type: GoPtr<Type>): GoPtr<Type> {
     return undefined;
   }
   return Checker_getElementTypeOfArrayType(type.checker, type);
+}
+
+export function isTypeScriptStringLikeType(type: GoPtr<Type>): boolean {
+  return type !== undefined && (type.flags & TypeFlagsStringLike) !== 0;
 }
 
 export function getTypeScriptTypeReferenceInfo(type: GoPtr<Type>): TypeScriptTypeReferenceInfo | undefined {
