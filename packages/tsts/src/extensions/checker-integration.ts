@@ -148,8 +148,12 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
   if (receiver === undefined || argument === undefined) {
     return;
   }
-  const argumentSymbol = Checker_GetSymbolAtLocation(checker, argument);
-  const resolvedArgumentSymbol = Checker_getResolvedSymbol(checker, argument);
+  const argumentSymbol = isSymbolBearingExpression(argument)
+    ? Checker_GetSymbolAtLocation(checker, argument)
+    : undefined;
+  const resolvedArgumentSymbol = isSymbolBearingExpression(argument)
+    ? Checker_getResolvedSymbol(checker, argument)
+    : undefined;
   const argumentType = Checker_getTypeOfExpression(checker, argument);
 
   const result = extensionHost.runDecision(
@@ -175,6 +179,12 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
   }
 
   extensionHost.facts.set(elementAccessExpression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
+}
+
+function isSymbolBearingExpression(node: GoPtr<Node>): boolean {
+  return node?.Kind === KindIdentifier ||
+    node?.Kind === KindPropertyAccessExpression ||
+    node?.Kind === KindElementAccessExpression;
 }
 
 export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operatorToken: GoPtr<Node>, left: GoPtr<Node>, right: GoPtr<Node>): void {
