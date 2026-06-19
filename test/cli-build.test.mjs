@@ -1498,6 +1498,37 @@ test("CLI rejects array literals without expected target storage facts", async (
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayLiteralFacts.csproj")), false);
 });
 
+test("CLI rejects lambdas without contextual target delegate facts", async () => {
+  const projectDirectory = resolve(tempRoot, "lambda-requires-context");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedLambdaFacts",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function bare(): void {",
+      "  (() => 1);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Lambda emission requires a contextual function\/delegate type/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedLambdaFacts.csproj")), false);
+});
+
 test("CLI rejects local destructuring until provider object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "local-destructuring");
   await writeProject(projectDirectory, {
