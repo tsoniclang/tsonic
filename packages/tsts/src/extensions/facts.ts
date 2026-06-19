@@ -202,7 +202,7 @@ export interface TargetOperationFact {
 
 export interface TargetIterationFact {
   readonly operationId: string;
-  readonly iterationKind: "sync" | "async";
+  readonly iterationKind: "sync" | "async" | "property-key";
   readonly targetOperation: string;
   readonly elementType?: ExtensionFactSubject;
   readonly evidence?: readonly ExtensionEvidence[];

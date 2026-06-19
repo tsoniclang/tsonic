@@ -2799,7 +2799,7 @@ test("CLI rejects primitive generic constraints until provider constraint facts 
   assert.match(build.stderr, /Generic constraints require a named target type/);
 });
 
-test("CLI rejects array for-in until provider enumeration facts are finalized", async () => {
+test("CLI emits array for-in from provider enumeration facts", async () => {
   const projectDirectory = resolve(tempRoot, "array-for-in");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -2829,8 +2829,17 @@ test("CLI rejects array for-in until provider enumeration facts are finalized", 
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /For-in requires finalized TSTS\/provider enumeration facts/);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /var __forInTarget0 = values;/);
+  assert.match(generatedSource, /for \(int __forInIndex0 = 0; __forInIndex0 < __forInTarget0\.Length; __forInIndex0\+\+\)/);
+  assert.match(generatedSource, /string key = __forInIndex0\.ToString\(System\.Globalization\.CultureInfo\.InvariantCulture\);/);
+  assert.match(generatedSource, /total = total \+ key\.Length;/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayForIn.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects object for-in until target object-shape enumeration facts are finalized", async () => {

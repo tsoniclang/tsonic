@@ -168,7 +168,7 @@ export interface ResolveIterationRequest {
   readonly statement: ExtensionFactSubject;
   readonly iterable: ExtensionFactSubject;
   readonly iterableType?: ExtensionFactSubject;
-  readonly iterationKind: "sync" | "async";
+  readonly iterationKind: "sync" | "async" | "property-key";
   readonly target?: string;
 }
 

@@ -12,7 +12,7 @@ import type { Checker } from "../internal/checker/checker/state.js";
 import { Checker_getTypeOfExpression } from "../internal/checker/checker/types.js";
 import { Checker_GetSymbolAtLocation, Checker_getResolvedSymbol } from "../internal/checker/checker/symbols.js";
 import { ExtensionDecisionQuestion } from "./decisions.js";
-import type { AssignabilityRequest, ContextualTypeRequest, ContextualTypeResult, InferTypeArgumentsRequest, InferTypeArgumentsResult, ParameterModeRequest, ParameterModeResult, ResolveCallRequest, ResolveCallResult, ResolveConversionRequest, ResolveConversionResult, ResolveElementAccessRequest, ResolveOperationResult, ResolveOperatorRequest, ResolvePropertyAccessRequest, RuntimeCarrierRequest, RuntimeCarrierResult, SatisfiesConstraintRequest, ValidateFlowUseRequest, ValidateFlowUseResult } from "./decisions.js";
+import type { AssignabilityRequest, ContextualTypeRequest, ContextualTypeResult, InferTypeArgumentsRequest, InferTypeArgumentsResult, ParameterModeRequest, ParameterModeResult, ResolveCallRequest, ResolveCallResult, ResolveConversionRequest, ResolveConversionResult, ResolveElementAccessRequest, ResolveIterationRequest, ResolveOperationResult, ResolveOperatorRequest, ResolvePropertyAccessRequest, RuntimeCarrierRequest, RuntimeCarrierResult, SatisfiesConstraintRequest, ValidateFlowUseRequest, ValidateFlowUseResult } from "./decisions.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetIterationFactKey, targetOperationFactKey } from "./facts.js";
 import type { ExtensionEvidence, ExtensionFactKey, ExtensionFactSubject, ExtensionHost } from "./host.js";
 import { getExtensionHost } from "./host.js";
@@ -307,7 +307,7 @@ export function recordExtensionIterationResolution(
   iterable: GoPtr<Node>,
   iterableType: GoPtr<Type>,
   iteratedType: GoPtr<Type>,
-  iterationKind: "sync" | "async",
+  iterationKind: ResolveIterationRequest["iterationKind"],
 ): void {
   if (checker === undefined || statement === undefined || iterable === undefined) {
     return;
