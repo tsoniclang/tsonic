@@ -1172,7 +1172,7 @@ test("CLI routes top-level for-of statements through the C# module entrypoint", 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double total = 0;/);
   assert.match(generatedSource, /public static void Main\(\)/);
-  assert.match(generatedSource, /foreach \(double value in new\[\] \{ 1, 2, 3 \}\)/);
+  assert.match(generatedSource, /foreach \(double value in new double\[\] \{ 1, 2, 3 \}\)/);
   assert.match(generatedSource, /total = total \+ value;/);
   assert.doesNotMatch(generatedSource, /Top-level statement is outside/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
