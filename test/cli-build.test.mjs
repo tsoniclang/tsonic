@@ -1092,6 +1092,49 @@ test("CLI rejects standalone export declarations until module-export facts are f
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
+test("CLI rejects anonymous exported declarations instead of synthesizing C# names", async () => {
+  const scenarios = [
+    {
+      name: "anonymous-default-function",
+      source: [
+        "export default function (): number {",
+        "  return 1;",
+        "}",
+        "",
+      ].join("\n"),
+      diagnostic: /Function name must be present/,
+    },
+    {
+      name: "anonymous-default-class",
+      source: [
+        "export default class {",
+        "  value: number = 1;",
+        "}",
+        "",
+      ].join("\n"),
+      diagnostic: /Class name must be present/,
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const projectDirectory = resolve(tempRoot, scenario.name);
+    await writeProject(projectDirectory, {
+      "tsonic.json": JSON.stringify({
+        entryPoint: "index.ts",
+        rootDir: "src",
+        outDir: "out",
+        targets: [{ id: "csharp" }],
+      }, null, 2),
+      "src/index.ts": scenario.source,
+    });
+
+    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+    assert.equal(build.status, 1);
+    assert.match(build.stderr, scenario.diagnostic);
+    assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+  }
+});
+
 test("CLI routes top-level for-of statements through the C# module entrypoint", async () => {
   const projectDirectory = resolve(tempRoot, "top-level-for-of");
   await writeProject(projectDirectory, {
