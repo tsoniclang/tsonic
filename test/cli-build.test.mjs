@@ -2878,7 +2878,7 @@ test("CLI rejects provider-owned object literals until object-shape facts are fi
   assert.match(build.stderr, /Object literal emission requires a source-owned expected type or finalized TSTS\/provider object-shape facts/);
 });
 
-test("CLI rejects interface object literals until object-shape facts are finalized", async () => {
+test("CLI emits interface object literals through provider object-shape adapters", async () => {
   const projectDirectory = resolve(tempRoot, "interface-object-initializers");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -2900,8 +2900,13 @@ test("CLI rejects interface object literals until object-shape facts are finaliz
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Object literal emission requires a source-owned expected type or finalized TSTS\/provider object-shape facts/);
+  assert.equal(build.status, 0, build.stderr);
+  const generated = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generated, /public interface Named[\s\S]*string name \{ get; \}/);
+  assert.match(generated, /public class __TsonicShape_Named_[A-Za-z0-9_]+ : Named[\s\S]*public string name[\s\S]*get;[\s\S]*set;/);
+  assert.match(generated, /public static Named create\(\)[\s\S]*return new __TsonicShape_Named_[A-Za-z0-9_]+[\s\S]*name = "one",/);
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects class object literals when parameterless construction is unavailable", async () => {

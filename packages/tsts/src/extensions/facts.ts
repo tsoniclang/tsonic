@@ -233,6 +233,7 @@ export interface ObjectShapeMemberFact {
 export interface ObjectShapeFact {
   readonly targetType: TargetTypeRef;
   readonly members: readonly ObjectShapeMemberFact[];
+  readonly implements?: readonly TargetTypeRef[];
   readonly constructible?: boolean;
 }
 
@@ -462,6 +463,7 @@ function fieldFactEquals(left: FieldFact, right: FieldFact): boolean {
 function objectShapeFactEquals(left: ObjectShapeFact, right: ObjectShapeFact): boolean {
   return targetTypeRefEquals(left.targetType, right.targetType)
     && left.constructible === right.constructible
+    && targetTypeRefArrayEquals(left.implements, right.implements)
     && left.members.length === right.members.length
     && left.members.every((member, index) => objectShapeMemberFactEquals(member, right.members[index]!));
 }
