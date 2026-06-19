@@ -1661,8 +1661,8 @@ test("CLI rejects catch variables until provider exception facts are finalized",
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedCatchFacts.csproj")), false);
 });
 
-test("CLI rejects array literals without expected target storage facts", async () => {
-  const projectDirectory = resolve(tempRoot, "array-literal-requires-expected-type");
+test("CLI emits array literals from finalized runtime carrier facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-literal-runtime-carriers");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -1679,6 +1679,15 @@ test("CLI rejects array literals without expected target storage facts", async (
       ],
     }, null, 2),
     "src/index.ts": [
+      "export function values(): number[] {",
+      "  return [1, 2];",
+      "}",
+      "",
+      "export function first(): number {",
+      "  const values = [1, 2];",
+      "  return values[0];",
+      "}",
+      "",
       "export function bare(): void {",
       "  [1, 2];",
       "}",
@@ -1687,9 +1696,14 @@ test("CLI rejects array literals without expected target storage facts", async (
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Array literal emission requires an expected target array or tuple type/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayLiteralFacts.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return new double\[\] \{ 1, 2 \};/);
+  assert.match(generatedSource, /double\[\] values = new double\[\] \{ 1, 2 \};/);
+  assert.match(generatedSource, /new double\[\] \{ 1, 2 \};/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayLiteralFacts.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects lambdas without contextual target delegate facts", async () => {

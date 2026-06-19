@@ -953,10 +953,12 @@ function resolveSourcePrimitiveFact(
   if (operationPrimitive !== undefined) {
     return operationPrimitive;
   }
-  const type = subject as GoPtr<Type>;
-  const primitiveFromType = resolvePrimitiveSemanticType(type, context.facts);
-  if (primitiveFromType !== undefined) {
-    return primitiveFromType;
+  if (isSemanticTypeSubject(subject)) {
+    const type = subject as Type;
+    const primitiveFromType = resolvePrimitiveSemanticType(type, context.facts);
+    if (primitiveFromType !== undefined) {
+      return primitiveFromType;
+    }
   }
   const node = subject as GoPtr<Node>;
   if (node?.Kind === undefined) {
@@ -1585,7 +1587,7 @@ function resolvePrimitiveFromImportIndex(
   typeName: GoPtr<Node>,
   importIndex: SourceSemanticsMarkerImportIndex | undefined,
 ): { readonly moduleIdentity: SourceSemanticsModuleRuntime; readonly exportName: string; readonly primitiveFact: SourcePrimitiveDeclaration; readonly identity: ExtensionCanonicalIdentity } | undefined {
-  if (typeName === undefined || importIndex === undefined) {
+  if (typeName === undefined || importIndex === undefined || typeName.Kind !== KindIdentifier) {
     return undefined;
   }
   const binding = importIndex.primitivesByLocalName.get(Node_Text(typeName));
@@ -1800,6 +1802,13 @@ function getTypeReferenceNameText(node: GoPtr<Node>): string {
     return left === "" ? right : `${left}.${right}`;
   }
   return Node_Text(node);
+}
+
+function isSemanticTypeSubject(subject: ExtensionFactSubject): subject is Type {
+  return subject !== null &&
+    subject !== undefined &&
+    typeof subject === "object" &&
+    typeof (subject as { readonly flags?: unknown }).flags === "number";
 }
 
 function getModuleMarker(moduleIdentity: SourceSemanticsModuleRuntime | undefined, capability: SourceSemanticsModuleCapability, exportName: string): SourceCallMarkerDeclaration | SourceTypeMarkerDeclaration | undefined {
