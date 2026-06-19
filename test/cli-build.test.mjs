@@ -183,6 +183,10 @@ test("CLI resolves neutral source primitives through provider modules", async ()
       "  return value;",
       "}",
       "",
+      "export function keepBig(value: bigint): bigint {",
+      "  return value;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -197,6 +201,7 @@ test("CLI resolves neutral source primitives through provider modules", async ()
   assert.match(generatedSource, /public static nint keepNative\(nint value\)/);
   assert.match(generatedSource, /public static Int128 keepInt128\(Int128 value\)/);
   assert.match(generatedSource, /public static Half keepFloat16\(Half value\)/);
+  assert.match(generatedSource, /public static System\.Numerics\.BigInteger keepBig\(System\.Numerics\.BigInteger value\)/);
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedNeutral.csproj"), "utf8");
   assert.match(generatedProject, /<OutputType>Library<\/OutputType>/);
   assert.match(generatedProject, /<PublishAot>false<\/PublishAot>/);
