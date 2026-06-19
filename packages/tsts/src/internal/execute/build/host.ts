@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoError, GoPtr } from "../../../go/compat.js";
 import type { Duration, Time } from "../../../go/time.js";
 import { Time as TimeClass } from "../../../go/time.js";
@@ -51,9 +51,9 @@ export interface host {
   host: CompilerHost;
   extendedConfigCache: ExtendedConfigCache;
   sourceFiles: parseCache<SourceFileParseOptions, GoPtr<SourceFile>>;
-  configTimes: SyncMap;
+  configTimes: SyncMap<Path, Duration>;
   resolvedReferences: parseCache<Path, GoPtr<ParsedCommandLine>>;
-  mTimes: GoPtr<SyncMap>;
+  mTimes: GoPtr<SyncMap<Path, Time>>;
 }
 
 /**
@@ -185,12 +185,12 @@ export function host_GetSourceFile(receiver: GoPtr<host>, opts: SourceFileParseO
 export function host_GetResolvedProjectReference(receiver: GoPtr<host>, fileName: string, path: Path): GoPtr<ParsedCommandLine> {
   return parseCache_loadOrStore(receiver!.resolvedReferences, path, (p: Path): GoPtr<ParsedCommandLine> => {
     const configStart = receiver!.orchestrator!.opts.Sys.Now();
-    let commandLineRaw: GoPtr<OrderedMap> = undefined;
+    let commandLineRaw: GoPtr<OrderedMap<string, unknown>> = undefined;
     const raw = receiver!.orchestrator!.opts.Command!.Raw;
     if (raw !== undefined && raw !== null) {
-      const rawMap = raw as OrderedMap;
+      const rawMap = raw as OrderedMap<string, unknown>;
       if (rawMap.keys !== undefined) {
-        const wrapped: OrderedMap = { __tsgoBlank0: {}, keys: [], mp: new Map() };
+        const wrapped: OrderedMap<string, unknown> = { __tsgoBlank0: {}, keys: [], mp: new Map() };
         OrderedMap_Set(wrapped, "compilerOptions", rawMap);
         commandLineRaw = wrapped;
       }
@@ -267,7 +267,7 @@ export function host_SetMTime(receiver: GoPtr<host>, file: string, mTime: Time):
  * 	return mTime
  * }
  */
-export function host_loadOrStoreMTime(receiver: GoPtr<host>, file: string, oldCache: GoPtr<SyncMap>, store: bool): Time {
+export function host_loadOrStoreMTime(receiver: GoPtr<host>, file: string, oldCache: GoPtr<SyncMap<Path, Time>>, store: bool): Time {
   const path = Orchestrator_toPath(receiver!.orchestrator, file);
   const [existing, loaded] = SyncMap_Load(receiver!.mTimes, path);
   if (loaded) {
@@ -317,7 +317,7 @@ export function host_storeMTime(receiver: GoPtr<host>, file: string, mTime: Time
  * 	}
  * }
  */
-export function host_storeMTimeFromOldCache(receiver: GoPtr<host>, file: string, oldCache: GoPtr<SyncMap>): void {
+export function host_storeMTimeFromOldCache(receiver: GoPtr<host>, file: string, oldCache: GoPtr<SyncMap<Path, Time>>): void {
   const path = Orchestrator_toPath(receiver!.orchestrator, file);
   const [mTime, found] = SyncMap_Load(oldCache, path);
   if (found) {

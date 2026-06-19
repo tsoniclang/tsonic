@@ -1,4 +1,4 @@
-import type { bool, int, long } from "@tsonic/core/types.js";
+import type { bool, int, long } from "../../go/scalars.js";
 import type { GoComparable, GoPtr, GoSlice } from "../../go/compat.js";
 import type { Int64 } from "../../go/sync/atomic.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
@@ -46,7 +46,7 @@ export interface breadthFirstSearchJob<N = unknown> {
  * }
  */
 export interface BreadthFirstSearchLevel<K extends GoComparable = unknown, N = unknown> {
-  jobs: GoPtr<OrderedMap>;
+  jobs: GoPtr<OrderedMap<K, GoPtr<breadthFirstSearchJob<N>>>>;
 }
 
 /**
@@ -57,7 +57,7 @@ export interface BreadthFirstSearchLevel<K extends GoComparable = unknown, N = u
  * 	return l.jobs.Has(key)
  * }
  */
-export function BreadthFirstSearchLevel_Has<K, N>(receiver: GoPtr<BreadthFirstSearchLevel<K, N>>, key: K): bool {
+export function BreadthFirstSearchLevel_Has<K extends GoComparable, N>(receiver: GoPtr<BreadthFirstSearchLevel<K, N>>, key: K): bool {
   return OrderedMap_Has(receiver!.jobs, key);
 }
 
@@ -69,7 +69,7 @@ export function BreadthFirstSearchLevel_Has<K, N>(receiver: GoPtr<BreadthFirstSe
  * 	l.jobs.Delete(key)
  * }
  */
-export function BreadthFirstSearchLevel_Delete<K, N>(receiver: GoPtr<BreadthFirstSearchLevel<K, N>>, key: K): void {
+export function BreadthFirstSearchLevel_Delete<K extends GoComparable, N>(receiver: GoPtr<BreadthFirstSearchLevel<K, N>>, key: K): void {
   OrderedMap_Delete(receiver!.jobs, key);
 }
 
@@ -85,7 +85,7 @@ export function BreadthFirstSearchLevel_Delete<K, N>(receiver: GoPtr<BreadthFirs
  * 	}
  * }
  */
-export function BreadthFirstSearchLevel_Range<K, N>(receiver: GoPtr<BreadthFirstSearchLevel<K, N>>, f: (node: N) => bool): void {
+export function BreadthFirstSearchLevel_Range<K extends GoComparable, N>(receiver: GoPtr<BreadthFirstSearchLevel<K, N>>, f: (node: N) => bool): void {
   (OrderedMap_Values(receiver!.jobs) as (yield_: (value: GoPtr<breadthFirstSearchJob<N>>) => bool) => void)((job: GoPtr<breadthFirstSearchJob<N>>): bool => {
     if (!f(job!.node)) {
       return false;
@@ -108,7 +108,7 @@ export function BreadthFirstSearchLevel_Range<K, N>(receiver: GoPtr<BreadthFirst
  * }
  */
 export interface BreadthFirstSearchOptions<K extends GoComparable = unknown, N = unknown> {
-  Visited: GoPtr<SyncSet>;
+  Visited: GoPtr<SyncSet<K>>;
   PreprocessLevel: (arg0: GoPtr<BreadthFirstSearchLevel<K, N>>) => void;
 }
 
@@ -143,7 +143,7 @@ export function BreadthFirstSearchParallel<N extends GoComparable>(start: N, nei
 export function BreadthFirstSearchParallelEx<K extends GoComparable, N>(start: N, neighbors: (arg0: N) => GoSlice<N>, visit: (node: N) => [bool, bool], options: BreadthFirstSearchOptions<K, N>, getKey: (arg0: N) => K): BreadthFirstSearchResult<N> {
   let visited = options.Visited;
   if (visited === undefined) {
-    visited = { set: new globalThis.Set<unknown>() } as unknown as SyncSet;
+    visited = { set: new globalThis.Set<unknown>() } as unknown as SyncSet<K>;
   }
 
   interface result {

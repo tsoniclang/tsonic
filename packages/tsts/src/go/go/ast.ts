@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../scalars.js";
 
 export interface Node {
   Pos?(): unknown;

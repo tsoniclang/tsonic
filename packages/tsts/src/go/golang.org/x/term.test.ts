@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../scalars.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 

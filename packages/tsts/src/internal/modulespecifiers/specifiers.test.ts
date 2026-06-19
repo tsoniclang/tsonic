@@ -5,7 +5,7 @@
 // mockModuleSpecifierGenerationHost reproduced as a plain object.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { HasFileName, StringLiteralLike } from "../ast/ast.js";
 import type { CompilerOptions, ResolutionMode } from "../core/compileroptions.js";

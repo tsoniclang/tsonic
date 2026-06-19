@@ -2,7 +2,7 @@
 // BenchmarkNewChecker is a Go benchmark and has no mirror.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import { Background } from "../../go/context.js";
 import type { Node } from "../ast/spine.js";

@@ -1,4 +1,4 @@
-import type { bool, int, sbyte } from "@tsonic/core/types.js";
+import type { bool, int, sbyte } from "../../../go/scalars.js";
 import type { GoPtr, GoRune, GoSlice } from "../../../go/compat.js";
 import { MaxInt } from "../../../go/math.js";
 import { SortStableFunc } from "../../../go/slices.js";
@@ -1223,28 +1223,37 @@ export interface globVisitor {
   directoryMatcher: GoPtr<globMatcher>;
   extensions: GoSlice<string>;
   useCaseSensitiveFileNames: bool;
-  visited: Set;
+  visited: Set<string>;
   results: GoSlice<GoSlice<string>>;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/vfsmatch/vfsmatch.go::method::globVisitor.visit","kind":"method","status":"implemented","sigHash":"9e854e1ea80d1aa8d831f20ebaf1d8a759dc1c1fb21aae86fb273c4fdd50ebc6","bodyHash":"5e57b408897ffdaa7ad111b272c6d653276715ccfbb9e729c8266d4faac056d6"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/vfsmatch/vfsmatch.go::method::globVisitor.visit","kind":"method","status":"implemented","sigHash":"a9acd0b47be9e76092b15613a92f00e01a37e5e4d8a7a9f5bd5bf04a0f320ca1","bodyHash":"03ccf2893b6d8e93933ad3d27f2f18faf45e843d1d918d9cf349ac8ee9f7b037"}
  *
  * Go source:
- * func (v *globVisitor) visit(path, absolutePath string, depth int) {
+ * // visit walks a directory tree, collecting files that match the glob patterns.
+ * // resolvedRealPath, when non-empty, is the already-resolved real path for this
+ * // directory (computed incrementally from the parent). When empty, Realpath is
+ * // called to resolve symlinks.
+ * func (v *globVisitor) visit(path, absolutePath string, depth int, resolvedRealPath string) {
  * 	// Detect symlink cycles
- * 	realPath := v.host.Realpath(absolutePath)
+ * 	var realPath string
+ * 	if resolvedRealPath != "" {
+ * 		realPath = resolvedRealPath
+ * 	} else {
+ * 		realPath = v.host.Realpath(absolutePath)
+ * 	}
  * 	canonicalPath := tspath.GetCanonicalFileName(realPath, v.useCaseSensitiveFileNames)
  * 	if v.visited.Has(canonicalPath) {
  * 		return
  * 	}
  * 	v.visited.Add(canonicalPath)
- * 
+ *
  * 	entries := v.host.GetAccessibleEntries(absolutePath)
- * 
+ *
  * 	pathPrefix := ensureTrailingSlash(path)
  * 	absPrefix := ensureTrailingSlash(absolutePath)
- * 
+ *
  * 	for _, file := range entries.Files {
  * 		if len(v.extensions) > 0 && !tspath.FileExtensionIsOneOf(file, v.extensions) {
  * 			continue
@@ -1253,26 +1262,41 @@ export interface globVisitor {
  * 			v.results[idx] = append(v.results[idx], pathPrefix+file)
  * 		}
  * 	}
- * 
+ *
  * 	if depth != UnlimitedDepth {
  * 		depth--
  * 		if depth == 0 {
  * 			return
  * 		}
  * 	}
- * 
+ *
  * 	for _, dir := range entries.Directories {
  * 		if !v.directoryMatcher.matchesDirectoryParts(absPrefix, dir) {
  * 			continue
  * 		}
  * 		absDir := absPrefix + dir
- * 		v.visit(pathPrefix+dir, absDir, depth)
+ * 		var childRealPath string
+ * 		if entries.Symlinks != nil {
+ * 			if _, isSymlink := entries.Symlinks[dir]; !isSymlink {
+ * 				// Non-symlink directory: compute realpath incrementally.
+ * 				childRealPath = tspath.CombinePaths(realPath, dir)
+ * 			}
+ * 			// else: symlink directory; leave childRealPath empty to force Realpath call.
+ * 		}
+ * 		// If Symlinks is nil, the FS doesn't track symlinks;
+ * 		// leave childRealPath empty to call Realpath (preserving old behavior).
+ * 		v.visit(pathPrefix+dir, absDir, depth, childRealPath)
  * 	}
  * }
  */
-export function globVisitor_visit(receiver: GoPtr<globVisitor>, path: string, absolutePath: string, depth: int): void {
+export function globVisitor_visit(receiver: GoPtr<globVisitor>, path: string, absolutePath: string, depth: int, resolvedRealPath: string): void {
   // Detect symlink cycles
-  const realPath = receiver!.host.Realpath(absolutePath);
+  let realPath: string;
+  if (resolvedRealPath !== "") {
+    realPath = resolvedRealPath;
+  } else {
+    realPath = receiver!.host.Realpath(absolutePath);
+  }
   const canonicalPath = GetCanonicalFileName(realPath, receiver!.useCaseSensitiveFileNames);
   if (Set_Has(receiver!.visited, canonicalPath)) {
     return;
@@ -1307,12 +1331,22 @@ export function globVisitor_visit(receiver: GoPtr<globVisitor>, path: string, ab
       continue;
     }
     const absDir = absPrefix + dir;
-    globVisitor_visit(receiver, pathPrefix + dir, absDir, curDepth as int);
+    let childRealPath = "";
+    if (entries.Symlinks !== undefined) {
+      if (!entries.Symlinks.has(dir)) {
+        // Non-symlink directory: compute realpath incrementally.
+        childRealPath = CombinePaths(realPath, dir);
+      }
+      // else: symlink directory; leave childRealPath empty to force Realpath call.
+    }
+    // If Symlinks is nil, the FS doesn't track symlinks;
+    // leave childRealPath empty to call Realpath (preserving old behavior).
+    globVisitor_visit(receiver, pathPrefix + dir, absDir, curDepth as int, childRealPath);
   }
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/vfsmatch/vfsmatch.go::func::matchFiles","kind":"func","status":"implemented","sigHash":"d49c8a50798469b5926e6428bff9230615efa440d458dc3a93315cae332efe5f","bodyHash":"aa18c5216d6d70f9d6820e89fad1335a894983be199d985c81ef5f58a2f43eb9"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/vfsmatch/vfsmatch.go::func::matchFiles","kind":"func","status":"implemented","sigHash":"d49c8a50798469b5926e6428bff9230615efa440d458dc3a93315cae332efe5f","bodyHash":"af27c654ebb6556a0e63d9f31d216d1f32d2568a463f60fc49ff24d9671794b6"}
  *
  * Go source:
  * func matchFiles(path string, extensions, excludes, includes []string, useCaseSensitiveFileNames bool, currentDirectory string, depth int, host vfs.FS) []string {
@@ -1333,7 +1367,7 @@ export function globVisitor_visit(receiver: GoPtr<globVisitor>, path: string, ab
  * 	}
  * 
  * 	for _, basePath := range getBasePaths(path, includes, useCaseSensitiveFileNames) {
- * 		v.visit(basePath, tspath.CombinePaths(currentDirectory, basePath), depth)
+ * 		v.visit(basePath, tspath.CombinePaths(currentDirectory, basePath), depth, "")
  * 	}
  * 
  * 	// Fast path: a single include bucket (or no includes) doesn't need flattening.
@@ -1369,7 +1403,7 @@ export function matchFiles(path: string, extensions: GoPtr<GoSlice<string>>, exc
   };
 
   for (const basePath of getBasePaths(normalizedPath, includes, useCaseSensitiveFileNames)) {
-    globVisitor_visit(v, basePath, CombinePaths(normalizedCurrentDir, basePath), depth);
+    globVisitor_visit(v, basePath, CombinePaths(normalizedCurrentDir, basePath), depth, "");
   }
 
   // Fast path: a single include bucket (or no includes) doesn't need flattening.

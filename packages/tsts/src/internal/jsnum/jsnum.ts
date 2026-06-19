@@ -1,4 +1,4 @@
-import type { bool, double, int, uint } from "@tsonic/core/types.js";
+import type { bool, double, int, uint } from "../../go/scalars.js";
 import * as math from "../../go/math.js";
 
 /**

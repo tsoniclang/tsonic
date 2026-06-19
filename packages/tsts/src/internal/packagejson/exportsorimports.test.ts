@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { byte } from "@tsonic/core/types.js";
+import type { byte } from "../../go/scalars.js";
 import { NewDecoder } from "../../go/github.com/go-json-experiment/json/jsontext.js";
 import { OrderedMap_GetOrZero, OrderedMap_Size } from "../collections/ordered_map.js";
 import {

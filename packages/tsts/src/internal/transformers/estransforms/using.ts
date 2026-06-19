@@ -1,4 +1,4 @@
-import type { bool, uint } from "@tsonic/core/types.js";
+import type { bool, uint } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import { NodeFactory_NewNodeList, NodeFactory_NewModifierList, Node_Name } from "../../ast/spine.js";
@@ -12,6 +12,7 @@ import { IsVariableDeclarationList, IsVariableStatement, IsBlock, IsIdentifier }
 import { AsVariableDeclaration, AsVariableDeclarationList, AsVariableStatement, AsForStatement, AsForInOrOfStatement, AsBlock, AsSyntaxList, AsClassDeclaration, AsExportAssignment } from "../../ast/generated/casts.js";
 import { KindSourceFile, KindBlock, KindForStatement, KindForOfStatement, KindSyntaxList, KindImportDeclaration, KindImportEqualsDeclaration, KindExportDeclaration, KindFunctionDeclaration, KindExportAssignment, KindClassDeclaration, KindVariableStatement, KindExportKeyword } from "../../ast/generated/kinds.js";
 import { IsBindingPattern, HasSyntacticModifier, SkipOuterExpressions, OEKAll } from "../../ast/utilities.js";
+import * as debug from "../../debug/debug.js";
 import { ModifierFlagsExport } from "../../ast/modifierflags.js";
 import { Node_SubtreeFacts } from "../../ast/spine.js";
 import { SubtreeContainsUsing } from "../../ast/subtreefacts.js";
@@ -38,13 +39,14 @@ import type { OuterExpressionKinds } from "../../ast/utilities.js";
 import { ModifierFlagsDefault } from "../../ast/modifierflags.js";
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::type::usingDeclarationTransformer","kind":"type","status":"implemented","sigHash":"c11288edbfe88aa16e8c945b427708e30a077c4eb0bdebe1f153d608e1a48b4a","bodyHash":"0addd17cbd05c759570d5e61185fa027e4ed776acbfe2fb0877d7cb0ee0f79e9"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::type::usingDeclarationTransformer","kind":"type","status":"implemented","sigHash":"c11288edbfe88aa16e8c945b427708e30a077c4eb0bdebe1f153d608e1a48b4a","bodyHash":"47d5d92ec15b175fe4faa8f2f3f9b3cdbd0f24a4759973c04156c2b95c3b2342"}
  *
  * Go source:
  * usingDeclarationTransformer struct {
  * 	transformers.Transformer
- * 
+ *
  * 	exportBindings       map[string]*ast.ExportSpecifierNode
+ * 	exportBindingNames   []string
  * 	exportVars           []*ast.VariableDeclarationNode
  * 	defaultExportBinding *ast.IdentifierNode
  * 	exportEqualsBinding  *ast.IdentifierNode
@@ -53,6 +55,7 @@ import { ModifierFlagsDefault } from "../../ast/modifierflags.js";
 export interface usingDeclarationTransformer {
   readonly __tsgoEmbedded0?: Transformer;
   exportBindings: GoMap<string, GoPtr<ExportSpecifierNode>>;
+  exportBindingNames: GoSlice<string>;
   exportVars: GoSlice<GoPtr<VariableDeclarationNode>>;
   defaultExportBinding: GoPtr<IdentifierNode>;
   exportEqualsBinding: GoPtr<IdentifierNode>;
@@ -71,6 +74,7 @@ export function newUsingDeclarationTransformer(opts: GoPtr<TransformOptions>): G
   const tx: usingDeclarationTransformer = {
     __tsgoEmbedded0: {} as Transformer,
     exportBindings: new globalThis.Map<string, GoPtr<ExportSpecifierNode>>(),
+    exportBindingNames: [],
     exportVars: [],
     defaultExportBinding: undefined,
     exportEqualsBinding: undefined,
@@ -144,7 +148,7 @@ export function usingDeclarationTransformer_visit(receiver: GoPtr<usingDeclarati
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.visitSourceFile","kind":"method","status":"implemented","sigHash":"0f892a8bcc3d43aa052b0fc7ecc716ec3396e38da72f6893ba94487faae0b315","bodyHash":"a0903ac1eeac4af01a9e8e2cbb3e321656dca561f96df905c8916c698042d32a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.visitSourceFile","kind":"method","status":"implemented","sigHash":"0f892a8bcc3d43aa052b0fc7ecc716ec3396e38da72f6893ba94487faae0b315","bodyHash":"12f491829abbf77d0d6434756f0d4c40cc4e0a511a2e25cc1411d07ed0fe9383"}
  *
  * Go source:
  * func (tx *usingDeclarationTransformer) visitSourceFile(node *ast.SourceFile) *ast.Node {
@@ -227,6 +231,12 @@ export function usingDeclarationTransformer_visit(receiver: GoPtr<usingDeclarati
  * 
  * 		// add `export {}` declarations for any hoisted bindings.
  * 		if len(tx.exportBindings) > 0 {
+ * 			exportSpecifiers := make([]*ast.ExportSpecifierNode, 0, len(tx.exportBindingNames))
+ * 			for _, name := range tx.exportBindingNames {
+ * 				specifier := tx.exportBindings[name]
+ * 				debug.Assert(specifier != nil, "Missing export binding for hoisted export name")
+ * 				exportSpecifiers = append(exportSpecifiers, specifier)
+ * 			}
  * 			topLevelStatements = append(
  * 				topLevelStatements,
  * 				tx.Factory().NewExportDeclaration(
@@ -234,7 +244,7 @@ export function usingDeclarationTransformer_visit(receiver: GoPtr<usingDeclarati
  * 					false, /*isTypeOnly* /
  * 					tx.Factory().NewNamedExports(
  * 						tx.Factory().NewNodeList(
- * 							slices.Collect(maps.Values(tx.exportBindings)),
+ * 							exportSpecifiers,
  * 						),
  * 					),
  * 					nil, /*moduleSpecifier* /
@@ -273,6 +283,7 @@ export function usingDeclarationTransformer_visit(receiver: GoPtr<usingDeclarati
  * 	tx.EmitContext().AddEmitHelper(visited, tx.EmitContext().ReadEmitHelpers()...)
  * 	tx.exportVars = nil
  * 	tx.exportBindings = nil
+ * 	tx.exportBindingNames = nil
  * 	tx.defaultExportBinding = nil
  * 	tx.exportEqualsBinding = nil
  * 	return visited
@@ -316,9 +327,15 @@ export function usingDeclarationTransformer_visitSourceFile(receiver: GoPtr<usin
     const bodyStatements = usingDeclarationTransformer_transformUsingDeclarations(receiver, rest.slice(pos) as GoSlice<GoPtr<Statement>>, envBinding, topLevelStatementsRef);
     topLevelStatements = topLevelStatementsRef;
     if (receiver!.exportBindings!.size > 0) {
+      const exportSpecifiers: GoSlice<GoPtr<ExportSpecifierNode>> = [];
+      for (const name of receiver!.exportBindingNames ?? []) {
+        const specifier = receiver!.exportBindings!.get(name);
+        debug.Assert((specifier !== undefined) as bool, "Missing export binding for hoisted export name");
+        exportSpecifiers.push(specifier);
+      }
       topLevelStatements = [...topLevelStatements, NewExportDeclaration(factory,
         undefined, false,
-        NewNamedExports(factory, NodeFactory_NewNodeList(factory, Array.from(receiver!.exportBindings!.values()) as GoSlice<GoPtr<Node>>)),
+        NewNamedExports(factory, NodeFactory_NewNodeList(factory, exportSpecifiers as GoSlice<GoPtr<Node>>)),
         undefined, undefined,
       ) as GoPtr<Statement>];
     }
@@ -344,6 +361,7 @@ export function usingDeclarationTransformer_visitSourceFile(receiver: GoPtr<usin
   EmitContext_AddEmitHelper(emitContext, visited, ...EmitContext_ReadEmitHelpers(emitContext)!);
   receiver!.exportVars = [];
   receiver!.exportBindings = new globalThis.Map();
+  receiver!.exportBindingNames = [];
   receiver!.defaultExportBinding = undefined;
   receiver!.exportEqualsBinding = undefined;
   return visited;
@@ -1127,7 +1145,7 @@ export function usingDeclarationTransformer_hoistBindingElement(receiver: GoPtr<
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistBindingIdentifier","kind":"method","status":"implemented","sigHash":"53984d8c03f91be8d642184ebca420bf77d90f9f1a278295c8c2a3ea79b741c0","bodyHash":"8f2a6c8c6a4da6c2e051a995e065a9fe0b7341344e0770f93fb92c495301dd01"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistBindingIdentifier","kind":"method","status":"implemented","sigHash":"53984d8c03f91be8d642184ebca420bf77d90f9f1a278295c8c2a3ea79b741c0","bodyHash":"3d80f03e6155d8e9a9e6243b41fe86a145dc3225fe3c9b6c1e0bb8ad57fba38f"}
  *
  * Go source:
  * func (tx *usingDeclarationTransformer) hoistBindingIdentifier(node *ast.IdentifierNode, isExport bool, exportAlias *ast.IdentifierNode, original *ast.Node) {
@@ -1161,6 +1179,9 @@ export function usingDeclarationTransformer_hoistBindingElement(receiver: GoPtr<
  * 		if tx.exportBindings == nil {
  * 			tx.exportBindings = make(map[string]*ast.ExportSpecifierNode)
  * 		}
+ * 		if _, ok := tx.exportBindings[name.Text()]; !ok {
+ * 			tx.exportBindingNames = append(tx.exportBindingNames, name.Text())
+ * 		}
  * 		tx.exportBindings[name.Text()] = specifier
  * 	}
  * 	tx.EmitContext().AddVariableDeclaration(name)
@@ -1192,6 +1213,9 @@ export function usingDeclarationTransformer_hoistBindingIdentifier(receiver: GoP
     }
     if (receiver!.exportBindings === undefined) {
       receiver!.exportBindings = new globalThis.Map<string, GoPtr<ExportSpecifierNode>>();
+    }
+    if (!receiver!.exportBindings!.has(Node_Text(name as GoPtr<Node>) ?? "")) {
+      receiver!.exportBindingNames = [...(receiver!.exportBindingNames ?? []), Node_Text(name as GoPtr<Node>) ?? ""];
     }
     receiver!.exportBindings!.set(Node_Text(name as GoPtr<Node>) ?? "", specifier as GoPtr<ExportSpecifierNode>);
   }

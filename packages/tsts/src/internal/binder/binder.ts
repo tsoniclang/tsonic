@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import * as strconv from "../../go/strconv.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { Pool } from "../../go/sync.js";
@@ -385,7 +385,7 @@ import {
   IsForInOrOfStatement,
   IsFunctionLike,
   IsGlobalScopeAugmentation,
-  IsImplicitlyExportedJSTypeAlias,
+  IsImplicitlyExportedJSDocDeclaration,
   IsInJSFile,
   IsInTopLevelContext,
   IsLeftHandSideExpression,
@@ -596,7 +596,6 @@ export interface Binder {
   file: GoPtr<SourceFile>;
   bindFunc: (arg0: GoPtr<Node>) => bool;
   unreachableFlow: GoPtr<FlowNode>;
-  parent: GoPtr<Node>;
   container: GoPtr<Node>;
   thisContainer: GoPtr<Node>;
   blockScopeContainer: GoPtr<Node>;
@@ -697,7 +696,7 @@ export function BindSourceFile(file: GoPtr<SourceFile>): void {
  * 	},
  * }
  */
-export const binderPool = new Pool<Binder>();
+export const binderPool: Pool<Binder> = new Pool<Binder>();
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/binder.go::func::getBinder","kind":"func","status":"implemented","sigHash":"b5ed04b8e537a472bfe5943403514f3a2337328c3df347af7978c671e52c0fa2","bodyHash":"459fb11735c11ea9e06babc9f1dab3e1df80aca8b93fcd595671fbd375fceddb"}
@@ -1225,12 +1224,12 @@ export function GetSymbolNameForPrivateIdentifier(containingClassSymbol: GoPtr<S
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/binder.go::method::Binder.declareModuleMember","kind":"method","status":"implemented","sigHash":"64029444bbb7b44c7e72e78af46404c6a3e5e6169f85bfd86c2102ce3fb24734","bodyHash":"0bd6eb9b6344083a1c8caa897a719fc27145890d323c8b43ccc9b64cd406c450"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/binder.go::method::Binder.declareModuleMember","kind":"method","status":"implemented","sigHash":"64029444bbb7b44c7e72e78af46404c6a3e5e6169f85bfd86c2102ce3fb24734","bodyHash":"7d4e176a38c48e3d93bd5be629f02e51d5fc7c06455b76754ea6bec7aec3a159"}
  *
  * Go source:
  * func (b *Binder) declareModuleMember(node *ast.Node, symbolFlags ast.SymbolFlags, symbolExcludes ast.SymbolFlags) *ast.Symbol {
  * 	container := b.container
- * 	hasExportModifier := ast.GetCombinedModifierFlags(node)&ast.ModifierFlagsExport != 0 || ast.IsImplicitlyExportedJSTypeAlias(node)
+ * 	hasExportModifier := ast.GetCombinedModifierFlags(node)&ast.ModifierFlagsExport != 0 || ast.IsImplicitlyExportedJSDocDeclaration(node)
  * 	if symbolFlags&ast.SymbolFlagsAlias != 0 {
  * 		if node.Kind == ast.KindExportSpecifier || (node.Kind == ast.KindImportEqualsDeclaration && hasExportModifier) {
  * 			return b.declareSymbol(ast.GetExports(container.Symbol()), container.Symbol(), node, symbolFlags, symbolExcludes)
@@ -1271,7 +1270,7 @@ export function GetSymbolNameForPrivateIdentifier(containingClassSymbol: GoPtr<S
  */
 export function Binder_declareModuleMember(receiver: GoPtr<Binder>, node: GoPtr<Node>, symbolFlags: SymbolFlags, symbolExcludes: SymbolFlags): GoPtr<Symbol> {
   const container = receiver!.container;
-  const hasExportModifier = (GetCombinedModifierFlags(node) & ModifierFlagsExport) !== 0 || IsImplicitlyExportedJSTypeAlias(node);
+  const hasExportModifier = (GetCombinedModifierFlags(node) & ModifierFlagsExport) !== 0 || IsImplicitlyExportedJSDocDeclaration(node);
   if ((symbolFlags & SymbolFlagsAlias) !== 0) {
     if (node!.Kind === KindExportSpecifier || (node!.Kind === KindImportEqualsDeclaration && hasExportModifier)) {
       return Binder_declareSymbol(receiver, GetExports(Node_Symbol(container)!)!, Node_Symbol(container)!, node, symbolFlags, symbolExcludes);
@@ -1310,18 +1309,18 @@ export function Binder_declareClassMember(receiver: GoPtr<Binder>, node: GoPtr<N
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/binder.go::method::Binder.declareSourceFileMember","kind":"method","status":"implemented","sigHash":"9c44c11bc7bd72752752763bb49d2fc6fda75370fc685651946c168ef3ead427","bodyHash":"fc65ca4b20a871a29f8203c513a607ece6bf1887775a3b3d8b758e66d91fc28a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/binder.go::method::Binder.declareSourceFileMember","kind":"method","status":"implemented","sigHash":"9c44c11bc7bd72752752763bb49d2fc6fda75370fc685651946c168ef3ead427","bodyHash":"0b48d2b43c41bc099217d9a89ad5220ad07bfae00d4873f43ac722da2380b66a"}
  *
  * Go source:
  * func (b *Binder) declareSourceFileMember(node *ast.Node, symbolFlags ast.SymbolFlags, symbolExcludes ast.SymbolFlags) *ast.Symbol {
- * 	if ast.IsExternalOrCommonJSModule(b.file) {
+ * 	if ast.IsExternalModule(b.file) {
  * 		return b.declareModuleMember(node, symbolFlags, symbolExcludes)
  * 	}
  * 	return b.declareSymbol(ast.GetLocals(b.file.AsNode()), nil /*parent* /, node, symbolFlags, symbolExcludes)
  * }
  */
 export function Binder_declareSourceFileMember(receiver: GoPtr<Binder>, node: GoPtr<Node>, symbolFlags: SymbolFlags, symbolExcludes: SymbolFlags): GoPtr<Symbol> {
-  if (IsExternalOrCommonJSModule(receiver!.file)) {
+  if (IsExternalModule(receiver!.file)) {
     return Binder_declareModuleMember(receiver, node, symbolFlags, symbolExcludes);
   }
   return Binder_declareSymbol(receiver, GetLocals(Node_AsNode(receiver!.file as unknown as Node))!, undefined, node, symbolFlags, symbolExcludes);
@@ -1696,7 +1695,7 @@ export function Binder_finishFlowLabel(receiver: GoPtr<Binder>, label: GoPtr<Flo
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/binder.go::method::Binder.bind","kind":"method","status":"implemented","sigHash":"b64e60c99a7b3c067cbe984f7ff1445561675da4cd98face0019e61b4769fbd5","bodyHash":"26da8d2a2b2cf6e2939ba4517e878237ba9e888a93f489af5002bcde68cb258a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/binder.go::method::Binder.bind","kind":"method","status":"implemented","sigHash":"b64e60c99a7b3c067cbe984f7ff1445561675da4cd98face0019e61b4769fbd5","bodyHash":"b476b93cdbc4d26cbab13d5a984fcf5bcbd5a59b5b0f43d90cc836f011cb3ff7"}
  *
  * Go source:
  * func (b *Binder) bind(node *ast.Node) bool {
@@ -1788,7 +1787,7 @@ export function Binder_finishFlowLabel(receiver: GoPtr<Binder>, label: GoPtr<Flo
  * 	case ast.KindCallSignature, ast.KindConstructSignature, ast.KindIndexSignature:
  * 		b.declareSymbolAndAddToSymbolTable(node, ast.SymbolFlagsSignature, ast.SymbolFlagsNone)
  * 	case ast.KindMethodDeclaration, ast.KindMethodSignature:
- * 		b.bindPropertyOrMethodOrAccessor(node, ast.SymbolFlagsMethod|getOptionalSymbolFlagForNode(node), core.IfElse(ast.IsObjectLiteralMethod(node), ast.SymbolFlagsPropertyExcludes, ast.SymbolFlagsMethodExcludes))
+ * 		b.bindPropertyOrMethodOrAccessor(node, ast.SymbolFlagsMethod|getOptionalSymbolFlagForNode(node), core.IfElse(ast.IsObjectLiteralMethod(node), ast.SymbolFlagsValue, ast.SymbolFlagsMethodExcludes))
  * 	case ast.KindFunctionDeclaration:
  * 		b.bindFunctionDeclaration(node)
  * 	case ast.KindConstructor:
@@ -1878,9 +1877,6 @@ export function Binder_bind(receiver: GoPtr<Binder>, node: GoPtr<Node>): bool {
   if (node === undefined) {
     return false;
   }
-  node!.Parent = receiver!.parent;
-  const saveParent = receiver!.parent;
-  receiver!.parent = node;
   // First bind declaration nodes to a symbol if possible.
   switch (node!.Kind) {
     case KindIdentifier:
@@ -1966,7 +1962,7 @@ export function Binder_bind(receiver: GoPtr<Binder>, node: GoPtr<Node>): bool {
       break;
     case KindMethodDeclaration:
     case KindMethodSignature:
-      Binder_bindPropertyOrMethodOrAccessor(receiver, node, (SymbolFlagsMethod | getOptionalSymbolFlagForNode(node)) as SymbolFlags, IfElse(IsObjectLiteralMethod(node), SymbolFlagsPropertyExcludes, SymbolFlagsMethodExcludes));
+      Binder_bindPropertyOrMethodOrAccessor(receiver, node, (SymbolFlagsMethod | getOptionalSymbolFlagForNode(node)) as SymbolFlags, IfElse(IsObjectLiteralMethod(node), SymbolFlagsValue, SymbolFlagsMethodExcludes));
       break;
     case KindFunctionDeclaration:
       Binder_bindFunctionDeclaration(receiver, node);
@@ -2076,7 +2072,6 @@ export function Binder_bind(receiver: GoPtr<Binder>, node: GoPtr<Node>): bool {
     node!.Flags = (node!.Flags | NodeFlagsThisNodeOrAnySubNodesHasError) as NodeFlags;
     receiver!.seenParseError = true;
   }
-  receiver!.parent = saveParent;
   return false;
 }
 
@@ -2885,7 +2880,7 @@ export function Binder_bindExportsOrObjectDefineProperty(receiver: GoPtr<Binder>
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/binder.go::func::getInitializerSymbol","kind":"func","status":"implemented","sigHash":"4880e6d88b929f21c1390dd12a331574e71d13edc74ed2f07b969dfb320fa918","bodyHash":"d47d4b01701011e1913a21e3c592ade0dad27d6b39f35ab46191577f471820bb"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/binder/binder.go::func::getInitializerSymbol","kind":"func","status":"implemented","sigHash":"4880e6d88b929f21c1390dd12a331574e71d13edc74ed2f07b969dfb320fa918","bodyHash":"65ce5cd05c9b6745631cdc318cbdb8cd61a654d2e236007eac030ec3b6b08d54"}
  *
  * Go source:
  * func getInitializerSymbol(symbol *ast.Symbol) *ast.Symbol {
@@ -2895,20 +2890,20 @@ export function Binder_bindExportsOrObjectDefineProperty(receiver: GoPtr<Binder>
  * 	declaration := symbol.ValueDeclaration
  * 	// For an assignment 'fn.xxx = ...', where 'fn' is a previously declared function or a previously
  * 	// declared const variable initialized with a function expression or arrow function, we add expando
- * 	// property declarations to the function's symbol.
- * 	// This also applies to class expressions and empty object literals in JS files.
+ * 	// property declarations to the function's symbol. This also applies to class expressions in JS files,
+ * 	// and empty object literals in JS files when the declaration doesn't have a type annotation.
  * 	switch {
  * 	case ast.IsFunctionDeclaration(declaration) || ast.IsInJSFile(declaration) && ast.IsClassDeclaration(declaration):
  * 		return symbol
  * 	case ast.IsVariableDeclaration(declaration) &&
  * 		(declaration.Parent.Flags&ast.NodeFlagsConst != 0 || ast.IsInJSFile(declaration)):
  * 		initializer := declaration.Initializer()
- * 		if ast.IsExpandoInitializer(initializer) {
+ * 		if ast.IsExpandoInitializer(declaration, initializer) {
  * 			return initializer.Symbol()
  * 		}
  * 	case ast.IsBinaryExpression(declaration) && ast.IsInJSFile(declaration):
  * 		initializer := declaration.AsBinaryExpression().Right
- * 		if ast.IsExpandoInitializer(initializer) {
+ * 		if ast.IsExpandoInitializer(declaration, initializer) {
  * 			return initializer.Symbol()
  * 		}
  * 	}
@@ -2925,13 +2920,13 @@ export function getInitializerSymbol(symbol_: GoPtr<Symbol>): GoPtr<Symbol> {
   }
   if (IsVariableDeclaration(declaration) && ((declaration!.Parent!.Flags & NodeFlagsConst) !== 0 || IsInJSFile(declaration))) {
     const initializer = Node_Initializer(declaration);
-    if (IsExpandoInitializer(initializer)) {
+    if (IsExpandoInitializer(declaration, initializer)) {
       return Node_Symbol(initializer);
     }
   }
   if (IsBinaryExpression(declaration) && IsInJSFile(declaration)) {
     const initializer = AsBinaryExpression(declaration)!.Right;
-    if (IsExpandoInitializer(initializer)) {
+    if (IsExpandoInitializer(declaration, initializer)) {
       return Node_Symbol(initializer);
     }
   }
@@ -5418,13 +5413,10 @@ function Binder_bindNonLogicalBinaryExpressionFlow(receiver: GoPtr<Binder>, node
     Binder_bindBinaryExpressionNode(receiver, binaryChain[index]);
   }
 
-  receiver!.parent = binaryChain[binaryChain.length - 1];
   Binder_bind(receiver, leftEdge);
   for (let index = binaryChain.length - 1; index >= 0; index--) {
-    receiver!.parent = binaryChain[index];
     Binder_bindNonLogicalBinaryExpressionTail(receiver, binaryChain[index]);
   }
-  receiver!.parent = node;
 }
 
 function isIterativelyBindableNonLogicalBinaryExpression(node: GoPtr<Node>): bool {

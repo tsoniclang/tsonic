@@ -1,4 +1,0 @@
-NonNullable: hello
-Exclude: world
-Extract: passed
-Record: pending is true

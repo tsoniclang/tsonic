@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { ModifierList, Node, NodeList } from "../../ast/spine.js";
 import type { ObjectLiteralExpression } from "../../ast/generated/data.js";
@@ -159,8 +159,8 @@ import {
   NewVoidExpression,
   NewYieldExpression,
 } from "../../ast/generated/factory.js";
-import { AsExpressionWithTypeArguments, AsHeritageClause, AsPropertyAssignment, AsStringLiteral, AsNumericLiteral, AsNoSubstitutionTemplateLiteral, AsTemplateSpan, AsTypeReferenceNode } from "../../ast/generated/casts.js";
-import { IsExpressionWithTypeArguments, IsModifierKind, IsPrivateIdentifier, IsAssignmentOperator } from "../../ast/generated/predicates.js";
+import { AsBinaryExpression, AsExpressionWithTypeArguments, AsHeritageClause, AsPropertyAssignment, AsStringLiteral, AsNumericLiteral, AsNoSubstitutionTemplateLiteral, AsTemplateSpan, AsTypeReferenceNode } from "../../ast/generated/casts.js";
+import { IsBinaryExpression, IsExpressionWithTypeArguments, IsModifierKind, IsPrivateIdentifier, IsAssignmentOperator } from "../../ast/generated/predicates.js";
 import { Set_Add, Set_Has } from "../../collections/set.js";
 import { Assert } from "../../debug/debug.js";
 import { ModifierFlagsAmbient, ModifiersToFlags } from "../../ast/modifierflags.js";
@@ -184,7 +184,7 @@ import {
   X_super_must_be_followed_by_an_argument_list_or_member_access,
 } from "../../diagnostics/generated/messages.js";
 import { Diagnostic_Pos, NewDiagnostic } from "../../ast/diagnostic.js";
-import { GetBinaryOperatorPrecedence, OperatorPrecedenceInvalid, OperatorPrecedenceLowest } from "../../ast/precedence.js";
+import { GetBinaryOperatorPrecedence, OperatorPrecedenceHighest, OperatorPrecedenceInvalid, OperatorPrecedenceLowest } from "../../ast/precedence.js";
 import { IsLeftHandSideExpression, IsKeyword, IsClassMemberModifier, NodeIsMissing, NodeIsPresent } from "../../ast/utilities.js";
 import { NodeFactory_NewModifier, Node_Text, Node_TypeArgumentList, Node_Type, NodeFactory_NewSourceFile, SourceFile_ParseOptions } from "../../ast/ast.js";
 import { Arena_NewSlice1, Arena_Clone } from "../../core/arena.js";
@@ -313,7 +313,7 @@ export function Parser_validateJsonObjectLiteral(receiver: GoPtr<Parser>, source
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.reparseTopLevelAwait","kind":"method","status":"implemented","sigHash":"f4549f86a14a062f75c0f2b6198d575d5462f7af6e004cfade6da41607e62ef9","bodyHash":"55eac548b62a3263e119a8f392ef0bb9539bc3205c12cab14433fe8b17ed93db"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.reparseTopLevelAwait","kind":"method","status":"implemented","sigHash":"f4549f86a14a062f75c0f2b6198d575d5462f7af6e004cfade6da41607e62ef9","bodyHash":"26d975b1fd4b242b40627eb175875595596cfe8ab77d1cc79e7bb2fd43ee837d"}
  *
  * Go source:
  * func (p *Parser) reparseTopLevelAwait(sourceFile *ast.SourceFile) *ast.Node {
@@ -338,7 +338,7 @@ export function Parser_validateJsonObjectLiteral(receiver: GoPtr<Parser>, source
  * 		})
  * 		var diagnosticEnd int
  * 		if diagnosticStart >= 0 {
- * 			diagnosticEnd = core.FindIndex(savedParseDiagnostics[:diagnosticStart], func(diagnostic *ast.Diagnostic) bool {
+ * 			diagnosticEnd = core.FindIndex(savedParseDiagnostics[diagnosticStart:], func(diagnostic *ast.Diagnostic) bool {
  * 				return diagnostic.Pos() >= nextStatement.Pos()
  * 			})
  * 		} else {
@@ -369,12 +369,12 @@ export function Parser_validateJsonObjectLiteral(receiver: GoPtr<Parser>, source
  * 				p.nextToken()
  * 			}
  * 			if afterAwaitStatement < len(sourceFile.Statements.Nodes) {
- * 				nonAwaitStatement := sourceFile.Statements.Nodes[afterAwaitStatement]
- * 				if statement.End() == nonAwaitStatement.Pos() {
+ * 				lastAwaitStatement := sourceFile.Statements.Nodes[afterAwaitStatement-1]
+ * 				if statement.End() == lastAwaitStatement.End() {
  * 					// done reparsing this section
  * 					break
  * 				}
- * 				if statement.End() > nonAwaitStatement.Pos() {
+ * 				if statement.End() > lastAwaitStatement.End() {
  * 					// we ate into the next statement, so we must continue reparsing the next span
  * 					i += 2
  * 					if i < len(p.possibleAwaitSpans) {
@@ -434,10 +434,7 @@ export function Parser_reparseTopLevelAwait(receiver: GoPtr<Parser>, sourceFile:
     });
     let diagnosticEnd: int;
     if (diagnosticStart >= 0) {
-      // Go searches the PREFIX savedParseDiagnostics[:diagnosticStart] (not the suffix),
-      // so diagnosticStart == 0 always yields -1 and the whole saved list is copied;
-      // re-parse duplicates are collapsed later by program-level deduplication.
-      diagnosticEnd = FindIndex(savedParseDiagnostics.slice(0, diagnosticStart), (diagnostic) => {
+      diagnosticEnd = FindIndex(savedParseDiagnostics.slice(diagnosticStart), (diagnostic) => {
         return Diagnostic_Pos(diagnostic) >= Node_Pos(nextStatement);
       });
     } else {
@@ -466,12 +463,12 @@ export function Parser_reparseTopLevelAwait(receiver: GoPtr<Parser>, sourceFile:
         Parser_nextToken(receiver);
       }
       if (afterAwaitStatement < sourceFile!.Statements!.Nodes.length) {
-        const nonAwaitStatement = sourceFile!.Statements!.Nodes[afterAwaitStatement];
-        if (Node_End(statement) === Node_Pos(nonAwaitStatement)) {
+        const lastAwaitStatement = sourceFile!.Statements!.Nodes[afterAwaitStatement - 1];
+        if (Node_End(statement) === Node_End(lastAwaitStatement)) {
           // done reparsing this section
           break;
         }
-        if (Node_End(statement) > Node_Pos(nonAwaitStatement)) {
+        if (Node_End(statement) > Node_End(lastAwaitStatement)) {
           // we ate into the next statement, so we must continue reparsing the next span
           i += 2;
           if (i < receiver!.possibleAwaitSpans.length) {
@@ -2098,15 +2095,16 @@ export function Parser_parseBinaryExpressionOrHigher(receiver: GoPtr<Parser>, pr
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.parseBinaryExpressionRest","kind":"method","status":"implemented","sigHash":"fb10588a8e64dfb251a5e79476bb14c194d7d85f85e28f453922ed4e776e3c07","bodyHash":"7b3a40ac345287e098f0f8ba88af2da86e7f76e43d033600b402e956bd9a7547"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.parseBinaryExpressionRest","kind":"method","status":"implemented","sigHash":"fb10588a8e64dfb251a5e79476bb14c194d7d85f85e28f453922ed4e776e3c07","bodyHash":"2e3e2d192d0b5e8e4cbd76f2637349b3ef97f4cd5c9c5f2ea10c642c5343cb51"}
  *
  * Go source:
  * func (p *Parser) parseBinaryExpressionRest(precedence ast.OperatorPrecedence, leftOperand *ast.Expression, pos int) *ast.Expression {
+ * 	lastOperand := leftOperand
  * 	for {
  * 		// We either have a binary operator here, or we're finished.  We call
  * 		// reScanGreaterToken so that we merge token sequences like > and = into >=
- * 		p.reScanGreaterThanToken()
- * 		newPrecedence := ast.GetBinaryOperatorPrecedence(p.token)
+ * 		operator := p.reScanGreaterThanToken()
+ * 		newPrecedence := ast.GetBinaryOperatorPrecedence(operator)
  * 		// Check the precedence to see if we should "take" this operator
  * 		// - For left associative operator (all operator but **), consume the operator,
  * 		//   recursively call the function below, and parse binaryExpression as a rightOperand
@@ -2129,7 +2127,7 @@ export function Parser_parseBinaryExpressionOrHigher(receiver: GoPtr<Parser>, pr
  * 		//      a ** b - c
  * 		//             ^token; leftOperand = b. Return b to the caller as a rightOperand
  * 		var consumeCurrentOperator bool
- * 		if p.token == ast.KindAsteriskAsteriskToken {
+ * 		if operator == ast.KindAsteriskAsteriskToken {
  * 			consumeCurrentOperator = newPrecedence >= precedence
  * 		} else {
  * 			consumeCurrentOperator = newPrecedence > precedence
@@ -2137,10 +2135,10 @@ export function Parser_parseBinaryExpressionOrHigher(receiver: GoPtr<Parser>, pr
  * 		if !consumeCurrentOperator {
  * 			break
  * 		}
- * 		if p.token == ast.KindInKeyword && p.inDisallowInContext() {
+ * 		if operator == ast.KindInKeyword && p.inDisallowInContext() {
  * 			break
  * 		}
- * 		if p.token == ast.KindAsKeyword || p.token == ast.KindSatisfiesKeyword {
+ * 		if operator == ast.KindAsKeyword || operator == ast.KindSatisfiesKeyword {
  * 			// Make sure we *do* perform ASI for constructs like this:
  * 			//    var x = foo
  * 			//    as (Bar)
@@ -2149,16 +2147,28 @@ export function Parser_parseBinaryExpressionOrHigher(receiver: GoPtr<Parser>, pr
  * 			if p.hasPrecedingLineBreak() {
  * 				break
  * 			} else {
- * 				keywordKind := p.token
  * 				p.nextToken()
- * 				if keywordKind == ast.KindSatisfiesKeyword {
+ * 				// When we have 'a ## b as SomeType' or 'a ## b satisfies SomeType', where ## is some binary
+ * 				// operator, we want to stop parsing on any following operator with a higher precedence than ##
+ * 				// because continuing would make it impossible to erase the `as` or `satisfies` without changing
+ * 				// the meaning of the expression. See https://github.com/microsoft/TypeScript/issues/63527.
+ * 				lastPrecedence := ast.OperatorPrecedenceHighest
+ * 				if ast.IsBinaryExpression(lastOperand) {
+ * 					lastPrecedence = ast.GetBinaryOperatorPrecedence(lastOperand.AsBinaryExpression().OperatorToken.Kind)
+ * 				}
+ * 				if operator == ast.KindSatisfiesKeyword {
  * 					leftOperand = p.makeSatisfiesExpression(leftOperand, p.parseType())
  * 				} else {
  * 					leftOperand = p.makeAsExpression(leftOperand, p.parseType())
  * 				}
+ * 				// Stop if the precedence of the next operator is too high.
+ * 				if ast.GetBinaryOperatorPrecedence(p.reScanGreaterThanToken()) > lastPrecedence {
+ * 					break
+ * 				}
  * 			}
  * 		} else {
  * 			leftOperand = p.makeBinaryExpression(leftOperand, p.parseTokenNode(), p.parseBinaryExpressionOrHigher(newPrecedence), pos)
+ * 			lastOperand = leftOperand
  * 		}
  * 	}
  * 	return leftOperand
@@ -2166,14 +2176,15 @@ export function Parser_parseBinaryExpressionOrHigher(receiver: GoPtr<Parser>, pr
  */
 export function Parser_parseBinaryExpressionRest(receiver: GoPtr<Parser>, precedence: OperatorPrecedence, leftOperand: GoPtr<Expression>, pos: int): GoPtr<Expression> {
   let currentLeft: GoPtr<Expression> = leftOperand;
+  let lastOperand: GoPtr<Expression> = currentLeft;
   while (true) {
     // We either have a binary operator here, or we're finished.  We call
     // reScanGreaterToken so that we merge token sequences like > and = into >=
-    Parser_reScanGreaterThanToken(receiver);
-    const newPrecedence = GetBinaryOperatorPrecedence(receiver!.token);
+    const operator = Parser_reScanGreaterThanToken(receiver);
+    const newPrecedence = GetBinaryOperatorPrecedence(operator);
     // Check the precedence to see if we should "take" this operator
     let consumeCurrentOperator: bool;
-    if (receiver!.token === KindAsteriskAsteriskToken) {
+    if (operator === KindAsteriskAsteriskToken) {
       consumeCurrentOperator = (newPrecedence >= precedence) as bool;
     } else {
       consumeCurrentOperator = (newPrecedence > precedence) as bool;
@@ -2181,10 +2192,10 @@ export function Parser_parseBinaryExpressionRest(receiver: GoPtr<Parser>, preced
     if (!consumeCurrentOperator) {
       break;
     }
-    if (receiver!.token === KindInKeyword && Parser_inDisallowInContext(receiver)) {
+    if (operator === KindInKeyword && Parser_inDisallowInContext(receiver)) {
       break;
     }
-    if (receiver!.token === KindAsKeyword || receiver!.token === KindSatisfiesKeyword) {
+    if (operator === KindAsKeyword || operator === KindSatisfiesKeyword) {
       // Make sure we *do* perform ASI for constructs like this:
       //    var x = foo
       //    as (Bar)
@@ -2193,16 +2204,28 @@ export function Parser_parseBinaryExpressionRest(receiver: GoPtr<Parser>, preced
       if (Parser_hasPrecedingLineBreak(receiver)) {
         break;
       } else {
-        const keywordKind = receiver!.token;
         Parser_nextToken(receiver);
-        if (keywordKind === KindSatisfiesKeyword) {
+        // When we have 'a ## b as SomeType' or 'a ## b satisfies SomeType', where ## is some binary
+        // operator, we want to stop parsing on any following operator with a higher precedence than ##
+        // because continuing would make it impossible to erase the `as` or `satisfies` without changing
+        // the meaning of the expression. See https://github.com/microsoft/TypeScript/issues/63527.
+        let lastPrecedence: OperatorPrecedence = OperatorPrecedenceHighest;
+        if (IsBinaryExpression(lastOperand)) {
+          lastPrecedence = GetBinaryOperatorPrecedence(AsBinaryExpression(lastOperand)!.OperatorToken!.Kind);
+        }
+        if (operator === KindSatisfiesKeyword) {
           currentLeft = Parser_makeSatisfiesExpression(receiver, currentLeft, Parser_parseType(receiver));
         } else {
           currentLeft = Parser_makeAsExpression(receiver, currentLeft, Parser_parseType(receiver));
         }
+        // Stop if the precedence of the next operator is too high.
+        if (GetBinaryOperatorPrecedence(Parser_reScanGreaterThanToken(receiver)) > lastPrecedence) {
+          break;
+        }
       }
     } else {
       currentLeft = Parser_makeBinaryExpression(receiver, currentLeft, Parser_parseTokenNode(receiver), Parser_parseBinaryExpressionOrHigher(receiver, newPrecedence), pos);
+      lastOperand = currentLeft;
     }
   }
   return currentLeft;

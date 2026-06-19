@@ -1,9 +1,9 @@
-import type { bool, sbyte } from "@tsonic/core/types.js";
+import type { bool, sbyte } from "../../go/scalars.js";
 import type { GoError, GoPtr, GoSlice } from "../../go/compat.js";
 import { OrderedMap_Keys, OrderedMap_Size } from "../collections/ordered_map.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
 import type { Decoder, UnmarshalerFrom } from "../json/json.js";
-import { unmarshalJSONValueV2, JSONValueTypeObject, JSONValueTypeArray, JSONValueTypeNotPresent } from "./jsonvalue.js";
+import { unmarshalJSONValueV2WithFactory, JSONValueTypeObject, JSONValueTypeArray, JSONValueTypeNotPresent } from "./jsonvalue.js";
 import type { JSONValue } from "./jsonvalue.js";
 
 /**
@@ -73,7 +73,7 @@ export function ExportsOrImports_UnmarshalJSONFrom(receiver: GoPtr<ExportsOrImpo
   if (e.__tsgoEmbedded0 === undefined) {
     e.__tsgoEmbedded0 = { Type: JSONValueTypeNotPresent, Value: undefined };
   }
-  return unmarshalJSONValueV2<ExportsOrImports>(
+  return unmarshalJSONValueV2WithFactory<ExportsOrImports>(
     e.__tsgoEmbedded0,
     dec,
     value => ({ __tsgoEmbedded0: value, objectKind: objectKindUnknown }),
@@ -91,11 +91,11 @@ export function ExportsOrImports_UnmarshalJSONFrom(receiver: GoPtr<ExportsOrImpo
  * 	return e.Value.(*collections.OrderedMap[string, ExportsOrImports])
  * }
  */
-export function ExportsOrImports_AsObject<T = ExportsOrImports>(receiver: ExportsOrImports): GoPtr<OrderedMap<string, T>> {
+export function ExportsOrImports_AsObject(receiver: ExportsOrImports): GoPtr<OrderedMap<string, ExportsOrImports>> {
   if (receiver.__tsgoEmbedded0!.Type !== JSONValueTypeObject) {
     throw new globalThis.Error("expected object");
   }
-  return receiver.__tsgoEmbedded0!.Value as GoPtr<OrderedMap<string, T>>;
+  return receiver.__tsgoEmbedded0!.Value as GoPtr<OrderedMap<string, ExportsOrImports>>;
 }
 
 /**

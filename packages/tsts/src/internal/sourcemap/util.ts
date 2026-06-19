@@ -1,4 +1,4 @@
-import type { byte, int } from "@tsonic/core/types.js";
+import type { byte, int } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import { CutPrefix, HasPrefix, TrimLeftFunc, TrimRightFunc } from "../../go/strings.js";
 import { IsSpace } from "../../go/unicode.js";

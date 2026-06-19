@@ -1,5 +1,0 @@
-{
-  "rootNamespace": "GenericFunctionImportAlias",
-  "entryPoint": "./src/index.ts",
-  "outputName": "generic-function-import-alias"
-}

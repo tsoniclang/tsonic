@@ -1,4 +1,0 @@
-Sum: 8
-Product: 28
-PI: 3.14159
-Done

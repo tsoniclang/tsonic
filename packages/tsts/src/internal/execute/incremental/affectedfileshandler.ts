@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoError, GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Context } from "../../../go/context.js";
 import { Map as SyncMapImpl, Mutex, Once } from "../../../go/sync.js";
@@ -100,11 +100,11 @@ export interface affectedFilesHandler {
   ctx: Context;
   program: GoPtr<Program>;
   hasAllFilesExcludingDefaultLibraryFile: AtomicBool;
-  updatedSignatures: SyncMap;
+  updatedSignatures: SyncMap<Path, GoPtr<updatedSignature>>;
   dtsMayChange: GoSlice<dtsMayChange>;
-  filesToRemoveDiagnostics: SyncSet;
+  filesToRemoveDiagnostics: SyncSet<Path>;
   cleanedDiagnosticsOfLibFiles: Once;
-  seenFileAndReferences: SyncMap;
+  seenFileAndReferences: SyncMap<Path, bool>;
 }
 
 /**
@@ -843,11 +843,11 @@ export function collectAllAffectedFiles(ctx: Context, program: GoPtr<Program>): 
     ctx: ctx,
     program: program,
     hasAllFilesExcludingDefaultLibraryFile: new Bool(),
-    updatedSignatures: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as SyncMap,
+    updatedSignatures: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as SyncMap<Path, GoPtr<updatedSignature>>,
     dtsMayChange: [],
-    filesToRemoveDiagnostics: { m: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } } as SyncSet,
+    filesToRemoveDiagnostics: { m: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } } as SyncSet<Path>,
     cleanedDiagnosticsOfLibFiles: new Once(),
-    seenFileAndReferences: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as SyncMap,
+    seenFileAndReferences: { __tsgoBlank0: [], __tsgoBlank1: [], m: new SyncMapImpl() } as SyncMap<Path, bool>,
   };
 
   let wg = NewWorkGroup(compiler_Program_SingleThreaded(program!.program));

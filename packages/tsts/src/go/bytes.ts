@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "./scalars.js";
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();

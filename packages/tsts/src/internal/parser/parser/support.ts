@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import { NewNodeFactory, Node_ForEachChild } from "../../ast/spine.js";
 import type { ModifierList, Node, NodeList } from "../../ast/spine.js";
@@ -110,6 +110,8 @@ import { FindIndex, Some } from "../../core/core.js";
 import { ModifierFlagsJavaScript, ModifierToFlag } from "../../ast/modifierflags.js";
 import { Diagnostic_AddRelatedInfo, NewDiagnostic } from "../../ast/diagnostic.js";
 import { HasPrefix, Index, ToLower, TrimSuffix } from "../../../go/strings.js";
+import * as utf8 from "../../../go/unicode/utf8.js";
+import { IsLineBreak } from "../../stringutil/util.js";
 import { Parser_newModifierList } from "./lists.js";
 import { Arena_Clone } from "../../core/arena.js";
 import type { Arena } from "../../core/arena.js";
@@ -223,15 +225,9 @@ import {
 import { Parser_jsErrorAtRange, Parser_parseErrorAt, Parser_parseErrorAtRange, Parser_scanError } from "./errors-recovery.js";
 import { parserPool, viableKeywordSuggestions } from "./state.js";
 
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
-
-const byteLen = (s: string): int => utf8Encoder.encode(s).length;
-const byteAt = (s: string, i: int): int => utf8Encoder.encode(s)[i]!;
-const byteSlice = (s: string, start: int, end?: int): string => {
-  const bytes = utf8Encoder.encode(s);
-  return utf8Decoder.decode(bytes.subarray(start, end));
-};
+const byteLen = utf8.StringByteLen;
+const byteAt = utf8.StringByteAt;
+const byteSlice = utf8.StringByteSlice;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::func::newParser","kind":"func","status":"implemented","sigHash":"e8799413d77acc7643df3b0c789d3524ab29dc535207b91246362c4eacd2aeb8","bodyHash":"b4fa9b078df3485406fee29b38d0132dedfa4b1351c81b1d99b15963d5fdf489"}
@@ -609,7 +605,7 @@ export function Parser_initializeState(receiver: GoPtr<Parser>, opts: SourceFile
   receiver!.hasParseError = false;
   receiver!.identifiers = undefined as unknown as GoMap<string, string>;
   receiver!.identifierCount = 0 as int;
-  receiver!.notParenthesizedArrow = NewSetWithSizeHint<int>(0 as int) as Set;
+  receiver!.notParenthesizedArrow = NewSetWithSizeHint<int>(0 as int)!;
   receiver!.nodeSliceArena = { data: [] } as Arena<GoPtr<Node>>;
   receiver!.stringSliceArena = { data: [] } as Arena<string>;
   receiver!.jsdocInfos = [];
@@ -1817,7 +1813,7 @@ export function getCommentPragmas(f: GoPtr<NodeFactory>, sourceText: string): Go
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::func::extractPragmas","kind":"func","status":"implemented","sigHash":"35f0aecbddfdf5c151dd825a06917a646a38e20b6fe86e144e646c0931c8e3fe","bodyHash":"75dc878225bba1b959e7e297b2b4f38fde7db80beccffe983e84f2cdd9cc355a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::func::extractPragmas","kind":"func","status":"implemented","sigHash":"35f0aecbddfdf5c151dd825a06917a646a38e20b6fe86e144e646c0931c8e3fe","bodyHash":"aa2fa18fd5591b2db374d33dd69c23fb24f75fe575543c62b343b6630bb375d1"}
  *
  * Go source:
  * func extractPragmas(commentRange ast.CommentRange, text string) []ast.Pragma {
@@ -1886,26 +1882,38 @@ export function getCommentPragmas(f: GoPtr<NodeFactory>, sourceText: string): Go
  * 			if pos = skipTo(text, pos, "@"); pos < 0 {
  * 				break
  * 			}
- * 			pragmaName := extractName(text, pos+1)
- * 			if !(pragmaName == "jsx" || pragmaName == "jsxfrag" || pragmaName == "jsximportsource" || pragmaName == "jsxruntime") {
- * 				break
+ * 			// Mirrors the /@(\S+)(\s+(?:\S.*)?)?$/gm pragma regex used by TypeScript: the '@'
+ * 			// must be immediately followed by a non-whitespace pragma name, and the remainder
+ * 			// of the line is consumed as that pragma's arguments. As a consequence, only the
+ * 			// first '@'-token on a line is considered, so an unrelated '@token' earlier on the
+ * 			// line (e.g. an email address) prevents a later '@jsx' on the same line from being
+ * 			// treated as a pragma.
+ * 			namePos := pos + 1
+ * 			nameEnd := skipNonBlanks(text, namePos)
+ * 			if nameEnd == namePos {
+ * 				pos++
+ * 				continue
  * 			}
- * 			start := skipBlanks(text, pos+len(pragmaName)+1)
- * 			pos = skipNonBlanks(text, start)
- * 			if pos == start {
- * 				break
+ * 			lineEnd := lineEndPos(text, pos)
+ * 			pragmaName := strings.ToLower(text[namePos:nameEnd])
+ * 			if pragmaName == "jsx" || pragmaName == "jsxfrag" || pragmaName == "jsximportsource" || pragmaName == "jsxruntime" {
+ * 				start := skipBlanks(text, nameEnd)
+ * 				argEnd := skipNonBlanks(text, start)
+ * 				if argEnd != start {
+ * 					args := make(map[string]ast.PragmaArgument, 1)
+ * 					args["factory"] = ast.PragmaArgument{
+ * 						Name:      "factory",
+ * 						Value:     text[start:argEnd],
+ * 						TextRange: core.NewTextRange(commentRange.Pos()+start, commentRange.Pos()+argEnd),
+ * 					}
+ * 					pragmas = append(pragmas, ast.Pragma{
+ * 						CommentRange: commentRange,
+ * 						Name:         pragmaName,
+ * 						Args:         args,
+ * 					})
+ * 				}
  * 			}
- * 			args := make(map[string]ast.PragmaArgument, 1)
- * 			args["factory"] = ast.PragmaArgument{
- * 				Name:      "factory",
- * 				Value:     text[start:pos],
- * 				TextRange: core.NewTextRange(commentRange.Pos()+start, commentRange.Pos()+pos),
- * 			}
- * 			pragmas = append(pragmas, ast.Pragma{
- * 				CommentRange: commentRange,
- * 				Name:         pragmaName,
- * 				Args:         args,
- * 			})
+ * 			pos = lineEnd
  * 		}
  * 		return pragmas
  * 	}
@@ -1982,29 +1990,41 @@ export function extractPragmas(commentRange: CommentRange, text: string): GoSlic
       if (pos < 0) {
         break;
       }
-      const pragmaName = extractName(trimmed, pos + 1);
-      if (!(pragmaName === "jsx" || pragmaName === "jsxfrag" || pragmaName === "jsximportsource" || pragmaName === "jsxruntime")) {
-        break;
+      // Mirrors the /@(\S+)(\s+(?:\S.*)?)?$/gm pragma regex used by TypeScript: the '@'
+      // must be immediately followed by a non-whitespace pragma name, and the remainder
+      // of the line is consumed as that pragma's arguments. As a consequence, only the
+      // first '@'-token on a line is considered, so an unrelated '@token' earlier on the
+      // line (e.g. an email address) prevents a later '@jsx' on the same line from being
+      // treated as a pragma.
+      const namePos = pos + 1;
+      const nameEnd = skipNonBlanks(trimmed, namePos);
+      if (nameEnd === namePos) {
+        pos++;
+        continue;
       }
-      const start = skipBlanks(trimmed, pos + pragmaName.length + 1);
-      pos = skipNonBlanks(trimmed, start);
-      if (pos === start) {
-        break;
+      const lineEnd = lineEndPos(trimmed, pos);
+      const pragmaName = ToLower(byteSlice(trimmed, namePos, nameEnd));
+      if (pragmaName === "jsx" || pragmaName === "jsxfrag" || pragmaName === "jsximportsource" || pragmaName === "jsxruntime") {
+        const start = skipBlanks(trimmed, nameEnd);
+        const argEnd = skipNonBlanks(trimmed, start);
+        if (argEnd !== start) {
+          const factoryStart = commentRange.pos + start;
+          const factoryEnd = commentRange.pos + argEnd;
+          const args = new globalThis.Map<string, Pragma["Args"] extends GoMap<string, infer T> ? T : never>();
+          args.set("factory", {
+              pos: factoryStart,
+              end: factoryEnd,
+              Name: "factory",
+              Value: byteSlice(trimmed, start, argEnd),
+            });
+          pragmas = [...pragmas, {
+            ...commentRange,
+            Name: pragmaName,
+            Args: args,
+          } as unknown as Pragma];
+        }
       }
-      const factoryStart = commentRange.pos + start;
-      const factoryEnd = commentRange.pos + pos;
-      const args = new globalThis.Map<string, Pragma["Args"] extends GoMap<string, infer T> ? T : never>();
-      args.set("factory", {
-          pos: factoryStart,
-          end: factoryEnd,
-          Name: "factory",
-          Value: byteSlice(trimmed, start, pos),
-        });
-      pragmas = [...pragmas, {
-        ...commentRange,
-        Name: pragmaName,
-        Args: args,
-      } as unknown as Pragma];
+      pos = lineEnd;
     }
     return pragmas;
   }
@@ -2092,6 +2112,33 @@ export function skipTo(text: string, pos: int, s: string): int {
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::func::lineEndPos","kind":"func","status":"implemented","sigHash":"da28e9e41152f39bcf59427413f849ec0b7659a41da25f3f32489bd771ee01ca","bodyHash":"291bfaec1ddebff0b9a0fc64efe990babdf38c7a17c4aba865510af34599c713"}
+ *
+ * Go source:
+ * func lineEndPos(text string, pos int) int {
+ * 	for pos < len(text) {
+ * 		ch, size := utf8.DecodeRuneInString(text[pos:])
+ * 		if stringutil.IsLineBreak(ch) {
+ * 			return pos
+ * 		}
+ * 		pos += size
+ * 	}
+ * 	return len(text)
+ * }
+ */
+export function lineEndPos(text: string, pos: int): int {
+  let p = pos;
+  while (p < byteLen(text)) {
+    const [ch, size] = utf8.DecodeRuneInStringAt(text, p);
+    if (IsLineBreak(ch)) {
+      return p;
+    }
+    p += size;
+  }
+  return byteLen(text);
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::func::extractName","kind":"func","status":"implemented","sigHash":"04cc4ed8f6d45d4166341f3b1616a6629f8e0e67d4ab54f7cbe7cbe31ef90469","bodyHash":"bcf5497c2dfaf5a6b7012f64d52707282713f5f5c59b0e5c4d23872433007977"}
  *
  * Go source:
@@ -2161,7 +2208,7 @@ export function extractQuotedString(text: string, pos: int): [string, bool] {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.processPragmasIntoFields","kind":"method","status":"implemented","sigHash":"0383abe35ef6273fdc6527c622d3af35692993630f8235c6da38a68cb48a3cdd","bodyHash":"427043902322cc5df42654a2f6ea7058f06c545e153e02691f4662660615546e"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.processPragmasIntoFields","kind":"method","status":"implemented","sigHash":"0383abe35ef6273fdc6527c622d3af35692993630f8235c6da38a68cb48a3cdd","bodyHash":"6f2293ca849f5afc4fb0d36dd953b8badf9f1658f8a7504516994fe85e9c324c"}
  *
  * Go source:
  * func (p *Parser) processPragmasIntoFields(context *ast.SourceFile) {
@@ -2210,12 +2257,10 @@ export function extractQuotedString(text: string, pos: int): [string, bool] {
  * 			}
  * 		case "ts-check", "ts-nocheck":
  * 			// _last_ of either nocheck or check in a file is the "winner"
- * 			for _, directive := range context.Pragmas {
- * 				if context.CheckJsDirective == nil || directive.TextRange.Pos() > context.CheckJsDirective.Range.Pos() {
- * 					context.CheckJsDirective = &ast.CheckJsDirective{
- * 						Enabled: directive.Name == "ts-check",
- * 						Range:   directive.CommentRange,
- * 					}
+ * 			if context.CheckJsDirective == nil || pragma.TextRange.Pos() > context.CheckJsDirective.Range.Pos() {
+ * 				context.CheckJsDirective = &ast.CheckJsDirective{
+ * 					Enabled: pragma.Name == "ts-check",
+ * 					Range:   pragma.CommentRange,
  * 				}
  * 			}
  * 		case "jsx", "jsxfrag", "jsximportsource", "jsxruntime":
@@ -2281,13 +2326,11 @@ export function Parser_processPragmasIntoFields(receiver: GoPtr<Parser>, context
       case "ts-check":
       case "ts-nocheck":
         // _last_ of either nocheck or check in a file is the "winner"
-        for (const directive of (context!.Pragmas ?? [])) {
-          if (context!.CheckJsDirective === undefined || directive.pos > context!.CheckJsDirective.Range.pos) {
-            context!.CheckJsDirective = {
-              Enabled: directive.Name === "ts-check",
-              Range: directive,
-            } as CheckJsDirective;
-          }
+        if (context!.CheckJsDirective === undefined || pragma.pos > context!.CheckJsDirective.Range.pos) {
+          context!.CheckJsDirective = {
+            Enabled: pragma.Name === "ts-check",
+            Range: pragma,
+          } as CheckJsDirective;
         }
         break;
       case "jsx":

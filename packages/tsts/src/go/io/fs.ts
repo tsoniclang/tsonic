@@ -1,8 +1,7 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../scalars.js";
 import type { GoError, GoPtr, GoSlice } from "../compat.js";
 import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
-import { toNodeBytes } from "../nodebytes.js";
 
 export type FileMode = number;
 
@@ -83,10 +82,18 @@ export function GetAccessibleEntries(fsys: FS, name: string): unknown {
 }
 
 export function ReadFile(fsys: FS, name: string): [string, GoError] {
+  const [bytes, err] = ReadFileBytes(fsys, name);
+  if (err !== undefined) {
+    return ["", err];
+  }
+  return [bytesToBinaryString(bytes), undefined];
+}
+
+export function ReadFileBytes(fsys: FS, name: string): [Uint8Array, GoError] {
   if (fsys.Open !== undefined) {
     const [file, openErr] = fsys.Open(name);
     if (openErr !== undefined) {
-      return ["", openErr];
+      return [new Uint8Array(), openErr];
     }
     const chunks: number[] = [];
     const buffer = new globalThis.Array<number>(8192).fill(0);
@@ -94,7 +101,7 @@ export function ReadFile(fsys: FS, name: string): [string, GoError] {
       const [count, readErr] = file.Read(buffer);
       if (readErr !== undefined) {
         const closeErr = file.Close();
-        return ["", readErr ?? closeErr];
+        return [new Uint8Array(), readErr ?? closeErr];
       }
       if (count === 0) {
         break;
@@ -108,19 +115,14 @@ export function ReadFile(fsys: FS, name: string): [string, GoError] {
     }
     const closeErr = file.Close();
     if (closeErr !== undefined) {
-      return ["", closeErr];
+      return [new Uint8Array(), closeErr];
     }
-    return [bytesToBinaryString(Uint8Array.from(chunks)), undefined];
+    return [Uint8Array.from(chunks), undefined];
   }
   try {
-    return [
-      bytesToBinaryString(
-        toNodeBytes(nodeFs.readFileSync(resolveFsPath(fsys, name)))
-      ),
-      undefined,
-    ];
+    return [nodeFs.readFileSync(resolveFsPath(fsys, name)), undefined];
   } catch (error) {
-    return ["", normalizeFsError(error)];
+    return [new Uint8Array(), normalizeFsError(error)];
   }
 }
 

@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import { Node_End, NodeList_End, NodeList_Pos, Node_Pos } from "../../ast/spine.js";
 import type { Node, NodeList } from "../../ast/spine.js";
@@ -113,9 +113,8 @@ import {
   Parser_parseTokenNode,
 } from "./tokens-speculation.js";
 import {
-  Parser_parseNonArrayType,
-  Parser_parseType,
   Parser_parseTypeArguments,
+  Parser_parseTypeOperatorOrHigher,
   Parser_parseTypeOrTypePredicate,
 } from "./types.js";
 
@@ -271,31 +270,31 @@ export function Parser_parseJSDocAllType(receiver: GoPtr<Parser>): GoPtr<Node> {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.parseJSDocNonNullableType","kind":"method","status":"implemented","sigHash":"02dde96566a6320a7da8086b7f9fd5763595ba2537847b425f729cd146c2fa02","bodyHash":"f64086a1333ddf86baaa554a676bf86c236ad5735a0d0d099583c320a3ad432b"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.parseJSDocNonNullableType","kind":"method","status":"implemented","sigHash":"02dde96566a6320a7da8086b7f9fd5763595ba2537847b425f729cd146c2fa02","bodyHash":"8ff2947b1695fbe8b453d8b2dddfe9961161c3863123e5a6770357a91cf98270"}
  *
  * Go source:
  * func (p *Parser) parseJSDocNonNullableType() *ast.TypeNode {
  * 	pos := p.nodePos()
  * 	p.nextToken()
- * 	return p.finishNode(p.factory.NewJSDocNonNullableType(p.parseNonArrayType()), pos)
+ * 	return p.finishNode(p.factory.NewJSDocNonNullableType(p.parseTypeOperatorOrHigher()), pos)
  * }
  */
 export function Parser_parseJSDocNonNullableType(receiver: GoPtr<Parser>): GoPtr<TypeNode> {
   const p: Parser = receiver!;
   const pos: int = Parser_nodePos(p);
   Parser_nextToken(p);
-  return Parser_finishNode(p, NewJSDocNonNullableType(p.factory, Parser_parseNonArrayType(p)), pos);
+  return Parser_finishNode(p, NewJSDocNonNullableType(p.factory, Parser_parseTypeOperatorOrHigher(p)), pos);
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.parseJSDocNullableType","kind":"method","status":"implemented","sigHash":"43f41dcb9daca60458a02bf4e418da467f7bd3a551330bcf90abf4c641ed8698","bodyHash":"a1819efc2aa7bbf58547ea9e16976bf5994a159496865976d2c91dcf81084536"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.parseJSDocNullableType","kind":"method","status":"implemented","sigHash":"43f41dcb9daca60458a02bf4e418da467f7bd3a551330bcf90abf4c641ed8698","bodyHash":"a3f1c5fa0e6e74a863f29be0d15c7e64234bf5c2e307d7f9328bc918ef5de8e3"}
  *
  * Go source:
  * func (p *Parser) parseJSDocNullableType() *ast.Node {
  * 	pos := p.nodePos()
  * 	// skip the ?
  * 	p.nextToken()
- * 	return p.finishNode(p.factory.NewJSDocNullableType(p.parseType()), pos)
+ * 	return p.finishNode(p.factory.NewJSDocNullableType(p.parseTypeOperatorOrHigher()), pos)
  * }
  */
 export function Parser_parseJSDocNullableType(receiver: GoPtr<Parser>): GoPtr<Node> {
@@ -303,7 +302,7 @@ export function Parser_parseJSDocNullableType(receiver: GoPtr<Parser>): GoPtr<No
   const pos: int = Parser_nodePos(p);
   // skip the ?
   Parser_nextToken(p);
-  return Parser_finishNode(p, NewJSDocNullableType(p.factory, Parser_parseType(p)), pos);
+  return Parser_finishNode(p, NewJSDocNullableType(p.factory, Parser_parseTypeOperatorOrHigher(p)), pos);
 }
 
 /**

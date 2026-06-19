@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoError, GoPtr } from "../../../go/compat.js";
 import { Map as SyncGoMap } from "../../../go/sync.js";
 import { Bool } from "../../../go/sync/atomic.js";
@@ -25,11 +25,11 @@ import type { Entries, FileInfo, FS as FS_296ac81f, WalkDirFunc } from "../vfs.j
 export interface FS {
   fs: FS_296ac81f;
   enabled: Bool;
-  directoryExistsCache: SyncMap;
-  fileExistsCache: SyncMap;
-  getAccessibleEntriesCache: SyncMap;
-  realpathCache: SyncMap;
-  statCache: SyncMap;
+  directoryExistsCache: SyncMap<string, bool>;
+  fileExistsCache: SyncMap<string, bool>;
+  getAccessibleEntriesCache: SyncMap<string, Entries>;
+  realpathCache: SyncMap<string, string>;
+  statCache: SyncMap<string, GoPtr<FileInfo>>;
 }
 
 /**
@@ -151,14 +151,14 @@ export function FS_ClearCache(receiver: GoPtr<FS>): void {
  */
 export function FS_DirectoryExists(receiver: GoPtr<FS>, path: string): bool {
   if (receiver!.enabled.Load()) {
-    const [ret, ok] = SyncMap_Load<string, bool>(receiver!.directoryExistsCache as unknown as SyncMap<string, bool>, path);
+    const [ret, ok] = SyncMap_Load<string, bool>(receiver!.directoryExistsCache, path);
     if (ok) {
       return ret;
     }
   }
   const ret = receiver!.fs.DirectoryExists(path);
   if (receiver!.enabled.Load()) {
-    SyncMap_Store<string, bool>(receiver!.directoryExistsCache as unknown as SyncMap<string, bool>, path, ret);
+    SyncMap_Store<string, bool>(receiver!.directoryExistsCache, path, ret);
   }
   return ret;
 }
@@ -185,14 +185,14 @@ export function FS_DirectoryExists(receiver: GoPtr<FS>, path: string): bool {
  */
 export function FS_FileExists(receiver: GoPtr<FS>, path: string): bool {
   if (receiver!.enabled.Load()) {
-    const [ret, ok] = SyncMap_Load<string, bool>(receiver!.fileExistsCache as unknown as SyncMap<string, bool>, path);
+    const [ret, ok] = SyncMap_Load<string, bool>(receiver!.fileExistsCache, path);
     if (ok) {
       return ret;
     }
   }
   const ret = receiver!.fs.FileExists(path);
   if (receiver!.enabled.Load()) {
-    SyncMap_Store<string, bool>(receiver!.fileExistsCache as unknown as SyncMap<string, bool>, path, ret);
+    SyncMap_Store<string, bool>(receiver!.fileExistsCache, path, ret);
   }
   return ret;
 }
@@ -219,14 +219,14 @@ export function FS_FileExists(receiver: GoPtr<FS>, path: string): bool {
  */
 export function FS_GetAccessibleEntries(receiver: GoPtr<FS>, path: string): Entries {
   if (receiver!.enabled.Load()) {
-    const [ret, ok] = SyncMap_Load<string, Entries>(receiver!.getAccessibleEntriesCache as unknown as SyncMap<string, Entries>, path);
+    const [ret, ok] = SyncMap_Load<string, Entries>(receiver!.getAccessibleEntriesCache, path);
     if (ok) {
       return ret;
     }
   }
   const ret = receiver!.fs.GetAccessibleEntries(path);
   if (receiver!.enabled.Load()) {
-    SyncMap_Store<string, Entries>(receiver!.getAccessibleEntriesCache as unknown as SyncMap<string, Entries>, path, ret);
+    SyncMap_Store<string, Entries>(receiver!.getAccessibleEntriesCache, path, ret);
   }
   return ret;
 }
@@ -265,14 +265,14 @@ export function FS_ReadFile(receiver: GoPtr<FS>, path: string): [string, bool] {
  */
 export function FS_Realpath(receiver: GoPtr<FS>, path: string): string {
   if (receiver!.enabled.Load()) {
-    const [ret, ok] = SyncMap_Load<string, string>(receiver!.realpathCache as unknown as SyncMap<string, string>, path);
+    const [ret, ok] = SyncMap_Load<string, string>(receiver!.realpathCache, path);
     if (ok) {
       return ret;
     }
   }
   const ret = receiver!.fs.Realpath(path);
   if (receiver!.enabled.Load()) {
-    SyncMap_Store<string, string>(receiver!.realpathCache as unknown as SyncMap<string, string>, path, ret);
+    SyncMap_Store<string, string>(receiver!.realpathCache, path, ret);
   }
   return ret;
 }
@@ -323,14 +323,14 @@ export function FS_Chtimes(receiver: GoPtr<FS>, path: string, aTime: Time, mTime
  */
 export function FS_Stat(receiver: GoPtr<FS>, path: string): GoPtr<FileInfo> {
   if (receiver!.enabled.Load()) {
-    const [ret, ok] = SyncMap_Load<string, GoPtr<FileInfo>>(receiver!.statCache as unknown as SyncMap<string, GoPtr<FileInfo>>, path);
+    const [ret, ok] = SyncMap_Load<string, GoPtr<FileInfo>>(receiver!.statCache, path);
     if (ok) {
       return ret;
     }
   }
   const ret = receiver!.fs.Stat(path);
   if (receiver!.enabled.Load()) {
-    SyncMap_Store<string, GoPtr<FileInfo>>(receiver!.statCache as unknown as SyncMap<string, GoPtr<FileInfo>>, path, ret);
+    SyncMap_Store<string, GoPtr<FileInfo>>(receiver!.statCache, path, ret);
   }
   return ret;
 }

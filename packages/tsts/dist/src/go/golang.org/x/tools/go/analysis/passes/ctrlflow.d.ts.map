@@ -1,1 +1,0 @@
-{"version":3,"file":"ctrlflow.d.ts","sourceRoot":"","sources":["../../../../../../../../../src/go/golang.org/x/tools/go/analysis/passes/ctrlflow.ts"],"names":[],"mappings":"AAGA,eAAO,MAAM,QAAQ,EAAE,OAA4B,CAAC;AAEpD,MAAM,WAAW,IAAI;IACnB,QAAQ,CAAC,cAAc,EAAE,qDAAqD,CAAC;CAChF"}

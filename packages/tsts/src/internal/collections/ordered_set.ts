@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoComparable, GoPtr, GoSeq } from "../../go/compat.js";
 import type { OrderedMap } from "./ordered_map.js";
 import {
@@ -48,7 +48,7 @@ export function NewOrderedSetWithSizeHint<T extends GoComparable>(hint: int): Go
  * 	s.m.Set(value, struct{}{})
  * }
  */
-export function OrderedSet_Add<T>(receiver: GoPtr<OrderedSet<T>>, value: T): void {
+export function OrderedSet_Add<T extends GoComparable>(receiver: GoPtr<OrderedSet<T>>, value: T): void {
   const s = receiver!;
   OrderedMap_Set(s.m, value, {});
 }
@@ -61,7 +61,7 @@ export function OrderedSet_Add<T>(receiver: GoPtr<OrderedSet<T>>, value: T): voi
  * 	return s.m.Has(value)
  * }
  */
-export function OrderedSet_Has<T>(receiver: GoPtr<OrderedSet<T>>, value: T): bool {
+export function OrderedSet_Has<T extends GoComparable>(receiver: GoPtr<OrderedSet<T>>, value: T): bool {
   const s = receiver!;
   return OrderedMap_Has(s.m, value);
 }
@@ -75,7 +75,7 @@ export function OrderedSet_Has<T>(receiver: GoPtr<OrderedSet<T>>, value: T): boo
  * 	return ok
  * }
  */
-export function OrderedSet_Delete<T>(receiver: GoPtr<OrderedSet<T>>, value: T): bool {
+export function OrderedSet_Delete<T extends GoComparable>(receiver: GoPtr<OrderedSet<T>>, value: T): bool {
   const s = receiver!;
   const [, ok] = OrderedMap_Delete(s.m, value);
   return ok;
@@ -89,7 +89,7 @@ export function OrderedSet_Delete<T>(receiver: GoPtr<OrderedSet<T>>, value: T): 
  * 	return s.m.Keys()
  * }
  */
-export function OrderedSet_Values<T>(receiver: GoPtr<OrderedSet<T>>): GoSeq<T> {
+export function OrderedSet_Values<T extends GoComparable>(receiver: GoPtr<OrderedSet<T>>): GoSeq<T> {
   const s = receiver!;
   return OrderedMap_Keys(s.m);
 }
@@ -102,7 +102,7 @@ export function OrderedSet_Values<T>(receiver: GoPtr<OrderedSet<T>>): GoSeq<T> {
  * 	s.m.Clear()
  * }
  */
-export function OrderedSet_Clear<T>(receiver: GoPtr<OrderedSet<T>>): void {
+export function OrderedSet_Clear<T extends GoComparable>(receiver: GoPtr<OrderedSet<T>>): void {
   const s = receiver!;
   OrderedMap_Clear(s.m);
 }
@@ -115,7 +115,7 @@ export function OrderedSet_Clear<T>(receiver: GoPtr<OrderedSet<T>>): void {
  * 	return s.m.Size()
  * }
  */
-export function OrderedSet_Size<T>(receiver: GoPtr<OrderedSet<T>>): int {
+export function OrderedSet_Size<T extends GoComparable>(receiver: GoPtr<OrderedSet<T>>): int {
   const s = receiver!;
   return OrderedMap_Size(s.m);
 }
@@ -130,7 +130,7 @@ export function OrderedSet_Size<T>(receiver: GoPtr<OrderedSet<T>>): int {
  * 	}
  * }
  */
-export function OrderedSet_Clone<T>(receiver: GoPtr<OrderedSet<T>>): GoPtr<OrderedSet<T>> {
+export function OrderedSet_Clone<T extends GoComparable>(receiver: GoPtr<OrderedSet<T>>): GoPtr<OrderedSet<T>> {
   const s = receiver!;
   return {
     m: OrderedMap_clone(s.m),

@@ -1,4 +1,4 @@
-import type { bool, byte, int } from "@tsonic/core/types.js";
+import type { bool, byte, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import { Node_End, Node_FlowNodeData, Node_ForEachChild, Node_Name, Node_Pos } from "../../ast/spine.js";
 import type { Node } from "../../ast/spine.js";
@@ -86,7 +86,7 @@ import {
   KindExpressionStatement,
 } from "../../ast/generated/kinds.js";
 import type { Symbol, SymbolTable } from "../../ast/symbol.js";
-import { NodeFlagsAmbient, NodeFlagsReparsed, NodeFlagsThisNodeOrAnySubNodesHasError, SymbolFlagsAlias, SymbolFlagsEnum, SymbolFlagsEnumMember, SymbolFlagsNone, SymbolFlagsOptional, SymbolFlagsValue } from "../../ast/generated/flags.js";
+import { NodeFlagsAmbient, NodeFlagsReparsed, NodeFlagsThisNodeOrAnySubNodesHasError, SymbolFlagsAlias, SymbolFlagsEnum, SymbolFlagsEnumMember, SymbolFlagsModule, SymbolFlagsNone, SymbolFlagsOptional, SymbolFlagsValue } from "../../ast/generated/flags.js";
 import type { SymbolFlags } from "../../ast/generated/flags.js";
 import { IsClassExpression, IsFunctionExpression, IsIdentifier, IsVariableDeclaration } from "../../ast/generated/predicates.js";
 import { AsBindingElement, AsElementAccessExpression, AsJSDoc } from "../../ast/generated/casts.js";
@@ -94,7 +94,7 @@ import { ModifierFlagsNone, ModifierFlagsNonPublicAccessibilityModifier } from "
 import type { ModifierFlags } from "../../ast/modifierflags.js";
 import { AsSourceFile, Node_EagerJSDoc, Node_Elements, Node_Expression, Node_Initializer, Node_Locals, Node_Members, Node_Symbol, Node_Text, Node_PropertyName, Node_Type, SourceFile_FileName, SourceFile_Path, SourceFile_Text } from "../../ast/ast.js";
 import type { FlowNode } from "../../ast/flow.js";
-import { GetEnclosingBlockScopeContainer, GetExtendsHeritageClauseElement, GetSourceFileOfNode, IsEntityNameExpression, IsExternalOrCommonJSModule, IsGlobalScopeAugmentation, IsInfinityOrNaNString, IsInJSFile, IsPartOfParameterDeclaration, IsStringLiteralLike, NewHasFileName, SkipParentheses, WalkUpBindingElementsAndPatterns } from "../../ast/utilities.js";
+import { GetEnclosingBlockScopeContainer, GetExtendsHeritageClauseElement, GetSourceFileOfNode, IsAmbientModuleSymbolName, IsEntityNameExpression, IsExternalOrCommonJSModule, IsGlobalScopeAugmentation, IsInfinityOrNaNString, IsInJSFile, IsPartOfParameterDeclaration, IsStringLiteralLike, NewHasFileName, SkipParentheses, WalkUpBindingElementsAndPatterns } from "../../ast/utilities.js";
 import { Every, Some } from "../../core/core.js";
 import { ModuleKindCommonJS, ModuleKindES2015, ModuleKindESNext, ModuleKindNode16, ModuleKindNodeNext, ModuleKindNone } from "../../core/compileroptions.js";
 import { NewTextRange } from "../../core/text.js";
@@ -158,6 +158,7 @@ import { Checker_checkJSDocComments } from "./jsx-jsdoc-decorators.js";
 import { FromString } from "../../jsnum/string.js";
 import { InternalSymbolNameDefault } from "../../ast/symbol.js";
 import { Checker_getEmitSyntaxForModuleSpecifierExpression, Checker_mergeModuleAugmentation } from "./modules.js";
+import { Checker_addDiagnostic, Checker_addSuggestionDiagnostic, Checker_mergeGlobalSymbol } from "../checker.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportUnreliableWorker","kind":"method","status":"implemented","sigHash":"f90db0ec4a1e83322abe295dd0931dd486677de0bc0daa2547e75d4b77b49bea","bodyHash":"8d084b2ab50308dd75d05babeaa46f57acd50919a51e340f5ef60f79180a97f8"}
@@ -301,21 +302,30 @@ export function Checker_initializeIterationResolvers(receiver: GoPtr<Checker>): 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.initializeChecker","kind":"method","status":"implemented","sigHash":"354ce66dc08c8b1ca3e621b8c9dd2830798117e69953308e1dd6998571784bb2","bodyHash":"a13d3cd95c213b4d0cad584a785d3f20e6d3a42bca2aa79156287cac5d5df3c7"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.initializeChecker","kind":"method","status":"implemented","sigHash":"354ce66dc08c8b1ca3e621b8c9dd2830798117e69953308e1dd6998571784bb2","bodyHash":"f2b86c4af0e16155fd21855d683715467db351e9e54bec2232bf539a31188d9d"}
  *
  * Go source:
  * func (c *Checker) initializeChecker() {
  * 	// Initialize global symbol table
+ * 	var ambientModuleSymbols []*ast.Symbol
  * 	augmentations := make([][]*ast.Node, 0, len(c.files))
  * 	for _, file := range c.files {
  * 		if !ast.IsExternalOrCommonJSModule(file) {
  * 			// It is an error for a non-external-module (i.e. script) to declare its own `globalThis`.
  * 			if fileGlobalThisSymbol := file.Locals["globalThis"]; fileGlobalThisSymbol != nil {
  * 				for _, d := range fileGlobalThisSymbol.Declarations {
- * 					c.diagnostics.Add(NewDiagnosticForNode(d, diagnostics.Declaration_name_conflicts_with_built_in_global_identifier_0, "globalThis"))
+ * 					c.addDiagnostic(NewDiagnosticForNode(d, diagnostics.Declaration_name_conflicts_with_built_in_global_identifier_0, "globalThis"))
  * 				}
  * 			}
- * 			c.mergeSymbolTable(c.globals, file.Locals, false, nil)
+ * 			for _, symbol := range file.Locals {
+ * 				// We defer merging of global ambient module declarations since they may require other global symbols
+ * 				// and types to be resolved. See https://github.com/microsoft/typescript-go/issues/2953.
+ * 				if symbol.Flags&ast.SymbolFlagsModule != 0 && ast.IsAmbientModuleSymbolName(symbol.Name) {
+ * 					ambientModuleSymbols = append(ambientModuleSymbols, symbol)
+ * 				} else {
+ * 					c.mergeGlobalSymbol(symbol)
+ * 				}
+ * 			}
  * 		}
  * 		c.patternAmbientModules = append(c.patternAmbientModules, file.PatternAmbientModules...)
  * 		augmentations = append(augmentations, file.ModuleAugmentations)
@@ -370,6 +380,10 @@ export function Checker_initializeIterationResolvers(receiver: GoPtr<Checker>): 
  * 	}
  * 	c.anyReadonlyArrayType = c.createTypeFromGenericGlobalType(c.globalReadonlyArrayType, []*Type{c.anyType})
  * 	c.globalThisType = c.getGlobalType("ThisType", 1 /*arity* /, false /*reportErrors* /)
+ * 	// Now merge global ambient module declarations
+ * 	for _, symbol := range ambientModuleSymbols {
+ * 		c.mergeGlobalSymbol(symbol)
+ * 	}
  * 	// merge _nonglobal_ module augmentations.
  * 	// this needs to be done after global symbol table is initialized to make sure that all ambient modules are indexed
  * 	for _, list := range augmentations {
@@ -382,6 +396,7 @@ export function Checker_initializeIterationResolvers(receiver: GoPtr<Checker>): 
  * }
  */
 export function Checker_initializeChecker(receiver: GoPtr<Checker>): void {
+  const ambientModuleSymbols: GoSlice<GoPtr<Symbol>> = [];
   const augmentations: GoSlice<GoSlice<GoPtr<Node>>> = [];
   for (const file of receiver!.files) {
     if (!IsExternalOrCommonJSModule(file)) {
@@ -389,11 +404,19 @@ export function Checker_initializeChecker(receiver: GoPtr<Checker>): void {
       const fileGlobalThisSymbol = fileLocals?.get("globalThis");
       if (fileGlobalThisSymbol !== undefined) {
         for (const declaration of fileGlobalThisSymbol!.Declarations ?? []) {
-          DiagnosticsCollection_Add(receiver!.diagnostics, createDiagnosticForNode(declaration, Declaration_name_conflicts_with_built_in_global_identifier_0, "globalThis"));
+          Checker_addDiagnostic(receiver, createDiagnosticForNode(declaration, Declaration_name_conflicts_with_built_in_global_identifier_0, "globalThis"));
         }
       }
       if (fileLocals !== undefined) {
-        Checker_mergeSymbolTable(receiver, receiver!.globals, fileLocals, false, undefined);
+        for (const symbol_ of fileLocals.values()) {
+          // We defer merging of global ambient module declarations since they may require other global symbols
+          // and types to be resolved. See https://github.com/microsoft/typescript-go/issues/2953.
+          if ((symbol_!.Flags & SymbolFlagsModule) !== 0 && IsAmbientModuleSymbolName(symbol_!.Name)) {
+            ambientModuleSymbols.push(symbol_);
+          } else {
+            Checker_mergeGlobalSymbol(receiver, symbol_);
+          }
+        }
       }
     }
     receiver!.patternAmbientModules.push(...(file!.PatternAmbientModules ?? []));
@@ -438,6 +461,10 @@ export function Checker_initializeChecker(receiver: GoPtr<Checker>): void {
   }
   receiver!.anyReadonlyArrayType = Checker_createTypeFromGenericGlobalType(receiver, receiver!.globalReadonlyArrayType, [receiver!.anyType]);
   receiver!.globalThisType = Checker_getGlobalType(receiver, "ThisType", 1, false);
+  // Now merge global ambient module declarations
+  for (const symbol_ of ambientModuleSymbols) {
+    Checker_mergeGlobalSymbol(receiver, symbol_);
+  }
   for (const list of augmentations) {
     for (const augmentation of list) {
       if (!IsGlobalScopeAugmentation(augmentation!.Parent)) {
@@ -894,18 +921,18 @@ export function Checker_checkBindingElement(receiver: GoPtr<Checker>, node: GoPt
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportUnused","kind":"method","status":"implemented","sigHash":"d0fdcd4a2f4df123542070547530a1c6ad6fce1b1a2ad9757927538f325a555d","bodyHash":"a3c47e82fca17e2defe9b7ce647b5543dc246f6a9a2977425e99ef01e57c6cc6"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportUnused","kind":"method","status":"implemented","sigHash":"d0fdcd4a2f4df123542070547530a1c6ad6fce1b1a2ad9757927538f325a555d","bodyHash":"f66883edb6524b8d3986048a9d6b7224eaf3a50611ffe5a722dc94fd720ab89b"}
  *
  * Go source:
  * func (c *Checker) reportUnused(location *ast.Node, kind UnusedKind, diagnostic *ast.Diagnostic) {
  * 	if location.Flags&(ast.NodeFlagsAmbient|ast.NodeFlagsThisNodeOrAnySubNodesHasError) == 0 {
  * 		isError := c.unusedIsError(kind)
  * 		if isError {
- * 			c.diagnostics.Add(diagnostic)
+ * 			c.addDiagnostic(diagnostic)
  * 		} else {
  * 			suggestion := *diagnostic
  * 			suggestion.SetCategory(diagnostics.CategorySuggestion)
- * 			c.suggestionDiagnostics.Add(&suggestion)
+ * 			c.addSuggestionDiagnostic(&suggestion)
  * 		}
  * 	}
  * }
@@ -914,11 +941,11 @@ export function Checker_reportUnused(receiver: GoPtr<Checker>, location: GoPtr<N
   if ((location!.Flags & (NodeFlagsAmbient | NodeFlagsThisNodeOrAnySubNodesHasError)) === 0) {
     const isError = Checker_unusedIsError(receiver, kind);
     if (isError) {
-      DiagnosticsCollection_Add(receiver!.diagnostics, diagnostic);
+      Checker_addDiagnostic(receiver, diagnostic);
     } else {
       const suggestion = { ...diagnostic } as Diagnostic;
       Diagnostic_SetCategory(suggestion, CategorySuggestion);
-      DiagnosticsCollection_Add(receiver!.suggestionDiagnostics, suggestion);
+      Checker_addSuggestionDiagnostic(receiver, suggestion);
     }
   }
 }
@@ -946,7 +973,7 @@ export function Checker_reportUnusedBindingElements(receiver: GoPtr<Checker>, no
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkUnusedRenamedBindingElements","kind":"method","status":"implemented","sigHash":"f889348068bd3340278d76c67ae38aa138de5cfe292db30af0747b6e41e48cf4","bodyHash":"5daebdc8cbf486a5a272ab9207c55ea59e84a404e14109bf7466e35300ececc5"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkUnusedRenamedBindingElements","kind":"method","status":"implemented","sigHash":"f889348068bd3340278d76c67ae38aa138de5cfe292db30af0747b6e41e48cf4","bodyHash":"6b5e37d575bb027c55a23f0925cc86b6d617d85c60c0145c521901b5cb30738e"}
  *
  * Go source:
  * func (c *Checker) checkUnusedRenamedBindingElements() {
@@ -959,7 +986,7 @@ export function Checker_reportUnusedBindingElements(receiver: GoPtr<Checker>, no
  * 				// entire parameter does not have type annotation, suggest adding an annotation
  * 				diagnostic.AddRelatedInfo(ast.NewDiagnostic(ast.GetSourceFileOfNode(wrappingDeclaration), core.NewTextRange(wrappingDeclaration.End(), wrappingDeclaration.End()), diagnostics.We_can_only_write_a_type_for_0_by_adding_a_type_for_the_entire_parameter_here, scanner.DeclarationNameToString(node.PropertyName())))
  * 			}
- * 			c.diagnostics.Add(diagnostic)
+ * 			c.addDiagnostic(diagnostic)
  * 		}
  * 	}
  * }
@@ -989,7 +1016,7 @@ export function Checker_checkUnusedRenamedBindingElements(receiver: GoPtr<Checke
           ),
         );
       }
-      DiagnosticsCollection_Add(receiver!.diagnostics, diagnostic);
+      Checker_addDiagnostic(receiver, diagnostic);
     }
   }
 }
@@ -1107,13 +1134,13 @@ export function Checker_checkThisBeforeSuper(receiver: GoPtr<Checker>, node: GoP
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkAssertion","kind":"method","status":"implemented","sigHash":"8464743512d29959302858e3075f01cc43e601f1a4b21ef39b69bc0cb695c540","bodyHash":"0e4265dec98b4873e5dda43af1245699304bf0dc299be5ad20342e568c731852"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkAssertion","kind":"method","status":"implemented","sigHash":"8464743512d29959302858e3075f01cc43e601f1a4b21ef39b69bc0cb695c540","bodyHash":"e997c75a1c6e80c9259da66ee139073966373c1729d084fbd268ebcbdd26721e"}
  *
  * Go source:
  * func (c *Checker) checkAssertion(node *ast.Node, checkMode CheckMode) *Type {
  * 	if node.Kind == ast.KindTypeAssertionExpression {
  * 		if c.shouldCheckErasableSyntax(node) {
- * 			c.diagnostics.Add(ast.NewDiagnostic(ast.GetSourceFileOfNode(node), core.NewTextRange(scanner.SkipTrivia(ast.GetSourceFileOfNode(node).Text(), node.Pos()), node.Expression().Pos()), diagnostics.This_syntax_is_not_allowed_when_erasableSyntaxOnly_is_enabled))
+ * 			c.addDiagnostic(ast.NewDiagnostic(ast.GetSourceFileOfNode(node), core.NewTextRange(scanner.SkipTrivia(ast.GetSourceFileOfNode(node).Text(), node.Pos()), node.Expression().Pos()), diagnostics.This_syntax_is_not_allowed_when_erasableSyntaxOnly_is_enabled))
  * 		}
  * 	}
  * 	typeNode := node.Type()
@@ -1135,7 +1162,7 @@ export function Checker_checkAssertion(receiver: GoPtr<Checker>, node: GoPtr<Nod
   if (node!.Kind === KindTypeAssertionExpression) {
     if (Checker_shouldCheckErasableSyntax(receiver, node)) {
       const sourceFile = GetSourceFileOfNode(node);
-      DiagnosticsCollection_Add(receiver!.diagnostics, NewDiagnostic(
+      Checker_addDiagnostic(receiver, NewDiagnostic(
         sourceFile,
         NewTextRange(SkipTrivia(SourceFile_Text(sourceFile), Node_Pos(node)), Node_Pos(Node_Expression(node))),
         This_syntax_is_not_allowed_when_erasableSyntaxOnly_is_enabled,
@@ -1255,18 +1282,18 @@ export function Checker_checkNaNEquality(receiver: GoPtr<Checker>, errorNode: Go
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.error","kind":"method","status":"implemented","sigHash":"a1b3e7b0921a4a0464969d9cacee61da47b0195b35a5116cc39b62275a55e276","bodyHash":"d0185defd00c938f3571af313af18b28c25422bfe615014e7b42caddd3ce7596"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.error","kind":"method","status":"implemented","sigHash":"a1b3e7b0921a4a0464969d9cacee61da47b0195b35a5116cc39b62275a55e276","bodyHash":"4dabf35984bae7b29cf602ac8b8f555b1d1469836d9d7a9a7fc44be88f52bc27"}
  *
  * Go source:
  * func (c *Checker) error(location *ast.Node, message *diagnostics.Message, args ...any) *ast.Diagnostic {
  * 	diagnostic := NewDiagnosticForNode(location, message, args...)
- * 	c.diagnostics.Add(diagnostic)
+ * 	c.addDiagnostic(diagnostic)
  * 	return diagnostic
  * }
  */
 export function Checker_error(receiver: GoPtr<Checker>, location: GoPtr<Node>, message: GoPtr<Message>, ...args: Array<unknown>): GoPtr<Diagnostic> {
   const diagnostic = NewDiagnosticForNode(location, message, ...args);
-  DiagnosticsCollection_Add(receiver!.diagnostics, diagnostic);
+  Checker_addDiagnostic(receiver, diagnostic);
   return diagnostic;
 }
 
@@ -1412,9 +1439,7 @@ export function Checker_canHaveSyntheticDefault(receiver: GoPtr<Checker>, file: 
  * }
  */
 export function CacheHashKey_IsZero(receiver: CacheHashKey): bool {
-  // Go zero value of CacheHashKey (xxh3.Uint128{}); the string port's zero
-  // value is the empty/unset string. Real hashes are always 32 hex chars.
-  return receiver === undefined || receiver === "";
+  return receiver === undefined || receiver.IsZero();
 }
 
 /**

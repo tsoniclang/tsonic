@@ -1,9 +1,11 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import * as fmt from "../../go/fmt.js";
 import * as strings from "../../go/strings.js";
 import type { GoMap, GoPtr, GoSeq, GoSeq2, GoSlice } from "../../go/compat.js";
 import { Once } from "../../go/sync.js";
 import type { Diagnostic } from "../ast/diagnostic.js";
+import { NewCompilerDiagnostic } from "../ast/diagnostic.js";
+import { File_0_is_not_under_rootDir_1_rootDir_is_expected_to_contain_all_source_files } from "../diagnostics/generated/messages.js";
 import type { SourceFile } from "../ast/ast.js";
 import { SourceFile_FileName, SourceFile_Diagnostics } from "../ast/ast.js";
 import type { CompilerOptions as CompilerOptions_3bab6c7a } from "../core/compileroptions.js";
@@ -25,7 +27,7 @@ import { GetBuildInfoFileName, GetOutputDeclarationFileNameWorker, GetOutputJSFi
 import { GetCommonSourceDirectory } from "../outputpaths/commonsourcedirectory.js";
 import { ExtensionJson, HasJSFileExtension, IsDeclarationFileName } from "../tspath/extension.js";
 import type { ComparePathsOptions, Path } from "../tspath/path.js";
-import { FileExtensionIs, NormalizePath, Path_ContainsPath, ToPath } from "../tspath/path.js";
+import { ContainsPath, FileExtensionIs, GetCanonicalFileName, GetNormalizedAbsolutePath, NormalizePath, Path_ContainsPath, ToPath } from "../tspath/path.js";
 import type { FS } from "../vfs/vfs.js";
 import { IsImplicitGlob } from "../vfs/vfsmatch/vfsmatch.js";
 import { configFileSpecs_getMatchedFileSpec, configFileSpecs_getMatchedIncludeSpec, getFileNamesFromConfigSpecs } from "./tsconfigparsing.js";
@@ -304,7 +306,7 @@ export function ParsedCommandLine_ParseInputOutputNames(receiver: GoPtr<ParsedCo
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsedcommandline.go::method::ParsedCommandLine.CommonSourceDirectory","kind":"method","status":"implemented","sigHash":"669ab3ad38525146912a93c2dc4b5faeb46eada70af3133171b83a90bafbb6be","bodyHash":"8c5a3175edf29186fc5e693610da174e4c1993279d5956ac20c752f1831746e1"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsedcommandline.go::method::ParsedCommandLine.CommonSourceDirectory","kind":"method","status":"implemented","sigHash":"669ab3ad38525146912a93c2dc4b5faeb46eada70af3133171b83a90bafbb6be","bodyHash":"5b6c77d324c9f736964047827b264586544cde233bcab76de6e8900a6f71a19d"}
  *
  * Go source:
  * func (p *ParsedCommandLine) CommonSourceDirectory() string {
@@ -321,6 +323,7 @@ export function ParsedCommandLine_ParseInputOutputNames(receiver: GoPtr<ParsedCo
  * 			},
  * 			p.GetCurrentDirectory(),
  * 			p.UseCaseSensitiveFileNames(),
+ * 			p.checkSourceFilesBelongToPath,
  * 		)
  * 	})
  * 	return p.commonSourceDirectory
@@ -342,9 +345,41 @@ export function ParsedCommandLine_CommonSourceDirectory(receiver: GoPtr<ParsedCo
       },
       ParsedCommandLine_GetCurrentDirectory(p),
       ParsedCommandLine_UseCaseSensitiveFileNames(p),
+      (sourceFiles, rootDirectory) => ParsedCommandLine_checkSourceFilesBelongToPath(p, sourceFiles, rootDirectory),
     );
   });
   return p.commonSourceDirectory;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/parsedcommandline.go::method::ParsedCommandLine.checkSourceFilesBelongToPath","kind":"method","status":"implemented","sigHash":"042768a353496b85a2340a1904d959c0cab1b9dd0a07c9745e2b6276abfdabf6","bodyHash":"098684e2c3ff00a2899eb0271d170335c1b315e373b462bef5b8ee60c885033e"}
+ *
+ * Go source:
+ * func (p *ParsedCommandLine) checkSourceFilesBelongToPath(sourceFiles []string, rootDirectory string) bool {
+ * 	allFilesBelongToPath := true
+ * 	for _, file := range sourceFiles {
+ * 		absoluteSourceFilePath := tspath.GetCanonicalFileName(tspath.GetNormalizedAbsolutePath(file, p.GetCurrentDirectory()), p.UseCaseSensitiveFileNames())
+ * 		if !tspath.ContainsPath(rootDirectory, file, p.comparePathsOptions) {
+ * 			p.Errors = append(p.Errors, ast.NewCompilerDiagnostic(diagnostics.File_0_is_not_under_rootDir_1_rootDir_is_expected_to_contain_all_source_files, absoluteSourceFilePath, rootDirectory))
+ * 			allFilesBelongToPath = false
+ * 		}
+ * 	}
+ *
+ * 	return allFilesBelongToPath
+ * }
+ */
+export function ParsedCommandLine_checkSourceFilesBelongToPath(receiver: GoPtr<ParsedCommandLine>, sourceFiles: GoSlice<string>, rootDirectory: string): bool {
+  const p = receiver!;
+  let allFilesBelongToPath = true as bool;
+  for (const file of sourceFiles) {
+    const absoluteSourceFilePath = GetCanonicalFileName(GetNormalizedAbsolutePath(file, ParsedCommandLine_GetCurrentDirectory(p)), ParsedCommandLine_UseCaseSensitiveFileNames(p));
+    if (!ContainsPath(rootDirectory, file, p.comparePathsOptions)) {
+      p.Errors = [...(p.Errors ?? []), NewCompilerDiagnostic(File_0_is_not_under_rootDir_1_rootDir_is_expected_to_contain_all_source_files, absoluteSourceFilePath, rootDirectory)];
+      allFilesBelongToPath = false as bool;
+    }
+  }
+
+  return allFilesBelongToPath;
 }
 
 /**

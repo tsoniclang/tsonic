@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import { NodeFactory_NewNodeList, Node_Name } from "../../ast/spine.js";
@@ -6,24 +6,20 @@ import type { BinaryExpression, BindingElement, ClassDeclaration, ClassExpressio
 import { AsBindingElement, AsBinaryExpression, AsCallExpression, AsClassDeclaration, AsClassExpression, AsClassStaticBlockDeclaration, AsComputedPropertyName, AsExportAssignment, AsFunctionExpression, AsParameterDeclaration, AsPropertyAssignment, AsPropertyDeclaration, AsShorthandPropertyAssignment, AsVariableDeclaration } from "../../ast/generated/casts.js";
 import type { ClassElementList, ClassLikeDeclaration, Expression, HeritageClauseList, IdentifierNode, PropertyName, StringLiteralNode, TypeParameterList } from "../../ast/generated/unions.js";
 import {
-  KindAmpersandAmpersandEqualsToken,
   KindArrowFunction,
-  KindBarBarEqualsToken,
   KindBinaryExpression,
   KindBindingElement,
   KindClassExpression,
-  KindEqualsToken,
   KindExportAssignment,
   KindFunctionExpression,
   KindParameter,
   KindPropertyAssignment,
   KindPropertyDeclaration,
-  KindQuestionQuestionEqualsToken,
   KindShorthandPropertyAssignment,
   KindVariableDeclaration,
 } from "../../ast/generated/kinds.js";
 import { IsClassStaticBlockDeclaration, IsClassDeclaration, IsClassExpression, IsComputedPropertyName, IsExpressionStatement, IsFunctionDeclaration, IsIdentifier, IsPrivateIdentifier, IsStringLiteral } from "../../ast/generated/predicates.js";
-import { HasSyntacticModifier, IsPropertyNameLiteral, SkipOuterExpressions, OEKAll } from "../../ast/utilities.js";
+import { HasSyntacticModifier, IsNamedEvaluationSource, IsPropertyNameLiteral, SkipOuterExpressions, OEKAll } from "../../ast/utilities.js";
 import { Node_Expression, Node_Initializer, Node_MemberList, Node_Members, Node_Statements, Node_Text, Node_TypeParameterList, NodeFactory_UpdateBinaryExpression, NodeFactory_UpdateBindingElement, NodeFactory_UpdateClassDeclaration, NodeFactory_UpdateClassExpression, NodeFactory_UpdateComputedPropertyName, NodeFactory_UpdateExportAssignment, NodeFactory_UpdateParameterDeclaration, NodeFactory_UpdatePropertyAssignment, NodeFactory_UpdatePropertyDeclaration, NodeFactory_UpdateShorthandPropertyAssignment, NodeFactory_UpdateVariableDeclaration } from "../../ast/ast.js";
 import { Node_Modifiers } from "../../ast/spine.js";
 import { ModifierFlagsDefault } from "../../ast/modifierflags.js";
@@ -117,18 +113,6 @@ export function classHasDeclaredOrExplicitlyAssignedName(emitContext: GoPtr<Emit
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/namedevaluation.go::func::isProtoSetter","kind":"func","status":"implemented","sigHash":"1941583680736a93397a9144112cc090fa3c62ea6010b6f067c34a12f2dbc807","bodyHash":"12d58de5b966336972181acb509b5ae3cf7ffd3fcaa3295443e8e15678b2de3b"}
- *
- * Go source:
- * func isProtoSetter(node *ast.PropertyName) bool {
- * 	return (ast.IsIdentifier(node) || ast.IsStringLiteral(node)) && node.Text() == "__proto__"
- * }
- */
-export function isProtoSetter(node: GoPtr<PropertyName>): bool {
-  return (IsIdentifier(node as unknown as GoPtr<Node>) || IsStringLiteral(node as unknown as GoPtr<Node>)) && Node_Text(node as unknown as GoPtr<Node>) === "__proto__";
-}
-
-/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/namedevaluation.go::type::anonymousFunctionDefinition","kind":"type","status":"implemented","sigHash":"a06030e4e97b936889eef47204d77e1153123fe98e6da0d2d93be7ca95017de0","bodyHash":"b5cf797ef907817d68922dde0629a4e105e0e4d33f925eb63d5bf679ee48c826"}
  *
  * Go source:
@@ -189,67 +173,6 @@ export function isAnonymousFunctionDefinition(emitContext: GoPtr<EmitContext>, n
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/namedevaluation.go::func::isNamedEvaluationSource","kind":"func","status":"implemented","sigHash":"cffa1b4211162a98ff1b87afb6940aa52e9e5fd5d907d1f923e19f3761ac3501","bodyHash":"e4919ba9450f51ea904f0c2de3639df98c7242ea2711c7e02e3b559b9f2ef06b"}
- *
- * Go source:
- * func isNamedEvaluationSource(node *ast.Node) bool {
- * 	switch node.Kind {
- * 	case ast.KindPropertyAssignment:
- * 		return !isProtoSetter(node.AsPropertyAssignment().Name())
- * 	case ast.KindShorthandPropertyAssignment:
- * 		return node.AsShorthandPropertyAssignment().ObjectAssignmentInitializer != nil
- * 	case ast.KindVariableDeclaration:
- * 		return ast.IsIdentifier(node.AsVariableDeclaration().Name()) && node.Initializer() != nil
- * 	case ast.KindParameter:
- * 		return ast.IsIdentifier(node.AsParameterDeclaration().Name()) && node.Initializer() != nil && node.AsParameterDeclaration().DotDotDotToken == nil
- * 	case ast.KindBindingElement:
- * 		return ast.IsIdentifier(node.AsBindingElement().Name()) && node.Initializer() != nil && node.AsBindingElement().DotDotDotToken == nil
- * 	case ast.KindPropertyDeclaration:
- * 		return node.Initializer() != nil
- * 	case ast.KindBinaryExpression:
- * 		switch node.AsBinaryExpression().OperatorToken.Kind {
- * 		case ast.KindEqualsToken, ast.KindAmpersandAmpersandEqualsToken, ast.KindBarBarEqualsToken, ast.KindQuestionQuestionEqualsToken:
- * 			return ast.IsIdentifier(node.AsBinaryExpression().Left)
- * 		}
- * 		break
- * 	case ast.KindExportAssignment:
- * 		return true
- * 	}
- * 	return false
- * }
- */
-export function isNamedEvaluationSource(node: GoPtr<Node>): bool {
-  switch (node!.Kind) {
-    case KindPropertyAssignment:
-      return !isProtoSetter(AsPropertyAssignment(node)!.name);
-    case KindShorthandPropertyAssignment:
-      return AsShorthandPropertyAssignment(node)!.ObjectAssignmentInitializer !== undefined;
-    case KindVariableDeclaration:
-      return IsIdentifier(AsVariableDeclaration(node)!.name as unknown as GoPtr<Node>) && Node_Initializer(node) !== undefined;
-    case KindParameter:
-      return IsIdentifier(AsParameterDeclaration(node)!.name as unknown as GoPtr<Node>) && Node_Initializer(node) !== undefined && AsParameterDeclaration(node)!.DotDotDotToken === undefined;
-    case KindBindingElement:
-      return IsIdentifier(AsBindingElement(node)!.name as unknown as GoPtr<Node>) && Node_Initializer(node) !== undefined && AsBindingElement(node)!.DotDotDotToken === undefined;
-    case KindPropertyDeclaration:
-      return Node_Initializer(node) !== undefined;
-    case KindBinaryExpression: {
-      const operatorKind = AsBinaryExpression(node)!.OperatorToken!.Kind;
-      switch (operatorKind) {
-        case KindEqualsToken:
-        case KindAmpersandAmpersandEqualsToken:
-        case KindBarBarEqualsToken:
-        case KindQuestionQuestionEqualsToken:
-          return IsIdentifier(AsBinaryExpression(node)!.Left as unknown as GoPtr<Node>);
-      }
-      break;
-    }
-    case KindExportAssignment:
-      return true;
-  }
-  return false;
-}
-
-/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/namedevaluation.go::func::isNamedEvaluation","kind":"func","status":"implemented","sigHash":"c1b0e9007fae51c9bab3cb0b3b5a8ae8cdb3aafc811d57d419069e6890a396fa","bodyHash":"1b9a87034890eb02ed74ffdc0186856a9b68e1fd95c11a17e8e9cf942ecf59af"}
  *
  * Go source:
@@ -262,11 +185,11 @@ export function isNamedEvaluation(emitContext: GoPtr<EmitContext>, node: GoPtr<N
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/namedevaluation.go::func::isNamedEvaluationAnd","kind":"func","status":"implemented","sigHash":"5cc7c91b9e6c5a560d4cb2edf14f7ee220f9d9c506e85f9b0b312b46c1d6a79c","bodyHash":"564eaed3c6f04fd384940eb9846a1e3abddd2989e4be6fee8ee32a0cf28639b2"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/namedevaluation.go::func::isNamedEvaluationAnd","kind":"func","status":"implemented","sigHash":"5cc7c91b9e6c5a560d4cb2edf14f7ee220f9d9c506e85f9b0b312b46c1d6a79c","bodyHash":"16a0eeaf7e3930cfeeb9055c506d02e992027f576942d5c6910bb475bf5d328d"}
  *
  * Go source:
  * func isNamedEvaluationAnd(emitContext *printer.EmitContext, node *ast.Node, cb func(*anonymousFunctionDefinition) bool) bool {
- * 	if !isNamedEvaluationSource(node) {
+ * 	if !ast.IsNamedEvaluationSource(node) {
  * 		return false
  * 	}
  * 	switch node.Kind {
@@ -285,7 +208,7 @@ export function isNamedEvaluation(emitContext: GoPtr<EmitContext>, node: GoPtr<N
  * }
  */
 export function isNamedEvaluationAnd(emitContext: GoPtr<EmitContext>, node: GoPtr<Node>, cb: (arg0: GoPtr<anonymousFunctionDefinition>) => bool): bool {
-  if (!isNamedEvaluationSource(node)) {
+  if (!IsNamedEvaluationSource(node)) {
     return false;
   }
   switch (node!.Kind) {

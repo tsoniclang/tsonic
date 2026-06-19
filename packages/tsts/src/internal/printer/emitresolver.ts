@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { Node, SourceFile } from "../ast/ast.js";
 import type { Declaration, EntityName, IdentifierNode, ImportDeclaration, SignatureDeclaration } from "../ast/ast_generated.js";
@@ -123,7 +123,7 @@ export const TypeReferenceSerializationKindTypeWithCallSignature: int = 10 as in
 export const TypeReferenceSerializationKindObjectType: int = 11 as int;
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/emitresolver.go::type::EmitResolver","kind":"type","status":"implemented","sigHash":"4af1fb9a8ce053280f08714c5d92ab6205e0e2fd3c425435043c4d61662f7e5d","bodyHash":"823512c025c22bea548afdf719c6a2dc9a59c1ecc874bef5c15cf0ac8918863b"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/emitresolver.go::type::EmitResolver","kind":"type","status":"implemented","sigHash":"4af1fb9a8ce053280f08714c5d92ab6205e0e2fd3c425435043c4d61662f7e5d","bodyHash":"20ef9f912a65d513d2bb244fc98d5a80384e58f6ac2a0d2b57b534878931e0f5"}
  *
  * Go source:
  * EmitResolver interface {
@@ -162,7 +162,8 @@ export const TypeReferenceSerializationKindObjectType: int = 11 as int;
  * 	GetEnumMemberValue(node *ast.Node) evaluator.Result
  * 	IsLateBound(node *ast.Node) bool
  * 	IsOptionalParameter(node *ast.Node) bool
- * 
+ * 	GetBaseDeclarationsForPropertyDeclaration(node *ast.Node) []*ast.Node
+ *
  * 	// isolatedDeclarations-specific declaration emit
  * 	GetPropertiesOfContainerFunction(node *ast.Node) []*ast.Symbol
  * 	RequiresAddingImplicitUndefinedUnsafe(node *ast.Node, symbol *ast.Symbol, enclosingDeclaration *ast.Node) bool
@@ -204,6 +205,7 @@ export interface EmitResolver extends ReferenceResolver {
   GetEnumMemberValue(node: GoPtr<Node>): Result;
   IsLateBound(node: GoPtr<Node>): bool;
   IsOptionalParameter(node: GoPtr<Node>): bool;
+  GetBaseDeclarationsForPropertyDeclaration(node: GoPtr<Node>): GoSlice<GoPtr<Node>>;
   GetPropertiesOfContainerFunction(node: GoPtr<Node>): GoSlice<GoPtr<Symbol>>;
   RequiresAddingImplicitUndefinedUnsafe(node: GoPtr<Node>, symbol_: GoPtr<Symbol>, enclosingDeclaration: GoPtr<Node>): bool;
   CreateTypeOfDeclaration(emitContext: GoPtr<EmitContext>, declaration: GoPtr<Node>, enclosingDeclaration: GoPtr<Node>, flags: Flags, internalFlags: InternalFlags, tracker: SymbolTracker): GoPtr<Node>;

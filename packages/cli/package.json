@@ -1,44 +1,20 @@
 {
   "name": "@tsonic/cli",
-  "version": "0.0.84",
-  "description": "Command-line interface for Tsonic compiler",
+  "version": "0.0.1",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "files": [
-    "dist",
-    "runtime/Tsonic.Runtime.dll"
-  ],
+  "private": true,
   "bin": {
-    "tsonic": "dist/index.js"
+    "tsonic": "./dist/src/index.js"
   },
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
+    ".": "./src/index.ts"
   },
   "scripts": {
-    "build": "npm run clean && bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false && chmod +x dist/index.js",
-    "clean": "rm -rf dist *.tsbuildinfo",
-    "pretest": "npm run build",
-    "test": "mocha --require ../../test/mocha/checkpoint.cjs --parallel --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js'",
-    "test:watch": "mocha --require ../../test/mocha/checkpoint.cjs --ignore 'dist/**/*-cases/**/*.test.js' 'dist/**/*.test.js' --watch"
+    "build": "../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false"
   },
   "dependencies": {
-    "@tsonic/csharp-backend": "0.0.84",
-    "@tsonic/csharp-emitter": "0.0.84",
-    "@tsonic/frontend": "0.0.84",
-    "@tsonic/tsbindgen": "0.7.55"
-  },
-  "devDependencies": {
-    "@types/chai": "5.2.2",
-    "@types/mocha": "10.0.10",
-    "@types/node": "20.14.0",
-    "chai": "5.3.3",
-    "mocha": "11.7.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "@tsonic/host": "0.0.1",
+    "@tsonic/target-api": "0.0.1",
+    "@tsonic/target-csharp": "0.0.1"
   }
 }

@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import * as slices from "../../../go/slices.js";
 import type { ModifierList, Node, NodeList } from "../../ast/spine.js";
@@ -843,21 +843,21 @@ export function Printer_emitTokenNodeEx(receiver: GoPtr<Printer>, node: GoPtr<To
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitIdentifierText","kind":"method","status":"implemented","sigHash":"8c4990541e384f4c262fc663c6ee26fc65ecbb84af2afce445782b05c782c9b7","bodyHash":"2bb9123af240c3c0469a71e1ae90c9ad33866cbe20cd29a54d467e567350ebe9"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitIdentifierText","kind":"method","status":"implemented","sigHash":"8c4990541e384f4c262fc663c6ee26fc65ecbb84af2afce445782b05c782c9b7","bodyHash":"a7d4ceb896b37670755e1f88b9852c04e9d0a5e6419d38adca0538701ecf8bdf"}
  *
  * Go source:
  * func (p *Printer) emitIdentifierText(node *ast.Identifier) {
  * 	f := ast.GetSourceFileOfNode(node.AsNode())
  * 	debug.Assert(f == nil || p.currentSourceFile == nil || f.FileName() == p.currentSourceFile.FileName())
  * 	text := p.getTextOfNode(node.AsNode(), false /*includeTrivia* /)
- * 
- * 	// !!! In the old emitter, an Identifier could have a Symbol associated with it. That
- * 	// doesn't seem to be the case in the new emitter. Do we need to get the symbol from somewhere else?
- * 	////p.writeSymbol(text, node.Symbol())
+ *
+ * 	if p.IdToSymbol != nil {
+ * 		if symbol, ok := p.IdToSymbol[node.AsNode()]; ok {
+ * 			p.writeSymbol(text, symbol)
+ * 			return
+ * 		}
+ * 	}
  * 	p.write(text)
- * 
- * 	// !!! In the old emitter, an Identifier could have type arguments for use with quickinfo:
- * 	////p.emitList(node, getIdentifierTypeArguments(node), LFTypeParameters); // Call emitList directly since it could be an array of TypeParameterDeclarations _or_ type arguments
  * }
  */
 export function Printer_emitIdentifierText(receiver: GoPtr<Printer>, node: GoPtr<Identifier>): void {
@@ -865,12 +865,14 @@ export function Printer_emitIdentifierText(receiver: GoPtr<Printer>, node: GoPtr
   // debug.Assert(f == nil || p.currentSourceFile == nil || f.FileName() == p.currentSourceFile.FileName())
   const text = Printer_getTextOfNode(receiver, NodeDefault_AsNode(node), false as bool);
 
-  // !!! In the old emitter, an Identifier could have a Symbol associated with it.
-  ////p.writeSymbol(text, node.Symbol())
+  if (receiver!.IdToSymbol !== undefined) {
+    const symbol = receiver!.IdToSymbol.get(NodeDefault_AsNode(node));
+    if (symbol !== undefined) {
+      Printer_writeSymbol(receiver, text, symbol);
+      return;
+    }
+  }
   Printer_write(receiver, text);
-
-  // !!! In the old emitter, an Identifier could have type arguments for use with quickinfo
-  ////p.emitList(node, getIdentifierTypeArguments(node), LFTypeParameters);
 }
 
 /**
@@ -2361,7 +2363,7 @@ export function Printer_emitJsxAttributeName(receiver: GoPtr<Printer>, node: GoP
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitJsxAttributeValue","kind":"method","status":"implemented","sigHash":"7ef38ffb411588fdac02314057f8ad0c90b83c73388f3816ef4cf6c4bada7184","bodyHash":"d5e7dcc2f0cfa8c98ee860662c211b6242498b69f2cf52eb2f4b767efb086f5a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.emitJsxAttributeValue","kind":"method","status":"implemented","sigHash":"7ef38ffb411588fdac02314057f8ad0c90b83c73388f3816ef4cf6c4bada7184","bodyHash":"e473722e174f058a446e4dc76c6e177d393c72ebecee1dbd06d64ea2f47f9ee0"}
  *
  * Go source:
  * func (p *Printer) emitJsxAttributeValue(node *ast.JsxAttributeValue) {
@@ -2377,7 +2379,7 @@ export function Printer_emitJsxAttributeName(receiver: GoPtr<Printer>, node: GoP
  * 	case ast.KindJsxFragment:
  * 		p.emitJsxFragment(node.AsJsxFragment())
  * 	default:
- * 		panic(fmt.Sprintf("unhandled JsxAttributeValue: %v", node.Kind))
+ * 		p.emitExpression(node, ast.OperatorPrecedenceLowest)
  * 	}
  * }
  */

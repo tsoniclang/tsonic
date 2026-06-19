@@ -1,12 +1,13 @@
-import type { bool, byte, int } from "@tsonic/core/types.js";
+import type { bool, byte, int } from "../../go/scalars.js";
 import { AppendIfUnique, Every, FindIndex, IfElse, Map as core_Map, Coalesce, OrElse, SameMap, Some } from "../core/core.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
+import { NewGoStructMap } from "../../go/compat.js";
 import type { Node, NodeList } from "../ast/spine.js";
 import { Node_FlowNodeData, Node_ForEachChild, Node_Name, Node_Pos, Node_End, NodeList_Pos } from "../ast/spine.js";
 import { Node_Arguments, Node_AsFlowReduceLabelData, Node_AsFlowSwitchClauseData, Node_Elements, Node_Expression, Node_Initializer, Node_Parameters, Node_PropertyNameOrName, Node_StatementList, Node_Text, Node_Type } from "../ast/ast.js";
 import type { BinaryExpression, ElementAccessExpression, LiteralExpression, TypeOfExpression } from "../ast/ast_generated.js";
 import { AsBinaryExpression, AsBindingElement, AsCaseBlock, AsClassStaticBlockDeclaration, AsConstructorDeclaration, AsElementAccessExpression, AsExportDeclaration, AsExportSpecifier, AsForInOrOfStatement, AsMetaProperty, AsPrefixUnaryExpression, AsQualifiedName, AsShorthandPropertyAssignment, AsSwitchStatement, AsTypeOfExpression } from "../ast/generated/casts.js";
-import { IsAccessExpression, IsAssignmentExpression, IsBooleanLiteral, IsBindingPattern, IsClassLike, IsEntityNameExpression, IsExpressionOfOptionalChainRoot, IsFunctionLike, IsFunctionOrModuleBlock, IsFunctionOrSourceFile, IsFunctionExpressionOrArrowFunction, IsObjectLiteralMethod, IsOptionalChain, IsStatic, IsStringLiteralLike, IsStringOrNumericLiteralLike, IsTypeNode, SkipParentheses, GetRootDeclaration, GetSourceFileOfNode, GetThisContainer, FindAncestor, TryGetTextOfPropertyName, IsThisInTypeQuery, HasStaticModifier, IsPushOrUnshiftIdentifier, IsAssignmentTarget } from "../ast/utilities.js";
+import { IsAccessExpression, IsAssignmentExpression, IsBooleanLiteral, IsBindingPattern, IsClassLike, IsEntityNameExpression, IsExpressionOfOptionalChainRoot, IsFunctionLike, IsFunctionOrModuleBlock, IsFunctionOrSourceFile, IsFunctionExpressionOrArrowFunction, IsObjectLiteralMethod, IsOptionalChain, IsStatic, IsStringLiteralLike, IsStringOrNumericLiteralLike, IsTypeNode, SkipParentheses, GetRootDeclaration, GetSourceFileOfNode, GetThisContainer, FindAncestor, TryGetTextOfPropertyName, IsThisInTypeQuery, HasStaticModifier, IsPushOrUnshiftIdentifier, IsAssignmentTarget, IsInJSFile, IsVarConstLike } from "../ast/utilities.js";
 import { IsArrowFunction, IsArrayBindingPattern, IsArrayLiteralExpression, IsBinaryExpression, IsBindingElement, IsCallExpression, IsCatchClause, IsElementAccessExpression, IsEnumMember, IsExpressionStatement, IsExportSpecifier, IsForInStatement, IsForOfStatement, IsIdentifier, IsMetaProperty, IsNonNullExpression, IsObjectBindingPattern, IsParameterDeclaration, IsParenthesizedExpression, IsPrivateIdentifier, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsShorthandPropertyAssignment, IsStringLiteral, IsTypeOfExpression, IsVariableDeclaration } from "../ast/generated/predicates.js";
 import { NodeFlagsInWithStatement, NodeFlagsNone } from "../ast/generated/flags.js";
 import type { NodeFlags } from "../ast/generated/flags.js";
@@ -26,7 +27,7 @@ import type { Symbol } from "../ast/symbol.js";
 import { GetRangeOfTokenAtPosition } from "../scanner/scanner.js";
 import type { SourceFile } from "../ast/ast.js";
 import { The_containing_function_or_module_body_is_too_large_for_control_flow_analysis } from "../diagnostics/generated/messages.js";
-import { DiagnosticsCollection_Add } from "../ast/diagnostic.js";
+import { Checker_addDiagnostic } from "./checker.js";
 import type { CacheHashKey, Checker, keyBuilder, TypeFacts, UnionReduction } from "./checker/state.js";
 import type { CachedTypeKey, NarrowedTypeKey, AssignmentReducedKey } from "./checker/state.js";
 import { CachedTypeKindEvolvingArrayType, CheckModeNormal, TypeFactsAllTypeofNE, TypeFactsEQNull, TypeFactsEQUndefined, TypeFactsEQUndefinedOrNull, TypeFactsFalsy, TypeFactsNENull, TypeFactsNEUndefined, TypeFactsNEUndefinedOrNull, TypeFactsNone, TypeFactsTruthy, TypeFactsTypeofEQBigInt, TypeFactsTypeofEQBoolean, TypeFactsTypeofEQFunction, TypeFactsTypeofEQHostObject, TypeFactsTypeofEQNumber, TypeFactsTypeofEQObject, TypeFactsTypeofEQString, TypeFactsTypeofEQSymbol, TypeFactsTypeofNEBigInt, TypeFactsTypeofNEBoolean, TypeFactsTypeofNEFunction, TypeFactsTypeofNEHostObject, TypeFactsTypeofNENumber, TypeFactsTypeofNEObject, TypeFactsTypeofNEString, TypeFactsTypeofNESymbol } from "./checker/state.js";
@@ -75,7 +76,6 @@ import { Checker_tryGetTypeFromTypeNode } from "./checker/types.js";
 import { Checker_getLiteralTypeFromPropertyName, Checker_isBlockScopedNameDeclaredBeforeUse } from "./checker/symbols.js";
 import { Checker_getFlowTypeOfProperty, Checker_getNarrowableTypeForReference } from "./checker/flow-narrowing.js";
 import { getAssignmentTargetKind, isEmptyArrayLiteral, isCallChain, isInCompoundLikeAssignment, hasDotDotDotToken, isNonNullAccess, getBindingElementPropertyName, hasOnlyExpressionInitializer } from "./utilities.js";
-import { Checker_getTypeForBindingElement } from "./checker/types.js";
 import { GetSymbolNameForPrivateIdentifier } from "../binder/binder.js";
 import { IterationUseDestructuring, IterationUseForAwaitOf, IterationUseForOf } from "./checker/state.js";
 import type { Hasher } from "../../go/github.com/zeebo/xxh3.js";
@@ -130,17 +130,20 @@ export function FlowType_isNil(receiver: GoPtr<FlowType>): bool {
   return receiver?.t === undefined;
 }
 
-const flowLoopNodeKeys = new WeakMap<FlowNode, int>();
-let nextFlowLoopNodeKey = 1 as int;
+const flowLoopKeys = new WeakMap<FlowNode, globalThis.Map<CacheHashKey, FlowLoopKey>>();
 
 function getFlowLoopKey(flow: GoPtr<FlowNode>, refKey: CacheHashKey): FlowLoopKey {
-  let flowKey = flowLoopNodeKeys.get(flow!);
-  if (flowKey === undefined) {
-    flowKey = nextFlowLoopNodeKey;
-    nextFlowLoopNodeKey = (nextFlowLoopNodeKey + 1) as int;
-    flowLoopNodeKeys.set(flow!, flowKey);
+  let byRefKey = flowLoopKeys.get(flow!);
+  if (byRefKey === undefined) {
+    byRefKey = NewGoStructMap<CacheHashKey, FlowLoopKey>();
+    flowLoopKeys.set(flow!, byRefKey);
   }
-  return `${flowKey}:${refKey}` as unknown as FlowLoopKey;
+  let key = byRefKey.get(refKey);
+  if (key === undefined) {
+    key = { flowNode: flow, refKey };
+    byRefKey.set(refKey, key);
+  }
+  return key;
 }
 
 /**
@@ -221,6 +224,12 @@ export function Checker_getFlowState(receiver: GoPtr<Checker>): GoPtr<FlowState>
   let f = receiver!.freeFlowState;
   if (f === undefined) {
     f = {} as FlowState;
+    // A fresh FlowState must start at Go zero-values (the recycled path is reset by putFlowState).
+    // Otherwise depth is undefined -> depth++ is NaN so the depth===2000 recursion guard never
+    // fires, and sharedFlowStart is undefined so the shared-flow loop is skipped.
+    f.depth = 0;
+    f.sharedFlowStart = 0;
+    f.reduceLabels = [];
   }
   receiver!.freeFlowState = f.next;
   return f;
@@ -239,7 +248,8 @@ export function Checker_getFlowState(receiver: GoPtr<Checker>): GoPtr<FlowState>
  * }
  */
 export function Checker_putFlowState(receiver: GoPtr<Checker>, f: GoPtr<FlowState>): void {
-  const reduceLabels = f!.reduceLabels;
+  const reduceLabels = f!.reduceLabels ?? [];
+  reduceLabels.length = 0;
   f!.reference = undefined;
   f!.declaredType = undefined;
   f!.initialType = undefined;
@@ -247,7 +257,7 @@ export function Checker_putFlowState(receiver: GoPtr<Checker>, f: GoPtr<FlowStat
   f!.refKey = undefined as unknown as CacheHashKey;
   f!.depth = 0;
   f!.sharedFlowStart = 0;
-  f!.reduceLabels = reduceLabels ? reduceLabels.slice(0, 0) : [];
+  f!.reduceLabels = reduceLabels;
   f!.next = receiver!.freeFlowState;
   receiver!.freeFlowState = f;
 }
@@ -343,7 +353,7 @@ export function Checker_getFlowTypeOfReferenceEx(receiver: GoPtr<Checker>, refer
   f!.sharedFlowStart = receiver!.sharedFlows.length;
   receiver!.flowInvocationCount++;
   const evolvedType = Checker_getTypeAtFlowNode(receiver, f, resolvedFlowNode).t;
-  receiver!.sharedFlows = receiver!.sharedFlows.slice(0, f!.sharedFlowStart);
+  receiver!.sharedFlows.length = f!.sharedFlowStart;
   Checker_putFlowState(receiver, f);
   let resultType: GoPtr<Type>;
   if ((evolvedType!.objectFlags & ObjectFlagsEvolvingArray) !== 0 && Checker_isEvolvingArrayOperationTarget(receiver, reference)) {
@@ -518,9 +528,10 @@ export function Checker_getTypeAtFlowNode(receiver: GoPtr<Checker>, f: GoPtr<Flo
         continue;
       }
     } else if ((flags & FlowFlagsReduceLabel) !== 0) {
-      f!.reduceLabels = [...(f!.reduceLabels ?? []), Node_AsFlowReduceLabelData(currentFlow!.Node)];
+      f!.reduceLabels ??= [];
+      f!.reduceLabels.push(Node_AsFlowReduceLabelData(currentFlow!.Node));
       t = Checker_getTypeAtFlowNode(receiver, f, currentFlow!.Antecedent);
-      f!.reduceLabels = f!.reduceLabels.slice(0, f!.reduceLabels.length - 1);
+      f!.reduceLabels.pop();
     } else if ((flags & FlowFlagsStart) !== 0) {
       const container = currentFlow!.Node;
       if (
@@ -538,7 +549,7 @@ export function Checker_getTypeAtFlowNode(receiver: GoPtr<Checker>, f: GoPtr<Flo
       t = { t: Checker_convertAutoToAny(receiver, f!.declaredType), incomplete: false };
     }
     if (sharedFlow !== undefined) {
-      receiver!.sharedFlows = [...receiver!.sharedFlows, { flow: sharedFlow, flowType: t }];
+      receiver!.sharedFlows.push({ flow: sharedFlow, flowType: t });
     }
     f!.depth--;
     return t;
@@ -574,7 +585,7 @@ export function getBranchLabelAntecedents(flow: GoPtr<FlowNode>, reduceLabels: G
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.getTypeAtFlowAssignment","kind":"method","status":"implemented","sigHash":"b626c91fb7d62abb74aa665a7ff59642f9204ca5b044cc7dc68fcc4975097c43","bodyHash":"ebd51a55c761061f942348fd5983f0b53374052752e5615f24e6e1b71d197618"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.getTypeAtFlowAssignment","kind":"method","status":"implemented","sigHash":"b626c91fb7d62abb74aa665a7ff59642f9204ca5b044cc7dc68fcc4975097c43","bodyHash":"734ba0ea054bb2f51989f4eb204752e231e0e6182c43c41cd2d0ab8f02582599"}
  *
  * Go source:
  * func (c *Checker) getTypeAtFlowAssignment(f *FlowState, flow *ast.FlowNode) FlowType {
@@ -615,6 +626,13 @@ export function getBranchLabelAntecedents(flow: GoPtr<FlowNode>, reduceLabels: G
  * 	if c.containsMatchingReference(f.reference, node) {
  * 		if !c.isReachableFlowNode(flow) {
  * 			return FlowType{t: c.unreachableNeverType}
+ * 		}
+ * 		// A matching dotted name might also be an expando property on a function *expression*,
+ * 		// in which case we continue control flow analysis back to the function's declaration
+ * 		if ast.IsVariableDeclaration(node) && (ast.IsInJSFile(node) || ast.IsVarConstLike(node)) {
+ * 			if init := node.Initializer(); init != nil && ast.IsFunctionExpressionOrArrowFunction(init) {
+ * 				return c.getTypeAtFlowNode(f, flow.Antecedent)
+ * 			}
  * 		}
  * 		return FlowType{t: f.declaredType}
  * 	}
@@ -658,6 +676,14 @@ export function Checker_getTypeAtFlowAssignment(receiver: GoPtr<Checker>, f: GoP
   if (Checker_containsMatchingReference(receiver, f!.reference, node)) {
     if (!Checker_isReachableFlowNode(receiver, flow)) {
       return { t: receiver!.unreachableNeverType, incomplete: false };
+    }
+    // A matching dotted name might also be an expando property on a function *expression*,
+    // in which case we continue control flow analysis back to the function's declaration
+    if (IsVariableDeclaration(node) && (IsInJSFile(node) || IsVarConstLike(node))) {
+      const init = Node_Initializer(node);
+      if (init !== undefined && IsFunctionExpressionOrArrowFunction(init)) {
+        return Checker_getTypeAtFlowNode(receiver, f, flow!.Antecedent);
+      }
     }
     return { t: f!.declaredType, incomplete: false };
   }
@@ -766,7 +792,7 @@ export function Checker_getTypeAtFlowCall(receiver: GoPtr<Checker>, f: GoPtr<Flo
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.narrowTypeByTypePredicate","kind":"method","status":"implemented","sigHash":"557196706086033223b3f2dd4c4cecf8b8e57e74ed39db8e36a46c22cbd5b59b","bodyHash":"64cec5fb7db7a50d2e243964dc77dc8d42d6abac2ae28ece084773e8cac8e647"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.narrowTypeByTypePredicate","kind":"method","status":"implemented","sigHash":"557196706086033223b3f2dd4c4cecf8b8e57e74ed39db8e36a46c22cbd5b59b","bodyHash":"a98e89dd32caa69a3bdc3f28f7c12df621194c977c673e3731ac4741f5f69941"}
  *
  * Go source:
  * func (c *Checker) narrowTypeByTypePredicate(f *FlowState, t *Type, predicate *TypePredicate, callExpression *ast.Node, assumeTrue bool) *Type {
@@ -777,7 +803,7 @@ export function Checker_getTypeAtFlowCall(receiver: GoPtr<Checker>, f: GoPtr<Flo
  * 			if c.isMatchingReference(f.reference, predicateArgument) {
  * 				return c.getNarrowedType(t, predicate.t, assumeTrue, false /*checkDerived* /)
  * 			}
- * 			if c.strictNullChecks && c.optionalChainContainsReference(predicateArgument, f.reference) && (assumeTrue && !(c.hasTypeFacts(predicate.t, TypeFactsEQUndefined)) || !assumeTrue && everyType(predicate.t, c.IsNullableType)) {
+ * 			if c.strictNullChecks && c.optionalChainContainsReference(predicateArgument, f.reference) && (assumeTrue && !c.hasTypeFacts(predicate.t, TypeFactsEQUndefined) || !assumeTrue && everyType(predicate.t, c.IsNullableType)) {
  * 				t = c.getAdjustedTypeWithFacts(t, TypeFactsNEUndefinedOrNull)
  * 			}
  * 			access := c.getDiscriminantPropertyAccess(f, predicateArgument, t)
@@ -3447,21 +3473,21 @@ export function Checker_createFinalArrayType(receiver: GoPtr<Checker>, elementTy
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.reportFlowControlError","kind":"method","status":"implemented","sigHash":"68ed81198cbced5a42afc2c55cfb67a63d396056ca54bd7eb77ddd22275f91b5","bodyHash":"bdfffaa971ccc499e387ba2e169dbb245495969e295c237ab0763a923f2090e1"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.reportFlowControlError","kind":"method","status":"implemented","sigHash":"68ed81198cbced5a42afc2c55cfb67a63d396056ca54bd7eb77ddd22275f91b5","bodyHash":"9891d9d77ef6a30a484b82f09b41483c4f82ee8012e11874ed76fbc3660e70d7"}
  *
  * Go source:
  * func (c *Checker) reportFlowControlError(node *ast.Node) {
  * 	block := ast.FindAncestor(node, ast.IsFunctionOrModuleBlock)
  * 	sourceFile := ast.GetSourceFileOfNode(node)
  * 	span := scanner.GetRangeOfTokenAtPosition(sourceFile, block.StatementList().Pos())
- * 	c.diagnostics.Add(ast.NewDiagnostic(sourceFile, span, diagnostics.The_containing_function_or_module_body_is_too_large_for_control_flow_analysis))
+ * 	c.addDiagnostic(ast.NewDiagnostic(sourceFile, span, diagnostics.The_containing_function_or_module_body_is_too_large_for_control_flow_analysis))
  * }
  */
 export function Checker_reportFlowControlError(receiver: GoPtr<Checker>, node: GoPtr<Node>): void {
   const block = FindAncestor(node, IsFunctionOrModuleBlock);
   const sourceFile = GetSourceFileOfNode(node);
   const span = GetRangeOfTokenAtPosition(sourceFile, NodeList_Pos(Node_StatementList(block)));
-  DiagnosticsCollection_Add(receiver!.diagnostics, NewDiagnostic(sourceFile, span, The_containing_function_or_module_body_is_too_large_for_control_flow_analysis));
+  Checker_addDiagnostic(receiver, NewDiagnostic(sourceFile, span, The_containing_function_or_module_body_is_too_large_for_control_flow_analysis));
 }
 
 /**
@@ -3593,7 +3619,7 @@ export function Checker_isMatchingReference(receiver: GoPtr<Checker>, source: Go
  * Go source:
  * var nonDottedNameCacheKey = CacheHashKey(xxh3.HashString128("?"))
  */
-export const nonDottedNameCacheKey: CacheHashKey = HashString128("?").String();
+export const nonDottedNameCacheKey: CacheHashKey = HashString128("?");
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.getFlowReferenceKey","kind":"method","status":"implemented","sigHash":"7f9c86a333fc3319345e1d2e40cd94e84184cc42804dbda3e0deebe4b4fa8c87","bodyHash":"8bcfb16a0b81f307700c2d8c04c39c9d3419508117866e6fecd4abfdf9d6257b"}
@@ -3820,7 +3846,7 @@ export function Checker_tryGetElementAccessExpressionName(receiver: GoPtr<Checke
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.tryGetNameFromEntityNameExpression","kind":"method","status":"implemented","sigHash":"36059e48b51fdcc0a41a83ab79f0e06982bafb6531b74130e9ae40b60f3dc2fd","bodyHash":"672c971a9c1daa59fd3a711463a1f58c044873d2b10369a0950c219b24e327c6"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.tryGetNameFromEntityNameExpression","kind":"method","status":"implemented","sigHash":"36059e48b51fdcc0a41a83ab79f0e06982bafb6531b74130e9ae40b60f3dc2fd","bodyHash":"6784cd11c45f35d76aefd2f2ad8f5a5b66194b42d99eb167e03aa66dce8e1c17"}
  *
  * Go source:
  * func (c *Checker) tryGetNameFromEntityNameExpression(node *ast.Node) (string, bool) {
@@ -3838,16 +3864,11 @@ export function Checker_tryGetElementAccessExpressionName(receiver: GoPtr<Checke
  * 			return name, true
  * 		}
  * 	}
- * 	if hasOnlyExpressionInitializer(declaration) && c.isBlockScopedNameDeclaredBeforeUse(declaration, node) {
- * 		initializer := declaration.Initializer()
- * 		if initializer != nil {
- * 			var initializerType *Type
- * 			if ast.IsBindingPattern(declaration.Parent) {
- * 				initializerType = c.getTypeForBindingElement(declaration)
- * 			} else {
- * 				initializerType = c.getTypeOfExpression(initializer)
- * 			}
- * 			if initializerType != nil {
+ * 	// We exclude binding elements because their initializers don't solely determine their types and resolving
+ * 	// full types can cause circularities (see https://github.com/microsoft/TypeScript/issues/63192).
+ * 	if hasOnlyExpressionInitializer(declaration) && !ast.IsBindingElement(declaration) && c.isBlockScopedNameDeclaredBeforeUse(declaration, node) {
+ * 		if initializer := declaration.Initializer(); initializer != nil {
+ * 			if initializerType := c.getTypeOfExpression(initializer); initializerType != nil {
  * 				return tryGetNameFromType(initializerType)
  * 			}
  * 		} else if ast.IsEnumMember(declaration) {
@@ -3873,15 +3894,12 @@ export function Checker_tryGetNameFromEntityNameExpression(receiver: GoPtr<Check
       return [name, true];
     }
   }
-  if (hasOnlyExpressionInitializer(declaration) && Checker_isBlockScopedNameDeclaredBeforeUse(receiver, declaration, node)) {
+  // We exclude binding elements because their initializers don't solely determine their types and resolving
+  // full types can cause circularities (see https://github.com/microsoft/TypeScript/issues/63192).
+  if (hasOnlyExpressionInitializer(declaration) && !IsBindingElement(declaration) && Checker_isBlockScopedNameDeclaredBeforeUse(receiver, declaration, node)) {
     const initializer = Node_Initializer(declaration);
     if (initializer !== undefined) {
-      let initializerType: GoPtr<Type>;
-      if (IsBindingPattern(declaration!.Parent)) {
-        initializerType = Checker_getTypeForBindingElement(receiver, declaration);
-      } else {
-        initializerType = Checker_getTypeOfExpression(receiver, initializer);
-      }
+      const initializerType = Checker_getTypeOfExpression(receiver, initializer);
       if (initializerType !== undefined) {
         return tryGetNameFromType(initializerType);
       }
@@ -4353,7 +4371,7 @@ export function Checker_eachTypeContainedIn(receiver: GoPtr<Checker>, source: Go
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.getSwitchClauseTypeOfWitnesses","kind":"method","status":"implemented","sigHash":"fee9f9536b569c461a61593e508dfd249091668086dd9494d6c7568096751794","bodyHash":"4f99f78063fc0072ed97dea802a156f8932a9cc3d68c36884988a5ee91ce28e0"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.getSwitchClauseTypeOfWitnesses","kind":"method","status":"implemented","sigHash":"fee9f9536b569c461a61593e508dfd249091668086dd9494d6c7568096751794","bodyHash":"27cd2073cc54e7704ae75dc98c0133bf88136d8e9f61621119d6d35f221bf5ec"}
  *
  * Go source:
  * func (c *Checker) getSwitchClauseTypeOfWitnesses(node *ast.Node) []string {
@@ -4363,15 +4381,11 @@ export function Checker_eachTypeContainedIn(receiver: GoPtr<Checker>, source: Go
  * 		witnesses := make([]string, len(clauses))
  * 		for i, clause := range clauses {
  * 			if clause.Kind == ast.KindCaseClause {
- * 				var text string
- * 				if ast.IsStringLiteralLike(clause.Expression()) {
- * 					text = clause.Expression().Text()
- * 				}
- * 				if text == "" {
+ * 				if !ast.IsStringLiteralLike(clause.Expression()) {
  * 					witnesses = nil
  * 					break
  * 				}
- * 				if !slices.Contains(witnesses, text) {
+ * 				if text := clause.Expression().Text(); !slices.Contains(witnesses, text) {
  * 					witnesses[i] = text
  * 				}
  * 			}
@@ -4391,14 +4405,11 @@ export function Checker_getSwitchClauseTypeOfWitnesses(receiver: GoPtr<Checker>,
     for (let i = 0; i < clauses.length; i++) {
       const clause = clauses[i];
       if (clause!.Kind === KindCaseClause) {
-        let text = "";
-        if (IsStringLiteralLike(Node_Expression(clause))) {
-          text = Node_Text(Node_Expression(clause));
-        }
-        if (text === "") {
+        if (!IsStringLiteralLike(Node_Expression(clause))) {
           valid = false;
           break;
         }
+        const text = Node_Text(Node_Expression(clause));
         if (!witnesses.includes(text)) {
           witnesses[i] = text;
         }
@@ -5108,10 +5119,13 @@ export function Checker_getTypeOfDestructuredArrayElement(receiver: GoPtr<Checke
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.includeUndefinedInIndexSignature","kind":"method","status":"implemented","sigHash":"433ef66bddd072c7aae1e627c3435d172e56e359140ee8629e21b3e4a855a139","bodyHash":"c6bca65542d9bceade530dd236d466a4b28995e2d73c3dbda99ced9ae8275938"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.includeUndefinedInIndexSignature","kind":"method","status":"implemented","sigHash":"433ef66bddd072c7aae1e627c3435d172e56e359140ee8629e21b3e4a855a139","bodyHash":"f0245095b7e0223ac723ba8bc096cf9dec94e5bb171cfd5f3a419ef8ad55c361"}
  *
  * Go source:
  * func (c *Checker) includeUndefinedInIndexSignature(t *Type) *Type {
+ * 	if t == nil {
+ * 		return nil
+ * 	}
  * 	if c.compilerOptions.NoUncheckedIndexedAccess == core.TSTrue {
  * 		return c.getUnionType([]*Type{t, c.missingType})
  * 	}
@@ -5119,6 +5133,9 @@ export function Checker_getTypeOfDestructuredArrayElement(receiver: GoPtr<Checke
  * }
  */
 export function Checker_includeUndefinedInIndexSignature(receiver: GoPtr<Checker>, t: GoPtr<Type>): GoPtr<Type> {
+  if (t === undefined) {
+    return undefined;
+  }
   if (receiver!.compilerOptions!.NoUncheckedIndexedAccess === TSTrue) {
     return Checker_getUnionType(receiver, [t, receiver!.missingType]);
   }

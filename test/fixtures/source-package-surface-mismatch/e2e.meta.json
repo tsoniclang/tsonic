@@ -1,5 +1,0 @@
-{
-  "expectFailure": true,
-  "description": "installed source packages must declare a compatible surface.",
-  "expectedErrors": ["TSN1004", "is not compatible with surface '@tsonic/js'"]
-}

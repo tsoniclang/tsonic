@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoError, GoPtr } from "../../../go/compat.js";
 import { Pool } from "../../../go/sync.js";
 import type { DirEntry } from "../../../go/io/fs.js";
@@ -30,9 +30,9 @@ import type { Entries, FileInfo, FS as FS_a37200a9, WalkDirFunc } from "../vfs.j
  * 	writeSema = core.NewLimitedSemaphore(32)
  * )
  */
-export let blockingOpSema: LimitedSemaphore = NewLimitedSemaphore(128 as int)!;
-export let readSema: LimitedSemaphore = NewLimitedSemaphore(128 as int)!;
-export let writeSema: LimitedSemaphore = NewLimitedSemaphore(32 as int)!;
+export let blockingOpSema: GoPtr<LimitedSemaphore> = NewLimitedSemaphore(128 as int);
+export let readSema: GoPtr<LimitedSemaphore> = NewLimitedSemaphore(128 as int);
+export let writeSema: GoPtr<LimitedSemaphore> = NewLimitedSemaphore(32 as int);
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/osvfs/os.go::func::FS","kind":"func","status":"implemented","sigHash":"669d6932edc66d4ae7f33b93dab185415c4c4934d0a52dc971e87a956312ddc0","bodyHash":"ea9152abb403b54a8516180fb60411ae882b406b48ff568ff753aaa6ed8499dc"}
@@ -46,6 +46,13 @@ export function FS(): FS_a37200a9 {
   return osVFS;
 }
 
+const _osFS: osFS = {
+  common: {
+    RootFor: goOs.DirFS as unknown as (root: string) => import("../../../go/io/fs.js").FS,
+    IsReparsePoint: isReparsePoint as unknown as (path: string) => bool,
+  },
+};
+
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/osvfs/os.go::varGroup::osVFS","kind":"varGroup","status":"implemented","sigHash":"e849cf504ee652ab59180aee0eaa01d7359beab126ae59d5c18f4e161ac17464","bodyHash":"a0e2b523d735d73b927a6e0bef4cdcd95f635911b12a68cc5570c89c04122615"}
  *
@@ -57,12 +64,6 @@ export function FS(): FS_a37200a9 {
  * 	},
  * }
  */
-const _osFS: osFS = {
-  common: {
-    RootFor: goOs.DirFS as unknown as (root: string) => import("../../../go/io/fs.js").FS,
-    IsReparsePoint: isReparsePoint as unknown as (path: string) => bool,
-  },
-};
 export let osVFS: FS_a37200a9 = {
   UseCaseSensitiveFileNames: () => osFS_UseCaseSensitiveFileNames(_osFS),
   ReadFile: (path: string) => osFS_ReadFile(_osFS, path),

@@ -1,3 +1,0 @@
-=== EF Core E2E ===
-Configured: True
-

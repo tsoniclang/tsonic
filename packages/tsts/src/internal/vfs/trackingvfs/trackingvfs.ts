@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoError, GoPtr } from "../../../go/compat.js";
 import type { Time } from "../../../go/time.js";
 import type { SyncSet } from "../../collections/syncset.js";
@@ -16,7 +16,7 @@ import type { Entries, FileInfo, FS as FS_2329d319, WalkDirFunc } from "../vfs.j
  */
 export interface FS {
   Inner: FS_2329d319;
-  SeenFiles: SyncSet;
+  SeenFiles: SyncSet<string>;
 }
 
 /**
@@ -191,11 +191,15 @@ export function FS_WalkDir(receiver: GoPtr<FS>, root: string, walkFn: WalkDirFun
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/trackingvfs/trackingvfs.go::method::FS.Realpath","kind":"method","status":"implemented","sigHash":"38ebf96e7dddd630abbd257354fcdf836352bbd9e9c028ed12f428a2df8969c7","bodyHash":"034e5913a1fe7ed89c37c3a9a180cbb36c93bfdaddcb26076199a011dc290c6c"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/trackingvfs/trackingvfs.go::method::FS.Realpath","kind":"method","status":"implemented","sigHash":"38ebf96e7dddd630abbd257354fcdf836352bbd9e9c028ed12f428a2df8969c7","bodyHash":"8792be2471dcbabaca5904bde8d543319336a4aa3430d4eebf7a682592330d9b"}
  *
  * Go source:
- * func (fs *FS) Realpath(path string) string { return fs.Inner.Realpath(path) }
+ * func (fs *FS) Realpath(path string) string {
+ * 	fs.SeenFiles.Add(path)
+ * 	return fs.Inner.Realpath(path)
+ * }
  */
 export function FS_Realpath(receiver: GoPtr<FS>, path: string): string {
+  SyncSet_Add(receiver!.SeenFiles, path);
   return receiver!.Inner.Realpath(path);
 }

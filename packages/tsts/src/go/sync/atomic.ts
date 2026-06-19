@@ -1,4 +1,4 @@
-import type { bool, int, long, uint, ulong } from "@tsonic/core/types.js";
+import type { bool, int, long, uint, ulong } from "../scalars.js";
 
 // Authored Go sync/atomic facade — single-threaded semantics.
 //

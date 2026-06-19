@@ -1,8 +1,7 @@
-import type { bool, byte, double, int } from "@tsonic/core/types.js";
+import type { bool, byte, double, int } from "../../go/scalars.js";
 import type { GoComparable, GoConstraint, GoError, GoMap, GoPtr, GoRune, GoSeq, GoSeq2, GoSlice } from "../../go/compat.js";
 import { Assert } from "../debug/debug.js";
 import { MarshalIndent } from "../json/json.js";
-import { IsLineBreak } from "../stringutil/util.js";
 import { ExtensionCjs, ExtensionCts, ExtensionJs, ExtensionJson, ExtensionJsx, ExtensionMjs, ExtensionMts, ExtensionTs, ExtensionTsx, HasTSFileExtension, IsDeclarationFileName } from "../tspath/extension.js";
 import { PathIsRelative } from "../tspath/path.js";
 import * as maps from "../../go/maps.js";
@@ -10,9 +9,11 @@ import * as math from "../../go/math.js";
 import * as slices from "../../go/slices.js";
 import * as strings from "../../go/strings.js";
 import { Pool } from "../../go/sync.js";
+import { Getenv } from "../../go/os.js";
+import { Atoi } from "../../go/strconv.js";
+import { SetMaxStack } from "../../go/runtime/debug.js";
 import * as sort from "../../go/sort.js";
 import * as unicode from "../../go/unicode.js";
-import * as utf16 from "../../go/unicode/utf16.js";
 import * as utf8 from "../../go/unicode/utf8.js";
 import type { CompilerOptions } from "./compileroptions.js";
 import { ScriptKindJS, ScriptKindJSON, ScriptKindJSX, ScriptKindTS, ScriptKindTSX, ScriptKindUnknown } from "./scriptkind.js";
@@ -24,13 +25,9 @@ import { Tristate_IsTrue } from "./tristate.js";
 // byte indexing `s[i]` and slicing `s[i:j]` operate on byte offsets. We mirror
 // that contract by operating over the UTF-8 byte view and converting back to a
 // JS string at the boundaries.
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
 const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
-const byteLen = (s: string): int => utf8Encoder.encode(s).length;
-const byteSliceFrom = (s: string, start: int): string => {
-  const bytes = utf8Encoder.encode(s);
-  return utf8Decoder.decode(bytes.subarray(start));
-};
+const byteLen = utf8.StringByteLen;
+const byteSliceFrom = (s: string, start: int): string => utf8.StringByteSlice(s, start);
 // []rune(s): decode the string into Unicode code points (runes).
 const stringToRunes = (s: string): GoSlice<GoRune> => {
   const runes: GoSlice<GoRune> = [];
@@ -39,6 +36,34 @@ const stringToRunes = (s: string): GoSlice<GoRune> => {
   }
   return runes;
 };
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/core.go::func::ApplyDebugStackLimit","kind":"func","status":"implemented","sigHash":"e324219fcfed6b193cbbae4e48d23f39a4248205de2000c52f88be69b3325e82","bodyHash":"5744f3950258acadb6cbaec3b5524cbb978beec091488983d22c723feb462ec5"}
+ *
+ * Go source:
+ * func ApplyDebugStackLimit() {
+ * 	v := os.Getenv("TS_GO_DEBUG_STACK_LIMIT") //nolint:forbidigo
+ * 	if v == "" {
+ * 		return
+ * 	}
+ * 	n, err := strconv.Atoi(v)
+ * 	if err != nil || n <= 0 {
+ * 		return
+ * 	}
+ * 	rtdebug.SetMaxStack(n)
+ * }
+ */
+export function ApplyDebugStackLimit(): void {
+  const v = Getenv("TS_GO_DEBUG_STACK_LIMIT");
+  if (v === "") {
+    return;
+  }
+  const [n, err] = Atoi(v);
+  if (err !== undefined || n <= 0) {
+    return;
+  }
+  SetMaxStack(n);
+}
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/core.go::func::Filter","kind":"func","status":"implemented","sigHash":"c6f3794b23a576819ceb29c279308a1f44ca586c2ad73bca238043ddf5cc2be6","bodyHash":"d6f2f463faf92b0ac14d252dfde5b636c9d042a563bc223423e1dd6c7d26f801"}
@@ -998,7 +1023,7 @@ function isGoZeroValue(value: unknown): bool {
  * 	}
  * }
  */
-export function Coalesce<T, U>(a: T, b: T): T {
+export function Coalesce<T extends GoPtr<U>, U>(a: T, b: T): T {
   // T is a pointer type *U in Go, so the zero value tested against nil is undefined.
   if (a === (undefined as T)) {
     return b;
@@ -1031,6 +1056,7 @@ export function ComputeECMALineStarts(text: string): ECMALineStarts {
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/core.go::func::ComputeECMALineStartsSeq","kind":"func","status":"implemented","sigHash":"911fb066c24cc7312e67a544bedd9232d274063c961ddc2bacdafd2fc1a900f1","bodyHash":"884c51f4ef304850f9e39c3cf3a2dac6dd8989655699793d01756eec8d80b956"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Walk the native JS/.NET UTF-16 source text while maintaining TS-Go UTF-8 byte offsets, avoiding a full UTF-8 byte-view allocation for every line-map computation."}
  *
  * Go source:
  * func ComputeECMALineStartsSeq(text string) iter.Seq[TextPos] {
@@ -1071,36 +1097,46 @@ export function ComputeECMALineStarts(text: string): ECMALineStarts {
  */
 export function ComputeECMALineStartsSeq(text: string): GoSeq<TextPos> {
   return (yield_: (value: TextPos) => bool): void => {
-    // Go strings index bytes; operate over the UTF-8 byte view.
-    const bytes = utf8Encoder.encode(text);
-    const textLen: TextPos = bytes.length;
-    let pos: TextPos = 0;
+    const textLen: int = text.length;
+    let index: int = 0;
+    let bytePos: TextPos = 0;
     let lineStart: TextPos = 0;
-    while (pos < textLen) {
-      const b = bytes[pos]!;
-      if (b < utf8.RuneSelf) {
-        pos++;
-        switch (b) {
+    while (index < textLen) {
+      const ch = text.charCodeAt(index);
+      index++;
+      if (ch < utf8.RuneSelf) {
+        bytePos++;
+        switch (ch) {
           case 0x0d /* '\r' */:
-            if (pos < textLen && bytes[pos]! === 0x0a /* '\n' */) {
-              pos++;
+            if (index < textLen && text.charCodeAt(index) === 0x0a /* '\n' */) {
+              index++;
+              bytePos++;
             }
           // fallthrough
           case 0x0a /* '\n' */:
             if (!yield_(lineStart)) {
               return;
             }
-            lineStart = pos;
+            lineStart = bytePos;
             break;
         }
+      } else if (ch < 0x0800) {
+        bytePos += 2;
+      } else if (ch >= 0xd800 && ch <= 0xdbff && index < textLen) {
+        const low = text.charCodeAt(index);
+        if (low >= 0xdc00 && low <= 0xdfff) {
+          index++;
+          bytePos += 4;
+        } else {
+          bytePos += 3;
+        }
       } else {
-        const [ch, size] = utf8.DecodeRuneInString(utf8Decoder.decode(bytes.subarray(pos)));
-        pos += size;
-        if (IsLineBreak(ch)) {
+        bytePos += 3;
+        if (ch === 0x2028 || ch === 0x2029) {
           if (!yield_(lineStart)) {
             return;
           }
-          lineStart = pos;
+          lineStart = bytePos;
         }
       }
     }
@@ -1139,6 +1175,7 @@ export type UTF16Offset = int;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/core.go::func::UTF16Len","kind":"func","status":"implemented","sigHash":"08a30f04fbc495b785be284545417ab70df1fd4079f69a0b09fc73ce87fb4254","bodyHash":"6117f4167e836bcb53d144ac39dec841ae2f4513c8cb13fa1b3db29e9651bb20"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Use the native JS/.NET UTF-16 code-unit length directly; it is the value this TS-Go helper computes after decoding valid source text."}
  *
  * Go source:
  * func UTF16Len(s string) UTF16Offset {
@@ -1158,23 +1195,7 @@ export type UTF16Offset = int;
  * }
  */
 export function UTF16Len(s: string): UTF16Offset {
-  // Go strings index bytes; operate over the UTF-8 byte view.
-  const bytes = utf8Encoder.encode(s);
-  // Fast path: scan for non-ASCII bytes. For ASCII-only strings,
-  // each byte is one UTF-16 code unit, so we can return len(s) directly.
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i]! >= utf8.RuneSelf) {
-      // Found non-ASCII; count the ASCII prefix, then decode the rest.
-      let n: UTF16Offset = i;
-      const rest = utf8Decoder.decode(bytes.subarray(i));
-      for (const ch of rest) {
-        const r: GoRune = ch.codePointAt(0)!;
-        n += utf16.RuneLen(r);
-      }
-      return n;
-    }
-  }
-  return bytes.length;
+  return s.length;
 }
 
 /**
@@ -1290,7 +1311,7 @@ export function GetScriptKindFromFileName(fileName: string): ScriptKind {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/core.go::func::GetSpellingSuggestion","kind":"func","status":"implemented","sigHash":"971be06af4af217009a0ac68576e7d5fbb4686b6c0e82c8a9b6d7bd09ba6b162","bodyHash":"4c5e8cc03570026c0fb713bbd2b2b3f447b1ad7cb9e48ea91fbceeb4e4ae43fd"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/core.go::func::GetSpellingSuggestion","kind":"func","status":"implemented","sigHash":"971be06af4af217009a0ac68576e7d5fbb4686b6c0e82c8a9b6d7bd09ba6b162","bodyHash":"067b471f2f1945f376dd1ea3a3edd7864f2d291bee70bed3222f9c76a667e1bb"}
  *
  * Go source:
  * func GetSpellingSuggestion[T any](name string, candidates iter.Seq[T], getName func(T) string, compare func(T, T) int) T {
@@ -1334,9 +1355,9 @@ export function GetScriptKindFromFileName(fileName: string): ScriptKind {
  */
 export function GetSpellingSuggestion<T>(name: string, candidates: GoSeq<T>, getName: (arg0: T) => string, compare: (arg0: T, arg1: T) => int): T {
   const searchName = name ?? "";
-  const maximumLengthDifference = globalThis.Math.max(2, globalThis.Math.trunc(byteLen(searchName) * 0.34));
-  let bestDistance = math.Floor(byteLen(searchName) * 0.4) + 0.9; // If the best result is worse than this, don't bother.
   const runeName = stringToRunes(searchName);
+  const maximumLengthDifference = globalThis.Math.max(2, globalThis.Math.trunc(runeName.length * 0.34));
+  let bestDistance = math.Floor(runeName.length * 0.4) + 0.9; // If the best result is worse than this, don't bother.
   // Go: levenshteinBuffersPool.Get().(*levenshteinBuffers) — the New factory is
   // always set, so the pool never yields nil and the type assertion holds.
   const buffers = levenshteinBuffersPool.Get()!;
@@ -1345,8 +1366,8 @@ export function GetSpellingSuggestion<T>(name: string, candidates: GoSeq<T>, get
     let hasBest = false;
     candidates((candidate: T): bool => {
       const candidateName = getName(candidate) ?? "";
-      const maxLen = globalThis.Math.max(byteLen(candidateName), byteLen(searchName));
-      const minLen = globalThis.Math.min(byteLen(candidateName), byteLen(searchName));
+      const maxLen = globalThis.Math.max(byteLen(candidateName), runeName.length);
+      const minLen = globalThis.Math.min(byteLen(candidateName), runeName.length);
       if (candidateName !== "" && maxLen - minLen <= maximumLengthDifference) {
         if (candidateName === searchName) {
           return true;
@@ -1773,7 +1794,7 @@ export function DiffMapsFunc<K extends GoComparable, V1, V2>(m1: GoMap<K, V1>, m
  * 	return dst
  * }
  */
-export function CopyMapInto<M1 extends GoMap<K, V>, M2 extends GoMap<K, V>, K extends GoComparable, V>(dst: M1, src: M2): GoMap<K, V> {
+export function CopyMapInto<M1 extends GoConstraint<"~map[K]V"> & GoMap<K, V>, M2 extends GoConstraint<"~map[K]V"> & GoMap<K, V>, K extends GoComparable, V>(dst: M1, src: M2): GoMap<K, V> {
   if (dst === undefined) {
     return maps.Clone(src)!;
   }

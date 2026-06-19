@@ -4,7 +4,7 @@
 // inlined (testutil is suite-side in TSTS).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import type { HasFileName, SourceFile, SourceFileMetaData, StringLiteralLike } from "../../ast/ast.js";
 import { SourceFile_Diagnostics, SourceFile_IsBound } from "../../ast/ast.js";

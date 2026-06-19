@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import { Map } from "../../go/sync.js";
 import * as strings from "../../go/strings.js";
@@ -54,10 +54,10 @@ export interface KnownDirectoryLink {
  * }
  */
 export interface KnownSymlinks {
-  directories: SyncMap;
-  directoriesByRealpath: SyncMap;
-  files: SyncMap;
-  filesByRealpath: SyncMap;
+  directories: SyncMap<Path, GoPtr<KnownDirectoryLink>>;
+  directoriesByRealpath: SyncMap<Path, GoPtr<SyncSet<string>>>;
+  files: SyncMap<Path, string>;
+  filesByRealpath: SyncMap<Path, GoPtr<SyncSet<string>>>;
   cwd: string;
   useCaseSensitiveFileNames: bool;
 }
@@ -84,7 +84,7 @@ export function KnownSymlinks_HasDirectory(receiver: GoPtr<KnownSymlinks>, symli
  * 	return &cache.directories
  * }
  */
-export function KnownSymlinks_Directories(receiver: GoPtr<KnownSymlinks>): GoPtr<SyncMap> {
+export function KnownSymlinks_Directories(receiver: GoPtr<KnownSymlinks>): GoPtr<SyncMap<Path, GoPtr<KnownDirectoryLink>>> {
   return receiver!.directories;
 }
 
@@ -96,7 +96,7 @@ export function KnownSymlinks_Directories(receiver: GoPtr<KnownSymlinks>): GoPtr
  * 	return &cache.directoriesByRealpath
  * }
  */
-export function KnownSymlinks_DirectoriesByRealpath(receiver: GoPtr<KnownSymlinks>): GoPtr<SyncMap> {
+export function KnownSymlinks_DirectoriesByRealpath(receiver: GoPtr<KnownSymlinks>): GoPtr<SyncMap<Path, GoPtr<SyncSet<string>>>> {
   return receiver!.directoriesByRealpath;
 }
 
@@ -108,7 +108,7 @@ export function KnownSymlinks_DirectoriesByRealpath(receiver: GoPtr<KnownSymlink
  * 	return &cache.files
  * }
  */
-export function KnownSymlinks_Files(receiver: GoPtr<KnownSymlinks>): GoPtr<SyncMap> {
+export function KnownSymlinks_Files(receiver: GoPtr<KnownSymlinks>): GoPtr<SyncMap<Path, string>> {
   return receiver!.files;
 }
 
@@ -120,7 +120,7 @@ export function KnownSymlinks_Files(receiver: GoPtr<KnownSymlinks>): GoPtr<SyncM
  * 	return &cache.filesByRealpath
  * }
  */
-export function KnownSymlinks_FilesByRealpath(receiver: GoPtr<KnownSymlinks>): GoPtr<SyncMap> {
+export function KnownSymlinks_FilesByRealpath(receiver: GoPtr<KnownSymlinks>): GoPtr<SyncMap<Path, GoPtr<SyncSet<string>>>> {
   return receiver!.filesByRealpath;
 }
 
@@ -187,10 +187,10 @@ export function KnownSymlinks_SetFile(receiver: GoPtr<KnownSymlinks>, symlink: s
  */
 export function NewKnownSymlink(currentDirectory: string, useCaseSensitiveFileNames: bool): GoPtr<KnownSymlinks> {
   return {
-    directories: { __tsgoBlank0: [], __tsgoBlank1: [], m: new Map() },
-    directoriesByRealpath: { __tsgoBlank0: [], __tsgoBlank1: [], m: new Map() },
-    files: { __tsgoBlank0: [], __tsgoBlank1: [], m: new Map() },
-    filesByRealpath: { __tsgoBlank0: [], __tsgoBlank1: [], m: new Map() },
+    directories: { __tsgoBlank0: [], __tsgoBlank1: [], m: new Map() } as SyncMap<Path, GoPtr<KnownDirectoryLink>>,
+    directoriesByRealpath: { __tsgoBlank0: [], __tsgoBlank1: [], m: new Map() } as SyncMap<Path, GoPtr<SyncSet<string>>>,
+    files: { __tsgoBlank0: [], __tsgoBlank1: [], m: new Map() } as SyncMap<Path, string>,
+    filesByRealpath: { __tsgoBlank0: [], __tsgoBlank1: [], m: new Map() } as SyncMap<Path, GoPtr<SyncSet<string>>>,
     cwd: currentDirectory,
     useCaseSensitiveFileNames: useCaseSensitiveFileNames,
   };

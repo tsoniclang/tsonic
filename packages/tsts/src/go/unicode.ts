@@ -1,7 +1,7 @@
 // Faithful TypeScript port of Go's `unicode` package (the subset that
 // typescript-go references). Runes are code points (Go `rune`).
 
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "./scalars.js";
 import type { GoRune } from "./compat.js";
 
 // MaxASCII is the maximum ASCII value (U+007F).

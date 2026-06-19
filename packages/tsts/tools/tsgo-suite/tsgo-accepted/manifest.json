@@ -5,7 +5,8 @@
     "caseFile": "transpile/declarationRestParameters.ts",
     "configuration": null,
     "artifact": "declarationRestParameters.d.ts",
-    "sections": ["v1.d.ts", "v2.d.ts", "Diagnostics reported"]
+    "sections": ["v1.d.ts", "Diagnostics reported"],
+    "absentSections": ["v2.d.ts"]
   },
   {
     "corpus": "typescript",
@@ -13,7 +14,8 @@
     "caseFile": "transpile/declarationFunctionDeclarations.ts",
     "configuration": null,
     "artifact": "declarationFunctionDeclarations.d.ts",
-    "sections": ["fnDecl.d.ts", "Diagnostics reported"]
+    "sections": ["Diagnostics reported"],
+    "absentSections": ["fnDecl.d.ts"]
   },
   {
     "corpus": "typescript",
@@ -21,7 +23,8 @@
     "caseFile": "transpile/declarationComputedPropertyNames.ts",
     "configuration": null,
     "artifact": "declarationComputedPropertyNames.d.ts",
-    "sections": ["declarationComputedPropertyNames.d.ts", "Diagnostics reported"]
+    "sections": ["Diagnostics reported"],
+    "absentSections": ["declarationComputedPropertyNames.d.ts"]
   },
   {
     "corpus": "typescript",
@@ -29,7 +32,71 @@
     "caseFile": "transpile/declarationCrossFileInferences.ts",
     "configuration": null,
     "artifact": "declarationCrossFileInferences.d.ts",
-    "sections": ["Diagnostics reported"]
+    "sections": ["Diagnostics reported"],
+    "absentSections": ["consumes.d.ts", "exposes.d.ts"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationAsyncAndGeneratorFunctions.ts",
+    "configuration": null,
+    "artifact": "declarationAsyncAndGeneratorFunctions.d.ts",
+    "sections": [],
+    "absentSections": ["declarationAsyncAndGeneratorFunctions.d.ts"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationSingleFileHasErrors.ts",
+    "configuration": null,
+    "artifact": "declarationSingleFileHasErrors.d.ts",
+    "sections": [],
+    "absentSections": ["declarationSingleFileHasErrors.d.ts"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationSingleFileHasErrorsReported.ts",
+    "configuration": null,
+    "artifact": "declarationSingleFileHasErrorsReported.d.ts",
+    "sections": [],
+    "absentSections": ["declarationSingleFileHasErrorsReported.d.ts"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationNotInScopeTypes.ts",
+    "configuration": null,
+    "artifact": "declarationNotInScopeTypes.d.ts",
+    "sections": [],
+    "absentSections": ["variables.d.ts"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationEmitPartialNodeReuse.ts",
+    "configuration": null,
+    "artifact": "declarationEmitPartialNodeReuse.d.ts",
+    "sections": [],
+    "absentSections": ["b.d.ts", "c.d.ts"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationPartialNodeReuseTypeOf.ts",
+    "configuration": null,
+    "artifact": "declarationPartialNodeReuseTypeOf.d.ts",
+    "sections": [],
+    "absentSections": ["b.d.ts", "c.d.ts"]
+  },
+  {
+    "corpus": "typescript",
+    "suite": "transpile",
+    "caseFile": "transpile/declarationBasicSyntax.ts",
+    "configuration": "declarationmap=false",
+    "artifact": "declarationBasicSyntax(declarationMap=false).d.ts",
+    "sections": [],
+    "absentSections": ["class.d.ts"]
   },
   {
     "corpus": "typescript",
@@ -37,7 +104,8 @@
     "caseFile": "transpile/declarationBasicSyntax.ts",
     "configuration": "declarationmap=true",
     "artifact": "declarationBasicSyntax(declarationMap=true).d.ts",
-    "sections": ["class.d.ts.map", "namespace.d.ts.map"]
+    "sections": [],
+    "absentSections": ["class.d.ts", "class.d.ts.map"]
   },
   {
     "corpus": "typescript",

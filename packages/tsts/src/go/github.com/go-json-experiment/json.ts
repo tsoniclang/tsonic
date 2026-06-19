@@ -1,4 +1,4 @@
-import type { byte, bool } from "@tsonic/core/types.js";
+import type { byte, bool } from "../../scalars.js";
 import type { GoError, GoPtr, GoSlice } from "../../compat.js";
 import type { Reader, Writer } from "../../io.js";
 import type { Decoder, Encoder, Option } from "./json/jsontext.js";

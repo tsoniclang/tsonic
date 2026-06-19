@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import { Node_Name } from "../../ast/spine.js";
@@ -150,9 +150,11 @@ import {
   This_kind_of_expression_is_always_falsy,
   This_kind_of_expression_is_always_truthy,
 } from "../../diagnostics/generated/messages.js";
+import { Checker_addDiagnostic } from "../checker.js";
+import { Checker_addOptionalityEx } from "./support-queries.js";
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkTypePredicate","kind":"method","status":"implemented","sigHash":"6da97a8a624e73d4a6eb203ec1af1e20c6662fbe42888fcc923e66c300d1fe8d","bodyHash":"66802dea0e176c6062ef7e0b44d9d10f2f2a8c9b1bae7d16b006c6d05b9c3044"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkTypePredicate","kind":"method","status":"implemented","sigHash":"6da97a8a624e73d4a6eb203ec1af1e20c6662fbe42888fcc923e66c300d1fe8d","bodyHash":"ec6787ccb2faf06f7424909fe154523489d03211c89fd122393ed373e739f365"}
  *
  * Go source:
  * func (c *Checker) checkTypePredicate(node *ast.Node) {
@@ -177,7 +179,7 @@ import {
  * 				if typePredicate.t != nil {
  * 					var diags []*ast.Diagnostic
  * 					if !c.checkTypeAssignableToEx(typePredicate.t, c.getTypeOfSymbol(signature.parameters[typePredicate.parameterIndex]), node.Type(), nil /*headMessage* /, &diags) {
- * 						c.diagnostics.Add(ast.NewDiagnosticChain(diags[0], diagnostics.A_type_predicate_s_type_must_be_assignable_to_its_parameter_s_type))
+ * 						c.addDiagnostic(ast.NewDiagnosticChain(diags[0], diagnostics.A_type_predicate_s_type_must_be_assignable_to_its_parameter_s_type))
  * 					}
  * 				}
  * 			}
@@ -217,7 +219,7 @@ export function Checker_checkTypePredicate(receiver: GoPtr<Checker>, node: GoPtr
       } else if (typePredicate!.t !== undefined) {
         const diags: GoSlice<GoPtr<Diagnostic>> = [];
         if (!Checker_checkTypeAssignableToEx(receiver, typePredicate!.t, Checker_getTypeOfSymbol(receiver, signature!.parameters[typePredicate!.parameterIndex]), Node_Type(node), undefined, diags)) {
-          DiagnosticsCollection_Add(receiver!.diagnostics, NewDiagnosticChain(diags[0], A_type_predicate_s_type_must_be_assignable_to_its_parameter_s_type));
+          Checker_addDiagnostic(receiver, NewDiagnosticChain(diags[0], A_type_predicate_s_type_must_be_assignable_to_its_parameter_s_type));
         }
       }
     } else if (parameterName !== undefined) {
@@ -493,7 +495,7 @@ export function Checker_checkTruthinessExpression(receiver: GoPtr<Checker>, node
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getFlowTypeOfAccessExpression","kind":"method","status":"implemented","sigHash":"8594769a41457b2c78a2bec6476615602b76dc1b190dc10c87ead2dff597ceae","bodyHash":"1f0cee8261314606f88cc9d33220d3affed0ae2d0e3c4cb80e34acf49ab39c77"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getFlowTypeOfAccessExpression","kind":"method","status":"implemented","sigHash":"8594769a41457b2c78a2bec6476615602b76dc1b190dc10c87ead2dff597ceae","bodyHash":"1ee134993689e3d24490ce815928e98aa164f1b7d0677e763ca4bf89a4c88fa4"}
  *
  * Go source:
  * func (c *Checker) getFlowTypeOfAccessExpression(node *ast.Node, prop *ast.Symbol, propType *Type, errorNode *ast.Node, checkMode CheckMode) *Type {
@@ -516,18 +518,21 @@ export function Checker_checkTruthinessExpression(receiver: GoPtr<Checker>, node
  * 	// and if we are in a constructor of the same class as the property declaration, assume that
  * 	// the property is uninitialized at the top of the control flow.
  * 	assumeUninitialized := false
- * 	initialType := propType
  * 	if c.strictNullChecks && prop != nil {
- * 		declaration := prop.ValueDeclaration
- * 		if declaration != nil && c.strictPropertyInitialization && ast.IsAccessExpression(node) && node.Expression().Kind == ast.KindThisKeyword && c.isPropertyWithoutInitializer(declaration) && !ast.IsStatic(declaration) {
- * 			flowContainer := c.getControlFlowContainer(node)
- * 			if ast.IsConstructorDeclaration(flowContainer) && flowContainer.Parent == declaration.Parent && declaration.Flags&ast.NodeFlagsAmbient == 0 {
+ * 		if declaration := prop.ValueDeclaration; declaration != nil {
+ * 			if c.strictPropertyInitialization && ast.IsAccessExpression(node) && node.Expression().Kind == ast.KindThisKeyword &&
+ * 				c.isPropertyWithoutInitializer(declaration) && !ast.IsStatic(declaration) {
+ * 				flowContainer := c.getControlFlowContainer(node)
+ * 				if ast.IsConstructorDeclaration(flowContainer) && flowContainer.Parent == declaration.Parent && declaration.Flags&ast.NodeFlagsAmbient == 0 {
+ * 					assumeUninitialized = true
+ * 				}
+ * 			} else if ast.IsBinaryExpression(declaration) && ast.IsPropertyAccessExpression(declaration.AsBinaryExpression().Left) &&
+ * 				c.getControlFlowContainer(node) == c.getControlFlowContainer(declaration) {
  * 				assumeUninitialized = true
- * 				initialType = c.getOptionalType(propType, false /*isProperty* /)
  * 			}
  * 		}
  * 	}
- * 	flowType := c.getFlowTypeOfReferenceEx(node, propType, initialType, nil, nil)
+ * 	flowType := c.getFlowTypeOfReferenceEx(node, propType, c.addOptionalityEx(propType, false /*isProperty* /, assumeUninitialized), nil, nil)
  * 	if assumeUninitialized && !c.containsUndefinedType(propType) && c.containsUndefinedType(flowType) {
  * 		c.error(errorNode, diagnostics.Property_0_is_used_before_being_assigned, c.symbolToString(prop))
  * 		// Return the declared type to reduce follow-on errors
@@ -556,25 +561,30 @@ export function Checker_getFlowTypeOfAccessExpression(receiver: GoPtr<Checker>, 
   }
   propType = Checker_getNarrowableTypeForReference(receiver, propType, node, checkMode);
   let assumeUninitialized = false;
-  let initialType = propType;
   if (receiver!.strictNullChecks && prop !== undefined) {
     const declaration = prop!.ValueDeclaration;
-    if (
-      declaration !== undefined &&
-      receiver!.strictPropertyInitialization &&
-      IsAccessExpression(node) &&
-      Node_Expression(node)!.Kind === KindThisKeyword &&
-      Checker_isPropertyWithoutInitializer(receiver, declaration) &&
-      !IsStatic(declaration)
-    ) {
-      const flowContainer = Checker_getControlFlowContainer(receiver, node);
-      if (IsConstructorDeclaration(flowContainer) && flowContainer!.Parent === declaration!.Parent && (declaration!.Flags & NodeFlagsAmbient) === 0) {
+    if (declaration !== undefined) {
+      if (
+        receiver!.strictPropertyInitialization &&
+        IsAccessExpression(node) &&
+        Node_Expression(node)!.Kind === KindThisKeyword &&
+        Checker_isPropertyWithoutInitializer(receiver, declaration) &&
+        !IsStatic(declaration)
+      ) {
+        const flowContainer = Checker_getControlFlowContainer(receiver, node);
+        if (IsConstructorDeclaration(flowContainer) && flowContainer!.Parent === declaration!.Parent && (declaration!.Flags & NodeFlagsAmbient) === 0) {
+          assumeUninitialized = true;
+        }
+      } else if (
+        IsBinaryExpression(declaration) &&
+        IsPropertyAccessExpression(AsBinaryExpression(declaration)!.Left) &&
+        Checker_getControlFlowContainer(receiver, node) === Checker_getControlFlowContainer(receiver, declaration)
+      ) {
         assumeUninitialized = true;
-        initialType = Checker_getOptionalType(receiver, propType, false);
       }
     }
   }
-  const flowType = Checker_getFlowTypeOfReferenceEx(receiver, node, propType, initialType, undefined, undefined);
+  const flowType = Checker_getFlowTypeOfReferenceEx(receiver, node, propType, Checker_addOptionalityEx(receiver, propType, false, assumeUninitialized), undefined, undefined);
   if (assumeUninitialized && !Checker_containsUndefinedType(receiver, propType) && Checker_containsUndefinedType(receiver, flowType)) {
     Checker_error(receiver, errorNode, Property_0_is_used_before_being_assigned, Checker_symbolToString(receiver, prop));
     return propType;
@@ -729,7 +739,7 @@ export function Checker_getSyntacticTruthySemantics(receiver: GoPtr<Checker>, no
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getNarrowedTypeOfSymbol","kind":"method","status":"implemented","sigHash":"f4c9e392b97bbeb538d53422c8b7eead4cda331c7d3d8f5ae3c1539625803c95","bodyHash":"3b57dff7398bcc232b7702297e377daa7516e57b558d6c29e6612e738772c5df"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getNarrowedTypeOfSymbol","kind":"method","status":"implemented","sigHash":"f4c9e392b97bbeb538d53422c8b7eead4cda331c7d3d8f5ae3c1539625803c95","bodyHash":"1d8dbf8db55a016a69f8447dff4cedd089fe457213d909f5c0b77305ab2bea27"}
  *
  * Go source:
  * func (c *Checker) getNarrowedTypeOfSymbol(symbol *ast.Symbol, location *ast.Node) *Type {
@@ -820,7 +830,7 @@ export function Checker_getSyntacticTruthySemantics(receiver: GoPtr<Checker>, no
  * 					restType := c.getReducedApparentType(c.instantiateType(c.getTypeOfSymbol(contextualSignature.parameters[0]), mapper))
  * 					if restType.flags&TypeFlagsUnion != 0 && everyType(restType, isTupleType) && !core.Some(fn.Parameters(), c.isSomeSymbolAssigned) {
  * 						narrowedType := c.getFlowTypeOfReferenceEx(fn, restType, restType, nil /*flowContainer* /, getFlowNodeOfNode(location))
- * 						index := slices.Index(fn.Parameters(), declaration) - (core.IfElse(ast.GetThisParameter(fn) != nil, 1, 0))
+ * 						index := slices.Index(fn.Parameters(), declaration) - core.IfElse(ast.GetThisParameter(fn) != nil, 1, 0)
  * 						t = c.getIndexedAccessType(narrowedType, c.getNumberLiteralType(jsnum.Number(index)))
  * 					}
  * 				}

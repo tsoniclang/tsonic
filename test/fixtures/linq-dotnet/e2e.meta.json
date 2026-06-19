@@ -1,4 +1,0 @@
-{
-  "modes": ["dotnet"],
-  "description": "LINQ methods are dotnet-mode only"
-}

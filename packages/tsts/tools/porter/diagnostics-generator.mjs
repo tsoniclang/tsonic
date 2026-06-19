@@ -183,22 +183,19 @@ const LOCALES = [
 ];
 
 export function emitLocalizedMessages(_records, config) {
-  const dc = diagnosticsConfig(config);
   const lines = [];
+  const sentinelFile = `${LOCALES[0].tag}.json.gz`;
+  const localeVendorPath = "_vendor/typescript-go/internal/diagnostics/loc";
+  const workspaceLocaleVendorPath = "packages/tsts/_vendor/typescript-go/internal/diagnostics/loc";
+  lines.push(`import { existsSync, readFileSync } from "node:fs";`);
+  lines.push(`import { dirname, join, resolve } from "node:path";`);
+  lines.push(`import { fileURLToPath } from "node:url";`);
   lines.push(`import { gunzipSync } from "node:zlib";`);
-  lines.push(`import { Buffer } from "node:buffer";`);
-  lines.push(`import type { int } from "@tsonic/core/types.js";`);
+  lines.push(`import type { int } from "../../../go/scalars.js";`);
   lines.push(`import type { GoMap } from "../../../go/compat.js";`);
-  lines.push(`import { toNodeBytes } from "../../../go/nodebytes.js";`);
   lines.push(`import type { Tag } from "../../../go/golang.org/x/text/language.js";`);
   lines.push(`import { English, Low, MustParse, NewMatcher } from "../../../go/golang.org/x/text/language.js";`);
   lines.push(`import type { Key } from "../diagnostics.js";`);
-  lines.push("");
-  for (const locale of LOCALES) {
-    const gzPath = resolveRepo(path.join(dc.localeDir, `${locale.tag}.json.gz`));
-    const data = readFileSync(gzPath).toString("base64");
-    lines.push(`const ${locale.constName}Data = ${JSON.stringify(data)};`);
-  }
   lines.push("");
   lines.push(`export const matcher = NewMatcher([`);
   lines.push(`  English,`);
@@ -209,8 +206,40 @@ export function emitLocalizedMessages(_records, config) {
   lines.push("");
   lines.push(`type LocaleLoader = (() => GoMap<Key, string>) | undefined;`);
   lines.push("");
-  lines.push(`function loadLocaleData(data: string): GoMap<Key, string> {`);
-  lines.push(`  const text = gunzipSync(toNodeBytes(Buffer.from(data, "base64"))).toString("utf8");`);
+  lines.push(`let localeRootValue: string | undefined;`);
+  lines.push("");
+  lines.push(`function localeRootCandidates(moduleDir: string): string[] {`);
+  lines.push(`  const candidates: string[] = [join(moduleDir, "loc")];`);
+  lines.push(`  let current = moduleDir;`);
+  lines.push(`  for (let depth = 0; depth < 10; depth++) {`);
+  lines.push(`    candidates.push(resolve(current, ${JSON.stringify(localeVendorPath)}));`);
+  lines.push(`    candidates.push(resolve(current, ${JSON.stringify(workspaceLocaleVendorPath)}));`);
+  lines.push(`    const parent = dirname(current);`);
+  lines.push(`    if (parent === current) {`);
+  lines.push(`      break;`);
+  lines.push(`    }`);
+  lines.push(`    current = parent;`);
+  lines.push(`  }`);
+  lines.push(`  return candidates;`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`function localeRoot(): string {`);
+  lines.push(`  if (localeRootValue !== undefined) {`);
+  lines.push(`    return localeRootValue;`);
+  lines.push(`  }`);
+  lines.push(`  const moduleDir = dirname(fileURLToPath(import.meta.url));`);
+  lines.push(`  const candidates = localeRootCandidates(moduleDir);`);
+  lines.push(`  for (const candidate of candidates) {`);
+  lines.push(`    if (existsSync(join(candidate, ${JSON.stringify(sentinelFile)}))) {`);
+  lines.push(`      localeRootValue = candidate;`);
+  lines.push(`      return candidate;`);
+  lines.push(`    }`);
+  lines.push(`  }`);
+  lines.push(`  throw new Error(\`localized diagnostic data not found. Checked: \${candidates.join(", ")}\`);`);
+  lines.push(`}`);
+  lines.push("");
+  lines.push(`function loadLocaleData(fileName: string): GoMap<Key, string> {`);
+  lines.push(`  const text = gunzipSync(readFileSync(join(localeRoot(), fileName))).toString("utf8");`);
   lines.push(`  return new globalThis.Map<Key, string>(globalThis.Object.entries(JSON.parse(text)) as Array<[Key, string]>);`);
   lines.push(`}`);
   lines.push("");
@@ -225,7 +254,7 @@ export function emitLocalizedMessages(_records, config) {
   lines.push(`const localeFuncs: LocaleLoader[] = [`);
   lines.push(`  undefined,`);
   for (const locale of LOCALES) {
-    lines.push(`  once(() => loadLocaleData(${locale.constName}Data)),`);
+    lines.push(`  once(() => loadLocaleData(${JSON.stringify(`${locale.tag}.json.gz`)})),`);
   }
   lines.push(`];`);
   lines.push("");

@@ -1,2 +1,0 @@
-Is null: False
-Is null: True

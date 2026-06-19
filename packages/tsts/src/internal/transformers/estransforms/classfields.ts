@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 import type { ModifierList, Node, NodeFactoryCoercible, NodeList, NodeVisitor } from "../../ast/spine.js";
 import { ModifierList_Clone, Node_Clone, NodeFactory_NewNodeList, NodeFactory_NewModifierList } from "../../ast/spine.js";
@@ -34,7 +34,7 @@ import { EmitContext_AddEmitFlags, EmitContext_AddLexicalDeclaration, EmitContex
 import type { NodeFactory, PrivateIdentifierKind } from "../../printer/factory.js";
 import type { AutoGenerateOptions } from "../../printer/emitcontext.js";
 import { NodeFactory_GetLocalName, NodeFactory_InlineExpressions, NodeFactory_NewAssignmentExpression, NodeFactory_NewAssignmentTargetWrapper, NodeFactory_NewClassPrivateFieldGetHelper, NodeFactory_NewClassPrivateFieldInHelper, NodeFactory_NewClassPrivateFieldSetHelper, NodeFactory_NewCommaExpression, NodeFactory_NewFunctionBindCall, NodeFactory_NewFunctionCallCall, NodeFactory_NewGeneratedNameForNode, NodeFactory_NewGeneratedNameForNodeEx, NodeFactory_NewGeneratedPrivateNameForNodeEx, NodeFactory_NewImmediatelyInvokedArrowFunction, NodeFactory_NewMethodCall, NodeFactory_NewObjectDefinePropertyCall, NodeFactory_NewReflectGetCall, NodeFactory_NewReflectSetCall, NodeFactory_NewStringLiteralFromNode, NodeFactory_NewTempVariable, NodeFactory_NewTempVariableEx, NodeFactory_NewThisExpression, NodeFactory_NewTrueExpression, NodeFactory_NewUniqueNameEx, NodeFactory_NewVoidZeroExpression, PrivateIdentifierKindAccessor, PrivateIdentifierKindField, PrivateIdentifierKindMethod, PrivateIdentifierKindUntransformed } from "../../printer/factory.js";
-import { EFIndented, EFNoComments, EFNoLexicalArguments, EFNoLeadingComments, EFNoNestedSourceMaps, EFNoSourceMap, EFStartOnNewLine, EFTransformPrivateStaticElements } from "../../printer/emitflags.js";
+import { EFIndented, EFNoComments, EFNoLexicalArguments, EFNoLexicalThis, EFNoLeadingComments, EFNoNestedSourceMaps, EFNoSourceMap, EFStartOnNewLine, EFTransformPrivateStaticElements } from "../../printer/emitflags.js";
 import { GeneratedIdentifierFlagsOptimistic, GeneratedIdentifierFlagsReservedInNestedScopes } from "../../printer/generatedidentifierflags.js";
 import { NodeVisitor_VisitEachChild, NodeVisitor_VisitModifiers, NodeVisitor_VisitNode, NodeVisitor_VisitNodes, NodeVisitor_VisitSlice } from "../../ast/visitor.js";
 import type { NodeVisitor as ConcreteNodeVisitor } from "../../ast/visitor.js";
@@ -260,7 +260,7 @@ export interface classFieldsTransformer {
   currentClassContainer: GoPtr<ClassLikeDeclaration>;
   currentClassElement: GoPtr<ClassElement>;
   classAliases: GoMap<GoPtr<Node>, GoPtr<IdentifierNode>>;
-  enclosingClassDeclarations: Set;
+  enclosingClassDeclarations: Set<GoPtr<Node>>;
   inIterationStatement: bool;
   insideComputedPropertyName: bool;
   parentNode: GoPtr<Node>;
@@ -2927,7 +2927,7 @@ export function classFieldsTransformer_visitTaggedTemplateExpression(receiver: G
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/classfields.go::method::classFieldsTransformer.transformClassStaticBlockDeclaration","kind":"method","status":"implemented","sigHash":"deb413c5f61b0065d00ee4812d843e992c576cd7fc5d30a603d42580ff5b5916","bodyHash":"33007fabc57406b83f20c472e49962ee706efc134ccee0ba454a7456634e95bd"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/classfields.go::method::classFieldsTransformer.transformClassStaticBlockDeclaration","kind":"method","status":"implemented","sigHash":"deb413c5f61b0065d00ee4812d843e992c576cd7fc5d30a603d42580ff5b5916","bodyHash":"408799f8fd32c4ab907422ac81da10ce3b7682a688fc8f428513f96215bf9d22"}
  *
  * Go source:
  * func (tx *classFieldsTransformer) transformClassStaticBlockDeclaration(node *ast.Node) *ast.Expression {
@@ -2962,6 +2962,7 @@ export function classFieldsTransformer_visitTaggedTemplateExpression(receiver: G
  * 		arrowFunction.AsArrowFunction().Body.AsBlock().Statements.Loc = node.AsClassStaticBlockDeclaration().Body.AsBlock().Statements.Loc
  * 		tx.EmitContext().SetOriginal(iife, node)
  * 		tx.EmitContext().AssignSourceMapRange(iife, node)
+ * 		tx.EmitContext().AddEmitFlags(arrowFunction, printer.EFNoLexicalThis)
  * 		return iife
  * 	}
  * 	return nil
@@ -3003,7 +3004,7 @@ export function classFieldsTransformer_transformClassStaticBlockDeclaration(rece
       AsBlock(AsClassStaticBlockDeclaration(node)!.Body as unknown as GoPtr<Node>)!.Statements!.Loc;
     EmitContext_SetOriginal(Transformer_EmitContext(receiver!.__tsgoEmbedded0!), iife as unknown as GoPtr<Node>, node);
     EmitContext_AssignSourceMapRange(Transformer_EmitContext(receiver!.__tsgoEmbedded0!), iife as unknown as GoPtr<Node>, node);
-    // Note: Go also calls AddEmitFlags(arrowFunction, EFNoLexicalThis) here, but EFNoLexicalThis is not yet ported
+    EmitContext_AddEmitFlags(Transformer_EmitContext(receiver!.__tsgoEmbedded0!), arrowFunction, EFNoLexicalThis);
     return iife;
   }
   return undefined;
@@ -5540,12 +5541,15 @@ export function classFieldsTransformer_generateInitializedPropertyExpressionsOrC
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/classfields.go::method::classFieldsTransformer.transformProperty","kind":"method","status":"implemented","sigHash":"f95c2f9d14ce6d9e28dab08220415f188b4e7bc7692a581a46760ce303ea7ee4","bodyHash":"6ac1cee77a9ea132fa9a0b4d41a426a14ee404e626b8463edd52a01ff6252f3c"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/classfields.go::method::classFieldsTransformer.transformProperty","kind":"method","status":"implemented","sigHash":"f95c2f9d14ce6d9e28dab08220415f188b4e7bc7692a581a46760ce303ea7ee4","bodyHash":"68879cd56e0c201170bbeb3fbfd0e861ed0c09651253495228ae660561a0c7b6"}
  *
  * Go source:
  * func (tx *classFieldsTransformer) transformProperty(property *ast.PropertyDeclaration, receiver *ast.Expression) *ast.Expression {
  * 	savedCurrentClassElement := tx.currentClassElement
  * 	transformed := tx.transformPropertyWorker(property, receiver)
+ * 	if transformed != nil && ast.HasStaticModifier(property.AsNode()) {
+ * 		tx.EmitContext().AddEmitFlags(transformed, printer.EFNoLexicalThis)
+ * 	}
  * 	if transformed != nil && ast.HasStaticModifier(property.AsNode()) &&
  * 		tx.lexicalEnvironment != nil && tx.lexicalEnvironment.data != nil && tx.lexicalEnvironment.data.facts != 0 {
  * 		// capture the lexical environment for the member
@@ -5559,7 +5563,9 @@ export function classFieldsTransformer_generateInitializedPropertyExpressionsOrC
 export function classFieldsTransformer_transformProperty(receiver: GoPtr<classFieldsTransformer>, property: GoPtr<PropertyDeclaration>, receiver1: GoPtr<Expression>): GoPtr<Expression> {
   const savedCurrentClassElement = receiver!.currentClassElement;
   const transformed = classFieldsTransformer_transformPropertyWorker(receiver, property, receiver1);
-  // EFNoLexicalThis is not yet ported; skipping AddEmitFlags(transformed, EFNoLexicalThis) for static properties
+  if (transformed !== undefined && HasStaticModifier(property as unknown as GoPtr<Node>)) {
+    EmitContext_AddEmitFlags(Transformer_EmitContext(receiver!.__tsgoEmbedded0!), transformed, EFNoLexicalThis);
+  }
   if (transformed !== undefined && HasStaticModifier(property as unknown as GoPtr<Node>) &&
       receiver!.lexicalEnvironment !== undefined && receiver!.lexicalEnvironment.data !== undefined && receiver!.lexicalEnvironment.data.facts !== classFactsNone) {
     // capture the lexical environment for the member

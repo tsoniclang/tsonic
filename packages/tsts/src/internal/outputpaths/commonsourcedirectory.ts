@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { CompilerOptions } from "../core/compileroptions.js";
 import {
@@ -144,42 +144,61 @@ export function GetComputedCommonSourceDirectory(emittedFiles: GoSlice<string>, 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/outputpaths/commonsourcedirectory.go::func::GetCommonSourceDirectory","kind":"func","status":"implemented","sigHash":"000736e221ec25c2d2dfd76fc6d2a30955ca089fbb761cb99c201c95c75bcb07","bodyHash":"00ea823a149c7259b2c1a843c407181be95bdd5ca91b8fcc7cf9899c968ffeb9"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/outputpaths/commonsourcedirectory.go::func::GetCommonSourceDirectory","kind":"func","status":"implemented","sigHash":"2c7827f05d0d724bf245e7a3b1356d6464dafafd2dbd8feb9afaa8e05acd8542","bodyHash":"7589510d85e966ad258b4b4cf9da51f4be757c70fc484b0a5be68ec3fb267f8b"}
  *
  * Go source:
- * func GetCommonSourceDirectory(options *core.CompilerOptions, files func() []string, currentDirectory string, useCaseSensitiveFileNames bool) string {
+ * func GetCommonSourceDirectory(options *core.CompilerOptions, files func() []string, currentDirectory string, useCaseSensitiveFileNames bool, checkSourceFilesBelongToPath func([]string, string) bool) string {
  * 	var commonSourceDirectory string
  * 	if options.RootDir != "" {
  * 		// If a rootDir is specified use it as the commonSourceDirectory
  * 		commonSourceDirectory = options.RootDir
+ * 		if checkSourceFilesBelongToPath != nil {
+ * 			checkSourceFilesBelongToPath(files(), options.RootDir)
+ * 		}
  * 	} else if options.ConfigFilePath != "" {
  * 		// If the rootDir is not specified, then the common source directory is the directory of the config file.
  * 		commonSourceDirectory = tspath.GetDirectoryPath(options.ConfigFilePath)
+ * 		if checkSourceFilesBelongToPath != nil {
+ * 			checkSourceFilesBelongToPath(files(), commonSourceDirectory)
+ * 		}
  * 	} else {
  * 		commonSourceDirectory = computeCommonSourceDirectoryOfFilenames(files(), currentDirectory, useCaseSensitiveFileNames)
  * 	}
- * 
+ *
  * 	if len(commonSourceDirectory) > 0 {
  * 		// Make sure directory path ends with directory separator so this string can directly
  * 		// used to replace with "" to get the relative path of the source file and the relative path doesn't
  * 		// start with / making it rooted path
  * 		commonSourceDirectory = tspath.EnsureTrailingDirectorySeparator(commonSourceDirectory)
  * 	}
- * 
+ *
  * 	return commonSourceDirectory
  * }
  */
-export function GetCommonSourceDirectory(options: GoPtr<CompilerOptions>, files: () => GoSlice<string>, currentDirectory: string, useCaseSensitiveFileNames: bool): string {
-  const rawCommonSourceDirectory =
-    options!.RootDir !== ""
-      ? options!.RootDir
-      : options!.ConfigFilePath !== ""
-        ? GetDirectoryPath(options!.ConfigFilePath)
-        : computeCommonSourceDirectoryOfFilenames(files(), currentDirectory, useCaseSensitiveFileNames);
-
-  if (rawCommonSourceDirectory.length > 0) {
-    return EnsureTrailingDirectorySeparator(rawCommonSourceDirectory);
+export function GetCommonSourceDirectory(options: GoPtr<CompilerOptions>, files: () => GoSlice<string>, currentDirectory: string, useCaseSensitiveFileNames: bool, checkSourceFilesBelongToPath: ((sourceFiles: GoSlice<string>, rootDirectory: string) => bool) | undefined): string {
+  let commonSourceDirectory = "";
+  if (options!.RootDir !== "") {
+    // If a rootDir is specified use it as the commonSourceDirectory
+    commonSourceDirectory = options!.RootDir;
+    if (checkSourceFilesBelongToPath !== undefined) {
+      checkSourceFilesBelongToPath(files(), options!.RootDir);
+    }
+  } else if (options!.ConfigFilePath !== "") {
+    // If the rootDir is not specified, then the common source directory is the directory of the config file.
+    commonSourceDirectory = GetDirectoryPath(options!.ConfigFilePath);
+    if (checkSourceFilesBelongToPath !== undefined) {
+      checkSourceFilesBelongToPath(files(), commonSourceDirectory);
+    }
+  } else {
+    commonSourceDirectory = computeCommonSourceDirectoryOfFilenames(files(), currentDirectory, useCaseSensitiveFileNames);
   }
 
-  return rawCommonSourceDirectory;
+  if (commonSourceDirectory.length > 0) {
+    // Make sure directory path ends with directory separator so this string can directly
+    // used to replace with "" to get the relative path of the source file and the relative path doesn't
+    // start with / making it rooted path
+    commonSourceDirectory = EnsureTrailingDirectorySeparator(commonSourceDirectory);
+  }
+
+  return commonSourceDirectory;
 }

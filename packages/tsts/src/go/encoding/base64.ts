@@ -13,7 +13,7 @@
 // Math.trunc. Decode never panics on malformed input: it returns the partially
 // decoded data together with a CorruptInputError, exactly like Go.
 
-import type { bool, byte, int, long, uint } from "@tsonic/core/types.js";
+import type { bool, byte, int, long, uint } from "../scalars.js";
 import type { GoError, GoSlice } from "../compat.js";
 import { FormatInt } from "../strconv.js";
 import type { WriteCloser, Writer } from "../io.js";

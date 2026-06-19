@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoError, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import type { DirEntry as DirEntry_697d4ab0, FileInfo as FileInfo_d0619f84, WalkDirFunc as WalkDirFunc_40040532 } from "../../go/io/fs.js";
 import { ErrInvalid as fs_ErrInvalid, ErrPermission as fs_ErrPermission, ErrExist as fs_ErrExist, ErrNotExist as fs_ErrNotExist, ErrClosed as fs_ErrClosed, SkipAll as fs_SkipAll, SkipDir as fs_SkipDir } from "../../go/io/fs.js";
@@ -64,7 +64,7 @@ export interface FS {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/vfs.go::type::Entries","kind":"type","status":"implemented","sigHash":"697650e259811d1d518f77cfdc2e2573468ae2dc5e9b906f4fd4bece634065aa","bodyHash":"3bb610abd6ce368748ebb4ea3a5cb8ad9ed3ab723d2cda2fd0d8ba4007f3d4ef"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/vfs.go::type::Entries","kind":"type","status":"implemented","sigHash":"697650e259811d1d518f77cfdc2e2573468ae2dc5e9b906f4fd4bece634065aa","bodyHash":"370d83d54e45af72c9318f741d1517899e306581ae43cf20deb2bc52fab73202"}
  *
  * Go source:
  * Entries struct {
@@ -112,11 +112,11 @@ export type FileInfo = FileInfo_d0619f84;
  * 	ErrClosed     = fs.ErrClosed     // "file already closed"
  * )
  */
-export const ErrInvalid = fs_ErrInvalid;
-export const ErrPermission = fs_ErrPermission;
-export const ErrExist = fs_ErrExist;
-export const ErrNotExist = fs_ErrNotExist;
-export const ErrClosed = fs_ErrClosed;
+export const ErrInvalid: GoError = fs_ErrInvalid;
+export const ErrPermission: GoError = fs_ErrPermission;
+export const ErrExist: GoError = fs_ErrExist;
+export const ErrNotExist: GoError = fs_ErrNotExist;
+export const ErrClosed: GoError = fs_ErrClosed;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/vfs.go::type::WalkDirFunc","kind":"type","status":"implemented","sigHash":"ca37042359f26a00fc83e50feccf63f10e2500b876459905c74a9bda2c1cfec2","bodyHash":"301672f78484847fa673dfaecd15ffeff4359409ae960949fe1be7b744fa8046"}
@@ -138,5 +138,5 @@ export type WalkDirFunc = WalkDirFunc_40040532;
  * 	SkipDir = fs.SkipDir //nolint:errname
  * )
  */
-export const SkipAll = fs_SkipAll;
-export const SkipDir = fs_SkipDir;
+export const SkipAll: GoError = fs_SkipAll;
+export const SkipDir: GoError = fs_SkipDir;

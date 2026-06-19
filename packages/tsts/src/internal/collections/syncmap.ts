@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoArray, GoComparable, GoMap, GoPtr, GoSeq } from "../../go/compat.js";
 import { Map } from "../../go/sync.js";
 
@@ -40,7 +40,7 @@ function syncMapBacking<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>
  * 	return val.(V), true
  * }
  */
-export function SyncMap_Load<K, V>(receiver: GoPtr<SyncMap<K, V>>, key: K): [V, bool] {
+export function SyncMap_Load<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>>, key: K): [V, bool] {
   const value = undefined as V;
   const [val, ok] = syncMapBacking(receiver).Load(key);
   if (!ok || val === undefined) {
@@ -57,7 +57,7 @@ export function SyncMap_Load<K, V>(receiver: GoPtr<SyncMap<K, V>>, key: K): [V, 
  * 	s.m.Store(key, value)
  * }
  */
-export function SyncMap_Store<K, V>(receiver: GoPtr<SyncMap<K, V>>, key: K, value: V): void {
+export function SyncMap_Store<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>>, key: K, value: V): void {
   syncMapBacking(receiver).Store(key, value);
 }
 
@@ -74,7 +74,7 @@ export function SyncMap_Store<K, V>(receiver: GoPtr<SyncMap<K, V>>, key: K, valu
  * 	return actualAny.(V), loaded
  * }
  */
-export function SyncMap_LoadOrStore<K, V>(receiver: GoPtr<SyncMap<K, V>>, key: K, value: V): [V, bool] {
+export function SyncMap_LoadOrStore<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>>, key: K, value: V): [V, bool] {
   const actual = undefined as V;
   const [actualAny, loaded] = syncMapBacking(receiver).LoadOrStore(key, value);
   if (actualAny === undefined) {
@@ -92,7 +92,7 @@ export function SyncMap_LoadOrStore<K, V>(receiver: GoPtr<SyncMap<K, V>>, key: K
  * 	s.m.Delete(key)
  * }
  */
-export function SyncMap_Delete<K, V>(receiver: GoPtr<SyncMap<K, V>>, key: K): void {
+export function SyncMap_Delete<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>>, key: K): void {
   syncMapBacking(receiver).Delete(key);
 }
 
@@ -104,7 +104,7 @@ export function SyncMap_Delete<K, V>(receiver: GoPtr<SyncMap<K, V>>, key: K): vo
  * 	s.m.Clear()
  * }
  */
-export function SyncMap_Clear<K, V>(receiver: GoPtr<SyncMap<K, V>>): void {
+export function SyncMap_Clear<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>>): void {
   syncMapBacking(receiver).Clear();
 }
 
@@ -128,7 +128,7 @@ export function SyncMap_Clear<K, V>(receiver: GoPtr<SyncMap<K, V>>): void {
  * 	})
  * }
  */
-export function SyncMap_Range<K, V>(receiver: GoPtr<SyncMap<K, V>>, f: (key: K, value: V) => bool): void {
+export function SyncMap_Range<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>>, f: (key: K, value: V) => bool): void {
   syncMapBacking(receiver).Range((key: unknown, value: unknown): bool => {
     const k = (key !== undefined ? key as K : undefined as K);
     const v = (value !== undefined ? value as V : undefined as V);
@@ -149,7 +149,7 @@ export function SyncMap_Range<K, V>(receiver: GoPtr<SyncMap<K, V>>, f: (key: K, 
  * 	return count
  * }
  */
-export function SyncMap_Size<K, V>(receiver: GoPtr<SyncMap<K, V>>): int {
+export function SyncMap_Size<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>>): int {
   const entries: unknown[] = [];
   syncMapBacking(receiver).Range((key: unknown, _value: unknown): bool => {
     entries.push(key);
@@ -171,7 +171,7 @@ export function SyncMap_Size<K, V>(receiver: GoPtr<SyncMap<K, V>>): int {
  * 	return m
  * }
  */
-export function SyncMap_ToMap<K, V>(receiver: GoPtr<SyncMap<K, V>>): GoMap<K, V> {
+export function SyncMap_ToMap<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>>): GoMap<K, V> {
   const m = new globalThis.Map<K, V>();
   syncMapBacking(receiver).Range((key: unknown, value: unknown): bool => {
     m.set(key as K, value as V);
@@ -195,7 +195,7 @@ export function SyncMap_ToMap<K, V>(receiver: GoPtr<SyncMap<K, V>>): GoMap<K, V>
  * 	}
  * }
  */
-export function SyncMap_Keys<K, V>(receiver: GoPtr<SyncMap<K, V>>): GoSeq<K> {
+export function SyncMap_Keys<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>>): GoSeq<K> {
   return (yield_: (value: K) => bool): void => {
     syncMapBacking(receiver).Range((key: unknown, _value: unknown): bool => {
       if (!yield_(key as K)) {
@@ -219,7 +219,7 @@ export function SyncMap_Keys<K, V>(receiver: GoPtr<SyncMap<K, V>>): GoSeq<K> {
  * 	return clone
  * }
  */
-export function SyncMap_Clone<K, V>(receiver: GoPtr<SyncMap<K, V>>): GoPtr<SyncMap<K, V>> {
+export function SyncMap_Clone<K extends GoComparable, V>(receiver: GoPtr<SyncMap<K, V>>): GoPtr<SyncMap<K, V>> {
   const clone: SyncMap<K, V> = {
     __tsgoBlank0: [],
     __tsgoBlank1: [],

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "description": "Pinned real-world projects used for TSTS AST parity checks. Source is fetched on demand into .temp/corpus/repos and is not vendored into the repository.",
+  "projects": [
+    {
+      "name": "immer",
+      "repository": "https://github.com/immerjs/immer.git",
+      "commit": "bf2d15439259887f98f2737cf7ebde4234d5adea",
+      "sourceRoot": "."
+    },
+    {
+      "name": "ms",
+      "repository": "https://github.com/vercel/ms.git",
+      "commit": "4ff48cec099f0514c3e9bbca18706c9c21122bfb",
+      "sourceRoot": "."
+    },
+    {
+      "name": "nanoid",
+      "repository": "https://github.com/ai/nanoid.git",
+      "commit": "78f4a02cbef77d54a64ac0c7adea72aa41e0408b",
+      "sourceRoot": "."
+    },
+    {
+      "name": "p-limit",
+      "repository": "https://github.com/sindresorhus/p-limit.git",
+      "commit": "42599ebbbb1228a5bdab381fcf8f4ac20eb8d551",
+      "sourceRoot": "."
+    },
+    {
+      "name": "rxjs",
+      "repository": "https://github.com/ReactiveX/rxjs.git",
+      "commit": "c15b37f81ba5f5abea8c872b0189a70b150df4cb",
+      "sourceRoot": "."
+    },
+    {
+      "name": "zod",
+      "repository": "https://github.com/colinhacks/zod.git",
+      "commit": "912f0f51b0ced654d0069741e7160834dca742ee",
+      "sourceRoot": "."
+    }
+  ],
+  "fileSelection": {
+    "extensions": [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"],
+    "excludedDirectories": [
+      ".git",
+      ".next",
+      ".temp",
+      ".turbo",
+      "benchmarks",
+      "bower_components",
+      "coverage",
+      "dist",
+      "docs",
+      "examples",
+      "node_modules",
+      "scripts",
+      "tmp"
+    ],
+    "excludedFileSuffixes": [".map"]
+  }
+}

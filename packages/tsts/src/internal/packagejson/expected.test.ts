@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { byte } from "@tsonic/core/types.js";
+import type { byte } from "../../go/scalars.js";
 import { Expected_UnmarshalJSON } from "./expected.js";
 import type { Expected } from "./expected.js";
 

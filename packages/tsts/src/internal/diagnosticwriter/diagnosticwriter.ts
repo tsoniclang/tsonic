@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoConstraint, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { Fprint, Fprintf, Sprintf } from "../../go/fmt.js";
 import type { Writer } from "../../go/io.js";
@@ -249,7 +249,7 @@ export function FromASTDiagnostics(diags: GoSlice<GoPtr<Diagnostic_34a9f76f>>): 
  * 	return result
  * }
  */
-export function ToDiagnostics<T>(diags: GoSlice<T>): GoSlice<Diagnostic> {
+export function ToDiagnostics<T extends Diagnostic>(diags: GoSlice<T>): GoSlice<Diagnostic> {
   const result: Diagnostic[] = new Array(diags.length);
   for (let i = 0; i < diags.length; i++) {
     result[i] = diags[i] as unknown as Diagnostic;

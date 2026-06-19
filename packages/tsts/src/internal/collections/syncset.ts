@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoComparable, GoPtr, GoSeq, GoSlice } from "../../go/compat.js";
 import type { SyncMap } from "./syncmap.js";
 import { SyncMap_Delete, SyncMap_Load, SyncMap_LoadOrStore, SyncMap_Range } from "./syncmap.js";
@@ -24,7 +24,7 @@ export interface SyncSet<T extends GoComparable = unknown> {
  * 	return ok
  * }
  */
-export function SyncSet_Has<T>(receiver: GoPtr<SyncSet<T>>, key: T): bool {
+export function SyncSet_Has<T extends GoComparable>(receiver: GoPtr<SyncSet<T>>, key: T): bool {
   const [, ok] = SyncMap_Load(receiver!.m, key);
   return ok;
 }
@@ -37,7 +37,7 @@ export function SyncSet_Has<T>(receiver: GoPtr<SyncSet<T>>, key: T): bool {
  * 	s.AddIfAbsent(key)
  * }
  */
-export function SyncSet_Add<T>(receiver: GoPtr<SyncSet<T>>, key: T): void {
+export function SyncSet_Add<T extends GoComparable>(receiver: GoPtr<SyncSet<T>>, key: T): void {
   SyncSet_AddIfAbsent(receiver, key);
 }
 
@@ -50,7 +50,7 @@ export function SyncSet_Add<T>(receiver: GoPtr<SyncSet<T>>, key: T): void {
  * 	return !loaded
  * }
  */
-export function SyncSet_AddIfAbsent<T>(receiver: GoPtr<SyncSet<T>>, key: T): bool {
+export function SyncSet_AddIfAbsent<T extends GoComparable>(receiver: GoPtr<SyncSet<T>>, key: T): bool {
   const [, loaded] = SyncMap_LoadOrStore(receiver!.m, key, {});
   return !loaded;
 }
@@ -63,7 +63,7 @@ export function SyncSet_AddIfAbsent<T>(receiver: GoPtr<SyncSet<T>>, key: T): boo
  * 	s.m.Delete(key)
  * }
  */
-export function SyncSet_Delete<T>(receiver: GoPtr<SyncSet<T>>, key: T): void {
+export function SyncSet_Delete<T extends GoComparable>(receiver: GoPtr<SyncSet<T>>, key: T): void {
   SyncMap_Delete(receiver!.m, key);
 }
 
@@ -77,7 +77,7 @@ export function SyncSet_Delete<T>(receiver: GoPtr<SyncSet<T>>, key: T): void {
  * 	})
  * }
  */
-export function SyncSet_Range<T>(receiver: GoPtr<SyncSet<T>>, fn: (key: T) => bool): void {
+export function SyncSet_Range<T extends GoComparable>(receiver: GoPtr<SyncSet<T>>, fn: (key: T) => bool): void {
   SyncMap_Range(receiver!.m, (key: T, _value: { readonly __tsgoEmpty?: never }): bool => {
     return fn(key);
   });
@@ -96,7 +96,7 @@ export function SyncSet_Range<T>(receiver: GoPtr<SyncSet<T>>, fn: (key: T) => bo
  * 	return count
  * }
  */
-export function SyncSet_Size<T>(receiver: GoPtr<SyncSet<T>>): int {
+export function SyncSet_Size<T extends GoComparable>(receiver: GoPtr<SyncSet<T>>): int {
   const keys: T[] = [];
   SyncMap_Range(receiver!.m, (key: T, _value: { readonly __tsgoEmpty?: never }): bool => {
     keys.push(key);
@@ -119,7 +119,7 @@ export function SyncSet_Size<T>(receiver: GoPtr<SyncSet<T>>): int {
  * 	return empty
  * }
  */
-export function SyncSet_IsEmpty<T>(receiver: GoPtr<SyncSet<T>>): bool {
+export function SyncSet_IsEmpty<T extends GoComparable>(receiver: GoPtr<SyncSet<T>>): bool {
   return SyncSet_Size(receiver) === 0;
 }
 
@@ -137,7 +137,7 @@ export function SyncSet_IsEmpty<T>(receiver: GoPtr<SyncSet<T>>): bool {
  * 	return arr
  * }
  */
-export function SyncSet_ToSlice<T>(receiver: GoPtr<SyncSet<T>>): GoSlice<T> {
+export function SyncSet_ToSlice<T extends GoComparable>(receiver: GoPtr<SyncSet<T>>): GoSlice<T> {
   const arr: GoSlice<T> = [];
   SyncMap_Range(receiver!.m, (key: T, _value: { readonly __tsgoEmpty?: never }): bool => {
     arr.push(key);
@@ -161,7 +161,7 @@ export function SyncSet_ToSlice<T>(receiver: GoPtr<SyncSet<T>>): GoSlice<T> {
  * 	}
  * }
  */
-export function SyncSet_Keys<T>(receiver: GoPtr<SyncSet<T>>): GoSeq<T> {
+export function SyncSet_Keys<T extends GoComparable>(receiver: GoPtr<SyncSet<T>>): GoSeq<T> {
   return (yield_: (value: T) => bool): void => {
     SyncMap_Range(receiver!.m, (key: T, _value: { readonly __tsgoEmpty?: never }): bool => {
       if (!yield_(key)) {

@@ -1,2 +1,0 @@
-Shadowed: 20
-Shadow in function: 15

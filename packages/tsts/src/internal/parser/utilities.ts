@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import { DeleteFunc } from "../../go/slices.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { CommentRange } from "../ast/ast.js";
@@ -24,6 +24,7 @@ import { LanguageVariantJSX, LanguageVariantStandard } from "../core/languagevar
 import type { ScriptKind } from "../core/scriptkind.js";
 import { ScriptKindJS, ScriptKindJSON, ScriptKindJSX, ScriptKindTSX } from "../core/scriptkind.js";
 import { GetLeadingCommentRanges, GetTrailingCommentRanges } from "../scanner/scanner.js";
+import { StringByteAt, StringByteLen, StringByteSlice } from "../../go/unicode/utf8.js";
 
 // Go strings are immutable UTF-8 byte sequences; `len(s)` is a byte length,
 // `s[i]` is a byte, and slices like `s[i:j]` operate on byte offsets. Parser
@@ -35,55 +36,11 @@ import { GetLeadingCommentRanges, GetTrailingCommentRanges } from "../scanner/sc
 // non-ASCII strings through here (lib texts and their derived slices), and an
 // unbounded cache retains a full encoded copy of every one of them — measured
 // at multiple GB on a single full-lib-check compilation.
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
-type Utf8ByteInfo = { ascii: bool; bytes: Uint8Array };
-const utf8ByteInfoCache = new globalThis.Map<string, Utf8ByteInfo>();
-const utf8ByteInfoCacheBudget = 64 * 1024 * 1024; // total cached bytes
-const cacheState = { bytes: 0 };
+export const byteLen = StringByteLen;
 
-const getUtf8ByteInfo = (s: string): Utf8ByteInfo => {
-  const cached = utf8ByteInfoCache.get(s);
-  if (cached !== undefined) {
-    return cached;
-  }
-  let ascii = true;
-  for (let i = 0; i < s.length; i++) {
-    if (s.charCodeAt(i) >= 0x80) {
-      ascii = false;
-      break;
-    }
-  }
-  const info: Utf8ByteInfo = {
-    ascii,
-    bytes: ascii ? undefined as unknown as Uint8Array : utf8Encoder.encode(s),
-  };
-  if (s.length >= 4096) {
-    const cost = ascii ? s.length : info.bytes.length;
-    if (cacheState.bytes + cost > utf8ByteInfoCacheBudget) {
-      utf8ByteInfoCache.clear();
-      cacheState.bytes = 0;
-    }
-    utf8ByteInfoCache.set(s, info);
-    cacheState.bytes += cost;
-  }
-  return info;
-};
+export const byteSlice = StringByteSlice;
 
-export const byteLen = (s: string): int => {
-  const info = getUtf8ByteInfo(s);
-  return info.ascii ? s.length : info.bytes.length;
-};
-
-export const byteSlice = (s: string, start: int, end?: int): string => {
-  const info = getUtf8ByteInfo(s);
-  return info.ascii ? s.slice(start, end) : utf8Decoder.decode(info.bytes.subarray(start, end));
-};
-
-export const byteAt = (s: string, i: int): int => {
-  const info = getUtf8ByteInfo(s);
-  return info.ascii ? s.charCodeAt(i) : info.bytes[i]!;
-};
+export const byteAt = StringByteAt;
 
 // Positional equivalents of Go's `text[start:]`-then-inspect patterns. Go tail
 // slices are free views; materializing them here allocates a decode of the

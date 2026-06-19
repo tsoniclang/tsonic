@@ -1,1 +1,0 @@
-{"version":3,"file":"signal.d.ts","sourceRoot":"","sources":["../../../../src/go/os/signal.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,OAAO,EAAE,MAAM,cAAc,CAAC;AAC5C,OAAO,KAAK,EAAE,OAAO,EAAE,UAAU,EAAE,MAAM,eAAe,CAAC;AA6BzD,wBAAgB,aAAa,CAAC,MAAM,EAAE,OAAO,EAAE,GAAG,OAAO,EAAE,OAAO,CAAC,MAAM,CAAC,OAAO,GAAG,MAAM,CAAC,GAAG,CAAC,OAAO,EAAE,UAAU,CAAC,CAclH"}

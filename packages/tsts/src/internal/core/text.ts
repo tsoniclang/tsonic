@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/text.go::type::TextPos","kind":"type","status":"implemented","sigHash":"32169beeed0300bd857c14e2364f116101d40906268c86fd00602a0bfe522acf","bodyHash":"9ba11907f874e39d5ce16b8669b871bec3eccdaff1261066f48d23cd98b937f7"}

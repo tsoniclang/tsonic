@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import { Itoa } from "../../go/strconv.js";
 import type { Node, NodeList, NodeFactoryCoercible } from "../ast/spine.js";
@@ -6,6 +6,7 @@ import { NewNodeFactory as NewAstNodeFactory, NodeFactory_AsNodeFactory, NodeFac
 import type { NodeFactory as NodeFactory_88523d1c } from "../ast/generated/factory.js";
 import type { LabeledStatement, NonNullExpression, ParenthesizedExpression, PartiallyEmittedExpression, SatisfiesExpression, AsExpression, ExpressionWithTypeArguments, VariableDeclaration, VariableDeclarationList } from "../ast/generated/data.js";
 import { GetNonAssignedNameOfDeclaration, GetNameOfDeclaration, HasSyntacticModifier, IsMemberName, IsNodeDescendantOf, IsPrologueDirective, NodeIsSynthesized, RangeIsSynthesized, GetNodeId, TryGetPropertyNameOfBindingOrAssignmentElement, IsOuterExpression, OEKAll } from "../ast/utilities.js";
+import type { OuterExpressionKinds } from "../ast/utilities.js";
 import { Node_Expression, Node_Text, Node_Type, Node_TypeArgumentList, NodeFactory_UpdateAsExpression, NodeFactory_UpdateExpressionWithTypeArguments, NodeFactory_UpdateLabeledStatement, NodeFactory_UpdateNonNullExpression, NodeFactory_UpdateParenthesizedExpression, NodeFactory_UpdatePartiallyEmittedExpression, NodeFactory_UpdateSatisfiesExpression, NodeFactory_UpdateVariableDeclaration, NodeFactory_UpdateVariableDeclarationList } from "../ast/ast.js";
 import { ModifierFlagsExport } from "../ast/modifierflags.js";
 import { FormatGeneratedName } from "./utilities.js";
@@ -57,13 +58,6 @@ import { EFAsyncFunctionBody, EFCustomPrologue, EFExportName, EFHelperName, EFLo
 import { addDisposableResourceHelper, asyncDelegatorHelper, asyncGeneratorHelper, asyncValuesHelper, awaiterHelper, awaitHelper, classPrivateFieldGetHelper, classPrivateFieldInHelper, classPrivateFieldSetHelper, decorateHelper, disposeResourcesHelper, esDecorateHelper, exportStarHelper, importDefaultHelper, importStarHelper, makeTemplateObjectHelper, metadataHelper, paramHelper, propKeyHelper, restHelper, rewriteRelativeImportExtensionsHelper, runInitializersHelper, setFunctionNameHelper } from "./helpers.js";
 import type { GeneratedIdentifierFlags } from "./generatedidentifierflags.js";
 import { GeneratedIdentifierFlagsAuto, GeneratedIdentifierFlagsKindMask, GeneratedIdentifierFlagsLoop, GeneratedIdentifierFlagsNode, GeneratedIdentifierFlagsOptimistic, GeneratedIdentifierFlagsUnique } from "./generatedidentifierflags.js";
-
-// `OuterExpressionKinds` is defined in `ast/utilities.go`, which has not yet
-// been ported. It is forward-declared here as the numeric flag type it will
-// be (Go `int16`) so the signature of the (still-stubbed) RestoreOuterExpressions
-// compiles. The only consumer in this file is a stub blocked on the unported
-// ast/utilities package.
-type OuterExpressionKinds = int;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/factory.go::type::NodeFactory","kind":"type","status":"implemented","sigHash":"090eeeccd7a9312c831c8c23dfcfe79fc09da23cd3a387758c5fda1591b6992f","bodyHash":"a712ecc9d60b4ded4861ea18bb957773602cb73b7775e87938062ca2de6cfd5f"}

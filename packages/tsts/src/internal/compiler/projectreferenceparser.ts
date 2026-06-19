@@ -95,7 +95,7 @@ export function createProjectReferenceParseTasks(projectReferences: GoSlice<stri
 export interface projectReferenceParser {
   loader: GoPtr<fileLoader>;
   wg: WorkGroup;
-  tasksByFileName: SyncMap;
+  tasksByFileName: SyncMap<Path, GoPtr<projectReferenceParseTask>>;
 }
 
 /**
@@ -224,7 +224,7 @@ export function projectReferenceParser_initMapper(receiver: GoPtr<projectReferen
  * 	return results
  * }
  */
-export function projectReferenceParser_initMapperWorker(receiver: GoPtr<projectReferenceParser>, tasks: GoSlice<GoPtr<projectReferenceParseTask>>, seen: GoPtr<Set>): GoSlice<Path> {
+export function projectReferenceParser_initMapperWorker(receiver: GoPtr<projectReferenceParser>, tasks: GoSlice<GoPtr<projectReferenceParseTask>>, seen: GoPtr<Set<GoPtr<projectReferenceParseTask>>>): GoSlice<Path> {
   if (tasks.length === 0) {
     return [];
   }

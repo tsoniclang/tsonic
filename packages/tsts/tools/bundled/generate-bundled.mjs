@@ -172,9 +172,9 @@ function renderLibsGeneratedBody(names) {
 function renderEmbedGeneratedBody(sourceRoot, names) {
   const entries = names.map((name) => {
     const content = readFileSync(path.join(sourceRoot, name), "utf8");
-    return `  [${JSON.stringify(`libs/${name}`)}, ${JSON.stringify(content)}],`;
+    return `  [${JSON.stringify(`libs/${name}`)}, ${Buffer.byteLength(content, "utf8")}],`;
   });
-  return `export const embeddedContents: ReadonlyMap<string, string> = new Map<string, string>([\n${entries.join("\n")}\n]);\n`;
+  return `export const embeddedContentSizes: ReadonlyMap<string, number> = new Map<string, number>([\n${entries.join("\n")}\n]);\n\nexport const embeddedContentNames: ReadonlySet<string> = new Set<string>(embeddedContentSizes.keys());\n`;
 }
 
 function withGeneratedHeader({ path: artifactPath, sourceRevision, body }) {

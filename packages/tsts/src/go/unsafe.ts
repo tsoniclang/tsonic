@@ -1,4 +1,4 @@
-import type { byte, int } from "@tsonic/core/types.js";
+import type { byte, int } from "./scalars.js";
 import type { GoPtr, GoSlice, GoUnsafePointer } from "./compat.js";
 
 export function Pointer<T>(value: GoPtr<T>): GoUnsafePointer {

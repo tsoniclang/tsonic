@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import { Every, Find } from "../../core/core.js";
 import type { Node } from "../../ast/spine.js";
@@ -6,13 +6,15 @@ import { DiagnosticsCollection_Add, NewDiagnosticChain } from "../../ast/diagnos
 import { Node_Comments, Node_Expression, Node_ModifierNodes } from "../../ast/ast.js";
 import { AsDecorator } from "../../ast/generated/casts.js";
 import { KindClassDeclaration, KindClassExpression, KindGetAccessor, KindJSDocLink, KindJSDocLinkCode, KindJSDocLinkPlain, KindMethodDeclaration, KindParameter, KindPropertyDeclaration, KindSetAccessor } from "../../ast/generated/kinds.js";
-import { IsDecorator, IsParenthesizedExpression } from "../../ast/generated/predicates.js";
-import { CanHaveDecorators, HasDecorators, NodeCanBeDecorated } from "../../ast/utilities.js";
+import { IsDecorator, IsParenthesizedExpression, IsParameterDeclaration, IsClassDeclaration, IsClassExpression, IsPrivateIdentifier, IsMethodDeclaration, IsComputedPropertyName } from "../../ast/generated/predicates.js";
+import { CanHaveDecorators, HasDecorators, NodeCanBeDecorated, IsAccessor, IsAutoAccessorPropertyDeclaration } from "../../ast/utilities.js";
 import { Node_Name } from "../../ast/spine.js";
 import { GetTextOfNode } from "../../scanner/utilities.js";
 import { Decorator_function_return_type_0_is_not_assignable_to_type_1, Decorator_function_return_type_is_0_but_is_expected_to_be_void_or_any, X_0_accepts_too_few_arguments_to_be_used_as_a_decorator_here_Did_you_mean_to_call_it_first_and_write_0 } from "../../diagnostics/generated/messages.js";
 import type { Signature } from "../types.js";
 import { SignatureFlagsNone, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny } from "../types.js";
+import { LanguageFeatureMinimumTarget, ExternalEmitHelpersDecorate, ExternalEmitHelpersParam, ExternalEmitHelpersESDecorateAndRunInitializers, ExternalEmitHelpersSetFunctionName, ExternalEmitHelpersPropKey } from "../types.js";
+import { Checker_addDiagnostic, Checker_checkExternalEmitHelpers, Checker_getFirstTransformableStaticClassElement } from "../checker.js";
 import { Checker_checkDeprecatedSignature, Checker_getDiagnosticHeadMessageForDecoratorResolution, Checker_invocationErrorDetails, Checker_invocationErrorRecovery, Checker_isErrorType, Checker_resolveErrorCall } from "./diagnostics.js";
 import { Checker_checkGrammarDecorator } from "../grammarchecks.js";
 import { Checker_checkTypeAssignableTo } from "../relater.js";
@@ -67,7 +69,7 @@ export function Checker_checkJSDocComment(receiver: GoPtr<Checker>, node: GoPtr<
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkDecorators","kind":"method","status":"implemented","sigHash":"3e5c8e2fbe4a0b76148106f3264893023071e6c50f819f85ca519741821767df","bodyHash":"f9ffaa06654b4d29673d5809f8faf3238f8da43a0d06256f8e8ace19a23b36c0"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkDecorators","kind":"method","status":"implemented","sigHash":"3e5c8e2fbe4a0b76148106f3264893023071e6c50f819f85ca519741821767df","bodyHash":"b7462e20d57453f48d00897e447f7e2742ffc8af83435bc24d64564ff4545e29"}
  *
  * Go source:
  * func (c *Checker) checkDecorators(node *ast.Node) {
@@ -79,6 +81,27 @@ export function Checker_checkJSDocComment(receiver: GoPtr<Checker>, node: GoPtr<
  * 	firstDecorator := core.Find(node.ModifierNodes(), ast.IsDecorator)
  * 	if firstDecorator == nil {
  * 		return
+ * 	}
+ * 	if c.legacyDecorators {
+ * 		c.checkExternalEmitHelpers(firstDecorator, ExternalEmitHelpersDecorate)
+ * 		if ast.IsParameterDeclaration(node) {
+ * 			c.checkExternalEmitHelpers(firstDecorator, ExternalEmitHelpersParam)
+ * 		}
+ * 	} else if c.languageVersion < LanguageFeatureMinimumTarget.ClassAndClassElementDecorators {
+ * 		c.checkExternalEmitHelpers(firstDecorator, ExternalEmitHelpersESDecorateAndRunInitializers)
+ * 		if ast.IsClassDeclaration(node) {
+ * 			if node.Name() == nil || c.getFirstTransformableStaticClassElement(node) != nil {
+ * 				c.checkExternalEmitHelpers(firstDecorator, ExternalEmitHelpersSetFunctionName)
+ * 			}
+ * 		} else if !ast.IsClassExpression(node) {
+ * 			name := node.Name()
+ * 			if ast.IsPrivateIdentifier(name) && (ast.IsMethodDeclaration(node) || ast.IsAccessor(node) || ast.IsAutoAccessorPropertyDeclaration(node)) {
+ * 				c.checkExternalEmitHelpers(firstDecorator, ExternalEmitHelpersSetFunctionName)
+ * 			}
+ * 			if ast.IsComputedPropertyName(name) {
+ * 				c.checkExternalEmitHelpers(firstDecorator, ExternalEmitHelpersPropKey)
+ * 			}
+ * 		}
  * 	}
  * 	c.markLinkedReferences(node, ReferenceHintDecorator, nil, nil)
  * 	for _, modifier := range node.ModifierNodes() {
@@ -97,6 +120,27 @@ export function Checker_checkDecorators(receiver: GoPtr<Checker>, node: GoPtr<No
   const firstDecorator = Find(Node_ModifierNodes(node) ?? [], IsDecorator);
   if (firstDecorator === undefined) {
     return;
+  }
+  if (receiver!.legacyDecorators) {
+    Checker_checkExternalEmitHelpers(receiver, firstDecorator, ExternalEmitHelpersDecorate);
+    if (IsParameterDeclaration(node)) {
+      Checker_checkExternalEmitHelpers(receiver, firstDecorator, ExternalEmitHelpersParam);
+    }
+  } else if (receiver!.languageVersion < LanguageFeatureMinimumTarget.ClassAndClassElementDecorators) {
+    Checker_checkExternalEmitHelpers(receiver, firstDecorator, ExternalEmitHelpersESDecorateAndRunInitializers);
+    if (IsClassDeclaration(node)) {
+      if (Node_Name(node) === undefined || Checker_getFirstTransformableStaticClassElement(receiver, node) !== undefined) {
+        Checker_checkExternalEmitHelpers(receiver, firstDecorator, ExternalEmitHelpersSetFunctionName);
+      }
+    } else if (!IsClassExpression(node)) {
+      const name = Node_Name(node);
+      if (IsPrivateIdentifier(name) && (IsMethodDeclaration(node) || IsAccessor(node) || IsAutoAccessorPropertyDeclaration(node))) {
+        Checker_checkExternalEmitHelpers(receiver, firstDecorator, ExternalEmitHelpersSetFunctionName);
+      }
+      if (IsComputedPropertyName(name)) {
+        Checker_checkExternalEmitHelpers(receiver, firstDecorator, ExternalEmitHelpersPropKey);
+      }
+    }
   }
   Checker_markLinkedReferences(receiver, node, ReferenceHintDecorator, undefined, undefined);
   for (const modifier of Node_ModifierNodes(node) ?? []) {
@@ -186,7 +230,7 @@ export function Checker_checkDecorator(receiver: GoPtr<Checker>, node: GoPtr<Nod
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveDecorator","kind":"method","status":"implemented","sigHash":"6e07f878a63ec19ec16e3df684224f72330683cda1d3d179ecfef30a41ca29de","bodyHash":"72999c49e45716c8e5e6a92bf5334d3cff132f2c56050e577f48fcf4c28f6412"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveDecorator","kind":"method","status":"implemented","sigHash":"6e07f878a63ec19ec16e3df684224f72330683cda1d3d179ecfef30a41ca29de","bodyHash":"2fed232fa795112c945ebcf621e9cedf3a4c53784c60170831745edc9d2c0aec"}
  *
  * Go source:
  * func (c *Checker) resolveDecorator(node *ast.Node, candidatesOutArray *[]*Signature, checkMode CheckMode) *Signature {
@@ -211,8 +255,12 @@ export function Checker_checkDecorator(receiver: GoPtr<Checker>, node: GoPtr<Nod
  * 	headMessage := c.getDiagnosticHeadMessageForDecoratorResolution(node)
  * 	if len(callSignatures) == 0 {
  * 		diag := ast.NewDiagnosticChain(c.invocationErrorDetails(node.Expression(), apparentType, SignatureKindCall), headMessage)
- * 		c.diagnostics.Add(diag)
+ * 		c.addDiagnostic(diag)
  * 		c.invocationErrorRecovery(apparentType, SignatureKindCall, diag)
+ * 		return c.resolveErrorCall(node)
+ * 	}
+ * 	decoratorSignature := c.getDecoratorCallSignature(node)
+ * 	if decoratorSignature == nil {
  * 		return c.resolveErrorCall(node)
  * 	}
  * 	return c.resolveCall(node, callSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, headMessage)
@@ -240,8 +288,12 @@ export function Checker_resolveDecorator(receiver: GoPtr<Checker>, node: GoPtr<N
   const headMessage = Checker_getDiagnosticHeadMessageForDecoratorResolution(receiver, node);
   if (callSignatures.length === 0) {
     const diag = NewDiagnosticChain(Checker_invocationErrorDetails(receiver, Node_Expression(node), apparentType, SignatureKindCall), headMessage);
-    DiagnosticsCollection_Add(receiver!.diagnostics, diag);
+    Checker_addDiagnostic(receiver, diag);
     Checker_invocationErrorRecovery(receiver, apparentType, SignatureKindCall, diag);
+    return Checker_resolveErrorCall(receiver, node);
+  }
+  const decoratorSignature = Checker_getDecoratorCallSignature(receiver, node);
+  if (decoratorSignature === undefined) {
     return Checker_resolveErrorCall(receiver, node);
   }
   return Checker_resolveCall(receiver, node, callSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, headMessage);

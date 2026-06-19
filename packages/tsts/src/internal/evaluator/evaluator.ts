@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import type { Node } from "../ast/spine.js";
 import { Node_Expression, Node_Text } from "../ast/ast.js";
@@ -46,9 +46,6 @@ import {
 import type { PseudoBigInt } from "../jsnum/pseudobigint.js";
 import { PseudoBigInt_String } from "../jsnum/pseudobigint.js";
 import { FromString, Number_String } from "../jsnum/string.js";
-
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const byteLen = (s: string): int => utf8Encoder.encode(s).length;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/evaluator/evaluator.go::type::Result","kind":"type","status":"implemented","sigHash":"a3a9d32c3240f54837956a383b258f44f9026492dadd7240384a097b26b6d6ca","bodyHash":"cd145909ea83e547879d8fed4cb79259fcdd3e81aa150c04e711b7e67dad21c0"}
@@ -407,7 +404,7 @@ export function AnyToString(v: unknown): string {
  */
 export function IsTruthy(v: unknown): bool {
   if (typeof v === "string") {
-    return byteLen(v) !== 0;
+    return v.length !== 0;
   }
   if (typeof v === "number") {
     const n: Number = v as Number;

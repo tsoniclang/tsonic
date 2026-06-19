@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import * as slices from "../../go/slices.js";
 import { AsSourceFile } from "./ast.js";
@@ -136,7 +136,7 @@ export function NodeVisitor_VisitNode(receiver: GoPtr<NodeVisitor>, node: GoPtr<
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/visitor.go::method::NodeVisitor.VisitEmbeddedStatement","kind":"method","status":"implemented","sigHash":"9b5afa6435f234566a29739c07a272310aa0700d4c8f61c4897cad74bd29e6f3","bodyHash":"9b9519a7f7b78f3f573d1650561414129c147e0373543e69ee7a0ba93edc07e4"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/visitor.go::method::NodeVisitor.VisitEmbeddedStatement","kind":"method","status":"implemented","sigHash":"9b5afa6435f234566a29739c07a272310aa0700d4c8f61c4897cad74bd29e6f3","bodyHash":"9a0028b27a31791d523fb1e22ff5e6366d40b4314a145c1d8c531ec8455fd368"}
  *
  * Go source:
  * func (v *NodeVisitor) VisitEmbeddedStatement(node *Statement) *Statement {
@@ -144,11 +144,11 @@ export function NodeVisitor_VisitNode(receiver: GoPtr<NodeVisitor>, node: GoPtr<
  * 		return node
  * 	}
  *
- * 	if v.Visit != nil {
- * 		return v.liftToBlock(v.Visit(node))
+ * 	visited := v.Visit(node)
+ * 	if visited == nil {
+ * 		return nil
  * 	}
- *
- * 	return node
+ * 	return v.liftToBlock(visited)
  * }
  */
 export function NodeVisitor_VisitEmbeddedStatement(receiver: GoPtr<NodeVisitor>, node: GoPtr<Statement>): GoPtr<Statement> {
@@ -156,11 +156,11 @@ export function NodeVisitor_VisitEmbeddedStatement(receiver: GoPtr<NodeVisitor>,
     return node;
   }
 
-  if (receiver!.Visit !== undefined) {
-    return NodeVisitor_liftToBlock(receiver, receiver!.Visit(node));
+  const visited = receiver!.Visit(node);
+  if (visited === undefined) {
+    return undefined;
   }
-
-  return node;
+  return NodeVisitor_liftToBlock(receiver, visited);
 }
 
 /**

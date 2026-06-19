@@ -1,11 +1,14 @@
-import type { bool, byte, double, int, uint, ulong } from "@tsonic/core/types.js";
-import type { GoError, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
+import type { bool, byte, double, int, uint, ulong } from "../../go/scalars.js";
+import type { GoArray, GoError, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
+import { NewGoStructMap } from "../../go/compat.js";
 import { Errorf, Sprintf } from "../../go/fmt.js";
 import { SortFunc } from "../../go/slices.js";
 import { Builder, Compare } from "../../go/strings.js";
+import { Itoa } from "../../go/strconv.js";
 import { Mutex } from "../../go/sync.js";
 import { Bool } from "../../go/sync/atomic.js";
-import type { Time } from "../../go/time.js";
+import * as xxh3 from "../../go/github.com/zeebo/xxh3.js";
+import type { Duration, Time } from "../../go/time.js";
 import { SourceFile_ECMALineMap, SourceFile_FileName, SourceFile_Text } from "../ast/ast.js";
 import type { SourceFile, SourceFileLike } from "../ast/ast.js";
 import { EscapeAllInternalSymbolNames } from "../ast/symbol.js";
@@ -114,19 +117,21 @@ export interface TracedType {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::type::TraceRecord","kind":"type","status":"implemented","sigHash":"9a2d140746a144765f28b2e9e9829df46833a1c63257e80aaf0cd4b2affeb6d2","bodyHash":"a0667eabbcf8cc367a491b190c226c84b61ea2454eaa8b5b50c4e4e11f735323"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::type::TraceRecord","kind":"type","status":"implemented","sigHash":"9a2d140746a144765f28b2e9e9829df46833a1c63257e80aaf0cd4b2affeb6d2","bodyHash":"d305505e57ef8ffd555e0040fdad8593ee264404396d5831d493ea3ecdfa4ba2"}
  *
  * Go source:
  * TraceRecord struct {
  * 	ConfigFilePath string `json:"configFilePath,omitzero"`
  * 	TracePath      string `json:"tracePath,omitzero"`
  * 	TypesPath      string `json:"typesPath,omitzero"`
+ * 	CheckerID      int    `json:"checkerId"`
  * }
  */
 export interface TraceRecord {
   ConfigFilePath: string;
   TracePath: string;
   TypesPath: string;
+  CheckerID: int;
 }
 
 /**
@@ -165,7 +170,7 @@ export interface traceEvent {
  */
 // 10 * time.Millisecond expressed in nanoseconds (Go time.Duration unit).
 // Push uses sampleInterval / 1000.0 to convert to microseconds for comparison.
-export const sampleInterval: int = 10_000_000 as int;
+export const sampleInterval: Duration = 10_000_000 as Duration;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::constGroup::traceFileName","kind":"constGroup","status":"implemented","sigHash":"5ce6bcd3404ffeb42b22630f2857b4ab142cfc3b645f64ab3fde0715b125adb1","bodyHash":"5e409ad7ec15a4441743658e2084dfb54340ea5f500b8faa5633c6b04dce2adb"}
@@ -184,7 +189,7 @@ export const traceFileName: string = "trace.json";
 export const flushThreshold: int = 256 * 1024;
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::type::Tracing","kind":"type","status":"implemented","sigHash":"9ddacf1a75d21cc9ccf7aaccac9e71bb9e9fc149ccb7f595eb45bce6225317d9","bodyHash":"9632bfb088bfedc61219d1c5adf09b29aefbffc48a960937acf7c140c5ae39b0"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::type::Tracing","kind":"type","status":"implemented","sigHash":"9ddacf1a75d21cc9ccf7aaccac9e71bb9e9fc149ccb7f595eb45bce6225317d9","bodyHash":"f36920f20deb8984b8105df23de33b99dd7a584fa0f55485f9a1bd7f48dbffef"}
  *
  * Go source:
  * Tracing struct {
@@ -196,6 +201,9 @@ export const flushThreshold: int = 256 * 1024;
  * 	tracers          []*typeTracer
  * 	traceContent     strings.Builder
  * 	traceStarted     atomic.Bool
+ * 	threadIDs        map[traceThreadKey]int
+ * 	threadKeys       map[int]traceThreadKey
+ * 	metadataTS       float64
  * 	deterministic    bool   // when true, use monotonic counter instead of real time
  * 	timestampCounter uint64 // only used in deterministic mode
  * 	startTime        time.Time
@@ -216,6 +224,9 @@ export interface Tracing {
   tracers: GoSlice<GoPtr<typeTracer>>;
   traceContent: Builder;
   traceStarted: Bool;
+  threadIDs: GoMap<traceThreadKey, int>;
+  threadKeys: GoMap<int, traceThreadKey>;
+  metadataTS: double;
   deterministic: bool;
   timestampCounter: ulong;
   startTime: Time;
@@ -254,7 +265,7 @@ export const PhaseEmit: Phase = "emit";
 export const PhaseSession: Phase = "session";
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::func::StartTracing","kind":"func","status":"implemented","sigHash":"f8a080c13c359705b29a921436a3d137cb4907b12330f2a0394850336b83a2e4","bodyHash":"96a524b12cacdca282d4c053ce0aadf5d6540b5206d622eb83ba604ab3081bfe"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::func::StartTracing","kind":"func","status":"implemented","sigHash":"f8a080c13c359705b29a921436a3d137cb4907b12330f2a0394850336b83a2e4","bodyHash":"16525da0ff94556d0b22d94d20908e75912cd2cc34c613a3939632cbd119ac1f"}
  *
  * Go source:
  * func StartTracing(fs vfs.FS, traceDir string, configFilePath string, deterministic bool) (*Tracing, error) {
@@ -303,6 +314,9 @@ export function StartTracing(fs: FS, traceDir: string, configFilePath: string, d
     tracers: [],
     traceContent: traceContent,
     traceStarted: traceStarted,
+    threadIDs: NewGoStructMap<traceThreadKey, int>(),
+    threadKeys: new globalThis.Map<int, traceThreadKey>(),
+    metadataTS: 0 as double,
     deterministic: deterministic,
     timestampCounter: 0 as ulong,
     startTime: {} as Time,
@@ -316,11 +330,12 @@ export function StartTracing(fs: FS, traceDir: string, configFilePath: string, d
 
   // Write metadata events (matching TypeScript's format)
   const metaTs = Tracing_timestamp(tr);
-  Tracing_writeEvent(tr, { PID: 1, TID: 1, PH: "M", Cat: "__metadata", TS: metaTs, Name: "process_name", S: "", Dur: undefined, Args: new globalThis.Map([["name", "tsgo"]]) });
+  tr.metadataTS = metaTs;
+  Tracing_writeEvent(tr, { PID: 1, TID: mainThreadID, PH: "M", Cat: "__metadata", TS: metaTs, Name: "process_name", S: "", Dur: undefined, Args: new globalThis.Map([["name", "tsgo"]]) });
   tr.traceContent.WriteString(",\n");
-  Tracing_writeEvent(tr, { PID: 1, TID: 1, PH: "M", Cat: "__metadata", TS: metaTs, Name: "thread_name", S: "", Dur: undefined, Args: new globalThis.Map([["name", "Main"]]) });
+  Tracing_writeEvent(tr, { PID: 1, TID: mainThreadID, PH: "M", Cat: "__metadata", TS: metaTs, Name: "thread_name", S: "", Dur: undefined, Args: new globalThis.Map([["name", "Main"]]) });
   tr.traceContent.WriteString(",\n");
-  Tracing_writeEvent(tr, { PID: 1, TID: 1, PH: "M", Cat: "disabled-by-default-devtools.timeline", TS: metaTs, Name: "TracingStartedInBrowser", S: "", Dur: undefined, Args: undefined as unknown as GoMap<string, unknown> });
+  Tracing_writeEvent(tr, { PID: 1, TID: mainThreadID, PH: "M", Cat: "disabled-by-default-devtools.timeline", TS: metaTs, Name: "TracingStartedInBrowser", S: "", Dur: undefined, Args: undefined as unknown as GoMap<string, unknown> });
 
   // Truncate any existing trace file with the header so subsequent AppendFile
   // calls extend a clean file.
@@ -419,7 +434,7 @@ export function Tracing_maybeFlushLocked(receiver: GoPtr<Tracing>): void {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::method::Tracing.Instant","kind":"method","status":"implemented","sigHash":"e72ba6ff68ef9b87d7ce9af888330afdabda477c1cc3070b04b1a13d81c2c477","bodyHash":"1f925447bc81f00a0bcdcd1d84866b43fd101d33b09e919f97dcd1c4f99b1aae"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::method::Tracing.Instant","kind":"method","status":"implemented","sigHash":"e72ba6ff68ef9b87d7ce9af888330afdabda477c1cc3070b04b1a13d81c2c477","bodyHash":"8a069e49367f2e7fe80f5f42b9ee914598bfb7011bc7eec8a75cecdef07bebfd"}
  *
  * Go source:
  * func (tr *Tracing) Instant(phase Phase, name string, args map[string]any) {
@@ -459,8 +474,9 @@ export function Tracing_Instant(receiver: GoPtr<Tracing>, phase: Phase, name: st
     }
 
     const ts = Tracing_timestamp(tr);
+    const tid = Tracing_threadIDLocked(tr, args);
     tr.traceContent.WriteString(",\n");
-    Tracing_writeEvent(tr, { PID: 1, TID: 1, PH: "I", Cat: phase as string, TS: ts, Name: name, S: "g", Args: args, Dur: undefined });
+    Tracing_writeEvent(tr, { PID: 1, TID: tid, PH: "I", Cat: phase as string, TS: ts, Name: name, S: "g", Args: args, Dur: undefined });
     Tracing_maybeFlushLocked(tr);
   } finally {
     tr.mu.Unlock();
@@ -468,7 +484,7 @@ export function Tracing_Instant(receiver: GoPtr<Tracing>, phase: Phase, name: st
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::method::Tracing.Push","kind":"method","status":"implemented","sigHash":"f718c05374a354a9bd493a2b4808be89935c9995e89990c29664a18f9c0d8253","bodyHash":"13d36e63bd430963a42f98246c9933d7e05d67f824fd1871d8aa49eaac7b126f"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::method::Tracing.Push","kind":"method","status":"implemented","sigHash":"f718c05374a354a9bd493a2b4808be89935c9995e89990c29664a18f9c0d8253","bodyHash":"8405e0cf4cb3df02e667cda24b786ace3e373b28cbc260e7a2bf93974eb71650"}
  *
  * Go source:
  * func (tr *Tracing) Push(phase Phase, name string, args map[string]any, separateBeginAndEnd bool) func() {
@@ -540,8 +556,9 @@ export function Tracing_Push(receiver: GoPtr<Tracing>, phase: Phase, name: strin
       return (): void => {};
     }
     const ts = Tracing_timestamp(tr);
+    const tid = Tracing_threadIDLocked(tr, args);
     tr.traceContent.WriteString(",\n");
-    Tracing_writeEvent(tr, { PID: 1, TID: 1, PH: "B", Cat: phase as string, TS: ts, Name: name, S: "", Dur: undefined, Args: args });
+    Tracing_writeEvent(tr, { PID: 1, TID: tid, PH: "B", Cat: phase as string, TS: ts, Name: name, S: "", Dur: undefined, Args: args });
     Tracing_maybeFlushLocked(tr);
     tr.mu.Unlock();
 
@@ -553,7 +570,7 @@ export function Tracing_Push(receiver: GoPtr<Tracing>, phase: Phase, name: strin
         }
         const endTs = Tracing_timestamp(tr);
         tr.traceContent.WriteString(",\n");
-        Tracing_writeEvent(tr, { PID: 1, TID: 1, PH: "E", Cat: phase as string, TS: endTs, Name: name, S: "", Dur: undefined, Args: args });
+        Tracing_writeEvent(tr, { PID: 1, TID: tid, PH: "E", Cat: phase as string, TS: endTs, Name: name, S: "", Dur: undefined, Args: args });
         Tracing_maybeFlushLocked(tr);
       } finally {
         tr.mu.Unlock();
@@ -580,8 +597,9 @@ export function Tracing_Push(receiver: GoPtr<Tracing>, phase: Phase, name: strin
       if (!tr.traceStarted.Load()) {
         return;
       }
+      const tid = Tracing_threadIDLocked(tr, argsClone);
       tr.traceContent.WriteString(",\n");
-      Tracing_writeEvent(tr, { PID: 1, TID: 1, PH: "X", Cat: phase as string, TS: startMicros, Name: name, S: "", Dur: dur, Args: argsClone });
+      Tracing_writeEvent(tr, { PID: 1, TID: tid, PH: "X", Cat: phase as string, TS: startMicros, Name: name, S: "", Dur: dur, Args: argsClone });
       Tracing_maybeFlushLocked(tr);
     } finally {
       tr.mu.Unlock();
@@ -590,7 +608,242 @@ export function Tracing_Push(receiver: GoPtr<Tracing>, phase: Phase, name: strin
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::method::Tracing.NewTypeTracer","kind":"method","status":"implemented","sigHash":"15d85ee1a5aee224cc129c19c1afa25e103db4ab07b29d61d08fc2d1c9bcfb64","bodyHash":"0e57e00dbff850c34f9f2fcdf7fa7502215baf8e903fc37fb80958b31f040bd0"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::constGroup::mainThreadID+firstSyntheticThreadID+firstFileThreadID+fileThreadIDHashRange","kind":"constGroup","status":"implemented","sigHash":"60e7590297c05ffd027e870a840301d2b6ac1414b64383ce11f3afbd17a7edaf","bodyHash":"3fa047d29ab928ac01022d74e3ddc3f30bc66bc5e0e8391f17e76788f513ca13"}
+ *
+ * Go source:
+ * const (
+ * 	mainThreadID           = 1
+ * 	firstSyntheticThreadID = 2
+ * 	firstFileThreadID      = 1_000_000
+ * 	fileThreadIDHashRange  = 1_000_000_000
+ * )
+ */
+export const mainThreadID: int = 1 as int;
+export const firstSyntheticThreadID: int = 2 as int;
+export const firstFileThreadID: int = 1_000_000 as int;
+export const fileThreadIDHashRange: int = 1_000_000_000 as int;
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::varGroup::traceThreadArgKeys","kind":"varGroup","status":"implemented","sigHash":"8833f96a4cab6103fbed8e8d7111a13a908e203063040d13de4ee77fd99de5e8","bodyHash":"9417cbffd7c0e527a62aa76bbcd4b85ab717815dd7737d538c976204577c8e01"}
+ *
+ * Go source:
+ * var traceThreadArgKeys = [...]string{"path", "fileName", "containingFileName", "jsFilePath", "declarationFilePath"}
+ */
+export const traceThreadArgKeys: GoArray<string, "..."> = ["path", "fileName", "containingFileName", "jsFilePath", "declarationFilePath"];
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::type::traceThreadKind","kind":"type","status":"implemented","sigHash":"7f8971828713d04c4545433a652f30e223fd2b57b824058221a9c6b3a1311886","bodyHash":"cd398ca0b7b5f53734837bb31f3eedcfcb7ab2026b5ce5c04fb978e4bf50fa60"}
+ *
+ * Go source:
+ * traceThreadKind string
+ */
+export type traceThreadKind = string;
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::constGroup::traceThreadKindChecker+traceThreadKindFile","kind":"constGroup","status":"implemented","sigHash":"58da3dc4aee3c81f7e7f68ebc820eab886e35c9099192ab2ecabf450ed93c7e6","bodyHash":"e49edb3db2a2be667b307cdfae95228c3b358d0250dc8f741a2d22572b686f69"}
+ *
+ * Go source:
+ * const (
+ * 	traceThreadKindChecker traceThreadKind = "checker"
+ * 	traceThreadKindFile    traceThreadKind = "file"
+ * )
+ */
+export const traceThreadKindChecker: traceThreadKind = "checker";
+export const traceThreadKindFile: traceThreadKind = "file";
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::type::traceThreadKey","kind":"type","status":"implemented","sigHash":"37337c50b217387117f1ae06bd5f93208b8a14761633dcac245eafcad8f3f56f","bodyHash":"fa1e7d22a9b7c4a8c2f2d37d2e668ab8f38270c8dcbc19b5aeaabd513aaf3bd7"}
+ *
+ * Go source:
+ * traceThreadKey struct {
+ * 	kind     traceThreadKind
+ * 	text     string
+ * 	index    int
+ * 	hasIndex bool
+ * }
+ */
+export interface traceThreadKey {
+  kind: traceThreadKind;
+  text: string;
+  index: int;
+  hasIndex: bool;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::method::Tracing.threadIDLocked","kind":"method","status":"implemented","sigHash":"304e42395e9673f6b5b3d524230ffeca9053b6177cdeba9f70994df31a81167a","bodyHash":"2c65a947c18fcc4f12f1d8a35ac445946dc4ec6342a3ee151cc5668edb35a2f0"}
+ *
+ * Go source:
+ * func (tr *Tracing) threadIDLocked(args map[string]any) int {
+ * 	key, ok := traceThreadKeyFromArgs(args)
+ * 	if !ok {
+ * 		return mainThreadID
+ * 	}
+ * 	if tid, ok := tr.threadIDs[key]; ok {
+ * 		return tid
+ * 	}
+ * 	tid := key.defaultThreadID()
+ * 	for {
+ * 		if existingKey, ok := tr.threadKeys[tid]; !ok || existingKey == key {
+ * 			break
+ * 		}
+ * 		tid++
+ * 	}
+ * 	tr.threadIDs[key] = tid
+ * 	tr.threadKeys[tid] = key
+ * 	tr.writeThreadNameEventLocked(tid, key.displayName())
+ * 	return tid
+ * }
+ */
+export function Tracing_threadIDLocked(receiver: GoPtr<Tracing>, args: GoMap<string, unknown>): int {
+  const tr = receiver!;
+  const [key, ok] = traceThreadKeyFromArgs(args);
+  if (!ok) {
+    return mainThreadID;
+  }
+  const existing = tr.threadIDs.get(key);
+  if (existing !== undefined) {
+    return existing;
+  }
+  let tid = traceThreadKey_defaultThreadID(key);
+  for (;;) {
+    const existingKey = tr.threadKeys.get(tid);
+    if (existingKey === undefined ||
+      (existingKey.kind === key.kind && existingKey.text === key.text && existingKey.index === key.index && existingKey.hasIndex === key.hasIndex)) {
+      break;
+    }
+    tid = (tid + 1) as int;
+  }
+  tr.threadIDs.set(key, tid);
+  tr.threadKeys.set(tid, key);
+  Tracing_writeThreadNameEventLocked(tr, tid, traceThreadKey_displayName(key));
+  return tid;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::method::Tracing.writeThreadNameEventLocked","kind":"method","status":"implemented","sigHash":"3dc9dd268ba56bc3075bbbdba4cd70301eb9e0ca4c32807bca9306b882c29c7e","bodyHash":"a676a82629b7ca71436557ada5561504fa689ae7efc4bd84e7a4ea0da324f108"}
+ *
+ * Go source:
+ * func (tr *Tracing) writeThreadNameEventLocked(tid int, name string) {
+ * 	tr.traceContent.WriteString(",\n")
+ * 	tr.writeEvent(traceEvent{PID: 1, TID: tid, PH: "M", Cat: "__metadata", TS: tr.metadataTS, Name: "thread_name", Args: map[string]any{"name": name}})
+ * }
+ */
+export function Tracing_writeThreadNameEventLocked(receiver: GoPtr<Tracing>, tid: int, name: string): void {
+  const tr = receiver!;
+  tr.traceContent.WriteString(",\n");
+  Tracing_writeEvent(tr, { PID: 1, TID: tid, PH: "M", Cat: "__metadata", TS: tr.metadataTS, Name: "thread_name", S: "", Dur: undefined, Args: new globalThis.Map([["name", name]]) });
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::func::traceThreadKeyFromArgs","kind":"func","status":"implemented","sigHash":"cbdb4de76873e98fafdc5a2f4f1aac74d7766fe349836f97b6c7fa38d06d46c0","bodyHash":"ca4b501f6ecc1cebc57bbbe2b6719130150298dcfbef477f5e4689932953920c"}
+ *
+ * Go source:
+ * func traceThreadKeyFromArgs(args map[string]any) (traceThreadKey, bool) {
+ * 	if len(args) == 0 {
+ * 		return traceThreadKey{}, false
+ * 	}
+ * 	if checkerID, ok := args["checkerId"].(int); ok {
+ * 		return traceThreadKey{kind: traceThreadKindChecker, index: checkerID, hasIndex: true}, true
+ * 	}
+ * 	for _, key := range traceThreadArgKeys {
+ * 		if value, ok := args[key]; ok {
+ * 			if path, ok := value.(string); ok && path != "" {
+ * 				return traceThreadKey{kind: traceThreadKindFile, text: path}, true
+ * 			}
+ * 		}
+ * 	}
+ * 	return traceThreadKey{}, false
+ * }
+ */
+export function traceThreadKeyFromArgs(args: GoMap<string, unknown>): [traceThreadKey, bool] {
+  if ((args?.size ?? 0) === 0) {
+    return [{ kind: "", text: "", index: 0 as int, hasIndex: false as bool }, false as bool];
+  }
+  const checkerID = args!.get("checkerId");
+  if (typeof checkerID === "number") {
+    return [{ kind: traceThreadKindChecker, text: "", index: checkerID as int, hasIndex: true as bool }, true as bool];
+  }
+  for (const key of traceThreadArgKeys) {
+    if (args!.has(key)) {
+      const value = args!.get(key);
+      if (typeof value === "string" && value !== "") {
+        const path = value;
+        return [{ kind: traceThreadKindFile, text: path, index: 0 as int, hasIndex: false as bool }, true as bool];
+      }
+    }
+  }
+  return [{ kind: "", text: "", index: 0 as int, hasIndex: false as bool }, false as bool];
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::method::traceThreadKey.defaultThreadID","kind":"method","status":"implemented","sigHash":"0c8fc69363c5075f52f725337f67f97330c6e457ef768ce72acf2189f986e98d","bodyHash":"0585eed593c610a5aa94493b8d6cb60159a7c097df546de8b84a88cb9faac679"}
+ *
+ * Go source:
+ * func (key traceThreadKey) defaultThreadID() int {
+ * 	if key.kind == traceThreadKindChecker && key.hasIndex && key.index >= 0 {
+ * 		return firstSyntheticThreadID + key.index
+ * 	}
+ * 	return stableTraceThreadID(key)
+ * }
+ */
+export function traceThreadKey_defaultThreadID(receiver: traceThreadKey): int {
+  const key = receiver;
+  if (key.kind === traceThreadKindChecker && key.hasIndex && key.index >= 0) {
+    return (firstSyntheticThreadID + key.index) as int;
+  }
+  return stableTraceThreadID(key);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::method::traceThreadKey.displayName","kind":"method","status":"implemented","sigHash":"af124d3df76bb3036a31429f9ddbb97fc58bdef59f317b5fbdc5eb2d45a13a88","bodyHash":"d4befe4a98a857ea4602f2c9427c5e21820f394175e65b9b9c718f98136c1a11"}
+ *
+ * Go source:
+ * func (key traceThreadKey) displayName() string {
+ * 	if key.hasIndex {
+ * 		return string(key.kind) + ":" + strconv.Itoa(key.index)
+ * 	}
+ * 	return string(key.kind) + ":" + key.text
+ * }
+ */
+export function traceThreadKey_displayName(receiver: traceThreadKey): string {
+  const key = receiver;
+  if (key.hasIndex) {
+    return (key.kind as string) + ":" + Itoa(key.index);
+  }
+  return (key.kind as string) + ":" + key.text;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::func::stableTraceThreadID","kind":"func","status":"implemented","sigHash":"9f3ff73ae7deb2d1f61e170327a20d4e0fc2ef05af5634cced4912b838046b41","bodyHash":"df776e05b389188aacf18ac03304eba07c6b397b347a30cfb1b99f4d5e962a77"}
+ *
+ * Go source:
+ * func stableTraceThreadID(key traceThreadKey) int {
+ * 	hash := xxh3.New()
+ * 	_, _ = hash.WriteString(string(key.kind))
+ * 	_, _ = hash.WriteString(":")
+ * 	if key.hasIndex {
+ * 		_, _ = hash.WriteString(strconv.Itoa(key.index))
+ * 	} else {
+ * 		_, _ = hash.WriteString(key.text)
+ * 	}
+ * 	return firstFileThreadID + int(hash.Sum64()%fileThreadIDHashRange)
+ * }
+ */
+export function stableTraceThreadID(key: traceThreadKey): int {
+  const hash = xxh3.New();
+  hash.WriteString(key.kind as string);
+  hash.WriteString(":");
+  if (key.hasIndex) {
+    hash.WriteString(Itoa(key.index));
+  } else {
+    hash.WriteString(key.text);
+  }
+  const sum = hash.Sum64();
+  return (firstFileThreadID + globalThis.Number(sum % globalThis.BigInt(fileThreadIDHashRange))) as int;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tracing/tracing.go::method::Tracing.NewTypeTracer","kind":"method","status":"implemented","sigHash":"15d85ee1a5aee224cc129c19c1afa25e103db4ab07b29d61d08fc2d1c9bcfb64","bodyHash":"ba3f3dc34781cf258f63b6a42fc942e561ecfdf84623bf11d48676ab03308bb1"}
  *
  * Go source:
  * func (tr *Tracing) NewTypeTracer(checkerIndex int) Tracer {
@@ -609,6 +862,7 @@ export function Tracing_Push(receiver: GoPtr<Tracing>, phase: Phase, name: strin
  * 		ConfigFilePath: tr.configFilePath,
  * 		TracePath:      tr.tracePath,
  * 		TypesPath:      typesPath,
+ * 		CheckerID:      checkerIndex,
  * 	})
  * 	return tracer
  * }
@@ -632,6 +886,7 @@ export function Tracing_NewTypeTracer(receiver: GoPtr<Tracing>, checkerIndex: in
         ConfigFilePath: tr.configFilePath,
         TracePath: tr.tracePath,
         TypesPath: typesPath,
+        CheckerID: checkerIndex,
       },
     ];
     return typeTracer_as_Tracer(tracer);

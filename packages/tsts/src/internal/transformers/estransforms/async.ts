@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Node, NodeList, NodeVisitor } from "../../ast/spine.js";
 import { Node_Text } from "../../ast/ast.js";
@@ -83,13 +83,11 @@ import {
   IsBlock,
   IsIdentifier,
   IsOmittedExpression,
-  IsPropertyAccessExpression,
-  IsPropertyAssignment,
   IsPostfixUnaryExpression,
   IsPrefixUnaryExpression,
   IsVariableDeclarationList,
 } from "../../ast/generated/predicates.js";
-import { IsBindingPattern } from "../../ast/utilities.js";
+import { IsBindingPattern, IsIdentifierName, IsLabelName } from "../../ast/utilities.js";
 import { NodeFlagsBlockScoped, NodeFlagsNone } from "../../ast/generated/flags.js";
 import { Node_SubtreeFacts } from "../../ast/spine.js";
 import { SubtreeContainsAnyAwait, SubtreeContainsAwait } from "../../ast/subtreefacts.js";
@@ -99,7 +97,7 @@ import { NodeFactory_NewAssignmentExpression, NodeFactory_NewAwaiterHelper, Node
 import { NodeFactory_NewNodeList } from "../../ast/spine.js";
 import type { AutoGenerateOptions } from "../../printer/emitcontext.js";
 import { EmitContext_AddEmitFlags, EmitContext_AddEmitHelper, EmitContext_AddInitializationStatement, EmitContext_AddVariableDeclaration, EmitContext_EmitFlags, EmitContext_EndAndMergeVariableEnvironmentList, EmitContext_MergeEnvironmentList, EmitContext_MostOriginal, EmitContext_NewNodeVisitor, EmitContext_ReadEmitHelpers, EmitContext_SetOriginal, EmitContext_SetSourceMapRange, EmitContext_StartVariableEnvironment, EmitContext_VisitFunctionBody, EmitContext_VisitParameters } from "../../printer/emitcontext.js";
-import { EFCustomPrologue, EFNoLexicalArguments, EFStartOnNewLine } from "../../printer/emitflags.js";
+import { EFCustomPrologue, EFNoLexicalArguments, EFNoLexicalThis, EFStartOnNewLine } from "../../printer/emitflags.js";
 import { GeneratedIdentifierFlagsFileLevel, GeneratedIdentifierFlagsOptimistic, GeneratedIdentifierFlagsReservedInNestedScopes } from "../../printer/generatedidentifierflags.js";
 import { IsFunctionLikeDeclaration } from "../../ast/utilities.js";
 import { ConvertBindingPatternToAssignmentPattern } from "../utilities.js";
@@ -154,21 +152,18 @@ export interface lexicalArgumentsInfo {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::type::asyncTransformer","kind":"type","status":"implemented","sigHash":"ccedab042879344bd6a47deab748826ca278d59017e72ae4ac2e50c736e0dadc","bodyHash":"2e21c91a6a0cff11830da11f7d1129d626cf3bd80a4ee059e758dec907529740"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::type::asyncTransformer","kind":"type","status":"implemented","sigHash":"ccedab042879344bd6a47deab748826ca278d59017e72ae4ac2e50c736e0dadc","bodyHash":"b9127e7eb84b5c613f6fb94a6c6c733a7ff9b9077baf6d4a8d8d2fb55410a7e3"}
  *
  * Go source:
  * asyncTransformer struct {
  * 	transformers.Transformer
  * 	superAccessState
- * 
+ *
  * 	contextFlags asyncContextFlags
- * 
+ *
  * 	enclosingFunctionParameterNames *collections.Set[string]
  * 	lexicalArguments                lexicalArgumentsInfo
- * 
- * 	parentNode  *ast.Node
- * 	currentNode *ast.Node
- * 
+ *
  * 	asyncBodyVisitor    *ast.NodeVisitor
  * 	fallbackNodeVisitor *ast.NodeVisitor
  * }
@@ -177,10 +172,8 @@ export interface asyncTransformer {
   readonly __tsgoEmbedded0?: Transformer;
   readonly __tsgoEmbedded1?: superAccessState;
   contextFlags: asyncContextFlags;
-  enclosingFunctionParameterNames: GoPtr<Set>;
+  enclosingFunctionParameterNames: GoPtr<Set<string>>;
   lexicalArguments: lexicalArgumentsInfo;
-  parentNode: GoPtr<Node>;
-  currentNode: GoPtr<Node>;
   asyncBodyVisitor: GoPtr<NodeVisitor>;
   fallbackNodeVisitor: GoPtr<NodeVisitor>;
 }
@@ -205,8 +198,6 @@ export function newAsyncTransformer(opts: GoPtr<TransformOptions>): GoPtr<Transf
     contextFlags: 0,
     enclosingFunctionParameterNames: undefined,
     lexicalArguments: { binding: undefined, used: false },
-    parentNode: undefined,
-    currentNode: undefined,
     asyncBodyVisitor: undefined,
     fallbackNodeVisitor: undefined,
   };
@@ -342,7 +333,7 @@ export function asyncTransformer_visitDefault(receiver: GoPtr<asyncTransformer>,
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::method::asyncTransformer.fallbackVisitor","kind":"method","status":"implemented","sigHash":"23f4d295d67c6174abc7013f766d63f3e8405b5e59c4864747dd7c3428be2310","bodyHash":"7379c95ab6573fc3a7a0d093471f1739489700658247ac15cf3c1771693b3c39"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::method::asyncTransformer.fallbackVisitor","kind":"method","status":"implemented","sigHash":"23f4d295d67c6174abc7013f766d63f3e8405b5e59c4864747dd7c3428be2310","bodyHash":"d685155943297c8490bbcb65657d97e5e31b668951f5cd4dc5fe93b0da01f511"}
  *
  * Go source:
  * func (tx *asyncTransformer) fallbackVisitor(node *ast.Node) *ast.Node {
@@ -363,7 +354,10 @@ export function asyncTransformer_visitDefault(receiver: GoPtr<asyncTransformer>,
  * 		ast.KindVariableDeclaration:
  * 		// fall through to visitEachChild
  * 	case ast.KindIdentifier:
- * 		if tx.lexicalArguments.binding != nil && node.Text() == "arguments" && !isNameOfPropertyAccessOrAssignment(tx.parentNode, node) {
+ * 		if tx.lexicalArguments.binding != nil &&
+ * 			node.Text() == "arguments" &&
+ * 			!ast.IsIdentifierName(node) &&
+ * 			!ast.IsLabelName(node) {
  * 			tx.lexicalArguments.used = true
  * 			return tx.lexicalArguments.binding
  * 		}
@@ -390,7 +384,12 @@ export function asyncTransformer_fallbackVisitor(receiver: GoPtr<asyncTransforme
       // fall through to visitEachChild
       break;
     case KindIdentifier:
-      if (receiver!.lexicalArguments.binding !== undefined && Node_Text(node) === "arguments" && !isNameOfPropertyAccessOrAssignment(receiver!.parentNode, node)) {
+      if (
+        receiver!.lexicalArguments.binding !== undefined &&
+        Node_Text(node) === "arguments" &&
+        !IsIdentifierName(node) &&
+        !IsLabelName(node)
+      ) {
         receiver!.lexicalArguments.used = true;
         return receiver!.lexicalArguments.binding as unknown as GoPtr<Node>;
       }
@@ -400,51 +399,27 @@ export function asyncTransformer_fallbackVisitor(receiver: GoPtr<asyncTransforme
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::method::asyncTransformer.descendInto","kind":"method","status":"implemented","sigHash":"363421f3e4d44ca0411a6a42be923091cfbe78bab5a1208cd33385cf5adf97f9","bodyHash":"fd6a198b299cbad0e5b4a87141722007f9c314cff3dc0c1aa5c4f71526d2df42"}
- *
- * Go source:
- * func (tx *asyncTransformer) descendInto(node *ast.Node) func() {
- * 	savedParent := tx.parentNode
- * 	tx.parentNode = tx.currentNode
- * 	tx.currentNode = node
- * 	return func() { tx.currentNode = tx.parentNode; tx.parentNode = savedParent }
- * }
- */
-export function asyncTransformer_descendInto(receiver: GoPtr<asyncTransformer>, node: GoPtr<Node>): () => void {
-  const savedParent = receiver!.parentNode;
-  receiver!.parentNode = receiver!.currentNode;
-  receiver!.currentNode = node;
-  return (): void => {
-    receiver!.currentNode = receiver!.parentNode;
-    receiver!.parentNode = savedParent;
-  };
-}
-
-/**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::method::asyncTransformer.visitFallback","kind":"method","status":"implemented","sigHash":"0bf71532f8917e36dd2d23563f04a9bb55cb6b3dea35017b8a143499c848ccc9","bodyHash":"fa2e3eace51256565c07e6e7f4441456185ef3233b7d315c2358df258e0bfc96"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::method::asyncTransformer.visitFallback","kind":"method","status":"implemented","sigHash":"0bf71532f8917e36dd2d23563f04a9bb55cb6b3dea35017b8a143499c848ccc9","bodyHash":"754a1ea439dbbb9a6a0d9362e815bd90875bb0530a78812a4f34b3bb2f8d26e6"}
  *
  * Go source:
  * func (tx *asyncTransformer) visitFallback(node *ast.Node) *ast.Node {
- * 	cleanup := tx.descendInto(node)
- * 	defer cleanup()
  * 	return tx.fallbackVisitor(node)
  * }
  */
 export function asyncTransformer_visitFallback(receiver: GoPtr<asyncTransformer>, node: GoPtr<Node>): GoPtr<Node> {
-  const cleanup = asyncTransformer_descendInto(receiver, node);
-  const result = asyncTransformer_fallbackVisitor(receiver, node);
-  cleanup();
-  return result;
+  return asyncTransformer_fallbackVisitor(receiver, node);
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::method::asyncTransformer.visit","kind":"method","status":"implemented","sigHash":"2848ffce30a8a6797a57f68ab61e30c2c6e80839432e1a666f04108f4b223ff5","bodyHash":"ef101be8627c0a497af1b800e04052cb7f2668266425a93555c706ce38b9bab5"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::method::asyncTransformer.visit","kind":"method","status":"implemented","sigHash":"2848ffce30a8a6797a57f68ab61e30c2c6e80839432e1a666f04108f4b223ff5","bodyHash":"a766d5e34d5cb244ce6329ddd091ddc7c0a42e919d0b479aa5e9885afeb70263"}
  *
  * Go source:
  * func (tx *asyncTransformer) visit(node *ast.Node) *ast.Node {
- * 	cleanup := tx.descendInto(node)
- * 	defer cleanup()
- * 
+ * 	if tx.EmitContext().EmitFlags(node)&printer.EFNoLexicalThis != 0 && tx.inHasLexicalThisContext() {
+ * 		tx.setContextFlag(asyncContextHasLexicalThis, false)
+ * 		defer tx.setContextFlag(asyncContextHasLexicalThis, true)
+ * 	}
+ *
  * 	if node.SubtreeFacts()&(ast.SubtreeContainsAnyAwait|ast.SubtreeContainsAwait) == 0 {
  * 		return tx.fallbackVisitor(node)
  * 	}
@@ -479,56 +454,50 @@ export function asyncTransformer_visitFallback(receiver: GoPtr<asyncTransformer>
  * }
  */
 export function asyncTransformer_visit(receiver: GoPtr<asyncTransformer>, node: GoPtr<Node>): GoPtr<Node> {
-  const cleanup = asyncTransformer_descendInto(receiver, node);
-  if ((Node_SubtreeFacts(node) & (SubtreeContainsAnyAwait | SubtreeContainsAwait)) === 0) {
-    const result = asyncTransformer_fallbackVisitor(receiver, node);
-    cleanup();
-    return result;
+  const restoreLexicalThis =
+    (EmitContext_EmitFlags(Transformer_EmitContext(receiver!.__tsgoEmbedded0!), node) & EFNoLexicalThis) !== 0 &&
+    asyncTransformer_inHasLexicalThisContext(receiver);
+  if (restoreLexicalThis) {
+    asyncTransformer_setContextFlag(receiver, asyncContextHasLexicalThis, false);
   }
-  superAccessState_trackSuperAccess(receiver!.__tsgoEmbedded1!, node);
-  let result: GoPtr<Node>;
-  switch (node!.Kind) {
-    case KindAsyncKeyword:
-      // ES2017 async modifier should be elided for targets < ES2017
-      result = undefined;
-      break;
-    case KindSourceFile:
-      result = asyncTransformer_visitSourceFile(receiver, node as unknown as GoPtr<SourceFile>);
-      break;
-    case KindAwaitExpression:
-      result = asyncTransformer_visitAwaitExpression(receiver, node as unknown as GoPtr<AwaitExpression>);
-      break;
-    case KindMethodDeclaration:
-      result = asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitMethodDeclaration(tx, n), node);
-      break;
-    case KindFunctionDeclaration:
-      result = asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitFunctionDeclaration(tx, n), node);
-      break;
-    case KindFunctionExpression:
-      result = asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitFunctionExpression(tx, n), node);
-      break;
-    case KindArrowFunction:
-      result = asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel, (tx, n) => asyncTransformer_visitArrowFunction(tx, n), node);
-      break;
-    case KindGetAccessor:
-      result = asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitGetAccessorDeclaration(tx, n), node);
-      break;
-    case KindSetAccessor:
-      result = asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitSetAccessorDeclaration(tx, n), node);
-      break;
-    case KindConstructor:
-      result = asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitConstructorDeclaration(tx, n), node);
-      break;
-    case KindClassDeclaration:
-    case KindClassExpression:
-      result = asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitDefault(tx, n), node);
-      break;
-    default:
-      result = NodeVisitor_VisitEachChild((Transformer_Visitor(receiver!.__tsgoEmbedded0!) as ConcreteNodeVisitor), node);
-      break;
+  try {
+    if ((Node_SubtreeFacts(node) & (SubtreeContainsAnyAwait | SubtreeContainsAwait)) === 0) {
+      return asyncTransformer_fallbackVisitor(receiver, node);
+    }
+    superAccessState_trackSuperAccess(receiver!.__tsgoEmbedded1!, node);
+    switch (node!.Kind) {
+      case KindAsyncKeyword:
+        // ES2017 async modifier should be elided for targets < ES2017
+        return undefined;
+      case KindSourceFile:
+        return asyncTransformer_visitSourceFile(receiver, node as unknown as GoPtr<SourceFile>);
+      case KindAwaitExpression:
+        return asyncTransformer_visitAwaitExpression(receiver, node as unknown as GoPtr<AwaitExpression>);
+      case KindMethodDeclaration:
+        return asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitMethodDeclaration(tx, n), node);
+      case KindFunctionDeclaration:
+        return asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitFunctionDeclaration(tx, n), node);
+      case KindFunctionExpression:
+        return asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitFunctionExpression(tx, n), node);
+      case KindArrowFunction:
+        return asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel, (tx, n) => asyncTransformer_visitArrowFunction(tx, n), node);
+      case KindGetAccessor:
+        return asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitGetAccessorDeclaration(tx, n), node);
+      case KindSetAccessor:
+        return asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitSetAccessorDeclaration(tx, n), node);
+      case KindConstructor:
+        return asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitConstructorDeclaration(tx, n), node);
+      case KindClassDeclaration:
+      case KindClassExpression:
+        return asyncTransformer_doWithContext(receiver, asyncContextNonTopLevel | asyncContextHasLexicalThis, (tx, n) => asyncTransformer_visitDefault(tx, n), node);
+      default:
+        return NodeVisitor_VisitEachChild((Transformer_Visitor(receiver!.__tsgoEmbedded0!) as ConcreteNodeVisitor), node);
+    }
+  } finally {
+    if (restoreLexicalThis) {
+      asyncTransformer_setContextFlag(receiver, asyncContextHasLexicalThis, true);
+    }
   }
-  cleanup();
-  return result;
 }
 
 /**
@@ -1242,7 +1211,7 @@ export function asyncTransformer_visitArrowFunction(receiver: GoPtr<asyncTransfo
  * 	}
  * }
  */
-export function asyncTransformer_recordDeclarationName(receiver: GoPtr<asyncTransformer>, node: GoPtr<Node>, names: GoPtr<Set>): void {
+export function asyncTransformer_recordDeclarationName(receiver: GoPtr<asyncTransformer>, node: GoPtr<Node>, names: GoPtr<Set<string>>): void {
   const name = Node_Name(node);
   if (name === undefined) {
     return;
@@ -1682,16 +1651,29 @@ export function asyncTransformer_transformAsyncFunctionParameterList(receiver: G
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::method::asyncTransformer.transformAsyncFunctionBody","kind":"method","status":"implemented","sigHash":"728cf69d8964d0a5bcf1d50cee929efce063e9e58c1cb131b831412cce6376a5","bodyHash":"b87dd9ca952377690e0f12a37554ca37652bff84e09372b1407e5f6df7f2cd16"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::method::asyncTransformer.transformAsyncFunctionBody","kind":"method","status":"implemented","sigHash":"728cf69d8964d0a5bcf1d50cee929efce063e9e58c1cb131b831412cce6376a5","bodyHash":"4d6a12e59145e2e5576f19dd774dc887caa78ea3cdf6d6bc8e337677406e2212"}
  *
  * Go source:
  * func (tx *asyncTransformer) transformAsyncFunctionBody(node *ast.Node, outerParameters *ast.NodeList) *ast.Node {
+ * 	isArrow := node.Kind == ast.KindArrowFunction
+ * 	savedCapturedSuperProperties := tx.capturedSuperProperties
+ * 	savedHasSuperElementAccess := tx.hasSuperElementAccess
+ * 	savedHasSuperPropertyAssignment := tx.hasSuperPropertyAssignment
+ * 	savedSuperBinding := tx.superBinding
+ * 	savedSuperIndexBinding := tx.superIndexBinding
+ * 	if !isArrow {
+ * 		tx.capturedSuperProperties = &collections.OrderedSet[string]{}
+ * 		tx.hasSuperElementAccess = false
+ * 		tx.hasSuperPropertyAssignment = false
+ * 		tx.superBinding = tx.Factory().NewUniqueNameEx("_super", printer.AutoGenerateOptions{Flags: printer.GeneratedIdentifierFlagsOptimistic | printer.GeneratedIdentifierFlagsFileLevel})
+ * 		tx.superIndexBinding = tx.Factory().NewUniqueNameEx("_superIndex", printer.AutoGenerateOptions{Flags: printer.GeneratedIdentifierFlagsOptimistic | printer.GeneratedIdentifierFlagsFileLevel})
+ * 	}
+ *
  * 	innerParameters := (*ast.NodeList)(nil)
  * 	if !isSimpleParameterList(node.Parameters()) {
  * 		innerParameters = tx.EmitContext().VisitParameters(node.ParameterList(), tx.Visitor())
  * 	}
  *
- * 	isArrow := node.Kind == ast.KindArrowFunction
  * 	savedLexicalArguments := tx.lexicalArguments
  * 	captureLexicalArguments := tx.lexicalArguments.binding == nil
  * 	if captureLexicalArguments {
@@ -1709,6 +1691,13 @@ export function asyncTransformer_transformAsyncFunctionParameterList(receiver: G
  * 		}
  * 	}
  *
+ * 	...
+ * 	emitSuperHelpers := tx.capturedSuperProperties != nil &&
+ * 		(tx.capturedSuperProperties.Size() > 0 || tx.hasSuperElementAccess)
+ * 	if emitSuperHelpers {
+ * 		innerParameters = tx.superAccessVisitor.VisitNodes(innerParameters)
+ * 		asyncBody = tx.substituteSuperAccessesInBody(asyncBody)
+ * 	}
  * 	...
  * 	return result
  * }
@@ -1765,7 +1754,7 @@ export function asyncTransformer_transformAsyncFunctionBody(receiver: GoPtr<asyn
   const savedEnclosingFunctionParameterNames = receiver!.enclosingFunctionParameterNames;
   receiver!.enclosingFunctionParameterNames = NewSetWithSizeHint<string>(0);
   for (const parameter of Node_Parameters(node)) {
-    asyncTransformer_recordDeclarationName(receiver, parameter as unknown as GoPtr<Node>, receiver!.enclosingFunctionParameterNames as unknown as GoPtr<Set>);
+    asyncTransformer_recordDeclarationName(receiver, parameter as unknown as GoPtr<Node>, receiver!.enclosingFunctionParameterNames);
   }
   const hasLexicalThis = asyncTransformer_inHasLexicalThisContext(receiver);
   let asyncBody = asyncTransformer_transformAsyncFunctionBodyWorker(receiver, Node_Body(node));
@@ -2056,22 +2045,6 @@ export function asyncTransformer_getOriginalIfFunctionLike(receiver: GoPtr<async
     return original;
   }
   return node;
-}
-
-/**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/async.go::func::isNameOfPropertyAccessOrAssignment","kind":"func","status":"implemented","sigHash":"45adc32f06add6b8d44dca689205edae9b5c9c2f2e7359b042759f36b87109b7","bodyHash":"8b9e731a8f88babb37453ca9261c9f0e5db23423c63274c03bc3a0ad0cf8ddf9"}
- *
- * Go source:
- * func isNameOfPropertyAccessOrAssignment(parent *ast.Node, node *ast.Node) bool {
- * 	return parent != nil &&
- * 		(ast.IsPropertyAccessExpression(parent) || ast.IsPropertyAssignment(parent)) &&
- * 		parent.Name() == node
- * }
- */
-export function isNameOfPropertyAccessOrAssignment(parent: GoPtr<Node>, node: GoPtr<Node>): bool {
-  return parent !== undefined &&
-    (IsPropertyAccessExpression(parent) || IsPropertyAssignment(parent)) &&
-    Node_Name(parent) === node;
 }
 
 /**

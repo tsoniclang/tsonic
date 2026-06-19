@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { byte, int } from "@tsonic/core/types.js";
+import type { byte, int } from "../../go/scalars.js";
 import { Collect, IsSorted } from "../../go/slices.js";
 import { NewDecoder } from "../../go/github.com/go-json-experiment/json/jsontext.js";
 import {

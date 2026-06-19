@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import { Filter, IfElse, Map as core_Map, OrElse, Some } from "../../core/core.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import { Tristate_IsTrue } from "../../core/tristate.js";
@@ -570,7 +570,7 @@ export function Checker_isCommonJSRequire(receiver: GoPtr<Checker>, node: GoPtr<
  * }
  */
 export function keyBuilder_hash(receiver: GoPtr<keyBuilder>): CacheHashKey {
-  return receiver!.h.Sum128().String();
+  return receiver!.h.Sum128();
 }
 
 /**

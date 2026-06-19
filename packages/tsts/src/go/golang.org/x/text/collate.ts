@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../../scalars.js";
 import type { Tag } from "./language.js";
 
 export type Option = (options: Intl.CollatorOptions) => void;

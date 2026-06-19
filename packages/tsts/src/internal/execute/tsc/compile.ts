@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Writer } from "../../../go/io.js";
 import type { Duration, Time } from "../../../go/time.js";
@@ -49,21 +49,21 @@ export interface System {
 export type ExitStatus = int;
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/execute/tsc/compile.go::constGroup::ExitStatusSuccess+ExitStatusDiagnosticsPresent_OutputsGenerated+ExitStatusDiagnosticsPresent_OutputsSkipped+ExitStatusInvalidProject_OutputsSkipped+ExitStatusProjectReferenceCycle_OutputsSkipped+ExitStatusNotImplemented","kind":"constGroup","status":"implemented","sigHash":"bc4eaf89d4c91a04fd3e558badf33a4b1eb8c833dd04fdeabab9a0acfcd7296b","bodyHash":"5bd02d5a9bc9d74135e48c73f0fcfc5aeddd5b738b04a65f41fbc1d20da1d2b6"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/execute/tsc/compile.go::constGroup::ExitStatusSuccess+ExitStatusDiagnosticsPresent_OutputsSkipped+ExitStatusDiagnosticsPresent_OutputsGenerated+ExitStatusInvalidProject_OutputsSkipped+ExitStatusProjectReferenceCycle_OutputsSkipped+ExitStatusNotImplemented","kind":"constGroup","status":"implemented","sigHash":"f52247fde3d4e8d3add4ff1e6ca9beea887ece14578762bbf56f8323ec9c6a80","bodyHash":"95e9a712a75534ad85c464c6f72eb5f9d92af9cb6cc89eb05a2e29ab67d6c606"}
  *
  * Go source:
  * const (
  * 	ExitStatusSuccess                              ExitStatus = 0
- * 	ExitStatusDiagnosticsPresent_OutputsGenerated  ExitStatus = 1
- * 	ExitStatusDiagnosticsPresent_OutputsSkipped    ExitStatus = 2
+ * 	ExitStatusDiagnosticsPresent_OutputsSkipped    ExitStatus = 1
+ * 	ExitStatusDiagnosticsPresent_OutputsGenerated  ExitStatus = 2
  * 	ExitStatusInvalidProject_OutputsSkipped        ExitStatus = 3
  * 	ExitStatusProjectReferenceCycle_OutputsSkipped ExitStatus = 4
  * 	ExitStatusNotImplemented                       ExitStatus = 5
  * )
  */
 export const ExitStatusSuccess: ExitStatus = 0;
-export const ExitStatusDiagnosticsPresent_OutputsGenerated: ExitStatus = 1;
-export const ExitStatusDiagnosticsPresent_OutputsSkipped: ExitStatus = 2;
+export const ExitStatusDiagnosticsPresent_OutputsSkipped: ExitStatus = 1;
+export const ExitStatusDiagnosticsPresent_OutputsGenerated: ExitStatus = 2;
 export const ExitStatusInvalidProject_OutputsSkipped: ExitStatus = 3;
 export const ExitStatusProjectReferenceCycle_OutputsSkipped: ExitStatus = 4;
 export const ExitStatusNotImplemented: ExitStatus = 5;
@@ -114,7 +114,7 @@ export interface CommandLineResult {
  * }
  */
 export interface CommandLineTesting {
-  OnEmittedFiles(result: GoPtr<EmitResult>, mTimesCache: GoPtr<SyncMap>): void;
+  OnEmittedFiles(result: GoPtr<EmitResult>, mTimesCache: GoPtr<SyncMap<Path, Time>>): void;
   OnListFilesStart(w: Writer): void;
   OnListFilesEnd(w: Writer): void;
   OnStatisticsStart(w: Writer): void;

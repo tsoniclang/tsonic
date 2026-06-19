@@ -1,7 +1,7 @@
 {
   "name": "@tsonic/monorepo",
   "version": "0.0.1",
-  "description": "TypeScript to C# to NativeAOT compiler",
+  "description": "Source-to-source compiler from TypeScript to target-native projects",
   "type": "module",
   "private": true,
   "scripts": {
@@ -9,43 +9,22 @@
     "build:quick": "./scripts/build/all.sh --no-format",
     "clean": "./scripts/build/clean.sh",
     "clean:all": "./scripts/build/clean.sh --all",
-    "test": "npm run test:frontend && npm run test:backend && npm run test:emitter && npm run test:cli",
-    "test:backend": "cd packages/targets/csharp/backend && npm test --",
-    "test:bindings-semantics": "bash scripts/bindings-semantics/verify-migrated-families.sh",
-    "test:cli": "cd packages/cli && npm test --",
-    "test:frontend": "cd packages/frontend && npm test --",
-    "test:emitter": "cd packages/targets/csharp/emitter && npm test --",
-    "lint": "./scripts/build/lint.sh",
-    "lint:fix": "./scripts/build/lint.sh --fix",
-    "format": "./scripts/build/format.sh",
-    "format:check": "./scripts/build/format.sh --check",
-    "typecheck": "bash scripts/build/check-types.sh"
+    "test": "cd packages/tsts && npm test --",
+    "typecheck": "npm run build"
   },
   "workspaces": [
-    "packages/*",
-    "packages/targets/*/*",
-    "npm/*"
+    "packages/tsts",
+    "packages/target-api",
+    "packages/host",
+    "packages/target-csharp",
+    "packages/cli"
   ],
   "devDependencies": {
-    "@eslint/js": "^9.37.0",
-    "@tsonic/js": "10.0.54",
-    "@types/chai": "5.2.2",
-    "@types/mocha": "10.0.10",
-    "@types/node": "20.14.0",
-    "@typescript-eslint/eslint-plugin": "8.43.0",
-    "@typescript-eslint/parser": "8.43.0",
-    "@typescript/native-preview": "7.0.0-dev.20260617.2",
-    "chai": "5.3.3",
-    "esbuild": "^0.27.0",
-    "eslint": "9.35.0",
-    "globals": "15.15.0",
-    "mocha": "11.7.2",
-    "prettier": "3.6.2",
-    "tsonic": "0.0.84",
-    "typescript-eslint": "^8.45.0"
+    "@types/node": "25.9.1",
+    "@typescript/native-preview": "7.0.0-dev.20260617.2"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.18.0"
   },
   "repository": {
     "type": "git",
@@ -53,20 +32,13 @@
   },
   "keywords": [
     "typescript",
+    "source-to-source",
     "csharp",
     "compiler",
-    "native-aot",
     "dotnet",
     "transpiler"
   ],
   "author": "Tsonic Project",
   "license": "MIT",
-  "dependencies": {
-    "@tsonic/cli": "0.0.84",
-    "@tsonic/core": "10.0.46",
-    "@tsonic/dotnet": "10.0.46",
-    "@tsonic/globals": "10.0.46",
-    "@tsonic/js": "10.0.54",
-    "@tsonic/nodejs": "10.0.55"
-  }
+  "dependencies": {}
 }

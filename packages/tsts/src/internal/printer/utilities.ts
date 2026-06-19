@@ -1,8 +1,8 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoRune, GoSlice } from "../../go/compat.js";
 import { FormatUint } from "../../go/strconv.js";
 import { Builder, ToUpper } from "../../go/strings.js";
-import { DecodeRuneInBytesAt, DecodeRuneInString } from "../../go/unicode/utf8.js";
+import { DecodeRuneInString, DecodeRuneInStringAt, RuneError, StringByteLen, StringByteSlice, StringUtf8Bytes } from "../../go/unicode/utf8.js";
 import type { CommentRange, SourceFile, SourceFileLike } from "../ast/ast.js";
 import { SourceFile_Text, SourceFile_ECMALineMap, AsSourceFile } from "../ast/ast.js";
 import type { Node, NodeList } from "../ast/spine.js";
@@ -113,71 +113,16 @@ import { ComputeLineOfPosition, GetECMALineStarts, SkipTriviaEx } from "../scann
 import type { SkipTriviaOptions } from "../scanner/scanner.js";
 import { GetSourceTextOfNodeFromSourceFile } from "../scanner/utilities.js";
 import type { Source } from "../sourcemap/source.js";
-import { IsASCIILetter, IsDigit, IsWhiteSpaceSingleLine, IsWhiteSpaceLike } from "../stringutil/util.js";
+import { IsASCIILetter, IsDigit, IsWhiteSpaceSingleLine, IsWhiteSpaceLike, DecodeJSStringRune } from "../stringutil/util.js";
 import { GetBaseFileName } from "../tspath/path.js";
 import type { EmitContext } from "./emitcontext.js";
+import { EmitContext_MostOriginal } from "./emitcontext.js";
 import { GetDefaultIndentSize } from "./textwriter.js";
 import { TokenFlagsIsInvalid, TokenFlagsContainsSeparator, TokenFlagsSingleQuote } from "../ast/tokenflags.js";
 
-// Go strings are immutable UTF-8 byte sequences; `len(s)` is a byte length,
-// `s[i]` is a byte, and slices like `s[i:j]` operate on byte offsets. The
-// standard-library facades (strings/utf8) follow that contract, so we mirror it
-// here by operating over the UTF-8 byte view and converting back to a JS string
-// at the boundaries.
-// The encoded-view cache is byte-budgeted: unbounded caching retains a full
-// byte copy of every distinct large non-ASCII string a long-lived process
-// touches (multiple GB on an in-process full-lib check).
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
-type Utf8ByteInfo = { ascii: bool; bytes: Uint8Array };
-const utf8ByteInfoCache = new globalThis.Map<string, Utf8ByteInfo>();
-const utf8ByteInfoCacheBudget = 64 * 1024 * 1024; // total cached bytes
-const utf8ByteInfoCacheState = { bytes: 0 };
-
-const getUtf8ByteInfo = (s: string): Utf8ByteInfo => {
-  const cached = utf8ByteInfoCache.get(s);
-  if (cached !== undefined) {
-    return cached;
-  }
-  let ascii = true;
-  for (let i = 0; i < s.length; i++) {
-    if (s.charCodeAt(i) >= 0x80) {
-      ascii = false;
-      break;
-    }
-  }
-  const info: Utf8ByteInfo = {
-    ascii,
-    bytes: ascii ? undefined as unknown as Uint8Array : utf8Encoder.encode(s),
-  };
-  if (s.length >= 4096) {
-    const cost = ascii ? s.length : info.bytes.length;
-    if (utf8ByteInfoCacheState.bytes + cost > utf8ByteInfoCacheBudget) {
-      utf8ByteInfoCache.clear();
-      utf8ByteInfoCacheState.bytes = 0;
-    }
-    utf8ByteInfoCache.set(s, info);
-    utf8ByteInfoCacheState.bytes += cost;
-  }
-  return info;
-};
-
-export const byteLen = (s: string): int => {
-  const info = getUtf8ByteInfo(s);
-  return info.ascii ? s.length : info.bytes.length;
-};
-export const byteSlice = (s: string, start: int, end?: int): string => {
-  const info = getUtf8ByteInfo(s);
-  return info.ascii ? s.slice(start, end) : utf8Decoder.decode(info.bytes.subarray(start, end));
-};
-
-const decodeRuneInStringAt = (s: string, pos: int): [GoRune, int] => {
-  const info = getUtf8ByteInfo(s);
-  if (info.ascii) {
-    return pos >= s.length ? [0xfffd as GoRune, 0 as int] : [s.charCodeAt(pos), 1 as int];
-  }
-  return DecodeRuneInBytesAt(info.bytes, pos);
-};
+export const byteLen = StringByteLen;
+export const byteSlice = StringByteSlice;
+const decodeRuneInStringAt = DecodeRuneInStringAt;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::type::getLiteralTextFlags","kind":"type","status":"implemented","sigHash":"dd5ef391e67032e911741fa2b5a893b18cdeda34ef28edcdc7be3ee3f98a83ee","bodyHash":"fd241e9091d827869df9118dcbbf9c87f924afcc23e8bb011f1f273eadc26aa7"}
@@ -320,17 +265,26 @@ export function encodeUtf16EscapeSequence(b: GoPtr<Builder>, charCode: GoRune): 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::escapeStringWorker","kind":"func","status":"implemented","sigHash":"eb2b5c4a2b880d584c5ce2b0dde3e2aea9fe3514277db53d2c3a9b0bec5c0d15","bodyHash":"388ce672d0bcc907f6824dac8fc956176d0ac569710ebafbba9f9f1a8d294d1c"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::escapeStringWorker","kind":"func","status":"implemented","sigHash":"eb2b5c4a2b880d584c5ce2b0dde3e2aea9fe3514277db53d2c3a9b0bec5c0d15","bodyHash":"3da67c067821ee936714667696238b8a1a40d0c5ef8f221a3503f7eb74a883e6"}
  *
  * Go source:
  * func escapeStringWorker(s string, quoteChar QuoteChar, flags getLiteralTextFlags, b *strings.Builder) {
  * 	pos := 0
  * 	i := 0
  * 	for i < len(s) {
- * 		ch, size := utf8.DecodeRuneInString(s[i:])
- * 
+ * 		ch, size := stringutil.DecodeJSStringRune(s[i:])
+ *
  * 		escape := false
- * 
+ * 		if ch >= 0xD800 && ch <= 0xDFFF {
+ * 			escape = true
+ * 		} else if ch == utf8.RuneError && size == 1 {
+ * 			// A stray byte that is not valid UTF-8 (for example, a fragment of a
+ * 			// surrogate sentinel left behind by code that sliced the string by
+ * 			// byte). Escape it as the Unicode replacement character so the output
+ * 			// is always well-formed rather than containing raw invalid bytes.
+ * 			escape = true
+ * 		}
+ *
  * 		// This consists of the first 19 unprintable ASCII characters, canonical escapes, lineSeparator,
  * 		// paragraphSeparator, and nextLine. The latter three are just desirable to suppress new lines in
  * 		// the language service. These characters should be escaped when printing, and if any characters are added,
@@ -385,6 +339,8 @@ export function encodeUtf16EscapeSequence(b: GoPtr<Builder>, charCode: GoRune): 
  * 					ch -= 0x10000
  * 					encodeUtf16EscapeSequence(b, (ch&0b11111111110000000000>>10)+0xD800)
  * 					encodeUtf16EscapeSequence(b, (ch&0b00000000001111111111)+0xDC00)
+ * 				} else if ch >= 0xD800 && ch <= 0xDFFF {
+ * 					encodeUtf16EscapeSequence(b, ch)
  * 				} else if ch == 0 {
  * 					if i+1 < len(s) && stringutil.IsDigit(rune(s[i+1])) {
  * 						// If the null character is followed by digits, print as a hex escape to prevent the result from
@@ -414,14 +370,23 @@ export function encodeUtf16EscapeSequence(b: GoPtr<Builder>, charCode: GoRune): 
  * }
  */
 export function escapeStringWorker(s: string, quoteChar: QuoteChar, flags: getLiteralTextFlags, b: GoPtr<Builder>): void {
-  const sBytes = utf8Encoder.encode(s);
+  const sBytes = StringUtf8Bytes(s);
   const sLen = sBytes.length;
   let pos = 0;
   let i = 0;
   while (i < sLen) {
-    let [ch, size] = decodeRuneInStringAt(s, i);
+    let [ch, size] = DecodeJSStringRune(byteSlice(s, i));
 
     let escape = false;
+    if (ch >= 0xd800 && ch <= 0xdfff) {
+      escape = true;
+    } else if (ch === RuneError && size === 1) {
+      // A stray byte that is not valid UTF-8 (for example, a fragment of a
+      // surrogate sentinel left behind by code that sliced the string by
+      // byte). Escape it as the Unicode replacement character so the output
+      // is always well-formed rather than containing raw invalid bytes.
+      escape = true;
+    }
 
     // This consists of the first 19 unprintable ASCII characters, canonical escapes, lineSeparator,
     // paragraphSeparator, and nextLine. The latter three are just desirable to suppress new lines in
@@ -487,6 +452,8 @@ export function escapeStringWorker(s: string, quoteChar: QuoteChar, flags: getLi
           ch -= 0x10000;
           encodeUtf16EscapeSequence(b, ((ch & 0b11111111110000000000) >> 10) + 0xd800);
           encodeUtf16EscapeSequence(b, (ch & 0b00000000001111111111) + 0xdc00);
+        } else if (ch >= 0xd800 && ch <= 0xdfff) {
+          encodeUtf16EscapeSequence(b, ch);
         } else if (ch === 0) {
           if (i + 1 < sLen && IsDigit(sBytes[i + 1]!)) {
             // If the null character is followed by digits, print as a hex escape to prevent the result from
@@ -848,7 +815,8 @@ export function getLiteralText(node: GoPtr<LiteralLikeNode>, sourceFile: GoPtr<S
       if ((flags & getLiteralTextFlagsTerminateUnterminatedLiterals) !== 0 && IsUnterminatedLiteral(node)) {
         const b = new Builder();
         const text = Node_Text(node);
-        if (byteLen(text) > 0 && utf8Encoder.encode(text)[byteLen(text) - 1] === 0x5c /* '\\' */) {
+        const textBytes = StringUtf8Bytes(text);
+        if (byteLen(text) > 0 && textBytes[byteLen(text) - 1] === 0x5c /* '\\' */) {
           b.Grow(2 + byteLen(text));
           b.WriteString(text);
           b.WriteString(" /");
@@ -891,10 +859,10 @@ export function RangeIsOnSingleLine(r: TextRange, sourceFile: GoPtr<SourceFileNo
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::rangeStartPositionsAreOnSameLine","kind":"func","status":"implemented","sigHash":"b6f9746de42d76569bd33e039a03d08ab29c5d95db2d0d1cdb5a2b36cab0b14d","bodyHash":"33b63e2527da7fd10d702a0d49a699c326571389abe0f4b1f0249e55b241bda0"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::RangeStartPositionsAreOnSameLine","kind":"func","status":"implemented","sigHash":"27d81e7eda65f533be8ae0702ada3c1867fe8601f505ca8dac9e705d2830ecfa","bodyHash":"c97cd2bec6081e88db65365024b020d72032458a2f1241ba14347cb7f39ec6c2"}
  *
  * Go source:
- * func rangeStartPositionsAreOnSameLine(range1 core.TextRange, range2 core.TextRange, sourceFile *ast.SourceFile) bool {
+ * func RangeStartPositionsAreOnSameLine(range1 core.TextRange, range2 core.TextRange, sourceFile *ast.SourceFile) bool {
  * 	return PositionsAreOnSameLine(
  * 		getStartPositionOfRange(range1, sourceFile, false /*includeComments* /),
  * 		getStartPositionOfRange(range2, sourceFile, false /*includeComments* /),
@@ -902,7 +870,7 @@ export function RangeIsOnSingleLine(r: TextRange, sourceFile: GoPtr<SourceFileNo
  * 	)
  * }
  */
-export function rangeStartPositionsAreOnSameLine(range1: TextRange, range2: TextRange, sourceFile: GoPtr<SourceFileNode>): bool {
+export function RangeStartPositionsAreOnSameLine(range1: TextRange, range2: TextRange, sourceFile: GoPtr<SourceFileNode>): bool {
   return PositionsAreOnSameLine(
     getStartPositionOfRange(range1, sourceFile, false /*includeComments*/),
     getStartPositionOfRange(range2, sourceFile, false /*includeComments*/),
@@ -1077,7 +1045,7 @@ export function getLinesBetweenPositionAndNextNonWhitespaceCharacter(pos: int, s
  */
 export function getPreviousNonWhitespacePosition(pos: int, stopPos: int, sourceFile: GoPtr<SourceFileNode>): int {
   const text = SourceFile_Text(AsSourceFile(sourceFile)!);
-  const textBytes = utf8Encoder.encode(text);
+  const textBytes = StringUtf8Bytes(text);
   for (let p = pos; p >= stopPos; p--) {
     if (!IsWhiteSpaceLike(textBytes[p]!)) {
       return p as int;
@@ -1087,39 +1055,37 @@ export function getPreviousNonWhitespacePosition(pos: int, stopPos: int, sourceF
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::siblingNodePositionsAreComparable","kind":"func","status":"implemented","sigHash":"dcbc0b1dce9c401e9d0a31db4d537a8311efb5caafed385852e38992a6b574fd","bodyHash":"21f70aceba7ee743222e93bde25f676e0d20890e0b98e2af821290041082a546"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::siblingNodePositionsAreComparable","kind":"func","status":"implemented","sigHash":"d17fc940d17e3947ef638ed7788f5c1afd2fff4a69d34ede0cc4a577a925e1bb","bodyHash":"d4e09e2b711de2c61dca98bd93062560fd11fa9d83c834bbbc2e9bef8d8aaf78"}
  *
  * Go source:
- * func siblingNodePositionsAreComparable(previousNode *ast.Node, nextNode *ast.Node) bool {
+ * func siblingNodePositionsAreComparable(emitContext *EmitContext, previousNode *ast.Node, nextNode *ast.Node) bool {
  * 	if nextNode.Pos() < previousNode.End() {
  * 		return false
  * 	}
- * 
- * 	// TODO(rbuckton)
- * 	// previousNode = getOriginalNode(previousNode);
- * 	// nextNode = getOriginalNode(nextNode);
+ *
+ * 	previousNode = emitContext.MostOriginal(previousNode)
+ * 	nextNode = emitContext.MostOriginal(nextNode)
  * 	parent := previousNode.Parent
  * 	if parent == nil || parent != nextNode.Parent {
  * 		return false
  * 	}
- * 
+ *
  * 	parentNodeArray := getContainingNodeArray(previousNode)
  * 	if parentNodeArray != nil {
  * 		prevNodeIndex := slices.Index(parentNodeArray.Nodes, previousNode)
  * 		return prevNodeIndex >= 0 && slices.Index(parentNodeArray.Nodes, nextNode) == prevNodeIndex+1
  * 	}
- * 
+ *
  * 	return false
  * }
  */
-export function siblingNodePositionsAreComparable(previousNode: GoPtr<Node>, nextNode: GoPtr<Node>): bool {
+export function siblingNodePositionsAreComparable(emitContext: GoPtr<EmitContext>, previousNode: GoPtr<Node>, nextNode: GoPtr<Node>): bool {
   if (Node_Pos(nextNode) < Node_End(previousNode)) {
     return false;
   }
 
-  // TODO(rbuckton)
-  // previousNode = getOriginalNode(previousNode);
-  // nextNode = getOriginalNode(nextNode);
+  previousNode = EmitContext_MostOriginal(emitContext, previousNode);
+  nextNode = EmitContext_MostOriginal(emitContext, nextNode);
   const parent = previousNode!.Parent;
   if (parent === undefined || parent !== nextNode!.Parent) {
     return false;
@@ -1406,33 +1372,33 @@ export function canHaveDecorators(node: GoPtr<Node>): bool {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::originalNodesHaveSameParent","kind":"func","status":"implemented","sigHash":"a494b57d12aaf455dd29c8d52ac9d36ca04697c52425eaa88ac33643cfd78453","bodyHash":"267b899705c3d3bbf5b3668b2115210b40c81bda73bf956a01b9b1d1b73396b9"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::originalNodesHaveSameParent","kind":"func","status":"implemented","sigHash":"02540eeece2548f667d164b675c56c541d9a39f728bea01c4e995750456e1418","bodyHash":"4260594061bd650883f3c9168c41eb58aa5e3639969299ce5d75c4c5a0937852"}
  *
  * Go source:
- * func originalNodesHaveSameParent(nodeA *ast.Node, nodeB *ast.Node) bool {
- * 	// TODO(rbuckton): nodeA = getOriginalNode(nodeA)
+ * func originalNodesHaveSameParent(emitContext *EmitContext, nodeA *ast.Node, nodeB *ast.Node) bool {
+ * 	nodeA = emitContext.MostOriginal(nodeA)
  * 	if nodeA.Parent != nil {
- * 		// For performance, do not call `getOriginalNode` for `nodeB` if `nodeA` doesn't even
+ * 		// For performance, do not call `MostOriginal` for `nodeB` if `nodeA` doesn't even
  * 		// have a parent node.
- * 		// TODO(rbuckton): nodeB = getOriginalNode(nodeB)
+ * 		nodeB = emitContext.MostOriginal(nodeB)
  * 		return nodeA.Parent == nodeB.Parent
  * 	}
  * 	return false
  * }
  */
-export function originalNodesHaveSameParent(nodeA: GoPtr<Node>, nodeB: GoPtr<Node>): bool {
-  // TODO(rbuckton): nodeA = getOriginalNode(nodeA)
+export function originalNodesHaveSameParent(emitContext: GoPtr<EmitContext>, nodeA: GoPtr<Node>, nodeB: GoPtr<Node>): bool {
+  nodeA = EmitContext_MostOriginal(emitContext, nodeA);
   if (nodeA!.Parent !== undefined) {
-    // For performance, do not call `getOriginalNode` for `nodeB` if `nodeA` doesn't even
+    // For performance, do not call `MostOriginal` for `nodeB` if `nodeA` doesn't even
     // have a parent node.
-    // TODO(rbuckton): nodeB = getOriginalNode(nodeB)
+    nodeB = EmitContext_MostOriginal(emitContext, nodeB);
     return nodeA!.Parent === nodeB!.Parent;
   }
   return false;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::tryGetEnd","kind":"func","status":"implemented","sigHash":"439864f5813b13771cded08ce99e19c30efa2523953389e9efffb11b127849c6","bodyHash":"7ce26f8fddad315c47c3da528fcf6815830804467cac467d0a5cd25f3d0b25d4"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::tryGetEnd","kind":"func","status":"implemented","sigHash":"439864f5813b13771cded08ce99e19c30efa2523953389e9efffb11b127849c6","bodyHash":"615bd358fab126f695aaea9f1aca6770475bb317b206c860bfc278365b339e1e"}
  *
  * Go source:
  * func tryGetEnd(node interface{ End() int }) (int, bool) {
@@ -1454,7 +1420,7 @@ export function originalNodesHaveSameParent(nodeA: GoPtr<Node>, nodeB: GoPtr<Nod
  * 		if v != nil {
  * 			return v.End(), true
  * 		}
- * 	case (core.TextRange):
+ * 	case core.TextRange:
  * 		return v.End(), true
  * 	default:
  * 		panic(fmt.Sprintf("unhandled type: %T", node))
@@ -1462,9 +1428,7 @@ export function originalNodesHaveSameParent(nodeA: GoPtr<Node>, nodeB: GoPtr<Nod
  * 	return 0, false
  * }
  */
-type EndCarrier = GoPtr<Node> | GoPtr<NodeList> | TextRange | { End: () => int };
-
-export function tryGetEnd(node: EndCarrier | undefined): [int, bool] {
+export function tryGetEnd(node: { End: () => int }): [int, bool] {
   if (node === undefined) {
     return [0 as int, false];
   }
@@ -1473,13 +1437,13 @@ export function tryGetEnd(node: EndCarrier | undefined): [int, bool] {
     return [(node as { End: () => int }).End(), true];
   }
   if (value["Kind"] !== undefined) {
-    return [Node_End(node as GoPtr<Node>), true];
+    return [Node_End(node as unknown as GoPtr<Node>), true];
   }
   if (value["Nodes"] !== undefined) {
-    return [NodeList_End(node as GoPtr<NodeList>), true];
+    return [NodeList_End(node as unknown as GoPtr<NodeList>), true];
   }
   if (value["end"] !== undefined) {
-    return [TextRange_End(node as TextRange), true];
+    return [TextRange_End(node as unknown as TextRange), true];
   }
   throw new globalThis.Error(`unhandled type in tryGetEnd`);
 }
@@ -1498,9 +1462,9 @@ export function tryGetEnd(node: EndCarrier | undefined): [int, bool] {
  * 	return end
  * }
  */
-export function greatestEnd(end: int, ...nodes: Array<EndCarrier | undefined>): int {
+export function greatestEnd(end: int, ...nodes: Array<{ End: () => int }>): int {
   for (let i = nodes.length - 1; i >= 0; i--) {
-    const node = nodes[i];
+    const node = nodes[i]!;
     const [nodeEnd, ok] = tryGetEnd(node);
     if (ok && (end as number) < (nodeEnd as number)) {
       end = nodeEnd;
@@ -1628,7 +1592,7 @@ export function IsFileLevelUniqueName(sourceFile: GoPtr<SourceFileNode>, name: s
  * }
  */
 export function hasLeadingHash(text: string): bool {
-  const bytes = utf8Encoder.encode(text);
+  const bytes = StringUtf8Bytes(text);
   return bytes.length > 0 && bytes[0] === 0x23 /* '#' */;
 }
 
@@ -1734,7 +1698,7 @@ export function isASCIIWordCharacter(ch: GoRune): bool {
  */
 export function makeIdentifierFromModuleName(moduleName: string): string {
   moduleName = GetBaseFileName(moduleName);
-  const moduleNameBytes = utf8Encoder.encode(moduleName);
+  const moduleNameBytes = StringUtf8Bytes(moduleName);
   const builder = new Builder();
   let start = 0;
   let pos = 0;
@@ -2029,7 +1993,7 @@ export function matchQuotedString(text: string, pos: GoPtr<int>): bool {
  * }
  */
 export function IsRecognizedTripleSlashComment(text: string, commentRange: CommentRange): bool {
-  const textBytes = utf8Encoder.encode(text);
+  const textBytes = StringUtf8Bytes(text);
   if (
     commentRange.Kind === KindSingleLineCommentTrivia &&
     (TextRange_End(commentRange) - TextRange_Pos(commentRange)) > 2 &&
@@ -2091,20 +2055,20 @@ export function IsRecognizedTripleSlashComment(text: string, commentRange: Comme
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::isJSDocLikeText","kind":"func","status":"implemented","sigHash":"2b14d01e19d5ff159443b15cdb7fccdbb06ebca822307bcc3c2985024449c93c","bodyHash":"7acf5b16cbd75f758966da5559a1324c7142e4cdf545ef85687a5cf5c8310984"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::func::isJSDocLikeText","kind":"func","status":"implemented","sigHash":"2b14d01e19d5ff159443b15cdb7fccdbb06ebca822307bcc3c2985024449c93c","bodyHash":"0feb48356daac675a5bdf75ab45600ad412dda05c2600cfd8a3dd3b9404bba37"}
  *
  * Go source:
  * func isJSDocLikeText(text string, comment ast.CommentRange) bool {
  * 	return comment.Kind == ast.KindMultiLineCommentTrivia &&
- * 		comment.Len() > 5 &&
+ * 		comment.Len() >= 5 &&
  * 		text[comment.Pos()+2] == '*' &&
  * 		text[comment.Pos()+3] != '/'
  * }
  */
 export function isJSDocLikeText(text: string, comment: CommentRange): bool {
-  const textBytes = utf8Encoder.encode(text);
+  const textBytes = StringUtf8Bytes(text);
   return comment.Kind === KindMultiLineCommentTrivia &&
-    (TextRange_End(comment) - TextRange_Pos(comment)) > 5 &&
+    (TextRange_End(comment) - TextRange_Pos(comment)) >= 5 &&
     textBytes[TextRange_Pos(comment) + 2] === 0x2a /* '*' */ &&
     textBytes[TextRange_Pos(comment) + 3] !== 0x2f /* '/' */;
 }
@@ -2120,7 +2084,7 @@ export function isJSDocLikeText(text: string, comment: CommentRange): bool {
  * }
  */
 export function IsPinnedComment(text: string, comment: CommentRange): bool {
-  const textBytes = utf8Encoder.encode(text);
+  const textBytes = StringUtf8Bytes(text);
   return comment.Kind === KindMultiLineCommentTrivia &&
     (TextRange_End(comment) - TextRange_Pos(comment)) > 5 &&
     textBytes[TextRange_Pos(comment) + 2] === 0x21 /* '!' */;
@@ -2217,38 +2181,56 @@ export function newLineCharacterCache(source: Source): GoPtr<lineCharacterCache>
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::method::lineCharacterCache.getLineAndCharacter","kind":"method","status":"implemented","sigHash":"6250c3321fe67359c2d3eb790514455a992d22b4010fc53d07d21b97964c9925","bodyHash":"8e37a5b91b55576fd4ffe77223c31312c05ee9d4d31d30fd8787962cd5dde75c"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/utilities.go::method::lineCharacterCache.getLineAndCharacter","kind":"method","status":"implemented","sigHash":"6250c3321fe67359c2d3eb790514455a992d22b4010fc53d07d21b97964c9925","bodyHash":"c499b8a577f2b0d0f3ee3a3e26bd7455ec03717c9dcf6ce22a76b4a12cf4322f"}
  *
  * Go source:
  * func (c *lineCharacterCache) getLineAndCharacter(pos int) (line int, character core.UTF16Offset) {
  * 	line = scanner.ComputeLineOfPosition(c.lineMap, pos)
- * 	if c.hasCached && line == c.cachedLine && pos >= c.cachedPos {
+ * 	lineStart := int(c.lineMap[line])
+ * 	// When pos is beyond the source text (e.g., for error-recovery tokens like
+ * 	// missing closing braces), we can't slice past the text end. Compute the
+ * 	// UTF-16 length up to EOF and add the remaining byte offset arithmetically,
+ * 	// matching TypeScript's computeLineAndCharacterOfPosition which uses
+ * 	// arithmetic (position - lineStarts[lineNumber]) and handles this implicitly.
+ * 	endPos := min(pos, len(c.text))
+ * 	if c.hasCached && line == c.cachedLine && endPos >= c.cachedPos {
  * 		// Incremental: only count UTF-16 code units from the last cached position.
- * 		character = c.cachedChar + core.UTF16Len(c.text[c.cachedPos:pos])
+ * 		character = c.cachedChar + core.UTF16Len(c.text[c.cachedPos:endPos])
  * 	} else {
  * 		// Full computation from line start.
- * 		character = core.UTF16Len(c.text[c.lineMap[line]:pos])
+ * 		character = core.UTF16Len(c.text[lineStart:endPos])
  * 	}
+ * 	cachedChar := character
+ * 	character += core.UTF16Offset(pos - endPos)
  * 	c.cachedLine = line
- * 	c.cachedPos = pos
- * 	c.cachedChar = character
+ * 	c.cachedPos = endPos
+ * 	c.cachedChar = cachedChar
  * 	c.hasCached = true
  * 	return line, character
  * }
  */
 export function lineCharacterCache_getLineAndCharacter(receiver: GoPtr<lineCharacterCache>, pos: int): [int, UTF16Offset] {
   const line = ComputeLineOfPosition(receiver!.lineMap, pos);
+  const lineStart = receiver!.lineMap[line]!;
+  // When pos is beyond the source text (e.g., for error-recovery tokens like
+  // missing closing braces), we can't slice past the text end. Compute the
+  // UTF-16 length up to EOF and add the remaining byte offset arithmetically,
+  // matching TypeScript's computeLineAndCharacterOfPosition which uses
+  // arithmetic (position - lineStarts[lineNumber]) and handles this implicitly.
+  const endPos = globalThis.Math.min(pos, byteLen(receiver!.text));
   let character: UTF16Offset;
-  if (receiver!.hasCached && line === receiver!.cachedLine && pos >= receiver!.cachedPos) {
+  if (receiver!.hasCached && line === receiver!.cachedLine && endPos >= receiver!.cachedPos) {
     // Incremental: only count UTF-16 code units from the last cached position.
-    character = receiver!.cachedChar + UTF16Len(byteSlice(receiver!.text, receiver!.cachedPos, pos));
+    character = receiver!.cachedChar + UTF16Len(byteSlice(receiver!.text, receiver!.cachedPos, endPos));
   } else {
     // Full computation from line start.
-    character = UTF16Len(byteSlice(receiver!.text, receiver!.lineMap[line]!, pos));
+    character = UTF16Len(byteSlice(receiver!.text, lineStart, endPos));
   }
+  const cachedChar = character;
+  character += (pos - endPos) as UTF16Offset;
   receiver!.cachedLine = line;
-  receiver!.cachedPos = pos;
-  receiver!.cachedChar = character;
+  receiver!.cachedPos = endPos;
+  receiver!.cachedChar = cachedChar;
   receiver!.hasCached = true;
   return [line, character];
 }

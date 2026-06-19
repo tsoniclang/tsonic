@@ -24,7 +24,7 @@
 //
 // Go (T, error) maps to a `[T, GoError]` tuple; Go panic maps to `throw`.
 
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "./scalars.js";
 import type { GoError, GoSlice } from "./compat.js";
 
 // translatePattern rewrites a Go RE2 pattern source into an equivalent JS

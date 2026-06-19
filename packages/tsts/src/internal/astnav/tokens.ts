@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { ModifierList, Node, NodeList } from "../ast/spine.js";
 import { Node_AsNode, Node_End, Node_Pos, Node_VisitEachChild, NodeList_End, NodeList_Pos } from "../ast/spine.js";
@@ -18,6 +18,38 @@ import { Filter, Identity, IfElse } from "../core/core.js";
 import type { Scanner } from "../scanner/scanner.js";
 import { GetScannerForSourceFile, GetTokenPosOfNode, Scanner_ReScanJsxToken, Scanner_Scan, Scanner_Token, Scanner_TokenEnd, Scanner_TokenFlags, Scanner_TokenFullStart, Scanner_TokenStart, Scanner_ResetPos } from "../scanner/scanner.js";
 import type { TokenFlags } from "../ast/tokenflags.js";
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/astnav/tokens.go::func::shouldRescanLessThanLessThanToken","kind":"func","status":"implemented","sigHash":"027e136379acde7957dacce28399aee470574eaa534d282f4d10a947c386695d","bodyHash":"8a83d3aa232356571ecf109bd3e41869f3467bcaa8404c3b6144dbaa39c23742"}
+ *
+ * Go source:
+ * func shouldRescanLessThanLessThanToken(s *scanner.Scanner, containingNode *ast.Node, token ast.Kind) bool {
+ * 	return token == ast.KindLessThanLessThanToken && ast.IsJsxChild(containingNode)
+ * }
+ */
+export function shouldRescanLessThanLessThanToken(s: GoPtr<Scanner>, containingNode: GoPtr<Node>, token: Kind): bool {
+  return (token === KindLessThanLessThanToken && IsJsxChild(containingNode)) as bool;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/astnav/tokens.go::func::scanNavigationToken","kind":"func","status":"implemented","sigHash":"ccb74a2af5949e6e264e5672dceb4db4bb1145ee28da97efacec1d68fccb47cb","bodyHash":"a9084f6f95c59612c4c4411366aed16189cd52c27485889a90aa85d257e3ac32"}
+ *
+ * Go source:
+ * func scanNavigationToken(s *scanner.Scanner, containingNode *ast.Node) ast.Kind {
+ * 	token := s.Token()
+ * 	if shouldRescanLessThanLessThanToken(s, containingNode, token) {
+ * 		return s.ReScanJsxToken(true /*allowMultilineJsxText* /)
+ * 	}
+ * 	return token
+ * }
+ */
+export function scanNavigationToken(s: GoPtr<Scanner>, containingNode: GoPtr<Node>): Kind {
+  const token = Scanner_Token(s);
+  if (shouldRescanLessThanLessThanToken(s, containingNode, token)) {
+    return Scanner_ReScanJsxToken(s, true /*allowMultilineJsxText*/);
+  }
+  return token;
+}
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/astnav/tokens.go::func::GetTouchingPropertyName","kind":"func","status":"implemented","sigHash":"8b33bd131ce2aa3cde76ded97fef5444895aa8510ed8a0bee63cdb256e29f6fd","bodyHash":"beb86579f18c4e10edc95ccf8f01ba208353134835c8f12b3e6824567950d1a2"}
@@ -60,7 +92,7 @@ export function GetTokenAtPosition(sourceFile: GoPtr<SourceFile>, position: int)
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/astnav/tokens.go::func::getTokenAtPosition","kind":"func","status":"implemented","sigHash":"563d8d71be2eae8e3d04988705a3778a857db560c3a2eab99d2113efab2ad4ec","bodyHash":"62019a6ca00daed2efb5d20ad941f854bf9ff34cb1dc40f4f8ceb79bce32fd1a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/astnav/tokens.go::func::getTokenAtPosition","kind":"func","status":"implemented","sigHash":"563d8d71be2eae8e3d04988705a3778a857db560c3a2eab99d2113efab2ad4ec","bodyHash":"bb253a90654d4092785f4ced321a4a070df86d68d33f55cfc835f817ff49d315"}
  *
  * Go source:
  * func getTokenAtPosition(
@@ -256,7 +288,7 @@ export function GetTokenAtPosition(sourceFile: GoPtr<SourceFile>, position: int)
  * 				end = nodeAfterLeft.Pos()
  * 			}
  * 			for left < end {
- * 				token := scanner.Token()
+ * 				token := scanNavigationToken(scanner, current)
  * 				tokenFullStart := scanner.TokenFullStart()
  * 				tokenStart := core.IfElse(allowPositionInLeadingTrivia, tokenFullStart, scanner.TokenStart())
  * 				tokenEnd := scanner.TokenEnd()
@@ -292,18 +324,6 @@ export function GetTokenAtPosition(sourceFile: GoPtr<SourceFile>, position: int)
  * }
  */
 export function getTokenAtPosition(sourceFile: GoPtr<SourceFile>, position: int, allowPositionInLeadingTrivia: bool, includePrecedingTokenAtEndPosition: (node: GoPtr<Node>) => bool): GoPtr<Node> {
-  // Local helpers (from astnav/tokens.go, not ported as separate units)
-  const shouldRescanLessThanLessThanToken = (s: GoPtr<Scanner>, containingNode: GoPtr<Node>, token: Kind): bool => {
-    return (token === KindLessThanLessThanToken && IsJsxChild(containingNode)) as bool;
-  };
-  const scanNavigationToken = (s: GoPtr<Scanner>, containingNode: GoPtr<Node>): Kind => {
-    const token = Scanner_Token(s);
-    if (shouldRescanLessThanLessThanToken(s, containingNode, token)) {
-      return Scanner_ReScanJsxToken(s, true /*allowMultilineJsxText*/);
-    }
-    return token;
-  };
-
   let next: GoPtr<Node> = undefined;
   let prevSubtree: GoPtr<Node> = undefined;
   let current: GoPtr<Node> = Node_AsNode(sourceFile);
@@ -896,7 +916,7 @@ export function GetStartOfNode(node: GoPtr<Node>, file: GoPtr<SourceFile>, inclu
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/astnav/tokens.go::func::findRightmostValidToken","kind":"func","status":"implemented","sigHash":"3c27e7e331076f224ecf02af9372f4c1141f6e13d7aaa74b6b1708de0d6099b3","bodyHash":"f0fd6ae825b036409cd5820cc9a715d4483f13a67d2f320631537fa47d34c6a1"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/astnav/tokens.go::func::findRightmostValidToken","kind":"func","status":"implemented","sigHash":"3c27e7e331076f224ecf02af9372f4c1141f6e13d7aaa74b6b1708de0d6099b3","bodyHash":"b89bf824c3231e54b8a8904ec0294c14195219d175c4fcb9be19be814ac84409"}
  *
  * Go source:
  * func findRightmostValidToken(endPos int, sourceFile *ast.SourceFile, containingNode *ast.Node, position int, excludeJSDoc bool) *ast.Node {
@@ -984,11 +1004,11 @@ export function GetStartOfNode(node: GoPtr<Node>, file: GoPtr<SourceFile>, inclu
  * 			for _, visitedNode := range rightmostVisitedNodes {
  * 				// Trailing tokens that occur before this node.
  * 				for startPos < min(visitedNode.Pos(), position) {
+ * 					token := scanNavigationToken(scanner, n)
  * 					tokenStart := scanner.TokenStart()
  * 					if tokenStart >= position {
  * 						break
  * 					}
- * 					token := scanner.Token()
  * 					tokenFullStart := scanner.TokenFullStart()
  * 					tokenEnd := scanner.TokenEnd()
  * 					startPos = tokenEnd
@@ -1002,11 +1022,11 @@ export function GetStartOfNode(node: GoPtr<Node>, file: GoPtr<SourceFile>, inclu
  * 			}
  * 			// Trailing tokens after last visited node.
  * 			for startPos < min(endPos, position) {
+ * 				token := scanNavigationToken(scanner, n)
  * 				tokenStart := scanner.TokenStart()
  * 				if tokenStart >= position {
  * 					break
  * 				}
- * 				token := scanner.Token()
  * 				tokenFullStart := scanner.TokenFullStart()
  * 				tokenEnd := scanner.TokenEnd()
  * 				startPos = tokenEnd
@@ -1125,8 +1145,7 @@ export function findRightmostValidToken(endPos: int, sourceFile: GoPtr<SourceFil
       for (const visitedNode of rightmostVisitedNodes) {
         // Trailing tokens that occur before this node.
         while (startPos < Math.min(Node_Pos(visitedNode), position)) {
-          // Local helper: scanNavigationToken for findRightmostValidToken context
-          const token = Scanner_Token(s);
+          const token = scanNavigationToken(s, n);
           const tokenStart = Scanner_TokenStart(s);
           if (tokenStart >= position) {
             break;
@@ -1144,7 +1163,7 @@ export function findRightmostValidToken(endPos: int, sourceFile: GoPtr<SourceFil
       }
       // Trailing tokens after last visited node.
       while (startPos < Math.min(ep, position)) {
-        const token = Scanner_Token(s);
+        const token = scanNavigationToken(s, n);
         const tokenStart = Scanner_TokenStart(s);
         if (tokenStart >= position) {
           break;

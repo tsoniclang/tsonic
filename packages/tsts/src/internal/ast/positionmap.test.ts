@@ -4,7 +4,7 @@
 // byte offsets through the UTF-8 encoded view of the JS string.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../go/scalars.js";
 import { ComputePositionMap, PositionMap_IsAsciiOnly, PositionMap_UTF16ToUTF8, PositionMap_UTF8ToUTF16 } from "./positionmap.js";
 
 const utf8Encoder = new globalThis.TextEncoder();

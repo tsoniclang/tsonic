@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
 import { NewOrderedMapWithSizeHint, OrderedMap_Delete, OrderedMap_Entries, OrderedMap_Set, OrderedMap_Keys } from "../collections/ordered_map.js";
@@ -132,7 +132,7 @@ export const impliedOptions: GoSlice<impliedOption> = [
  * }
  */
 export interface TSConfig {
-  CompilerOptions: GoPtr<OrderedMap>;
+  CompilerOptions: GoPtr<OrderedMap<string, unknown>>;
   References: GoSlice<unknown>;
   Files: GoSlice<string>;
   Include: GoSlice<string>;
@@ -332,7 +332,7 @@ export function filterSameAsDefaultInclude(specs: GoSlice<string>): GoSlice<stri
  * 	return ""
  * }
  */
-export function getNameOfCompilerOptionValue(value: unknown, enumMap: GoPtr<OrderedMap>): string {
+export function getNameOfCompilerOptionValue(value: unknown, enumMap: GoPtr<OrderedMap<string, unknown>>): string {
   const found: { value: string } = { value: "" };
   const matched: { value: bool } = { value: false };
   OrderedMap_Entries(enumMap)((k: unknown, v: unknown): bool => {
@@ -466,7 +466,7 @@ export function getNameOfCompilerOptionValue(value: unknown, enumMap: GoPtr<Orde
  * 	return result
  * }
  */
-export function serializeCompilerOptions(options: GoPtr<CompilerOptions>, configFilePath: string, comparePathsOptions: ComparePathsOptions): GoPtr<OrderedMap> {
+export function serializeCompilerOptions(options: GoPtr<CompilerOptions>, configFilePath: string, comparePathsOptions: ComparePathsOptions): GoPtr<OrderedMap<string, unknown>> {
   const result = NewOrderedMapWithSizeHint<string, unknown>(32 as int);
   const configDir = GetDirectoryPath(configFilePath);
   const optionsObj = options as unknown as globalThis.Record<string, unknown>;
@@ -582,7 +582,7 @@ export function serializeCompilerOptions(options: GoPtr<CompilerOptions>, config
     }
   }
 
-  return result as GoPtr<OrderedMap>;
+  return result;
 }
 
 /**
@@ -606,7 +606,7 @@ export function serializeCompilerOptions(options: GoPtr<CompilerOptions>, config
  * 	return getNameOfCompilerOptionValue(value, enumMap)
  * }
  */
-export function serializeEnumValue(value: unknown, enumMap: GoPtr<OrderedMap>): string {
+export function serializeEnumValue(value: unknown, enumMap: GoPtr<OrderedMap<string, unknown>>): string {
   if (typeof value === "number") {
     const container = { result: "" };
     OrderedMap_Entries(enumMap)((k: unknown, v: unknown): bool => {
@@ -677,7 +677,7 @@ export function serializeEnumValue(value: unknown, enumMap: GoPtr<OrderedMap>): 
  * 	}
  * }
  */
-export function addImpliedOptions(optionMap: GoPtr<OrderedMap>, options: GoPtr<CompilerOptions>, arg: string, arg1: ComparePathsOptions): void {
+export function addImpliedOptions(optionMap: GoPtr<OrderedMap<string, unknown>>, options: GoPtr<CompilerOptions>, arg: string, arg1: ComparePathsOptions): void {
   // Build the set of explicitly provided option JSON names (e.g., "module", "target").
   const provided = new globalThis.Map<string, bool>();
   OrderedMap_Keys(optionMap)((k: unknown): bool => {

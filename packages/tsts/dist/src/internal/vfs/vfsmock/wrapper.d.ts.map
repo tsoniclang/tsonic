@@ -1,1 +1,0 @@
-{"version":3,"file":"wrapper.d.ts","sourceRoot":"","sources":["../../../../../src/internal/vfs/vfsmock/wrapper.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,KAAK,EAAE,MAAM,uBAAuB,CAAC;AAEnD,OAAO,KAAK,EAAE,EAAE,EAAE,MAAM,WAAW,CAAC;AACpC,OAAO,KAAK,EAAE,MAAM,EAAE,MAAM,qBAAqB,CAAC;AAElD;;;;;;;;;;;;;;;;;;;;GAoBG;AACH,wBAAgB,IAAI,CAAC,EAAE,EAAE,EAAE,GAAG,KAAK,CAAC,MAAM,CAAC,CAyC1C"}

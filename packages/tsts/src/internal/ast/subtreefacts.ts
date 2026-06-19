@@ -1,4 +1,4 @@
-import type { uint } from "@tsonic/core/types.js";
+import type { uint } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import { IfElse } from "../core/core.js";
 import type { ModifierList, Node, NodeList } from "./spine.js";

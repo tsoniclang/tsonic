@@ -1,2 +1,0 @@
-First yield: 100
-Second yield: 100

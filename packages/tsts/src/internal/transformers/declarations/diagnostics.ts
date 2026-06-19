@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import type { Diagnostic } from "../../ast/diagnostic.js";
@@ -48,6 +48,7 @@ import {
 import {
   IsBindingElement,
   IsBinaryExpression,
+  IsCallExpression,
   IsClassDeclaration,
   IsConstructorDeclaration,
   IsConstructSignatureDeclaration,
@@ -94,7 +95,7 @@ import {
   GetAllAccessorDeclarationsForDeclaration,
 } from "../../ast/utilities.js";
 import { Node_Name } from "../../ast/spine.js";
-import { Node_Type, Node_Parameters, Node_Symbol, Node_Initializer } from "../../ast/ast.js";
+import { Node_Type, Node_Parameters, Node_Symbol, Node_Initializer, Node_Arguments } from "../../ast/ast.js";
 import { ModifierFlagsPrivate } from "../../ast/modifierflags.js";
 import type { FindAncestorResult } from "../../ast/utilities.js";
 import type { Message } from "../../diagnostics/diagnostics.js";
@@ -406,7 +407,7 @@ export function getMethodNameVisibilityDiagnosticMessage(node: GoPtr<Node>, symb
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/diagnostics.go::func::createGetSymbolAccessibilityDiagnosticForNode","kind":"func","status":"implemented","sigHash":"7294371cc69b7ee95c2a714d89a3ba32e0374e09cc3c52242791ce8ddf5d46af","bodyHash":"2b2c6129ebfeac167ba46e5239b3a12a71f02cdc6ccbd0784d1711541e489fcf"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/declarations/diagnostics.go::func::createGetSymbolAccessibilityDiagnosticForNode","kind":"func","status":"implemented","sigHash":"7294371cc69b7ee95c2a714d89a3ba32e0374e09cc3c52242791ce8ddf5d46af","bodyHash":"fe2150285075be3a02d7eb1339110a6dede5d4b2d9c86d1062ff4b8986c073ee"}
  *
  * Go source:
  * func createGetSymbolAccessibilityDiagnosticForNode(node *ast.Node) GetSymbolAccessibilityDiagnostic {
@@ -470,6 +471,24 @@ export function getMethodNameVisibilityDiagnosticMessage(node: GoPtr<Node>, symb
  * 				typeName:          typeName,
  * 			}
  * 		}
+ * 	} else if ast.IsCallExpression(node) {
+ * 		// JS object.defineProperty call
+ * 		// unique node selection behavior, inline closure
+ * 		return func(symbolAccessibilityResult printer.SymbolAccessibilityResult) *SymbolAccessibilityDiagnostic {
+ * 			diagnosticMessage := selectDiagnosticBasedOnModuleName(
+ * 				symbolAccessibilityResult,
+ * 				diagnostics.Exported_variable_0_has_or_is_using_name_1_from_external_module_2_but_cannot_be_named,
+ * 				diagnostics.Exported_variable_0_has_or_is_using_name_1_from_private_module_2,
+ * 				diagnostics.Exported_variable_0_has_or_is_using_private_name_1,
+ * 			)
+ * 			errorNode := node.Arguments()[1]
+ * 			typeName := node.Arguments()[1]
+ * 			return &SymbolAccessibilityDiagnostic{
+ * 				errorNode:         errorNode,
+ * 				diagnosticMessage: diagnosticMessage,
+ * 				typeName:          typeName,
+ * 			}
+ * 		}
  * 	} else {
  * 		panic("Attempted to set a declaration diagnostic context for unhandled node kind: " + node.Kind.String())
  * 	}
@@ -527,6 +546,23 @@ export function createGetSymbolAccessibilityDiagnosticForNode(node: GoPtr<Node>)
       );
       const errorNode = Node_Type(node);
       const typeName = Node_Name(node);
+      return {
+        errorNode: errorNode,
+        diagnosticMessage: diagnosticMessage,
+        typeName: typeName,
+      };
+    };
+  } else if (IsCallExpression(node)) {
+    // JS object.defineProperty call
+    return (symbolAccessibilityResult: SymbolAccessibilityResult): GoPtr<SymbolAccessibilityDiagnostic> => {
+      const diagnosticMessage = selectDiagnosticBasedOnModuleName(
+        symbolAccessibilityResult,
+        diagnostics.Exported_variable_0_has_or_is_using_name_1_from_external_module_2_but_cannot_be_named,
+        diagnostics.Exported_variable_0_has_or_is_using_name_1_from_private_module_2,
+        diagnostics.Exported_variable_0_has_or_is_using_private_name_1,
+      );
+      const errorNode = Node_Arguments(node)![1];
+      const typeName = Node_Arguments(node)![1];
       return {
         errorNode: errorNode,
         diagnosticMessage: diagnosticMessage,

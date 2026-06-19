@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "./scalars.js";
 import type { GoMap, GoSeq } from "./compat.js";
 
 // Go: package maps (standard library, Go 1.21+/1.23 iterators).

@@ -1,4 +1,4 @@
-import type { bool, byte, int } from "@tsonic/core/types.js";
+import type { bool, byte, int } from "../../go/scalars.js";
 import type { GoError, GoPtr, GoSeq } from "../../go/compat.js";
 import { New as errorsNew } from "../../go/errors.js";
 import { Arena_New } from "../core/arena.js";

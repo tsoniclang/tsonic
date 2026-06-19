@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr } from "../../../go/compat.js";
 import * as slices from "../../../go/slices.js";
 import type { NodeFactory } from "../../ast/generated/factory.js";
@@ -37,6 +37,7 @@ import {
   KindIndexSignature,
   KindIndexedAccessType,
   KindInterfaceDeclaration,
+  KindInKeyword,
   KindIntersectionType,
   KindJSTypeAliasDeclaration,
   KindJSImportDeclaration,
@@ -54,6 +55,7 @@ import {
   KindNonNullExpression,
   KindNumberKeyword,
   KindOptionalType,
+  KindOutKeyword,
   KindOverrideKeyword,
   KindParameter,
   KindParenthesizedExpression,
@@ -91,6 +93,7 @@ import type { ClassElementList, ConciseBody, ElementList, ExportSpecifierList, E
 import { Node_Decorators, Node_Expression } from "../../ast/ast.js";
 import { NodeFactory_UpdateArrowFunction, NodeFactory_UpdateCallExpression, NodeFactory_UpdateClassDeclaration, NodeFactory_UpdateClassExpression, NodeFactory_UpdateConstructorDeclaration, NodeFactory_UpdateExportDeclaration, NodeFactory_UpdateExpressionWithTypeArguments, NodeFactory_UpdateFunctionDeclaration, NodeFactory_UpdateFunctionExpression, NodeFactory_UpdateGetAccessorDeclaration, NodeFactory_UpdateHeritageClause, NodeFactory_UpdateImportClause, NodeFactory_UpdateImportDeclaration, NodeFactory_UpdateJsxOpeningElement, NodeFactory_UpdateJsxSelfClosingElement, NodeFactory_UpdateMethodDeclaration, NodeFactory_UpdateNamedExports, NodeFactory_UpdateNamedImports, NodeFactory_UpdateNewExpression, NodeFactory_UpdateParameterDeclaration, NodeFactory_UpdatePropertyDeclaration, NodeFactory_UpdateSetAccessorDeclaration, NodeFactory_UpdateTaggedTemplateExpression, NodeFactory_UpdateVariableDeclaration } from "../../ast/ast.js";
 import { HasDecorators, HasSyntacticModifier, IsAssertionExpression, IsEnumConst, IsInstantiatedModule, IsJSDocTypeAssertion, IsParameterPropertyDeclaration, IsStatement, IsThisParameter, NodeIsMissing, OEKAssertions, OEKExpressionsWithTypeArguments, SkipOuterExpressions } from "../../ast/utilities.js";
+import { IsBinaryExpression } from "../../ast/generated/predicates.js";
 import { IsIdentifier, IsSatisfiesExpression } from "../../ast/generated/predicates.js";
 import { ModifierFlagsAbstract, ModifierFlagsAmbient, ModifierFlagsParameterPropertyModifier } from "../../ast/modifierflags.js";
 import { SubtreeContainsTypeScript } from "../../ast/subtreefacts.js";
@@ -192,7 +195,7 @@ export function TypeEraserTransformer_elide(receiver: GoPtr<TypeEraserTransforme
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/typeeraser.go::method::TypeEraserTransformer.visit","kind":"method","status":"implemented","sigHash":"4f2cad082d0fa0662cb1701ceefd0650600ea695e15609c7856edb96ec19ac05","bodyHash":"60742ffea4bef34ca6cf64df7b04fa2e0deaddfab6ef59f1bf5eccc2db97fc35"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/typeeraser.go::method::TypeEraserTransformer.visit","kind":"method","status":"implemented","sigHash":"4f2cad082d0fa0662cb1701ceefd0650600ea695e15609c7856edb96ec19ac05","bodyHash":"2c50095f14c9e318f3e90872ea643e4fc6093f9206679681bd9ee78a6601b45c"}
  *
  * Go source:
  * func (tx *TypeEraserTransformer) visit(node *ast.Node) *ast.Node {
@@ -250,7 +253,17 @@ export function TypeEraserTransformer_elide(receiver: GoPtr<TypeEraserTransforme
  * 		// TypeScript index signatures are elided.
  * 		ast.KindIndexSignature:
  * 		return nil
- * 
+ *
+ * 	case ast.KindInKeyword, ast.KindOutKeyword:
+ * 		// TypeScript `in`/`out` variance modifiers are elided. These keywords are only
+ * 		// meaningful as modifiers on type parameters (which are themselves elided), but they may
+ * 		// appear as a grammar error on other declarations and must not leak into the emitted JS.
+ * 		// The `in` binary operator shares this token kind, so only elide when used as a modifier.
+ * 		if tx.parentNode == nil || !ast.IsBinaryExpression(tx.parentNode) {
+ * 			return nil
+ * 		}
+ * 		return tx.Visitor().VisitEachChild(node)
+ *
  * 	case ast.KindJSImportDeclaration:
  * 		// reparsed commonjs are elided
  * 		return nil
@@ -592,6 +605,17 @@ export function TypeEraserTransformer_visit(receiver: GoPtr<TypeEraserTransforme
       case KindLiteralType:
       case KindIndexSignature:
         return undefined;
+
+      case KindInKeyword:
+      case KindOutKeyword:
+        // TypeScript `in`/`out` variance modifiers are elided. These keywords are only
+        // meaningful as modifiers on type parameters (which are themselves elided), but they may
+        // appear as a grammar error on other declarations and must not leak into the emitted JS.
+        // The `in` binary operator shares this token kind, so only elide when used as a modifier.
+        if (tx.parentNode === undefined || !IsBinaryExpression(tx.parentNode)) {
+          return undefined;
+        }
+        return NodeVisitor_VisitEachChild(visitor, node);
 
       case KindJSImportDeclaration:
         return undefined;

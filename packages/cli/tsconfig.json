@@ -1,18 +1,23 @@
 {
-  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
     "composite": true,
     "declaration": true,
     "declarationMap": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": false,
+    "noEmitOnError": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"],
   "references": [
-    { "path": "../frontend" },
-    { "path": "../targets/csharp/emitter" },
-    { "path": "../targets/csharp/backend" }
+    { "path": "../target-api" },
+    { "path": "../host" },
+    { "path": "../target-csharp" }
   ]
 }

@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { Node } from "../ast/ast.js";
 import { Node_Symbol, Node_Text } from "../ast/ast.js";
@@ -8,11 +8,12 @@ import type { Symbol } from "../ast/symbol.js";
 import type { SymbolFlags } from "../ast/symbolflags.js";
 import { FindAncestor, GetFirstIdentifier, GetSourceFileOfNode, IsDeclaration } from "../ast/utilities.js";
 import type { ResolutionMode } from "../core/compileroptions.js";
+import { LinkStore_Has, LinkStore_TryGet } from "../core/linkstore.js";
 import type { Message } from "../diagnostics/diagnostics.js";
 import type { Checker, UnionReduction } from "./checker/state.js";
 import { CheckModeNormal, isTupleType } from "./checker/state.js";
-import { Checker_getApparentType, Checker_getBaseTypeOfLiteralType, Checker_getBaseTypes, Checker_getContextualTypeForObjectLiteralElement, Checker_getPropertiesOfType, Checker_getTypeFromTypeNode, Checker_getUnionType, Checker_getUnionTypeEx, Checker_getWidenedLiteralType, Checker_isArrayLikeType } from "./checker/types.js";
-import { Checker_getDeclaredTypeOfSymbol, Checker_getEffectiveDeclarationFlags, Checker_getGlobalSymbol, Checker_getImmediateAliasedSymbol, Checker_getIndexInfosOfType, Checker_getMergedSymbol, Checker_getPropertyOfType, Checker_getResolvedSymbol, Checker_getSymbolFlags, Checker_getTypeOfPropertyOfContextualType, Checker_getTypeOfPropertyOfType, Checker_getTypeOfSymbol, Checker_getTypeOnlyAliasDeclaration, Checker_isPropertyAccessible, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol } from "./checker/symbols.js";
+import { Checker_getApparentType, Checker_getBaseTypeOfLiteralType, Checker_getBaseTypes, Checker_getContextualTypeForObjectLiteralElement, Checker_getPropertiesOfType, Checker_getTypeFromTypeNode, Checker_getUnionType, Checker_getUnionTypeEx, Checker_getWidenedLiteralType, Checker_getWidenedType, Checker_isArrayLikeType, Checker_removeMissingOrUndefinedType } from "./checker/types.js";
+import { Checker_getDeclaredTypeOfSymbol, Checker_getEffectiveDeclarationFlags, Checker_getGlobalSymbol, Checker_getImmediateAliasedSymbol, Checker_getIndexInfoOfType, Checker_getIndexInfosOfType, Checker_getMergedSymbol, Checker_getPropertyOfType, Checker_getResolvedSymbol, Checker_getSymbolFlags, Checker_getTypeOfPropertyOfContextualType, Checker_getTypeOfPropertyOfType, Checker_getTypeOfSymbol, Checker_getTypeOnlyAliasDeclaration, Checker_isPropertyAccessible, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol } from "./checker/symbols.js";
 import { Checker_fillMissingTypeArguments, Checker_getBaseConstructorTypeOfClass, Checker_getConstraintOfTypeParameter, Checker_getContextualTypeForArgumentAtIndex, Checker_getDefaultFromTypeParameter, Checker_getIndexSignaturesAtLocation, Checker_getLocalTypeParametersOfClassOrInterfaceOrTypeAlias, Checker_getMinTypeArgumentCount, Checker_getRestTypeOfSignature, Checker_getResolvedSignature, Checker_getReturnTypeOfSignature, Checker_getSignaturesOfType, Checker_getTypeArguments, Checker_typeHasCallOrConstructSignatures } from "./checker/signatures.js";
 import { Checker_getBaseConstraintOfType } from "./checker/inference.js";
 import { Checker_getResolutionModeOverride } from "./checker/classes.js";
@@ -24,7 +25,7 @@ import { Checker_getTypePredicateOfSignature, Checker_hasEffectiveRestParameter,
 import { Checker_typePredicateToString } from "./printer.js";
 import { Checker_getExpandedParameters } from "./nodebuilderimpl.js";
 import { Checker_getJsxFragmentFactoryEntity, Checker_getJsxNamespace } from "./jsx.js";
-import { getDeclarationModifierFlagsFromSymbol } from "./utilities.js";
+import { getDeclarationModifierFlagsFromSymbol, getPropertyNameFromType, isTypeUsableAsPropertyName } from "./utilities.js";
 import type { ContextFlags, IndexInfo, Signature, SignatureKind, Type, TypePredicate } from "./types.js";
 
 /**
@@ -205,6 +206,48 @@ export function Checker_GetUnknownSymbol(receiver: GoPtr<Checker>): GoPtr<Symbol
  */
 export function Checker_GetUnionType(receiver: GoPtr<Checker>, types: GoSlice<GoPtr<Type>>): GoPtr<Type> {
   return Checker_getUnionType(receiver, types);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/exports.go::method::Checker.GetNameTypeOfSymbol","kind":"method","status":"implemented","sigHash":"006cceac4ab5cf886aa32ab1fb715434bc08f48b96edd65969e571473fe2496b","bodyHash":"44703f6782b590b2ed5f2be513d68c3a6f1e54e5c81e51202f6c43f180df9c42"}
+ *
+ * Go source:
+ * func (c *Checker) GetNameTypeOfSymbol(symbol *ast.Symbol) *Type {
+ * 	if !c.valueSymbolLinks.Has(symbol) {
+ * 		return nil
+ * 	}
+ * 	return c.valueSymbolLinks.TryGet(symbol).nameType
+ * }
+ */
+export function Checker_GetNameTypeOfSymbol(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>): GoPtr<Type> {
+  if (!LinkStore_Has(receiver!.valueSymbolLinks, symbol_)) {
+    return undefined;
+  }
+  return LinkStore_TryGet(receiver!.valueSymbolLinks, symbol_)!.nameType;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/exports.go::func::IsTypeUsableAsPropertyName","kind":"func","status":"implemented","sigHash":"ca27b6563010d1e87662eee0257adab4ae96515907e4ddb3f3040f17af45b37f","bodyHash":"959b3bc13546317c457da0189f7e2c101382e3c3737812b95c9f057e3f85c4ea"}
+ *
+ * Go source:
+ * func IsTypeUsableAsPropertyName(t *Type) bool {
+ * 	return isTypeUsableAsPropertyName(t)
+ * }
+ */
+export function IsTypeUsableAsPropertyName(t: GoPtr<Type>): bool {
+  return isTypeUsableAsPropertyName(t);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/exports.go::func::GetPropertyNameFromType","kind":"func","status":"implemented","sigHash":"a22cbf3c5a0b5370d332e239e7ab796cd7f8e7a3589d46e88cca4d0f92a0bd82","bodyHash":"8066e6bb922c12560e32a2213f6d45f864e968052f0966709bae6477c3aebe5d"}
+ *
+ * Go source:
+ * func GetPropertyNameFromType(t *Type) string {
+ * 	return getPropertyNameFromType(t)
+ * }
+ */
+export function GetPropertyNameFromType(t: GoPtr<Type>): string {
+  return getPropertyNameFromType(t);
 }
 
 /**
@@ -768,6 +811,18 @@ export function Checker_GetTypeArguments(receiver: GoPtr<Checker>, t: GoPtr<Type
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/exports.go::method::Checker.GetIndexInfoOfType","kind":"method","status":"implemented","sigHash":"12d9e1423af714e7c04441651b3c9a46c80d5e880d8983ee1ffc362761c84bae","bodyHash":"c0a9c3248ece025d78e5a7dca1d1cd45d6a31d8e5e02bafe03f9e1e3cec6e634"}
+ *
+ * Go source:
+ * func (c *Checker) GetIndexInfoOfType(t *Type, keyType *Type) *IndexInfo {
+ * 	return c.getIndexInfoOfType(t, keyType)
+ * }
+ */
+export function Checker_GetIndexInfoOfType(receiver: GoPtr<Checker>, t: GoPtr<Type>, keyType: GoPtr<Type>): GoPtr<IndexInfo> {
+  return Checker_getIndexInfoOfType(receiver, t, keyType);
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/exports.go::method::Checker.GetIndexInfosOfType","kind":"method","status":"implemented","sigHash":"8998a315d84ae915a80a9a7ca908a079f98829f653dd03de4bf12dadb92c9e5c","bodyHash":"2e770cba98a8d389e27c050f0820d737596493e7be787728f58ee44edff936f2"}
  *
  * Go source:
@@ -877,4 +932,28 @@ export function Checker_RequiresAddingImplicitUndefined(receiver: GoPtr<Checker>
     return false;
   }
   return EmitResolver_RequiresAddingImplicitUndefined(Checker_GetEmitResolver(receiver), node, symbol_, enclosingDeclaration);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/exports.go::method::Checker.RemoveMissingOrUndefinedType","kind":"method","status":"implemented","sigHash":"675d60ee4df38b7993fe331b3e9d07b567a6a7ca9dbdcdbc66ecf75dede36f75","bodyHash":"21486e900d9422f8fd32162169db9c447de6f344f1be7b3fa7107e60585579d7"}
+ *
+ * Go source:
+ * func (c *Checker) RemoveMissingOrUndefinedType(t *Type) *Type {
+ * 	return c.removeMissingOrUndefinedType(t)
+ * }
+ */
+export function Checker_RemoveMissingOrUndefinedType(receiver: GoPtr<Checker>, t: GoPtr<Type>): GoPtr<Type> {
+  return Checker_removeMissingOrUndefinedType(receiver, t);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/exports.go::method::Checker.GetWidenedType","kind":"method","status":"implemented","sigHash":"d7c493ede4334a26133d73d0deec634878889d67f05068ba4000b112ab8a70d2","bodyHash":"30535def8d5bb5e6628f74ed53a1900ba8511a90a15694a637968508b50a8acf"}
+ *
+ * Go source:
+ * func (c *Checker) GetWidenedType(t *Type) *Type {
+ * 	return c.getWidenedType(t)
+ * }
+ */
+export function Checker_GetWidenedType(receiver: GoPtr<Checker>, t: GoPtr<Type>): GoPtr<Type> {
+  return Checker_getWidenedType(receiver, t);
 }

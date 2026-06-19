@@ -5,7 +5,7 @@
 // normalization); parsedCommandLine() reproduces that literal here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import { Once } from "../../go/sync.js";
 import type { GoPtr } from "../../go/compat.js";
 import { SourceFile_FileName } from "../ast/ast.js";

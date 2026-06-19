@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import type { Symbol } from "../ast/symbol.js";
 import { SymbolFlagsConstEnumOnlyModule } from "../ast/generated/flags.js";

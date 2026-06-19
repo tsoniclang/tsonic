@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { Node, NodeList } from "../ast/spine.js";
 import { Node_Clone, Node_Name, Node_SubtreeFacts, NodeFactory_NewNodeList } from "../ast/spine.js";
@@ -590,7 +590,7 @@ export function flattener_flattenDestructuringAssignment(receiver: GoPtr<flatten
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/destructuring.go::method::flattener.flattenDestructuringBinding","kind":"method","status":"implemented","sigHash":"60a7d2207800fb49ccac68fbd257f065fce7ff1449f5df254c80bd0511e19b2c","bodyHash":"8e68c7fdd544062d2a8d0aab46ba37ed7b0cfdc6032bb9b78c36555b535d620d"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/destructuring.go::method::flattener.flattenDestructuringBinding","kind":"method","status":"implemented","sigHash":"60a7d2207800fb49ccac68fbd257f065fce7ff1449f5df254c80bd0511e19b2c","bodyHash":"dcfba0684a90fce894444867f781589898999f8989d3be608a63e8dde2c7d040"}
  *
  * Go source:
  * func (f *flattener) flattenDestructuringBinding(node *ast.Node, rval *ast.Node, skipInitializer bool) *ast.Node {
@@ -601,18 +601,24 @@ export function flattener_flattenDestructuringAssignment(receiver: GoPtr<flatten
  * 			node = f.tx.Factory().UpdateVariableDeclaration(node.AsVariableDeclaration(), node.Name(), nil, nil, initializer)
  * 		}
  * 	}
- * 
+ *
  * 	f.flattenBindingOrAssignmentElement(node, rval, node.Loc, skipInitializer)
- * 
+ *
  * 	if len(f.expressions) > 0 {
  * 		temp := f.tx.Factory().NewTempVariable()
- * 		f.tx.EmitContext().AddVariableDeclaration(temp)
- * 		last := &f.declarations[len(f.declarations)-1]
- * 		last.pendingExpressions = append(last.pendingExpressions, f.tx.Factory().NewAssignmentExpression(temp, last.value))
- * 		last.pendingExpressions = append(last.pendingExpressions, f.expressions...)
- * 		last.value = temp
+ * 		if f.hoistTempVariables {
+ * 			value := f.tx.Factory().InlineExpressions(f.expressions)
+ * 			f.expressions = nil
+ * 			f.emitBindingOrAssignment(f, temp, value, core.TextRange{}, nil)
+ * 		} else {
+ * 			f.tx.EmitContext().AddVariableDeclaration(temp)
+ * 			last := &f.declarations[len(f.declarations)-1]
+ * 			last.pendingExpressions = append(last.pendingExpressions, f.tx.Factory().NewAssignmentExpression(temp, last.value))
+ * 			last.pendingExpressions = append(last.pendingExpressions, f.expressions...)
+ * 			last.value = temp
+ * 		}
  * 	}
- * 
+ *
  * 	decls := make([]*ast.Node, 0, len(f.declarations))
  * 	for _, pending := range f.declarations {
  * 		expr := pending.value
@@ -657,14 +663,20 @@ export function flattener_flattenDestructuringBinding(receiver: GoPtr<flattener>
 
   if (receiver!.expressions.length > 0) {
     const temp = NodeFactory_NewTempVariable(pf);
-    EmitContext_AddVariableDeclaration(ec, temp);
-    const last: pendingDecl = receiver!.declarations[receiver!.declarations.length - 1]!;
-    const updatedLast: pendingDecl = {
-      ...last,
-      pendingExpressions: [...last.pendingExpressions, NodeFactory_NewAssignmentExpression(pf, temp, last.value), ...receiver!.expressions],
-      value: temp,
-    };
-    receiver!.declarations = [...receiver!.declarations.slice(0, receiver!.declarations.length - 1), updatedLast];
+    if (receiver!.hoistTempVariables) {
+      const value = NodeFactory_InlineExpressions(pf, receiver!.expressions);
+      receiver!.expressions = [];
+      receiver!.emitBindingOrAssignment(receiver, temp, value, { pos: 0, end: 0 }, undefined);
+    } else {
+      EmitContext_AddVariableDeclaration(ec, temp);
+      const last: pendingDecl = receiver!.declarations[receiver!.declarations.length - 1]!;
+      const updatedLast: pendingDecl = {
+        ...last,
+        pendingExpressions: [...last.pendingExpressions, NodeFactory_NewAssignmentExpression(pf, temp, last.value), ...receiver!.expressions],
+        value: temp,
+      };
+      receiver!.declarations = [...receiver!.declarations.slice(0, receiver!.declarations.length - 1), updatedLast];
+    }
   }
 
   const decls: GoSlice<GoPtr<Node>> = receiver!.declarations.map((pending) => {

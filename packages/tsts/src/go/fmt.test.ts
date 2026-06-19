@@ -12,7 +12,7 @@ import {
 } from "./fmt.js";
 import type { Stringer } from "./fmt.js";
 import { Is } from "./errors.js";
-import type { byte, int } from "@tsonic/core/types.js";
+import type { byte, int } from "./scalars.js";
 import type { GoError, GoSlice } from "./compat.js";
 
 // A minimal in-memory io.Writer for exercising Fprint*.

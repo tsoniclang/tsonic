@@ -13,7 +13,7 @@ This directory is the mechanical-port backbone for TSTS. The tooling reads the r
 - `npm run porter:facades -- --check` verifies the checked-in Go compatibility/facade layer is exactly the deterministic output for the current TS-Go snapshot.
 - `npm run porter:large-files` verifies every active literal-port Go file over the configured LOC threshold has a semantic split plan.
 - `npm run porter:large-files -- --write-draft` writes a draft semantic split plan from the current TS-Go declaration inventory. Existing differing plans are never overwritten unless `-- --force` is also supplied. Treat this as a bootstrap command, not the normal update path for a reviewed plan.
-- `npm run porter:skeleton-check` renders the complete missing-unit skeleton corpus into `.temp/porter/skeleton` and runs TS-Go with `--noEmit` against it.
+- `npm run porter:skeleton-check` renders the complete missing-unit skeleton corpus into `.temp/porter/skeleton` and runs `tsc --noEmit` against it.
 
 ## Embedded Metadata
 
@@ -39,6 +39,47 @@ The ID already contains the Go module, Go file path, artifact kind, and qualifie
 - `forbidden TS file`: a TypeScript source file exists in a path that must not exist in the active standalone compiler tree.
 
 Generated, test, host-native, out-of-scope, and manual-required categories are explicit policy classifications in `porter.config.json`; they are not silent omissions. Production scaffold coverage is active only for `literal-port`, `manual-required`, and `host-native` units. Generated code is checked through generated-artifact gates, and test parity belongs to the test harness rather than production source scaffolding.
+
+## Implementation Overrides
+
+The porter intentionally hashes the upstream Go unit, not the TypeScript body.
+That makes TS-Go baseline updates safe: if upstream changes, the existing
+`@tsgo-unit` becomes `stale` even when the TypeScript body is hand-optimized.
+The complementary risk is that a deliberate TypeScript body divergence can be
+invisible when its public signature still matches. These divergences must be
+tracked explicitly.
+
+Every deliberate non-literal body implementation must have both records:
+
+```ts
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/scanner.go::func::Scan","kind":"func","status":"implemented","sigHash":"...","bodyHash":"..."}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Use the JS/.NET UTF-16 source-text model in the scanner hot path while preserving the TS-Go public contract."}
+ */
+```
+
+Override metadata is local-only. Do not add per-unit override ledgers to
+`porter.config.json`.
+
+`allow` accepts:
+
+- `"body"`: the TypeScript implementation intentionally differs from the Go body
+  while preserving the public signature.
+- `"signature"`: the TypeScript declaration intentionally differs from the
+  Go-derived signature.
+
+Signature overrides must capture both current snapshots locally:
+
+```ts
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/scanner.go::func::Scan","kind":"func","status":"implemented","sigHash":"...","bodyHash":"..."}
+ * @tsgo-override {"category":"runtime-performance","allow":["body","signature"],"reason":"Use a target-native source text carrier.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/scanner/scanner.ts::Scanner>,string)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/scanner/scanner.ts::Scanner>,packages/tsts/src/internal/core/source_text.ts::SourceText)=>void"}
+ */
+```
+
+The signature checker recomputes these snapshots from the pinned Go source and
+the actual TypeScript declaration. Any upstream Go drift or local TS signature
+drift invalidates the override and fails `porter:verify`.
 
 ## Out-of-Scope Language-Service Surface
 
@@ -99,7 +140,7 @@ Body-only facade members intentionally start as skeletons when the Go AST alone 
 The skeleton renderer emits compilable TypeScript for every portable Go unit:
 
 - Function and method parameters/results are derived from Go AST signatures.
-- Go primitives map to `@tsonic/core` numeric/source types where available.
+- Go primitives map to TSTS internal scalar aliases where the port needs fixed-width source-level meaning.
 - Multiple Go return values become TypeScript tuples.
 - Go generic type declarations receive `unknown` defaults so partially specialized Go uses compile as skeletons.
 - Untyped values use syntactic inference for literals, `make(...)`, `new(...)`, function literals, composite literals, `errors.New(...)`, and same-package aliases.
@@ -224,4 +265,4 @@ These policies are explicit debt categories. A unit is never silently excluded f
 
 ## Future Translator Rules
 
-The scaffolder is intentionally conservative: it emits traceable stubs, not guessed translations. The future translator must preserve Go unit IDs and should map Go numeric primitives to `@tsonic/core` types (`int`, `uint`, `int32`, `uint64`, etc.) where the TypeScript port needs fixed-width source-level meaning.
+The scaffolder is intentionally conservative: it emits traceable stubs, not guessed translations. The future translator must preserve Go unit IDs and should map Go numeric primitives to TSTS internal scalar aliases (`int`, `uint`, `long`, `ulong`, etc.) where the TypeScript port needs fixed-width source-level meaning.

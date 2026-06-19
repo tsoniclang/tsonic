@@ -1,7 +1,6 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoComparable, GoMap, GoPtr } from "../../go/compat.js";
 import type { Arena } from "./arena.js";
-import { Arena_New } from "./arena.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/linkstore.go::type::LinkStore","kind":"type","status":"implemented","sigHash":"96af231f81cab3ea96808ae94d0dd1d2f72fe89e0cdb4c2d385abf3ee3542b3d","bodyHash":"4819b5299d93f83bc94613116fe6aa9f531f2e6c747b99539f472a65af9c96fb"}
@@ -33,16 +32,16 @@ export interface LinkStore<K extends GoComparable = unknown, V = unknown> {
  * 	s.entries[key] = value
  * 	return value
  * }
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"TSTS constructs all in-scope LinkStores with an eager Map, so Get does not need Go's per-call nil-map branch; JS object references stored in that Map are already stable, so link objects also do not need duplicate retention through the Go arena slice. This preserves observable semantics for constructed stores while removing hot checker map-initialization and arena-retention overhead."}
  */
-export function LinkStore_Get<K, V>(receiver: GoPtr<LinkStore<K, V>>, key: K): GoPtr<V> {
-  const s: GoPtr<LinkStore<K, V>> = receiver;
-  s!.entries ??= new Map<K, GoPtr<V>>();
-  let value = s!.entries.get(key);
+export function LinkStore_Get<K extends GoComparable, V>(receiver: GoPtr<LinkStore<K, V>>, key: K): GoPtr<V> {
+  const entries = receiver!.entries;
+  let value = entries.get(key);
   if (value !== undefined) {
     return value;
   }
-  value = Arena_New<V>(s!.arena);
-  s!.entries.set(key, value);
+  value = {} as V;
+  entries.set(key, value);
   return value;
 }
 
@@ -55,7 +54,7 @@ export function LinkStore_Get<K, V>(receiver: GoPtr<LinkStore<K, V>>, key: K): G
  * 	return ok
  * }
  */
-export function LinkStore_Has<K, V>(receiver: GoPtr<LinkStore<K, V>>, key: K): bool {
+export function LinkStore_Has<K extends GoComparable, V>(receiver: GoPtr<LinkStore<K, V>>, key: K): bool {
   const ok = receiver!.entries?.has(key) ?? false;
   return ok;
 }
@@ -68,6 +67,6 @@ export function LinkStore_Has<K, V>(receiver: GoPtr<LinkStore<K, V>>, key: K): b
  * 	return s.entries[key]
  * }
  */
-export function LinkStore_TryGet<K, V>(receiver: GoPtr<LinkStore<K, V>>, key: K): GoPtr<V> {
+export function LinkStore_TryGet<K extends GoComparable, V>(receiver: GoPtr<LinkStore<K, V>>, key: K): GoPtr<V> {
   return receiver!.entries?.get(key);
 }

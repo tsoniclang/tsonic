@@ -1,4 +1,4 @@
-import type { byte, int } from "@tsonic/core/types.js";
+import type { byte, int } from "../scalars.js";
 import type { GoError, GoSlice } from "../compat.js";
 import type { DirEntry, File, FileInfo, FileMode, FS, ReadDirFile } from "../io/fs.js";
 import { ErrNotExist, ModeDir, Stat } from "../io/fs.js";

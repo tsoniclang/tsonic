@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../go/scalars.js";
 import type { GoError, GoPtr, GoSlice } from "../go/compat.js";
 import type { Writer } from "../go/io.js";
 import { Background } from "../go/context.js";
@@ -177,7 +177,12 @@ function transpileWorker(input: string, options: TranspileOptions, declaration: 
   appendDiagnostics(diagnostics, emitResult?.Diagnostics ?? []);
 
   if (outputText === undefined) {
-    throw new Error("TSTS transpile did not emit an output file");
+    // Emit can legitimately produce no output file — e.g. --isolatedDeclarations blocks
+    // declaration emit on an un-isolatable construct (the pinned TS-Go binary writes no file
+    // there either). Mirror tsc's transpileModule, which returns empty output text alongside the
+    // blocking diagnostics rather than failing; throwing here would also discard those
+    // diagnostics. Callers distinguish "no file" via empty output + the reported diagnostics.
+    outputText = "";
   }
   // Mirror TS-Go's user-facing diagnostic presentation: tsc's EmitFilesAndReportErrors runs
   // compiler.SortAndDeduplicateDiagnostics over the combined program+emit diagnostics before

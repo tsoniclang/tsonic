@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import type { TextPos } from "../core/text.js";
 import type { ECMALineStarts } from "../core/core.js";

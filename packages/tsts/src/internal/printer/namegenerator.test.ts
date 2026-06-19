@@ -4,7 +4,7 @@
 // reproduces that zero-value literal here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import type { SourceFile } from "../ast/ast.js";
 import { Node_Body, Node_Expression, Node_Members, Node_Statements, Node_Text } from "../ast/ast.js";

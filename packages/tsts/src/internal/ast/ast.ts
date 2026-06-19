@@ -1,5 +1,6 @@
-import type { bool, byte, int } from "@tsonic/core/types.js";
+import type { bool, byte, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
+import { NewGoStructMap } from "../../go/compat.js";
 import type { Uint128 } from "../../go/github.com/zeebo/xxh3.js";
 import { Mutex, Once, RWMutex } from "../../go/sync.js";
 import { Bool, Uint32 } from "../../go/sync/atomic.js";
@@ -14,12 +15,13 @@ import { NewTextRange, UndefinedTextRange } from "../core/text.js";
 import type { TextPos, TextRange } from "../core/text.js";
 import type { Tristate } from "../core/tristate.js";
 import * as strings from "../../go/strings.js";
+import { StringByteSlice } from "../../go/unicode/utf8.js";
 import type { Path as Path_79c49227 } from "../tspath/path.js";
 import { GetEncodedRootLength, NormalizePath } from "../tspath/path.js";
 import type { AccessorDeclarationBase, ArrayLiteralExpression, ArrowFunction, AsExpression, AwaitExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingPattern, Block, CallExpression, CaseOrDefaultClause, CatchClause, ClassDeclaration, ClassExpression, ClassStaticBlockDeclaration, CompositeBase, ConditionalExpression, ComputedPropertyName, ConstructorDeclaration, ConstructorTypeNode, Declaration, DeclarationBase, Decorator, DoStatement, ElementAccessExpression, EnumDeclaration, EnumMember, ExportAssignment, ExportDeclaration, ExportSpecifier, Expression as Expression_9ab73856, ExpressionStatement, ExpressionWithTypeArguments, ForInOrOfStatement, ForStatement, FunctionDeclaration, FunctionExpression, FunctionOrConstructorTypeNodeBase, GetAccessorDeclaration, HeritageClause, IfStatement, Identifier, ImportAttributesNode, ImportClause as ImportClause_58d51725, ImportDeclaration, ImportEqualsDeclaration, ImportSpecifier, IndexSignatureDeclaration, InterfaceDeclaration, JSDocParameterOrPropertyTag, JsxAttribute, JsxAttributes, JsxClosingElement, JsxClosingFragment, JsxElement, JsxExpression, JsxFragment, JsxNamespacedName, JsxOpeningElement, JsxOpeningFragment, JsxSelfClosingElement, JsxSpreadAttribute, JsxText, KeywordExpression, LabeledStatement, LiteralLikeNode, LocalsContainerBase, MetaProperty, MethodDeclaration, MethodSignatureDeclaration, ModuleDeclaration, ModuleName, NamedExports, NamedImports, NewExpression, NodeFactory, NonNullExpression, NoSubstitutionTemplateLiteral, ObjectLiteralExpression, ParameterDeclaration, ParameterDeclarationNode, ParameterList as ParameterList_5701af3c, ParenthesizedExpression, PartiallyEmittedExpression, PostfixUnaryExpression, PrefixUnaryExpression, PrivateIdentifier, PropertyAccessExpression, PropertyAssignment, PropertyDeclaration, PropertySignatureDeclaration, ReturnStatement, SatisfiesExpression, SetAccessorDeclaration, ShorthandPropertyAssignment, SpreadAssignment, SpreadElement, Statement as Statement_98c7cd47, StatementList as StatementList_3cde134f, SwitchStatement, TaggedTemplateExpression, TemplateHead, TemplateMiddle, TemplateTail, Token, TokenNode, TryStatement, TypeAliasDeclaration, TypeAssertion, TypeParameterDeclaration, TypeSyntaxBase, VariableDeclaration, VariableDeclarationList, VariableStatement, WhileStatement, WithStatement, YieldExpression } from "./generated/index.js";
 import * as casts from "./generated/casts.js";
 import * as predicates from "./generated/predicates.js";
-import { NewToken as NodeFactory_NewToken, NewArrayLiteralExpression, NewArrowFunction, NewAsExpression, NewBinaryExpression, NewBindingElement, NewBlock, NewCallExpression, NewCaseOrDefaultClause, NewCatchClause, NewClassDeclaration, NewClassExpression, NewComputedPropertyName, NewConditionalExpression, NewConstructorDeclaration, NewConstructorTypeNode, NewDoStatement, NewElementAccessExpression, NewEnumDeclaration, NewExportAssignment, NewExportDeclaration, NewExpressionStatement, NewExpressionWithTypeArguments, NewForInOrOfStatement, NewForStatement, NewFunctionDeclaration, NewFunctionExpression, NewGetAccessorDeclaration, NewHeritageClause, NewIfStatement, NewImportClause, NewImportDeclaration, NewImportEqualsDeclaration, NewIndexSignatureDeclaration, NewInterfaceDeclaration, NewJsxOpeningElement, NewJsxSelfClosingElement, NewLabeledStatement, NewMethodDeclaration, NewMethodSignatureDeclaration, NewModuleDeclaration, NewNamedExports, NewNamedImports, NewNewExpression, NewNonNullExpression, NewObjectLiteralExpression, NewParameterDeclaration, NewParenthesizedExpression, NewPartiallyEmittedExpression, NewPostfixUnaryExpression, NewPrefixUnaryExpression, NewPropertyAccessExpression, NewPropertyAssignment, NewPropertyDeclaration, NewPropertySignatureDeclaration, NewReturnStatement, NewSatisfiesExpression, NewSetAccessorDeclaration, NewShorthandPropertyAssignment, NewSpreadAssignment, NewSpreadElement, NewSwitchStatement, NewTaggedTemplateExpression, NewTryStatement, NewTypeAliasDeclaration, NewTypeParameterDeclaration, NewVariableDeclaration, NewVariableDeclarationList, NewVariableStatement, NewWhileStatement, NewWithStatement, NewYieldExpression, NewIdentifier as NodeFactory_NewIdentifier, NewPrivateIdentifier as NodeFactory_NewPrivateIdentifier, NewStringLiteral as NodeFactory_NewStringLiteral, NewNumericLiteral as NodeFactory_NewNumericLiteral, NewBigIntLiteral as NodeFactory_NewBigIntLiteral, NewRegularExpressionLiteral as NodeFactory_NewRegularExpressionLiteral, NewNoSubstitutionTemplateLiteral as NodeFactory_NewNoSubstitutionTemplateLiteral, NewTemplateHead as NodeFactory_NewTemplateHead, NewTemplateMiddle as NodeFactory_NewTemplateMiddle, NewTemplateTail as NodeFactory_NewTemplateTail, NewJsxText as NodeFactory_NewJsxText, NewJSDocParameterOrPropertyTag as NodeFactory_NewJSDocParameterOrPropertyTag } from "./generated/factory.js";
+import { NewToken as NodeFactory_NewToken, NewArrayLiteralExpression, NewArrowFunction, NewAsExpression, NewBinaryExpression, NewBindingElement, NewBlock, NewCallExpression, NewCaseOrDefaultClause, NewCatchClause, NewClassDeclaration, NewClassExpression, NewComputedPropertyName, NewConditionalExpression, NewConstructorDeclaration, NewConstructorTypeNode, NewDoStatement, NewElementAccessExpression, NewEnumDeclaration, NewExportAssignment, NewExportDeclaration, NewExpressionStatement, NewExpressionWithTypeArguments, NewForInOrOfStatement, NewForStatement, NewFunctionDeclaration, NewFunctionExpression, NewGetAccessorDeclaration, NewHeritageClause, NewIfStatement, NewImportClause, NewImportDeclaration, NewImportEqualsDeclaration, NewIndexSignatureDeclaration, NewInterfaceDeclaration, NewJsxOpeningElement, NewJsxSelfClosingElement, NewLabeledStatement, NewMethodDeclaration, NewMethodSignatureDeclaration, NewModuleDeclaration, NewNamedExports, NewNamedImports, NewNewExpression, NewNonNullExpression, NewObjectLiteralExpression, NewParameterDeclaration, NewParenthesizedExpression, NewPartiallyEmittedExpression, NewPostfixUnaryExpression, NewPrefixUnaryExpression, NewPropertyAccessExpression, NewPropertyAssignment, NewPropertyDeclaration, NewPropertySignatureDeclaration, NewReturnStatement, NewSatisfiesExpression, NewSetAccessorDeclaration, NewShorthandPropertyAssignment, NewSpreadAssignment, NewSpreadElement, NewSwitchStatement, NewTaggedTemplateExpression, NewTryStatement, NewTypeAliasDeclaration, NewJSTypeAliasDeclaration, NewTypeParameterDeclaration, NewVariableDeclaration, NewVariableDeclarationList, NewVariableStatement, NewWhileStatement, NewWithStatement, NewYieldExpression, NewIdentifier as NodeFactory_NewIdentifier, NewPrivateIdentifier as NodeFactory_NewPrivateIdentifier, NewStringLiteral as NodeFactory_NewStringLiteral, NewNumericLiteral as NodeFactory_NewNumericLiteral, NewBigIntLiteral as NodeFactory_NewBigIntLiteral, NewRegularExpressionLiteral as NodeFactory_NewRegularExpressionLiteral, NewNoSubstitutionTemplateLiteral as NodeFactory_NewNoSubstitutionTemplateLiteral, NewTemplateHead as NodeFactory_NewTemplateHead, NewTemplateMiddle as NodeFactory_NewTemplateMiddle, NewTemplateTail as NodeFactory_NewTemplateTail, NewJsxText as NodeFactory_NewJsxText, NewJSDocParameterOrPropertyTag as NodeFactory_NewJSDocParameterOrPropertyTag } from "./generated/factory.js";
 import type { AsteriskToken, AwaitKeyword, BindingName, BinaryOperatorToken, BlockNode, CaseBlockNode, CaseClausesList, CatchClauseNode, ClassElementList, ColonToken, ConciseBody, DotDotDotToken, ElementList, EntityName, EnumMemberList, EqualsGreaterThanToken, EqualsToken, ExclamationToken, ExportSpecifierList, ExpressionWithTypeArgumentsList, ForInitializer, FunctionBody, HeritageClauseList, IdentifierNode, ImportClauseNode, ImportSpecifierList, JsxAttributesNode, JsxTagNameExpression, MemberName, ModuleBody, ModuleReference, NamedExportBindings, NamedImportBindings, ParameterList, PropertyName, QuestionDotToken, QuestionToken, Statement, StatementList, TemplateLiteral, TypeElementList, TypeList, TypeNode, TypeParameterList, VariableDeclarationListNode, VariableDeclarationNode, VariableDeclarationNodeList } from "./generated/unions.js";
 import type { Kind } from "./generated/kinds.js";
 import {
@@ -2417,7 +2419,7 @@ export function Node_QuestionDotToken(receiver: GoPtr<Node>): GoPtr<Node> {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/ast.go::method::Node.TypeExpression","kind":"method","status":"implemented","sigHash":"bb7658e1d6e5f6aa338ec32c9e49eec023f48508794f163c1ef6158702d095f7","bodyHash":"856dbdc15622154cbb233128f6f2cd31b00e07114f17516a7f495fea49887b0d"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/ast.go::method::Node.TypeExpression","kind":"method","status":"implemented","sigHash":"bb7658e1d6e5f6aa338ec32c9e49eec023f48508794f163c1ef6158702d095f7","bodyHash":"71b45a89b3ab38d6736c6df140d449be54b3e7dd9fbd5932d74b65dfef7a4b92"}
  *
  * Go source:
  * func (n *Node) TypeExpression() *Node {
@@ -2430,6 +2432,8 @@ export function Node_QuestionDotToken(receiver: GoPtr<Node>): GoPtr<Node> {
  * 		return n.AsJSDocTypeTag().TypeExpression
  * 	case KindJSDocTypedefTag:
  * 		return n.AsJSDocTypedefTag().TypeExpression
+ * 	case KindJSDocCallbackTag:
+ * 		return n.AsJSDocCallbackTag().TypeExpression
  * 	case KindJSDocSatisfiesTag:
  * 		return n.AsJSDocSatisfiesTag().TypeExpression
  * 	case KindJSDocThrowsTag:
@@ -2449,6 +2453,8 @@ export function Node_TypeExpression(receiver: GoPtr<Node>): GoPtr<Node> {
       return casts.AsJSDocTypeTag(receiver)!.TypeExpression;
     case KindJSDocTypedefTag:
       return casts.AsJSDocTypedefTag(receiver)!.TypeExpression;
+    case KindJSDocCallbackTag:
+      return casts.AsJSDocCallbackTag(receiver)!.TypeExpression;
     case KindJSDocSatisfiesTag:
       return casts.AsJSDocSatisfiesTag(receiver)!.TypeExpression;
     case KindJSDocThrowsTag:
@@ -4552,15 +4558,15 @@ export function NewExpression_propagateSubtreeFacts(receiver: GoPtr<NewExpressio
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/ast.go::method::MetaProperty.computeSubtreeFacts","kind":"method","status":"implemented","sigHash":"82d7e8d44699deae2dbf0aec7bd37df933e1f9cc48b4b48f4486bc49dd3e82f7","bodyHash":"1100acca1a586d05d1b321c12c3edd8b89848503de7c9d14bb1b5f06e965c837"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/ast.go::method::MetaProperty.computeSubtreeFacts","kind":"method","status":"implemented","sigHash":"82d7e8d44699deae2dbf0aec7bd37df933e1f9cc48b4b48f4486bc49dd3e82f7","bodyHash":"a6ab2c1bbbed3191d16ba9af599c4e227ccc40bb40fd30e56274908b347e75c3"}
  *
  * Go source:
  * func (node *MetaProperty) computeSubtreeFacts() SubtreeFacts {
- * 	return propagateSubtreeFacts(node.name)
+ * 	return propagateSubtreeFacts(node.name) &^ SubtreeContainsIdentifier
  * }
  */
 export function MetaProperty_computeSubtreeFacts(receiver: GoPtr<MetaProperty>): SubtreeFacts {
-  return propagateSubtreeFacts(receiver!.name);
+  return (propagateSubtreeFacts(receiver!.name) & ~SubtreeContainsIdentifier) >>> 0;
 }
 
 /**
@@ -5182,17 +5188,8 @@ export interface TokenCacheKey {
   loc: TextRange;
 }
 
-const tokenCacheParentIds = new WeakMap<Node, int>();
-let nextTokenCacheParentId: int = 1 as int;
-
-function tokenCacheKey(parent: GoPtr<Node>, loc: TextRange): string {
-  let parentId = tokenCacheParentIds.get(parent!);
-  if (parentId === undefined) {
-    parentId = nextTokenCacheParentId;
-    nextTokenCacheParentId = (nextTokenCacheParentId + 1) as int;
-    tokenCacheParentIds.set(parent!, parentId);
-  }
-  return `${parentId}:${loc.pos}:${loc.end}`;
+function tokenCacheKey(parent: GoPtr<Node>, loc: TextRange): TokenCacheKey {
+  return { parent, loc };
 }
 
 /**
@@ -5283,6 +5280,8 @@ export interface SourceFile extends NodeBase, DeclarationBase, LocalsContainerBa
   Path(): Path_79c49227;
   Text(): string;
   ECMALineMap(): GoSlice<TextPos>;
+  Imports(): GoSlice<GoPtr<LiteralLikeNode>>;
+  IsJS(): bool;
   fileName: string;
   parseOptions: SourceFileParseOptions;
   text: string;
@@ -5321,7 +5320,7 @@ export interface SourceFile extends NodeBase, DeclarationBase, LocalsContainerBa
   BindSuggestionDiagnostics: GoSlice<GoPtr<Diagnostic>>;
   EndFlowNode: GoPtr<FlowNode>;
   SymbolCount: int;
-  ClassifiableNames: Set;
+  ClassifiableNames: Set<string>;
   PatternAmbientModules: GoSlice<GoPtr<PatternAmbientModule>>;
   NestedCJSExports: GoSlice<GoPtr<Node>>;
   GlobalExports: SymbolTable;
@@ -5329,7 +5328,7 @@ export interface SourceFile extends NodeBase, DeclarationBase, LocalsContainerBa
   ecmaLineMap: GoSlice<TextPos>;
   Hash: Uint128;
   tokenCacheMu: Mutex;
-  tokenCache: GoMap<string, GoPtr<Node>>;
+  tokenCache: GoMap<TokenCacheKey, GoPtr<Node>>;
   tokenFactory: GoPtr<NodeFactory>;
   declarationMapMu: Mutex;
   declarationMap: GoMap<string, GoSlice<GoPtr<Node>>>;
@@ -5410,6 +5409,8 @@ export function NodeFactory_NewSourceFile(receiver: GoPtr<NodeFactory>, opts: So
   data.Path = (): Path_79c49227 => SourceFile_Path(data);
   data.Text = (): string => SourceFile_Text(data);
   data.ECMALineMap = (): GoSlice<TextPos> => SourceFile_ECMALineMap(data);
+  data.Imports = (): GoSlice<GoPtr<LiteralLikeNode>> => SourceFile_Imports(data);
+  data.IsJS = (): bool => SourceFile_IsJS(data);
   data.text = text;
   data.Statements = statements;
   data.EndOfFileToken = endOfFileToken;
@@ -6038,7 +6039,7 @@ export function SourceFile_GetOrCreateToken(receiver: GoPtr<SourceFile>, kind: K
       throw new globalThis.Error(`Cannot create token from reparsed node of kind ${KindString(parent!.Kind)}`);
     }
     if (receiver!.tokenCache === undefined) {
-      receiver!.tokenCache = new Map<string, GoPtr<Node>>();
+      receiver!.tokenCache = NewGoStructMap<TokenCacheKey, GoPtr<Node>>();
     }
     const token = createToken(kind, receiver, pos, end, flags);
     token!.Loc = loc;
@@ -6052,6 +6053,7 @@ export function SourceFile_GetOrCreateToken(receiver: GoPtr<SourceFile>, kind: K
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/ast.go::func::createToken","kind":"func","status":"implemented","sigHash":"5de2094d9a107a1a3508ac0414666f642fa8ab577f11758b31a281c3f1bcc510","bodyHash":"efea1dfb31a5771292db456584f36dde8b05960c979705f9a431409df5b2fcdf"}
+ * @tsgo-override {"category":"runtime-correctness-performance","allow":["body"],"reason":"Use TS-Go byte-offset slicing over JS/.NET UTF-16 source storage; direct JS slice would mis-handle non-ASCII positions and bypass the shared byte-view cache."}
  *
  * Go source:
  * func createToken(kind Kind, file *SourceFile, pos, end int, flags TokenFlags) *Node {
@@ -6091,7 +6093,7 @@ export function createToken(kind: Kind, file: GoPtr<SourceFile>, pos: int, end: 
   if (file!.tokenFactory === undefined) {
     file!.tokenFactory = NewNodeFactory({} as NodeFactoryHooks);
   }
-  const text = file!.text.slice(pos, end);
+  const text = StringByteSlice(file!.text, pos, end);
   switch (kind) {
     case KindNumericLiteral:
       return NodeFactory_NewNumericLiteral(file!.tokenFactory, text, flags);
@@ -6669,6 +6671,30 @@ export function NodeFactory_UpdateJSDocParameterOrPropertyTag(receiver: GoPtr<No
   return NodeDefault_AsNode(node);
 }
 
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/ast.go::method::NodeFactory.ReleaseArenas","kind":"method","status":"implemented","sigHash":"5f60c1b96ee97c17702c2b35d40a988074adcf77965b995340c93883e9758567","bodyHash":"5a2c80ebdf5af96bdf002847add0dcda4cfc5871ca3f4eeda347a471517863bf"}
+ *
+ * Go source:
+ * func (f *NodeFactory) ReleaseArenas() {
+ * 	*f = NodeFactory{
+ * 		hooks:     f.hooks,
+ * 		textCount: f.textCount,
+ * 		nodeCount: f.nodeCount,
+ * 	}
+ * }
+ */
+export function NodeFactory_ReleaseArenas(receiver: GoPtr<NodeFactory>): void {
+  const f = receiver!;
+  // Go replaces the whole struct value, retaining only hooks/textCount/nodeCount and
+  // zeroing every arena field. Mirror that reset in place so existing aliases observe it;
+  // the AsNodeFactory self-reference is the struct's method and is preserved.
+  for (const key of globalThis.Object.keys(f)) {
+    if (key !== "hooks" && key !== "textCount" && key !== "nodeCount" && key !== "AsNodeFactory") {
+      globalThis.Reflect.deleteProperty(f, key);
+    }
+  }
+}
+
 export function NodeFactory_UpdateBlock(receiver: GoPtr<NodeFactory>, node: GoPtr<Block>, statements: GoPtr<StatementList_3cde134f>, multiLine: bool): GoPtr<Node> {
   if (statements !== node!.Statements || multiLine !== node!.MultiLine) {
     return updateNode(NewBlock(receiver, statements, multiLine), NodeDefault_AsNode(node), receiver!.hooks);
@@ -6972,7 +6998,14 @@ export function NodeFactory_UpdateInterfaceDeclaration(receiver: GoPtr<NodeFacto
 
 export function NodeFactory_UpdateTypeAliasDeclaration(receiver: GoPtr<NodeFactory>, node: GoPtr<TypeAliasDeclaration>, modifiers: GoPtr<ModifierList>, name: GoPtr<IdentifierNode>, typeParameters: GoPtr<TypeParameterList>, typeNode: GoPtr<TypeNode>): GoPtr<Node> {
   if (modifiers !== node!.modifiers || name !== node!.name || typeParameters !== node!.TypeParameters || typeNode !== node!.Type) {
-    return updateNode(NewTypeAliasDeclaration(receiver, modifiers, name, typeParameters, typeNode), NodeDefault_AsNode(node), receiver!.hooks);
+    switch (NodeDefault_AsNode(node)!.Kind) {
+      case KindTypeAliasDeclaration:
+        return updateNode(NewTypeAliasDeclaration(receiver, modifiers, name, typeParameters, typeNode), NodeDefault_AsNode(node), receiver!.hooks);
+      case KindJSTypeAliasDeclaration:
+        return updateNode(NewJSTypeAliasDeclaration(receiver, modifiers, name, typeParameters, typeNode), NodeDefault_AsNode(node), receiver!.hooks);
+      default:
+        throw new globalThis.Error(`unexpected kind in NodeFactory_UpdateTypeAliasDeclaration: ${NodeDefault_AsNode(node)!.Kind}`);
+    }
   }
   return NodeDefault_AsNode(node);
 }

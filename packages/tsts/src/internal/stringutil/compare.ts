@@ -1,19 +1,14 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import { Compare, EqualFold, HasPrefix as stringsHasPrefix, HasSuffix as stringsHasSuffix, ToLower } from "../../go/strings.js";
 import { ToLower as unicodeToLower } from "../../go/unicode.js";
-import { DecodeRuneInString } from "../../go/unicode/utf8.js";
+import { DecodeRuneInStringViewAt, GetStringByteView, StringByteLen, StringByteSlice } from "../../go/unicode/utf8.js";
 
 // Go strings are immutable UTF-8 byte sequences; `len(s)` is a byte length and
 // slices like `s[i:j]` operate on byte offsets. The standard-library facades
 // (strings/utf8) follow that contract, so we mirror it here by operating over
 // the UTF-8 byte view and converting back to a JS string at the boundaries.
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
-const byteLen = (s: string): int => utf8Encoder.encode(s).length;
-const byteSlice = (s: string, start: int, end?: int): string => {
-  const bytes = utf8Encoder.encode(s);
-  return utf8Decoder.decode(bytes.subarray(start, end));
-};
+const byteLen = StringByteLen;
+const byteSlice = StringByteSlice;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/stringutil/compare.go::func::EquateStringCaseInsensitive","kind":"func","status":"implemented","sigHash":"284949f704df7913456cab1010135bb5e23c8c347f244220d90a0321ec45440e","bodyHash":"bfc3b1322927adbeb1f54b6db4219b5d185cbe7279a84a86da460abe86703d33"}
@@ -85,6 +80,7 @@ export const ComparisonGreaterThan: Comparison = 1;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/stringutil/compare.go::func::CompareStringsCaseInsensitive","kind":"func","status":"implemented","sigHash":"ac591ad324210bd22e25893f024961237ad3030219a6084cb964a51e7cc883b6","bodyHash":"6f0bb123594b125f6c64e7cdc6b7ebc1ba6acd4d34888dea5f61d26a3fe93a43"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Walk cached UTF-8 byte views by offset instead of repeatedly materializing suffix strings; comparison order and byte-sized rune advances remain TS-Go exact."}
  *
  * Go source:
  * func CompareStringsCaseInsensitive(a string, b string) Comparison {
@@ -120,9 +116,13 @@ export function CompareStringsCaseInsensitive(a: string, b: string): Comparison 
   if (a === b) {
     return ComparisonEqual;
   }
+  const aView = GetStringByteView(a);
+  const bView = GetStringByteView(b);
+  let aPos = 0;
+  let bPos = 0;
   for (;;) {
-    const [ca, sa] = DecodeRuneInString(a);
-    const [cb, sb] = DecodeRuneInString(b);
+    const [ca, sa] = DecodeRuneInStringViewAt(a, aView, aPos);
+    const [cb, sb] = DecodeRuneInStringViewAt(b, bView, bPos);
     if (sa === 0) {
       if (sb === 0) {
         return ComparisonEqual;
@@ -140,8 +140,8 @@ export function CompareStringsCaseInsensitive(a: string, b: string): Comparison 
       }
       return ComparisonGreaterThan;
     }
-    a = byteSlice(a, sa);
-    b = byteSlice(b, sb);
+    aPos += sa;
+    bPos += sb;
   }
 }
 

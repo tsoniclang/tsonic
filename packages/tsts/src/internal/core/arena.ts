@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 
 /**
@@ -21,6 +21,7 @@ function ensureArena<T>(receiver: GoPtr<Arena<T>>): Arena<T> {
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/arena.go::method::Arena.New","kind":"method","status":"implemented","sigHash":"7f61e2bb57de57610e5585534f7544ee42ef4fef68509f3a42c767cf9152e756","bodyHash":"b9bd82671cbff82c70555631173bc5f846f2b81fd84ef711e37082b735d1f20f"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Go arenas retain allocated values because returned pointers refer into a backing slice; JS object references are already stable and GC-tracked, so retaining each value again through Arena.data is duplicate work."}
  *
  * Go source:
  * func (a *Arena[T]) New() *T {
@@ -35,16 +36,13 @@ function ensureArena<T>(receiver: GoPtr<Arena<T>>): Arena<T> {
  * }
  */
 export function Arena_New<T>(receiver: GoPtr<Arena<T>>): GoPtr<T> {
-  // In TS there is no arena allocation: just push a new zero-value slot and
-  // return a reference to the wrapper object so callers can read/write it.
-  const arena = ensureArena(receiver);
-  const slot = {} as T;
-  arena.data.push(slot);
-  return slot;
+  ensureArena(receiver);
+  return {} as T;
 }
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/arena.go::method::Arena.NewSlice","kind":"method","status":"implemented","sigHash":"e6e68464be11603146e0ba334fce4d5628033c5389e68c2032220be0b3bef2c3","bodyHash":"607827fa585765652039cf140ef55b5973bd0297db32e1930d30c8e8964be471"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Go arenas retain backing storage for returned slices; JS arrays are heap objects with stable references, so TSTS returns the requested zero-value slice directly and avoids duplicate Arena.data retention."}
  *
  * Go source:
  * func (a *Arena[T]) NewSlice(size int) []T {
@@ -69,12 +67,8 @@ export function Arena_NewSlice<T>(receiver: GoPtr<Arena<T>>, size: int): GoSlice
   if (size === 0) {
     return [];
   }
-  const arena = ensureArena(receiver);
-  return globalThis.Array.from({ length: size as number }, () => {
-    const slot = {} as T;
-    arena.data.push(slot);
-    return slot;
-  });
+  ensureArena(receiver);
+  return new globalThis.Array<T>(size as number);
 }
 
 /**
@@ -95,6 +89,7 @@ export function Arena_NewSlice1<T>(receiver: GoPtr<Arena<T>>, t: T): GoSlice<T> 
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/arena.go::method::Arena.Clone","kind":"method","status":"implemented","sigHash":"27f28fb80bfb60096650cf2a896227f2837f1d4e0e6bda9450442ee99972cd6c","bodyHash":"2a82317a6079eb431f604b475bb86a27c8b3408278a5590d0ead847075f5aa47"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Go arena Clone copies into arena-owned backing storage; JS slices already own stable array storage, so a direct array copy preserves observable slice contents without retaining duplicate entries in Arena.data."}
  *
  * Go source:
  * func (a *Arena[T]) Clone(t []T) []T {
@@ -110,11 +105,8 @@ export function Arena_Clone<T>(receiver: GoPtr<Arena<T>>, t: GoSlice<T>): GoSlic
   if (t.length === 0) {
     return [];
   }
-  const arena = ensureArena(receiver);
-  return globalThis.Array.from(t, (item) => {
-    arena.data.push(item);
-    return item;
-  });
+  ensureArena(receiver);
+  return t.slice();
 }
 
 /**

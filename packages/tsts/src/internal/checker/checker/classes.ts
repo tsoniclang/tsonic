@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr } from "../../../go/compat.js";
 import { Every, Some } from "../../core/core.js";
 import type { Node } from "../../ast/spine.js";
@@ -51,6 +51,7 @@ import { Checker_checkSourceElements, Checker_error } from "./support.js";
 import { Checker_getDeclaredTypeOfClassOrInterface, Checker_hasBaseType } from "./types.js";
 import { Checker_grammarErrorOnNode } from "../grammarchecks.js";
 import type { Checker } from "./state.js";
+import { Checker_checkClassExpressionExternalHelpers } from "../checker.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getResolutionModeOverride","kind":"method","status":"implemented","sigHash":"7e0c42fe06d7edb996ccecf014152878148d7b5a6adaa597f78189aa937c483a","bodyHash":"533ae420ff24ef963f94d704452831f7f33c7f85d7cf220232ec2ba973cee1e3"}
@@ -141,18 +142,20 @@ export function Checker_arePropertiesAbstractOrInterface(receiver: GoPtr<Checker
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkClassExpression","kind":"method","status":"implemented","sigHash":"9a545536ff28711ea40162393524a13ba58e2fec0b4b23bb36cf09742f33b23c","bodyHash":"9f6836279246172950154d1b3bbf2dc4f7d02183114b16b05c29ef9528c3c8c3"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkClassExpression","kind":"method","status":"implemented","sigHash":"9a545536ff28711ea40162393524a13ba58e2fec0b4b23bb36cf09742f33b23c","bodyHash":"ac8a6e9a6acddc165cdbb53262c62c9f1373e49106f5a871441b9e557e116f25"}
  *
  * Go source:
  * func (c *Checker) checkClassExpression(node *ast.Node) *Type {
  * 	c.checkClassLikeDeclaration(node)
  * 	c.checkNodeDeferred(node)
+ * 	c.checkClassExpressionExternalHelpers(node)
  * 	return c.getTypeOfSymbol(c.getSymbolOfDeclaration(node))
  * }
  */
 export function Checker_checkClassExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type> {
   Checker_checkClassLikeDeclaration(receiver, node);
   Checker_checkNodeDeferred(receiver, node);
+  Checker_checkClassExpressionExternalHelpers(receiver, node);
   return Checker_getTypeOfSymbol(receiver, Checker_getSymbolOfDeclaration(receiver, node));
 }
 

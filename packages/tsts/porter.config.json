@@ -18,6 +18,13 @@
     "packages/tsts/schema/tsgo/symbolflags.go"
   ],
   "astGeneratedStatusOut": ".temp/porter/ast-generated.json",
+  "schemaSourceSyncChecks": [
+    { "schema": "packages/tsts/schema/tsgo/ast.json", "source": "_scripts/ast.json" },
+    { "schema": "packages/tsts/schema/tsgo/ast.schema.json", "source": "_scripts/ast.schema.json" },
+    { "schema": "packages/tsts/schema/tsgo/protocol.ts", "source": "_packages/native-preview/src/api/node/protocol.ts" },
+    { "schema": "packages/tsts/schema/tsgo/nodeflags.go", "source": "internal/ast/nodeflags.go" },
+    { "schema": "packages/tsts/schema/tsgo/symbolflags.go", "source": "internal/ast/symbolflags.go" }
+  ],
   "diagnosticsGeneratedDir": "internal/diagnostics/generated",
   "diagnosticsCatalogInput": "packages/tsts/_vendor/typescript-go/internal/diagnostics/diagnostics_generated.go",
   "diagnosticsGeneratedStatusOut": ".temp/porter/diagnostics-generated.json",
@@ -202,6 +209,11 @@
       "reason": "TypeScript-compatible public service APIs for embedding TSTS; additive host surface with no upstream Go unit."
     },
     {
+      "match": "packages/tsts/src/extensions/**",
+      "category": "public-api",
+      "reason": "Additive compiler extension host public API; target-neutral infrastructure with no upstream Go unit."
+    },
+    {
       "match": "packages/tsts/src/internal/ast/generated/**",
       "category": "ast-generated",
       "reason": "Generated AST infrastructure emitted by porter:ast from packages/tsts/schema/tsgo/*; carries @tsgo-generated metadata, not @tsgo-unit."
@@ -210,6 +222,11 @@
       "match": "packages/tsts/src/internal/diagnostics/generated/**",
       "category": "diagnostics-generated",
       "reason": "Generated diagnostic message catalog emitted by porter:diagnostics from the pinned diagnostics_generated.go; carries @tsgo-generated metadata, not @tsgo-unit."
+    },
+    {
+      "match": "packages/tsts/src/internal/stringutil/generated/**",
+      "category": "unicode-generated",
+      "reason": "Generated Unicode data tables (identifier ID_Start/ID_Continue ranges, Cased/Case_Ignorable ranges, special-casing map) emitted by porter:unicode from the pinned @unicode/unicode-15.1.0 package; carries @tsgo-generated metadata, not @tsgo-unit."
     },
     {
       "match": "packages/tsts/src/internal/bundled/*_generated.ts",
@@ -235,6 +252,11 @@
       "match": "packages/tsts/src/go/**",
       "category": "go-compat-layer",
       "reason": "The Go compatibility layer is authored TypeScript infrastructure, not a TS-Go source unit."
+    },
+    {
+      "match": "packages/tsts/src/internal/fswatch/**",
+      "category": "host-native",
+      "reason": "Authored host-native facade for the upstream internal/fswatch package (out-of-scope OS file-watch internals: fanotify/FSEvents/kqueue/inotify). Exposes the public surface the execute watcher consumes with a stub that throws TSGO_EXTERNAL_FACADE_UNIMPLEMENTED; not a ported TS-Go unit, so it carries no @tsgo-unit metadata."
     },
     {
       "match": "packages/tsts/src/**/*.ts",
@@ -341,6 +363,12 @@
       "reason": "File watching must map to the TypeScript/Node host layer."
     },
     {
+      "match": "internal/fswatch/**",
+      "category": "out-of-scope",
+      "active": false,
+      "reason": "Upstream's vendored file-watch library (fsnotify fork: fanotify/FSEvents/debounce, ~270 units) replaces vfswatch. TSTS does not port the OS-level watch internals; file watching is provided through the TypeScript/Node host layer behind the WatchBackend interface that execute/watcher consumes."
+    },
+    {
       "match": "internal/lsp/**",
       "category": "out-of-scope",
       "active": false,
@@ -371,5 +399,28 @@
     "method",
     "type",
     "varGroup"
-  ]
+  ],
+  "signatureCheck": {
+    "_doc": "Project profile for `porter sig-check`. The Go->TS mapping (modules/bridge/primitives/stdlibTypes/facadeTemplate/annotation/parser) defaults to the tsts profile in ts-extractor/profile.mjs and can be overridden here for other projects. Per-unit acceptances are local-only @tsgo-override metadata in source.",
+    "conventions": {
+      "equivalences": [
+        { "as": "go-comparable", "scope": "constraint", "match": [ { "name": "comparable" }, { "refName": "GoComparable" } ] },
+        { "as": "go-ordered", "scope": "constraint", "match": [ { "name": "Ordered" }, { "refName": "GoOrdered" } ] }
+      ],
+      "structural": {
+        "acceptNullable": false,
+        "unwrapPtrFunc": false,
+        "anyMapKey": false,
+        "ptrValueEquivStruct": false,
+        "acceptNilableGoTypes": true,
+        "acceptErasedConstraints": false,
+        "facadeGenerics": [],
+        "facadeGenericRefs": [
+          "packages/tsts/src/go/sync.ts::Map",
+          "packages/tsts/src/go/sync.ts::OnceValue",
+          "packages/tsts/src/go/sync.ts::Pool"
+        ]
+      }
+    }
+  }
 }

@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Context } from "../../../go/context.js";
 import { Node_Text, Node_Members, Node_Statements, Node_CanHaveStatements, Node_Expression, Node_Arguments, Node_TypeArgumentList, Node_TypeArguments, Node_Parameters, Node_TagName, Node_Symbol, Node_Type, Node_Initializer, SourceFile_Diagnostics, SourceFile_Text } from "../../ast/ast.js";
@@ -28,7 +28,7 @@ import { IfElse, Every, Some, Filter, Find, OrElse, ElementOrNil } from "../../c
 import type { LinkStore } from "../../core/linkstore.js";
 import { LinkStore_Get, LinkStore_Has } from "../../core/linkstore.js";
 import { NodeCoreModules } from "../../core/nodemodules.js";
-import { NewTextRange, TextRange_ContainsInclusive } from "../../core/text.js";
+import { NewTextRange, TextRange_ContainsInclusive, TextRange_Pos, TextRange_End } from "../../core/text.js";
 import { TSFalse } from "../../core/tristate.js";
 import { Tristate_IsTrue } from "../../core/tristate.js";
 import { CategorySuggestion } from "../../diagnostics/diagnostics.js";
@@ -55,10 +55,11 @@ import { Checker_createTypeFromGenericGlobalType, Checker_getDeclaredTypeOfSymbo
 import { Checker_symbolToString, Checker_TypeToString, Checker_signatureToString } from "../printer.js";
 import { Checker_getAwaitedTypeOfPromise, Checker_GetNonNullableType, Checker_getTypeFacts, Checker_getAwaitedType, Checker_isArrayOrTupleType, Checker_isEmptyObjectType, Checker_isGenericType, Checker_getPropertiesOfObjectType, Checker_getWidenedType, Checker_getUnionType, Checker_maybeMappedType, Checker_getBaseTypesIfUnrelated, Checker_reportImplicitAny, Checker_getIterationTypeOfIterable } from "./types.js";
 import { Checker_isReachableFlowNode } from "../flow.js";
+import { Checker_addDiagnostic, Checker_addSuggestionDiagnostic } from "../checker.js";
 import * as slices from "../../../go/slices.js";
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addUndefinedToGlobalsOrErrorOnRedeclaration","kind":"method","status":"implemented","sigHash":"177e4f101b29e5acf47d7d3ba71d55990c08f6963846244e1ce9f3bd84204baf","bodyHash":"7f50e25f19dd48a75569583d31fad1afcab882195593cf77be24a93790257fba"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addUndefinedToGlobalsOrErrorOnRedeclaration","kind":"method","status":"implemented","sigHash":"177e4f101b29e5acf47d7d3ba71d55990c08f6963846244e1ce9f3bd84204baf","bodyHash":"9833e6a0d8a46862bc29d073abbfd30d49273d0d593b700304ac618cb431facd"}
  *
  * Go source:
  * func (c *Checker) addUndefinedToGlobalsOrErrorOnRedeclaration() {
@@ -67,7 +68,7 @@ import * as slices from "../../../go/slices.js";
  * 	if targetSymbol != nil {
  * 		for _, declaration := range targetSymbol.Declarations {
  * 			if !ast.IsTypeDeclaration(declaration) {
- * 				c.diagnostics.Add(createDiagnosticForNode(declaration, diagnostics.Declaration_name_conflicts_with_built_in_global_identifier_0, name))
+ * 				c.addDiagnostic(createDiagnosticForNode(declaration, diagnostics.Declaration_name_conflicts_with_built_in_global_identifier_0, name))
  * 			}
  * 		}
  * 	} else {
@@ -82,7 +83,7 @@ export function Checker_addUndefinedToGlobalsOrErrorOnRedeclaration(receiver: Go
   if (targetSymbol !== undefined) {
     for (const declaration of targetSymbol!.Declarations ?? []) {
       if (!IsTypeDeclaration(declaration)) {
-        DiagnosticsCollection_Add(c.diagnostics, createDiagnosticForNode(declaration, Declaration_name_conflicts_with_built_in_global_identifier_0, name));
+        Checker_addDiagnostic(receiver, createDiagnosticForNode(declaration, Declaration_name_conflicts_with_built_in_global_identifier_0, name));
       }
     }
   } else {
@@ -673,7 +674,7 @@ export function Checker_reportDuplicateMemberErrors(receiver: GoPtr<Checker>, no
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.issueMemberSpecificError","kind":"method","status":"implemented","sigHash":"8534ca39c472c9366efc02900585a053b4f4cb901b742452532495dfeace78be","bodyHash":"16051da22f00f9f804ab4c3f553ea7b297489a565116eeaa59b1637595c170bb"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.issueMemberSpecificError","kind":"method","status":"implemented","sigHash":"8534ca39c472c9366efc02900585a053b4f4cb901b742452532495dfeace78be","bodyHash":"c2ac640f44a5d37e716485bf9234602868437e11f3b8936ff753c9049925cce4"}
  *
  * Go source:
  * func (c *Checker) issueMemberSpecificError(node *ast.Node, typeWithThis *Type, baseWithThis *Type, broadDiag *diagnostics.Message) {
@@ -683,14 +684,13 @@ export function Checker_reportDuplicateMemberErrors(receiver: GoPtr<Checker>, no
  * 		if ast.IsStatic(member) {
  * 			continue
  * 		}
- * 		declaredProp := member.Symbol()
- * 		if declaredProp != nil && declaredProp.Name != ast.InternalSymbolNameComputed {
+ * 		if declaredProp := c.getSymbolOfDeclaration(member); declaredProp != nil && declaredProp.Name != ast.InternalSymbolNameComputed {
  * 			prop := c.getPropertyOfType(typeWithThis, declaredProp.Name)
  * 			baseProp := c.getPropertyOfType(baseWithThis, declaredProp.Name)
  * 			if prop != nil && baseProp != nil {
  * 				var diags []*ast.Diagnostic
  * 				if !c.checkTypeAssignableToEx(c.getTypeOfSymbol(prop), c.getTypeOfSymbol(baseProp), core.OrElse(member.Name(), member), nil /*headMessage* /, &diags) {
- * 					c.diagnostics.Add(ast.NewDiagnosticChain(diags[0], diagnostics.Property_0_in_type_1_is_not_assignable_to_the_same_property_in_base_type_2, c.symbolToString(declaredProp), c.TypeToString(typeWithThis), c.TypeToString(baseWithThis)))
+ * 					c.addDiagnostic(ast.NewDiagnosticChain(diags[0], diagnostics.Property_0_in_type_1_is_not_assignable_to_the_same_property_in_base_type_2, c.symbolToString(declaredProp), c.TypeToString(typeWithThis), c.TypeToString(baseWithThis)))
  * 					issuedMemberError = true
  * 				}
  * 			}
@@ -709,14 +709,14 @@ export function Checker_issueMemberSpecificError(receiver: GoPtr<Checker>, node:
     if (IsStatic(member)) {
       continue;
     }
-    const declaredProp = Node_Symbol(member);
+    const declaredProp = Checker_getSymbolOfDeclaration(receiver, member);
     if (declaredProp !== undefined && declaredProp!.Name !== InternalSymbolNameComputed) {
       const prop = Checker_getPropertyOfType(receiver, typeWithThis, declaredProp!.Name);
       const baseProp = Checker_getPropertyOfType(receiver, baseWithThis, declaredProp!.Name);
       if (prop !== undefined && baseProp !== undefined) {
         const diags: GoSlice<GoPtr<Diagnostic>> = [];
         if (!Checker_checkTypeAssignableToEx(receiver, Checker_getTypeOfSymbol(receiver, prop), Checker_getTypeOfSymbol(receiver, baseProp), OrElse(Node_Name(member), member), undefined, diags)) {
-          DiagnosticsCollection_Add(c.diagnostics, NewDiagnosticChain(diags[0], Property_0_in_type_1_is_not_assignable_to_the_same_property_in_base_type_2, Checker_symbolToString(receiver, declaredProp), Checker_TypeToString(receiver, typeWithThis), Checker_TypeToString(receiver, baseWithThis)));
+          Checker_addDiagnostic(receiver, NewDiagnosticChain(diags[0], Property_0_in_type_1_is_not_assignable_to_the_same_property_in_base_type_2, Checker_symbolToString(receiver, declaredProp), Checker_TypeToString(receiver, typeWithThis), Checker_TypeToString(receiver, baseWithThis)));
           issuedMemberError = true;
         }
       }
@@ -1009,7 +1009,7 @@ export function Checker_getDiagnosticHeadMessageForDecoratorResolution(receiver:
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportCallResolutionErrors","kind":"method","status":"implemented","sigHash":"b53e1df31b2b460a4600844bf3e882cae56f028872e89dd7ef8a480d9ee5748a","bodyHash":"648826266b8492aef11af844c49072bf88fc7bbae825cb81b193c79367108a4a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportCallResolutionErrors","kind":"method","status":"implemented","sigHash":"b53e1df31b2b460a4600844bf3e882cae56f028872e89dd7ef8a480d9ee5748a","bodyHash":"437b02d32034811e1876ce1d3b383c0ea77ceaac1f48bc703e360a90ff002840"}
  *
  * Go source:
  * func (c *Checker) reportCallResolutionErrors(node *ast.Node, s *CallState, signatures []*Signature, headMessage *diagnostics.Message) {
@@ -1030,10 +1030,10 @@ export function Checker_getDiagnosticHeadMessageForDecoratorResolution(receiver:
  * 				diagnostic.AddRelatedInfo(NewDiagnosticForNode(last.declaration, diagnostics.The_last_overload_is_declared_here))
  * 			}
  * 			c.addImplementationSuccessElaboration(s, last, diagnostic)
- * 			c.diagnostics.Add(diagnostic)
+ * 			c.addDiagnostic(diagnostic)
  * 		}
  * 	case s.candidateForArgumentArityError != nil:
- * 		c.diagnostics.Add(c.getArgumentArityError(s.node, []*Signature{s.candidateForArgumentArityError}, s.args, headMessage))
+ * 		c.addDiagnostic(c.getArgumentArityError(s.node, []*Signature{s.candidateForArgumentArityError}, s.args, headMessage))
  * 	case s.candidateForTypeArgumentError != nil:
  * 		c.checkTypeArguments(s.candidateForTypeArgumentError, s.node.TypeArguments(), true /*reportErrors* /, headMessage)
  * 	case !ast.IsJsxOpeningFragment(node):
@@ -1041,9 +1041,9 @@ export function Checker_getDiagnosticHeadMessageForDecoratorResolution(receiver:
  * 			return c.hasCorrectTypeArgumentArity(sig, s.typeArguments)
  * 		})
  * 		if len(signaturesWithCorrectTypeArgumentArity) == 0 {
- * 			c.diagnostics.Add(c.getTypeArgumentArityError(s.node, signatures, s.typeArguments, headMessage))
+ * 			c.addDiagnostic(c.getTypeArgumentArityError(s.node, signatures, s.typeArguments, headMessage))
  * 		} else {
- * 			c.diagnostics.Add(c.getArgumentArityError(s.node, signaturesWithCorrectTypeArgumentArity, s.args, headMessage))
+ * 			c.addDiagnostic(c.getArgumentArityError(s.node, signaturesWithCorrectTypeArgumentArity, s.args, headMessage))
  * 		}
  * 	}
  * }
@@ -1066,25 +1066,25 @@ export function Checker_reportCallResolutionErrors(receiver: GoPtr<Checker>, nod
         Diagnostic_AddRelatedInfo(diagnostic, NewDiagnosticForNode(last!.declaration, The_last_overload_is_declared_here));
       }
       Checker_addImplementationSuccessElaboration(receiver, s, last, diagnostic);
-      DiagnosticsCollection_Add(c.diagnostics, diagnostic);
+      Checker_addDiagnostic(receiver, diagnostic);
     }
   } else if (s!.candidateForArgumentArityError !== undefined) {
-    DiagnosticsCollection_Add(c.diagnostics, Checker_getArgumentArityError(receiver, s!.node, [s!.candidateForArgumentArityError], s!.args, headMessage));
+    Checker_addDiagnostic(receiver, Checker_getArgumentArityError(receiver, s!.node, [s!.candidateForArgumentArityError], s!.args, headMessage));
   } else if (s!.candidateForTypeArgumentError !== undefined) {
     Checker_checkTypeArguments(receiver, s!.candidateForTypeArgumentError, Node_TypeArguments(s!.node) ?? [], true as bool, headMessage);
   } else if (!IsJsxOpeningFragment(node)) {
     const signaturesWithCorrectTypeArgumentArity = Filter(signatures, (sig: GoPtr<Signature>) =>
       Checker_hasCorrectTypeArgumentArity(receiver, sig, s!.typeArguments));
     if (signaturesWithCorrectTypeArgumentArity.length === 0) {
-      DiagnosticsCollection_Add(c.diagnostics, Checker_getTypeArgumentArityError(receiver, s!.node, signatures, s!.typeArguments, headMessage));
+      Checker_addDiagnostic(receiver, Checker_getTypeArgumentArityError(receiver, s!.node, signatures, s!.typeArguments, headMessage));
     } else {
-      DiagnosticsCollection_Add(c.diagnostics, Checker_getArgumentArityError(receiver, s!.node, signaturesWithCorrectTypeArgumentArity, s!.args, headMessage));
+      Checker_addDiagnostic(receiver, Checker_getArgumentArityError(receiver, s!.node, signaturesWithCorrectTypeArgumentArity, s!.args, headMessage));
     }
   }
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getArgumentArityError","kind":"method","status":"implemented","sigHash":"9e7ce0219f8b08877783ae7a37fe95f4e5e7be8d5dc6f7b0b397f6a1b8469a09","bodyHash":"2fbc69eb3af633433a96834a3e4c5d902aa719c9ef6ce098c5dc241da3b28712"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getArgumentArityError","kind":"method","status":"implemented","sigHash":"9e7ce0219f8b08877783ae7a37fe95f4e5e7be8d5dc6f7b0b397f6a1b8469a09","bodyHash":"36e6c5b4c20539e0755113da7a5c81a0082a31f2b905e8ed9c7b54b2f91ad008"}
  *
  * Go source:
  * func (c *Checker) getArgumentArityError(node *ast.Node, signatures []*Signature, args []*ast.Node, headMessage *diagnostics.Message) *ast.Diagnostic {
@@ -1125,6 +1125,10 @@ export function Checker_reportCallResolutionErrors(receiver: GoPtr<Checker>, nod
  * 		parameterRange = strconv.Itoa(minCount)
  * 	}
  * 	isVoidPromiseError := !hasRestParameter && parameterRange == "1" && len(args) == 0 && c.isPromiseResolveArityError(node)
+ * 	errorNode := getErrorNodeForCallNode(node)
+ * 	if isVoidPromiseError && ast.IsInJSFile(node) {
+ * 		return NewDiagnosticForNode(errorNode, diagnostics.Expected_1_argument_but_got_0_new_Promise_needs_a_JSDoc_hint_to_produce_a_resolve_that_can_be_called_without_arguments)
+ * 	}
  * 	var message *diagnostics.Message
  * 	switch {
  * 	case ast.IsDecorator(node):
@@ -1140,7 +1144,6 @@ export function Checker_reportCallResolutionErrors(receiver: GoPtr<Checker>, nod
  * 	default:
  * 		message = diagnostics.Expected_0_arguments_but_got_1
  * 	}
- * 	errorNode := getErrorNodeForCallNode(node)
  * 	switch {
  * 	case minCount < len(args) && len(args) < maxCount:
  * 		// between min and max, but with no matching overload
@@ -1359,12 +1362,15 @@ export function Checker_isPromiseResolveArityError(receiver: GoPtr<Checker>, nod
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeArgumentArityError","kind":"method","status":"implemented","sigHash":"e6f97bff36671ddbf59493318bf96ce82364671b370d8dc4300eb5c58f26924d","bodyHash":"c803176dfe922abd020a3fe4f64948b9a4bf75d908a20dfce3af975586d89e59"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeArgumentArityError","kind":"method","status":"implemented","sigHash":"e6f97bff36671ddbf59493318bf96ce82364671b370d8dc4300eb5c58f26924d","bodyHash":"272027267ce34d415d730aa6843b371bc04178ee140eacd516edcdd5f1f64998"}
  *
  * Go source:
  * func (c *Checker) getTypeArgumentArityError(node *ast.Node, signatures []*Signature, typeArguments []*ast.Node, headMessage *diagnostics.Message) *ast.Diagnostic {
  * 	var diagnostic *ast.Diagnostic
  * 	argCount := len(typeArguments)
+ * 	sourceFile := ast.GetSourceFileOfNode(node)
+ * 	typeArgumentList := node.TypeArgumentList()
+ * 	loc := core.NewTextRange(scanner.SkipTrivia(sourceFile.Text(), typeArgumentList.Loc.Pos()), typeArgumentList.Loc.End())
  * 	if len(signatures) == 1 {
  * 		// No overloads exist
  * 		sig := signatures[0]
@@ -1374,7 +1380,7 @@ export function Checker_isPromiseResolveArityError(receiver: GoPtr<Checker>, nod
  * 		if minCount < maxCount {
  * 			expected = expected + "-" + strconv.Itoa(maxCount)
  * 		}
- * 		diagnostic = ast.NewDiagnostic(ast.GetSourceFileOfNode(node), node.TypeArgumentList().Loc, diagnostics.Expected_0_type_arguments_but_got_1, expected, argCount)
+ * 		diagnostic = ast.NewDiagnostic(sourceFile, loc, diagnostics.Expected_0_type_arguments_but_got_1, expected, argCount)
  * 	} else {
  * 		// Overloads exist
  * 		belowArgCount := math.MinInt
@@ -1389,9 +1395,9 @@ export function Checker_isPromiseResolveArityError(receiver: GoPtr<Checker>, nod
  * 			}
  * 		}
  * 		if belowArgCount != math.MinInt && aboveArgCount != math.MaxInt {
- * 			diagnostic = ast.NewDiagnostic(ast.GetSourceFileOfNode(node), node.TypeArgumentList().Loc, diagnostics.No_overload_expects_0_type_arguments_but_overloads_do_exist_that_expect_either_1_or_2_type_arguments, argCount, belowArgCount, aboveArgCount)
+ * 			diagnostic = ast.NewDiagnostic(sourceFile, loc, diagnostics.No_overload_expects_0_type_arguments_but_overloads_do_exist_that_expect_either_1_or_2_type_arguments, argCount, belowArgCount, aboveArgCount)
  * 		} else {
- * 			diagnostic = ast.NewDiagnostic(ast.GetSourceFileOfNode(node), node.TypeArgumentList().Loc, diagnostics.Expected_0_type_arguments_but_got_1, core.IfElse(belowArgCount == math.MinInt, aboveArgCount, belowArgCount), argCount)
+ * 			diagnostic = ast.NewDiagnostic(sourceFile, loc, diagnostics.Expected_0_type_arguments_but_got_1, core.IfElse(belowArgCount == math.MinInt, aboveArgCount, belowArgCount), argCount)
  * 		}
  * 	}
  * 	if headMessage != nil {
@@ -1403,6 +1409,9 @@ export function Checker_isPromiseResolveArityError(receiver: GoPtr<Checker>, nod
 export function Checker_getTypeArgumentArityError(receiver: GoPtr<Checker>, node: GoPtr<Node>, signatures: GoSlice<GoPtr<Signature>>, typeArguments: GoSlice<GoPtr<Node>>, headMessage: GoPtr<Message>): GoPtr<Diagnostic> {
   let diagnostic: GoPtr<Diagnostic> = undefined;
   const argCount = typeArguments.length;
+  const sourceFile = GetSourceFileOfNode(node);
+  const typeArgumentList = Node_TypeArgumentList(node);
+  const loc = NewTextRange(SkipTrivia(SourceFile_Text(sourceFile), TextRange_Pos(typeArgumentList!.Loc)), TextRange_End(typeArgumentList!.Loc));
   if (signatures.length === 1) {
     // No overloads exist
     const sig = signatures[0];
@@ -1412,7 +1421,7 @@ export function Checker_getTypeArgumentArityError(receiver: GoPtr<Checker>, node
     if (minCount < maxCount) {
       expected = expected + "-" + String(maxCount);
     }
-    diagnostic = NewDiagnostic(GetSourceFileOfNode(node), Node_TypeArgumentList(node)!.Loc, Expected_0_type_arguments_but_got_1, expected, argCount);
+    diagnostic = NewDiagnostic(sourceFile, loc, Expected_0_type_arguments_but_got_1, expected, argCount);
   } else {
     // Overloads exist
     let belowArgCount = Number.MIN_SAFE_INTEGER;
@@ -1427,9 +1436,9 @@ export function Checker_getTypeArgumentArityError(receiver: GoPtr<Checker>, node
       }
     }
     if (belowArgCount !== Number.MIN_SAFE_INTEGER && aboveArgCount !== Number.MAX_SAFE_INTEGER) {
-      diagnostic = NewDiagnostic(GetSourceFileOfNode(node), Node_TypeArgumentList(node)!.Loc, No_overload_expects_0_type_arguments_but_overloads_do_exist_that_expect_either_1_or_2_type_arguments, argCount, belowArgCount, aboveArgCount);
+      diagnostic = NewDiagnostic(sourceFile, loc, No_overload_expects_0_type_arguments_but_overloads_do_exist_that_expect_either_1_or_2_type_arguments, argCount, belowArgCount, aboveArgCount);
     } else {
-      diagnostic = NewDiagnostic(GetSourceFileOfNode(node), Node_TypeArgumentList(node)!.Loc, Expected_0_type_arguments_but_got_1, IfElse(belowArgCount === Number.MIN_SAFE_INTEGER, aboveArgCount, belowArgCount), argCount);
+      diagnostic = NewDiagnostic(sourceFile, loc, Expected_0_type_arguments_but_got_1, IfElse(belowArgCount === Number.MIN_SAFE_INTEGER, aboveArgCount, belowArgCount), argCount);
     }
   }
   if (headMessage !== undefined) {
@@ -1612,7 +1621,7 @@ export function Checker_invocationErrorDetails(receiver: GoPtr<Checker>, errorTa
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.invocationError","kind":"method","status":"implemented","sigHash":"a45a023459755f491899dc36253bce0dc97596689e0f617740fcbd053cc81577","bodyHash":"25827b209cafdcb69144d30dc2edefa699a19edac28b235aa06c58ea160f5a4b"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.invocationError","kind":"method","status":"implemented","sigHash":"a45a023459755f491899dc36253bce0dc97596689e0f617740fcbd053cc81577","bodyHash":"a187caddba84169f93050068f31d8ddd6240d7f9521d99e9259436acdb17ebfc"}
  *
  * Go source:
  * func (c *Checker) invocationError(errorTarget *ast.Node, apparentType *Type, kind SignatureKind, relatedInformation *ast.Diagnostic) {
@@ -1620,7 +1629,7 @@ export function Checker_invocationErrorDetails(receiver: GoPtr<Checker>, errorTa
  * 	if relatedInformation != nil {
  * 		diagnostic.AddRelatedInfo(relatedInformation)
  * 	}
- * 	c.diagnostics.Add(diagnostic)
+ * 	c.addDiagnostic(diagnostic)
  * 	c.invocationErrorRecovery(apparentType, kind, diagnostic)
  * }
  */
@@ -1629,7 +1638,7 @@ export function Checker_invocationError(receiver: GoPtr<Checker>, errorTarget: G
   if (relatedInformation !== undefined) {
     Diagnostic_AddRelatedInfo(diagnostic, relatedInformation);
   }
-  DiagnosticsCollection_Add(receiver!.diagnostics, diagnostic);
+  Checker_addDiagnostic(receiver, diagnostic);
   Checker_invocationErrorRecovery(receiver, apparentType, kind, diagnostic);
 }
 
@@ -1971,27 +1980,26 @@ export function Checker_produceDeferredDiagnostics(receiver: GoPtr<Checker>): vo
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addErrorOrSuggestion","kind":"method","status":"implemented","sigHash":"3a4023d03174daef90494da78c235989d9c89eb87726ac6c3715a9f78a03fa5f","bodyHash":"e76b9743103e993d156b65e957eecfdfc6158b8fd6dcab88f1b4e9d9f1f55adb"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addErrorOrSuggestion","kind":"method","status":"implemented","sigHash":"3a4023d03174daef90494da78c235989d9c89eb87726ac6c3715a9f78a03fa5f","bodyHash":"51824774258eba7a3a28e813e5f4b33fc3b86049b9d680d9e4629b7cd004e1d7"}
  *
  * Go source:
  * func (c *Checker) addErrorOrSuggestion(isError bool, diagnostic *ast.Diagnostic) {
  * 	if isError {
- * 		c.diagnostics.Add(diagnostic)
+ * 		c.addDiagnostic(diagnostic)
  * 	} else {
  * 		suggestion := *diagnostic
  * 		suggestion.SetCategory(diagnostics.CategorySuggestion)
- * 		c.suggestionDiagnostics.Add(&suggestion)
+ * 		c.addSuggestionDiagnostic(&suggestion)
  * 	}
  * }
  */
 export function Checker_addErrorOrSuggestion(receiver: GoPtr<Checker>, isError: bool, diagnostic: GoPtr<Diagnostic>): void {
-  const c = receiver!;
   if (isError) {
-    DiagnosticsCollection_Add(c.diagnostics, diagnostic);
+    Checker_addDiagnostic(receiver, diagnostic);
   } else {
     const suggestion = Diagnostic_Clone(diagnostic);
     Diagnostic_SetCategory(suggestion, CategorySuggestion);
-    DiagnosticsCollection_Add(c.suggestionDiagnostics, suggestion);
+    Checker_addSuggestionDiagnostic(receiver, suggestion);
   }
 }
 
@@ -2022,7 +2030,7 @@ export function Checker_addDeprecatedSuggestion(receiver: GoPtr<Checker>, locati
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addDeprecatedSuggestionWorker","kind":"method","status":"implemented","sigHash":"6090f33b1bcdcdbb8a241755e468f7f54e095948e7031b646b10d06c7f0496aa","bodyHash":"a332f3eccb347aac34818f29d4d38d9f230ad3b33bd64de4ffb08cc296df48a3"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addDeprecatedSuggestionWorker","kind":"method","status":"implemented","sigHash":"6090f33b1bcdcdbb8a241755e468f7f54e095948e7031b646b10d06c7f0496aa","bodyHash":"19ac712a048c5ce29039b02f24ec466b851a711694be1fa3d50dfaf7fc0cea61"}
  *
  * Go source:
  * func (c *Checker) addDeprecatedSuggestionWorker(declarations []*ast.Node, diagnostic *ast.Diagnostic) *ast.Diagnostic {
@@ -2033,7 +2041,7 @@ export function Checker_addDeprecatedSuggestion(receiver: GoPtr<Checker>, locati
  * 			break
  * 		}
  * 	}
- * 	c.suggestionDiagnostics.Add(diagnostic)
+ * 	c.addSuggestionDiagnostic(diagnostic)
  * 	return diagnostic
  * }
  */
@@ -2045,7 +2053,7 @@ export function Checker_addDeprecatedSuggestionWorker(receiver: GoPtr<Checker>, 
       break;
     }
   }
-  DiagnosticsCollection_Add(receiver!.suggestionDiagnostics, diagnostic);
+  Checker_addSuggestionDiagnostic(receiver, diagnostic);
   return diagnostic;
 }
 
@@ -2219,7 +2227,7 @@ export function Checker_addDuplicateDeclarationError(receiver: GoPtr<Checker>, n
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.lookupOrIssueError","kind":"method","status":"implemented","sigHash":"d49682ace3c66fbf7e4e3c0f4001bc9c49f62a25415ccc1fd8c07ad907a52ced","bodyHash":"cb794ed77d1c65d96220f0d6fd8c15fa34da4f0719b8d02b9b4b8af3e284235f"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.lookupOrIssueError","kind":"method","status":"implemented","sigHash":"d49682ace3c66fbf7e4e3c0f4001bc9c49f62a25415ccc1fd8c07ad907a52ced","bodyHash":"cb91459a0b6ec1d82cf13ff89170259ca8776d38804c0e142c266125eae6f472"}
  *
  * Go source:
  * func (c *Checker) lookupOrIssueError(location *ast.Node, message *diagnostics.Message, args ...any) *ast.Diagnostic {
@@ -2228,7 +2236,7 @@ export function Checker_addDuplicateDeclarationError(receiver: GoPtr<Checker>, n
  * 	if existing != nil {
  * 		return existing
  * 	}
- * 	c.diagnostics.Add(diagnostic)
+ * 	c.addDiagnostic(diagnostic)
  * 	return diagnostic
  * }
  */
@@ -2238,7 +2246,7 @@ export function Checker_lookupOrIssueError(receiver: GoPtr<Checker>, location: G
   if (existing !== undefined) {
     return existing;
   }
-  DiagnosticsCollection_Add(receiver!.diagnostics, diagnostic);
+  Checker_addDiagnostic(receiver, diagnostic);
   return diagnostic;
 }
 

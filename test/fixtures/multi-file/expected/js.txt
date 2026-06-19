@@ -1,2 +1,0 @@
-Sum: 8
-Product: 28

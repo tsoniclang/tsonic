@@ -1,5 +1,5 @@
-import type { bool } from "@tsonic/core/types.js";
-import type { GoComparable, GoMap, GoPtr, GoSlice, GoUnresolved } from "../../../go/compat.js";
+import type { bool } from "../../../go/scalars.js";
+import type { GoComparable, GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Context } from "../../../go/context.js";
 import { TODO } from "../../../go/context.js";
 import { Map as GoSyncMap, Once } from "../../../go/sync.js";
@@ -7,7 +7,7 @@ import { Bool } from "../../../go/sync/atomic.js";
 import * as core from "../../core/core.js";
 import { NewWorkGroup } from "../../core/workgroup.js";
 import type { Node, SourceFile } from "../../ast/ast.js";
-import type { ModuleName } from "../../ast/generated/unions.js";
+import type { LiteralLikeNode, ModuleName } from "../../ast/generated/unions.js";
 import { SourceFile_FileName, SourceFile_Imports, SourceFile_Path, SourceFile_Text } from "../../ast/ast.js";
 import type { Diagnostic, RepopulateDiagnosticInfo } from "../../ast/diagnostic.js";
 import {
@@ -130,8 +130,8 @@ export function programToSnapshot(program: GoPtr<Program>, oldProgram: GoPtr<Pro
       referencedBy: new globalThis.Map<Path, GoPtr<Set<Path>>>(),
       referenceBy: new Once(),
     },
-    semanticDiagnosticsPerFile: newSyncMap<Path, GoSlice<GoPtr<Diagnostic>>>(),
-    emitDiagnosticsPerFile: newSyncMap<Path, GoSlice<GoPtr<Diagnostic>>>(),
+    semanticDiagnosticsPerFile: newSyncMap<Path, GoPtr<DiagnosticsOrBuildInfoDiagnosticsWithFileName>>(),
+    emitDiagnosticsPerFile: newSyncMap<Path, GoPtr<DiagnosticsOrBuildInfoDiagnosticsWithFileName>>(),
     changedFilesSet: newSyncSet<Path>(),
     affectedFilesPendingEmit: newSyncMap<Path, FileEmitKind>(),
     latestChangedDtsFile: "",
@@ -510,7 +510,7 @@ export function fileAffectsGlobalScope(file: GoPtr<SourceFile>): bool {
  * 	}
  * }
  */
-export function addReferencedFilesFromSymbol(file: GoPtr<SourceFile>, referencedFiles: GoPtr<Set>, symbol_: GoPtr<Symbol>): void {
+export function addReferencedFilesFromSymbol(file: GoPtr<SourceFile>, referencedFiles: GoPtr<Set<Path>>, symbol_: GoPtr<Symbol>): void {
   if (symbol_ === undefined) {
     return;
   }
@@ -534,7 +534,7 @@ export function addReferencedFilesFromSymbol(file: GoPtr<SourceFile>, referenced
  * 	addReferencedFilesFromSymbol(file, referencedFiles, symbol)
  * }
  */
-export function addReferencedFilesFromImportLiteral(file: GoPtr<SourceFile>, referencedFiles: GoPtr<Set>, checker: GoPtr<Checker>, importName: GoPtr<GoUnresolved<"github.com/microsoft/typescript-go/internal/ast.LiteralLikeNode">>): void {
+export function addReferencedFilesFromImportLiteral(file: GoPtr<SourceFile>, referencedFiles: GoPtr<Set<Path>>, checker: GoPtr<Checker>, importName: GoPtr<LiteralLikeNode>): void {
   const symbol = Checker_GetSymbolAtLocation(checker, importName as GoPtr<Node>);
   addReferencedFilesFromSymbol(file, referencedFiles, symbol);
 }
@@ -551,7 +551,7 @@ export function addReferencedFilesFromImportLiteral(file: GoPtr<SourceFile>, ref
  * 	}
  * }
  */
-export function addReferencedFileFromFileName(program: GoPtr<Program>, fileName: string, referencedFiles: GoPtr<Set>, sourceFileDirectory: string): void {
+export function addReferencedFileFromFileName(program: GoPtr<Program>, fileName: string, referencedFiles: GoPtr<Set<Path>>, sourceFileDirectory: string): void {
   const redirect = Program_GetParseFileRedirect(program, fileName);
   if (redirect !== "") {
     Set_Add(referencedFiles as GoPtr<Set<Path>>, ToPath(redirect, Program_GetCurrentDirectory(program), Program_UseCaseSensitiveFileNames(program)));
@@ -594,12 +594,12 @@ export function addReferencedFileFromFileName(program: GoPtr<Program>, fileName:
  * 	return core.IfElse(referencedFiles.Len() > 0, &referencedFiles, nil)
  * }
  */
-export function getReferencedFiles(program: GoPtr<Program>, file: GoPtr<SourceFile>): GoPtr<Set> {
+export function getReferencedFiles(program: GoPtr<Program>, file: GoPtr<SourceFile>): GoPtr<Set<Path>> {
   const referencedFiles = NewSetWithSizeHint<Path>(0)!;
   const [checker, done] = Program_GetTypeCheckerForFileExclusive(program, TODO() as Context, file);
   try {
     for (const importName of SourceFile_Imports(file)) {
-      addReferencedFilesFromImportLiteral(file, referencedFiles, checker, importName as GoPtr<GoUnresolved<"github.com/microsoft/typescript-go/internal/ast.LiteralLikeNode">>);
+      addReferencedFilesFromImportLiteral(file, referencedFiles, checker, importName as GoPtr<LiteralLikeNode>);
     }
     const sourceFileDirectory = GetDirectoryPath(SourceFile_FileName(file));
     for (const referencedFile of file!.ReferencedFiles) {
@@ -619,7 +619,7 @@ export function getReferencedFiles(program: GoPtr<Program>, file: GoPtr<SourceFi
       if (!IsStringLiteral(moduleName as GoPtr<Node>)) {
         continue;
       }
-      addReferencedFilesFromImportLiteral(file, referencedFiles, checker, moduleName as GoPtr<GoUnresolved<"github.com/microsoft/typescript-go/internal/ast.LiteralLikeNode">>);
+      addReferencedFilesFromImportLiteral(file, referencedFiles, checker, moduleName as GoPtr<LiteralLikeNode>);
     }
     for (const ambientModule of Checker_GetAmbientModules(checker)) {
       addReferencedFilesFromSymbol(file, referencedFiles, ambientModule);

@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoError, GoPtr } from "../../../go/compat.js";
 import type { FileMode, FS } from "../../../go/io/fs.js";
 import { Sub as fs_Sub } from "../../../go/io/fs.js";

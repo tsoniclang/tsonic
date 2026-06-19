@@ -1,5 +1,5 @@
-import type { bool, int, short } from "@tsonic/core/types.js";
-import type { GoPtr, GoSlice } from "../../go/compat.js";
+import type { bool, int, short } from "../../go/scalars.js";
+import type { GoPtr, GoSeq, GoSlice } from "../../go/compat.js";
 import { Uint32, Uint64 } from "../../go/sync/atomic.js";
 import { TextRange_End, TextRange_Pos, UndefinedTextRange } from "../core/text.js";
 import type { TextRange } from "../core/text.js";
@@ -248,7 +248,7 @@ export interface Node {
 export interface nodeData extends GoInterfaceValue<unknown> {
   AsNode(): GoPtr<Node>;
   ForEachChild(v: Visitor): bool;
-  IterChildren(): NodeIter;
+  IterChildren(): GoSeq<GoPtr<Node>>;
   VisitEachChild(v: GoPtr<NodeVisitor>): GoPtr<Node>;
   Clone(v: NodeFactoryCoercible): GoPtr<Node>;
   Name(): GoPtr<DeclarationName>;
@@ -271,7 +271,7 @@ export interface nodeData extends GoInterfaceValue<unknown> {
 
 // `iter.Seq[*Node]`: an iterator-yielding function. Modeled faithfully as a
 // Go range-func (a function taking a `yield` callback returning bool).
-export type NodeIter = (yield_: (v: GoPtr<Node>) => bool) => void;
+export type NodeIter = GoSeq<GoPtr<Node>>;
 
 // `*NodeVisitor` is owned by the hand-written `internal/ast/visitor.go` (a later,
 // co-landing wave). The spine only needs its identity for the `nodeData`/Node
@@ -623,7 +623,7 @@ export function NodeDefault_forEachChildIter(receiver: GoPtr<NodeDefault>, yield
  * 	return node.forEachChildIter
  * }
  */
-export function NodeDefault_IterChildren(receiver: GoPtr<NodeDefault>): NodeIter {
+export function NodeDefault_IterChildren(receiver: GoPtr<NodeDefault>): GoSeq<GoPtr<Node>> {
   return (yield_: (v: GoPtr<Node>) => bool): void => NodeDefault_forEachChildIter(receiver, yield_);
 }
 
@@ -865,7 +865,7 @@ export function Node_ForEachChild(receiver: GoPtr<Node>, v: Visitor): bool {
  * Go source:
  * func (n *Node) IterChildren() iter.Seq[*Node]             { return n.data.IterChildren() }
  */
-export function Node_IterChildren(receiver: GoPtr<Node>): NodeIter {
+export function Node_IterChildren(receiver: GoPtr<Node>): GoSeq<GoPtr<Node>> {
   return receiver!.data.IterChildren();
 }
 
@@ -1079,6 +1079,16 @@ export function ExportableBase_ExportableData(receiver: GoPtr<ExportableBaseType
  */
 export function ModifiersBase_Modifiers(receiver: GoPtr<ModifiersBaseType>): GoPtr<ModifierList> {
   return receiver!.modifiers;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/ast.go::method::ModifiersBase.setModifiers","kind":"method","status":"implemented","sigHash":"70e84486508af2e059d5bc386a14f604fb32d6f38b697a857ca5b7a9ab3ae972","bodyHash":"84715edbf84f1652412c65498516cb39af8fcde4f09c49c4a3f03899a4f78cc6"}
+ *
+ * Go source:
+ * func (node *ModifiersBase) setModifiers(modifiers *ModifierList) { node.modifiers = modifiers }
+ */
+export function ModifiersBase_setModifiers(receiver: GoPtr<ModifiersBaseType>, modifiers: GoPtr<ModifierList>): void {
+  receiver!.modifiers = modifiers;
 }
 
 /**

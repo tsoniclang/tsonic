@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 import type { Once } from "../../../go/sync.js";
 import * as maps from "../../../go/maps.js";
@@ -33,7 +33,7 @@ export interface referenceMap {
  * 	r.references.Store(path, refs)
  * }
  */
-export function referenceMap_storeReferences(receiver: GoPtr<referenceMap>, path: Path, refs: GoPtr<Set>): void {
+export function referenceMap_storeReferences(receiver: GoPtr<referenceMap>, path: Path, refs: GoPtr<Set<Path>>): void {
   SyncMap_Store(receiver!.references, path, refs);
 }
 
@@ -46,9 +46,9 @@ export function referenceMap_storeReferences(receiver: GoPtr<referenceMap>, path
  * 	return refs, ok
  * }
  */
-export function referenceMap_getReferences(receiver: GoPtr<referenceMap>, path: Path): [GoPtr<Set>, bool] {
+export function referenceMap_getReferences(receiver: GoPtr<referenceMap>, path: Path): [GoPtr<Set<Path>>, bool] {
   const [refs, ok] = SyncMap_Load(receiver!.references, path);
-  return [refs as GoPtr<Set>, ok];
+  return [refs, ok];
 }
 
 /**

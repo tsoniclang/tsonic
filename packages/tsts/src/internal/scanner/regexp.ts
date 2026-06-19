@@ -1,10 +1,11 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoRune, GoSlice } from "../../go/compat.js";
 import * as maps from "../../go/maps.js";
 import * as math from "../../go/math.js";
 import * as strconv from "../../go/strconv.js";
 import * as strings from "../../go/strings.js";
 import * as utf8 from "../../go/unicode/utf8.js";
+import * as utf16 from "../../go/unicode/utf16.js";
 import * as debug from "../debug/debug.js";
 import { ConcatenateSeq, GetSpellingSuggestionForStrings } from "../core/core.js";
 import type { ScriptTarget } from "../core/compileroptions.js";
@@ -77,30 +78,13 @@ import {
   Scanner_scanIdentifier,
 } from "./scanner.js";
 import type { EscapeSequenceScanningFlags, Scanner } from "./scanner.js";
-import {
-  decodeClassAtomRune,
-  encodeSurrogate,
-  surr1,
-  surr2,
-  surrSelf,
-} from "./utilities.js";
+import { CodePointToSurrogatePair, DecodeJSStringRune, EncodeJSStringRune } from "../stringutil/util.js";
 
 // Go strings are UTF-8 byte sequences; the regexp parser tracks byte offsets
 // (p.pos()). These helpers reproduce Go's byte-indexed string operations.
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
-
-const byteSlice = (s: string, start: int, end?: int): string => {
-  const bytes = utf8Encoder.encode(s);
-  return utf8Decoder.decode(bytes.subarray(start, end));
-};
-
-const byteAt = (s: string, i: int): int => {
-  const bytes = utf8Encoder.encode(s);
-  return bytes[i]!;
-};
-
-const byteLen = (s: string): int => utf8Encoder.encode(s).length;
+const byteSlice = utf8.StringByteSlice;
+const byteAt = utf8.StringByteAt;
+const byteLen = utf8.StringByteLen;
 
 // stringFromRune reproduces Go's `string(rune)`: the rune is UTF-8 encoded.
 // String.fromCodePoint yields the JS string whose UTF-8 byte view matches.
@@ -872,7 +856,7 @@ export function regExpParser_scanAlternative(receiver: GoPtr<regExpParser>, isIn
 export function regExpParser_scanPatternModifiers(receiver: GoPtr<regExpParser>, currFlags: regularExpressionFlags): regularExpressionFlags {
   let currFlagsLocal: regularExpressionFlags = currFlags;
   while (regExpParser_pos(receiver) < receiver!.end) {
-    const [ch, size] = utf8.DecodeRuneInString(byteSlice(regExpParser_text(receiver), regExpParser_pos(receiver)));
+    const [ch, size] = utf8.DecodeRuneInStringAt(regExpParser_text(receiver), regExpParser_pos(receiver));
     if (ch === utf8.RuneError || !IsIdentifierPart(ch)) {
       break;
     }
@@ -1189,7 +1173,7 @@ export function regExpParser_isClassContentExit(receiver: GoPtr<regExpParser>, c
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/regexp.go::method::regExpParser.scanClassRanges","kind":"method","status":"implemented","sigHash":"f7bcabf986710d45aeb12c850faf420b68c5d3d4ea5c108c5ec09242de1198ad","bodyHash":"a5f4b1bdfea21341f8e39672e6ef4ea4a51fe5907ec5a2b2d63209392fc91fa7"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/regexp.go::method::regExpParser.scanClassRanges","kind":"method","status":"implemented","sigHash":"f7bcabf986710d45aeb12c850faf420b68c5d3d4ea5c108c5ec09242de1198ad","bodyHash":"35cce273bc802b68f56bccd6a79c0ff5941ca326502f8522ad4e907e0a0806a8"}
  *
  * Go source:
  * func (p *regExpParser) scanClassRanges() {
@@ -1223,8 +1207,8 @@ export function regExpParser_isClassContentExit(receiver: GoPtr<regExpParser>, c
  * 			if minCharacter == "" {
  * 				continue
  * 			}
- * 			minCharacterValue, minSize := decodeClassAtomRune(minCharacter)
- * 			maxCharacterValue, maxSize := decodeClassAtomRune(maxCharacter)
+ * 			minCharacterValue, minSize := stringutil.DecodeJSStringRune(minCharacter)
+ * 			maxCharacterValue, maxSize := stringutil.DecodeJSStringRune(maxCharacter)
  * 			if len(minCharacter) == minSize && len(maxCharacter) == maxSize && minCharacterValue > maxCharacterValue {
  * 				p.error(diagnostics.Range_out_of_order_in_character_class, minStart, p.pos()-minStart)
  * 			}
@@ -1273,8 +1257,8 @@ export function regExpParser_scanClassRanges(receiver: GoPtr<regExpParser>): voi
       if (minCharacter === "") {
         continue;
       }
-      const [minCharacterValue, minSize] = decodeClassAtomRune(minCharacter);
-      const [maxCharacterValue, maxSize] = decodeClassAtomRune(maxCharacter);
+      const [minCharacterValue, minSize] = DecodeJSStringRune(minCharacter);
+      const [maxCharacterValue, maxSize] = DecodeJSStringRune(maxCharacter);
       if (
         byteLen(minCharacter) === minSize &&
         byteLen(maxCharacter) === maxSize &&
@@ -1292,7 +1276,7 @@ export function regExpParser_scanClassRanges(receiver: GoPtr<regExpParser>): voi
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/regexp.go::method::regExpParser.scanClassSetExpression","kind":"method","status":"implemented","sigHash":"dd5fdcc7a108cff164185462aa3735e64e2014ac82f2717e9e09b2f5d8ad25b2","bodyHash":"6de298716d00ef0219ff137b1fe22d485a276291cdd05b26955e659974013ebb"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/regexp.go::method::regExpParser.scanClassSetExpression","kind":"method","status":"implemented","sigHash":"dd5fdcc7a108cff164185462aa3735e64e2014ac82f2717e9e09b2f5d8ad25b2","bodyHash":"35c8efa6d603b16581a36206d0025dbc3a68142a17887a9b73b22e6f87913bbe"}
  *
  * Go source:
  * func (p *regExpParser) scanClassSetExpression() {
@@ -1378,8 +1362,8 @@ export function regExpParser_scanClassRanges(receiver: GoPtr<regExpParser>): voi
  * 				if secondOperand == "" {
  * 					p.error(diagnostics.A_character_class_range_must_not_be_bounded_by_another_character_class, secondStart, p.pos()-secondStart)
  * 				} else if operand != "" {
- * 					minCharacterValue, minSize := decodeClassAtomRune(operand)
- * 					maxCharacterValue, maxSize := decodeClassAtomRune(secondOperand)
+ * 					minCharacterValue, minSize := stringutil.DecodeJSStringRune(operand)
+ * 					maxCharacterValue, maxSize := stringutil.DecodeJSStringRune(secondOperand)
  * 					if len(operand) == minSize && len(secondOperand) == maxSize && minCharacterValue > maxCharacterValue {
  * 						p.error(diagnostics.Range_out_of_order_in_character_class, start, p.pos()-start)
  * 					}
@@ -1544,8 +1528,8 @@ export function regExpParser_scanClassSetExpression(receiver: GoPtr<regExpParser
             regExpParser_pos(receiver) - secondStart,
           );
         } else if (operand !== "") {
-          const [minCharacterValue, minSize] = decodeClassAtomRune(operand);
-          const [maxCharacterValue, maxSize] = decodeClassAtomRune(secondOperand);
+          const [minCharacterValue, minSize] = DecodeJSStringRune(operand);
+          const [maxCharacterValue, maxSize] = DecodeJSStringRune(secondOperand);
           if (
             byteLen(operand) === minSize &&
             byteLen(secondOperand) === maxSize &&
@@ -2280,7 +2264,7 @@ export function regExpParser_scanWordCharacters(receiver: GoPtr<regExpParser>): 
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/regexp.go::method::regExpParser.scanSourceCharacter","kind":"method","status":"implemented","sigHash":"4886092fd3251310387b20b0ffa7a3a72f11175a51e4554f685ebcdf01da237e","bodyHash":"0ba85dce8be52a0136d8783fc2c0ceb405cb2569bf3a9341b5da9cb8e6356a09"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/regexp.go::method::regExpParser.scanSourceCharacter","kind":"method","status":"implemented","sigHash":"4886092fd3251310387b20b0ffa7a3a72f11175a51e4554f685ebcdf01da237e","bodyHash":"d4891c7b21213c52fcb450efc6f5ab6b478640cacdeaf39eb7bee927ab03094b"}
  *
  * Go source:
  * func (p *regExpParser) scanSourceCharacter() string {
@@ -2295,7 +2279,7 @@ export function regExpParser_scanWordCharacters(receiver: GoPtr<regExpParser>): 
  * 			p.incPos(size)
  * 			low := p.pendingLowSurrogate
  * 			p.pendingLowSurrogate = 0
- * 			return encodeSurrogate(low)
+ * 			return stringutil.EncodeJSStringRune(low)
  * 		}
  * 		ch, size := utf8.DecodeRuneInString(p.text()[p.pos():])
  * 		if ch == utf8.RuneError || size == 0 {
@@ -2303,19 +2287,23 @@ export function regExpParser_scanWordCharacters(receiver: GoPtr<regExpParser>): 
  * 			p.incPos(1)
  * 			return string(p.text()[p.pos()-1])
  * 		}
- * 		if ch >= surrSelf {
+ * 		if utf16.RuneLen(ch) == 2 {
  * 			// Non-BMP character: emit the high surrogate first WITHOUT advancing.
  * 			// The low surrogate will be emitted on the next call, which also advances.
- * 			high := surr1 + (ch-surrSelf)>>10
- * 			low := surr2 + (ch-surrSelf)&0x3FF
+ * 			high, low := stringutil.CodePointToSurrogatePair(ch)
  * 			p.pendingLowSurrogate = low
- * 			return encodeSurrogate(high)
+ * 			return stringutil.EncodeJSStringRune(high)
  * 		}
  * 		p.incPos(size)
  * 		return string(ch)
  * 	}
  * 	ch, size := utf8.DecodeRuneInString(p.text()[p.pos():])
- * 	if size == 0 || ch == utf8.RuneError {
+ * 	if size == 0 {
+ * 		return ""
+ * 	}
+ * 	if ch == utf8.RuneError {
+ * 		// Invalid UTF-8; consume the byte to avoid infinite loops.
+ * 		p.incPos(size)
  * 		return ""
  * 	}
  * 	p.incPos(size)
@@ -2330,31 +2318,35 @@ export function regExpParser_scanSourceCharacter(receiver: GoPtr<regExpParser>):
     if (receiver!.pendingLowSurrogate !== 0) {
       // Second of two surrogate code units for the same non-BMP character.
       // Now advance past the full UTF-8 sequence (the high surrogate call did not advance).
-      const [, size] = utf8.DecodeRuneInString(byteSlice(regExpParser_text(receiver), regExpParser_pos(receiver)));
+      const [, size] = utf8.DecodeRuneInStringAt(regExpParser_text(receiver), regExpParser_pos(receiver));
       regExpParser_incPos(receiver, size);
       const low = receiver!.pendingLowSurrogate;
       receiver!.pendingLowSurrogate = 0;
-      return encodeSurrogate(low);
+      return EncodeJSStringRune(low);
     }
-    const [ch, size] = utf8.DecodeRuneInString(byteSlice(regExpParser_text(receiver), regExpParser_pos(receiver)));
+    const [ch, size] = utf8.DecodeRuneInStringAt(regExpParser_text(receiver), regExpParser_pos(receiver));
     if (ch === utf8.RuneError || size === 0) {
       // Not a valid rune; consume one raw byte.
       regExpParser_incPos(receiver, 1);
       return stringFromRune(byteAt(regExpParser_text(receiver), regExpParser_pos(receiver) - 1));
     }
-    if (ch >= surrSelf) {
+    if (utf16.RuneLen(ch) === 2) {
       // Non-BMP character: emit the high surrogate first WITHOUT advancing.
       // The low surrogate will be emitted on the next call, which also advances.
-      const high = surr1 + ((ch - surrSelf) >> 10);
-      const low = surr2 + ((ch - surrSelf) & 0x3ff);
+      const [high, low] = CodePointToSurrogatePair(ch);
       receiver!.pendingLowSurrogate = low;
-      return encodeSurrogate(high);
+      return EncodeJSStringRune(high);
     }
     regExpParser_incPos(receiver, size);
     return stringFromRune(ch);
   }
-  const [ch, size] = utf8.DecodeRuneInString(byteSlice(regExpParser_text(receiver), regExpParser_pos(receiver)));
-  if (size === 0 || ch === utf8.RuneError) {
+  const [ch, size] = utf8.DecodeRuneInStringAt(regExpParser_text(receiver), regExpParser_pos(receiver));
+  if (size === 0) {
+    return "";
+  }
+  if (ch === utf8.RuneError) {
+    // Invalid UTF-8; consume the byte to avoid infinite loops.
+    regExpParser_incPos(receiver, size);
     return "";
   }
   regExpParser_incPos(receiver, size);

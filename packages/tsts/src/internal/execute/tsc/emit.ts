@@ -87,7 +87,7 @@ export interface EmitInput {
   WriteFile: WriteFile;
   CompileTimes: GoPtr<CompileTimes>;
   Testing: CommandLineTesting | undefined;
-  TestingMTimesCache: GoPtr<SyncMap>;
+  TestingMTimesCache: GoPtr<SyncMap<Path, Time>>;
   Tracing: GoPtr<Tracing>;
 }
 

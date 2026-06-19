@@ -11,7 +11,7 @@
 // `interface { Unwrap() error }`, `interface { Unwrap() []error }`,
 // `interface { Is(error) bool }` and `interface { As(any) bool }` conventions.
 
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "./scalars.js";
 import type { GoError } from "./compat.js";
 
 // Structural shape Go errors may optionally satisfy. None of these methods are

@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "./scalars.js";
 import type { GoPtr, GoSlice, GoSeq, GoOrdered } from "./compat.js";
 import { Compare as cmpCompare } from "./cmp.js";
 

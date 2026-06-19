@@ -1,18 +1,12 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
-import { DecodeRuneInString, RuneSelf } from "../../go/unicode/utf8.js";
+import { DecodeRuneInStringAt, RuneSelf, StringByteAt, StringByteLen } from "../../go/unicode/utf8.js";
 
 // Go strings are immutable UTF-8 byte sequences; `len(s)` is a byte length,
 // `s[i]` reads a byte, and slices like `s[i:]` operate on byte offsets. We
 // mirror that contract by operating over the UTF-8 byte view of the JS string.
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const utf8Decoder: TextDecoder = new globalThis.TextDecoder("utf-8");
-const byteLen = (s: string): int => utf8Encoder.encode(s).length;
-const byteAt = (s: string, i: int): int => utf8Encoder.encode(s)[i]!;
-const byteSlice = (s: string, start: int, end?: int): string => {
-  const bytes = utf8Encoder.encode(s);
-  return utf8Decoder.decode(bytes.subarray(start, end));
-};
+const byteLen = StringByteLen;
+const byteAt = StringByteAt;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/positionmap.go::type::PositionMap","kind":"type","status":"implemented","sigHash":"af42c60e448ed6f9beb9d484a182432f29f3f0756d741f9de9565477889ba3bf","bodyHash":"93e2eea0070b4da82e80eaad61950136ca088819c05d8f39d199cb5ca6474979"}
@@ -89,7 +83,7 @@ export function ComputePositionMap(text: string): GoPtr<PositionMap> {
       i++;
       continue;
     }
-    const [r, size] = DecodeRuneInString(byteSlice(text, i));
+    const [r, size] = DecodeRuneInStringAt(text, i);
     let utf16Size: int = 1;
     if (r >= 0x10000) {
       utf16Size = 2;

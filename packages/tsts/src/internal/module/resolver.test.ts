@@ -5,7 +5,7 @@
 // mirror. BenchmarkParse-style benchmarks likewise have no mirrors.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { CompilerOptions } from "../core/compileroptions.js";
 import { ModuleKindESNext, ModuleResolutionKindBundler, ScriptTargetESNext } from "../core/compileroptions.js";
 import type { FS } from "../vfs/vfs.js";

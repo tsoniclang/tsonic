@@ -1,21 +1,21 @@
-import type { bool, int, uint } from "@tsonic/core/types.js";
+import type { bool, int, uint } from "../../go/scalars.js";
 import type { GoPtr, GoSeq, GoSlice } from "../../go/compat.js";
 import { Values as SliceValues } from "../../go/slices.js";
 import { Node_DeclarationData, Node_ForEachChild, Node_Name } from "../ast/spine.js";
 import type { Node } from "../ast/spine.js";
 import type { SourceFile } from "../ast/ast.js";
-import { Node_Text, SourceFile_Path, Node_Attributes, Node_Properties, Node_Children, Node_TagName, Node_Expression, Node_Initializer, Node_Symbol, Node_TypeArguments, Node_TypeArgumentList } from "../ast/ast.js";
+import { Node_Text, SourceFile_Path, SourceFile_Text, Node_Attributes, Node_Properties, Node_Children, Node_TagName, Node_Expression, Node_Initializer, Node_Symbol, Node_TypeArguments, Node_TypeArgumentList } from "../ast/ast.js";
 import type { EntityName, JsxChild } from "../ast/generated/unions.js";
 import { KindJsxElement, KindJsxExpression, KindJsxFragment, KindJsxSelfClosingElement, KindJsxText } from "../ast/generated/kinds.js";
 import { IsJsxOpeningFragment, IsJsxElement, IsJsxAttribute, IsJsxOpeningElement, IsIdentifier, IsJsxNamespacedName, IsJsxText, IsJsxExpression, IsJsxSpreadAttribute, IsJsxSelfClosingElement, IsJsxFragment } from "../ast/generated/predicates.js";
 import type { Diagnostic } from "../ast/diagnostic.js";
-import { Diagnostic_AddRelatedInfo, DiagnosticsCollection_Add, NewDiagnostic, NewDiagnosticChain } from "../ast/diagnostic.js";
+import { Diagnostic_AddRelatedInfo, NewDiagnostic, NewDiagnosticChain } from "../ast/diagnostic.js";
 import type { Symbol } from "../ast/symbol.js";
 import { SymbolFlagsType, SymbolFlagsNamespace, SymbolFlagsValue, SymbolFlagsAlias, SymbolFlagsBlockScopedVariable, SymbolFlagsEnum, SymbolFlagsTypeAlias, SymbolFlagsFunctionScopedVariable, SymbolFlagsOptional, SymbolFlagsProperty } from "../ast/symbolflags.js";
 import type { SymbolFlags } from "../ast/symbolflags.js";
 import type { SymbolTable } from "../ast/symbol.js";
 import type { Message } from "../diagnostics/diagnostics.js";
-import { NewTextRange } from "../core/text.js";
+import { NewTextRange, TextRange_End, TextRange_Pos } from "../core/text.js";
 import { JsxEmitReactJSX, JsxEmitReactJSXDev, JsxEmitReact, JsxEmitPreserve, JsxEmitReactNative, JsxEmitNone, CompilerOptions_GetJSXTransformEnabled } from "../core/compileroptions.js";
 import type { CompilerOptions } from "../core/compileroptions.js";
 import { LinkStore_Get } from "../core/linkstore.js";
@@ -28,6 +28,8 @@ import { AsJsxElement, AsJsxExpression, AsJsxFragment, AsJsxText } from "../ast/
 import { The_global_type_JSX_0_may_not_have_more_than_one_property, This_JSX_tag_requires_the_module_path_0_to_exist_but_none_could_be_found_Make_sure_you_have_types_for_the_appropriate_package_installed, Using_JSX_fragments_requires_fragment_factory_0_to_be_in_scope_but_it_could_not_be_found, JSX_element_class_does_not_support_attributes_because_it_does_not_have_a_0_property, Cannot_use_JSX_unless_the_jsx_flag_is_provided, JSX_element_implicitly_has_type_any_because_the_global_type_JSX_Element_does_not_exist, JSX_element_implicitly_has_type_any_because_no_interface_JSX_0_exists, Property_0_does_not_exist_on_type_1, JSX_spread_child_must_be_an_array_type, The_jsxFragmentFactory_compiler_option_must_be_provided_to_use_JSX_fragments_with_the_jsxFactory_compiler_option, An_jsxFrag_pragma_is_required_when_using_an_jsx_pragma_with_JSX_fragments, This_JSX_tag_s_0_prop_expects_a_single_child_of_type_1_but_multiple_children_were_provided, This_JSX_tag_s_0_prop_expects_type_1_which_requires_multiple_children_but_only_a_single_child_was_provided, X_0_components_don_t_accept_text_as_child_elements_Text_in_JSX_has_the_type_string_but_the_expected_type_of_1_is_2, Type_0_is_not_assignable_to_type_1_with_exactOptionalPropertyTypes_Colon_true_Consider_adding_undefined_to_the_type_of_the_target, Its_type_0_is_not_a_valid_JSX_element_type, JSX_element_type_0_does_not_have_any_construct_or_call_signatures, Tag_0_expects_at_least_1_arguments_but_the_JSX_factory_2_provides_at_most_3, X_0_is_declared_here, Expected_0_type_arguments_but_got_1, Spread_types_may_only_be_created_from_object_types, X_0_are_specified_twice_The_attribute_named_0_will_be_overwritten } from "../diagnostics/generated/messages.js";
 import { Its_element_type_0_is_not_a_valid_JSX_element, Its_instance_type_0_is_not_a_valid_JSX_element, Its_return_type_0_is_not_a_valid_JSX_element, X_0_cannot_be_used_as_a_JSX_component } from "../diagnostics/generated/messages.js";
 import { GetTextOfNode } from "../scanner/utilities.js";
+import { SkipTrivia } from "../scanner/scanner.js";
+import { Checker_addDiagnostic } from "./checker.js";
 import { IsTypeAny, isJsxIntrinsicTagName, NewDiagnosticForNode, entityNameToString } from "./utilities.js";
 import { newTypeMapper } from "./mapper.js";
 import { Checker_isErrorType, Checker_checkDeprecatedSignature, Checker_resolveErrorCall, Checker_addDeprecatedSuggestion, Checker_isDeprecatedSymbol } from "./checker/diagnostics.js";
@@ -52,7 +54,7 @@ import type { SourceFileLinks, TypeAliasLinks, InterfaceType, ValueSymbolLinks, 
 import { Type_AsInterfaceType, InterfaceType_TypeParameters, SignatureFlagsNone } from "./types.js";
 import type { Relation } from "./relater.js";
 import { Checker_checkTypeRelatedToEx, Checker_isTypeAssignableTo, Checker_checkTypeRelatedTo, Checker_reportDiagnostic, Checker_elaborateError, Checker_getBestMatchIndexedAccessTypeOrUndefined, Checker_checkExpressionForMutableLocationWithContextualType, Checker_elaborateElement, Checker_isDiscriminantProperty, Checker_discriminateTypeByDiscriminableItems, isHyphenatedJsxName, Checker_checkTypeAssignableToAndOptionallyElaborate, Checker_checkTypeRelatedToAndOptionallyElaborate, Checker_getTypeAtPosition, Checker_hasEffectiveRestParameter, Checker_getParameterCount, Checker_getMinArgumentCount } from "./relater.js";
-import { ContextFlagsNone, ContextFlagsIgnoreNodeInferences, SignatureKindCall, SignatureKindConstruct, TypeFlagsString, TypeFlagsStringLiteral, TypeFlagsUnion, Type_Types, TypeFlagsNever, TypeFlagsIndexedAccess, AccessFlagsNone, ObjectFlagsJsxAttributes, ObjectFlagsFreshLiteral, ObjectFlagsObjectLiteral, ObjectFlagsContainsObjectOrArrayLiteral, ObjectFlagsPropagatingFlags, TypeFlagsNone } from "./types.js";
+import { ContextFlagsNone, ContextFlagsIgnoreNodeInferences, SignatureKindCall, SignatureKindConstruct, TypeFlagsString, TypeFlagsStringLiteral, TypeFlagsUnion, Type_Types, TypeFlagsNever, TypeFlagsIndexedAccess, AccessFlagsNone, ObjectFlagsJsxAttributes, ObjectFlagsFreshLiteral, ObjectFlagsObjectLiteral, ObjectFlagsContainsObjectOrArrayLiteral, ObjectFlagsPropagatingFlags, ObjectFlagsClassOrInterface, TypeFlagsNone } from "./types.js";
 import type { ContextFlags, ObjectFlags, Signature, Type } from "./types.js";
 
 /**
@@ -319,7 +321,7 @@ export function Checker_checkJsxAttributes(receiver: GoPtr<Checker>, node: GoPtr
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.checkJsxOpeningLikeElementOrOpeningFragment","kind":"method","status":"implemented","sigHash":"852b0e25ae1ce9d3e69d23da4363182b2320bbe3eaebb580f52961acc5299a85","bodyHash":"9d69d13053b9601997eb45afa19351da3aae214f162c74a958e479062ef44426"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.checkJsxOpeningLikeElementOrOpeningFragment","kind":"method","status":"implemented","sigHash":"852b0e25ae1ce9d3e69d23da4363182b2320bbe3eaebb580f52961acc5299a85","bodyHash":"bd09d8264da69690fd3da9831f49626368e7ac652f25374100063e3243a08716"}
  *
  * Go source:
  * func (c *Checker) checkJsxOpeningLikeElementOrOpeningFragment(node *ast.Node) {
@@ -343,7 +345,7 @@ export function Checker_checkJsxAttributes(receiver: GoPtr<Checker>, node: GoPtr
  * 			}
  * 			var diags []*ast.Diagnostic
  * 			if !c.checkTypeRelatedToEx(tagType, elementTypeConstraint, c.assignableRelation, tagName, diagnostics.Its_type_0_is_not_a_valid_JSX_element_type, &diags) {
- * 				c.diagnostics.Add(ast.NewDiagnosticChain(diags[0], diagnostics.X_0_cannot_be_used_as_a_JSX_component, scanner.GetTextOfNode(tagName)))
+ * 				c.addDiagnostic(ast.NewDiagnosticChain(diags[0], diagnostics.X_0_cannot_be_used_as_a_JSX_component, scanner.GetTextOfNode(tagName)))
  * 			}
  * 		} else {
  * 			c.checkJsxReturnAssignableToAppropriateBound(c.getJsxReferenceKind(node), c.getReturnTypeOfSignature(sig), node)
@@ -372,7 +374,7 @@ export function Checker_checkJsxOpeningLikeElementOrOpeningFragment(receiver: Go
       }
       const diagnostics: GoSlice<GoPtr<Diagnostic>> = [];
       if (!Checker_checkTypeRelatedToEx(receiver, tagType, elementTypeConstraint, receiver!.assignableRelation, tagName, Its_type_0_is_not_a_valid_JSX_element_type, diagnostics)) {
-        DiagnosticsCollection_Add(receiver!.diagnostics, NewDiagnosticChain(diagnostics[0], X_0_cannot_be_used_as_a_JSX_component, GetTextOfNode(tagName)));
+        Checker_addDiagnostic(receiver, NewDiagnosticChain(diagnostics[0], X_0_cannot_be_used_as_a_JSX_component, GetTextOfNode(tagName)));
       }
     } else {
       Checker_checkJsxReturnAssignableToAppropriateBound(receiver, Checker_getJsxReferenceKind(receiver, node), Checker_getReturnTypeOfSignature(receiver, sig), node);
@@ -405,7 +407,7 @@ export function Checker_checkJsxPreconditions(receiver: GoPtr<Checker>, errorNod
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.checkJsxReturnAssignableToAppropriateBound","kind":"method","status":"implemented","sigHash":"136c323163f21b619e5969f01bb526f508fa742f03f0f7ae7fd983c1abc51441","bodyHash":"472ee60f55d460eaccd8dd828da10bf68746b1762886ddc84cff7f14ee1e1c34"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.checkJsxReturnAssignableToAppropriateBound","kind":"method","status":"implemented","sigHash":"136c323163f21b619e5969f01bb526f508fa742f03f0f7ae7fd983c1abc51441","bodyHash":"c36333fbf3b07c60d311f5c5b1e9032c1ff71e5b92b94c255aa73abde57e3621"}
  *
  * Go source:
  * func (c *Checker) checkJsxReturnAssignableToAppropriateBound(refKind JsxReferenceKind, elemInstanceType *Type, openingLikeElement *ast.Node) {
@@ -432,7 +434,7 @@ export function Checker_checkJsxPreconditions(receiver: GoPtr<Checker>, errorNod
  * 		c.checkTypeRelatedToEx(elemInstanceType, combined, c.assignableRelation, openingLikeElement.TagName(), diagnostics.Its_element_type_0_is_not_a_valid_JSX_element, &diags)
  * 	}
  * 	if len(diags) != 0 {
- * 		c.diagnostics.Add(ast.NewDiagnosticChain(diags[0], diagnostics.X_0_cannot_be_used_as_a_JSX_component, scanner.GetTextOfNode(openingLikeElement.TagName())))
+ * 		c.addDiagnostic(ast.NewDiagnosticChain(diags[0], diagnostics.X_0_cannot_be_used_as_a_JSX_component, scanner.GetTextOfNode(openingLikeElement.TagName())))
  * 	}
  * }
  */
@@ -466,7 +468,7 @@ export function Checker_checkJsxReturnAssignableToAppropriateBound(receiver: GoP
     }
   }
   if (diags.length !== 0) {
-    DiagnosticsCollection_Add(receiver!.diagnostics, NewDiagnosticChain(diags[0], X_0_cannot_be_used_as_a_JSX_component, GetTextOfNode(Node_TagName(openingLikeElement))));
+    Checker_addDiagnostic(receiver, NewDiagnosticChain(diags[0], X_0_cannot_be_used_as_a_JSX_component, GetTextOfNode(Node_TagName(openingLikeElement))));
   }
 }
 
@@ -1220,7 +1222,7 @@ export function Checker_getJSXFragmentType(receiver: GoPtr<Checker>, node: GoPtr
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.resolveJsxOpeningLikeElement","kind":"method","status":"implemented","sigHash":"97d39fe2690ff55486fee1520811a27e5874f5021f686d7444e1a9ba3792b1b9","bodyHash":"2b097e2d078317909f5d558b6a1fb7b1bb263834e9ed10e99808d22280fb2814"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.resolveJsxOpeningLikeElement","kind":"method","status":"implemented","sigHash":"97d39fe2690ff55486fee1520811a27e5874f5021f686d7444e1a9ba3792b1b9","bodyHash":"f0d05870cc795a0298e7de4b62bc99ae48664d3a9bf2526a78f340e55b0b065f"}
  *
  * Go source:
  * func (c *Checker) resolveJsxOpeningLikeElement(node *ast.Node, candidatesOutArray *[]*Signature, checkMode CheckMode) *Signature {
@@ -1234,7 +1236,10 @@ export function Checker_getJSXFragmentType(receiver: GoPtr<Checker>, node: GoPtr
  * 			typeArguments := node.TypeArguments()
  * 			if len(typeArguments) != 0 {
  * 				c.checkSourceElements(typeArguments)
- * 				c.diagnostics.Add(ast.NewDiagnostic(ast.GetSourceFileOfNode(node), node.TypeArgumentList().Loc, diagnostics.Expected_0_type_arguments_but_got_1, 0, len(typeArguments)))
+ * 				sourceFile := ast.GetSourceFileOfNode(node)
+ * 				typeArgumentList := node.TypeArgumentList()
+ * 				loc := core.NewTextRange(scanner.SkipTrivia(sourceFile.Text(), typeArgumentList.Loc.Pos()), typeArgumentList.Loc.End())
+ * 				c.addDiagnostic(ast.NewDiagnostic(sourceFile, loc, diagnostics.Expected_0_type_arguments_but_got_1, 0, len(typeArguments)))
  * 			}
  * 			return fakeSignature
  * 		}
@@ -1281,7 +1286,10 @@ export function Checker_resolveJsxOpeningLikeElement(receiver: GoPtr<Checker>, n
       const typeArguments = Node_TypeArguments(node) ?? [];
       if (typeArguments.length !== 0) {
         Checker_checkSourceElements(receiver, typeArguments);
-        DiagnosticsCollection_Add(receiver!.diagnostics, NewDiagnostic(GetSourceFileOfNode(node), Node_TypeArgumentList(node)!.Loc, Expected_0_type_arguments_but_got_1, 0, typeArguments.length));
+        const sourceFile = GetSourceFileOfNode(node);
+        const typeArgumentList = Node_TypeArgumentList(node);
+        const loc = NewTextRange(SkipTrivia(SourceFile_Text(sourceFile), TextRange_Pos(typeArgumentList!.Loc)), TextRange_End(typeArgumentList!.Loc));
+        Checker_addDiagnostic(receiver, NewDiagnostic(sourceFile, loc, Expected_0_type_arguments_but_got_1, 0, typeArguments.length));
       }
       return fakeSignature;
     }
@@ -2205,7 +2213,7 @@ export function Checker_getJsxManagedAttributesFromLocatedAttributes(receiver: G
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.instantiateAliasOrInterfaceWithDefaults","kind":"method","status":"implemented","sigHash":"2c5fb9ea101c19494e0b3f14fb32b8b0a3c40082f874baa2a32245863d47095b","bodyHash":"8a9a97e23d16a68bd1d09d4ed2704c418ea1bac3cd4e5c0a46afec447bce67a2"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.instantiateAliasOrInterfaceWithDefaults","kind":"method","status":"implemented","sigHash":"2c5fb9ea101c19494e0b3f14fb32b8b0a3c40082f874baa2a32245863d47095b","bodyHash":"527e9a6cdc423ee173ce39cec603dd058c829b44eeed4ce86ba637fda05fbbc3"}
  *
  * Go source:
  * func (c *Checker) instantiateAliasOrInterfaceWithDefaults(managedSym *ast.Symbol, typeArguments []*Type, inJavaScript bool) *Type {
@@ -2221,7 +2229,7 @@ export function Checker_getJsxManagedAttributesFromLocatedAttributes(receiver: G
  * 			return c.getTypeAliasInstantiation(managedSym, args, nil)
  * 		}
  * 	}
- * 	if len(declaredManagedType.AsInterfaceType().TypeParameters()) >= len(typeArguments) {
+ * 	if declaredManagedType.objectFlags&ObjectFlagsClassOrInterface != 0 && len(declaredManagedType.AsInterfaceType().TypeParameters()) >= len(typeArguments) {
  * 		args := c.fillMissingTypeArguments(typeArguments, declaredManagedType.AsInterfaceType().TypeParameters(), len(typeArguments), inJavaScript)
  * 		return c.createTypeReference(declaredManagedType, args)
  * 	}
@@ -2242,7 +2250,7 @@ export function Checker_instantiateAliasOrInterfaceWithDefaults(receiver: GoPtr<
       return Checker_getTypeAliasInstantiation(receiver, managedSym, args, undefined);
     }
   }
-  if (InterfaceType_TypeParameters(Type_AsInterfaceType(declaredManagedType)).length >= typeArguments.length) {
+  if ((declaredManagedType!.objectFlags & ObjectFlagsClassOrInterface) !== 0 && InterfaceType_TypeParameters(Type_AsInterfaceType(declaredManagedType)).length >= typeArguments.length) {
     const args = Checker_fillMissingTypeArguments(receiver, typeArguments, InterfaceType_TypeParameters(Type_AsInterfaceType(declaredManagedType)), typeArguments.length, inJavaScript);
     return Checker_createTypeReference(receiver, declaredManagedType, args);
   }

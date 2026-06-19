@@ -1,10 +1,10 @@
-import type { bool, byte, int } from "@tsonic/core/types.js";
+import type { bool, byte, int } from "../../go/scalars.js";
 import { CutPrefix, TrimLeft, TrimSuffix } from "../../go/strings.js";
 import { Sprintf } from "../../go/fmt.js";
+import { StringByteAt, StringByteLen } from "../../go/unicode/utf8.js";
 
-const utf8Encoder: TextEncoder = new globalThis.TextEncoder();
-const byteLen = (s: string): int => utf8Encoder.encode(s).length;
-const byteAt = (s: string, i: int): byte => utf8Encoder.encode(s)[i]!;
+const byteLen = StringByteLen;
+const byteAt = (s: string, i: int): byte => StringByteAt(s, i) as byte;
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/jsnum/pseudobigint.go::type::PseudoBigInt","kind":"type","status":"implemented","sigHash":"2c01c32f11727dc20097bc5fac4f0bef01a1d77c02fc05f3278b26533303babe","bodyHash":"0f4106f2abbd21512eb0198f560df140685b532155644faf40e4a5c29c804ae9"}

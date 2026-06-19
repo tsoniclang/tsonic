@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import { Node_Name } from "../../ast/spine.js";
 import type { Node } from "../../ast/spine.js";
@@ -26,7 +26,7 @@ import { A_declaration_file_cannot_be_imported_without_import_type_Did_you_mean_
 import { Cannot_augment_module_0_because_it_resolves_to_a_non_module_entity, Invalid_module_name_in_augmentation_module_0_cannot_be_found } from "../../diagnostics/generated/messages.js";
 import type { ResolvedModule } from "../../module/types.js";
 import { GetResolutionDiagnostic } from "../../module/util.js";
-import { ResolvedModule_IsResolved } from "../../module/types.js";
+import { ResolvedModule_IsProviderVirtual, ResolvedModule_IsResolved } from "../../module/types.js";
 import { ParsedCommandLine_CommonSourceDirectory, ParsedCommandLine_CompilerOptions } from "../../tsoptions/parsedcommandline.js";
 import { CreateModuleNotFoundChain, isShorthandAmbientModuleSymbol, isSideEffectImport, NewDiagnosticChainForNode, NewDiagnosticForNode } from "../utilities.js";
 import { Checker_grammarErrorOnFirstToken } from "../grammarchecks.js";
@@ -37,6 +37,7 @@ import { Checker_errorOnImplicitAnyModule } from "./types.js";
 import { Checker_errorNoModuleMemberSymbol, Checker_getMergedSymbol, Checker_getModuleSpecifierForImportOrExport, Checker_getResolvedMembersOrExportsOfSymbol, Checker_getSuggestedImportExtension, Checker_getSuggestedImportSource, Checker_getSymbol, Checker_isOnlyImportableAsDefault, Checker_markSymbolOfAliasDeclarationIfTypeOnly, Checker_mergeSymbol, Checker_mergeSymbolTable, Checker_reportNonDefaultExport, Checker_resolveExportByName, Checker_resolveExternalModuleNameWorker, Checker_resolveExternalModuleSymbol, Checker_resolveSymbolEx } from "./symbols.js";
 import type { Checker } from "./state.js";
 import { resolutionExtensionIsTSOrJson } from "./state.js";
+import { Checker_addDiagnostic } from "../checker.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.mergeModuleAugmentation","kind":"method","status":"implemented","sigHash":"2180b8be90753b343b6f30f261b683d348387d3a1b55268c2d0ae7421d6dbeae","bodyHash":"a6bc03af285f7b6510ad1b0f4c130967a7b3531d8d19adfcfacf8d96144f8681"}
@@ -333,7 +334,7 @@ export function Checker_getEmitSyntaxForModuleSpecifierExpression(receiver: GoPt
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveExternalModule","kind":"method","status":"implemented","sigHash":"bebce0095380521cfebda9c3077c42103ee27fa2b04caece40715ccd9c291f0a","bodyHash":"74fef57b8e475e87f79f33cc8d5abf3f2bc558095b5b0f0a22bfd894da4a03fb"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveExternalModule","kind":"method","status":"implemented","sigHash":"bebce0095380521cfebda9c3077c42103ee27fa2b04caece40715ccd9c291f0a","bodyHash":"d16ba5c1b860ab976af7d38e2b436eeee4cd713bf2119ef7e0a3a5ad77ae3cda"}
  *
  * Go source:
  * func (c *Checker) resolveExternalModule(location *ast.Node, moduleReference string, moduleNotFoundError *diagnostics.Message, errorNode *ast.Node, isForAugmentation bool) *ast.Symbol {
@@ -538,7 +539,7 @@ export function Checker_getEmitSyntaxForModuleSpecifierExpression(receiver: GoPt
  * 								message = diagnostics.The_current_file_is_a_CommonJS_module_whose_imports_will_produce_require_calls_however_the_referenced_file_is_an_ECMAScript_module_and_cannot_be_imported_with_require_Consider_writing_a_dynamic_import_0_call_instead
  * 							}
  * 
- * 							c.diagnostics.Add(NewDiagnosticChainForNode(diagnosticDetails, errorNode, message, moduleReference))
+ * 							c.addDiagnostic(NewDiagnosticChainForNode(diagnosticDetails, errorNode, message, moduleReference))
  * 						}
  * 					}
  * 				}
@@ -611,7 +612,7 @@ export function Checker_getEmitSyntaxForModuleSpecifierExpression(receiver: GoPt
  * 				}
  * 			} else if resolvedModule != nil && resolvedModule.AlternateResult != "" {
  * 				errorInfo := c.createModuleNotFoundChain(resolvedModule, errorNode, moduleReference, mode, moduleReference)
- * 				c.diagnostics.Add(NewDiagnosticChainForNode(errorInfo, errorNode, moduleNotFoundError, moduleReference))
+ * 				c.addDiagnostic(NewDiagnosticChainForNode(errorInfo, errorNode, moduleNotFoundError, moduleReference))
  * 			} else {
  * 				c.error(errorNode, moduleNotFoundError, moduleReference)
  * 			}
@@ -784,7 +785,7 @@ export function Checker_resolveExternalModule(receiver: GoPtr<Checker>, location
     const sourceFileSymbol = Node_Symbol(sourceFile as GoPtr<Node>);
     if (sourceFileSymbol !== undefined) {
       if (errorNode !== undefined) {
-        if (resolvedModule!.IsExternalLibraryImport && !resolutionExtensionIsTSOrJson(resolvedModule!.Extension)) {
+        if (resolvedModule!.IsExternalLibraryImport && !ResolvedModule_IsProviderVirtual(resolvedModule) && !resolutionExtensionIsTSOrJson(resolvedModule!.Extension)) {
           Checker_errorOnImplicitAnyModule(receiver, false, errorNode, mode, resolvedModule, moduleReference);
         }
         if (receiver!.moduleKind === ModuleKindNode16 || receiver!.moduleKind === ModuleKindNode18) {
@@ -819,7 +820,7 @@ export function Checker_resolveExternalModule(receiver: GoPtr<Checker>, location
                 message = The_current_file_is_a_CommonJS_module_whose_imports_will_produce_require_calls_however_the_referenced_file_is_an_ECMAScript_module_and_cannot_be_imported_with_require_Consider_writing_a_dynamic_import_0_call_instead;
               }
 
-              DiagnosticsCollection_Add(receiver!.diagnostics, NewDiagnosticChainForNode(diagnosticDetails, errorNode, message, moduleReference));
+              Checker_addDiagnostic(receiver, NewDiagnosticChainForNode(diagnosticDetails, errorNode, message, moduleReference));
             }
           }
         }
@@ -847,7 +848,7 @@ export function Checker_resolveExternalModule(receiver: GoPtr<Checker>, location
     return undefined;
   }
 
-  if ((ResolvedModule_IsResolved(resolvedModule) && !resolutionExtensionIsTSOrJson(resolvedModule!.Extension) && resolutionDiagnostic === undefined) ||
+  if ((ResolvedModule_IsResolved(resolvedModule) && !ResolvedModule_IsProviderVirtual(resolvedModule) && !resolutionExtensionIsTSOrJson(resolvedModule!.Extension) && resolutionDiagnostic === undefined) ||
     resolutionDiagnostic === Could_not_find_a_declaration_file_for_module_0_1_implicitly_has_an_any_type) {
     if (isForAugmentation) {
       Checker_error(
@@ -889,7 +890,7 @@ export function Checker_resolveExternalModule(receiver: GoPtr<Checker>, location
         }
       } else if (resolvedModule !== undefined && resolvedModule.AlternateResult !== "") {
         const errorInfo = Checker_createModuleNotFoundChain(receiver, resolvedModule, errorNode, moduleReference, mode, moduleReference);
-        DiagnosticsCollection_Add(receiver!.diagnostics, NewDiagnosticChainForNode(errorInfo, errorNode, moduleNotFoundError, moduleReference));
+        Checker_addDiagnostic(receiver, NewDiagnosticChainForNode(errorInfo, errorNode, moduleNotFoundError, moduleReference));
       } else {
         Checker_error(receiver, errorNode, moduleNotFoundError, moduleReference);
       }

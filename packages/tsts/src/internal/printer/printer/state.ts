@@ -1,7 +1,8 @@
-import type { bool, int, uint } from "@tsonic/core/types.js";
+import type { bool, int, uint } from "../../../go/scalars.js";
 import type { GoMap, GoPtr } from "../../../go/compat.js";
 import type { Node, NodeList, SourceFile } from "../../ast/ast.js";
 import type { IdentifierNode, TokenNode } from "../../ast/ast_generated.js";
+import type { Symbol } from "../../ast/symbol.js";
 import type { Arena } from "../../core/arena.js";
 import type { NewLineKind, ScriptTarget } from "../../core/compileroptions.js";
 import type { Stack } from "../../core/stack.js";
@@ -127,7 +128,7 @@ export interface PrintHandlers {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::type::Printer","kind":"type","status":"implemented","sigHash":"fcfaf25a4675b1c48962bca97058109f3fc983a6115ab3083bfaa783c635607e","bodyHash":"2d98aa0744498b1ccc81fe5065344ce3d6a89de81b96a93cd53b6f35cc528b7c"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::type::Printer","kind":"type","status":"implemented","sigHash":"fcfaf25a4675b1c48962bca97058109f3fc983a6115ab3083bfaa783c635607e","bodyHash":"b0074479d036be6e89c4ae44470374c2f3110ae36087144f8e47cb6b7f2338e3"}
  *
  * Go source:
  * Printer struct {
@@ -159,6 +160,7 @@ export interface PrintHandlers {
  * 	makeFileLevelOptimisticUniqueName func(string) string
  * 	commentStateArena                 core.Arena[commentState]
  * 	sourceMapStateArena               core.Arena[sourceMapState]
+ * 	IdToSymbol                        map[*ast.IdentifierNode]*ast.Symbol
  * }
  */
 export interface Printer {
@@ -183,13 +185,14 @@ export interface Printer {
   containerPos: int;
   containerEnd: int;
   declarationListContainerEnd: int;
-  detachedCommentsInfo: Stack;
+  detachedCommentsInfo: Stack<detachedCommentsInfo>;
   commentsDisabled: bool;
   inExtends: bool;
   nameGenerator: NameGenerator;
   makeFileLevelOptimisticUniqueName: (arg0: string) => string;
-  commentStateArena: Arena;
-  sourceMapStateArena: Arena;
+  commentStateArena: Arena<commentState>;
+  sourceMapStateArena: Arena<sourceMapState>;
+  IdToSymbol: GoPtr<GoMap<GoPtr<IdentifierNode>, GoPtr<Symbol>>>;
 }
 
 /**

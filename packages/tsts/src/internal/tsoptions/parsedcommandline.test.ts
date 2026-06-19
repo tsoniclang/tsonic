@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { FS } from "../vfs/vfs.js";
 import { FromMap } from "../vfs/vfstest/vfstest.js";
 import type { ParseConfigHost } from "./tsconfigparsing.js";

@@ -1,2 +1,0 @@
-- input: ExtensionMethods.ts
-  title: should lower LINQ extension methods and emit `this` receiver

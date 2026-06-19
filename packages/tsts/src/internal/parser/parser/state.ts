@@ -1,4 +1,4 @@
-import type { bool, byte, int } from "@tsonic/core/types.js";
+import type { bool, byte, int } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import { Pool } from "../../../go/sync.js";
 import type { CommentRange, Node, Visitor } from "../../ast/ast.js";
@@ -191,9 +191,9 @@ export interface Parser {
   hasParseError: bool;
   identifiers: GoMap<string, string>;
   identifierCount: int;
-  notParenthesizedArrow: Set;
-  nodeSliceArena: Arena;
-  stringSliceArena: Arena;
+  notParenthesizedArrow: Set<int>;
+  nodeSliceArena: Arena<GoPtr<Node>>;
+  stringSliceArena: Arena<string>;
   jsdocInfos: GoSlice<JSDocInfo>;
   possibleAwaitSpans: GoSlice<int>;
   jsdocCommentsSpace: GoSlice<string>;

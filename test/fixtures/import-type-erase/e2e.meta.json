@@ -1,3 +1,0 @@
-{
-  "description": "import type edges are retained for typing and erased from runtime emission."
-}

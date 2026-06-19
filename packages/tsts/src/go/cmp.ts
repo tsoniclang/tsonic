@@ -1,4 +1,4 @@
-import type { int, bool } from "@tsonic/core/types.js";
+import type { int, bool } from "./scalars.js";
 import type { GoOrdered } from "./compat.js";
 
 // Go: package cmp

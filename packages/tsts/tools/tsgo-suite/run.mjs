@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, fork } from "node:child_process";
 import { cpus } from "node:os";
-import { dirname, join, posix as posixPath, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, posix as posixPath, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { appendFile, cp, mkdir, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import ts from "typescript";
@@ -236,11 +237,24 @@ export function parseArgs(argv) {
     suite: "all",
     filter: "",
     limit: 0,
-    jobs: Math.max(1, Math.min(cpus().length, 8)),
+    jobs: Math.max(1, cpus().length),
     failFast: false,
     keepGoing: true,
     inventory: false,
-    exactBaselines: false,
+    // Exact-baseline comparison is the only mode. Weak mode (error-count-only)
+    // was deleted: it green-lit emitted-output bugs (wrong .d.ts/.types/.js that
+    // still produced the right number of errors). Concurrency is controlled by
+    // --jobs: default = all cores (parallel), --jobs 1 = serial.
+    exactBaselines: true,
+    // When set, every case ALSO runs the real on-disk CLI compile and asserts it
+    // agrees with the fast in-memory harness (error verdict AND emitted .js/.d.ts).
+    // This is the provable on-disk-coverage gate; default off (harness-only fast
+    // path) since 0 divergences over the corpus proves the two paths equivalent.
+    verifyOnDisk: false,
+    // Resume a suspended run: path to a prior reportRoot. The runner skips cases
+    // already recorded in that run's results.ndjson and runs only the remainder,
+    // appending to the same file. Empty = fresh run.
+    resume: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -261,6 +275,10 @@ export function parseArgs(argv) {
       parsed.inventory = true;
     } else if (arg === "--exact-baselines") {
       parsed.exactBaselines = true;
+    } else if (arg === "--verify-on-disk") {
+      parsed.verifyOnDisk = true;
+    } else if (arg === "--resume") {
+      parsed.resume = argv[++index] ?? "";
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -289,9 +307,11 @@ Options:
                                       Suite to run. Default: all.
   --filter <substring>                Run cases whose relative path contains the substring.
   --limit <n>                         Run at most n cases after filtering.
-  --jobs <n>                          Parallel TSTS processes. Default: min(cpu count, 8).
+  --jobs <n>                          Worker processes (concurrency). Default: all CPU cores. --jobs 1 = serial.
   --fail-fast                         Stop after the first failure.
-  --exact-baselines                   Compare emitted output sections against TS-Go/TypeScript reference baselines.
+  --exact-baselines                   Deprecated no-op: exact-baseline comparison is always on (weak mode removed).
+  --verify-on-disk                    Also run the real on-disk CLI compile per case and prove it matches the in-memory harness (error verdict + emitted .js/.d.ts). Full on-disk-coverage gate; default off (fast harness-only path).
+  --resume <reportRoot>               Resume a suspended run: skip cases already recorded in that run's results.ndjson and run only the remainder. Re-use the SAME --corpus/--suite/--filter/--limit. To suspend, just stop the process.
   --inventory                         Print the tracked upstream test universe and exit.
 `);
 }
@@ -1028,13 +1048,15 @@ export function baselineHasErrors(testCase) {
   return false;
 }
 
+const diagnosticHeadlinePattern = /\b(?:error|message) TS\d+:/;
+
 function projectBaselineHasErrors(testCase) {
   const moduleFolder = testCase.moduleKind === "amd" ? "amd" : "node";
   const errorsPath = join(typeScriptSubmoduleBaselineRoot, "project", testCase.caseName, moduleFolder, `${testCase.caseName}.errors.txt`);
   if (!existsSync(errorsPath)) {
     return false;
   }
-  return /\berror TS\d+:/.test(stripAnsiEscapes(readFileSync(errorsPath, "utf8")));
+  return diagnosticHeadlinePattern.test(stripAnsiEscapes(readFileSync(errorsPath, "utf8")));
 }
 
 function baselineDirectoryHasErrors(baselineDir, testCase) {
@@ -1067,7 +1089,7 @@ export function errorDiffNewSideHasErrors(diffPath) {
     if (line === "+<no content>") {
       return false;
     }
-    if ((line.startsWith("+") || line.startsWith(" ")) && /\berror TS\d+:/.test(line)) {
+    if ((line.startsWith("+") || line.startsWith(" ")) && diagnosticHeadlinePattern.test(line)) {
       return true;
     }
   }
@@ -1206,6 +1228,14 @@ export function parseBaselineSections(text) {
   return sections;
 }
 
+// Sentinel a tsgo-accepted overlay uses to declare that pinned TS-Go intentionally emits NO
+// output for a section the Strada reference baseline still contains — e.g. a .d.ts/.d.ts.map the
+// new pin blocks under --isolatedDeclarations. capture-tsgo-accepted.mjs writes it (after proving
+// the section exists in Strada but is absent from real pinned output); applyTsgoAcceptedOverlay
+// drops the section from the expected outputs so the gate does not treat the intentional
+// non-emission as a missing baseline output.
+export const TSGO_ACCEPTED_ABSENT_MARKER = "<<< pinned TS-Go intentionally emits no output for this section >>>";
+
 // TS-Go-accepted overlays: where the pinned TS-Go compiler demonstrably diverges from the
 // Strada-generated reference baselines, the committed files under tools/tsgo-suite/tsgo-accepted/
 // capture pinned TS-Go's actual output for the divergent sections. TSTS mirrors TS-Go, so the
@@ -1253,6 +1283,18 @@ export function applyTsgoAcceptedOverlay(artifactName, overlaySections, expected
       continue;
     }
     const key = normalizedBaselineSectionPath(section.name);
+    if (section.content.trim() === TSGO_ACCEPTED_ABSENT_MARKER) {
+      // Pinned TS-Go intentionally emits nothing here while Strada still has the section.
+      // Drop it from the expected outputs so the intentional non-emission is not flagged as a
+      // missing baseline output, and count it as a tsgo-accepted divergence.
+      if (!expectedOutputs.has(key)) {
+        problems.push(`tsgo-accepted overlay '${artifactName}' marks '${section.name}' absent but the reference baseline has no such emitted output.`);
+        continue;
+      }
+      expectedOutputs.delete(key);
+      used.push(`${artifactName}#${section.name} (absent)`);
+      continue;
+    }
     if (!expectedOutputs.has(key)) {
       problems.push(`tsgo-accepted overlay '${artifactName}' overrides '${section.name}' but the reference baseline has no such emitted output.`);
       continue;
@@ -1629,6 +1671,19 @@ async function evaluateExactBaselines(testCase, materialized, commandOutput) {
     tsgoAccepted,
     mismatches,
     status: mismatches.length === 0 ? "pass" : "fail",
+    // Whether the post-overlay reference baseline expects any diagnostics. In exact mode this is
+    // the authoritative "expectedErrors" for transpile cases, whose diagnostics live in the
+    // baseline's 'Diagnostics reported' section (with tsgo-accepted overlays applied), not a
+    // separate .errors.txt.
+    expectedDiagnosticsPresent: expectedDiagnosticHeadlines.some((headline) => headline.trim() !== ""),
+    // For the harness-only fast path: actualErrors derived from the harness compile's all-stage
+    // diagnostics (compiler_runner.go uses len(result.Diagnostics) > 0). usedHarness tells the
+    // caller this case was fully evaluated in-process (no on-disk CLI compile needed for the
+    // verdict). harnessEmitted is the in-memory emit, used by --verify-on-disk to prove the
+    // on-disk CLI emit matches.
+    actualErrors: usesVfsHarness ? hasDiagnostics : undefined,
+    usedHarness: usesVfsHarness,
+    harnessEmitted: sharedVfsCase?.emittedOutputs,
   };
 }
 
@@ -1642,7 +1697,7 @@ export function diagnosticHeadlineText(text) {
       }
       continue;
     }
-    if (/\berror TS\d+:/.test(line)) {
+    if (diagnosticHeadlinePattern.test(line)) {
       headlines.push(line);
     }
   }
@@ -1813,10 +1868,10 @@ async function materializeCase(testCase, runRoot) {
   const existingConfig = writtenFiles.find((file) => /(^|\/)tsconfig\.json$/i.test(file));
   if (existingConfig !== undefined) {
     const merged = await mergeFileBasedOptionsIntoProjectConfig(join(caseDir, existingConfig), testCase.configuration);
-    const compilerOptions = merged.compilerOptions ?? {};
+    const compilerOptions = merged.config?.compilerOptions ?? {};
     // SkipUnsupportedCompilerOptions runs on the EFFECTIVE options, so follow the
     // config's `extends` chain (parents merged under the child) for the skip decision.
-    const inheritedOptions = await inheritedConfigCompilerOptions(join(caseDir, existingConfig), merged);
+    const inheritedOptions = merged.config === undefined ? {} : await inheritedConfigCompilerOptions(join(caseDir, existingConfig), merged.config);
     const skipReason = getSkipReasonFromCompilerOptions(testCase.sourceBaseName, { ...inheritedOptions, ...compilerOptions });
     return {
       caseDir,
@@ -1833,7 +1888,7 @@ async function materializeCase(testCase, runRoot) {
       contentRewrites: dedupedContentRewrites(contentRewrites),
       writtenFiles,
       writtenFileSet: normalizedWrittenFileSet(writtenFiles),
-      expectedErrors: caseExpectedErrors(testCase, compilerOptions),
+      expectedErrors: merged.parsedByTypescript ? caseExpectedErrors(testCase, compilerOptions) : false,
       skipReason,
     };
   }
@@ -2132,11 +2187,11 @@ async function mergeFileBasedOptionsIntoProjectConfig(configPath, settings) {
   const configText = await readSourceText(configPath);
   const parsed = ts.parseConfigFileTextToJson(configPath, configText);
   if (parsed.error !== undefined) {
-    throw new Error(`Failed to parse embedded tsconfig '${configPath}': ${parsed.error.messageText}`);
+    return { config: undefined, parsedByTypescript: false };
   }
   const merged = compilerOptionsForExistingProjectConfig(parsed.config ?? {}, settings);
   await writeFile(configPath, `${JSON.stringify(merged, null, 2)}\n`);
-  return merged;
+  return { config: merged, parsedByTypescript: true };
 }
 
 export function hasRootPackageJson(writtenFiles) {
@@ -2621,6 +2676,8 @@ export function caseDirectoryFragment(testCase) {
   return safePathFragment(`${testCase.corpus ?? "current"}/${testCase.suite}/${configuredCaseName(testCase)}`);
 }
 
+const CASE_TIMEOUT_MS = Number(process.env.TSGO_CASE_TIMEOUT_MS ?? "120000");
+
 async function runTsts(invocation) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [
@@ -2633,6 +2690,13 @@ async function runTsts(invocation) {
     });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    // A single infinite loop in TSTS would otherwise wedge a worker forever and stall the whole
+    // run. Kill a case that exceeds the (generous) budget and surface it as a visible failure.
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, CASE_TIMEOUT_MS);
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });
@@ -2640,6 +2704,11 @@ async function runTsts(invocation) {
       stderr += chunk.toString();
     });
     child.on("close", (exitCode, signal) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        resolve({ exitCode: 1, signal: "SIGKILL", stdout, stderr: `${stderr}\nTSTS case timed out after ${CASE_TIMEOUT_MS}ms (likely an infinite loop).` });
+        return;
+      }
       resolve({ exitCode: exitCode ?? 1, signal, stdout, stderr });
     });
   });
@@ -2663,12 +2732,17 @@ async function runCase(testCase, runRoot, options) {
   }
   if (materialized.transpile === true) {
     const result = await runTranspileInvocations(materialized);
-    const exactBaseline = options.exactBaselines ? await evaluateExactBaselines(testCase, materialized, `${result.stdout}${result.stderr}`) : undefined;
-    const statusMatches = !result.actualErrors && (exactBaseline === undefined || exactBaseline.status === "pass");
+    const exactBaseline = await evaluateExactBaselines(testCase, materialized, `${result.stdout}${result.stderr}`);
+    // In exact mode, transpile diagnostics live in the baseline's (post-overlay) 'Diagnostics
+    // reported' section, not a .errors.txt; derive expectedErrors from there so the new pin's
+    // --isolatedDeclarations diagnostics are accounted for rather than always failing on
+    // actualErrors=true.
+    const expectedErrors = exactBaseline !== undefined ? exactBaseline.expectedDiagnosticsPresent : materialized.expectedErrors;
+    const statusMatches = result.actualErrors === expectedErrors && (exactBaseline === undefined || exactBaseline.status === "pass");
     return {
       ...testCase,
       caseDir: materialized.caseDir,
-      expectedErrors: materialized.expectedErrors,
+      expectedErrors,
       actualErrors: result.actualErrors,
       exitCode: result.exitCode,
       signal: result.signal,
@@ -2679,23 +2753,91 @@ async function runCase(testCase, runRoot, options) {
       exactBaseline,
     };
   }
+  // For vfs-harness cases the in-memory harness compile (run inside evaluateExactBaselines)
+  // is the authority and yields everything the verdict needs: all-stage diagnostics
+  // (-> actualErrors), the emit, and the program/checker for .types/.symbols. So the
+  // on-disk CLI compile is redundant for the verdict and is skipped on the fast path.
+  // --verify-on-disk re-runs the on-disk CLI and proves it agrees with the harness
+  // (error verdict AND emitted .js/.d.ts), keeping the on-disk path fully + provably covered.
+  const isHarnessCase = usesTsgoAuthorityBaselines(testCase)
+    && materialized.units !== undefined && materialized.invocation !== undefined;
+
+  if (isHarnessCase && options.verifyOnDisk !== true) {
+    const exactBaseline = await evaluateExactBaselines(testCase, materialized, "");
+    const actualErrors = exactBaseline.actualErrors === true;
+    const expectedErrors = exactBaseline.expectedDiagnosticsPresent;
+    const statusMatches = actualErrors === expectedErrors && exactBaseline.status === "pass";
+    return {
+      ...testCase,
+      caseDir: materialized.caseDir,
+      expectedErrors,
+      actualErrors,
+      exitCode: actualErrors ? 1 : 0,
+      signal: null,
+      status: statusMatches ? "pass" : "fail",
+      skipReason: "",
+      stdout: "",
+      stderr: "",
+      exactBaseline,
+    };
+  }
+
   const result = await runTsts(materialized.invocation);
   const actualErrors = result.exitCode !== 0;
-  const exactBaseline = options.exactBaselines ? await evaluateExactBaselines(testCase, materialized, `${result.stdout}${result.stderr}`) : undefined;
-  const statusMatches = actualErrors === materialized.expectedErrors && (exactBaseline === undefined || exactBaseline.status === "pass");
+  const exactBaseline = await evaluateExactBaselines(testCase, materialized, `${result.stdout}${result.stderr}`);
+  const expectedErrors = exactBaseline !== undefined ? exactBaseline.expectedDiagnosticsPresent : materialized.expectedErrors;
+  const onDiskDivergences = isHarnessCase && options.verifyOnDisk === true
+    ? await verifyOnDiskMatchesHarness(materialized, result, exactBaseline)
+    : [];
+  const statusMatches = actualErrors === expectedErrors
+    && (exactBaseline === undefined || exactBaseline.status === "pass")
+    && onDiskDivergences.length === 0;
   return {
     ...testCase,
     caseDir: materialized.caseDir,
-    expectedErrors: materialized.expectedErrors,
+    expectedErrors,
     actualErrors,
     exitCode: result.exitCode,
     signal: result.signal,
     status: statusMatches ? "pass" : "fail",
     skipReason: "",
-    stdout: result.stdout,
+    stdout: onDiskDivergences.length === 0 ? result.stdout : `${result.stdout}\nON-DISK/HARNESS DIVERGENCE:\n${onDiskDivergences.join("\n")}`,
     stderr: result.stderr,
     exactBaseline,
   };
+}
+
+// --verify-on-disk proof: confirm the real on-disk CLI compile agrees with the
+// in-memory harness for a case — same error verdict AND same emitted .js/.d.ts.
+// Returns human-readable divergences (empty = the on-disk path is equivalent here).
+// Emit is compared by basename (the on-disk and harness maps key paths differently).
+async function verifyOnDiskMatchesHarness(materialized, cliResult, exactBaseline) {
+  const divergences = [];
+  const cliActualErrors = cliResult.exitCode !== 0;
+  if (exactBaseline.usedHarness === true && exactBaseline.actualErrors !== cliActualErrors) {
+    divergences.push(`verdict: on-disk CLI actualErrors=${cliActualErrors} but harness actualErrors=${exactBaseline.actualErrors}`);
+  }
+  const harnessEmitted = exactBaseline.harnessEmitted;
+  if (harnessEmitted !== undefined) {
+    const baseMap = (map) => {
+      const out = new Map();
+      for (const [key, value] of map) out.set(String(key).split("/").pop(), value);
+      return out;
+    };
+    const norm = (value) => normalizeEmittedOutputText(String(value ?? ""));
+    const onDisk = baseMap(await emittedOutputsForCase(materialized));
+    const harness = baseMap(harnessEmitted);
+    for (const key of new Set([...onDisk.keys(), ...harness.keys()])) {
+      const onDiskHas = onDisk.has(key);
+      const harnessHas = harness.has(key);
+      if (onDiskHas !== harnessHas) {
+        divergences.push(`emit: '${key}' ${onDiskHas ? "emitted on disk but not by harness" : "emitted by harness but not on disk"}`);
+      } else if (onDiskHas && norm(onDisk.get(key)) !== norm(harness.get(key))) {
+        divergences.push(`emit: '${key}' content differs between on-disk and harness`);
+      }
+    }
+  }
+  return divergences;
 }
 
 async function runTranspileInvocations(materialized) {
@@ -2707,8 +2849,11 @@ async function runTranspileInvocations(materialized) {
   for (const invocation of materialized.invocations) {
     const result = await runTstsTranspileApi(materialized.caseDir, invocation);
     diagnostics.push(...result.diagnostics);
+    // Diagnostics are the primary truth for actualErrors; missing output is an additional symptom
+    // (e.g. --isolatedDeclarations blocks .d.ts emit). A case that reports diagnostics while still
+    // emitting all expected outputs must still count as having errors.
     const missingOutputs = invocation.expectedOutputFiles.filter((file) => !existsSync(join(materialized.caseDir, file)));
-    if (missingOutputs.length !== 0) {
+    if (result.diagnostics.length !== 0 || missingOutputs.length !== 0) {
       actualErrors = true;
     }
     if (result.exitCode !== 0 && exitCode === 0) {
@@ -2742,7 +2887,11 @@ async function runTstsTranspileApi(caseDir, invocation) {
     ? api.transpileDeclaration(inputText, transpileOptions)
     : api.transpileModule(inputText, transpileOptions);
   const primaryOutput = invocation.expectedOutputFiles.find((file) => !file.endsWith(".map"));
-  if (primaryOutput !== undefined) {
+  // A declaration transpile that yields empty output emitted no file (e.g. blocked by
+  // --isolatedDeclarations); the pinned binary writes nothing and the tsgo-accepted overlay marks
+  // the section absent, so skip writing it to keep the absent-section comparison correct.
+  const emittedNoOutputFile = invocation.kind === "declaration" && output.outputText === "";
+  if (primaryOutput !== undefined && !emittedNoOutputFile) {
     await writeFile(join(caseDir, primaryOutput), output.outputText);
   }
   const sourceMapOutput = invocation.expectedOutputFiles.find((file) => file.endsWith(".map"));
@@ -2809,38 +2958,222 @@ function renderTranspileInvocationOutput(invocation, result, missingOutputs) {
 // leaves a complete machine-readable record of everything it finished. Each
 // NDJSON line is the results.json record plus a `caseIndex` field recording the
 // case's position in discovery order (workers finish out of order).
-async function runQueue(testCases, runRoot, reportRoot, jobs, failFast, options) {
+// Stable identifier for a discovered case (independent of position in the list):
+// used to verify a --resume target points at the SAME case set the suspended run
+// was built from, so recorded caseIndex values still line up.
+function caseIdentifier(testCase) {
+  return `${testCase.corpus}/${testCase.suite}/${testCase.relativePath}#${testCase.configurationName ?? ""}`;
+}
+
+function hashCaseIds(testCases) {
+  return createHash("sha256").update(testCases.map(caseIdentifier).join("\n")).digest("hex");
+}
+
+// Load the set of caseIndex values already durably recorded in a prior run's
+// results.ndjson (each completed case appends exactly one line tagged with its index).
+function loadCompletedCaseIndices(resultsPath) {
+  const done = new Set();
+  if (!existsSync(resultsPath)) {
+    return done;
+  }
+  for (const line of readFileSync(resultsPath, "utf8").split("\n")) {
+    if (line.trim() === "") {
+      continue;
+    }
+    try {
+      const record = JSON.parse(line);
+      if (typeof record.caseIndex === "number") {
+        done.add(record.caseIndex);
+      }
+    } catch {
+      // Ignore a truncated trailing line (killed mid-append) — that case just re-runs.
+    }
+  }
+  return done;
+}
+
+// Process-pool runner. Each "job" is a long-lived worker process (this same
+// script re-forked with TSGO_SUITE_WORKER=1) that loads the compiler + harness
+// once and then evaluates whole cases (emit + exact-baseline assembly +
+// comparison) off a shared queue. The heavy per-case work (in-process compile +
+// .types/.symbols walk) is CPU-bound and would otherwise serialize on one event
+// loop; running it across N worker processes is what actually keeps all cores
+// busy. --jobs sets the pool size (default = all cores; --jobs 1 = serial).
+// Results stream to results.ndjson tagged with caseIndex, so discovery order is
+// restored on read regardless of completion order.
+async function runQueue(testCases, runRoot, reportRoot, jobs, failFast, options, doneIndices = new Set()) {
   const resultsPath = join(reportRoot, "results.ndjson");
-  await writeFile(resultsPath, "");
-  // Appends are serialized through a promise chain; each worker awaits its own
-  // append so a finished case is durable on disk before the worker continues.
+  const resuming = doneIndices.size > 0;
+  if (!resuming) {
+    // Fresh run truncates; resume keeps the prior results and appends the remainder.
+    await writeFile(resultsPath, "");
+  }
+  const total = testCases.length;
+  // Backstop for an in-process hang inside a worker (e.g. an infinite loop in
+  // the baseline assembly that the CLI's own timeout can't catch): kill+replace
+  // the worker. Longer than the CLI's per-spawn timeout so real CLI timeouts
+  // surface as themselves first.
+  const POOL_CASE_TIMEOUT_MS = Number(process.env.TSGO_POOL_TIMEOUT_MS ?? "300000");
   let appendChain = Promise.resolve();
-  let completed = 0;
+  let completed = doneIndices.size;
   let cursor = 0;
   let stopped = false;
-  const workers = Array.from({ length: jobs }, async () => {
-    while (!stopped) {
-      const currentIndex = cursor;
-      cursor += 1;
-      if (currentIndex >= testCases.length) {
+
+  const persist = async (caseIndex, result) => {
+    const record = { caseIndex, ...trimResult(result) };
+    const append = appendChain.then(() => appendFile(resultsPath, `${JSON.stringify(record)}\n`));
+    appendChain = append;
+    await append;
+    completed += 1;
+    if (result.status === "fail" && failFast) {
+      stopped = true;
+    }
+    printProgress(completed, total, result);
+  };
+
+  const failResult = (testCase, stderr, signal) => ({
+    ...testCase,
+    caseDir: "",
+    expectedErrors: false,
+    actualErrors: true,
+    exitCode: 1,
+    signal: signal ?? null,
+    status: "fail",
+    skipReason: "",
+    stdout: "",
+    stderr,
+  });
+
+  if (total === 0 || completed >= total) {
+    return { resultsPath, completed };
+  }
+
+  await new Promise((resolve) => {
+    const poolSize = Math.max(1, Math.min(jobs, total));
+    let liveWorkers = 0;
+    let spawnedTotal = 0;
+    const maxSpawns = total + poolSize * 8; // respawn cap so a startup crash loop can't hang the run
+    let done = false;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+
+    const spawnWorker = () => {
+      if (spawnedTotal >= maxSpawns) {
+        if (liveWorkers === 0) finish();
         return;
       }
-      const testCase = testCases[currentIndex];
-      const result = await runCase(testCase, runRoot, options);
-      // Trim immediately (bounded, flattened strings only), then persist.
-      const record = { caseIndex: currentIndex, ...trimResult(result) };
-      const append = appendChain.then(() => appendFile(resultsPath, `${JSON.stringify(record)}\n`));
-      appendChain = append;
-      await append;
-      completed += 1;
-      if (result.status === "fail" && failFast) {
-        stopped = true;
+      spawnedTotal += 1;
+      const child = fork(scriptPath, [], {
+        env: { ...process.env, TSGO_SUITE_WORKER: "1" },
+        stdio: ["ignore", "ignore", "inherit", "ipc"],
+        // Advanced (V8 structured-clone) IPC preserves Map/Set/etc. in the case
+        // descriptor (e.g. testCase.settings is a Map); the default JSON IPC
+        // would silently flatten Maps to {} and break materializeCase.
+        serialization: "advanced",
+      });
+      liveWorkers += 1;
+      const state = { current: -1, settled: true, timer: null };
+
+      const settle = async (result) => {
+        if (state.settled) return; // exactly one resolution per assigned case
+        state.settled = true;
+        if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+        const idx = state.current;
+        state.current = -1;
+        await persist(idx, result);
+        if (completed >= total) finish();
+      };
+
+      const assignNext = () => {
+        // Skip cases already recorded by a suspended run (--resume).
+        while (cursor < total && doneIndices.has(cursor)) {
+          cursor += 1;
+        }
+        if (stopped || cursor >= total) {
+          try { child.send({ type: "shutdown" }); } catch { try { child.kill(); } catch {} }
+          return;
+        }
+        const idx = cursor++;
+        state.current = idx;
+        state.settled = false;
+        state.timer = setTimeout(() => {
+          // In-process hang: kill the worker; settle() records the timeout fail,
+          // and the exit handler replaces the worker if work remains.
+          try { child.kill("SIGKILL"); } catch {}
+          settle(failResult(testCases[idx], `TSTS case exceeded ${POOL_CASE_TIMEOUT_MS}ms in worker (killed).`, "SIGKILL"));
+        }, POOL_CASE_TIMEOUT_MS);
+        try {
+          child.send({ type: "case", caseIndex: idx, testCase: testCases[idx], runRoot, options });
+        } catch {
+          // Send failed (worker already dead); the exit handler settles + respawns.
+        }
+      };
+
+      child.on("message", (msg) => {
+        if (msg && msg.type === "ready") { assignNext(); return; }
+        if (msg && msg.type === "result") {
+          settle(msg.result).then(() => {
+            if (!stopped && cursor < total) assignNext();
+            else { try { child.send({ type: "shutdown" }); } catch { try { child.kill(); } catch {} } }
+          });
+        }
+      });
+
+      child.on("exit", () => {
+        liveWorkers -= 1;
+        // Crash with an unsettled in-flight case → record a fail for it.
+        if (!state.settled && state.current >= 0) {
+          settle(failResult(testCases[state.current], "TSTS worker crashed before returning a result.", null));
+        }
+        if (!stopped && cursor < total) {
+          spawnWorker();
+        } else if (liveWorkers === 0) {
+          finish();
+        }
+      });
+    };
+
+    for (let i = 0; i < poolSize; i++) spawnWorker();
+  });
+
+  return { resultsPath, completed };
+}
+
+// Worker mode: this same script, re-forked with TSGO_SUITE_WORKER=1. It loads
+// the compiler + harness lazily on its first case and then evaluates whole
+// cases handed over IPC, returning the trimmed result. Staying warm means the
+// ~12s bundled-lib load is paid once per worker, not once per case.
+function runWorkerLoop() {
+  process.on("message", async (msg) => {
+    if (!msg) return;
+    if (msg.type === "case") {
+      let result;
+      try {
+        result = await runCase(msg.testCase, msg.runRoot, msg.options);
+      } catch (error) {
+        result = {
+          ...msg.testCase,
+          caseDir: "",
+          expectedErrors: false,
+          actualErrors: true,
+          exitCode: 1,
+          signal: null,
+          status: "fail",
+          skipReason: "",
+          stdout: "",
+          stderr: `TSTS worker error: ${error instanceof Error ? error.stack : String(error)}`,
+        };
       }
-      printProgress(completed, testCases.length, result);
+      try { process.send({ type: "result", caseIndex: msg.caseIndex, result }); } catch {}
+    } else if (msg.type === "shutdown") {
+      process.exit(0);
     }
   });
-  await Promise.all(workers);
-  return { resultsPath, completed };
+  try { process.send({ type: "ready" }); } catch {}
 }
 
 // Read the streamed records back, restore discovery order, and strip the
@@ -3033,22 +3366,59 @@ async function main() {
     return;
   }
   const testCases = await discoverCases(options);
-  const timestamp = new Date().toISOString().replaceAll(":", "").replace(".", "-").replace("Z", `-${process.pid}`);
-  const reportRoot = join(repoRoot, ".temp/tsgo-suite", timestamp);
+  let reportRoot;
+  let doneIndices = new Set();
+  if (options.resume !== "") {
+    // Resume a suspended run: reuse its reportRoot, verify the case set is identical
+    // (so recorded caseIndex values still line up), and skip the cases it recorded.
+    reportRoot = isAbsolute(options.resume) ? options.resume : join(repoRoot, options.resume);
+    const configPath = join(reportRoot, "run-config.json");
+    if (!existsSync(configPath)) {
+      throw new Error(`Cannot resume: no run-config.json in ${reportRoot}.`);
+    }
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    const mismatched = [];
+    if (config.corpus !== options.corpus) mismatched.push(`corpus(${config.corpus} != ${options.corpus})`);
+    if (config.suite !== options.suite) mismatched.push(`suite(${config.suite} != ${options.suite})`);
+    if (config.filter !== options.filter) mismatched.push(`filter(${config.filter} != ${options.filter})`);
+    if (config.limit !== options.limit) mismatched.push(`limit(${config.limit} != ${options.limit})`);
+    if (mismatched.length !== 0) {
+      throw new Error(`Cannot resume: run options differ from the suspended run [${mismatched.join(", ")}]. Re-run --resume with matching --corpus/--suite/--filter/--limit.`);
+    }
+    if (config.total !== testCases.length || config.caseIdsHash !== hashCaseIds(testCases)) {
+      throw new Error(`Cannot resume: the discovered case set changed since suspend (corpus/testdata drift). Start a fresh run.`);
+    }
+    doneIndices = loadCompletedCaseIndices(join(reportRoot, "results.ndjson"));
+  } else {
+    const timestamp = new Date().toISOString().replaceAll(":", "").replace(".", "-").replace("Z", `-${process.pid}`);
+    reportRoot = join(repoRoot, ".temp/tsgo-suite", timestamp);
+  }
   const caseRootForRun = join(reportRoot, "cases");
   await mkdir(reportRoot, { recursive: true });
   await mkdir(caseRootForRun, { recursive: true });
+  if (options.resume === "") {
+    // Record this run's identity so it can be resumed later; resume refuses if the
+    // case set differs.
+    await writeFile(join(reportRoot, "run-config.json"), JSON.stringify({
+      corpus: options.corpus,
+      suite: options.suite,
+      filter: options.filter,
+      limit: options.limit,
+      total: testCases.length,
+      caseIdsHash: hashCaseIds(testCases),
+    }));
+  }
 
   if (!existsSync(cliPath)) {
     throw new Error(`TSTS CLI not found at ${cliPath}. Run TSTS emit first.`);
   }
-  console.log(`TSTS TS-Go suite run`);
-  console.log(`cases=${testCases.length} corpus=${options.corpus} suite=${options.suite} jobs=${options.jobs}`);
+  console.log(`TSTS TS-Go suite run${options.resume !== "" ? " (RESUME)" : ""}`);
+  console.log(`cases=${testCases.length} corpus=${options.corpus} suite=${options.suite} jobs=${options.jobs}${doneIndices.size > 0 ? ` resumeSkip=${doneIndices.size}` : ""}`);
   console.log(`upstreamInScope=${inventory.typeScriptCases.inScope + inventory.baselines.inScope + inventory.goTests.inScope} upstreamExcluded=${inventory.typeScriptCases.outOfScope + inventory.baselines.outOfScope + inventory.goTests.outOfScope}`);
   console.log(`caseRoot=${caseRootForRun}`);
   console.log(`reportRoot=${reportRoot}`);
 
-  const run = await runQueue(testCases, caseRootForRun, reportRoot, options.jobs, options.failFast, options);
+  const run = await runQueue(testCases, caseRootForRun, reportRoot, options.jobs, options.failFast, options, doneIndices);
   const summary = await writeReports(reportRoot, run.resultsPath, inventory, caseRootForRun);
   console.log(`SUMMARY total=${summary.total} passed=${summary.passed} failed=${summary.failed}`);
   if (process.env.TSGO_HOLD_SECONDS !== undefined) {
@@ -3064,8 +3434,12 @@ async function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.stack : String(error));
-    process.exitCode = 1;
-  });
+  if (process.env.TSGO_SUITE_WORKER === "1") {
+    runWorkerLoop();
+  } else {
+    main().catch((error) => {
+      console.error(error instanceof Error ? error.stack : String(error));
+      process.exitCode = 1;
+    });
+  }
 }

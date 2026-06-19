@@ -1,2 +1,0 @@
-Destructured sum: 30
-Direct destructure: 1, 2, 3

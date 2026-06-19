@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../go/compat.js";
 import type { Duration } from "../../go/time.js";
 import type { Tristate } from "./tristate.js";
@@ -110,11 +110,11 @@ export const PollingKindDynamicPriority: PollingKind = 3;
 export const PollingKindFixedChunkSize: PollingKind = 4;
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/watchoptions.go::method::WatchOptions.WatchInterval","kind":"method","status":"implemented","sigHash":"844ee5f41c0b2b975b26c0b38fe1aeb4bf7a438c68a01c0e8753d988710ef38f","bodyHash":"40d4dfeee25ccee5c9525627cc3ffd61c35e57b95824561a2970f739086f6821"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/core/watchoptions.go::method::WatchOptions.WatchInterval","kind":"method","status":"implemented","sigHash":"844ee5f41c0b2b975b26c0b38fe1aeb4bf7a438c68a01c0e8753d988710ef38f","bodyHash":"f6ef965658f88f2982011d4cbafb874ba4d432f169a02509ae535e74c3fb3995"}
  *
  * Go source:
  * func (w *WatchOptions) WatchInterval() time.Duration {
- * 	watchInterval := 1000 * time.Millisecond
+ * 	watchInterval := 2000 * time.Millisecond
  * 	if w != nil && w.Interval != nil {
  * 		watchInterval = time.Duration(*w.Interval) * time.Millisecond
  * 	}
@@ -124,7 +124,7 @@ export const PollingKindFixedChunkSize: PollingKind = 4;
 export function WatchOptions_WatchInterval(receiver: GoPtr<WatchOptions>): Duration {
   // time.Millisecond = 1_000_000 nanoseconds; Duration = long (nanoseconds).
   const millisecond: Duration = 1_000_000 as Duration;
-  const defaultInterval: Duration = (1000 * (millisecond as number)) as Duration;
+  const defaultInterval: Duration = (2000 * (millisecond as number)) as Duration;
   if (receiver !== undefined && receiver.Interval !== undefined) {
     return ((receiver.Interval as number) * (millisecond as number)) as Duration;
   }

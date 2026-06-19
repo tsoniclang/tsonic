@@ -13,7 +13,7 @@
 // Because Separator and the only structural characters ('/', '.') are ASCII,
 // indexing by JavaScript string units matches Go's byte indexing here.
 
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../scalars.js";
 import type { GoError, GoSlice } from "../compat.js";
 import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";

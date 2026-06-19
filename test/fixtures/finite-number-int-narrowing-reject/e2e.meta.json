@@ -1,5 +1,0 @@
-{
-  "expectFailure": true,
-  "description": "JS number values guarded only by Number.isFinite remain unproven for int narrowing.",
-  "expectedErrors": ["TSN5101", "Cannot prove narrowing of 'value' to int32"]
-}

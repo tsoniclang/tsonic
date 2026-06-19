@@ -1026,6 +1026,17 @@ test("parseArgs validates supported suites", () => {
   assert.equal(parseArgs(["--corpus", "typescript", "--suite", "project"]).suite, "project");
   assert.equal(parseArgs(["--corpus", "typescript", "--suite", "transpile"]).suite, "transpile");
   assert.equal(parseArgs(["--exact-baselines"]).exactBaselines, true);
+  // Weak mode removed: exact-baseline comparison is the default (and only) mode.
+  assert.equal(parseArgs([]).exactBaselines, true);
+  // Default concurrency is all cores; --jobs 1 selects serial.
+  assert.ok(parseArgs([]).jobs >= 1);
+  assert.equal(parseArgs(["--jobs", "1"]).jobs, 1);
+  // On-disk verification is opt-in (default off = fast harness-only path).
+  assert.equal(parseArgs([]).verifyOnDisk, false);
+  assert.equal(parseArgs(["--verify-on-disk"]).verifyOnDisk, true);
+  // Resume is off by default; --resume takes the prior reportRoot.
+  assert.equal(parseArgs([]).resume, "");
+  assert.equal(parseArgs(["--resume", ".temp/tsgo-suite/x"]).resume, ".temp/tsgo-suite/x");
   assert.equal(parseArgs(["--inventory"]).inventory, true);
   assert.throws(() => parseArgs(["--suite", "fourslash"]), /Unsupported suite/);
   assert.throws(() => parseArgs(["--corpus", "typescript", "--suite", "projects"]), /Unsupported suite/);
@@ -1062,6 +1073,13 @@ test("diagnosticHeadlineText compares the command-line diagnostic contract", () 
   assert.equal(
     diagnosticHeadlineText(`file.ts(1,1): error TS1000: First.\r\nfile.ts(2,1): error TS1001: Second.\r\n\r\n==== file.ts (2 errors) ====\r\n    source\r\n`),
     "file.ts(1,1): error TS1000: First.\nfile.ts(2,1): error TS1001: Second.",
+  );
+});
+
+test("diagnosticHeadlineText accepts TS-Go message headlines", () => {
+  assert.equal(
+    diagnosticHeadlineText(`file.ts(1,1): message TS1450: First.\r\nfile.ts(2,1): message TS1451: Second.\r\n\r\n==== file.ts (2 errors) ====\r\n    source\r\n`),
+    "file.ts(1,1): message TS1450: First.\nfile.ts(2,1): message TS1451: Second.",
   );
 });
 
@@ -1206,7 +1224,7 @@ test("errorDiffNewSideHasErrors detects newly added diagnostics in baseline diff
 });
 
 test("errorDiffNewSideHasErrors treats accepted removed diagnostics as clean", () => {
-  const diff = new URL("../../_vendor/typescript-go/testdata/baselines/reference/submoduleAccepted/compiler/classFieldSuperAccessibleJs1.errors.txt.diff", import.meta.url);
+  const diff = new URL("../../_vendor/typescript-go/testdata/baselines/reference/submoduleAccepted/compiler/importDeclWithExportModifierAndExportAssignmentInAmbientContext.errors.txt.diff", import.meta.url);
   assert.equal(errorDiffNewSideHasErrors(diff.pathname), false);
 });
 
@@ -1333,7 +1351,7 @@ test("caseExpectedErrors treats TS-Go removed option diagnostics as expected err
 
 test("buildTestUniverseInventory tracks full compiler scope and excludes language service scope", async () => {
   const inventory = await buildTestUniverseInventory();
-  assert.equal(inventory.currentHarness.inScope, 166);
+  assert.equal(inventory.currentHarness.inScope, 302);
   assert.ok(inventory.typeScriptCases.entries.compiler > inventory.currentHarness.entries.compiler);
   assert.ok(inventory.typeScriptCases.entries.conformance > inventory.currentHarness.entries.conformance);
   assert.equal(inventory.typeScriptCases.entries.project, 316);

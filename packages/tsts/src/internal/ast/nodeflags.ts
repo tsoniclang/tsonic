@@ -1,4 +1,4 @@
-import type { int, uint } from "@tsonic/core/types.js";
+import type { int, uint } from "../../go/scalars.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/nodeflags.go::type::NodeFlags","kind":"type","status":"implemented","sigHash":"1ab8cedf51e53d4d4a76535f180fa467201a4ee1d08d7a155aaeb2a90ab16ad7","bodyHash":"5197d1ac139ca86c7af2d2cefe73128e846310afb8e0533c210c8308c6d55e12"}
@@ -9,7 +9,7 @@ import type { int, uint } from "@tsonic/core/types.js";
 export type NodeFlags = uint;
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/nodeflags.go::constGroup::NodeFlagsNone+NodeFlagsLet+NodeFlagsConst+NodeFlagsUsing+NodeFlagsReparsed+NodeFlagsSynthesized+NodeFlagsOptionalChain+NodeFlagsExportContext+NodeFlagsContainsThis+NodeFlagsHasImplicitReturn+NodeFlagsHasExplicitReturn+NodeFlagsDisallowInContext+NodeFlagsYieldContext+NodeFlagsDecoratorContext+NodeFlagsAwaitContext+NodeFlagsDisallowConditionalTypesContext+NodeFlagsThisNodeHasError+NodeFlagsJavaScriptFile+NodeFlagsThisNodeOrAnySubNodesHasError+NodeFlagsHasAsyncFunctions+NodeFlagsPossiblyContainsDynamicImport+NodeFlagsPossiblyContainsImportMeta+NodeFlagsHasJSDoc+NodeFlagsJSDoc+NodeFlagsAmbient+NodeFlagsInWithStatement+NodeFlagsJsonFile+NodeFlagsPossiblyContainsDeprecatedTag+NodeFlagsUnreachable+NodeFlagsBlockScoped+NodeFlagsConstant+NodeFlagsAwaitUsing+NodeFlagsReachabilityCheckFlags+NodeFlagsReachabilityAndEmitFlags+NodeFlagsContextFlags+NodeFlagsTypeExcludesFlags+NodeFlagsPermanentlySetIncrementalFlags+NodeFlagsIdentifierHasExtendedUnicodeEscape","kind":"constGroup","status":"implemented","sigHash":"d0234342afdf1d9936c76788479c8c9262ad27533a39c6a4bb52188d435a5e19","bodyHash":"48e7bb2d2442640d317a22fb7b4312b32137ec9ae5e1c89b80134a3644c26346"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/nodeflags.go::constGroup::NodeFlagsNone+NodeFlagsLet+NodeFlagsConst+NodeFlagsUsing+NodeFlagsReparsed+NodeFlagsSynthesized+NodeFlagsOptionalChain+NodeFlagsExportContext+NodeFlagsContainsThis+NodeFlagsHasImplicitReturn+NodeFlagsHasExplicitReturn+NodeFlagsDisallowInContext+NodeFlagsYieldContext+NodeFlagsDecoratorContext+NodeFlagsAwaitContext+NodeFlagsDisallowConditionalTypesContext+NodeFlagsThisNodeHasError+NodeFlagsJavaScriptFile+NodeFlagsThisNodeOrAnySubNodesHasError+NodeFlagsHasAsyncFunctions+NodeFlagsPossiblyContainsDynamicImport+NodeFlagsPossiblyContainsImportMeta+NodeFlagsHasJSDoc+NodeFlagsJSDoc+NodeFlagsAmbient+NodeFlagsInWithStatement+NodeFlagsJsonFile+NodeFlagsPossiblyContainsDeprecatedTag+NodeFlagsUnreachable+NodeFlagsReparserTransformedLiteral+NodeFlagsBlockScoped+NodeFlagsConstant+NodeFlagsAwaitUsing+NodeFlagsReachabilityCheckFlags+NodeFlagsReachabilityAndEmitFlags+NodeFlagsContextFlags+NodeFlagsTypeExcludesFlags+NodeFlagsPermanentlySetIncrementalFlags+NodeFlagsIdentifierHasExtendedUnicodeEscape+NodeFlagsIdentifierIsInJSDocNamespace+NodeFlagsNestedNamespace","kind":"constGroup","status":"implemented","sigHash":"5f7d883710e53a47dfde1d85856df1d169e7d7d185fe376ca9d16616b5713606","bodyHash":"62e4941f6289e84d8e3f5d52ca8d29377d26ad54eb24cd175f340a44de8043fb"}
  *
  * Go source:
  * const (
@@ -54,7 +54,8 @@ export type NodeFlags = uint;
  * 	NodeFlagsJsonFile                      NodeFlags = 1 << 25 // If node was parsed in a Json
  * 	NodeFlagsPossiblyContainsDeprecatedTag NodeFlags = 1 << 26 // Set during parse if comment text contains '@deprecated'; must confirm via JSDoc lookup
  * 	NodeFlagsUnreachable                   NodeFlags = 1 << 27 // If node is unreachable according to the binder
- * 
+ * 	NodeFlagsReparserTransformedLiteral    NodeFlags = 1 << 28 // If node was transformed during parsing, making its' naive text source not match the AST
+ *
  * 	NodeFlagsBlockScoped = NodeFlagsLet | NodeFlagsConst | NodeFlagsUsing
  * 	NodeFlagsConstant    = NodeFlagsConst | NodeFlagsUsing
  * 	NodeFlagsAwaitUsing  = NodeFlagsConst | NodeFlagsUsing // Variable declaration (NOTE: on a single node these flags would otherwise be mutually exclusive)
@@ -74,7 +75,11 @@ export type NodeFlags = uint;
  * 	NodeFlagsPermanentlySetIncrementalFlags NodeFlags = NodeFlagsPossiblyContainsDynamicImport | NodeFlagsPossiblyContainsImportMeta
  * 
  * 	// The following flags repurpose other NodeFlags as different meanings for Identifier nodes
- * 	NodeFlagsIdentifierHasExtendedUnicodeEscape NodeFlags = NodeFlagsContainsThis // Indicates whether the identifier contains an extended unicode escape sequence
+ * 	NodeFlagsIdentifierHasExtendedUnicodeEscape NodeFlags = NodeFlagsContainsThis      // Indicates whether the identifier contains an extended unicode escape sequence
+ * 	NodeFlagsIdentifierIsInJSDocNamespace       NodeFlags = NodeFlagsHasAsyncFunctions // Indicates the identifier is the innermost name of a JSDoc namespace declaration
+ *
+ * 	// The following flag repurposes other NodeFlags for ModuleDeclaration nodes
+ * 	NodeFlagsNestedNamespace NodeFlags = NodeFlagsOptionalChain // If ModuleDeclaration is a nested namespace (e.g. inner part of A.B.C)
  * )
  */
 export const NodeFlagsNone: NodeFlags = 0;
@@ -106,6 +111,7 @@ export const NodeFlagsInWithStatement: NodeFlags = 1 << 24;
 export const NodeFlagsJsonFile: NodeFlags = 1 << 25;
 export const NodeFlagsPossiblyContainsDeprecatedTag: NodeFlags = 1 << 26;
 export const NodeFlagsUnreachable: NodeFlags = 1 << 27;
+export const NodeFlagsReparserTransformedLiteral: NodeFlags = 1 << 28;
 export const NodeFlagsBlockScoped: int = NodeFlagsLet | NodeFlagsConst | NodeFlagsUsing;
 export const NodeFlagsConstant: int = NodeFlagsConst | NodeFlagsUsing;
 export const NodeFlagsAwaitUsing: int = NodeFlagsConst | NodeFlagsUsing;
@@ -115,3 +121,5 @@ export const NodeFlagsContextFlags: NodeFlags = NodeFlagsDisallowInContext | Nod
 export const NodeFlagsTypeExcludesFlags: NodeFlags = NodeFlagsYieldContext | NodeFlagsAwaitContext;
 export const NodeFlagsPermanentlySetIncrementalFlags: NodeFlags = NodeFlagsPossiblyContainsDynamicImport | NodeFlagsPossiblyContainsImportMeta;
 export const NodeFlagsIdentifierHasExtendedUnicodeEscape: NodeFlags = NodeFlagsContainsThis;
+export const NodeFlagsIdentifierIsInJSDocNamespace: NodeFlags = NodeFlagsHasAsyncFunctions;
+export const NodeFlagsNestedNamespace: NodeFlags = NodeFlagsOptionalChain;

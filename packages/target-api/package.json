@@ -1,0 +1,26 @@
+{
+  "name": "@tsonic/target-api",
+  "version": "0.0.1",
+  "description": "Target pack contracts for the Tsonic source-to-source compiler",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "node --test \"dist/**/*.test.js\""
+  },
+  "dependencies": {
+    "@tsonic/tsts": "0.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

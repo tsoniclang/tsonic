@@ -1,8 +1,7 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoSlice } from "../../go/compat.js";
 import * as strings from "../../go/strings.js";
 import * as slices from "../../go/slices.js";
-import * as filepath from "../../go/path/filepath.js";
 import { GetAnyExtensionFromPath, GetBaseFileName, FileExtensionIs } from "./path.js";
 
 /**
@@ -100,7 +99,7 @@ export function ExtensionIsTs(ext: string): bool {
 export const extensionsToRemove: GoSlice<string> = [ExtensionDts, ExtensionDmts, ExtensionDcts, ExtensionMjs, ExtensionMts, ExtensionCjs, ExtensionCts, ExtensionTs, ExtensionJs, ExtensionTsx, ExtensionJsx, ExtensionJson];
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tspath/extension.go::func::RemoveFileExtension","kind":"func","status":"implemented","sigHash":"fed8cdfe80d8331bfc6071432f6e12a2bb014ce39de271c868f4dd34ff0c61dd","bodyHash":"acad0f23681b4ec643afaa89bd39976e618bcac5b8305c0844d1a9f233554bf5"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tspath/extension.go::func::RemoveFileExtension","kind":"func","status":"implemented","sigHash":"fed8cdfe80d8331bfc6071432f6e12a2bb014ce39de271c868f4dd34ff0c61dd","bodyHash":"d65e1ad848a5c080238c90609643c2ca72fd16298ef7c89bc799c4ee3129fa0e"}
  *
  * Go source:
  * func RemoveFileExtension(path string) string {
@@ -110,8 +109,8 @@ export const extensionsToRemove: GoSlice<string> = [ExtensionDts, ExtensionDmts,
  * 			return path[:len(path)-len(ext)]
  * 		}
  * 	}
- * 	// Otherwise just remove single dot extension, if any
- * 	return path[:len(path)-len(filepath.Ext(path))] //nolint:forbidigo
+ *
+ * 	return path
  * }
  */
 export function RemoveFileExtension(path: string): string {
@@ -121,8 +120,8 @@ export function RemoveFileExtension(path: string): string {
       return path.slice(0, path.length - ext.length);
     }
   }
-  // Otherwise just remove single dot extension, if any
-  return path.slice(0, path.length - filepath.Ext(path).length);
+
+  return path;
 }
 
 /**

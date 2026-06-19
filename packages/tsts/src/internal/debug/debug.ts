@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import { Sprint, Sprintf } from "../../go/fmt.js";
 
 /**

@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr, GoSlice, GoMap } from "../../go/compat.js";
 import type { Mutex } from "../../go/sync.js";
 import type { Node, SourceFile } from "../ast/ast.js";
@@ -7,9 +7,9 @@ import { Node_Name, Node_AsNode } from "../ast/spine.js";
 import type { Node as NodeSpine } from "../ast/spine.js";
 import type { Declaration, ElementAccessExpression, EntityName, IdentifierNode, ImportDeclaration, SignatureDeclaration, ImportAttributes } from "../ast/ast_generated.js";
 import { AsBinaryExpression, AsImportEqualsDeclaration, AsExportDeclaration, AsTypePredicateNode, AsQualifiedName, AsImportAttributes, AsIndexSignatureDeclaration } from "../ast/generated/casts.js";
-import { IsVariableDeclaration, IsVariableStatement, IsIdentifier, IsNamespaceExport, IsGetAccessorDeclaration, IsSetAccessorDeclaration, IsImportEqualsDeclaration, IsSourceFile, IsParameterDeclaration, IsBinaryExpression, IsExpressionStatement, IsExportAssignment, IsPropertyAccessExpression, IsBindingElement, IsImportDeclaration, IsComputedPropertyName } from "../ast/generated/predicates.js";
+import { IsVariableDeclaration, IsVariableStatement, IsIdentifier, IsNamespaceExport, IsGetAccessorDeclaration, IsSetAccessorDeclaration, IsImportEqualsDeclaration, IsSourceFile, IsParameterDeclaration, IsBinaryExpression, IsExpressionStatement, IsExportAssignment, IsPropertyAccessExpression, IsBindingElement, IsImportDeclaration, IsComputedPropertyName, IsExportDeclaration } from "../ast/generated/predicates.js";
 import { IsBindingPattern } from "../ast/utilities.js";
-import { GetAssignmentDeclarationKind, IsExternalOrCommonJSModule, IsParseTreeNode, IsGlobalSourceFile, IsLateVisibilityPaintedStatement, IsExternalModuleAugmentation, IsImplicitlyExportedJSTypeAlias, GetDeclarationContainer, IsInternalModuleImportEqualsDeclaration, GetFirstIdentifier, WalkUpBindingElementsAndPatterns, IsNonLocalAlias, HasSyntacticModifier, IsAliasSymbolDeclaration, GetSymbolId, GetNodeId, IsPartOfTypeNode, IsFunctionLikeDeclaration, NodeIsPresent, IsVarConst, IsTypeOnlyImportOrExportDeclaration, IsExpandoPropertyDeclaration, IsInJSFile, IsThisIdentifier, GetSourceFileOfNode, IsEntityNameExpression } from "../ast/utilities.js";
+import { GetAssignmentDeclarationKind, IsExternalOrCommonJSModule, IsParseTreeNode, IsGlobalSourceFile, IsLateVisibilityPaintedStatement, IsExternalModuleAugmentation, IsImplicitlyExportedJSDocDeclaration, GetDeclarationContainer, IsInternalModuleImportEqualsDeclaration, GetFirstIdentifier, WalkUpBindingElementsAndPatterns, IsNonLocalAlias, HasSyntacticModifier, IsAliasSymbolDeclaration, GetSymbolId, GetNodeId, IsPartOfTypeNode, IsFunctionLikeDeclaration, NodeIsPresent, IsVarConst, IsTypeOnlyImportOrExportDeclaration, IsExpandoPropertyDeclaration, IsInJSFile, IsThisIdentifier, GetSourceFileOfNode, IsEntityNameExpression } from "../ast/utilities.js";
 import type { JSDeclarationKind } from "../ast/utilities.js";
 import { JSDeclarationKindModuleExports, JSDeclarationKindExportsProperty } from "../ast/utilities.js";
 import { CheckFlagsLate } from "../ast/checkflags.js";
@@ -19,7 +19,7 @@ import { SymbolFlagsAlias, SymbolFlagsValue, SymbolFlagsType, SymbolFlagsNamespa
 import type { SymbolFlags } from "../ast/symbolflags.js";
 import { NodeFlagsAmbient, NodeFlagsJSDoc } from "../ast/generated/flags.js";
 import { KindImportEqualsDeclaration, KindSourceFile, KindQualifiedName, KindPropertyAccessExpression, KindElementAccessExpression, KindTypeQuery, KindExpressionWithTypeArguments, KindComputedPropertyName, KindTypePredicate, KindBinaryExpression, KindExportAssignment, KindExportSpecifier, KindExportDeclaration, KindIdentifier, KindStringLiteral, KindJSDocCallbackTag, KindJSDocTypedefTag, KindBindingElement, KindVariableDeclaration, KindModuleDeclaration, KindClassDeclaration, KindInterfaceDeclaration, KindTypeAliasDeclaration, KindJSTypeAliasDeclaration, KindFunctionDeclaration, KindEnumDeclaration, KindPropertyDeclaration, KindPropertySignature, KindGetAccessor, KindSetAccessor, KindMethodDeclaration, KindMethodSignature, KindConstructor, KindConstructSignature, KindCallSignature, KindIndexSignature, KindParameter, KindModuleBlock, KindFunctionType, KindConstructorType, KindTypeLiteral, KindTypeReference, KindArrayType, KindTupleType, KindUnionType, KindIntersectionType, KindParenthesizedType, KindNamedTupleMember, KindImportClause, KindNamespaceImport, KindImportSpecifier, KindTypeParameter, KindNamespaceExportDeclaration, KindJSDocPropertyTag, KindJSDocParameterTag, KindExternalModuleReference, KindAnyKeyword, KindTrueKeyword, KindFalseKeyword, KindMinusToken, KindStaticKeyword, KindReadonlyKeyword } from "../ast/generated/kinds.js";
-import { NewKeywordTypeNode, NewKeywordExpression, NewStringLiteral, NewNumericLiteral, NewBigIntLiteral, NewPrefixUnaryExpression, NewPropertyDeclaration } from "../ast/generated/factory.js";
+import { NewKeywordTypeNode, NewKeywordExpression, NewStringLiteral, NewNumericLiteral, NewBigIntLiteral, NewPrefixUnaryExpression, NewPropertyDeclaration, NewIdentifier } from "../ast/generated/factory.js";
 import type { TokenFlags } from "../ast/tokenflags.js";
 import { TokenFlagsNone } from "../ast/tokenflags.js";
 import { NewReferenceResolver } from "../binder/referenceresolver.js";
@@ -50,10 +50,11 @@ import { Checker_isOptionalParameter } from "./utilities.js";
 import { isDeclarationReadonly, isOptionalDeclaration, containsNonMissingUndefinedType, getAnyImportSyntax, pseudoBigIntToString } from "./utilities.js";
 import { Checker_getSymbolOfDeclaration, Checker_getMergedSymbol, Checker_getExportsOfModule, Checker_resolveAlias, Checker_getSymbolFlags, Checker_getSymbolFlagsEx, Checker_getExportSymbolOfValueSymbolIfExported, Checker_getTypeOnlyAliasDeclaration, Checker_getTypeOnlyAliasDeclarationEx, Checker_resolveEntityName, Checker_getDeclaredTypeOfSymbol, Checker_getReferencedValueOrAliasSymbol, Checker_getDeclarationOfAliasSymbol, Checker_getResolvedSymbol, Checker_getGlobalSymbol, Checker_getMembersOfSymbol, Checker_getIndexInfosOfType, Checker_getIndexSymbol, Checker_getIndexInfosOfIndexSymbol, Checker_getParentOfSymbol, Checker_resolveExternalModuleSymbol, Checker_hasLateBindableName, Checker_getTargetOfExportSpecifier, Checker_getExternalModuleFileFromDeclaration } from "./checker/symbols.js";
 import { Checker_getTypeOfSymbol } from "./checker/symbols.js";
+import { Checker_getPropertyOfObjectType } from "./checker/symbols.js";
 import { Checker_computeEnumMemberValues } from "./checker/symbols.js";
 import { Checker_getSignaturesOfSymbol } from "./checker/signatures.js";
 import { Checker_isErrorType } from "./checker/diagnostics.js";
-import { Checker_getTypeFromTypeNode, Checker_containsUndefinedType, Checker_isFunctionType, Checker_isArrayType, Checker_getPropertiesOfType } from "./checker/types.js";
+import { Checker_getTypeFromTypeNode, Checker_containsUndefinedType, Checker_isFunctionType, Checker_isArrayType, Checker_getPropertiesOfType, Checker_getBaseTypes } from "./checker/types.js";
 import { Checker_isConstructorType } from "./checker/signatures.js";
 import { Checker_isTypeAssignableToKind } from "./checker/relations.js";
 import { Checker_getCombinedModifierFlagsCached } from "./checker/support-queries.js";
@@ -73,7 +74,7 @@ import { Type_AsLiteralType, Type_Symbol } from "./types.js";
 import type { NodeId } from "../ast/ids.js";
 import type { Symbol } from "../ast/symbol.js";
 import type { PseudoBigInt } from "../jsnum/pseudobigint.js";
-import { Number_Abs } from "../jsnum/jsnum.js";
+import { Number_Abs, Number_IsInf, Number_IsNaN } from "../jsnum/jsnum.js";
 import { Number_String } from "../jsnum/string.js";
 
 /**
@@ -142,6 +143,7 @@ export function EmitResolver_as_printer_EmitResolver(receiver: GoPtr<EmitResolve
   return {
     GetReferencedExportContainer: (node: GoPtr<IdentifierNode>, prefixLocals: bool): GoPtr<Node> => EmitResolver_GetReferencedExportContainer(receiver, node, prefixLocals),
     GetReferencedImportDeclaration: (node: GoPtr<IdentifierNode>): GoPtr<Declaration> => EmitResolver_GetReferencedImportDeclaration(receiver, node),
+    GetReferencedMemberValueDeclaration: (node: GoPtr<Node>): GoPtr<Declaration> => EmitResolver_GetReferencedMemberValueDeclaration(receiver, node),
     GetReferencedValueDeclaration: (node: GoPtr<IdentifierNode>): GoPtr<Declaration> => EmitResolver_GetReferencedValueDeclaration(receiver, node),
     GetReferencedValueDeclarations: (node: GoPtr<IdentifierNode>): GoSlice<GoPtr<Declaration>> => EmitResolver_GetReferencedValueDeclarations(receiver, node),
     GetElementAccessExpressionName: (expression: GoPtr<ElementAccessExpression>): string => EmitResolver_GetElementAccessExpressionName(receiver, expression),
@@ -171,6 +173,7 @@ export function EmitResolver_as_printer_EmitResolver(receiver: GoPtr<EmitResolve
     GetEnumMemberValue: (node: GoPtr<Node>): Result => EmitResolver_GetEnumMemberValue(receiver, node),
     IsLateBound: (node: GoPtr<Node>): bool => EmitResolver_IsLateBound(receiver, node),
     IsOptionalParameter: (node: GoPtr<Node>): bool => EmitResolver_IsOptionalParameter(receiver, node),
+    GetBaseDeclarationsForPropertyDeclaration: (node: GoPtr<Node>): GoSlice<GoPtr<Node>> => EmitResolver_GetBaseDeclarationsForPropertyDeclaration(receiver, node),
     GetPropertiesOfContainerFunction: (node: GoPtr<Node>): GoSlice<GoPtr<Symbol>> => EmitResolver_GetPropertiesOfContainerFunction(receiver, node),
     RequiresAddingImplicitUndefinedUnsafe: (node: GoPtr<Node>, symbol_: GoPtr<Symbol>, enclosingDeclaration: GoPtr<Node>): bool => EmitResolver_RequiresAddingImplicitUndefinedUnsafe(receiver, node, symbol_, enclosingDeclaration),
     CreateTypeOfDeclaration: (emitContext: GoPtr<EmitContext>, declaration: GoPtr<Node>, enclosingDeclaration: GoPtr<Node>, flags: Flags, internalFlags: InternalFlags, tracker: SymbolTracker): GoPtr<Node> => EmitResolver_CreateTypeOfDeclaration(receiver, emitContext, declaration, enclosingDeclaration, flags, internalFlags, tracker),
@@ -266,6 +269,67 @@ export function EmitResolver_IsOptionalParameter(receiver: GoPtr<EmitResolver>, 
   const result = EmitResolver_isOptionalParameter(receiver, node);
   receiver!.checkerMu!.Unlock();
   return result;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/emitresolver.go::method::EmitResolver.GetBaseDeclarationsForPropertyDeclaration","kind":"method","status":"implemented","sigHash":"615a139be292cc3af844256e43ae6d33a7216a83504b7b5d0a8b64c4e1d64a21","bodyHash":"97d4300010e17b340b886d7cdd8c18f8b437ee4d6827c770fea7a437b575eb67"}
+ *
+ * Go source:
+ * func (r *EmitResolver) GetBaseDeclarationsForPropertyDeclaration(node *ast.Node) []*ast.Node {
+ * 	if node == nil {
+ * 		return nil
+ * 	}
+ *
+ * 	r.checkerMu.Lock()
+ * 	defer r.checkerMu.Unlock()
+ *
+ * 	s := r.checker.getSymbolOfDeclaration(node)
+ * 	if s == nil || s.Parent == nil {
+ * 		return nil
+ * 	}
+ * 	parentType := r.checker.getDeclaredTypeOfSymbol(s.Parent)
+ * 	if parentType == nil {
+ * 		return nil
+ * 	}
+ * 	bases := r.checker.getBaseTypes(parentType)
+ * 	for _, b := range bases {
+ * 		baseProp := r.checker.getPropertyOfObjectType(b, s.Name)
+ * 		if baseProp != nil {
+ * 			return baseProp.Declarations
+ * 			// TODO: return base declarations from all base types if any callers actually look at the list
+ * 		}
+ * 	}
+ * 	return nil
+ * }
+ */
+export function EmitResolver_GetBaseDeclarationsForPropertyDeclaration(receiver: GoPtr<EmitResolver>, node: GoPtr<Node>): GoSlice<GoPtr<Node>> {
+  if (node === undefined) {
+    return [];
+  }
+
+  receiver!.checkerMu!.Lock();
+
+  const s = Checker_getSymbolOfDeclaration(receiver!.checker, node);
+  if (s === undefined || s!.Parent === undefined) {
+    receiver!.checkerMu!.Unlock();
+    return [];
+  }
+  const parentType = Checker_getDeclaredTypeOfSymbol(receiver!.checker, s!.Parent);
+  if (parentType === undefined) {
+    receiver!.checkerMu!.Unlock();
+    return [];
+  }
+  const bases = Checker_getBaseTypes(receiver!.checker, parentType);
+  for (const b of bases ?? []) {
+    const baseProp = Checker_getPropertyOfObjectType(receiver!.checker, b, s!.Name);
+    if (baseProp !== undefined) {
+      receiver!.checkerMu!.Unlock();
+      return baseProp!.Declarations ?? [];
+      // TODO: return base declarations from all base types if any callers actually look at the list
+    }
+  }
+  receiver!.checkerMu!.Unlock();
+  return [];
 }
 
 /**
@@ -392,7 +456,7 @@ export function EmitResolver_isDeclarationVisible(receiver: GoPtr<EmitResolver>,
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/emitresolver.go::method::EmitResolver.determineIfDeclarationIsVisible","kind":"method","status":"implemented","sigHash":"6f08c0b5cf33c9224bd91083d723cb9406cb16c293c0c798c0ff0c21ad5d55d7","bodyHash":"b3aa2214d1b4a3dafe7cc22ab435483b4fcaf32fd7bc9633752fee843d65d320"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/emitresolver.go::method::EmitResolver.determineIfDeclarationIsVisible","kind":"method","status":"implemented","sigHash":"6f08c0b5cf33c9224bd91083d723cb9406cb16c293c0c798c0ff0c21ad5d55d7","bodyHash":"411cc970503a2b3017b2a1fbca01d6845e4c4586e920fac86f5b00135ed7a7fd"}
  *
  * Go source:
  * func (r *EmitResolver) determineIfDeclarationIsVisible(node *ast.Node) bool {
@@ -424,7 +488,7 @@ export function EmitResolver_isDeclarationVisible(receiver: GoPtr<EmitResolver>,
  * 		}
  * 		// External module augmentation is always visible
  * 		// A @typedef at top-level in an external module is always visible
- * 		if ast.IsExternalModuleAugmentation(node) || ast.IsImplicitlyExportedJSTypeAlias(node) {
+ * 		if ast.IsExternalModuleAugmentation(node) || ast.IsImplicitlyExportedJSDocDeclaration(node) {
  * 			return true
  * 		}
  * 		parent := ast.GetDeclarationContainer(node)
@@ -485,7 +549,16 @@ export function EmitResolver_isDeclarationVisible(receiver: GoPtr<EmitResolver>,
  * 	// Export assignments do not create name bindings outside the module
  * 	case ast.KindExportAssignment:
  * 		return false
- * 
+ *
+ * 	// An `export {X}` (without a module specifier) is itself a visible re-export of
+ * 	// the named binding; it contributes to the symbol's external visibility.
+ * 	case ast.KindExportSpecifier:
+ * 		exportDecl := node.Parent.Parent
+ * 		if ast.IsExportDeclaration(exportDecl) && exportDecl.AsExportDeclaration().ModuleSpecifier == nil {
+ * 			return r.isDeclarationVisible(exportDecl.Parent)
+ * 		}
+ * 		return false
+ *
  * 	default:
  * 		return false
  * 	}
@@ -513,7 +586,7 @@ export function EmitResolver_determineIfDeclarationIsVisible(receiver: GoPtr<Emi
           return false as bool;
         }
       }
-      if (IsExternalModuleAugmentation(node) || IsImplicitlyExportedJSTypeAlias(node)) {
+      if (IsExternalModuleAugmentation(node) || IsImplicitlyExportedJSDocDeclaration(node)) {
         return true as bool;
       }
       const parent = GetDeclarationContainer(node);
@@ -561,6 +634,13 @@ export function EmitResolver_determineIfDeclarationIsVisible(receiver: GoPtr<Emi
       return true as bool;
     case KindExportAssignment:
       return false as bool;
+    case KindExportSpecifier: {
+      const exportDecl = node!.Parent!.Parent;
+      if (IsExportDeclaration(exportDecl) && AsExportDeclaration(exportDecl)!.ModuleSpecifier === undefined) {
+        return EmitResolver_isDeclarationVisible(receiver, exportDecl!.Parent);
+      }
+      return false as bool;
+    }
     default:
       return false as bool;
   }
@@ -1890,6 +1970,29 @@ export function EmitResolver_SetReferencedImportDeclaration(receiver: GoPtr<Emit
 }
 
 /**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/emitresolver.go::method::EmitResolver.GetReferencedMemberValueDeclaration","kind":"method","status":"implemented","sigHash":"c70e3392c1f83d613660fb70bb502ef2c4f5ec1deb38881c42f7add9514e2772","bodyHash":"dcf691686c68eab4d7d31118e5f964ddc3038369148067c1d66b83a775debe9d"}
+ *
+ * Go source:
+ * func (r *EmitResolver) GetReferencedMemberValueDeclaration(node *ast.Node) *ast.Declaration {
+ * 	if !ast.IsParseTreeNode(node) {
+ * 		return nil
+ * 	}
+ * 	r.checkerMu.Lock()
+ * 	defer r.checkerMu.Unlock()
+ * 	return r.getReferenceResolver().GetReferencedMemberValueDeclaration(node)
+ * }
+ */
+export function EmitResolver_GetReferencedMemberValueDeclaration(receiver: GoPtr<EmitResolver>, node: GoPtr<Node>): GoPtr<Declaration> {
+  if (!IsParseTreeNode(node)) {
+    return undefined;
+  }
+  receiver!.checkerMu!.Lock();
+  const result = EmitResolver_getReferenceResolver(receiver).GetReferencedMemberValueDeclaration(node);
+  receiver!.checkerMu!.Unlock();
+  return result;
+}
+
+/**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/emitresolver.go::method::EmitResolver.GetReferencedImportDeclaration","kind":"method","status":"implemented","sigHash":"9777eb7297cb07d97a36464f0547131283dd17a9d0dc18aabdb565192e36b5c5","bodyHash":"98df8d2c6b056e1e00281fb2c30cdbcabd40f498d7bf56cb6213d417da4124b6"}
  *
  * Go source:
@@ -2080,7 +2183,7 @@ export function EmitResolver_CreateTypeOfDeclaration(receiver: GoPtr<EmitResolve
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/emitresolver.go::method::EmitResolver.CreateLiteralConstValue","kind":"method","status":"implemented","sigHash":"a794bda91b85e84d21a485fc3a7755da54ab0e72e126c175ece2179067231e63","bodyHash":"50c1afbb1b035e84955c3a7b889f5728feb2e08f5e2dc2600ad50437c48aa4ad"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/emitresolver.go::method::EmitResolver.CreateLiteralConstValue","kind":"method","status":"implemented","sigHash":"a794bda91b85e84d21a485fc3a7755da54ab0e72e126c175ece2179067231e63","bodyHash":"c75a8b46903824c77536a4baaaa8bd451c2da9ecd610e4ac802080c6266beacd"}
  *
  * Go source:
  * func (r *EmitResolver) CreateLiteralConstValue(emitContext *printer.EmitContext, node *ast.Node, tracker nodebuilder.SymbolTracker) *ast.Node {
@@ -2115,6 +2218,15 @@ export function EmitResolver_CreateTypeOfDeclaration(receiver: GoPtr<EmitResolve
  * 	case string:
  * 		return emitContext.Factory.NewStringLiteral(value, ast.TokenFlagsNone)
  * 	case jsnum.Number:
+ * 		if value.IsInf() {
+ * 			if value > 0 {
+ * 				return emitContext.Factory.NewIdentifier("Infinity")
+ * 			}
+ * 			return emitContext.Factory.NewPrefixUnaryExpression(ast.KindMinusToken, emitContext.Factory.NewIdentifier("Infinity"))
+ * 		}
+ * 		if value.IsNaN() {
+ * 			return emitContext.Factory.NewIdentifier("NaN")
+ * 		}
  * 		if value.Abs() != value {
  * 			// negative
  * 			return emitContext.Factory.NewPrefixUnaryExpression(
@@ -2168,6 +2280,15 @@ export function EmitResolver_CreateLiteralConstValue(receiver: GoPtr<EmitResolve
   }
   if (typeof value === "number") {
     const numVal = value as number;
+    if (Number_IsInf(numVal)) {
+      if (numVal > 0) {
+        return NewIdentifier(astFactory, "Infinity");
+      }
+      return NewPrefixUnaryExpression(astFactory, KindMinusToken, NewIdentifier(astFactory, "Infinity"));
+    }
+    if (Number_IsNaN(numVal)) {
+      return NewIdentifier(astFactory, "NaN");
+    }
     if (Number_Abs(numVal) !== numVal) {
       return NewPrefixUnaryExpression(astFactory, KindMinusToken, NewNumericLiteral(astFactory, Number_String(numVal).substring(1), TokenFlagsNone));
     }

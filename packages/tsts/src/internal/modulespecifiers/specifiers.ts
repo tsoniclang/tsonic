@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { GoPtr, GoSeq2, GoSlice } from "../../go/compat.js";
 import * as strings from "../../go/strings.js";
 import { Node_Expression, Node_Symbol, Node_Text } from "../ast/ast.js";
@@ -975,7 +975,7 @@ export function computeModuleSpecifiers(modulePaths: GoSlice<ModulePath>, compil
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/modulespecifiers/specifiers.go::func::getLocalModuleSpecifier","kind":"func","status":"implemented","sigHash":"99ba6b7baa12d7710567d4f9318b82448f7dabe3a093e95104866044e1d75f0f","bodyHash":"d90bc23ba86512af61366380b627ce466641ca0b200109dbd0c8a7c443be1ea3"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/modulespecifiers/specifiers.go::func::getLocalModuleSpecifier","kind":"func","status":"implemented","sigHash":"99ba6b7baa12d7710567d4f9318b82448f7dabe3a093e95104866044e1d75f0f","bodyHash":"514b6a4badd50aa54818aaba9cb136a9160d9065c6cab55207f72f37de64791f"}
  *
  * Go source:
  * func getLocalModuleSpecifier(
@@ -1079,15 +1079,15 @@ export function computeModuleSpecifiers(modulePaths: GoSlice<ModulePath>, compil
  * 	if preferences.relativePreference == RelativePreferenceExternalNonRelative && !tspath.PathIsRelative(maybeNonRelative) {
  * 		var projectDirectory tspath.Path
  * 		if len(compilerOptions.ConfigFilePath) > 0 {
- * 			projectDirectory = tspath.ToPath(compilerOptions.ConfigFilePath, host.GetCurrentDirectory(), host.UseCaseSensitiveFileNames())
+ * 			projectDirectory = tspath.ToPath(tspath.GetDirectoryPath(compilerOptions.ConfigFilePath), host.GetCurrentDirectory(), host.UseCaseSensitiveFileNames())
  * 		} else {
  * 			projectDirectory = tspath.ToPath(host.GetCurrentDirectory(), host.GetCurrentDirectory(), host.UseCaseSensitiveFileNames())
  * 		}
  * 		canonicalSourceDirectory := tspath.ToPath(sourceDirectory, host.GetCurrentDirectory(), host.UseCaseSensitiveFileNames())
  * 		modulePath := tspath.ToPath(moduleFileName, string(projectDirectory), host.UseCaseSensitiveFileNames())
  * 
- * 		sourceIsInternal := strings.HasPrefix(string(canonicalSourceDirectory), string(projectDirectory))
- * 		targetIsInternal := strings.HasPrefix(string(modulePath), string(projectDirectory))
+ * 		sourceIsInternal := projectDirectory.ContainsPath(canonicalSourceDirectory)
+ * 		targetIsInternal := projectDirectory.ContainsPath(modulePath)
  * 		if sourceIsInternal && !targetIsInternal || !sourceIsInternal && targetIsInternal {
  * 			// 1. The import path crosses the boundary of the tsconfig.json-containing directory.
  * 			//
@@ -1118,9 +1118,8 @@ export function computeModuleSpecifiers(modulePaths: GoSlice<ModulePath>, compil
  * 			//
  * 			return maybeNonRelative
  * 		}
- * 		if len(fromPackageJsonImports) > 0 {
- * 			return relativePath
- * 		}
+ *
+ * 		return relativePath
  * 	}
  * 
  * 	// Prefer a relative import over a baseUrl import if it has fewer components.
@@ -1218,8 +1217,8 @@ export function getLocalModuleSpecifier(moduleFileName: string, info: Info, comp
     const canonicalSourceDirectory = ToPath(sourceDirectory, host.GetCurrentDirectory(), host.UseCaseSensitiveFileNames());
     const modulePath_ = ToPath(moduleFileName, String(projectDirectory), host.UseCaseSensitiveFileNames());
 
-    const sourceIsInternal = strings.HasPrefix(String(canonicalSourceDirectory), String(projectDirectory));
-    const targetIsInternal = strings.HasPrefix(String(modulePath_), String(projectDirectory));
+    const sourceIsInternal = tspath.Path_ContainsPath(projectDirectory, canonicalSourceDirectory);
+    const targetIsInternal = tspath.Path_ContainsPath(projectDirectory, modulePath_);
     if ((sourceIsInternal && !targetIsInternal) || (!sourceIsInternal && targetIsInternal)) {
       return maybeNonRelative;
     }
@@ -1233,9 +1232,8 @@ export function getLocalModuleSpecifier(moduleFileName: string, info: Info, comp
     })) {
       return maybeNonRelative;
     }
-    if (fromPackageJsonImports.length > 0) {
-      return relativePath;
-    }
+
+    return relativePath;
   }
 
   // Prefer a relative import over a baseUrl import if it has fewer components.
@@ -2218,7 +2216,7 @@ export interface specPair {
  * 	return ""
  * }
  */
-export function tryGetModuleNameFromPaths(relativeToBaseUrl: string, paths: GoPtr<OrderedMap>, allowedEndings: GoSlice<ModuleSpecifierEnding>, baseDirectory: string, host: ModuleSpecifierGenerationHost, compilerOptions: GoPtr<CompilerOptions>): string {
+export function tryGetModuleNameFromPaths(relativeToBaseUrl: string, paths: GoPtr<OrderedMap<string, GoSlice<string>>>, allowedEndings: GoSlice<ModuleSpecifierEnding>, baseDirectory: string, host: ModuleSpecifierGenerationHost, compilerOptions: GoPtr<CompilerOptions>): string {
   const caseSensitive = host.UseCaseSensitiveFileNames();
   let finalResult = "";
   OrderedMap_Entries(paths as GoPtr<OrderedMap<string, GoSlice<string>>>)((key, values) => {
@@ -2650,14 +2648,14 @@ export function UpdateModuleSpecifier(compilerOptions: GoPtr<CompilerOptions>, h
 export function getModuleSpecifierWithPreferences(compilerOptions: GoPtr<CompilerOptions>, host: ModuleSpecifierGenerationHost, importingSourceFile: GoPtr<SourceFile>, importingSourceFileName: string, oldImportSpecifier: string, toFileName: string, userPreferences: UserPreferences, options: ModuleSpecifierOptions): string {
   const info = getInfo(importingSourceFileName, host);
   const modulePaths = getAllModulePaths(info, toFileName, host, compilerOptions, userPreferences, options);
-  const preferences = getModuleSpecifierPreferences(userPreferences, host, compilerOptions, importingSourceFile as unknown as SourceFileForSpecifierGeneration, oldImportSpecifier);
+  const preferences = getModuleSpecifierPreferences(userPreferences, host, compilerOptions, importingSourceFile!, oldImportSpecifier);
 
   const resolutionMode = options.OverrideImportMode === ResolutionModeNone
-    ? host.GetDefaultResolutionModeForFile(importingSourceFile as unknown as HasFileName)
+    ? host.GetDefaultResolutionModeForFile(importingSourceFile!)
     : options.OverrideImportMode;
 
   for (const modulePath of modulePaths) {
-    const firstDefined = tryGetModuleNameAsNodeModule(modulePath, info, importingSourceFile as unknown as SourceFileForSpecifierGeneration, host, compilerOptions, userPreferences, false, options.OverrideImportMode);
+    const firstDefined = tryGetModuleNameAsNodeModule(modulePath, info, importingSourceFile!, host, compilerOptions, userPreferences, false, options.OverrideImportMode);
     if (firstDefined.length > 0) {
       return firstDefined;
     }

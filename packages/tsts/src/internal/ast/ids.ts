@@ -1,4 +1,4 @@
-import type { ulong } from "@tsonic/core/types.js";
+import type { ulong } from "../../go/scalars.js";
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/ids.go::type::NodeId","kind":"type","status":"implemented","sigHash":"69f877b2f5369901cd8c9a2797fba6b4f5e6199a39a03585e4c1923907093cf6","bodyHash":"8bed2bd61ea3c6c91a8e0765f4a05d42bf69c7b43f5841abec0035b39b6bf9b1"}

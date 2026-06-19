@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
 import { Coalesce, Find, IfElse } from "../../core/core.js";
 import type { ModifierList, Node, NodeFactoryCoercible } from "../../ast/spine.js";
@@ -564,7 +564,7 @@ export function RuntimeSyntaxTransformer_isExportOfNamespace(receiver: GoPtr<Run
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/runtimesyntax.go::method::RuntimeSyntaxTransformer.getExpressionForPropertyName","kind":"method","status":"implemented","sigHash":"41451935600ecf5749958b1064e1db8ded522d35455a9fa3beb39c499a86b27f","bodyHash":"b1e8c0d193f57ea828653a2f9bdfe9d8ad66ad7b43625a7e7c4fb3ba9a02734a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/runtimesyntax.go::method::RuntimeSyntaxTransformer.getExpressionForPropertyName","kind":"method","status":"implemented","sigHash":"41451935600ecf5749958b1064e1db8ded522d35455a9fa3beb39c499a86b27f","bodyHash":"45333105a192f181509aa8db5e26c4b81782a6eac22a075d95c139f15451b815"}
  *
  * Go source:
  * func (tx *RuntimeSyntaxTransformer) getExpressionForPropertyName(member *ast.EnumMember) *ast.Expression {
@@ -577,7 +577,7 @@ export function RuntimeSyntaxTransformer_isExportOfNamespace(receiver: GoPtr<Run
  * 		// enums don't support computed properties so we always generate the 'expression' part of the name as-is.
  * 		return tx.Visitor().VisitNode(n.Expression)
  * 	case ast.KindIdentifier:
- * 		return tx.Factory().NewStringLiteralFromNode(name)
+ * 		return tx.Factory().NewStringLiteral(name.Text(), ast.TokenFlagsNone)
  * 	case ast.KindStringLiteral: // !!! propagate token flags (will produce new diffs)
  * 		return tx.Factory().NewStringLiteral(name.Text(), ast.TokenFlagsNone)
  * 	case ast.KindNumericLiteral:
@@ -599,7 +599,7 @@ export function RuntimeSyntaxTransformer_getExpressionForPropertyName(receiver: 
       return NodeVisitor_VisitNode((Transformer_Visitor(receiver!.__tsgoEmbedded0) as ConcreteNodeVisitor), n!.Expression);
     }
     case KindIdentifier:
-      return NodeFactory_NewStringLiteralFromNode(Transformer_Factory(receiver!.__tsgoEmbedded0), name);
+      return NewStringLiteral(astFactory, Node_Text(name), TokenFlagsNone);
     case KindStringLiteral: // !!! propagate token flags (will produce new diffs)
       return NewStringLiteral(astFactory, Node_Text(name), TokenFlagsNone);
     case KindNumericLiteral:
@@ -1222,7 +1222,7 @@ export function RuntimeSyntaxTransformer_getParameterProperties(receiver: GoPtr<
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/runtimesyntax.go::method::RuntimeSyntaxTransformer.visitClassDeclaration","kind":"method","status":"implemented","sigHash":"fa3cb6d45c2c5202e35670a1a37c567b575e6f4b27e87c1204d5b5bea2261779","bodyHash":"4b4292cefe8d581a5a88fc5d59041f30cecdcd6145fe7635d59de000d3bc0f71"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/tstransforms/runtimesyntax.go::method::RuntimeSyntaxTransformer.visitClassDeclaration","kind":"method","status":"implemented","sigHash":"fa3cb6d45c2c5202e35670a1a37c567b575e6f4b27e87c1204d5b5bea2261779","bodyHash":"86c19d841897b853c3cf97070fe6717e08a2bde174d94f202cffa3b32bc12443"}
  *
  * Go source:
  * func (tx *RuntimeSyntaxTransformer) visitClassDeclaration(node *ast.ClassDeclaration) *ast.Node {

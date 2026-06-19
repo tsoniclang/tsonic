@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import type { FS } from "../vfs/vfs.js";
 import { FS as OSFS } from "../vfs/osvfs/os.js";
 import { CombinePaths, GetDirectoryPath, NormalizeSlashes } from "../tspath/path.js";
@@ -37,7 +37,7 @@ export function wrapFS(fs: FS): FS {
  * 	return tspath.GetDirectoryPath(exe)
  * })
  */
-export const executableDir = (() => {
+export const executableDir: () => string = (() => {
   let value: string | undefined;
   return (): string => {
     value ??= GetDirectoryPath(OSFS().Realpath(NormalizeSlashes(process.execPath)));
@@ -63,7 +63,7 @@ export const executableDir = (() => {
  * 	return dir
  * })
  */
-export const libPath = (() => {
+export const libPath: () => string = (() => {
   let value: string | undefined;
   return (): string => {
     if (value === undefined) {

@@ -1,9 +1,9 @@
-import type { bool, int, ulong } from "@tsonic/core/types.js";
+import type { bool, int, ulong } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { NewGoStructMap } from "../../go/compat.js";
 import type { Node } from "../ast/spine.js";
 import type { NodeId, SymbolId } from "../ast/ids.js";
-import { GetNodeId, GetSymbolId } from "../ast/utilities.js";
+import { GetNodeId, GetSymbolId, GetReparsedNodeForNode } from "../ast/utilities.js";
 import type { Symbol, SymbolTable } from "../ast/symbol.js";
 import { InternalSymbolNameExportEquals, InternalSymbolNameDefault } from "../ast/symbol.js";
 import type { SymbolFlags } from "../ast/generated/flags.js";
@@ -859,20 +859,35 @@ export interface accessibleSymbolChainContext {
 export type symbolTableID = ulong;
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::constGroup::stKindLocals+stKindExports+stKindMembers+stKindGlobals","kind":"constGroup","status":"implemented","sigHash":"7ca064d9b66995f10029dfbebec5241acbecb873728f7296d6ae96581e63a850","bodyHash":"04c7ca4fdf36a5629103d7c34acec9e76b4341fb830b599e5352755523d00cad"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::constGroup::stKindShift","kind":"constGroup","status":"implemented","sigHash":"9e80cf047656cb6660929f6a71794e6653a496233ab2dc2d14d96c7ea1b9a77a","bodyHash":"6dfba3df333f612a2ea0c88bc9a87f7584a686189f362c82ea8b3648ff8310de"}
+ *
+ * Go source:
+ * const stKindShift = 61
+ */
+export const stKindShift: int = 61;
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::constGroup::stKindLocals+stKindExports+stKindMembers+stKindGlobals+stKindResolvedExports+stKindMask","kind":"constGroup","status":"implemented","sigHash":"a4f80520523042c056f35ae1b40810f46b1c772d8257f6dea77920ec3ab6d3f2","bodyHash":"5d50e110b85907399cfad621ca87cb2c39781c4a01fc700114a27d0b5bc32443"}
  *
  * Go source:
  * const (
- * 	stKindLocals symbolTableID = iota << 62
+ * 	stKindLocals symbolTableID = iota << stKindShift
  * 	stKindExports
  * 	stKindMembers
  * 	stKindGlobals
+ * 	stKindResolvedExports // resolved/derived exports from getExportsOfSymbol, distinct from raw sym.Exports
+ *
+ * 	// stKindMask extracts the kind bits from a symbolTableID.
+ * 	stKindMask symbolTableID = (iota - 1) << stKindShift
  * )
  */
-export const stKindLocals: symbolTableID = 0; // 0 << 62
-export const stKindExports: symbolTableID = 0x4000000000000000; // 1 << 62
-export const stKindMembers: symbolTableID = 0x8000000000000000; // 2 << 62
-export const stKindGlobals: symbolTableID = 0xC000000000000000; // 3 << 62
+export const stKindLocals: symbolTableID = 0; // 0 << 61
+export const stKindExports: symbolTableID = 0x2000000000000000; // 1 << 61
+export const stKindMembers: symbolTableID = 0x4000000000000000; // 2 << 61
+export const stKindGlobals: symbolTableID = 0x6000000000000000; // 3 << 61
+export const stKindResolvedExports: symbolTableID = 0x8000000000000000; // 4 << 61, resolved/derived exports from getExportsOfSymbol, distinct from raw sym.Exports
+// stKindMask extracts the kind bits from a symbolTableID.
+export const stKindMask: symbolTableID = 0x8000000000000000; // (5 - 1) << 61
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::func::symbolTableIDFromLocals","kind":"func","status":"implemented","sigHash":"ddb7a7e67dd745b636984a46c8f2c498d351cc6dce505161c74f29c31d7e90af","bodyHash":"f1a25251eb4bacfe964a69e28ec6e9fee67838fed9495d42726dce8982ae5366"}
@@ -896,6 +911,22 @@ export function symbolTableIDFromLocals(node: GoPtr<Node>): symbolTableID {
  */
 export function symbolTableIDFromExports(sym: GoPtr<Symbol>): symbolTableID {
   return stKindExports | GetSymbolId(sym);
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::func::symbolTableIDFromResolvedExports","kind":"func","status":"implemented","sigHash":"af01f8edd325464e56b73d21f8660f40ab679a8ed518ec8aa598b692b85f7282","bodyHash":"26238c84b7ec96be9dc3b1068af2bafa7602ec43b44071e5a9cdca0c3037f984"}
+ *
+ * Go source:
+ * // symbolTableIDFromResolvedExports returns an ID for resolved/derived export tables
+ * // (e.g. from getExportsOfSymbol/getExportsOfModule which may include export * resolution
+ * // and late-bound members). This is distinct from symbolTableIDFromExports to prevent
+ * // cache collisions with raw sym.Exports tables passed by someSymbolTableInScope.
+ * func symbolTableIDFromResolvedExports(sym *ast.Symbol) symbolTableID {
+ * 	return stKindResolvedExports | symbolTableID(ast.GetSymbolId(sym))
+ * }
+ */
+export function symbolTableIDFromResolvedExports(sym: GoPtr<Symbol>): symbolTableID {
+  return stKindResolvedExports | GetSymbolId(sym);
 }
 
 /**
@@ -1001,7 +1032,7 @@ export function Checker_getAccessibleSymbolChainEx(receiver: GoPtr<Checker>, ctx
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::method::Checker.getAccessibleSymbolChainFromSymbolTable","kind":"method","status":"implemented","sigHash":"50288451713710d32338473d9fa4cac13be1b87024fe2aaec0a29e9af5be3e82","bodyHash":"e69c17642d0e1960fe2276948e6846da691a2cbc2aa434b2aa3149eca7a7fd62"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::method::Checker.getAccessibleSymbolChainFromSymbolTable","kind":"method","status":"implemented","sigHash":"50288451713710d32338473d9fa4cac13be1b87024fe2aaec0a29e9af5be3e82","bodyHash":"e223bb5e8e10cd68f93ff89136d844778229950f5e0ac5488025bc3c53951b85"}
  *
  * Go source:
  * func (c *Checker) getAccessibleSymbolChainFromSymbolTable(ctx accessibleSymbolChainContext, t ast.SymbolTable, tableId symbolTableID, ignoreQualification bool, isLocalNameLookup bool) []*ast.Symbol {
@@ -1011,15 +1042,15 @@ export function Checker_getAccessibleSymbolChainEx(receiver: GoPtr<Checker>, ctx
  * 		visitedSymbolTables = make(map[symbolTableID]struct{})
  * 		ctx.visitedSymbolTablesMap[symId] = visitedSymbolTables
  * 	}
- * 
+ *
  * 	_, present := visitedSymbolTables[tableId]
  * 	if present {
  * 		return nil
  * 	}
  * 	visitedSymbolTables[tableId] = struct{}{}
- * 
- * 	res := c.trySymbolTable(ctx, t, tableId == stKindGlobals, ignoreQualification, isLocalNameLookup)
- * 
+ *
+ * 	res := c.trySymbolTable(ctx, t, tableId, ignoreQualification, isLocalNameLookup)
+ *
  * 	delete(visitedSymbolTables, tableId)
  * 	return res
  * }
@@ -1037,35 +1068,115 @@ export function Checker_getAccessibleSymbolChainFromSymbolTable(receiver: GoPtr<
   }
   visitedSymbolTables.set(tableId, {});
 
-  const res = Checker_trySymbolTable(receiver, ctx, t, tableId === stKindGlobals, ignoreQualification, isLocalNameLookup);
+  const res = Checker_trySymbolTable(receiver, ctx, t, tableId, ignoreQualification, isLocalNameLookup);
 
   visitedSymbolTables.delete(tableId);
   return res;
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::method::Checker.trySymbolTable","kind":"method","status":"implemented","sigHash":"42387c2d716f9c91e6813fbaa6bb2873344a2527fafd22b79de20bc2fb495dc0","bodyHash":"ea4d64e757efe4564d9ebf33cfa400b2ffdad30b0b2b2be2746fa270199a5e7a"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::method::Checker.getSymbolTableAliases","kind":"method","status":"implemented","sigHash":"ebab701bc726232b245be52334ba272304034910b5683009dc8596a0c8f1099c","bodyHash":"aac6f0123a182ff28fa58fcd817adf8f9b21017158261e27d7f17271457549b2"}
+ *
+ * Go source:
+ * // getSymbolTableAliases returns only the alias symbols from a symbol table,
+ * // caching the result by tableId to avoid repeated iteration over large tables.
+ * // Members tables are skipped entirely since someSymbolTableInScope filters them
+ * // to SymbolFlagsType & ^SymbolFlagsAssignment, which never includes aliases.
+ * func (c *Checker) getSymbolTableAliases(symbols ast.SymbolTable, tableId symbolTableID) []*ast.Symbol {
+ * 	kind := tableId & stKindMask
+ * 	// Members tables never contain alias symbols; skip entirely.
+ * 	if kind == stKindMembers {
+ * 		return nil
+ * 	}
+ * 	// Cache globals and exports tables (which are large and revisited often).
+ * 	// Locals tables are small and per-scope, so they are filtered but not cached.
+ * 	if kind == stKindGlobals || kind == stKindExports || kind == stKindResolvedExports {
+ * 		if c.symbolTableAliasCache != nil {
+ * 			if aliases, ok := c.symbolTableAliasCache[tableId]; ok {
+ * 				return aliases
+ * 			}
+ * 		}
+ * 	}
+ * 	var aliases []*ast.Symbol
+ * 	for _, sym := range symbols {
+ * 		if sym.Flags&ast.SymbolFlagsAlias != 0 {
+ * 			aliases = append(aliases, sym)
+ * 		}
+ * 	}
+ * 	if kind == stKindGlobals || kind == stKindExports || kind == stKindResolvedExports {
+ * 		if c.symbolTableAliasCache == nil {
+ * 			c.symbolTableAliasCache = make(map[symbolTableID][]*ast.Symbol)
+ * 		}
+ * 		c.symbolTableAliasCache[tableId] = aliases
+ * 	}
+ * 	return aliases
+ * }
+ */
+export function Checker_getSymbolTableAliases(receiver: GoPtr<Checker>, symbols: GoPtr<SymbolTable>, tableId: symbolTableID): GoSlice<GoPtr<Symbol>> {
+  const kind = tableId & stKindMask;
+  // Members tables never contain alias symbols; skip entirely.
+  if (kind === stKindMembers) {
+    return [];
+  }
+  // Cache globals and exports tables (which are large and revisited often).
+  // Locals tables are small and per-scope, so they are filtered but not cached.
+  if (kind === stKindGlobals || kind === stKindExports || kind === stKindResolvedExports) {
+    if (receiver!.symbolTableAliasCache !== undefined) {
+      const aliases = receiver!.symbolTableAliasCache.get(tableId);
+      if (aliases !== undefined) {
+        return aliases;
+      }
+    }
+  }
+  let aliases: GoSlice<GoPtr<Symbol>> = [];
+  for (const [, sym] of symbols ?? []) {
+    if ((sym!.Flags & SymbolFlagsAlias) !== 0) {
+      aliases = [...aliases, sym];
+    }
+  }
+  if (kind === stKindGlobals || kind === stKindExports || kind === stKindResolvedExports) {
+    if (receiver!.symbolTableAliasCache === undefined) {
+      receiver!.symbolTableAliasCache = new globalThis.Map<symbolTableID, GoSlice<GoPtr<Symbol>>>();
+    }
+    receiver!.symbolTableAliasCache.set(tableId, aliases);
+  }
+  return aliases;
+}
+
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::method::Checker.trySymbolTable","kind":"method","status":"implemented","sigHash":"2f13a9992506771cb74793c1f930d26c38cd3361b7a43ca9393f2d5fa09547f6","bodyHash":"7308a309890ce67c9ce75959609de0065778035016c4174eb50e7880902cd67d"}
  *
  * Go source:
  * func (c *Checker) trySymbolTable(
  * 	ctx accessibleSymbolChainContext,
  * 	symbols ast.SymbolTable,
- * 	isGlobals bool,
+ * 	tableId symbolTableID,
  * 	ignoreQualification bool,
  * 	isLocalNameLookup bool,
  * ) []*ast.Symbol {
+ * 	isGlobals := tableId == stKindGlobals
  * 	// If symbol is directly available by its name in the symbol table
  * 	res, ok := symbols[ctx.symbol.Name]
  * 	if ok && res != nil && c.isAccessible(ctx, res /*resolvedAliasSymbol* /, nil, ignoreQualification) {
  * 		return []*ast.Symbol{ctx.symbol}
  * 	}
- * 
+ *
  * 	var candidateChains [][]*ast.Symbol
- * 	// collect all possible chains to sort them and return the shortest/best
- * 	for _, symbolFromSymbolTable := range symbols {
+ *
+ * 	// Check for ExportSymbol by direct name lookup rather than discovering it during
+ * 	// the alias iteration below (where it would never match, since only alias-flagged
+ * 	// symbols are iterated).
+ * 	if ok && res != nil && res.ExportSymbol != nil {
+ * 		if c.isAccessible(ctx, c.getMergedSymbol(res.ExportSymbol) /*resolvedAliasSymbol* /, nil, ignoreQualification) {
+ * 			candidateChains = append(candidateChains, []*ast.Symbol{ctx.symbol})
+ * 		}
+ * 	}
+ *
+ * 	// Iterate only alias symbols from the table (cached per tableId).
+ * 	// This avoids iterating thousands of non-alias symbols in large tables like globals.
+ * 	for _, symbolFromSymbolTable := range c.getSymbolTableAliases(symbols, tableId) {
  * 		// for every non-default, non-export= alias symbol in scope, check if it refers to or can chain to the target symbol
- * 		if symbolFromSymbolTable.Flags&ast.SymbolFlagsAlias != 0 &&
- * 			symbolFromSymbolTable.Name != ast.InternalSymbolNameExportEquals &&
+ * 		if symbolFromSymbolTable.Name != ast.InternalSymbolNameExportEquals &&
  * 			symbolFromSymbolTable.Name != ast.InternalSymbolNameDefault &&
  * 			!(isUMDExportSymbol(symbolFromSymbolTable) && ctx.enclosingDeclaration != nil && ast.IsExternalModule(ast.GetSourceFileOfNode(ctx.enclosingDeclaration))) &&
  * 			// If `!useOnlyExternalAliasing`, we can use any type of alias to get the name
@@ -1081,19 +1192,14 @@ export function Checker_getAccessibleSymbolChainFromSymbolTable(receiver: GoPtr<
  * 				candidateChains = append(candidateChains, candidate)
  * 			}
  * 		}
- * 		if symbolFromSymbolTable.Name == ctx.symbol.Name && symbolFromSymbolTable.ExportSymbol != nil {
- * 			if c.isAccessible(ctx, c.getMergedSymbol(symbolFromSymbolTable.ExportSymbol) /*resolvedAliasSymbol* /, nil, ignoreQualification) {
- * 				candidateChains = append(candidateChains, []*ast.Symbol{ctx.symbol})
- * 			}
- * 		}
  * 	}
- * 
+ *
  * 	if len(candidateChains) > 0 {
  * 		// pick first, shortest
  * 		slices.SortStableFunc(candidateChains, c.compareSymbolChains)
  * 		return candidateChains[0]
  * 	}
- * 
+ *
  * 	// If there's no result and we're looking at the global symbol table, treat `globalThis` like an alias and try to lookup thru that
  * 	if isGlobals {
  * 		return c.getCandidateListForSymbol(ctx, c.globalThisSymbol, c.globalThisSymbol, ignoreQualification)
@@ -1101,7 +1207,8 @@ export function Checker_getAccessibleSymbolChainFromSymbolTable(receiver: GoPtr<
  * 	return nil
  * }
  */
-export function Checker_trySymbolTable(receiver: GoPtr<Checker>, ctx: accessibleSymbolChainContext, symbols: GoPtr<SymbolTable>, isGlobals: bool, ignoreQualification: bool, isLocalNameLookup: bool): GoSlice<GoPtr<Symbol>> {
+export function Checker_trySymbolTable(receiver: GoPtr<Checker>, ctx: accessibleSymbolChainContext, symbols: GoPtr<SymbolTable>, tableId: symbolTableID, ignoreQualification: bool, isLocalNameLookup: bool): GoSlice<GoPtr<Symbol>> {
+  const isGlobals = tableId === stKindGlobals;
   // If symbol is directly available by its name in the symbol table
   const res = symbols?.get(ctx.symbol!.Name);
   if (res !== undefined && Checker_isAccessible(receiver, ctx, res /*resolvedAliasSymbol*/, undefined, ignoreQualification)) {
@@ -1109,11 +1216,21 @@ export function Checker_trySymbolTable(receiver: GoPtr<Checker>, ctx: accessible
   }
 
   let candidateChains: GoSlice<GoSlice<GoPtr<Symbol>>> = [];
-  // collect all possible chains to sort them and return the shortest/best
-  for (const [, symbolFromSymbolTable] of symbols ?? []) {
+
+  // Check for ExportSymbol by direct name lookup rather than discovering it during
+  // the alias iteration below (where it would never match, since only alias-flagged
+  // symbols are iterated).
+  if (res !== undefined && res!.ExportSymbol !== undefined) {
+    if (Checker_isAccessible(receiver, ctx, Checker_getMergedSymbol(receiver, res!.ExportSymbol) /*resolvedAliasSymbol*/, undefined, ignoreQualification)) {
+      candidateChains = [...candidateChains, [ctx.symbol!]];
+    }
+  }
+
+  // Iterate only alias symbols from the table (cached per tableId).
+  // This avoids iterating thousands of non-alias symbols in large tables like globals.
+  for (const symbolFromSymbolTable of Checker_getSymbolTableAliases(receiver, symbols, tableId)) {
     // for every non-default, non-export= alias symbol in scope, check if it refers to or can chain to the target symbol
-    if ((symbolFromSymbolTable!.Flags & SymbolFlagsAlias) !== 0 &&
-      symbolFromSymbolTable!.Name !== InternalSymbolNameExportEquals &&
+    if (symbolFromSymbolTable!.Name !== InternalSymbolNameExportEquals &&
       symbolFromSymbolTable!.Name !== InternalSymbolNameDefault &&
       !(isUMDExportSymbol(symbolFromSymbolTable) && ctx.enclosingDeclaration !== undefined && IsExternalModule(GetSourceFileOfNode(ctx.enclosingDeclaration))) &&
       // If `!useOnlyExternalAliasing`, we can use any type of alias to get the name
@@ -1126,11 +1243,6 @@ export function Checker_trySymbolTable(receiver: GoPtr<Checker>, ctx: accessible
       const candidate = Checker_getCandidateListForSymbol(receiver, ctx, symbolFromSymbolTable, resolvedImportedSymbol, ignoreQualification);
       if (candidate.length > 0) {
         candidateChains = [...candidateChains, candidate];
-      }
-    }
-    if (symbolFromSymbolTable!.Name === ctx.symbol!.Name && symbolFromSymbolTable!.ExportSymbol !== undefined) {
-      if (Checker_isAccessible(receiver, ctx, Checker_getMergedSymbol(receiver, symbolFromSymbolTable!.ExportSymbol) /*resolvedAliasSymbol*/, undefined, ignoreQualification)) {
-        candidateChains = [...candidateChains, [ctx.symbol!]];
       }
     }
   }
@@ -1211,7 +1323,7 @@ export function isNamespaceReexportDeclaration(node: GoPtr<Node>): bool {
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::method::Checker.getCandidateListForSymbol","kind":"method","status":"implemented","sigHash":"13aefa587d457fd99b9365cdab677d6b4023e88216076efafabf226f3acc5780","bodyHash":"913c03b236548a6fa76fc4a05d0322ff697296ac1a6f1586f638f06010fe170d"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::method::Checker.getCandidateListForSymbol","kind":"method","status":"implemented","sigHash":"13aefa587d457fd99b9365cdab677d6b4023e88216076efafabf226f3acc5780","bodyHash":"cc245731f86611bbdb0a56f4fe4be0f34c79f6d64756bb6de62e1ccc38e10ced"}
  *
  * Go source:
  * func (c *Checker) getCandidateListForSymbol(
@@ -1230,7 +1342,7 @@ export function isNamespaceReexportDeclaration(node: GoPtr<Node>): bool {
  * 	if candidateTable == nil {
  * 		return nil
  * 	}
- * 	candidateTableId := symbolTableIDFromExports(resolvedImportedSymbol)
+ * 	candidateTableId := symbolTableIDFromResolvedExports(resolvedImportedSymbol)
  * 	accessibleSymbolsFromExports := c.getAccessibleSymbolChainFromSymbolTable(ctx, candidateTable, candidateTableId /*ignoreQualification* /, true, false)
  * 	if len(accessibleSymbolsFromExports) == 0 {
  * 		return nil
@@ -1252,7 +1364,7 @@ export function Checker_getCandidateListForSymbol(receiver: GoPtr<Checker>, ctx:
   if (candidateTable === undefined) {
     return [];
   }
-  const candidateTableId = symbolTableIDFromExports(resolvedImportedSymbol);
+  const candidateTableId = symbolTableIDFromResolvedExports(resolvedImportedSymbol);
   const accessibleSymbolsFromExports = Checker_getAccessibleSymbolChainFromSymbolTable(receiver, ctx, candidateTable, candidateTableId /*ignoreQualification*/, true, false);
   if (accessibleSymbolsFromExports.length === 0) {
     return [];
@@ -1469,7 +1581,7 @@ export function isPropertyOrMethodDeclarationSymbol(symbol_: GoPtr<Symbol>): boo
 }
 
 /**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::method::Checker.someSymbolTableInScope","kind":"method","status":"implemented","sigHash":"104479f1509bdc3a2737399b431fe194d408c34a7e53bcd1929ab4ff7359006b","bodyHash":"0fc3ec43bac2776b6b389adb9e33382cd2e5f0a04c01a91be474e895d9a07a0f"}
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/symbolaccessibility.go::method::Checker.someSymbolTableInScope","kind":"method","status":"implemented","sigHash":"104479f1509bdc3a2737399b431fe194d408c34a7e53bcd1929ab4ff7359006b","bodyHash":"3e8d05b11b68ac3412824c2aa51707b8b9036da0718aab8b09b1510845627727"}
  *
  * Go source:
  * func (c *Checker) someSymbolTableInScope(
@@ -1488,7 +1600,7 @@ export function isPropertyOrMethodDeclarationSymbol(symbol_: GoPtr<Symbol>): boo
  * 			if ast.IsSourceFile(location) && !ast.IsExternalOrCommonJSModule(location.AsSourceFile()) {
  * 				break
  * 			}
- * 			sym := c.getSymbolOfDeclaration(location)
+ * 			sym := c.getSymbolOfDeclaration(ast.GetReparsedNodeForNode(location))
  * 			if callback(sym.Exports, symbolTableIDFromExports(sym), false, true, location) {
  * 				return true
  * 			}
@@ -1535,7 +1647,7 @@ export function Checker_someSymbolTableInScope(receiver: GoPtr<Checker>, enclosi
       if (IsSourceFile(location) && !IsExternalOrCommonJSModule(AsSourceFile(location))) {
         break;
       }
-      const sym = Checker_getSymbolOfDeclaration(receiver, location);
+      const sym = Checker_getSymbolOfDeclaration(receiver, GetReparsedNodeForNode(location));
       if (callback(sym!.Exports!, symbolTableIDFromExports(sym), false, true, location)) {
         return true;
       }

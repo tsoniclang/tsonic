@@ -1,4 +1,4 @@
-import type { int } from "@tsonic/core/types.js";
+import type { int } from "../../../scalars.js";
 
 export const LinterPlugin: int = 1 as int;
 export const LoadModeTypesInfo: int = 1 << 0 as int;

@@ -1,4 +1,4 @@
-import type { bool, byte, int } from "@tsonic/core/types.js";
+import type { bool, byte, int } from "../../go/scalars.js";
 import type { GoError, GoMap, GoPtr, GoRune, GoSlice } from "../../go/compat.js";
 import { StdEncoding as base64StdEncoding } from "../../go/encoding/base64.js";
 import { BinarySearchFunc as slicesBinarySearchFunc, SortFunc as slicesSortFunc } from "../../go/slices.js";

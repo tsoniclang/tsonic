@@ -1,4 +1,4 @@
-import type { bool, ulong } from "@tsonic/core/types.js";
+import type { bool, ulong } from "../scalars.js";
 import type { GoSlice } from "../compat.js";
 import * as nodeOs from "node:os";
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoPtr } from "../../go/compat.js";
 import type { Diagnostic } from "../ast/diagnostic.js";
 import type { OrderedMap } from "../collections/ordered_map.js";
@@ -52,7 +52,7 @@ test("ParseCommandLine preserves explicit null command-line overrides through co
   const [parsed, errors] = GetParsedCommandLineOfConfigFile(
     "/project/tsconfig.json",
     commandLine.ParsedConfig!.CompilerOptions,
-    wrappedRaw as OrderedMap,
+    wrappedRaw,
     host,
     undefined,
   );

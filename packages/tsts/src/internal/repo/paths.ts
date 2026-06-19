@@ -1,11 +1,9 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../go/scalars.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { statSync } from "node:fs";
 
-type OnceValue<T> = () => T;
-
-function onceValue<T>(factory: () => T): OnceValue<T> {
+function onceValue<T>(factory: () => T): () => T {
   let initialized = false;
   let value: T;
   return (): T => {
@@ -63,7 +61,7 @@ function statPath(path: string): { isFile(): bool; isDirectory(): bool } | undef
  * 	panic("could not find go.mod above " + filename)
  * })
  */
-export const rootPath: OnceValue<string> = onceValue((): string => {
+export const rootPath: () => string = onceValue((): string => {
   const filename = fileURLToPath(import.meta.url);
   let dir = dirname(filename);
   for (;;) {
@@ -100,7 +98,7 @@ export function RootPath(): string {
  * 	return filepath.Join(rootPath(), "_submodules", "TypeScript")
  * })
  */
-export const typeScriptSubmodulePath: OnceValue<string> = onceValue((): string => {
+export const typeScriptSubmodulePath: () => string = onceValue((): string => {
   return join(rootPath(), "_submodules", "TypeScript");
 });
 
@@ -124,7 +122,7 @@ export function TypeScriptSubmodulePath(): string {
  * 	return filepath.Join(rootPath(), "testdata")
  * })
  */
-export const testDataPath: OnceValue<string> = onceValue((): string => {
+export const testDataPath: () => string = onceValue((): string => {
   return join(rootPath(), "testdata");
 });
 
@@ -155,7 +153,7 @@ export function TestDataPath(): string {
  * 	return true
  * })
  */
-export const typeScriptSubmoduleExists: OnceValue<bool> = onceValue((): bool => {
+export const typeScriptSubmoduleExists: () => bool = onceValue((): bool => {
   const packageJson = join(typeScriptSubmodulePath(), "package.json");
   return statPath(packageJson)?.isFile() === true;
 });

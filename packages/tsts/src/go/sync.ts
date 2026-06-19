@@ -1,5 +1,5 @@
-import type { int, bool } from "@tsonic/core/types.js";
-import { NewGoStructMap } from "./compat.js";
+import type { int, bool } from "./scalars.js";
+import { GoStructMap, NewGoStructMap } from "./compat.js";
 
 // Go: package sync
 //
@@ -108,49 +108,89 @@ export function OnceValues<T1, T2>(f: () => [T1, T2]): () => [T1, T2] {
 // Map is like a Go sync.Map: a concurrent map of any/any. Single-threaded, it is
 // a thin wrapper over a plain Map preserving the (value, ok) and Range contracts.
 export class Map<K = unknown, V = unknown> {
-  private readonly m: globalThis.Map<K, V> = NewGoStructMap<K, V>();
+  private readonly primitive = new globalThis.Map<K, V>();
+  private readonly structured: GoStructMap<K, V> = NewGoStructMap<K, V>();
+  private readonly nanNumberEntries: [K, V][] = [];
 
   // Load returns the value stored for key, and whether it was present.
   Load(key: K): [V | undefined, bool] {
-    if (this.m.has(key)) {
-      return [this.m.get(key), true];
+    const bucket = mapKeyBucket(key);
+    if (bucket === mapKeyBucketPrimitive) {
+      const value = this.primitive.get(key);
+      return [value, value !== undefined || this.primitive.has(key)];
     }
-    return [undefined, false];
+    if (bucket === mapKeyBucketNanNumber) {
+      return [undefined, false];
+    }
+    return this.structured.load(key);
   }
 
   // Store sets the value for a key.
   Store(key: K, value: V): void {
-    this.m.set(key, value);
+    const bucket = mapKeyBucket(key);
+    if (bucket === mapKeyBucketPrimitive) {
+      this.primitive.set(key, value);
+      return;
+    }
+    if (bucket === mapKeyBucketNanNumber) {
+      this.nanNumberEntries.push([key, value]);
+      return;
+    }
+    this.structured.set(key, value);
   }
 
   // LoadOrStore returns the existing value if present; otherwise stores and returns
   // the given value. loaded is true if the value was already present.
   LoadOrStore(key: K, value: V): [V, bool] {
-    if (this.m.has(key)) {
-      return [this.m.get(key) as V, true];
+    const bucket = mapKeyBucket(key);
+    if (bucket === mapKeyBucketPrimitive) {
+      const existing = this.primitive.get(key);
+      if (existing !== undefined || this.primitive.has(key)) {
+        return [existing as V, true];
+      }
+      this.primitive.set(key, value);
+      return [value, false];
     }
-    this.m.set(key, value);
-    return [value, false];
+    if (bucket === mapKeyBucketNanNumber) {
+      this.nanNumberEntries.push([key, value]);
+      return [value, false];
+    }
+    return this.structured.loadOrStore(key, value);
   }
 
   // LoadAndDelete deletes the value for a key, returning the previous value if any.
   LoadAndDelete(key: K): [V | undefined, bool] {
-    if (this.m.has(key)) {
-      const value = this.m.get(key);
-      this.m.delete(key);
-      return [value, true];
+    const bucket = mapKeyBucket(key);
+    if (bucket === mapKeyBucketPrimitive) {
+      const existing = this.primitive.get(key);
+      const ok = existing !== undefined || this.primitive.has(key);
+      this.primitive.delete(key);
+      return [existing, ok];
     }
-    return [undefined, false];
+    if (bucket === mapKeyBucketNanNumber) {
+      return [undefined, false];
+    }
+    return this.structured.loadAndDelete(key);
   }
 
   // Delete deletes the value for a key.
   Delete(key: K): void {
-    this.m.delete(key);
+    const bucket = mapKeyBucket(key);
+    if (bucket === mapKeyBucketPrimitive) {
+      this.primitive.delete(key);
+      return;
+    }
+    if (bucket === mapKeyBucketNanNumber) {
+      return;
+    }
+    this.structured.delete(key);
   }
 
   // Clear deletes all the entries.
   Clear(): void {
-    this.m.clear();
+    this.primitive.clear();
+    this.structured.clear();
+    this.nanNumberEntries.length = 0;
   }
 
   // Range calls f sequentially for each key and value present in the map.
@@ -159,8 +199,17 @@ export class Map<K = unknown, V = unknown> {
     // Snapshot keys so the callback may safely Store/Delete during iteration,
     // matching sync.Map's "Range does not necessarily correspond to any
     // consistent snapshot" but allowing concurrent mutation.
-    const entries = globalThis.Array.from(this.m.entries());
-    for (const [key, value] of entries) {
+    for (const [key, value] of globalThis.Array.from(this.primitive.entries())) {
+      if (!f(key, value)) {
+        return;
+      }
+    }
+    for (const [key, value] of globalThis.Array.from(this.structured.entries())) {
+      if (!f(key, value)) {
+        return;
+      }
+    }
+    for (const [key, value] of globalThis.Array.from(this.nanNumberEntries)) {
       if (!f(key, value)) {
         return;
       }
@@ -168,27 +217,41 @@ export class Map<K = unknown, V = unknown> {
   }
 }
 
-// Pool is a set of temporary objects that may be individually saved and retrieved.
-// Single-threaded: Get always produces a fresh value via New (nothing is retained),
-// and Put discards. This preserves correctness because pooled objects are always
-// reset by the caller before reuse.
-export class Pool<T = unknown> {
-  // New optionally specifies a function to generate a value when Get would
-  // otherwise return nil.
-  New?: () => T;
+const mapKeyBucketStructured: int = 0;
+const mapKeyBucketPrimitive: int = 1;
+const mapKeyBucketNanNumber: int = 2;
 
-  // Get selects an arbitrary item from the Pool, removing it. Single-threaded, the
-  // pool is always empty, so this returns a freshly constructed value (or undefined
-  // if New is not set, matching Go where Get returns nil with no New func).
+function mapKeyBucket(key: unknown): int {
+  const keyType = typeof key;
+  if (keyType === "number") {
+    return globalThis.Number.isNaN(key) ? mapKeyBucketNanNumber : mapKeyBucketPrimitive;
+  }
+  if (keyType === "string" || keyType === "boolean" || keyType === "bigint") {
+    return mapKeyBucketPrimitive;
+  }
+  return mapKeyBucketStructured;
+}
+
+export class Pool<T = unknown> {
+  New?: () => T;
+  private readonly items: T[] = [];
+
   Get(): T | undefined {
+    const item = this.items.pop();
+    if (item !== undefined) {
+      return item;
+    }
     if (this.New !== undefined) {
       return this.New();
     }
     return undefined;
   }
 
-  // Put adds x to the pool. No-op in the single-threaded model.
-  Put(_x: T): void {}
+  Put(x: T): void {
+    if (x !== undefined && x !== null) {
+      this.items.push(x);
+    }
+  }
 }
 
 // Cond implements a condition variable. Single-threaded, no other goroutine can

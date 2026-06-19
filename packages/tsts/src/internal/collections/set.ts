@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../go/scalars.js";
 import type { GoComparable, GoMap, GoPtr } from "../../go/compat.js";
 import * as maps from "../../go/maps.js";
 
@@ -42,7 +42,7 @@ export function NewSetWithSizeHint<T extends GoComparable>(hint: int): GoPtr<Set
  * 	return ok
  * }
  */
-export function Set_Has<T>(receiver: GoPtr<Set<T>>, key: T): bool {
+export function Set_Has<T extends GoComparable>(receiver: GoPtr<Set<T>>, key: T): bool {
   if (receiver === undefined) {
     return false;
   }
@@ -61,7 +61,7 @@ export function Set_Has<T>(receiver: GoPtr<Set<T>>, key: T): bool {
  * 	s.M[key] = struct{}{}
  * }
  */
-export function Set_Add<T>(receiver: GoPtr<Set<T>>, key: T): void {
+export function Set_Add<T extends GoComparable>(receiver: GoPtr<Set<T>>, key: T): void {
   if (receiver!.M === undefined) {
     receiver!.M = new globalThis.Map<T, { readonly __tsgoEmpty?: never }>();
   }
@@ -76,7 +76,7 @@ export function Set_Add<T>(receiver: GoPtr<Set<T>>, key: T): void {
  * 	delete(s.M, key)
  * }
  */
-export function Set_Delete<T>(receiver: GoPtr<Set<T>>, key: T): void {
+export function Set_Delete<T extends GoComparable>(receiver: GoPtr<Set<T>>, key: T): void {
   receiver!.M?.delete(key);
 }
 
@@ -91,7 +91,7 @@ export function Set_Delete<T>(receiver: GoPtr<Set<T>>, key: T): void {
  * 	return len(s.M)
  * }
  */
-export function Set_Len<T>(receiver: GoPtr<Set<T>>): int {
+export function Set_Len<T extends GoComparable>(receiver: GoPtr<Set<T>>): int {
   if (receiver === undefined) {
     return 0;
   }
@@ -109,7 +109,7 @@ export function Set_Len<T>(receiver: GoPtr<Set<T>>): int {
  * 	return s.M
  * }
  */
-export function Set_Keys<T>(receiver: GoPtr<Set<T>>): GoMap<T, { readonly __tsgoEmpty?: never }> {
+export function Set_Keys<T extends GoComparable>(receiver: GoPtr<Set<T>>): GoMap<T, { readonly __tsgoEmpty?: never }> {
   if (receiver === undefined || receiver.M === undefined) {
     return new globalThis.Map<T, { readonly __tsgoEmpty?: never }>();
   }
@@ -127,7 +127,7 @@ export function Set_Keys<T>(receiver: GoPtr<Set<T>>): GoMap<T, { readonly __tsgo
  * 	clear(s.M)
  * }
  */
-export function Set_Clear<T>(receiver: GoPtr<Set<T>>): void {
+export function Set_Clear<T extends GoComparable>(receiver: GoPtr<Set<T>>): void {
   if (receiver === undefined) {
     return;
   }
@@ -146,7 +146,7 @@ export function Set_Clear<T>(receiver: GoPtr<Set<T>>): void {
  * 	return true
  * }
  */
-export function Set_AddIfAbsent<T>(receiver: GoPtr<Set<T>>, key: T): bool {
+export function Set_AddIfAbsent<T extends GoComparable>(receiver: GoPtr<Set<T>>, key: T): bool {
   if (Set_Has(receiver, key)) {
     return false;
   }
@@ -166,7 +166,7 @@ export function Set_AddIfAbsent<T>(receiver: GoPtr<Set<T>>, key: T): bool {
  * 	return clone
  * }
  */
-export function Set_Clone<T>(receiver: GoPtr<Set<T>>): GoPtr<Set<T>> {
+export function Set_Clone<T extends GoComparable>(receiver: GoPtr<Set<T>>): GoPtr<Set<T>> {
   if (receiver === undefined) {
     return undefined;
   }
@@ -192,7 +192,7 @@ export function Set_Clone<T>(receiver: GoPtr<Set<T>>): GoPtr<Set<T>> {
  * 	maps.Copy(s.M, other.M)
  * }
  */
-export function Set_Union<T>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): void {
+export function Set_Union<T extends GoComparable>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): void {
   if (Set_Len(receiver) === 0 && Set_Len(other) === 0) {
     return;
   }
@@ -227,7 +227,7 @@ export function Set_Union<T>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): voi
  * 	return result
  * }
  */
-export function Set_UnionedWith<T>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): GoPtr<Set<T>> {
+export function Set_UnionedWith<T extends GoComparable>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): GoPtr<Set<T>> {
   if (receiver === undefined && other === undefined) {
     return undefined;
   }
@@ -259,7 +259,7 @@ export function Set_UnionedWith<T>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>
  * 	return maps.Equal(s.M, other.M)
  * }
  */
-export function Set_Equals<T>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): bool {
+export function Set_Equals<T extends GoComparable>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): bool {
   if (receiver === other) {
     return true;
   }
@@ -285,7 +285,7 @@ export function Set_Equals<T>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): bo
  * 	return true
  * }
  */
-export function Set_IsSubsetOf<T>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): bool {
+export function Set_IsSubsetOf<T extends GoComparable>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): bool {
   if (receiver === undefined) {
     return true;
   }
@@ -313,7 +313,7 @@ export function Set_IsSubsetOf<T>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>)
  * 	return false
  * }
  */
-export function Set_Intersects<T>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): bool {
+export function Set_Intersects<T extends GoComparable>(receiver: GoPtr<Set<T>>, other: GoPtr<Set<T>>): bool {
   if (receiver === undefined || other === undefined) {
     return false;
   }

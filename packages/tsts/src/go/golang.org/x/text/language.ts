@@ -1,4 +1,4 @@
-import type { bool, int } from "@tsonic/core/types.js";
+import type { bool, int } from "../../../scalars.js";
 import type { GoError, GoSlice } from "../../../compat.js";
 
 export type Tag = string & { readonly __goFacadeName: "golang.org/x/text/language.Tag" };

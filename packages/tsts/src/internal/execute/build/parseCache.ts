@@ -1,4 +1,4 @@
-import type { bool } from "@tsonic/core/types.js";
+import type { bool } from "../../../go/scalars.js";
 import type { GoComparable, GoPtr } from "../../../go/compat.js";
 import { Map, Mutex } from "../../../go/sync.js";
 import { SyncMap_Delete, SyncMap_LoadOrStore, SyncMap_Store } from "../../collections/syncmap.js";
@@ -27,7 +27,7 @@ export interface parseCacheEntry<V extends GoComparable = unknown> {
  * }
  */
 export interface parseCache<K extends GoComparable = unknown, V extends GoComparable = unknown> {
-  entries: SyncMap;
+  entries: SyncMap<K, GoPtr<parseCacheEntry<V>>>;
 }
 
 /**
@@ -50,7 +50,7 @@ export interface parseCache<K extends GoComparable = unknown, V extends GoCompar
  * 	return newEntry.value
  * }
  */
-export function parseCache_loadOrStore<K, V>(receiver: GoPtr<parseCache<K, V>>, key: K, parse: (arg0: K) => V, allowZero: bool): V {
+export function parseCache_loadOrStore<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<parseCache<K, V>>, key: K, parse: (arg0: K) => V, allowZero: bool): V {
   let newEntry: parseCacheEntry<V> = { value: undefined as V, mu: new Mutex() };
   const [entry, loaded] = SyncMap_LoadOrStore<K, GoPtr<parseCacheEntry<V>>>(receiver!.entries as SyncMap<K, GoPtr<parseCacheEntry<V>>>, key, newEntry);
   if (loaded) {
@@ -71,7 +71,7 @@ export function parseCache_loadOrStore<K, V>(receiver: GoPtr<parseCache<K, V>>, 
  * 	c.entries.Store(key, &parseCacheEntry[V]{value: value})
  * }
  */
-export function parseCache_store<K, V>(receiver: GoPtr<parseCache<K, V>>, key: K, value: V): void {
+export function parseCache_store<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<parseCache<K, V>>, key: K, value: V): void {
   SyncMap_Store<K, GoPtr<parseCacheEntry<V>>>(receiver!.entries as SyncMap<K, GoPtr<parseCacheEntry<V>>>, key, { value, mu: new Mutex() });
 }
 
@@ -83,7 +83,7 @@ export function parseCache_store<K, V>(receiver: GoPtr<parseCache<K, V>>, key: K
  * 	c.entries.Delete(key)
  * }
  */
-export function parseCache_delete<K, V>(receiver: GoPtr<parseCache<K, V>>, key: K): void {
+export function parseCache_delete<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<parseCache<K, V>>, key: K): void {
   SyncMap_Delete<K, GoPtr<parseCacheEntry<V>>>(receiver!.entries as SyncMap<K, GoPtr<parseCacheEntry<V>>>, key);
 }
 
@@ -95,6 +95,6 @@ export function parseCache_delete<K, V>(receiver: GoPtr<parseCache<K, V>>, key: 
  * 	c.entries = collections.SyncMap[K, *parseCacheEntry[V]]{}
  * }
  */
-export function parseCache_reset<K, V>(receiver: GoPtr<parseCache<K, V>>): void {
-  receiver!.entries = { __tsgoBlank0: [], __tsgoBlank1: [], m: new Map() } as SyncMap;
+export function parseCache_reset<K extends GoComparable, V extends GoComparable>(receiver: GoPtr<parseCache<K, V>>): void {
+  receiver!.entries = { __tsgoBlank0: [], __tsgoBlank1: [], m: new Map() } as SyncMap<K, GoPtr<parseCacheEntry<V>>>;
 }
