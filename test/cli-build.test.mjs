@@ -1432,6 +1432,41 @@ test("CLI rejects throw statements until provider exception facts are finalized"
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedThrowFacts.csproj")), false);
 });
 
+test("CLI rejects catch variables until provider exception facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "catch-variable-requires-provider-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedCatchFacts",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function guarded(): number {",
+      "  try {",
+      "    return 1;",
+      "  } catch (error) {",
+      "    return 2;",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Catch variables require finalized TSTS\/provider exception-carrier facts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedCatchFacts.csproj")), false);
+});
+
 test("CLI rejects local destructuring until provider object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "local-destructuring");
   await writeProject(projectDirectory, {
