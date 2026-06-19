@@ -225,6 +225,7 @@ export type ProviderTypeExpression =
   | { readonly kind: "object" }
   | { readonly kind: "source-primitive"; readonly name: SourcePrimitiveKind }
   | { readonly kind: "type-parameter"; readonly name: string }
+  | { readonly kind: "reference"; readonly name: string; readonly typeArguments?: readonly ProviderTypeExpression[] }
   | { readonly kind: "target-named"; readonly target: string; readonly id: string; readonly displayName?: string; readonly typeArguments?: readonly ProviderTypeExpression[]; readonly sourceShape?: ProviderTypeExpression }
   | { readonly kind: "array"; readonly elementType: ProviderTypeExpression }
   | { readonly kind: "tuple"; readonly elementTypes: readonly ProviderTypeExpression[] }
@@ -1649,6 +1650,8 @@ function renderProviderTypeExpression(type: ProviderTypeExpression): string {
       return renderSourcePrimitiveType(type.name);
     case "type-parameter":
       return type.name;
+    case "reference":
+      return `${type.name}${renderProviderTypeArguments(type.typeArguments ?? [])}`;
     case "target-named":
     case "opaque":
       return renderProviderTypeExpression(type.sourceShape!);
@@ -1665,6 +1668,13 @@ function renderProviderTypeExpression(type: ProviderTypeExpression): string {
     case "literal":
       return type.value === null ? "null" : JSON.stringify(type.value);
   }
+}
+
+function renderProviderTypeArguments(typeArguments: readonly ProviderTypeExpression[]): string {
+  if (typeArguments.length === 0) {
+    return "";
+  }
+  return `<${typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
 }
 
 function renderSourcePrimitiveType(name: SourcePrimitiveKind): string {
@@ -1832,6 +1842,8 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
       return isKnownSourcePrimitive(value.name);
     case "type-parameter":
       return isIdentifierText(value.name);
+    case "reference":
+      return isIdentifierText(value.name) && (value.typeArguments ?? []).every(isValidProviderTypeExpression);
     case "target-named":
       return value.target.length > 0
         && value.id.length > 0

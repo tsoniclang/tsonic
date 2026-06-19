@@ -4,11 +4,14 @@ import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import {
   Node_Arguments,
+  Node_Body,
   Node_Expression,
   Node_Elements,
   Node_ImportClause,
   Node_Initializer,
+  Node_Members,
   Node_ModuleSpecifier,
+  Node_Parameters,
   Node_PropertyName,
   Node_Properties,
   Node_Statements,
@@ -17,19 +20,27 @@ import {
   Node_TypeArguments,
 } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
-import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
+import { AsCallExpression, AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
 import {
+  KindArrowFunction,
   KindCallExpression,
+  KindClassDeclaration,
   KindExportDeclaration,
+  KindGetAccessor,
+  KindIdentifier,
   KindImportDeclaration,
+  KindMethodDeclaration,
   KindNamedImports,
   KindNamedExports,
   KindNamespaceImport,
+  KindNoSubstitutionTemplateLiteral,
   KindObjectLiteralExpression,
   KindPropertyAccessExpression,
   KindPropertyAssignment,
   KindPropertyDeclaration,
   KindQualifiedName,
+  KindSetAccessor,
+  KindStringLiteral,
   KindTypeKeyword,
   KindTypeReference,
   KindTupleType,
@@ -45,11 +56,13 @@ import {
   flowStateFactKey,
   functionPointerFactKey,
   pointerFactKey,
+  sourceMarkerFactKey,
   sourcePrimitiveFactKey,
   valueTypeFactKey,
 } from "./facts.js";
 import type {
   ArgumentPassingFact,
+  AttributeApplicationFact,
   AttributeFact,
   DefaultValueFact,
   ExtensionCanonicalIdentity,
@@ -60,6 +73,7 @@ import type {
   PointerFact,
   SourcePrimitiveFact,
   SourcePrimitiveKind,
+  SourceMarkerFact,
   ValueTypeFact,
 } from "./facts.js";
 import { ExtensionLifecycleEvent } from "./host.js";
@@ -115,6 +129,7 @@ export type SourceCallMarkerKind =
   | "valueType"
   | "field"
   | "attribute"
+  | "attributes"
   | "defaultValue";
 
 type ArgumentPassingMarkerKind = Extract<SourceCallMarkerKind, "byrefReadonly" | "byrefReadwrite" | "byrefWriteonlyMustInit">;
@@ -150,6 +165,20 @@ interface SourceSemanticsModuleRuntime extends SourceSemanticsModuleIdentity {
   readonly primitivesByExportName: ReadonlyMap<string, SourcePrimitiveDeclaration>;
   readonly callMarkersByExportName: ReadonlyMap<string, SourceCallMarkerDeclaration>;
   readonly typeMarkersByExportName: ReadonlyMap<string, SourceTypeMarkerDeclaration>;
+}
+
+interface PendingAttributeFact {
+  readonly attributes: AttributeApplicationFact[];
+  readonly evidence: ExtensionEvidence[];
+}
+
+type AttributeFactAccumulator = Map<ExtensionFactSubject, PendingAttributeFact>;
+
+interface AttributeBuilderTarget {
+  readonly subject: ExtensionFactSubject;
+  readonly classDeclaration?: Node;
+  readonly memberDeclaration?: Node;
+  readonly methodDeclaration?: Node;
 }
 
 function createSourceSemanticsModules(modules: readonly SourceSemanticsModule[]): readonly SourceSemanticsModuleRuntime[] {
@@ -239,8 +268,10 @@ function recordSourceSemanticsFacts(
     }
   }
   const markerImportIndex = createSourceSemanticsMarkerImportIndex(sourceFile, modules);
-  recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, modules, markerImportIndex);
+  const attributeFacts: AttributeFactAccumulator = new Map();
+  recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, modules, markerImportIndex, attributeFacts);
   recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerImportIndex);
+  flushAttributeFacts(facts, attributeFacts);
 }
 
 function recordSourceSemanticsImportClause(
@@ -331,16 +362,18 @@ function recordSourceSemanticsCallMarkers(
   sourceFile: GoPtr<SourceFile>,
   modules: readonly SourceSemanticsModuleRuntime[],
   markerImportIndex: SourceSemanticsMarkerImportIndex,
+  attributeFacts: AttributeFactAccumulator,
 ): void {
   visitSourceSemanticsNodePost(sourceFile, (node) => {
     if (node?.Kind !== KindCallExpression) {
       return;
     }
+    recordAttributeBuilderAddCall(facts, diagnostics, extensionId, sourceFile, node, modules, markerImportIndex, attributeFacts);
     const marker = resolveSourceSemanticsCallMarkerReference(facts, Node_Expression(node), modules, markerImportIndex);
     if (marker === undefined) {
       return;
     }
-    recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, node, marker);
+    recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, node, marker, attributeFacts);
   });
 }
 
@@ -350,6 +383,7 @@ function recordSourceSemanticsCallMarker(
   extensionId: string,
   callExpression: Node,
   marker: SourceCallMarkerDeclaration,
+  attributeFacts: AttributeFactAccumulator,
 ): void {
   const evidence = createMarkerEvidence(marker.exportName);
   switch (marker.marker) {
@@ -394,12 +428,295 @@ function recordSourceSemanticsCallMarker(
       recordValueTypeMarker(facts, callExpression, evidence);
       return;
     case "attribute":
-      recordAttributeMarker(facts, callExpression, evidence);
+      recordAttributeMarker(facts, attributeFacts, callExpression, evidence);
+      return;
+    case "attributes":
+      recordSourceMarker(facts, callExpression, marker.marker, evidence);
       return;
     case "defaultValue":
       recordDefaultValueMarker(facts, callExpression, evidence);
       return;
   }
+}
+
+function recordAttributeBuilderAddCall(
+  facts: ExtensionFactStore,
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
+  sourceFile: GoPtr<SourceFile>,
+  callExpression: Node,
+  modules: readonly SourceSemanticsModuleRuntime[],
+  markerImportIndex: SourceSemanticsMarkerImportIndex,
+  attributeFacts: AttributeFactAccumulator,
+): void {
+  const typedCall = AsCallExpression(callExpression)!;
+  const expression = typedCall.Expression;
+  if (expression?.Kind !== KindPropertyAccessExpression || Node_Text(Node_Name(expression)) !== "add") {
+    return;
+  }
+  const receiver = AsPropertyAccessExpression(expression)!.Expression;
+  const attributeBuilderExpression = isAttributeBuilderExpression(facts, receiver, modules, markerImportIndex);
+  if (attributeBuilderExpression) {
+    recordSourceMarker(facts, callExpression, "attributes", createMarkerEvidence("attributes"));
+  }
+  const target = resolveAttributeBuilderTarget(facts, diagnostics, extensionId, sourceFile, receiver, modules, markerImportIndex);
+  if (target === undefined) {
+    if (attributeBuilderExpression) {
+      appendSourceSemanticsDiagnostic(
+        diagnostics,
+        extensionId,
+        "SOURCE_SEMANTICS_ATTRIBUTE_TARGET_UNRESOLVED",
+        9901110,
+        "attributes(...).add(...) could not resolve its metadata target.",
+        callExpression,
+      );
+    }
+    return;
+  }
+  recordSourceMarker(facts, callExpression, "attributes", createMarkerEvidence("attributes"));
+  const [attributeTarget, ...attributeArguments] = typedCall.Arguments?.Nodes ?? [];
+  if (attributeTarget === undefined) {
+    appendSourceSemanticsDiagnostic(
+      diagnostics,
+      extensionId,
+      "SOURCE_SEMANTICS_ATTRIBUTE_MISSING_TARGET",
+      9901102,
+      "attributes(...).add(...) requires an attribute target as the first argument.",
+      callExpression,
+    );
+    return;
+  }
+  const application = {
+    target: attributeTarget,
+    attributeName: getTypeReferenceNameText(attributeTarget),
+    arguments: definedFactSubjects(attributeArguments),
+  } satisfies AttributeApplicationFact;
+  const evidence = createMarkerEvidence("attributes");
+  appendAttributeFact(attributeFacts, callExpression, application, evidence);
+  appendAttributeFact(attributeFacts, target.subject, application, evidence);
+  const symbol = isAstNode(target.subject) ? Node_Symbol(target.subject) : undefined;
+  if (symbol !== undefined) {
+    appendAttributeFact(attributeFacts, symbol, application, evidence);
+  }
+}
+
+function recordSourceMarker(
+  facts: ExtensionFactStore,
+  callExpression: Node,
+  marker: SourceCallMarkerKind,
+  evidence: readonly ExtensionEvidence[],
+): void {
+  const fact = {
+    marker,
+    erasedRuntimeExpression: true,
+  } satisfies SourceMarkerFact;
+  facts.set(callExpression, sourceMarkerFactKey, fact, evidence);
+}
+
+function isAttributeBuilderExpression(
+  facts: ExtensionFactStore,
+  node: GoPtr<Node>,
+  modules: readonly SourceSemanticsModuleRuntime[],
+  markerImportIndex: SourceSemanticsMarkerImportIndex,
+): boolean {
+  const rootCall = getAttributeBuilderRootCall(node);
+  if (rootCall === undefined) {
+    return false;
+  }
+  return resolveAttributeBuilderRootMarkerFromImportIndex(AsCallExpression(rootCall)?.Expression, markerImportIndex)
+    ?? resolveSourceSemanticsCallMarkerReference(facts, AsCallExpression(rootCall)?.Expression, modules, markerImportIndex)?.marker === "attributes";
+}
+
+function resolveAttributeBuilderRootMarkerFromImportIndex(
+  node: GoPtr<Node>,
+  markerImportIndex: SourceSemanticsMarkerImportIndex,
+): boolean | undefined {
+  if (node === undefined) {
+    return undefined;
+  }
+  if (node.Kind === KindPropertyAccessExpression) {
+    const receiverName = Node_Text(AsPropertyAccessExpression(node)?.Expression);
+    const namespaceModule = markerImportIndex.namespacesByLocalName.get(receiverName);
+    const propertyName = Node_Text(Node_Name(node));
+    return namespaceModule?.callMarkersByExportName.get(propertyName)?.marker === "attributes";
+  }
+  return markerImportIndex.callMarkersByLocalName.get(Node_Text(node))?.marker === "attributes";
+}
+
+function getAttributeBuilderRootCall(node: GoPtr<Node>): Node | undefined {
+  if (node?.Kind !== KindCallExpression) {
+    return undefined;
+  }
+  const expression = AsCallExpression(node)?.Expression;
+  if (expression?.Kind === KindPropertyAccessExpression) {
+    const propertyAccess = AsPropertyAccessExpression(expression)!;
+    const selector = Node_Text(Node_Name(expression));
+    return selector === "method" || selector === "property" || selector === "parameter"
+      ? getAttributeBuilderRootCall(propertyAccess.Expression)
+      : undefined;
+  }
+  return node;
+}
+
+function resolveAttributeBuilderTarget(
+  facts: ExtensionFactStore,
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
+  sourceFile: GoPtr<SourceFile>,
+  node: GoPtr<Node>,
+  modules: readonly SourceSemanticsModuleRuntime[],
+  markerImportIndex: SourceSemanticsMarkerImportIndex,
+): AttributeBuilderTarget | undefined {
+  if (node?.Kind !== KindCallExpression) {
+    return undefined;
+  }
+  const callExpression = AsCallExpression(node)!;
+  const expression = callExpression.Expression;
+  if (expression?.Kind === KindPropertyAccessExpression) {
+    const propertyAccess = AsPropertyAccessExpression(expression)!;
+    const selector = Node_Text(Node_Name(expression));
+    const receiverTarget = resolveAttributeBuilderTarget(facts, diagnostics, extensionId, sourceFile, propertyAccess.Expression, modules, markerImportIndex);
+    if (receiverTarget === undefined) {
+      return undefined;
+    }
+    switch (selector) {
+      case "method":
+        return resolveAttributeMemberSelector(diagnostics, extensionId, callExpression, receiverTarget, "method");
+      case "property":
+        return resolveAttributeMemberSelector(diagnostics, extensionId, callExpression, receiverTarget, "property");
+      case "parameter":
+        return resolveAttributeParameterSelector(diagnostics, extensionId, callExpression, receiverTarget);
+      default:
+        return undefined;
+    }
+  }
+
+  const isAttributeMarker = resolveAttributeBuilderRootMarkerFromImportIndex(expression, markerImportIndex)
+    ?? resolveSourceSemanticsCallMarkerReference(facts, expression, modules, markerImportIndex)?.marker === "attributes";
+  if (!isAttributeMarker) {
+    return undefined;
+  }
+  const typeArgument = callExpression.TypeArguments?.Nodes?.[0];
+  if (typeArgument === undefined) {
+    appendSourceSemanticsDiagnostic(
+      diagnostics,
+      extensionId,
+      "SOURCE_SEMANTICS_ATTRIBUTES_MISSING_TYPE",
+      9901103,
+      "attributes<T>() requires a target type argument.",
+      callExpression,
+    );
+    return undefined;
+  }
+  const symbol = getTypeReferenceSymbol(typeArgument);
+  const classDeclaration = findClassDeclarationForTypeReference(sourceFile, typeArgument, symbol);
+  return {
+    subject: classDeclaration ?? symbol ?? typeArgument,
+    ...(classDeclaration === undefined ? {} : { classDeclaration }),
+  };
+}
+
+function resolveAttributeMemberSelector(
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
+  callExpression: Node,
+  receiverTarget: AttributeBuilderTarget,
+  selectorKind: "method" | "property",
+): AttributeBuilderTarget | undefined {
+  const selectorArgument = (Node_Arguments(callExpression) ?? [])[0];
+  const memberName = getPropertySelectorName(selectorArgument);
+  if (memberName === undefined) {
+    appendSourceSemanticsDiagnostic(
+      diagnostics,
+      extensionId,
+      "SOURCE_SEMANTICS_ATTRIBUTE_SELECTOR_INVALID",
+      9901104,
+      `attributes(...).${selectorKind}(...) requires a property-selector arrow expression.`,
+      callExpression,
+    );
+    return undefined;
+  }
+  const classDeclaration = receiverTarget.classDeclaration;
+  if (classDeclaration === undefined) {
+    appendSourceSemanticsDiagnostic(
+      diagnostics,
+      extensionId,
+      "SOURCE_SEMANTICS_ATTRIBUTE_SELECTOR_OWNER_MISSING",
+      9901105,
+      `attributes(...).${selectorKind}(...) requires the target class declaration to be available in the program.`,
+      callExpression,
+    );
+    return undefined;
+  }
+  const memberDeclaration = findClassMemberByName(classDeclaration, memberName, selectorKind);
+  if (memberDeclaration === undefined) {
+    appendSourceSemanticsDiagnostic(
+      diagnostics,
+      extensionId,
+      "SOURCE_SEMANTICS_ATTRIBUTE_SELECTOR_UNRESOLVED",
+      9901106,
+      `attributes(...).${selectorKind}(...) could not resolve member '${memberName}'.`,
+      callExpression,
+    );
+    return undefined;
+  }
+  return {
+    subject: memberDeclaration,
+    classDeclaration,
+    memberDeclaration,
+    ...(selectorKind === "method" ? { methodDeclaration: memberDeclaration } : {}),
+  };
+}
+
+function resolveAttributeParameterSelector(
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
+  callExpression: Node,
+  receiverTarget: AttributeBuilderTarget,
+): AttributeBuilderTarget | undefined {
+  const methodDeclaration = receiverTarget.methodDeclaration;
+  if (methodDeclaration === undefined) {
+    appendSourceSemanticsDiagnostic(
+      diagnostics,
+      extensionId,
+      "SOURCE_SEMANTICS_ATTRIBUTE_PARAMETER_OWNER_INVALID",
+      9901107,
+      "attributes(...).parameter(...) must follow a resolved method selector.",
+      callExpression,
+    );
+    return undefined;
+  }
+  const parameterName = getStringLiteralText((Node_Arguments(callExpression) ?? [])[0]);
+  if (parameterName === undefined) {
+    appendSourceSemanticsDiagnostic(
+      diagnostics,
+      extensionId,
+      "SOURCE_SEMANTICS_ATTRIBUTE_PARAMETER_SELECTOR_INVALID",
+      9901108,
+      "attributes(...).parameter(...) requires a string-literal parameter name.",
+      callExpression,
+    );
+    return undefined;
+  }
+  const parameter = (Node_Parameters(methodDeclaration) ?? [])
+    .find((candidate) => getSourceSemanticsNameText(candidate) === parameterName);
+  if (parameter === undefined) {
+    appendSourceSemanticsDiagnostic(
+      diagnostics,
+      extensionId,
+      "SOURCE_SEMANTICS_ATTRIBUTE_PARAMETER_UNRESOLVED",
+      9901109,
+      `attributes(...).parameter(...) could not resolve parameter '${parameterName}'.`,
+      callExpression,
+    );
+    return undefined;
+  }
+  return {
+    subject: parameter,
+    ...(receiverTarget.classDeclaration === undefined ? {} : { classDeclaration: receiverTarget.classDeclaration }),
+    ...(receiverTarget.memberDeclaration === undefined ? {} : { memberDeclaration: receiverTarget.memberDeclaration }),
+    methodDeclaration,
+  };
 }
 
 function recordArgumentPassingMarker(
@@ -498,6 +815,7 @@ function recordValueTypeMarker(
 
 function recordAttributeMarker(
   facts: ExtensionFactStore,
+  attributeFacts: AttributeFactAccumulator,
   callExpression: Node,
   evidence: readonly ExtensionEvidence[],
 ): void {
@@ -505,13 +823,13 @@ function recordAttributeMarker(
   if (target === undefined) {
     return;
   }
-  const fact = {
+  const application = {
     target,
     attributeName: getTypeReferenceNameText(target),
     arguments: definedFactSubjects(Node_Arguments(callExpression) ?? []),
-  } satisfies AttributeFact;
-  facts.set(callExpression, attributeFactKey, fact, evidence);
-  recordInitializerOwnerFact(facts, callExpression, attributeFactKey, fact, evidence);
+  } satisfies AttributeApplicationFact;
+  appendAttributeFact(attributeFacts, callExpression, application, evidence);
+  recordInitializerOwnerAttributeFact(facts, attributeFacts, callExpression, application, evidence);
 }
 
 function recordDefaultValueMarker(
@@ -543,6 +861,51 @@ function recordInitializerOwnerFact<TFact>(
   const symbol = Node_Symbol(parent);
   if (symbol !== undefined) {
     facts.set(symbol, key, fact, evidence);
+  }
+}
+
+function recordInitializerOwnerAttributeFact(
+  facts: ExtensionFactStore,
+  attributeFacts: AttributeFactAccumulator,
+  callExpression: Node,
+  attribute: AttributeApplicationFact,
+  evidence: readonly ExtensionEvidence[],
+): void {
+  const parent = callExpression?.Parent;
+  if (parent === undefined || !isInitializerOwner(parent) || Node_Initializer(parent) !== callExpression) {
+    return;
+  }
+  appendAttributeFact(attributeFacts, parent, attribute, evidence);
+  const symbol = Node_Symbol(parent);
+  if (symbol !== undefined) {
+    appendAttributeFact(attributeFacts, symbol, attribute, evidence);
+  }
+}
+
+function appendAttributeFact(
+  attributeFacts: AttributeFactAccumulator,
+  subject: ExtensionFactSubject | undefined,
+  attribute: AttributeApplicationFact,
+  evidence: readonly ExtensionEvidence[],
+): void {
+  if (subject === undefined) {
+    return;
+  }
+  const pending = attributeFacts.get(subject);
+  if (pending === undefined) {
+    attributeFacts.set(subject, { attributes: [attribute], evidence: [...evidence] });
+    return;
+  }
+  pending.attributes.push(attribute);
+  pending.evidence.push(...evidence);
+}
+
+function flushAttributeFacts(
+  facts: ExtensionFactStore,
+  attributeFacts: AttributeFactAccumulator,
+): void {
+  for (const [subject, pending] of attributeFacts) {
+    facts.set(subject, attributeFactKey, { attributes: pending.attributes }, pending.evidence);
   }
 }
 
@@ -672,6 +1035,132 @@ function getFunctionPointerParameters(parameterList: GoPtr<Node>): readonly Exte
   return [parameterList];
 }
 
+function getTypeReferenceSymbol(node: GoPtr<Node>): GoPtr<Symbol> {
+  if (node?.Kind !== KindTypeReference) {
+    return Node_Symbol(node);
+  }
+  const typeName = AsTypeReferenceNode(node)?.TypeName;
+  if (typeName?.Kind === KindQualifiedName) {
+    return Node_Symbol(AsQualifiedName(typeName)?.Right);
+  }
+  return Node_Symbol(typeName);
+}
+
+function findClassDeclarationBySymbol(sourceFile: GoPtr<SourceFile>, symbol: Symbol): Node | undefined {
+  let found: Node | undefined;
+  visitSourceSemanticsNode(sourceFile, (node) => {
+    if (found !== undefined || node?.Kind !== KindClassDeclaration) {
+      return;
+    }
+    if (Node_Symbol(node) === symbol || Node_Symbol(getSourceSemanticsNameNode(node)) === symbol) {
+      found = node;
+    }
+  });
+  return found;
+}
+
+function findClassDeclarationForTypeReference(
+  sourceFile: GoPtr<SourceFile>,
+  typeReference: GoPtr<Node>,
+  symbol: GoPtr<Symbol>,
+): Node | undefined {
+  if (symbol !== undefined) {
+    const bySymbol = findClassDeclarationBySymbol(sourceFile, symbol);
+    if (bySymbol !== undefined) {
+      return bySymbol;
+    }
+  }
+  if (typeReference?.Kind !== KindTypeReference) {
+    return undefined;
+  }
+  const typeNameText = getTypeReferenceNameText(typeReference);
+  if (typeNameText.length === 0 || typeNameText.includes(".")) {
+    return undefined;
+  }
+  let found: Node | undefined;
+  visitSourceSemanticsNode(sourceFile, (node) => {
+    if (found !== undefined || node?.Kind !== KindClassDeclaration || getSourceSemanticsNameText(node) !== typeNameText) {
+      return;
+    }
+    found = node;
+  });
+  return found;
+}
+
+function findClassMemberByName(classDeclaration: Node, memberName: string, selectorKind: "method" | "property"): Node | undefined {
+  for (const member of Node_Members(classDeclaration) ?? []) {
+    if (member === undefined || getSourceSemanticsNameText(member) !== memberName) {
+      continue;
+    }
+    if (selectorKind === "method" && member.Kind === KindMethodDeclaration) {
+      return member;
+    }
+    if (
+      selectorKind === "property"
+      && (member.Kind === KindPropertyDeclaration || member.Kind === KindGetAccessor || member.Kind === KindSetAccessor)
+    ) {
+      return member;
+    }
+  }
+  return undefined;
+}
+
+function getPropertySelectorName(node: GoPtr<Node>): string | undefined {
+  if (node?.Kind !== KindArrowFunction) {
+    return undefined;
+  }
+  const body = Node_Body(node);
+  if (body?.Kind !== KindPropertyAccessExpression) {
+    return undefined;
+  }
+  const text = getSourceSemanticsNameText(body);
+  return text.length === 0 ? undefined : text;
+}
+
+function getSourceSemanticsNameText(node: GoPtr<Node>): string {
+  const name = getSourceSemanticsNameNode(node);
+  return name === undefined ? "" : Node_Text(name);
+}
+
+function getSourceSemanticsNameNode(node: GoPtr<Node>): GoPtr<Node> {
+  const name = Node_Name(node);
+  if (isAstNode(name)) {
+    return name;
+  }
+  const lowerCaseName = (node as { readonly name?: unknown } | undefined)?.name;
+  return isAstNode(lowerCaseName) ? lowerCaseName : undefined;
+}
+
+function getStringLiteralText(node: GoPtr<Node>): string | undefined {
+  return node?.Kind === KindStringLiteral || node?.Kind === KindNoSubstitutionTemplateLiteral
+    ? Node_Text(node)
+    : undefined;
+}
+
+function appendSourceSemanticsDiagnostic(
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
+  extensionCode: string,
+  numericCode: number,
+  message: string,
+  nodeOrSpan: unknown,
+): void {
+  diagnostics.append({
+    extensionId,
+    extensionCode,
+    numericCode,
+    publicCode: `TSTS_SOURCE_SEMANTICS_${String(numericCode - 9901100).padStart(4, "0")}`,
+    category: "error",
+    message,
+    nodeOrSpan,
+    identity: `${extensionCode}:${numericCode}`,
+  });
+}
+
+function isAstNode(subject: unknown): subject is Node {
+  return typeof (subject as { readonly Kind?: unknown }).Kind === "number";
+}
+
 function resolveSourceSemanticsCallMarkerReference(
   facts: ExtensionFactStore,
   node: GoPtr<Node>,
@@ -702,7 +1191,10 @@ function resolveSourceSemanticsMarkerFromImportIndex<TMarker extends { readonly 
     return undefined;
   }
   if (node.Kind === KindPropertyAccessExpression) {
-    const receiverName = Node_Text(AsPropertyAccessExpression(node)?.Expression);
+    const receiverName = getSimpleIdentifierText(AsPropertyAccessExpression(node)?.Expression);
+    if (receiverName === undefined) {
+      return undefined;
+    }
     const namespaceModule = namespacesByLocalName.get(receiverName);
     const propertyName = Node_Text(Node_Name(node));
     const marker = getModuleMarker(namespaceModule, capability, propertyName);
@@ -728,7 +1220,11 @@ function resolveSourceSemanticsMarkerReference<TMarker extends { readonly export
   }
   if (node.Kind === KindPropertyAccessExpression) {
     const propertyName = Node_Text(Node_Name(node));
-    const receiverSymbol = Node_Symbol(AsPropertyAccessExpression(node)?.Expression);
+    const receiverExpression = AsPropertyAccessExpression(node)?.Expression;
+    if (receiverExpression?.Kind !== KindIdentifier) {
+      return undefined;
+    }
+    const receiverSymbol = Node_Symbol(receiverExpression);
     const receiverIdentity = receiverSymbol === undefined ? undefined : facts.get(receiverSymbol, canonicalIdentityFactKey);
     if (receiverIdentity?.kind !== "module") {
       return undefined;
@@ -754,6 +1250,10 @@ function resolveSourceSemanticsMarkerReference<TMarker extends { readonly export
   }
   const module = modules.find((candidate) => identity.id === `${candidate.moduleSpecifier}::${identity.exportName}`);
   return getModuleMarker(module, capability, identity.exportName) as TMarker | undefined;
+}
+
+function getSimpleIdentifierText(node: GoPtr<Node>): string | undefined {
+  return node?.Kind === KindIdentifier ? Node_Text(node) : undefined;
 }
 
 function createSourceSemanticsMarkerImportIndex(

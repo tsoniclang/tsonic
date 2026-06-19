@@ -218,6 +218,11 @@ function getTargetTypeRef(type: ProviderTypeExpression): TargetTypeRef {
       return { kind: "source-primitive", name: getSourcePrimitiveKind(type.name) };
     case "type-parameter":
       return { kind: "type-parameter", name: type.name };
+    case "reference":
+      return {
+        kind: "opaque",
+        id: `${type.name}${type.typeArguments === undefined || type.typeArguments.length === 0 ? "" : `<${type.typeArguments.map((argument) => getTargetTypeRef(argument).kind).join(",")}>`}`,
+      };
     case "target-named":
       return {
         kind: "target-named",

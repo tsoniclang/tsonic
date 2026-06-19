@@ -324,6 +324,60 @@ test("CLI emits C# structs from neutral value-type facts and C# aliases", async 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits C# attributes from TSTS attribute builder facts", async () => {
+  const projectDirectory = resolve(tempRoot, "attribute-builder");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedAttributeBuilder",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/system-attributes.d.ts": [
+      "export declare const CLSCompliantAttribute: unknown;",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { attributes as A } from \"@tsonic/core/lang.js\";",
+      "import { CLSCompliantAttribute } from \"./system-attributes.js\";",
+      "",
+      "export class Annotated {",
+      "  value: number = 1;",
+      "",
+      "  run(input: number): number {",
+      "    return input;",
+      "  }",
+      "}",
+      "",
+      "A<Annotated>().add(CLSCompliantAttribute, true);",
+      "A<Annotated>().property((target) => target.value).add(CLSCompliantAttribute, false);",
+      "A<Annotated>().method((target) => target.run).add(CLSCompliantAttribute, true);",
+      "A<Annotated>().method((target) => target.run).parameter(\"input\").add(CLSCompliantAttribute, false);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /\[CLSCompliantAttribute\(true\)\]\n\s*public class Annotated/);
+  assert.match(generatedSource, /\[CLSCompliantAttribute\(false\)\]\n\s*public double value = 1;/);
+  assert.match(generatedSource, /\[CLSCompliantAttribute\(true\)\]\n\s*public double run\(\[CLSCompliantAttribute\(false\)\] double input\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedAttributeBuilder.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits C# default expressions from neutral default facts and C# aliases", async () => {
   const projectDirectory = resolve(tempRoot, "default-value-facts");
   await writeProject(projectDirectory, {

@@ -12,6 +12,7 @@ import {
   pointerFactKey,
   runtimeCarrierFactKey,
   selectedTargetSignatureFactKey,
+  sourceMarkerFactKey,
   sourcePrimitiveFactKey,
   targetConversionFactKey,
   targetBindingFactKey,
@@ -32,6 +33,7 @@ import type {
   ProviderVirtualDeclarationFact,
   RuntimeCarrierFact,
   SelectedTargetSignatureFact,
+  SourceMarkerFact,
   SourcePrimitiveFact,
   TargetConversionFact,
   TargetBindingFact,
@@ -235,6 +237,18 @@ export class ExtensionConsumerQueries {
 
   mustFieldFact(subject: ExtensionFactSubject, purpose?: string): FieldFact {
     return this.mustFact(subject, fieldFactKey, purpose);
+  }
+
+  getSourceMarkerFact(subject: ExtensionFactSubject | undefined): SourceMarkerFact | undefined {
+    return this.getFact(subject, sourceMarkerFactKey);
+  }
+
+  requireSourceMarkerFact(subject: ExtensionFactSubject, purpose?: string): SourceMarkerFact | undefined {
+    return this.requireFact(subject, sourceMarkerFactKey, purpose);
+  }
+
+  mustSourceMarkerFact(subject: ExtensionFactSubject, purpose?: string): SourceMarkerFact {
+    return this.mustFact(subject, sourceMarkerFactKey, purpose);
   }
 
   getAttributeFact(subject: ExtensionFactSubject | undefined): AttributeFact | undefined {

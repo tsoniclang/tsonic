@@ -68,6 +68,11 @@ export interface ArgumentPassingFact {
   readonly targetExpression?: ExtensionFactSubject;
 }
 
+export interface SourceMarkerFact {
+  readonly marker: string;
+  readonly erasedRuntimeExpression: boolean;
+}
+
 export interface FunctionPointerFact {
   readonly parameters: readonly ExtensionFactSubject[];
   readonly result: ExtensionFactSubject;
@@ -91,10 +96,14 @@ export interface FieldFact {
   readonly readonly?: boolean;
 }
 
-export interface AttributeFact {
+export interface AttributeApplicationFact {
   readonly target: ExtensionFactSubject;
   readonly attributeName: string;
   readonly arguments?: readonly ExtensionFactSubject[];
+}
+
+export interface AttributeFact {
+  readonly attributes: readonly AttributeApplicationFact[];
 }
 
 export interface DefaultValueFact {
@@ -255,6 +264,12 @@ export const argumentPassingFactKey = defineExtensionFactKey<ArgumentPassingFact
   equals: (left, right) => left.mode === right.mode && left.targetExpression === right.targetExpression,
 });
 
+export const sourceMarkerFactKey = defineExtensionFactKey<SourceMarkerFact>({
+  extensionId: "tsts.source-semantics",
+  name: "sourceMarker",
+  equals: (left, right) => left.marker === right.marker && left.erasedRuntimeExpression === right.erasedRuntimeExpression,
+});
+
 export const functionPointerFactKey = defineExtensionFactKey<FunctionPointerFact>({
   extensionId: "tsts.source-semantics",
   name: "functionPointer",
@@ -290,9 +305,7 @@ export const attributeFactKey = defineExtensionFactKey<AttributeFact>({
   extensionId: "tsts.source-semantics",
   name: "attribute",
   equals: (left, right) =>
-    left.target === right.target
-    && left.attributeName === right.attributeName
-    && factSubjectArrayEquals(left.arguments, right.arguments),
+    attributeApplicationFactArrayEquals(left.attributes, right.attributes),
 });
 
 export const defaultValueFactKey = defineExtensionFactKey<DefaultValueFact>({
@@ -406,6 +419,19 @@ function fieldFactArrayEquals(left: readonly FieldFact[] | undefined, right: rea
 
 function fieldFactEquals(left: FieldFact, right: FieldFact): boolean {
   return left.name === right.name && left.type === right.type && left.readonly === right.readonly;
+}
+
+function attributeApplicationFactArrayEquals(left: readonly AttributeApplicationFact[] | undefined, right: readonly AttributeApplicationFact[] | undefined): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.length === right.length && left.every((value, index) => attributeApplicationFactEquals(value, right[index]!));
+}
+
+function attributeApplicationFactEquals(left: AttributeApplicationFact, right: AttributeApplicationFact): boolean {
+  return left.target === right.target
+    && left.attributeName === right.attributeName
+    && factSubjectArrayEquals(left.arguments, right.arguments);
 }
 
 function targetTypeRefArrayEquals(left: readonly TargetTypeRef[] | undefined, right: readonly TargetTypeRef[] | undefined): boolean {

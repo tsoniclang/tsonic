@@ -9,7 +9,9 @@ import {
   Node_Elements,
   Node_Expression,
   Node_ImportClause,
+  Node_Members,
   Node_ModuleSpecifier,
+  Node_Parameters,
   Node_PropertyName,
   Node_Statements,
   Node_Symbol,
@@ -20,12 +22,15 @@ import {
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { AsExportDeclaration, AsImportClause, AsNamespaceImport, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
 import {
+  KindClassDeclaration,
   KindExportDeclaration,
   KindCallExpression,
   KindImportDeclaration,
+  KindMethodDeclaration,
   KindNamedImports,
   KindNamedExports,
   KindNamespaceImport,
+  KindPropertyDeclaration,
   KindQualifiedName,
   KindTypeAliasDeclaration,
   KindTypeReference,
@@ -59,6 +64,7 @@ import {
   flowStateFactKey,
   functionPointerFactKey,
   pointerFactKey,
+  sourceMarkerFactKey,
   sourcePrimitive,
   sourcePrimitiveFactKey,
   valueTypeFactKey,
@@ -106,6 +112,7 @@ function createExampleSourceSemanticsExtension() {
         { kind: "call-marker", exportName: "valueType", marker: "valueType" },
         { kind: "call-marker", exportName: "field", marker: "field" },
         { kind: "call-marker", exportName: "attribute", marker: "attribute" },
+        { kind: "call-marker", exportName: "attributes", marker: "attributes" },
         { kind: "call-marker", exportName: "defaultof", marker: "defaultValue" },
       ],
     }],
@@ -412,9 +419,9 @@ test("source-semantics records value-type field attribute and default facts from
   const routeSymbol = Node_Symbol(routeDeclaration);
   assert.ok(routeSymbol !== undefined);
   const attributeCall = getCallExpression(index, "attribute", 0);
-  assert.equal(extended.extensionHost.facts.get(attributeCall, attributeFactKey)?.attributeName, "RouteAttribute");
-  assert.equal(extended.extensionHost.facts.get(attributeCall, attributeFactKey)?.arguments?.length, 1);
-  assert.equal(extended.extensionHost.facts.get(routeSymbol, attributeFactKey)?.attributeName, "RouteAttribute");
+  assert.equal(extended.extensionHost.facts.get(attributeCall, attributeFactKey)?.attributes[0]?.attributeName, "RouteAttribute");
+  assert.equal(extended.extensionHost.facts.get(attributeCall, attributeFactKey)?.attributes[0]?.arguments?.length, 1);
+  assert.equal(extended.extensionHost.facts.get(routeSymbol, attributeFactKey)?.attributes[0]?.attributeName, "RouteAttribute");
 
   const zeroDeclaration = getVariableDeclaration(index, "zero");
   const zeroSymbol = Node_Symbol(zeroDeclaration);
@@ -433,8 +440,65 @@ test("source-semantics records value-type field attribute and default facts from
   const consumer = createExtensionConsumerQueries(extended.extensionHost, "test-consumer");
   assert.equal(consumer.getValueTypeFact(pointSymbol)?.fields?.length, 2);
   assert.equal(consumer.getFieldFact(xFieldCall)?.name, "x");
-  assert.equal(consumer.getAttributeFact(routeSymbol)?.attributeName, "RouteAttribute");
+  assert.equal(consumer.getAttributeFact(routeSymbol)?.attributes[0]?.attributeName, "RouteAttribute");
   assert.equal(consumer.getDefaultValueFact(zeroSymbol)?.type, defaultValueFact?.type);
+});
+
+test("source-semantics records attribute builder facts on class method property and parameter targets", () => {
+  const { extended, program, index } = createProgram(`
+    import { attributes } from "@example/native/lang.js";
+
+    declare const FactAttribute: unknown;
+    declare const MarkerAttribute: unknown;
+
+    class Example {
+      value: number = 0;
+      run(input: number): number {
+        return input;
+      }
+    }
+
+    attributes<Example>().add(MarkerAttribute, "class");
+    attributes<Example>().property((target) => target.value).add(MarkerAttribute, "property");
+    attributes<Example>().method((target) => target.run).add(FactAttribute);
+    attributes<Example>().method((target) => target.run).parameter("input").add(MarkerAttribute, "parameter");
+  `);
+
+  assertCleanProgram(program, index);
+  Program_BindSourceFiles(program);
+
+  const classDeclaration = getTopLevelDeclaration(index, KindClassDeclaration, "Example");
+  const classSymbol = Node_Symbol(classDeclaration);
+  assert.ok(classSymbol !== undefined);
+  assert.equal(extended.extensionHost.facts.get(classDeclaration, attributeFactKey)?.attributes[0]?.attributeName, "MarkerAttribute");
+  assert.equal(extended.extensionHost.facts.get(classSymbol, attributeFactKey)?.attributes[0]?.attributeName, "MarkerAttribute");
+
+  const valueMember = getClassMember(classDeclaration, KindPropertyDeclaration, "value");
+  const valueSymbol = Node_Symbol(valueMember);
+  assert.ok(valueSymbol !== undefined);
+  assert.equal(extended.extensionHost.facts.get(valueMember, attributeFactKey)?.attributes[0]?.attributeName, "MarkerAttribute");
+  assert.equal(extended.extensionHost.facts.get(valueSymbol, attributeFactKey)?.attributes[0]?.arguments?.length, 1);
+
+  const runMember = getClassMember(classDeclaration, KindMethodDeclaration, "run");
+  const runSymbol = Node_Symbol(runMember);
+  assert.ok(runSymbol !== undefined);
+  assert.equal(extended.extensionHost.facts.get(runMember, attributeFactKey)?.attributes[0]?.attributeName, "FactAttribute");
+  assert.equal(extended.extensionHost.facts.get(runSymbol, attributeFactKey)?.attributes[0]?.attributeName, "FactAttribute");
+
+  const parameter = (Node_Parameters(runMember) ?? [])[0];
+  assert.ok(parameter !== undefined);
+  const parameterSymbol = Node_Symbol(parameter);
+  assert.ok(parameterSymbol !== undefined);
+  assert.equal(extended.extensionHost.facts.get(parameter, attributeFactKey)?.attributes[0]?.attributeName, "MarkerAttribute");
+  assert.equal(extended.extensionHost.facts.get(parameterSymbol, attributeFactKey)?.attributes[0]?.attributeName, "MarkerAttribute");
+
+  for (let occurrence = 0; occurrence < 4; occurrence++) {
+    assert.equal(extended.extensionHost.facts.get(getCallExpression(index, "add", occurrence), sourceMarkerFactKey)?.erasedRuntimeExpression, true);
+  }
+
+  assert.equal(finalizeExtensionSemantics(extended.program), extended.extensionHost);
+  const consumer = createExtensionConsumerQueries(extended.extensionHost, "test-consumer");
+  assert.equal(consumer.getAttributeFact(runSymbol)?.attributes[0]?.attributeName, "FactAttribute");
 });
 
 function createProgram(indexText: string, extraFiles: ReadonlyMap<string, string> = new Map()): {
@@ -482,6 +546,22 @@ function createProgram(indexText: string, extraFiles: ReadonlyMap<string, string
       "export declare function struct<T>(shape: T): T;",
       "export declare function field<T>(): T;",
       "export declare function attribute<T>(value?: unknown): unknown;",
+      "export interface AttributeBuilder<T> {",
+      "  add(attribute: unknown, ...args: unknown[]): AttributeBuilder<T>;",
+      "  property(selector: (target: T) => unknown): AttributeMemberBuilder<T>;",
+      "  method(selector: (target: T) => unknown): AttributeMethodBuilder<T>;",
+      "}",
+      "export interface AttributeMemberBuilder<T> {",
+      "  add(attribute: unknown, ...args: unknown[]): AttributeMemberBuilder<T>;",
+      "}",
+      "export interface AttributeMethodBuilder<T> {",
+      "  add(attribute: unknown, ...args: unknown[]): AttributeMethodBuilder<T>;",
+      "  parameter(name: string): AttributeParameterBuilder<T>;",
+      "}",
+      "export interface AttributeParameterBuilder<T> {",
+      "  add(attribute: unknown, ...args: unknown[]): AttributeParameterBuilder<T>;",
+      "}",
+      "export declare function attributes<T>(): AttributeBuilder<T>;",
       "export declare function defaultof<T>(): T;",
     ].join("\n")],
     ["/src/tsconfig.json", JSON.stringify({
@@ -564,6 +644,15 @@ function getTopLevelDeclaration(sourceFile: GoPtr<SourceFile>, kind: number, nam
     }
   }
   assert.fail(`Missing top-level declaration '${name}'.`);
+}
+
+function getClassMember(classDeclaration: GoPtr<Node>, kind: number, name: string): GoPtr<Node> {
+  for (const member of Node_Members(classDeclaration) ?? []) {
+    if (member?.Kind === kind && Node_Text(Node_Name(member)) === name) {
+      return member;
+    }
+  }
+  assert.fail(`Missing class member '${name}'.`);
 }
 
 function getVariableDeclaration(sourceFile: GoPtr<SourceFile>, name: string): GoPtr<Node> {
