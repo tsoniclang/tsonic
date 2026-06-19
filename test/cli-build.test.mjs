@@ -1129,6 +1129,41 @@ test("CLI emits standard JavaScript private identifiers as private C# members", 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects TypeScript-only runtime-shape modifiers before C# emission", async () => {
+  const projectDirectory = resolve(tempRoot, "typescript-only-modifiers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedTypeScriptOnlyModifiers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Box {",
+      "  public visible: number = 1;",
+      "  private hidden: number = 2;",
+      "  readonly id: number = 3;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TypeScript-only modifier 'public'/);
+  assert.match(build.stderr, /TypeScript-only modifier 'private'/);
+  assert.match(build.stderr, /TypeScript-only modifier 'readonly'/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeScriptOnlyModifiers.csproj")), false);
+});
+
 test("CLI rejects local destructuring until provider object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "local-destructuring");
   await writeProject(projectDirectory, {
