@@ -187,6 +187,7 @@ export {
   KindIfStatement,
   KindImportDeclaration,
   KindIndexSignature,
+  KindInstanceOfKeyword,
   KindInterfaceDeclaration,
   KindLabeledStatement,
   KindLessThanEqualsToken,

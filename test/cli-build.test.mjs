@@ -1421,6 +1421,50 @@ test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits source-owned instanceof as C# is expressions", async () => {
+  const projectDirectory = resolve(tempRoot, "source-owned-instanceof");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedInstanceOf",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Animal {",
+      "  name: string = \"\";",
+      "}",
+      "",
+      "export class Dog extends Animal {",
+      "}",
+      "",
+      "export function isDog(value: Animal): boolean {",
+      "  return value instanceof Dog;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static bool isDog\(Animal value\)/);
+  assert.match(generatedSource, /return value is Dog;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedInstanceOf.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits TypeScript numeric enums as C# enums", async () => {
   const projectDirectory = resolve(tempRoot, "numeric-enums");
   await writeProject(projectDirectory, {
