@@ -486,7 +486,7 @@ test("CLI rejects attribute builder targets without provider target facts", asyn
       ],
     }, null, 2),
     "src/system-attributes.d.ts": [
-      "export declare const CLSCompliantAttribute: unknown;",
+      "export declare const CLSCompliantAttribute: object;",
       "",
     ].join("\n"),
     "src/index.ts": [
