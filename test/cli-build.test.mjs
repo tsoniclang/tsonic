@@ -519,6 +519,54 @@ test("CLI resolves TypeScript aliases through TSTS semantics before C# type rend
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits typeof narrowing through selected TSTS target facts", async () => {
+  const projectDirectory = resolve(tempRoot, "typeof-narrowing");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedTypeofNarrowing",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function lengthOrZero(value: string | null): number {",
+      "  if (typeof value === \"string\") {",
+      "    return value.length;",
+      "  }",
+      "  return 0;",
+      "}",
+      "",
+      "export function isMissing(value: string | null): boolean {",
+      "  return typeof value !== \"string\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double lengthOrZero\(string\? value\)/);
+  assert.match(generatedSource, /if \(value is string\)/);
+  assert.match(generatedSource, /return value\.Length;/);
+  assert.match(generatedSource, /public static bool isMissing\(string\? value\)/);
+  assert.match(generatedSource, /return value is not string;/);
+  assert.doesNotMatch(generatedSource, /typeof/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeofNarrowing.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI keeps neutral and C# source semantics in separate virtual modules", async () => {
   const projectDirectory = resolve(tempRoot, "source-semantics-split");
   await writeProject(projectDirectory, {

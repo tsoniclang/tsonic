@@ -4,8 +4,8 @@ import type { Node } from "../internal/ast/ast.js";
 import { Node_Arguments, Node_Expression, Node_Text, Node_TypeArguments } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import { Node_Name } from "../internal/ast/spine.js";
-import { AsElementAccessExpression } from "../internal/ast/generated/casts.js";
-import { KindElementAccessExpression, KindIdentifier, KindPropertyAccessExpression } from "../internal/ast/generated/kinds.js";
+import { AsElementAccessExpression, AsTypeOfExpression } from "../internal/ast/generated/casts.js";
+import { KindElementAccessExpression, KindIdentifier, KindPropertyAccessExpression, KindTypeOfExpression } from "../internal/ast/generated/kinds.js";
 import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
@@ -223,6 +223,14 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
   const rightSymbol = getOperatorOperandSymbol(checker, right);
   const leftSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, left, leftType, leftSymbol);
   const rightSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, right, rightType, rightSymbol);
+  const leftTypeofOperand = getTypeofOperand(left);
+  const rightTypeofOperand = getTypeofOperand(right);
+  const leftTypeofOperandType = leftTypeofOperand === undefined ? undefined : Checker_getTypeOfExpression(checker, leftTypeofOperand);
+  const rightTypeofOperandType = rightTypeofOperand === undefined ? undefined : Checker_getTypeOfExpression(checker, rightTypeofOperand);
+  const leftTypeofOperandSymbol = getOperatorOperandSymbol(checker, leftTypeofOperand);
+  const rightTypeofOperandSymbol = getOperatorOperandSymbol(checker, rightTypeofOperand);
+  const leftTypeofOperandSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, leftTypeofOperand, leftTypeofOperandType, leftTypeofOperandSymbol);
+  const rightTypeofOperandSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, rightTypeofOperand, rightTypeofOperandType, rightTypeofOperandSymbol);
   const result = extensionHost.runDecision(
     ExtensionDecisionQuestion.resolveOperator,
     {
@@ -232,10 +240,18 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
       ...(leftType !== undefined ? { leftType } : {}),
       ...(leftSymbol !== undefined ? { leftSymbol } : {}),
       ...(leftSourcePrimitive !== undefined ? { leftSourcePrimitive } : {}),
+      ...(leftTypeofOperand !== undefined ? { leftTypeofOperand } : {}),
+      ...(leftTypeofOperandType !== undefined ? { leftTypeofOperandType } : {}),
+      ...(leftTypeofOperandSymbol !== undefined ? { leftTypeofOperandSymbol } : {}),
+      ...(leftTypeofOperandSourcePrimitive !== undefined ? { leftTypeofOperandSourcePrimitive } : {}),
       ...(right !== undefined ? { right } : {}),
       ...(rightType !== undefined ? { rightType } : {}),
       ...(rightSymbol !== undefined ? { rightSymbol } : {}),
       ...(rightSourcePrimitive !== undefined ? { rightSourcePrimitive } : {}),
+      ...(rightTypeofOperand !== undefined ? { rightTypeofOperand } : {}),
+      ...(rightTypeofOperandType !== undefined ? { rightTypeofOperandType } : {}),
+      ...(rightTypeofOperandSymbol !== undefined ? { rightTypeofOperandSymbol } : {}),
+      ...(rightTypeofOperandSourcePrimitive !== undefined ? { rightTypeofOperandSourcePrimitive } : {}),
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
@@ -249,6 +265,12 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
   }
 
   extensionHost.facts.set(expression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
+}
+
+function getTypeofOperand(expression: GoPtr<Node>): GoPtr<Node> {
+  return expression?.Kind === KindTypeOfExpression
+    ? AsTypeOfExpression(expression)?.Expression
+    : undefined;
 }
 
 export function recordExtensionUnaryOperatorResolution(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operator: number, operand: GoPtr<Node>): void {

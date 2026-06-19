@@ -28,6 +28,7 @@ export { createTypeCheckerQueries } from "./services/type-checker.js";
 export type { TypeCheckerQueries, TypeCheckerQueryOptions, TypeScriptEnumMemberValue } from "./services/type-checker.js";
 export {
   Node_Members,
+  Node_Expression,
   Node_ModuleSpecifier,
   Node_Symbol,
   Node_Statements,
@@ -98,6 +99,7 @@ export {
   AsSpreadAssignment,
   AsTemplateExpression,
   AsTemplateSpan,
+  AsTypeOfExpression,
   AsTupleTypeNode,
   AsNumericLiteral,
   AsArrayLiteralExpression,
@@ -259,6 +261,7 @@ export {
   KindTryStatement,
   KindTupleType,
   KindTypeAliasDeclaration,
+  KindTypeOfExpression,
   KindTypeLiteral,
   KindTypeAssertionExpression,
   KindUndefinedKeyword,
