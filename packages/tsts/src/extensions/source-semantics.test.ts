@@ -391,9 +391,9 @@ test("source-semantics records value-type field attribute and default facts from
   `, new Map([
     ["/src/local.ts", [
       "export function valueType<T>(shape: T): T { return shape; }",
-      "export function field<T>(): T { throw new Error('local'); }",
+      "export function field<T>(): T { throw 'local'; }",
       "export function attribute<T>(value?: unknown): unknown { return value; }",
-      "export function defaultof<T>(): T { throw new Error('local'); }",
+      "export function defaultof<T>(): T { throw 'local'; }",
     ].join("\n")],
   ]));
 
@@ -544,6 +544,7 @@ function createProgram(indexText: string, extraFiles: ReadonlyMap<string, string
       "export declare function borrowMut<T>(value: T): T;",
       "export declare function move<T>(value: T): T;",
       "export declare function struct<T>(shape: T): T;",
+      "export declare function valueType<T>(shape: T): T;",
       "export declare function field<T>(): T;",
       "export declare function attribute<T>(value?: unknown): unknown;",
       "export interface AttributeBuilder<T> {",
@@ -598,7 +599,8 @@ function createProgram(indexText: string, extraFiles: ReadonlyMap<string, string
 function assertCleanProgram(program: GoPtr<Program>, sourceFile: GoPtr<SourceFile>): void {
   assert.equal(Program_GetProgramDiagnostics(program).length, 0);
   assert.equal(Program_GetSyntacticDiagnostics(program, Background(), sourceFile).length, 0);
-  assert.equal(Program_GetSemanticDiagnostics(program, Background(), sourceFile).length, 0);
+  const semanticDiagnostics = Program_GetSemanticDiagnostics(program, Background(), sourceFile);
+  assert.equal(semanticDiagnostics.length, 0, semanticDiagnostics.map((diagnostic) => `${Diagnostic_Code(diagnostic)}: ${Diagnostic_String(diagnostic)}`).join("\n"));
 }
 
 function getNamedImportSpecifier(sourceFile: GoPtr<SourceFile>, localName: string): GoPtr<Node> {

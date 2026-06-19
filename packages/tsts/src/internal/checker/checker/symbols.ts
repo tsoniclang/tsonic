@@ -5458,8 +5458,9 @@ export function Checker_checkIndexedAccess(receiver: GoPtr<Checker>, node: GoPtr
   if ((node!.Flags & NodeFlagsOptionalChain) !== 0) {
     return Checker_checkElementAccessChain(receiver, node, checkMode);
   }
-  const result = Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullExpression(receiver, Node_Expression(node)), checkMode);
-  recordExtensionElementAccessResolution(receiver, node);
+  const receiverType = Checker_checkNonNullExpression(receiver, Node_Expression(node));
+  const result = Checker_checkElementAccessExpression(receiver, node, receiverType, checkMode);
+  recordExtensionElementAccessResolution(receiver, node, receiverType);
   return result;
 }
 
@@ -6449,8 +6450,9 @@ export function Checker_checkPropertyAccessExpression(receiver: GoPtr<Checker>, 
     return Checker_checkPropertyAccessChain(receiver, node, checkMode);
   }
   const expr = Node_Expression(node);
-  const result = Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, expr, Checker_checkNonNullExpression(receiver, expr), AsPropertyAccessExpression(node)!.name, checkMode, writeOnly);
-  recordExtensionPropertyAccessResolution(receiver, node);
+  const receiverType = Checker_checkNonNullExpression(receiver, expr);
+  const result = Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, expr, receiverType, AsPropertyAccessExpression(node)!.name, checkMode, writeOnly);
+  recordExtensionPropertyAccessResolution(receiver, node, receiverType);
   return result;
 }
 

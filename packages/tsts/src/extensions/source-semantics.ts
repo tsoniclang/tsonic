@@ -47,7 +47,7 @@ import {
   KindTypeAliasDeclaration,
   KindVariableDeclaration,
 } from "../internal/ast/generated/kinds.js";
-import { IsLeftHandSideExpression } from "../internal/ast/utilities.js";
+import { GetSourceFileOfNode, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
 import {
   argumentPassingFactKey,
   attributeFactKey,
@@ -944,13 +944,48 @@ function resolveSourcePrimitiveFact(
   }
   const typeName = AsTypeReferenceNode(node)?.TypeName;
   const primitive = resolvePrimitiveTypeReference(context.facts, typeName, modules);
-  if (primitive === undefined) {
+  if (primitive !== undefined) {
+    return {
+      value: stripExportName(primitive.primitiveFact),
+      evidence: createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName),
+    };
+  }
+  return resolvePrimitiveAliasReference(node, context.facts);
+}
+
+function resolvePrimitiveAliasReference(
+  typeReference: Node,
+  facts: ExtensionFactStore,
+): { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined {
+  const typeName = AsTypeReferenceNode(typeReference)?.TypeName;
+  if (typeName === undefined || typeName.Kind === KindQualifiedName) {
     return undefined;
   }
-  return {
-    value: stripExportName(primitive.primitiveFact),
-    evidence: createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName),
-  };
+  const aliasName = Node_Text(typeName);
+  if (aliasName === "") {
+    return undefined;
+  }
+  const sourceFile = GetSourceFileOfNode(typeReference);
+  let resolved: { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined;
+  visitSourceSemanticsNode(sourceFile, (candidate) => {
+    if (resolved !== undefined || candidate?.Kind !== KindTypeAliasDeclaration) {
+      return;
+    }
+    const alias = AsTypeAliasDeclaration(candidate)!;
+    if (Node_Text(alias.name) !== aliasName) {
+      return;
+    }
+    const primitive = facts.get(alias.Type, sourcePrimitiveFactKey);
+    const identity = facts.get(alias.Type, canonicalIdentityFactKey);
+    if (primitive === undefined || identity === undefined) {
+      return;
+    }
+    resolved = {
+      value: primitive,
+      evidence: createAliasEvidence(aliasName, identity.exportName ?? identity.id),
+    };
+  });
+  return resolved;
 }
 
 function recordSourceSemanticsTypeReferences(

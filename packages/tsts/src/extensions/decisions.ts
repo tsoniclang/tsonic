@@ -17,6 +17,7 @@ export type ExtensionDecisionResult<T> =
   | { readonly kind: "core"; readonly value: T }
   | { readonly kind: "accept"; readonly value: T; readonly extensionId: string; readonly evidence?: readonly ExtensionEvidence[] }
   | { readonly kind: "reject"; readonly diagnostic: ExtensionDiagnostic; readonly extensionId: string }
+  | { readonly kind: "deferred"; readonly question: ExtensionDecisionQuestionName }
   | { readonly kind: "missing-owner"; readonly question: ExtensionDecisionQuestionName }
   | { readonly kind: "owner-deferred"; readonly question: ExtensionDecisionQuestionName; readonly extensionId: string }
   | { readonly kind: "conflict"; readonly question: ExtensionDecisionQuestionName };
@@ -49,6 +50,7 @@ export type ExtensionDecisionQuestionName = typeof ExtensionDecisionQuestion[key
 
 export interface ExtensionDecisionRunOptions {
   readonly requireOwner?: boolean;
+  readonly deferWhenUnanswered?: boolean;
 }
 
 export interface SatisfiesConstraintRequest {
@@ -92,6 +94,7 @@ export interface InferTypeArgumentsResult {
 export interface ResolvePropertyAccessRequest {
   readonly expression: ExtensionFactSubject;
   readonly receiver: ExtensionFactSubject;
+  readonly receiverType?: ExtensionFactSubject;
   readonly propertyName: string;
   readonly target?: string;
 }
@@ -99,6 +102,7 @@ export interface ResolvePropertyAccessRequest {
 export interface ResolveElementAccessRequest {
   readonly expression: ExtensionFactSubject;
   readonly receiver: ExtensionFactSubject;
+  readonly receiverType?: ExtensionFactSubject;
   readonly argument: ExtensionFactSubject;
   readonly target?: string;
 }

@@ -57,13 +57,19 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
   recordExtensionCallArgumentConversions(extensionHost, { ...result.value, selectedSignature }, arguments_);
 }
 
-export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWithProgram>, propertyAccessExpression: GoPtr<Node>): void {
+export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWithProgram>, propertyAccessExpression: GoPtr<Node>, receiverType: GoPtr<Type>): void {
   if (checker === undefined || propertyAccessExpression === undefined) {
     return;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolvePropertyAccess) === undefined) {
+  if (
+    extensionHost === undefined ||
+    (
+      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolvePropertyAccess) === undefined &&
+      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolvePropertyAccess)
+    )
+  ) {
     return;
   }
 
@@ -78,13 +84,14 @@ export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWi
     {
       expression: propertyAccessExpression,
       receiver,
+      ...(receiverType !== undefined ? { receiverType } : {}),
       propertyName,
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
-      throw new Error("Extension-owned property access resolution unexpectedly reached core fallback.");
+      throw new Error("Optional extension property access resolution unexpectedly reached core fallback.");
     },
-    { requireOwner: true },
+    { deferWhenUnanswered: true },
   );
 
   if (result.kind !== "accept") {
@@ -94,13 +101,19 @@ export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWi
   extensionHost.facts.set(propertyAccessExpression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
 }
 
-export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWithProgram>, elementAccessExpression: GoPtr<Node>): void {
+export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWithProgram>, elementAccessExpression: GoPtr<Node>, receiverType: GoPtr<Type>): void {
   if (checker === undefined || elementAccessExpression === undefined) {
     return;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveElementAccess) === undefined) {
+  if (
+    extensionHost === undefined ||
+    (
+      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveElementAccess) === undefined &&
+      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolveElementAccess)
+    )
+  ) {
     return;
   }
 
@@ -115,13 +128,14 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
     {
       expression: elementAccessExpression,
       receiver,
+      ...(receiverType !== undefined ? { receiverType } : {}),
       argument,
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
-      throw new Error("Extension-owned element access resolution unexpectedly reached core fallback.");
+      throw new Error("Optional extension element access resolution unexpectedly reached core fallback.");
     },
-    { requireOwner: true },
+    { deferWhenUnanswered: true },
   );
 
   if (result.kind !== "accept") {
@@ -137,7 +151,13 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveOperator) === undefined) {
+  if (
+    extensionHost === undefined ||
+    (
+      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveOperator) === undefined &&
+      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolveOperator)
+    )
+  ) {
     return;
   }
 
@@ -151,9 +171,9 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
-      throw new Error("Extension-owned operator resolution unexpectedly reached core fallback.");
+      throw new Error("Optional extension operator resolution unexpectedly reached core fallback.");
     },
-    { requireOwner: true },
+    { deferWhenUnanswered: true },
   );
 
   if (result.kind !== "accept") {

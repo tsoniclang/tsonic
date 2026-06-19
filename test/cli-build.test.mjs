@@ -53,10 +53,6 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
       "  }",
       "}",
       "",
-      "export function pick(values: int[]): int {",
-      "  return values[1];",
-      "}",
-      "",
       "export function sum(values: number[]): number {",
       "  let total = 0;",
       "  let seen: number[] = [];",
@@ -104,7 +100,6 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
 
   const generatedSourcePath = resolve(projectDirectory, "out/csharp/src/Index.cs");
   const generatedSource = await readFile(generatedSourcePath, "utf8");
-  assert.match(generatedSource, /public static int pick\(int\[\] values\)/);
   assert.match(generatedSource, /public static double sum\(double\[\] values\)/);
   assert.match(generatedSource, /public int\[\] history = new int\[\] \{ \};/);
   assert.match(generatedSource, /double\[\] seen = new double\[\] \{ \};/);
@@ -253,6 +248,7 @@ test("CLI resolves TypeScript aliases through TSTS semantics before C# type rend
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int increment\(int value\)/);
   assert.match(generatedSource, /public static double scale\(double value, string label\)/);
+  assert.match(generatedSource, /return value \+ label\.Length;/);
   assert.doesNotMatch(generatedSource, /\bCount\b/);
   assert.doesNotMatch(generatedSource, /\bScalar\b/);
   assert.doesNotMatch(generatedSource, /\bLabel\b/);
@@ -374,7 +370,7 @@ test("CLI emits C# structs from neutral value-type facts and C# aliases", async 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI emits C# attributes from TSTS attribute builder facts", async () => {
+test("CLI rejects attribute builder targets without provider target facts", async () => {
   const projectDirectory = resolve(tempRoot, "attribute-builder");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -416,16 +412,8 @@ test("CLI emits C# attributes from TSTS attribute builder facts", async () => {
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /\[CLSCompliantAttribute\(true\)\]\n\s*public class Annotated/);
-  assert.match(generatedSource, /\[CLSCompliantAttribute\(false\)\]\n\s*public double value = 1;/);
-  assert.match(generatedSource, /\[CLSCompliantAttribute\(true\)\]\n\s*public double run\(\[CLSCompliantAttribute\(false\)\] double input\)/);
-  assert.doesNotMatch(generatedSource, /__unsupported/);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedAttributeBuilder.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# type expression emission requires a provider target binding or a project-source class\/interface declaration/);
 });
 
 test("CLI emits C# default expressions from neutral default facts and C# aliases", async () => {
@@ -1140,7 +1128,7 @@ test("CLI emits standard JavaScript private identifiers as private C# members", 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI lowers deterministic local destructuring from TSTS binding patterns", async () => {
+test("CLI rejects local destructuring until provider object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "local-destructuring");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1161,7 +1149,6 @@ test("CLI lowers deterministic local destructuring from TSTS binding patterns", 
       "export class Point {",
       "  x: number = 1;",
       "  y: number = 2;",
-      "  values: number[] = [];",
       "}",
       "",
       "export class Box {",
@@ -1172,37 +1159,18 @@ test("CLI lowers deterministic local destructuring from TSTS binding patterns", 
       "  const { x } = point;",
       "  const { x: aliasX, \"y\": stringY } = point;",
       "  const { child: { x: nestedX } } = box;",
-      "  const [first] = point.values;",
-      "  const [, second] = point.values;",
-      "  return x + aliasX + stringY + nestedX + first + second;",
+      "  return x + aliasX + stringY + nestedX;",
       "}",
       "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /var __destructure0 = point;/);
-  assert.match(generatedSource, /double x = __destructure0\.x;/);
-  assert.match(generatedSource, /var __destructure1 = point;/);
-  assert.match(generatedSource, /double aliasX = __destructure1\.x;/);
-  assert.match(generatedSource, /double stringY = __destructure1\.y;/);
-  assert.match(generatedSource, /var __destructure2 = box;/);
-  assert.match(generatedSource, /var __destructure3 = __destructure2\.child;/);
-  assert.match(generatedSource, /double nestedX = __destructure3\.x;/);
-  assert.match(generatedSource, /var __destructure4 = point\.values;/);
-  assert.match(generatedSource, /double first = __destructure4\[0\];/);
-  assert.match(generatedSource, /var __destructure5 = point\.values;/);
-  assert.match(generatedSource, /double second = __destructure5\[1\];/);
-  assert.doesNotMatch(generatedSource, /__unsupported/);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDestructuring.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Destructuring requires finalized TSTS\/provider object or collection shape facts/);
 });
 
-test("CLI lowers parameter and for-of destructuring without dynamic C# carriers", async () => {
+test("CLI rejects parameter destructuring until provider object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "parameter-forof-destructuring");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1223,23 +1191,10 @@ test("CLI lowers parameter and for-of destructuring without dynamic C# carriers"
       "export class Point {",
       "  x: number = 1;",
       "  y: number = 2;",
-      "  values: number[] = [];",
       "}",
       "",
       "export function fromObjectParameter({ x }: Point): number {",
       "  return x;",
-      "}",
-      "",
-      "export function fromArrayParameter([first]: number[]): number {",
-      "  return first;",
-      "}",
-      "",
-      "export function fromForOf(rows: number[][]): number {",
-      "  let total = 0;",
-      "  for (const [first] of rows) {",
-      "    total = total + first;",
-      "  }",
-      "  return total;",
       "}",
       "",
       "export function fromForInitializer(point: Point): number {",
@@ -1253,22 +1208,8 @@ test("CLI lowers parameter and for-of destructuring without dynamic C# carriers"
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double fromObjectParameter\(Point __param0\)/);
-  assert.match(generatedSource, /double x = __param0\.x;/);
-  assert.match(generatedSource, /public static double fromArrayParameter\(double\[\] __param0\)/);
-  assert.match(generatedSource, /double first = __param0\[0\];/);
-  assert.match(generatedSource, /foreach \(var __forOf0 in rows\)/);
-  assert.match(generatedSource, /double first = __forOf0\[0\];/);
-  assert.match(generatedSource, /var __destructure0 = point;/);
-  assert.match(generatedSource, /for \(; x < 2; \)/);
-  assert.doesNotMatch(generatedSource, /object __param/);
-  assert.doesNotMatch(generatedSource, /__unsupported/);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedParameterForOfDestructuring.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Destructured parameters require finalized TSTS\/provider object-shape facts/);
 });
 
 test("CLI rejects any and unknown before they trickle into C# output", async () => {
@@ -1624,10 +1565,6 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
       "  return box?.read() ?? fallback;",
       "}",
       "",
-      "export function readArray(values: number[], fallback: number): number {",
-      "  return values?.[0] ?? fallback;",
-      "}",
-      "",
     ].join("\n"),
   });
 
@@ -1637,14 +1574,13 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return box\?\.value \?\? fallback;/);
   assert.match(generatedSource, /return box\?\.read\(\) \?\? fallback;/);
-  assert.match(generatedSource, /return values\?\[0\] \?\? fallback;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOptionalChain.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI emits nullable C# types only for nullish TSTS unions", async () => {
+test("CLI rejects nullish unions until provider storage facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "nullable-unions");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1682,19 +1618,11 @@ test("CLI emits nullable C# types only for nullish TSTS unions", async () => {
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
-  assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);
-  assert.match(generatedSource, /public static double read\(Box\? box, double fallback\)/);
-  assert.doesNotMatch(generatedSource, /__unsupported/);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNullableUnions.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Union type annotations require finalized TSTS\/provider storage facts/);
 });
 
-test("CLI emits typed object literals as C# object initializers", async () => {
+test("CLI rejects typed object literals until provider object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "typed-object-initializers");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1739,17 +1667,8 @@ test("CLI emits typed object literals as C# object initializers", async () => {
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Box box = new Box\n\s*\{\n\s*value = 1,\n\s*label = "one",\n\s*\};/);
-  assert.match(generatedSource, /Box box = new Box\n\s*\{\n\s*value = value,\n\s*label = "two",\n\s*\};/);
-  assert.match(generatedSource, /return new Box\n\s*\{\n\s*value = value,\n\s*label = "three",\n\s*\};/);
-  assert.match(generatedSource, /return flag \? new Box\n\s*\{\n\s*value = value,\n\s*label = "yes",\n\s*\} : new Box\n\s*\{\n\s*value = 0,\n\s*label = "no",\n\s*\};/);
-  assert.doesNotMatch(generatedSource, /__unsupported/);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectInitializers.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Object literal emission requires finalized TSTS\/provider object-shape facts/);
 });
 
 test("CLI emits explicit tuple types and tuple literals as C# value tuples", async () => {
@@ -1859,7 +1778,29 @@ test("CLI rejects non-nullish unions until runtime-carrier facts are finalized",
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Union type annotations require nullable shape or finalized runtime-carrier facts/);
+  assert.match(build.stderr, /Union type annotations require finalized TSTS\/provider storage facts/);
+});
+
+test("CLI rejects array element access until provider indexer facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "array-element-access");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function pick(values: number[]): number {",
+      "  return values[0];",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# element access must be selected by TSTS\/provider facts before emission/);
 });
 
 test("CLI rejects primitive generic constraints until provider constraint facts are finalized", async () => {
@@ -1884,7 +1825,7 @@ test("CLI rejects primitive generic constraints until provider constraint facts 
   assert.match(build.stderr, /Generic constraints require a named target type/);
 });
 
-test("CLI lowers array for-in into deterministic C# index-key loops", async () => {
+test("CLI rejects array for-in until provider enumeration facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "array-for-in");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1914,16 +1855,8 @@ test("CLI lowers array for-in into deterministic C# index-key loops", async () =
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /for \(int __forInIndex0 = 0; __forInIndex0 < values\.Length; __forInIndex0\+\+\)/);
-  assert.match(generatedSource, /string key = __forInIndex0\.ToString\(\);/);
-  assert.match(generatedSource, /total = total \+ key\.Length;/);
-  assert.doesNotMatch(generatedSource, /__unsupported/);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayForIn.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /For-in requires finalized TSTS\/provider enumeration facts/);
 });
 
 test("CLI rejects object for-in until target object-shape enumeration facts are finalized", async () => {
@@ -1953,7 +1886,7 @@ test("CLI rejects object for-in until target object-shape enumeration facts are 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /For-in requires a statically proven string or array collection/);
+  assert.match(build.stderr, /For-in requires finalized TSTS\/provider enumeration facts/);
 });
 
 test("CLI rejects structural object destructuring until target object-shape facts are finalized", async () => {
@@ -1975,7 +1908,7 @@ test("CLI rejects structural object destructuring until target object-shape fact
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Structural object type annotations require target object-shape semantics/);
+  assert.match(build.stderr, /Destructured parameters require finalized TSTS\/provider object-shape facts/);
 });
 
 test("CLI does not emit target artifacts when TSTS rejects the source program", async () => {

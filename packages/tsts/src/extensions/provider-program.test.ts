@@ -858,9 +858,13 @@ test("checker records provider-owned member element and operator facts for consu
     Config: parsed,
     Host: host,
   } satisfies ProgramOptions;
+  const capture = {
+    propertyReceiverTypeSeen: false,
+    elementReceiverTypeSeen: false,
+  };
   const extended = attachExtensionHost(options, {
     activeTarget: "dotnet",
-    extensions: [providerExtension("@example/dotnet/System.Console.js", false, surfaceSemanticProvider())],
+    extensions: [providerExtension("@example/dotnet/System.Console.js", false, surfaceSemanticProvider(capture))],
   });
 
   const program = NewProgram(options);
@@ -872,6 +876,8 @@ test("checker records provider-owned member element and operator facts for consu
   const elementAccess = findFirstNodeByKind(index, KindElementAccessExpression);
   const binaryExpression = findFirstNodeByKind(index, KindBinaryExpression);
 
+  assert.equal(capture.propertyReceiverTypeSeen, true);
+  assert.equal(capture.elementReceiverTypeSeen, true);
   assert.equal(extended.extensionHost.facts.get(propertyAccess, targetOperationFactKey)?.operationId, "System.String.Length");
   assert.equal(extended.extensionHost.facts.get(elementAccess, targetOperationFactKey)?.operationId, "System.ReadOnlySpan.GetItem");
   assert.equal(extended.extensionHost.facts.get(binaryExpression, targetOperationFactKey)?.operationId, "System.Int32.op_Addition");
@@ -883,7 +889,7 @@ test("checker records provider-owned member element and operator facts for consu
   assert.equal(consumer.getSelectedTargetOperator(binaryExpression)?.targetOperation, "System.Int32.op_Addition");
 });
 
-test("checker-owned member element and operator seams report deferred providers without fallback facts", () => {
+test("optional member element and operator seams defer without fallback facts", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
       declare const text: { length: number };
@@ -931,7 +937,7 @@ test("checker-owned member element and operator seams report deferred providers 
   assert.equal(extended.extensionHost.facts.get(propertyAccess, targetOperationFactKey), undefined);
   assert.equal(extended.extensionHost.facts.get(elementAccess, targetOperationFactKey), undefined);
   assert.equal(extended.extensionHost.facts.get(binaryExpression, targetOperationFactKey), undefined);
-  assert.ok(extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.decisionOwnerDeferred).length >= 3);
+  assert.equal(extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.decisionOwnerDeferred).length, 0);
 });
 
 test("extension-owned semantic rejections surface through standard diagnostics with source location", () => {
@@ -1455,17 +1461,27 @@ function rustAssignabilityProvider(): TargetSemanticProvider {
   };
 }
 
-function surfaceSemanticProvider(): TargetSemanticProvider {
+function surfaceSemanticProvider(capture?: { propertyReceiverTypeSeen: boolean; elementReceiverTypeSeen: boolean }): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-surface-semantic-provider"),
-    resolvePropertyAccess: () => acceptDecision({
-      operation: targetOperation("System.String.Length", "property", "int32"),
-      resultType: semanticSubject("int32"),
-    }),
-    resolveElementAccess: () => acceptDecision({
-      operation: targetOperation("System.ReadOnlySpan.GetItem", "indexer", "char16"),
-      resultType: semanticSubject("char16"),
-    }),
+    resolvePropertyAccess: (request) => {
+      if (request.receiverType !== undefined && capture !== undefined) {
+        capture.propertyReceiverTypeSeen = true;
+      }
+      return acceptDecision({
+        operation: targetOperation("System.String.Length", "property", "int32"),
+        resultType: semanticSubject("int32"),
+      });
+    },
+    resolveElementAccess: (request) => {
+      if (request.receiverType !== undefined && capture !== undefined) {
+        capture.elementReceiverTypeSeen = true;
+      }
+      return acceptDecision({
+        operation: targetOperation("System.ReadOnlySpan.GetItem", "indexer", "char16"),
+        resultType: semanticSubject("char16"),
+      });
+    },
     resolveOperator: () => acceptDecision({
       operation: targetOperation("System.Int32.op_Addition", "operator", "int32"),
       resultType: semanticSubject("int32"),

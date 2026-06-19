@@ -976,6 +976,10 @@ export class ExtensionHost {
     return ownerId === undefined ? undefined : this.#extensionsById.get(ownerId);
   }
 
+  hasDecisionHook(question: ExtensionDecisionQuestionName): boolean {
+    return (this.#decisionHooks.get(question)?.length ?? 0) > 0;
+  }
+
   requireDecisionOwner(question: ExtensionDecisionQuestionName): CompilerExtension | undefined {
     const owner = this.getDecisionOwner(question);
     if (owner !== undefined) {
@@ -1041,6 +1045,9 @@ export class ExtensionHost {
     const selectedHooks = owner === undefined ? hooks : hooks.filter((hook) => hook.extensionId === owner.identity.id);
 
     if (selectedHooks.length === 0) {
+      if (options.deferWhenUnanswered === true) {
+        return { kind: "deferred", question };
+      }
       if (owner !== undefined && options.requireOwner === true) {
         this.diagnostics.append(createHostDiagnostic({
           extensionCode: "DECISION_OWNER_DEFERRED",
@@ -1094,6 +1101,9 @@ export class ExtensionHost {
     }
 
     if (nonDeferred.length === 0) {
+      if (options.deferWhenUnanswered === true) {
+        return { kind: "deferred", question };
+      }
       if (owner !== undefined && options.requireOwner === true) {
         this.diagnostics.append(createHostDiagnostic({
           extensionCode: "DECISION_OWNER_DEFERRED",

@@ -4,7 +4,6 @@
     { "path": "./packages/tsts" },
     { "path": "./packages/target-api" },
     { "path": "./packages/host" },
-    { "path": "./packages/target-csharp" },
     { "path": "./packages/cli" }
   ]
 }
