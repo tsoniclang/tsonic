@@ -13,11 +13,18 @@ PACKAGES=(
   "packages/tsts"
   "packages/target-api"
   "packages/host"
-  "packages/target-csharp"
   "packages/cli"
 )
 
 for pkg in "${PACKAGES[@]}"; do
+  if [[ "$pkg" == "packages/cli" && -d "../tsonic-csharp" ]]; then
+    if [[ ! -e "../tsonic-csharp/node_modules/@tsonic/tsts" || ! -e "../tsonic-csharp/node_modules/@tsonic/target-api" ]]; then
+      echo "Installing ../tsonic-csharp dependencies..."
+      (cd "../tsonic-csharp" && npm install)
+    fi
+    echo "Building ../tsonic-csharp..."
+    (cd "../tsonic-csharp" && npm run build)
+  fi
   if node -e "process.exit(require('./$pkg/package.json').scripts?.build ? 0 : 1)"; then
     echo "Building $pkg..."
     (cd "$pkg" && npm run build)

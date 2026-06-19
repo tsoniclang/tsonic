@@ -1,10 +1,12 @@
 export { CommandLine } from "./internal/execute/tsc.js";
 export type { CommandLineResult, CommandLineTesting, ExitStatus, System } from "./internal/execute/tsc/compile.js";
+export { LibPath, WrapFS as WrapBundledFileSystem } from "./internal/bundled/bundled.js";
 export { NewCachedFSCompilerHost, NewCompilerHost } from "./internal/compiler/host.js";
 export type { CompilerHost } from "./internal/compiler/host.js";
 export {
   NewProgram,
   Program_BindSourceFiles,
+  Program_GetConfigFileParsingDiagnostics,
   Program_GetProgramDiagnostics,
   Program_GetSemanticDiagnostics,
   Program_GetSourceFiles,
@@ -17,10 +19,123 @@ export type { ArgumentPassingFact, ArgumentPassingMode, AssignabilityRequest, As
 export { ParseBuildCommandLine, ParseCommandLine } from "./internal/tsoptions/commandlineparser.js";
 export type { ParsedBuildCommandLine } from "./internal/tsoptions/parsedbuildcommandline.js";
 export type { ParsedCommandLine } from "./internal/tsoptions/parsedcommandline.js";
+export { FS as OSFileSystem } from "./internal/vfs/osvfs/os.js";
+export type { FS as TstsFileSystem } from "./internal/vfs/vfs.js";
 export { barebonesLibContent, formatDiagnostics, transpile, transpileDeclaration, transpileModule } from "./services/transpile.js";
 export type { TranspileCompilerOptions, TranspileCompilerOptionValue, TranspileOptions, TranspileOutput } from "./services/transpile.js";
 export { createTypeCheckerQueries } from "./services/type-checker.js";
 export type { TypeCheckerQueries, TypeCheckerQueryOptions } from "./services/type-checker.js";
+export {
+  Node_Statements,
+  Node_Text,
+  SourceFile_FileName,
+} from "./internal/ast/ast.js";
+export { Node_Name } from "./internal/ast/spine.js";
+export {
+  AsBinaryExpression,
+  AsBlock,
+  AsCallExpression,
+  AsClassDeclaration,
+  AsConstructorDeclaration,
+  AsConditionalExpression,
+  AsDoStatement,
+  AsElementAccessExpression,
+  AsExpressionStatement,
+  AsForInOrOfStatement,
+  AsForStatement,
+  AsFunctionDeclaration,
+  AsIdentifier,
+  AsIfStatement,
+  AsMethodDeclaration,
+  AsNewExpression,
+  AsParameterDeclaration,
+  AsParenthesizedExpression,
+  AsPropertyAccessExpression,
+  AsPropertyDeclaration,
+  AsPrefixUnaryExpression,
+  AsPostfixUnaryExpression,
+  AsReturnStatement,
+  AsStringLiteral,
+  AsNumericLiteral,
+  AsArrayLiteralExpression,
+  AsArrayTypeNode,
+  AsVariableDeclaration,
+  AsVariableDeclarationList,
+  AsVariableStatement,
+  AsWhileStatement,
+} from "./internal/ast/generated/casts.js";
+export {
+  KindAmpersandAmpersandToken,
+  KindAsteriskToken,
+  KindBarBarToken,
+  KindBinaryExpression,
+  KindBlock,
+  KindCallExpression,
+  KindArrayLiteralExpression,
+  KindArrayType,
+  KindClassDeclaration,
+  KindConditionalExpression,
+  KindConstructor,
+  KindDoStatement,
+  KindElementAccessExpression,
+  KindExclamationEqualsEqualsToken,
+  KindExclamationEqualsToken,
+  KindExclamationToken,
+  KindEqualsEqualsEqualsToken,
+  KindEqualsEqualsToken,
+  KindEqualsToken,
+  KindExportAssignment,
+  KindExportDeclaration,
+  KindExpressionStatement,
+  KindFalseKeyword,
+  KindForInStatement,
+  KindForOfStatement,
+  KindForStatement,
+  KindFunctionDeclaration,
+  KindGreaterThanEqualsToken,
+  KindGreaterThanToken,
+  KindIdentifier,
+  KindIfStatement,
+  KindImportDeclaration,
+  KindInterfaceDeclaration,
+  KindLessThanEqualsToken,
+  KindLessThanToken,
+  KindMethodDeclaration,
+  KindMinusToken,
+  KindMinusMinusToken,
+  KindNullKeyword,
+  KindNumericLiteral,
+  KindNewExpression,
+  KindPlusToken,
+  KindPlusPlusToken,
+  KindParenthesizedExpression,
+  KindPercentToken,
+  KindPropertyAccessExpression,
+  KindPropertyDeclaration,
+  KindPrefixUnaryExpression,
+  KindPostfixUnaryExpression,
+  KindQuestionQuestionToken,
+  KindReturnStatement,
+  KindSlashToken,
+  KindStringLiteral,
+  KindThisKeyword,
+  KindTrueKeyword,
+  KindTypeAliasDeclaration,
+  KindVariableStatement,
+  KindVariableDeclarationList,
+  KindWhileStatement,
+  KindString,
+} from "./internal/ast/generated/kinds.js";
 export type { Node, SourceFile } from "./internal/ast/ast.js";
 export type { Symbol } from "./internal/ast/symbol.js";
+export {
+  TypeFlagsAny,
+  TypeFlagsBigIntLike,
+  TypeFlagsBooleanLike,
+  TypeFlagsNever,
+  TypeFlagsNumberLike,
+  TypeFlagsStringLike,
+  TypeFlagsUnknown,
+  TypeFlagsVoidLike,
+} from "./internal/checker/types.js";
 export type { ContextFlags, Signature, Type } from "./internal/checker/types.js";

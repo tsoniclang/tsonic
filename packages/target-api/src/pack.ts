@@ -18,6 +18,13 @@ export interface TargetBackendContext {
   readonly target: TargetSelection;
 }
 
+export interface TargetCompilationPaths {
+  readonly projectFilePath: string;
+  readonly projectRoot: string;
+  readonly outputRoot: string;
+  readonly targetOutputRoot: string;
+}
+
 export interface TargetCompileInput {
   readonly program: Program;
   readonly sourceFiles: readonly SourceFile[];
@@ -25,6 +32,7 @@ export interface TargetCompileInput {
   readonly facts: ExtensionConsumerQueries;
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
+  readonly paths: TargetCompilationPaths;
 }
 
 export interface TargetBackend {

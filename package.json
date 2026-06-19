@@ -9,14 +9,13 @@
     "build:quick": "./scripts/build/all.sh --no-format",
     "clean": "./scripts/build/clean.sh",
     "clean:all": "./scripts/build/clean.sh --all",
-    "test": "cd packages/tsts && npm test --",
+    "test": "npm run build && node --test test/*.test.mjs",
     "typecheck": "npm run build"
   },
   "workspaces": [
     "packages/tsts",
     "packages/target-api",
     "packages/host",
-    "packages/target-csharp",
     "packages/cli"
   ],
   "devDependencies": {

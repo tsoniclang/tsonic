@@ -4,9 +4,11 @@ import {
   createExtensionConsumerQueries,
   createTypeCheckerQueries,
   finalizeExtensionSemantics,
+  formatDiagnostics,
   getExtensionHost,
   NewProgram,
   Program_BindSourceFiles,
+  Program_GetConfigFileParsingDiagnostics,
   Program_GetProgramDiagnostics,
   Program_GetSemanticDiagnostics,
   Program_GetSourceFiles,
@@ -23,6 +25,8 @@ import type {
 import type {
   TargetCompileInput,
   TargetCompileResult,
+  TargetCompilationPaths,
+  TargetDiagnostic,
   TargetPack,
   TargetSelection,
   TsonicProjectConfig,
@@ -74,6 +78,7 @@ export function compileTargetFromSemanticSession(
   project: TsonicProjectConfig,
   target: TargetSelection,
   targetPack: TargetPack,
+  paths: TargetCompilationPaths,
 ): TargetCompileResult {
   const input: TargetCompileInput = {
     program: session.program,
@@ -82,8 +87,33 @@ export function compileTargetFromSemanticSession(
     facts: session.facts,
     project,
     target,
+    paths,
   };
   return targetPack.createBackend({ project, target }).compile(input);
+}
+
+export function collectTstsDiagnostics(program: Program, sourceFiles: readonly SourceFile[], currentDirectory: string): readonly TargetDiagnostic[] {
+  const diagnostics = [
+    ...(Program_GetConfigFileParsingDiagnostics(program) ?? []),
+    ...(Program_GetProgramDiagnostics(program) ?? []),
+  ].filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined);
+  const context = Background();
+  for (const sourceFile of sourceFiles) {
+    diagnostics.push(...(Program_GetSyntacticDiagnostics(program, context, sourceFile) ?? [])
+      .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined));
+    diagnostics.push(...(Program_GetSemanticDiagnostics(program, context, sourceFile) ?? [])
+      .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined));
+  }
+  const message = formatDiagnostics(diagnostics, currentDirectory);
+  if (message.length === 0) {
+    return [];
+  }
+  return [{
+    code: "TSTS_DIAGNOSTIC",
+    category: "error",
+    message,
+    source: "tsts",
+  }];
 }
 
 function forceDiagnostics(program: Program, sourceFiles: readonly SourceFile[]): void {

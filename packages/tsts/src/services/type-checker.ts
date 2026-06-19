@@ -11,6 +11,7 @@ import { CheckModeNormal } from "../internal/checker/checker/state.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import { Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getResolvedSymbol, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol } from "../internal/checker/checker/symbols.js";
 import { Checker_getContextualType, Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
+import { Checker_TypeToString } from "../internal/checker/printer.js";
 import type { ContextFlags, Signature, Type } from "../internal/checker/types.js";
 import { ContextFlagsNone } from "../internal/checker/types.js";
 
@@ -28,6 +29,7 @@ export interface TypeCheckerQueries {
   readonly getTypeOfSymbol: (symbol: GoPtr<Symbol>, options?: TypeCheckerQueryOptions) => GoPtr<Type>;
   readonly getDeclaredTypeOfSymbol: (symbol: GoPtr<Symbol>, options?: TypeCheckerQueryOptions) => GoPtr<Type>;
   readonly getResolvedSignature: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Signature>;
+  readonly typeToString: (type: GoPtr<Type>, options?: TypeCheckerQueryOptions) => string | undefined;
 }
 
 export function createTypeCheckerQueries(program: GoPtr<Program>, defaultOptions: TypeCheckerQueryOptions = {}): TypeCheckerQueries {
@@ -48,6 +50,9 @@ export function createTypeCheckerQueries(program: GoPtr<Program>, defaultOptions
       withCheckerForSymbol(program, symbol, defaultOptions, options, (checker) => Checker_getDeclaredTypeOfSymbol(checker, symbol)),
     getResolvedSignature: (node, options = {}) =>
       withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal)),
+    typeToString: (type, options = {}) =>
+      withChecker(program, options.sourceFile ?? defaultOptions.sourceFile, defaultOptions, options, (checker) =>
+        type === undefined ? undefined : Checker_TypeToString(checker, type)),
   };
 }
 
