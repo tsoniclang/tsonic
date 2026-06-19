@@ -26,7 +26,11 @@ export {
 } from "./compiler-integration.js";
 export {
   getTypeScriptArrayElementType,
+  getTypeScriptTypeReferenceInfo,
   isTypeScriptArrayType,
+} from "./type-helpers.js";
+export type {
+  TypeScriptTypeReferenceInfo,
 } from "./type-helpers.js";
 export {
   ExtensionDecisionQuestion,

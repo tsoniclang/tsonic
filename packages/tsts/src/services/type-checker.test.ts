@@ -17,7 +17,7 @@ import { TypeFlagsNumber, TypeFlagsString } from "../internal/checker/types.js";
 import type { ParseConfigHost } from "../internal/tsoptions/tsconfigparsing.js";
 import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
 import { FromMap } from "../internal/vfs/vfstest/vfstest.js";
-import { createTypeCheckerQueries } from "../index.js";
+import { createTypeCheckerQueries, getTypeScriptTypeReferenceInfo } from "../index.js";
 
 test("public type-checker queries expose TS-Go checker facts without emitter re-analysis", () => {
   const { program, index } = createProgram(`
@@ -73,6 +73,12 @@ test("public type-checker queries expose instantiated generic member types", () 
   assertCleanSemanticDiagnostics(program, index);
 
   const queries = createTypeCheckerQueries(program);
+  const nestedValueAccess = findPropertyAccessByName(index, "value", (node) => node?.Parent?.Kind === KindPropertyAccessExpression);
+  const nestedValueType = queries.getTypeAtLocation(nestedValueAccess);
+  const nestedValueReference = getTypeScriptTypeReferenceInfo(nestedValueType);
+  assert.equal(nestedValueReference?.targetSymbol?.Name, "Box");
+  assert.equal(nestedValueReference?.typeArguments.length, 1);
+
   const finalValueAccess = findPropertyAccessByName(index, "value", (node) => node?.Parent?.Kind === KindExpressionStatement);
   const finalValueType = queries.getTypeAtLocation(finalValueAccess);
   assert.equal((finalValueType?.flags ?? 0) & TypeFlagsNumber, TypeFlagsNumber);
