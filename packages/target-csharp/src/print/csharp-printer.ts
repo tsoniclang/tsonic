@@ -48,7 +48,8 @@ function printTypeMemberLines(member: CsharpTypeMember): string[] {
   switch (member.kind) {
     case "field": {
       const modifiers = member.modifiers.length === 0 ? "" : `${member.modifiers.join(" ")} `;
-      return [`${modifiers}${printCsharpType(member.type)} ${member.name};`];
+      const initializer = member.initializer === undefined ? "" : ` = ${printCsharpExpression(member.initializer)}`;
+      return [`${modifiers}${printCsharpType(member.type)} ${member.name}${initializer};`];
     }
     case "method":
       return printMethodLines(member);
@@ -64,7 +65,7 @@ function printMethodLines(method: CsharpMethodDeclaration): string[] {
   return [
     `${modifiers}${printCsharpType(method.returnType)} ${method.name}(${parameters})`,
     "{",
-    ...indentLines(method.body.statements.map(printCsharpStatement)),
+    ...indentLines(printCsharpStatements(method.body.statements)),
     "}",
   ];
 }
@@ -92,7 +93,33 @@ export function printCsharpStatement(statement: CsharpStatement): string {
       return statement.initializer === undefined
         ? `${printCsharpType(statement.type)} ${statement.name};`
         : `${printCsharpType(statement.type)} ${statement.name} = ${printCsharpExpression(statement.initializer)};`;
+    case "if":
+      return [
+        `if (${printCsharpExpression(statement.condition)})`,
+        "{",
+        ...indentLines(printCsharpStatements(statement.thenBody.statements)),
+        "}",
+        ...(statement.elseBody === undefined
+          ? []
+          : [
+              "else",
+              "{",
+              ...indentLines(printCsharpStatements(statement.elseBody.statements)),
+              "}",
+            ]),
+      ].join("\n");
+    case "while":
+      return [
+        `while (${printCsharpExpression(statement.condition)})`,
+        "{",
+        ...indentLines(printCsharpStatements(statement.body.statements)),
+        "}",
+      ].join("\n");
   }
+}
+
+function printCsharpStatements(statements: readonly CsharpStatement[]): string[] {
+  return statements.flatMap((statement) => printCsharpStatement(statement).split("\n"));
 }
 
 export function printCsharpExpression(expression: CsharpExpression): string {

@@ -47,6 +47,7 @@ export interface CsharpFieldDeclaration {
   readonly name: string;
   readonly modifiers: readonly CsharpModifier[];
   readonly type: CsharpTypeNode;
+  readonly initializer?: CsharpExpression;
 }
 
 export interface CsharpParameter {
@@ -69,7 +70,9 @@ export interface CsharpBlock {
 export type CsharpStatement =
   | { readonly kind: "return"; readonly expression?: CsharpExpression }
   | { readonly kind: "expression"; readonly expression: CsharpExpression }
-  | { readonly kind: "local"; readonly name: string; readonly type: CsharpTypeNode; readonly initializer?: CsharpExpression };
+  | { readonly kind: "local"; readonly name: string; readonly type: CsharpTypeNode; readonly initializer?: CsharpExpression }
+  | { readonly kind: "if"; readonly condition: CsharpExpression; readonly thenBody: CsharpBlock; readonly elseBody?: CsharpBlock }
+  | { readonly kind: "while"; readonly condition: CsharpExpression; readonly body: CsharpBlock };
 
 export type CsharpExpression =
   | { readonly kind: "identifier"; readonly name: string }

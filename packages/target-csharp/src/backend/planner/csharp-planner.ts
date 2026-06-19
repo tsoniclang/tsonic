@@ -3,44 +3,63 @@ import {
   AsBinaryExpression,
   AsBlock,
   AsCallExpression,
+  AsClassDeclaration,
+  AsExpressionStatement,
   AsFunctionDeclaration,
   AsIdentifier,
+  AsIfStatement,
+  AsMethodDeclaration,
   AsNumericLiteral,
   AsParameterDeclaration,
   AsPropertyAccessExpression,
+  AsPropertyDeclaration,
   AsReturnStatement,
   AsStringLiteral,
   AsVariableDeclaration,
   AsVariableDeclarationList,
   AsVariableStatement,
+  AsWhileStatement,
   KindAmpersandAmpersandToken,
   KindAsteriskToken,
   KindBarBarToken,
   KindBinaryExpression,
+  KindBlock,
   KindCallExpression,
   KindClassDeclaration,
   KindEqualsEqualsEqualsToken,
   KindEqualsEqualsToken,
   KindEqualsToken,
+  KindExclamationEqualsEqualsToken,
+  KindExclamationEqualsToken,
   KindExportAssignment,
   KindExportDeclaration,
+  KindExpressionStatement,
   KindFalseKeyword,
   KindFunctionDeclaration,
+  KindGreaterThanEqualsToken,
+  KindGreaterThanToken,
   KindIdentifier,
+  KindIfStatement,
   KindImportDeclaration,
   KindInterfaceDeclaration,
+  KindLessThanEqualsToken,
+  KindLessThanToken,
+  KindMethodDeclaration,
   KindMinusToken,
   KindNullKeyword,
   KindNumericLiteral,
   KindPlusToken,
   KindPropertyAccessExpression,
+  KindPropertyDeclaration,
   KindReturnStatement,
   KindSlashToken,
   KindString,
   KindStringLiteral,
+  KindThisKeyword,
   KindTrueKeyword,
   KindTypeAliasDeclaration,
   KindVariableStatement,
+  KindWhileStatement,
   Node_Text,
   SourceFile_FileName,
   TypeFlagsAny,
@@ -58,8 +77,11 @@ import type {
   CsharpArgument,
   CsharpCompilationUnit,
   CsharpExpression,
+  CsharpFieldDeclaration,
+  CsharpClassDeclaration,
   CsharpMethodDeclaration,
   CsharpStatement,
+  CsharpTypeDeclaration,
   CsharpTypeMember,
   CsharpTypeNode,
 } from "../ast/csharp-ast.js";
@@ -98,6 +120,7 @@ function planSourceFile(
     return undefined;
   }
   const members: CsharpTypeMember[] = [];
+  const namespaceMembers: CsharpTypeDeclaration[] = [];
   const topLevelStatements: CsharpStatement[] = [];
   for (const statement of sourceFile.Statements?.Nodes ?? []) {
     if (statement === undefined) {
@@ -113,12 +136,15 @@ function planSourceFile(
       case KindFunctionDeclaration:
         members.push(planFunctionDeclaration(statement, sourceFile, input, diagnostics));
         break;
+      case KindClassDeclaration:
+        namespaceMembers.push(planClassDeclaration(statement, sourceFile, input, diagnostics));
+        break;
+      case KindExpressionStatement:
       case KindVariableStatement:
+      case KindIfStatement:
+      case KindWhileStatement:
       case KindReturnStatement:
         topLevelStatements.push(planStatement(statement, sourceFile, input, diagnostics));
-        break;
-      case KindClassDeclaration:
-        diagnostics.push(unsupportedNodeDiagnostic(statement, "C# class planning is not implemented in the clean target AST planner yet."));
         break;
       default:
         diagnostics.push(unsupportedNodeDiagnostic(statement, "Top-level statement is outside the current C# planning surface."));
@@ -135,7 +161,15 @@ function planSourceFile(
       body: { statements: topLevelStatements },
     });
   }
-  if (members.length === 0) {
+  if (members.length > 0) {
+    namespaceMembers.unshift({
+      kind: "class",
+      name: sourceFileClassName(fileName),
+      modifiers: ["public", "static"],
+      members,
+    });
+  }
+  if (namespaceMembers.length === 0) {
     return undefined;
   }
   const unit: CsharpCompilationUnit = {
@@ -143,12 +177,7 @@ function planSourceFile(
     members: [{
       kind: "namespace",
       name: readNamespace(input),
-      members: [{
-        kind: "class",
-        name: sourceFileClassName(fileName),
-        modifiers: ["public", "static"],
-        members,
-      }],
+      members: namespaceMembers,
     }],
   };
   return {
@@ -156,6 +185,78 @@ function planSourceFile(
     language: "csharp",
     path: `src/${sourceFileClassName(fileName)}.cs`,
     text: printCsharpCompilationUnit(unit),
+  };
+}
+
+function planClassDeclaration(
+  node: Node,
+  sourceFile: SourceFile,
+  input: TargetCompileInput,
+  diagnostics: TargetDiagnostic[],
+): CsharpClassDeclaration {
+  const declaration = AsClassDeclaration(node)!;
+  return {
+    kind: "class",
+    name: sanitizeIdentifier(declaration.name === undefined ? "AnonymousClass" : Node_Text(declaration.name)),
+    modifiers: ["public"],
+    members: (declaration.Members?.Nodes ?? []).flatMap((member): CsharpTypeMember[] => {
+      if (member === undefined) {
+        return [];
+      }
+      switch (member.Kind) {
+        case KindMethodDeclaration:
+          return [planMethodDeclaration(member, sourceFile, input, diagnostics)];
+        case KindPropertyDeclaration:
+          return [planPropertyDeclaration(member, sourceFile, input, diagnostics)];
+        default:
+          diagnostics.push(unsupportedNodeDiagnostic(member, "Class member is outside the current C# planning surface."));
+          return [];
+      }
+    }),
+  };
+}
+
+function planMethodDeclaration(
+  node: Node,
+  sourceFile: SourceFile,
+  input: TargetCompileInput,
+  diagnostics: TargetDiagnostic[],
+): CsharpMethodDeclaration {
+  const declaration = AsMethodDeclaration(node)!;
+  const parameters = (declaration.Parameters?.Nodes ?? []).map((parameterNode) => {
+    const parameter = AsParameterDeclaration(parameterNode)!;
+    return {
+      name: sanitizeIdentifier(parameter.name === undefined ? "arg" : Node_Text(parameter.name)),
+      type: getCsharpTypeForNode(parameter.Type ?? parameter.name, sourceFile, input),
+    };
+  });
+  return {
+    kind: "method",
+    name: sanitizeIdentifier(declaration.name === undefined ? "method" : Node_Text(declaration.name)),
+    modifiers: ["public"],
+    returnType: getCsharpTypeForNode(declaration.Type, sourceFile, input, predefined("void")),
+    parameters,
+    body: {
+      statements: planBlockStatements(declaration.Body, sourceFile, input, diagnostics),
+    },
+  };
+}
+
+function planPropertyDeclaration(
+  node: Node,
+  sourceFile: SourceFile,
+  input: TargetCompileInput,
+  diagnostics: TargetDiagnostic[],
+): CsharpFieldDeclaration {
+  const declaration = AsPropertyDeclaration(node)!;
+  return {
+    kind: "field",
+    name: sanitizeIdentifier(declaration.name === undefined ? "field" : Node_Text(declaration.name)),
+    modifiers: ["public"],
+    type: getCsharpTypeForNode(declaration.Type ?? declaration.name, sourceFile, input),
+    ...(declaration.Initializer !== undefined
+      ? { initializer: planExpression(declaration.Initializer, sourceFile, input, diagnostics) }
+      : {}),
   };
 }
 
@@ -216,6 +317,31 @@ function planStatement(
           : {}),
       };
     }
+    case KindExpressionStatement:
+      return expressionStatement(planExpression(AsExpressionStatement(node)!.Expression!, sourceFile, input, diagnostics));
+    case KindIfStatement: {
+      const statement = AsIfStatement(node)!;
+      return {
+        kind: "if",
+        condition: planExpression(statement.Expression!, sourceFile, input, diagnostics),
+        thenBody: {
+          statements: planNestedStatementBody(statement.ThenStatement, sourceFile, input, diagnostics),
+        },
+        ...(statement.ElseStatement !== undefined
+          ? { elseBody: { statements: planNestedStatementBody(statement.ElseStatement, sourceFile, input, diagnostics) } }
+          : {}),
+      };
+    }
+    case KindWhileStatement: {
+      const statement = AsWhileStatement(node)!;
+      return {
+        kind: "while",
+        condition: planExpression(statement.Expression!, sourceFile, input, diagnostics),
+        body: {
+          statements: planNestedStatementBody(statement.Statement, sourceFile, input, diagnostics),
+        },
+      };
+    }
     case KindVariableStatement: {
       const declarationList = AsVariableStatement(node)!.DeclarationList;
       const declaration = AsVariableDeclarationList(declarationList)!.Declarations?.Nodes?.[0];
@@ -239,6 +365,21 @@ function planStatement(
   }
 }
 
+function planNestedStatementBody(
+  node: Node | undefined,
+  sourceFile: SourceFile,
+  input: TargetCompileInput,
+  diagnostics: TargetDiagnostic[],
+): readonly CsharpStatement[] {
+  if (node === undefined) {
+    return [];
+  }
+  if (node.Kind === KindBlock) {
+    return planBlockStatements(node, sourceFile, input, diagnostics);
+  }
+  return [planStatement(node, sourceFile, input, diagnostics)];
+}
+
 function planExpression(
   node: Node,
   sourceFile: SourceFile,
@@ -258,6 +399,8 @@ function planExpression(
       return { kind: "literal", value: false };
     case KindNullKeyword:
       return { kind: "literal", value: null };
+    case KindThisKeyword:
+      return { kind: "identifier", name: "this" };
     case KindPropertyAccessExpression: {
       const expression = AsPropertyAccessExpression(node)!;
       return {
@@ -323,6 +466,17 @@ function getCsharpBinaryOperator(node: Node): string | undefined {
       case KindEqualsEqualsToken:
       case KindEqualsEqualsEqualsToken:
         return "==";
+      case KindExclamationEqualsToken:
+      case KindExclamationEqualsEqualsToken:
+        return "!=";
+      case KindLessThanToken:
+        return "<";
+      case KindLessThanEqualsToken:
+        return "<=";
+      case KindGreaterThanToken:
+        return ">";
+      case KindGreaterThanEqualsToken:
+        return ">=";
       case KindAmpersandAmpersandToken:
         return "&&";
       case KindBarBarToken:
