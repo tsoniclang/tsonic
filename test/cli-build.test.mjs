@@ -1548,6 +1548,52 @@ test("CLI emits cross-file source references from TSTS resolved symbols", async 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits namespace-import source references from TSTS resolved symbols", async () => {
+  const projectDirectory = resolve(tempRoot, "namespace-import-source-reference");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNamespaceImportReferences",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/math.ts": [
+      "export const seed = 1;",
+      "",
+      "export function add(value: number): number {",
+      "  return value + seed;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import * as math from \"./math.js\";",
+      "",
+      "export function read(): number {",
+      "  return math.add(math.seed);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Math\.add\(Math\.seed\);/);
+  assert.doesNotMatch(generatedSource, /math\.add|math\.seed|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNamespaceImportReferences.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI erases re-export declarations and uses TSTS symbols for re-exported source values", async () => {
   const projectDirectory = resolve(tempRoot, "re-export-declaration");
   await writeProject(projectDirectory, {
