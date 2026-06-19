@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -1432,6 +1433,42 @@ test("CLI emits TypeScript numeric enums as C# enums", async () => {
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedEnums.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects string enums until target enum-carrier facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "reject-string-enums");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStringEnums",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export enum Mode {",
+      "  Read = \"read\",",
+      "  Write = \"write\",",
+      "}",
+      "",
+      "export function read(): Mode {",
+      "  return Mode.Read;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stderr, /C# enum member initializers must be number-like constants/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringEnums.csproj")), false);
 });
 
 test("CLI emits interface index signatures as C# indexers", async () => {
