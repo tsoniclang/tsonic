@@ -13,6 +13,8 @@ export type {
   TargetCompileInput,
   TargetExtensionContext,
   TargetPack,
+  TargetSemanticNodeOptions,
+  TargetSemanticQueries,
   TargetToolchain,
   TargetToolchainInput,
   TargetToolchainResult,
