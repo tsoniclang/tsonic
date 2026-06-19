@@ -480,6 +480,58 @@ test("CLI erases TypeScript-only expression wrappers after TSTS validation", asy
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits direct C# bitwise and compound operators from TSTS AST", async () => {
+  const projectDirectory = resolve(tempRoot, "direct-operators");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedOperators",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function operators(value: int32, shift: int32): int32 {",
+      "  let result: int32 = value;",
+      "  result += 1;",
+      "  result -= 1;",
+      "  result *= 2;",
+      "  result /= 2;",
+      "  result %= 2;",
+      "  result <<= shift;",
+      "  result >>= shift;",
+      "  result >>>= shift;",
+      "  result &= 7;",
+      "  result |= 8;",
+      "  result ^= 3;",
+      "  return (~result & value) | (value ^ shift) | (value << shift) | (value >> shift) | (value >>> shift);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /result \+= 1;/);
+  assert.match(generatedSource, /result >>>= shift;/);
+  assert.match(generatedSource, /return \(~result & value\) \| \(value \^ shift\) \| \(value << shift\) \| \(value >> shift\) \| \(value >>> shift\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOperators.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits C# generic declarations from TSTS generic AST", async () => {
   const projectDirectory = resolve(tempRoot, "generic-declarations");
   await writeProject(projectDirectory, {
