@@ -18,6 +18,6 @@
   "references": [
     { "path": "../target-api" },
     { "path": "../host" },
-    { "path": "../target-csharp" }
+    { "path": "../../../tsonic-csharp" }
   ]
 }

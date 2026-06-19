@@ -16,7 +16,6 @@
     "packages/tsts",
     "packages/target-api",
     "packages/host",
-    "packages/target-csharp",
     "packages/cli"
   ],
   "devDependencies": {

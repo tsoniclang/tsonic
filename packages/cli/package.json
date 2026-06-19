@@ -15,6 +15,6 @@
   "dependencies": {
     "@tsonic/host": "0.0.1",
     "@tsonic/target-api": "0.0.1",
-    "@tsonic/target-csharp": "0.0.1"
+    "@tsonic/target-csharp": "file:../../../tsonic-csharp"
   }
 }
