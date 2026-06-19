@@ -3318,26 +3318,50 @@ test("CLI rejects object for-in until target object-shape enumeration facts are 
   assert.match(build.stderr, /For-in requires finalized TSTS\/provider enumeration facts/);
 });
 
-test("CLI rejects structural object destructuring until target object-shape facts are finalized", async () => {
+test("CLI emits structural type-literal object shapes from finalized provider facts", async () => {
   const projectDirectory = resolve(tempRoot, "structural-object-destructuring");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
       outDir: "out",
-      targets: [{ id: "csharp" }],
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedObjectShapes",
+          },
+        },
+      ],
     }, null, 2),
     "src/index.ts": [
       "export function fromParameter({ value }: { value: number }): number {",
       "  return value;",
       "}",
       "",
+      "export function create(value: number): { value: number; label: string } {",
+      "  return { value, label: \"ok\" };",
+      "}",
+      "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Object destructuring requires a source-owned declaration or finalized provider object-shape facts/);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public class __TsonicShape_/);
+  assert.match(generatedSource, /public double value;/);
+  assert.match(generatedSource, /public string label;/);
+  assert.match(generatedSource, /public static double fromParameter\(__TsonicShape_[A-Za-z0-9_]+ __param0\)/);
+  assert.match(generatedSource, /double value = __param0\.value;/);
+  assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ create\(double value\)/);
+  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = "ok",\s*\};/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapes.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects structural binary operators without selected target facts", async () => {

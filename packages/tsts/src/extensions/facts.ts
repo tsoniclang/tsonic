@@ -222,6 +222,20 @@ export interface RuntimeCarrierFact {
   readonly requiresAllocation?: boolean;
 }
 
+export interface ObjectShapeMemberFact {
+  readonly sourceName: string;
+  readonly targetName: string;
+  readonly type: TargetTypeRef;
+  readonly optional?: boolean;
+  readonly readonly?: boolean;
+}
+
+export interface ObjectShapeFact {
+  readonly targetType: TargetTypeRef;
+  readonly members: readonly ObjectShapeMemberFact[];
+  readonly constructible?: boolean;
+}
+
 export interface TargetConversionFact {
   readonly convertedType?: TargetTypeRef;
   readonly operation?: TargetOperationFact;
@@ -381,6 +395,12 @@ export const runtimeCarrierFactKey = defineExtensionFactKey<RuntimeCarrierFact>(
   equals: (left, right) => targetTypeRefEquals(left.carrier, right.carrier) && left.requiresAllocation === right.requiresAllocation,
 });
 
+export const objectShapeFactKey = defineExtensionFactKey<ObjectShapeFact>({
+  extensionId: "tsts.target-bindings",
+  name: "objectShape",
+  equals: objectShapeFactEquals,
+});
+
 export const targetConversionFactKey = defineExtensionFactKey<TargetConversionFact>({
   extensionId: "tsts.target-bindings",
   name: "targetConversion",
@@ -437,6 +457,21 @@ function fieldFactArrayEquals(left: readonly FieldFact[] | undefined, right: rea
 
 function fieldFactEquals(left: FieldFact, right: FieldFact): boolean {
   return left.name === right.name && left.type === right.type && left.readonly === right.readonly;
+}
+
+function objectShapeFactEquals(left: ObjectShapeFact, right: ObjectShapeFact): boolean {
+  return targetTypeRefEquals(left.targetType, right.targetType)
+    && left.constructible === right.constructible
+    && left.members.length === right.members.length
+    && left.members.every((member, index) => objectShapeMemberFactEquals(member, right.members[index]!));
+}
+
+function objectShapeMemberFactEquals(left: ObjectShapeMemberFact, right: ObjectShapeMemberFact): boolean {
+  return left.sourceName === right.sourceName
+    && left.targetName === right.targetName
+    && targetTypeRefEquals(left.type, right.type)
+    && left.optional === right.optional
+    && left.readonly === right.readonly;
 }
 
 function attributeApplicationFactArrayEquals(left: readonly AttributeApplicationFact[] | undefined, right: readonly AttributeApplicationFact[] | undefined): boolean {

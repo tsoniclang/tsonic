@@ -8,6 +8,7 @@ import {
   fieldFactKey,
   functionPointerFactKey,
   instantiatedTargetTypeFactKey,
+  objectShapeFactKey,
   providerVirtualDeclarationFactKey,
   pointerFactKey,
   runtimeCarrierFactKey,
@@ -30,6 +31,7 @@ import type {
   FieldFact,
   FunctionPointerFact,
   InstantiatedTargetTypeFact,
+  ObjectShapeFact,
   PointerFact,
   ProviderVirtualDeclarationFact,
   RuntimeCarrierFact,
@@ -179,6 +181,18 @@ export class ExtensionConsumerQueries {
 
   mustRuntimeCarrierFact(subject: ExtensionFactSubject, purpose?: string): RuntimeCarrierFact {
     return this.mustFact(subject, runtimeCarrierFactKey, purpose);
+  }
+
+  getObjectShapeFact(subject: ExtensionFactSubject | undefined): ObjectShapeFact | undefined {
+    return this.getFact(subject, objectShapeFactKey);
+  }
+
+  requireObjectShapeFact(subject: ExtensionFactSubject, purpose?: string): ObjectShapeFact | undefined {
+    return this.requireFact(subject, objectShapeFactKey, purpose);
+  }
+
+  mustObjectShapeFact(subject: ExtensionFactSubject, purpose?: string): ObjectShapeFact {
+    return this.mustFact(subject, objectShapeFactKey, purpose);
   }
 
   getTargetConversionFact(subject: ExtensionFactSubject | undefined): TargetConversionFact | undefined {
