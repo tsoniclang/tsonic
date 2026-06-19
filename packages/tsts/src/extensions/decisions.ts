@@ -110,6 +110,8 @@ export interface ResolvePropertyAccessRequest {
   readonly receiverSymbol?: ExtensionFactSubject;
   readonly resolvedReceiverSymbol?: ExtensionFactSubject;
   readonly receiverType?: ExtensionFactSubject;
+  readonly propertySymbol?: ExtensionFactSubject;
+  readonly resolvedPropertySymbol?: ExtensionFactSubject;
   readonly propertyName: string;
   readonly target?: string;
 }
