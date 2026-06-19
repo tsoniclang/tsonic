@@ -426,6 +426,60 @@ test("CLI emits C# string literals and template expressions from TSTS AST", asyn
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI erases TypeScript-only expression wrappers after TSTS validation", async () => {
+  const projectDirectory = resolve(tempRoot, "erased-expression-wrappers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedErasedWrappers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function asValue(value: number): number {",
+      "  return value as number;",
+      "}",
+      "",
+      "export function satisfiesValue(value: number): number {",
+      "  return value satisfies number;",
+      "}",
+      "",
+      "export function nonNullValue(value: number): number {",
+      "  return value!;",
+      "}",
+      "",
+      "export function typeAssertionValue(value: number): number {",
+      "  return <number>value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double asValue\(double value\)/);
+  assert.match(generatedSource, /public static double satisfiesValue\(double value\)/);
+  assert.match(generatedSource, /public static double nonNullValue\(double value\)/);
+  assert.match(generatedSource, /public static double typeAssertionValue\(double value\)/);
+  assert.match(generatedSource, /return value;/);
+  assert.doesNotMatch(generatedSource, /satisfies number/);
+  assert.doesNotMatch(generatedSource, / as number/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedErasedWrappers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits C# generic declarations from TSTS generic AST", async () => {
   const projectDirectory = resolve(tempRoot, "generic-declarations");
   await writeProject(projectDirectory, {
