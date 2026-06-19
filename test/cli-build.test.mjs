@@ -225,6 +225,86 @@ test("CLI resolves neutral source primitives through provider modules", async ()
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits char16 string literals as C# char literals from expected TSTS type", async () => {
+  const projectDirectory = resolve(tempRoot, "char16-literals");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedChar16",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { char16 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function letter(): char16 {",
+      "  return \"x\";",
+      "}",
+      "",
+      "export function newline(): char16 {",
+      "  return \"\\n\";",
+      "}",
+      "",
+      "export function choose(flag: boolean): char16 {",
+      "  return flag ? \"a\" : `b`;",
+      "}",
+      "",
+      "export function defaulted(value: char16 = \"q\"): char16 {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static char letter\(\)/);
+  assert.match(generatedSource, /return 'x';/);
+  assert.match(generatedSource, /return '\\n';/);
+  assert.match(generatedSource, /return flag \? 'a' : 'b';/);
+  assert.match(generatedSource, /public static char defaulted\(char value = 'q'\)/);
+  assert.doesNotMatch(generatedSource, /return "x";/);
+  assert.doesNotMatch(generatedSource, /char value = "q"/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedChar16.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects multi-code-unit string literals for char16 targets", async () => {
+  const projectDirectory = resolve(tempRoot, "char16-invalid-literal");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { char16 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function bad(): char16 {",
+      "  return \"xy\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /char literals require exactly one UTF-16 code unit/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/Generated.csproj")), false);
+});
+
 test("CLI resolves TypeScript aliases through TSTS semantics before C# type rendering", async () => {
   const projectDirectory = resolve(tempRoot, "type-aliases");
   await writeProject(projectDirectory, {
