@@ -2059,8 +2059,8 @@ test("CLI rejects TypeScript-only runtime-shape modifiers before C# emission", a
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeScriptOnlyModifiers.csproj")), false);
 });
 
-test("CLI rejects async functions until provider async facts are finalized", async () => {
-  const projectDirectory = resolve(tempRoot, "async-requires-provider-facts");
+test("CLI emits async functions and lambdas from TSTS Promise carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "async-promise-carriers");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -2071,17 +2071,21 @@ test("CLI rejects async functions until provider async facts are finalized", asy
           id: "csharp",
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedAsyncFacts",
+            assemblyName: "SmokeGeneratedAsyncCarriers",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
-      "export async function value() {",
+      "export async function value(): Promise<number> {",
       "  return 1;",
       "}",
       "",
-      "export function delayed() {",
+      "export async function echo(value: Promise<number>): Promise<number> {",
+      "  return await value;",
+      "}",
+      "",
+      "export function delayed(): () => Promise<number> {",
       "  return async () => 2;",
       "}",
       "",
@@ -2089,10 +2093,14 @@ test("CLI rejects async functions until provider async facts are finalized", asy
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Async function declaration requires finalized TSTS\/provider async lowering facts/);
-  assert.match(build.stderr, /Async arrow function requires finalized TSTS\/provider async lowering facts/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedAsyncFacts.csproj")), false);
+  assert.equal(build.status, 0, build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<double> value\(\)/);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<double> echo\(System\.Threading\.Tasks\.Task<double> value\)/);
+  assert.match(generatedSource, /return await value;/);
+  assert.match(generatedSource, /public static Func<System\.Threading\.Tasks\.Task<double>> delayed\(\)/);
+  assert.match(generatedSource, /return async \(\) => 2;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
 test("CLI rejects throw statements until provider exception facts are finalized", async () => {
