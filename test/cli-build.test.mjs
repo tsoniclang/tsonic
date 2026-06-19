@@ -81,6 +81,13 @@ test("CLI resolves neutral source primitives through provider modules", async ()
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNeutral",
+            targetFramework: "net10.0",
+            outputType: "Library",
+            publishAot: false,
+            properties: {
+              LangVersion: "preview",
+              CheckForOverflowUnderflow: true,
+            },
           },
         },
       ],
@@ -105,6 +112,11 @@ test("CLI resolves neutral source primitives through provider modules", async ()
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int choose\(bool flag, int left, int right\)/);
   assert.match(generatedSource, /public static double scale\(double value\)/);
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedNeutral.csproj"), "utf8");
+  assert.match(generatedProject, /<OutputType>Library<\/OutputType>/);
+  assert.match(generatedProject, /<PublishAot>false<\/PublishAot>/);
+  assert.match(generatedProject, /<LangVersion>preview<\/LangVersion>/);
+  assert.match(generatedProject, /<CheckForOverflowUnderflow>true<\/CheckForOverflowUnderflow>/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNeutral.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
