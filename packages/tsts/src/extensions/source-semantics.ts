@@ -2,6 +2,8 @@ import type { bool } from "../go/scalars.js";
 import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
+import type { Type } from "../internal/checker/types.js";
+import { Type_Alias, TypeAlias_Symbol } from "../internal/checker/types.js";
 import {
   Node_Arguments,
   Node_Body,
@@ -17,10 +19,11 @@ import {
   Node_Statements,
   Node_Symbol,
   Node_Text,
+  Node_Type,
   Node_TypeArguments,
 } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
-import { AsCallExpression, AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeAliasDeclaration, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
+import { AsCallExpression, AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsParenthesizedExpression, AsPropertyAccessExpression, AsQualifiedName, AsTypeAliasDeclaration, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
 import {
   KindArrowFunction,
   KindCallExpression,
@@ -35,6 +38,8 @@ import {
   KindNamespaceImport,
   KindNoSubstitutionTemplateLiteral,
   KindObjectLiteralExpression,
+  KindParameter,
+  KindParenthesizedExpression,
   KindPropertyAccessExpression,
   KindPropertyAssignment,
   KindPropertyDeclaration,
@@ -59,6 +64,7 @@ import {
   pointerFactKey,
   sourceMarkerFactKey,
   sourcePrimitiveFactKey,
+  targetOperationFactKey,
   valueTypeFactKey,
 } from "./facts.js";
 import type {
@@ -273,6 +279,7 @@ function recordSourceSemanticsFacts(
   recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, modules, markerImportIndex, attributeFacts);
   recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerImportIndex);
   recordSourceSemanticsTypeAliases(facts, sourceFile);
+  recordSourceSemanticsTypedDeclarations(facts, sourceFile);
   flushAttributeFacts(facts, attributeFacts);
 }
 
@@ -938,19 +945,133 @@ function resolveSourcePrimitiveFact(
   if (subject === null || subject === undefined || typeof subject !== "object") {
     return undefined;
   }
+  const directPrimitive = getDirectSourcePrimitiveSubject(subject);
+  if (directPrimitive !== undefined) {
+    return { value: directPrimitive };
+  }
+  const operationPrimitive = resolvePrimitiveOperationResult(subject, context);
+  if (operationPrimitive !== undefined) {
+    return operationPrimitive;
+  }
+  const type = subject as GoPtr<Type>;
+  const primitiveFromType = resolvePrimitiveSemanticType(type, context.facts);
+  if (primitiveFromType !== undefined) {
+    return primitiveFromType;
+  }
   const node = subject as GoPtr<Node>;
-  if (node?.Kind !== KindTypeReference) {
+  if (node?.Kind === undefined) {
     return undefined;
   }
-  const typeName = AsTypeReferenceNode(node)?.TypeName;
-  const primitive = resolvePrimitiveTypeReference(context.facts, typeName, modules);
-  if (primitive !== undefined) {
-    return {
-      value: stripExportName(primitive.primitiveFact),
-      evidence: createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName),
-    };
+  const wrappedPrimitive = resolvePrimitiveWrappedExpression(node, context);
+  if (wrappedPrimitive !== undefined) {
+    return wrappedPrimitive;
   }
-  return resolvePrimitiveAliasReference(node, context.facts);
+  if (node?.Kind === KindTypeReference) {
+    const typeName = AsTypeReferenceNode(node)?.TypeName;
+    const primitive = resolvePrimitiveTypeReference(context.facts, typeName, modules);
+    if (primitive !== undefined) {
+      return {
+        value: stripExportName(primitive.primitiveFact),
+        evidence: createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName),
+      };
+    }
+    const alias = resolvePrimitiveAliasReference(node, context.facts);
+    if (alias !== undefined) {
+      return alias;
+    }
+  }
+  return resolvePrimitiveNodeSymbolFact(node, context.facts);
+}
+
+function resolvePrimitiveWrappedExpression(
+  node: GoPtr<Node>,
+  context: ExtensionFactResolverContext,
+): { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined {
+  if (node?.Kind !== KindParenthesizedExpression) {
+    return undefined;
+  }
+  const expression = AsParenthesizedExpression(node)?.Expression;
+  if (expression === undefined) {
+    return undefined;
+  }
+  return resolvePrimitiveOperationResult(expression, context) ??
+    resolvePrimitiveNodeSymbolFact(expression, context.facts);
+}
+
+function getDirectSourcePrimitiveSubject(subject: ExtensionFactSubject): SourcePrimitiveFact | undefined {
+  const primitive = subject as Partial<SourcePrimitiveFact>;
+  return typeof primitive.kind === "string" &&
+    (
+      primitive.runtimeBase === "boolean" ||
+      primitive.runtimeBase === "number" ||
+      primitive.runtimeBase === "bigint" ||
+      primitive.runtimeBase === "string" ||
+      primitive.runtimeBase === "object"
+    )
+    ? primitive as SourcePrimitiveFact
+    : undefined;
+}
+
+function resolvePrimitiveOperationResult(
+  subject: ExtensionFactSubject,
+  context: ExtensionFactResolverContext,
+): { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined {
+  const operation = context.facts.get(subject, targetOperationFactKey);
+  if (operation?.resultType === undefined || operation.resultType === subject) {
+    return undefined;
+  }
+  const primitive = getDirectSourcePrimitiveSubject(operation.resultType) ??
+    context.facts.get(operation.resultType, sourcePrimitiveFactKey);
+  if (primitive === undefined) {
+    return undefined;
+  }
+  return {
+    value: primitive,
+    ...(operation.evidence !== undefined ? { evidence: operation.evidence } : {}),
+  };
+}
+
+function resolvePrimitiveSemanticType(
+  type: GoPtr<Type>,
+  facts: ExtensionFactStore,
+): { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined {
+  const aliasSymbol = TypeAlias_Symbol(Type_Alias(type));
+  if (aliasSymbol === undefined) {
+    return undefined;
+  }
+  const primitive = facts.get(aliasSymbol, sourcePrimitiveFactKey);
+  const identity = facts.get(aliasSymbol, canonicalIdentityFactKey);
+  if (primitive === undefined) {
+    return undefined;
+  }
+  const evidence = identity === undefined ? undefined : createAliasEvidence(aliasSymbol.Name, identity.exportName ?? identity.id);
+  return {
+    value: primitive,
+    ...(evidence !== undefined ? { evidence } : {}),
+  };
+}
+
+function resolvePrimitiveNodeSymbolFact(
+  node: GoPtr<Node>,
+  facts: ExtensionFactStore,
+): { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined {
+  if (node === undefined) {
+    return undefined;
+  }
+  const symbol = Node_Symbol(node);
+  if (symbol === undefined) {
+    return undefined;
+  }
+  const primitive = facts.get(symbol, sourcePrimitiveFactKey);
+  const identity = facts.get(symbol, canonicalIdentityFactKey);
+  if (primitive === undefined) {
+    return undefined;
+  }
+  const evidence = identity === undefined ? undefined : createAliasEvidence(symbol.Name, identity.exportName ?? identity.id);
+  return {
+    value: primitive,
+    ...(evidence !== undefined ? { evidence } : {}),
+  };
 }
 
 function resolvePrimitiveAliasReference(
@@ -1050,6 +1171,48 @@ function recordSourceSemanticsTypeAliases(
     }
     const declarationSymbol = Node_Symbol(node);
     if (declarationSymbol !== undefined && declarationSymbol !== nameSymbol) {
+      facts.set(declarationSymbol, sourcePrimitiveFactKey, primitive, evidence);
+      facts.set(declarationSymbol, canonicalIdentityFactKey, identity, evidence);
+    }
+  });
+}
+
+function recordSourceSemanticsTypedDeclarations(
+  facts: ExtensionFactStore,
+  sourceFile: GoPtr<SourceFile>,
+): void {
+  visitSourceSemanticsNode(sourceFile, (node) => {
+    if (
+      node?.Kind !== KindVariableDeclaration &&
+      node?.Kind !== KindParameter &&
+      node?.Kind !== KindPropertyDeclaration
+    ) {
+      return;
+    }
+    const typeNode = Node_Type(node);
+    if (typeNode === undefined) {
+      return;
+    }
+    const primitive = facts.get(typeNode, sourcePrimitiveFactKey);
+    const identity = facts.get(typeNode, canonicalIdentityFactKey);
+    if (primitive === undefined || identity === undefined) {
+      return;
+    }
+    const evidence = createAliasEvidence(Node_Text(Node_Name(node)), identity.exportName ?? identity.id);
+    facts.set(node, sourcePrimitiveFactKey, primitive, evidence);
+    facts.set(node, canonicalIdentityFactKey, identity, evidence);
+    const name = Node_Name(node);
+    if (name !== undefined) {
+      facts.set(name, sourcePrimitiveFactKey, primitive, evidence);
+      facts.set(name, canonicalIdentityFactKey, identity, evidence);
+      const nameSymbol = Node_Symbol(name);
+      if (nameSymbol !== undefined) {
+        facts.set(nameSymbol, sourcePrimitiveFactKey, primitive, evidence);
+        facts.set(nameSymbol, canonicalIdentityFactKey, identity, evidence);
+      }
+    }
+    const declarationSymbol = Node_Symbol(node);
+    if (declarationSymbol !== undefined) {
       facts.set(declarationSymbol, sourcePrimitiveFactKey, primitive, evidence);
       facts.set(declarationSymbol, canonicalIdentityFactKey, identity, evidence);
     }

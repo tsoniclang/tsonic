@@ -273,6 +273,7 @@ export {
   TypeFlagsAny,
   TypeFlagsBigIntLike,
   TypeFlagsBooleanLike,
+  TypeFlagsEnumLike,
   TypeFlagsNever,
   TypeFlagsNumberLike,
   TypeFlagsStringLike,

@@ -26,6 +26,7 @@ import {
   KindExportDeclaration,
   KindCallExpression,
   KindImportDeclaration,
+  KindIdentifier,
   KindMethodDeclaration,
   KindNamedImports,
   KindNamedExports,
@@ -46,7 +47,10 @@ import {
   Program_GetSemanticDiagnostics,
   Program_GetSourceFile,
   Program_GetSyntacticDiagnostics,
+  Program_GetTypeChecker,
 } from "../internal/compiler/program.js";
+import { Checker_getTypeOfExpression } from "../internal/checker/checker/types.js";
+import { Checker_GetSymbolAtLocation } from "../internal/checker/checker/symbols.js";
 import type { Program, ProgramOptions } from "../internal/compiler/program.js";
 import type { ParseConfigHost } from "../internal/tsoptions/tsconfigparsing.js";
 import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
@@ -260,6 +264,31 @@ test("source-semantics fact resolver returns primitive type-reference facts from
   assert.equal(extended.extensionHost.facts.get(directReference, sourcePrimitiveFactKey)?.kind, "int32");
   assert.equal(extended.extensionHost.factResolver.resolve(directReference, sourcePrimitiveFactKey)?.kind, "int32");
   assert.equal(extended.extensionHost.facts.get(directReference, sourcePrimitiveFactKey)?.runtimeBase, "number");
+});
+
+test("source-semantics fact resolver returns primitive facts from typed value expressions", () => {
+  const { extended, program, index } = createProgram(`
+    import type { int } from "@example/native/types.js";
+
+    let value!: int;
+    value;
+  `);
+
+  assertCleanProgram(program, index);
+  Program_BindSourceFiles(program);
+  const valueExpression = findNode(index, (node) => node !== undefined && node.Kind === KindIdentifier && Node_Text(node) === "value" && node.Parent?.Kind !== KindVariableDeclaration);
+  assert.ok(valueExpression !== undefined);
+
+  const [checker, done] = Program_GetTypeChecker(program, Background());
+  try {
+    const valueType = Checker_getTypeOfExpression(checker, valueExpression);
+    assert.ok(valueType !== undefined);
+    const valueSymbol = Checker_GetSymbolAtLocation(checker, valueExpression);
+    assert.ok(valueSymbol !== undefined);
+    assert.equal(extended.extensionHost.factResolver.resolve(valueSymbol, sourcePrimitiveFactKey)?.kind, "int32");
+  } finally {
+    done();
+  }
 });
 
 test("source-semantics records primitive facts on canonical named re-exports", () => {

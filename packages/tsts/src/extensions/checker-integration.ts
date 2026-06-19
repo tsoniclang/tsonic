@@ -5,17 +5,19 @@ import { Node_Arguments, Node_Expression, Node_Text, Node_TypeArguments } from "
 import type { Symbol } from "../internal/ast/symbol.js";
 import { Node_Name } from "../internal/ast/spine.js";
 import { AsElementAccessExpression } from "../internal/ast/generated/casts.js";
+import { KindElementAccessExpression, KindIdentifier, KindPropertyAccessExpression } from "../internal/ast/generated/kinds.js";
 import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Type } from "../internal/checker/types.js";
+import type { Checker } from "../internal/checker/checker/state.js";
+import { Checker_getTypeOfExpression } from "../internal/checker/checker/types.js";
+import { Checker_GetSymbolAtLocation } from "../internal/checker/checker/symbols.js";
 import { ExtensionDecisionQuestion } from "./decisions.js";
 import type { AssignabilityRequest, ContextualTypeRequest, ContextualTypeResult, InferTypeArgumentsRequest, InferTypeArgumentsResult, ParameterModeRequest, ParameterModeResult, ResolveCallRequest, ResolveCallResult, ResolveConversionRequest, ResolveConversionResult, ResolveElementAccessRequest, ResolveOperationResult, ResolveOperatorRequest, ResolvePropertyAccessRequest, RuntimeCarrierRequest, RuntimeCarrierResult, SatisfiesConstraintRequest, ValidateFlowUseRequest, ValidateFlowUseResult } from "./decisions.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetIterationFactKey, targetOperationFactKey } from "./facts.js";
 import type { ExtensionEvidence, ExtensionFactKey, ExtensionFactSubject, ExtensionHost } from "./host.js";
 import { getExtensionHost } from "./host.js";
 
-interface CheckerWithProgram {
-  readonly program: object;
-}
+type CheckerWithProgram = Checker;
 
 export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>, callExpression: GoPtr<Node>): void {
   if (checker === undefined || callExpression === undefined) {
@@ -167,13 +169,25 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
     return;
   }
 
+  const leftType = Checker_getTypeOfExpression(checker, left);
+  const rightType = right === undefined ? undefined : Checker_getTypeOfExpression(checker, right);
+  const leftSymbol = getOperatorOperandSymbol(checker, left);
+  const rightSymbol = getOperatorOperandSymbol(checker, right);
+  const leftSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, left, leftType, leftSymbol);
+  const rightSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, right, rightType, rightSymbol);
   const result = extensionHost.runDecision(
     ExtensionDecisionQuestion.resolveOperator,
     {
       expression,
       operator: TokenToString(operatorToken.Kind),
       left,
+      ...(leftType !== undefined ? { leftType } : {}),
+      ...(leftSymbol !== undefined ? { leftSymbol } : {}),
+      ...(leftSourcePrimitive !== undefined ? { leftSourcePrimitive } : {}),
       ...(right !== undefined ? { right } : {}),
+      ...(rightType !== undefined ? { rightType } : {}),
+      ...(rightSymbol !== undefined ? { rightSymbol } : {}),
+      ...(rightSourcePrimitive !== undefined ? { rightSourcePrimitive } : {}),
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
@@ -187,6 +201,76 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
   }
 
   extensionHost.facts.set(expression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
+}
+
+export function recordExtensionUnaryOperatorResolution(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operator: number, operand: GoPtr<Node>): void {
+  if (checker === undefined || expression === undefined || operand === undefined) {
+    return;
+  }
+
+  const extensionHost = getExtensionHost(checker.program);
+  if (
+    extensionHost === undefined ||
+    (
+      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveOperator) === undefined &&
+      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolveOperator)
+    )
+  ) {
+    return;
+  }
+
+  const operandType = Checker_getTypeOfExpression(checker, operand);
+  const operandSymbol = getOperatorOperandSymbol(checker, operand);
+  const operandSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, operand, operandType, operandSymbol);
+  const result = extensionHost.runDecision(
+    ExtensionDecisionQuestion.resolveOperator,
+    {
+      expression,
+      operator: TokenToString(operator),
+      left: operand,
+      ...(operandType !== undefined ? { leftType: operandType } : {}),
+      ...(operandSymbol !== undefined ? { leftSymbol: operandSymbol } : {}),
+      ...(operandSourcePrimitive !== undefined ? { leftSourcePrimitive: operandSourcePrimitive } : {}),
+      ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
+    },
+    () => {
+      throw new Error("Optional extension unary operator resolution unexpectedly reached core fallback.");
+    },
+    { deferWhenUnanswered: true },
+  );
+
+  if (result.kind !== "accept") {
+    return;
+  }
+
+  extensionHost.facts.set(expression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
+}
+
+function getOperatorOperandSymbol(checker: GoPtr<CheckerWithProgram>, operand: GoPtr<Node>): GoPtr<Symbol> {
+  switch (operand?.Kind) {
+    case KindIdentifier:
+    case KindPropertyAccessExpression:
+    case KindElementAccessExpression:
+      return Checker_GetSymbolAtLocation(checker, operand);
+    default:
+      return undefined;
+  }
+}
+
+function getOperatorOperandSourcePrimitive(
+  extensionHost: ExtensionHost,
+  operand: GoPtr<Node>,
+  operandType: GoPtr<Type>,
+  operandSymbol: GoPtr<Symbol>,
+) {
+  return resolveOptionalSourcePrimitive(extensionHost, operand) ??
+    resolveOptionalSourcePrimitive(extensionHost, operandSymbol) ??
+    resolveOptionalSourcePrimitive(extensionHost, operandType) ??
+    resolveOptionalSourcePrimitive(extensionHost, operandType?.symbol);
+}
+
+function resolveOptionalSourcePrimitive(extensionHost: ExtensionHost, subject: ExtensionFactSubject | undefined) {
+  return subject === undefined ? undefined : extensionHost.factResolver.resolve(subject, sourcePrimitiveFactKey);
 }
 
 export function recordExtensionIterationResolution(

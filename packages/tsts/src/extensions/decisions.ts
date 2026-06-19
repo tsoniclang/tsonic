@@ -2,6 +2,7 @@ import type {
   ArgumentPassingFact,
   ArgumentPassingMode,
   SelectedTargetSignatureFact,
+  SourcePrimitiveFact,
   TargetConstraint,
   TargetTypeRef,
   TargetOperationFact,
@@ -113,7 +114,13 @@ export interface ResolveOperatorRequest {
   readonly expression: ExtensionFactSubject;
   readonly operator: string;
   readonly left: ExtensionFactSubject;
+  readonly leftType?: ExtensionFactSubject;
+  readonly leftSymbol?: ExtensionFactSubject;
+  readonly leftSourcePrimitive?: SourcePrimitiveFact;
   readonly right?: ExtensionFactSubject;
+  readonly rightType?: ExtensionFactSubject;
+  readonly rightSymbol?: ExtensionFactSubject;
+  readonly rightSourcePrimitive?: SourcePrimitiveFact;
   readonly target?: string;
 }
 
