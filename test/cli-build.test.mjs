@@ -913,7 +913,7 @@ test("CLI erases TypeScript-only expression wrappers after TSTS validation", asy
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI emits direct C# bitwise and compound operators from TSTS AST", async () => {
+test("CLI emits C# bitwise and compound operators from selected TSTS provider facts", async () => {
   const projectDirectory = resolve(tempRoot, "direct-operators");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
