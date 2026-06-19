@@ -197,6 +197,8 @@ export interface TargetOperationFact {
   readonly operationId: string;
   readonly operationKind: "property" | "method" | "indexer" | "operator" | "constructor";
   readonly targetOperation: string;
+  readonly static?: boolean;
+  readonly declaringType?: TargetTypeRef;
   readonly resultType?: ExtensionFactSubject;
   readonly evidence?: readonly ExtensionEvidence[];
 }
@@ -556,6 +558,8 @@ function targetOperationFactEquals(left: TargetOperationFact, right: TargetOpera
   return left.operationId === right.operationId
     && left.operationKind === right.operationKind
     && left.targetOperation === right.targetOperation
+    && left.static === right.static
+    && optionalTargetTypeRefEquals(left.declaringType, right.declaringType)
     && left.resultType === right.resultType;
 }
 

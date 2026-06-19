@@ -162,7 +162,7 @@ function getTargetMembers(member: ProviderMemberDeclaration, declaringType?: Tar
   return [{
     id: member.id,
     sourceName: member.name,
-    targetName: member.name,
+    targetName: member.targetName ?? member.name,
     kind: member.kind,
     parameters: [],
     ...(member.static !== undefined ? { static: member.static } : {}),
@@ -176,7 +176,7 @@ function getTargetMemberFromSignature(sourceName: string, kind: TargetMember["ki
   return {
     id: signature.id,
     sourceName,
-    targetName: signature.name ?? member?.name ?? sourceName,
+    targetName: signature.name ?? member?.targetName ?? member?.name ?? sourceName,
     kind,
     parameters: signature.parameters.map(getTargetParameter),
     ...(member?.static !== undefined ? { static: member.static } : {}),

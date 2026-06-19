@@ -100,12 +100,16 @@ export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWi
   if (receiver === undefined || propertyName === "") {
     return;
   }
+  const receiverSymbol = getCallReceiverSymbol(checker, receiver);
+  const resolvedReceiverSymbol = getCallReceiverResolvedSymbol(checker, receiver);
 
   const result = extensionHost.runDecision(
     ExtensionDecisionQuestion.resolvePropertyAccess,
     {
       expression: propertyAccessExpression,
       receiver,
+      ...(receiverSymbol !== undefined ? { receiverSymbol } : {}),
+      ...(resolvedReceiverSymbol !== undefined && resolvedReceiverSymbol !== receiverSymbol ? { resolvedReceiverSymbol } : {}),
       ...(receiverType !== undefined ? { receiverType } : {}),
       propertyName,
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),

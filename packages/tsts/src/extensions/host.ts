@@ -255,6 +255,7 @@ export interface ProviderSignatureDeclaration {
 export interface ProviderMemberDeclaration {
   readonly id: string;
   readonly name: string;
+  readonly targetName?: string;
   readonly kind: "method" | "constructor" | "property" | "field" | "indexer";
   readonly static?: boolean;
   readonly type?: ProviderTypeExpression;
@@ -1796,6 +1797,7 @@ function hasRequiredProviderExportShape(value: ProviderExportDeclaration): boole
 function isValidProviderMemberDeclaration(value: ProviderMemberDeclaration): boolean {
   return value.id.length > 0
     && (value.kind === "constructor" || isIdentifierText(value.name))
+    && (value.targetName === undefined || value.targetName.length > 0)
     && hasRequiredProviderMemberShape(value)
     && (value.type === undefined || isValidProviderTypeExpression(value.type))
     && (value.signatures ?? []).every(isValidProviderSignatureDeclaration);

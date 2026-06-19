@@ -104,6 +104,8 @@ export interface InferTypeArgumentsResult {
 export interface ResolvePropertyAccessRequest {
   readonly expression: ExtensionFactSubject;
   readonly receiver: ExtensionFactSubject;
+  readonly receiverSymbol?: ExtensionFactSubject;
+  readonly resolvedReceiverSymbol?: ExtensionFactSubject;
   readonly receiverType?: ExtensionFactSubject;
   readonly propertyName: string;
   readonly target?: string;
