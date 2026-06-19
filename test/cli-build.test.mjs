@@ -3288,24 +3288,28 @@ test("CLI emits array for-in from provider enumeration facts", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects object for-in until target object-shape enumeration facts are finalized", async () => {
-  const projectDirectory = resolve(tempRoot, "unsupported-object-for-in");
+test("CLI emits object-shape for-in from finalized provider enumeration facts", async () => {
+  const projectDirectory = resolve(tempRoot, "object-shape-for-in");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
       outDir: "out",
-      targets: [{ id: "csharp" }],
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedObjectShapeForIn",
+          },
+        },
+      ],
     }, null, 2),
     "src/index.ts": [
-      "export interface Bag {",
-      "  value: number;",
-      "}",
-      "",
-      "export function countKeys(values: Bag): number {",
+      "export function countKeys(values: { value: number; label: string }): number {",
       "  let total = 0;",
       "  for (const key in values) {",
-      "    total = total + 1;",
+      "    total = total + key.length;",
       "  }",
       "  return total;",
       "}",
@@ -3314,8 +3318,21 @@ test("CLI rejects object for-in until target object-shape enumeration facts are 
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /For-in requires finalized TSTS\/provider enumeration facts/);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public class __TsonicShape_/);
+  assert.match(generatedSource, /public double value;/);
+  assert.match(generatedSource, /public string label;/);
+  assert.match(generatedSource, /var __forInTarget0 = values;/);
+  assert.match(generatedSource, /string\[\] __forInKeys0 = new string\[\] \{ "value", "label" \};/);
+  assert.match(generatedSource, /for \(int __forInIndex0 = 0; __forInIndex0 < __forInKeys0\.Length; __forInIndex0\+\+\)/);
+  assert.match(generatedSource, /string key = __forInKeys0\[__forInIndex0\];/);
+  assert.match(generatedSource, /total = total \+ key\.Length;/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapeForIn.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI emits structural type-literal object shapes from finalized provider facts", async () => {
