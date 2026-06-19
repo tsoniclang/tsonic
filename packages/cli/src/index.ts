@@ -36,6 +36,12 @@ export async function run(args: readonly string[], currentDirectory: string): Pr
       stdout: helpText(),
     };
   }
+  if (command === "targets") {
+    return {
+      exitCode: 0,
+      stdout: registry.packs.map((pack) => `${pack.id}\t${pack.displayName}`).join("\n") + "\n",
+    };
+  }
   if (command !== "build") {
     return {
       exitCode: 2,
@@ -109,6 +115,7 @@ function helpText(): string {
   return [
     "Usage:",
     "  tsonic build --project <tsonic.json>",
+    "  tsonic targets",
     "",
     "Architecture:",
     "  TSTS owns TypeScript parse/bind/check/flow/narrowing and extension facts.",

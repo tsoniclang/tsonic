@@ -8,6 +8,12 @@ const repoRoot = process.cwd();
 const cliPath = resolve(repoRoot, "packages/cli/dist/src/index.js");
 const tempRoot = resolve(repoRoot, ".temp/test-runs/cli-build");
 
+test("CLI lists built-in target packs", () => {
+  const result = runNode([cliPath, "targets"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^csharp\tC#$/m);
+});
+
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
   const projectDirectory = resolve(tempRoot, "wide-csharp");
   await writeProject(projectDirectory, {
