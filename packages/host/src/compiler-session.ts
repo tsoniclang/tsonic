@@ -192,6 +192,9 @@ function createTargetSemanticQueries(
     getProjectSourceDeclarationForNode(subject, options) {
       return getProjectSourceDeclarationForNode(checker, asNode(subject), options, sourceFiles);
     },
+    getProjectSourceReferenceForNode(subject, options) {
+      return getProjectSourceReferenceForNode(checker, asNode(subject), options, sourceFiles);
+    },
     describeTypeAtLocation(subject, options) {
       const node = asNode(subject);
       const type = node === undefined ? undefined : getSemanticTypeForNode(checker, node, options);
@@ -268,6 +271,47 @@ function getProjectSourceDeclarationForNode(
   const type = getSemanticTypeForNode(checker, node, options);
   const declaration = getPrimaryDeclaration(type?.symbol);
   return isProjectSourceDeclaration(declaration, sourceFiles) ? declaration : undefined;
+}
+
+function getProjectSourceReferenceForNode(
+  checker: TypeCheckerQueries,
+  node: Node | undefined,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+): ReturnType<TargetSemanticQueries["getProjectSourceReferenceForNode"]> {
+  if (node === undefined) {
+    return undefined;
+  }
+  const symbols = [
+    getResolvedSymbolForReferenceNode(checker, node, options),
+    getSymbolAtReferenceNode(checker, node, options),
+  ].flatMap((symbol) => symbol === undefined
+    ? []
+    : [checker.getAliasedSymbol(symbol, options), symbol]);
+  for (const symbol of symbols) {
+    const reference = getProjectSourceReferenceForSymbol(symbol, sourceFiles);
+    if (reference !== undefined) {
+      return reference;
+    }
+  }
+  return undefined;
+}
+
+function getProjectSourceReferenceForSymbol(
+  symbol: Symbol | undefined,
+  sourceFiles: readonly SourceFile[],
+): ReturnType<TargetSemanticQueries["getProjectSourceReferenceForNode"]> {
+  if (symbol === undefined) {
+    return undefined;
+  }
+  const declaration = getPrimaryDeclaration(symbol);
+  if (declaration === undefined || !isProjectSourceDeclaration(declaration, sourceFiles)) {
+    return undefined;
+  }
+  const declarationFile = GetSourceFileOfNode(declaration);
+  return declarationFile === undefined
+    ? undefined
+    : { symbol, declaration, sourceFile: declarationFile };
 }
 
 function getPrimaryDeclaration(symbol: Symbol | undefined): Node | undefined {

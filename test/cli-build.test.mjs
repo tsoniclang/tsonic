@@ -1501,26 +1501,95 @@ test("CLI erases source-local standalone export declarations", async () => {
   assert.doesNotMatch(generatedSource, /export|__unsupported/);
 });
 
-test("CLI rejects re-export declarations until module-export facts are finalized", async () => {
+test("CLI emits cross-file source references from TSTS resolved symbols", async () => {
+  const projectDirectory = resolve(tempRoot, "cross-file-source-reference");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedCrossFileReferences",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/math.ts": [
+      "export const seed = 1;",
+      "",
+      "export function add(value: number): number {",
+      "  return value + seed;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { add, seed } from \"./math.js\";",
+      "",
+      "export function read(): number {",
+      "  return add(seed);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Math\.add\(Math\.seed\);/);
+  assert.doesNotMatch(generatedSource, /return add\(seed\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCrossFileReferences.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI erases re-export declarations and uses TSTS symbols for re-exported source values", async () => {
   const projectDirectory = resolve(tempRoot, "re-export-declaration");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
       outDir: "out",
-      targets: [{ id: "csharp" }],
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedReExportReferences",
+          },
+        },
+      ],
     }, null, 2),
     "src/other.ts": "export const value = 1;\n",
-    "src/index.ts": [
+    "src/barrel.ts": [
       "export { value } from \"./other.js\";",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { value } from \"./barrel.js\";",
+      "",
+      "export function read(): number {",
+      "  return value;",
+      "}",
       "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Re-export declarations require finalized TSTS module-export facts/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Other\.value;/);
+  assert.doesNotMatch(generatedSource, /return value;/);
+  assert.doesNotMatch(generatedSource, /export|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedReExportReferences.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects anonymous exported declarations instead of synthesizing C# names", async () => {

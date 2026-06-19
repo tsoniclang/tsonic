@@ -34,6 +34,12 @@ export interface TargetSemanticNodeOptions {
   readonly sourceFile: SourceFile;
 }
 
+export interface TargetProjectSourceReference {
+  readonly symbol: Symbol;
+  readonly declaration: Node;
+  readonly sourceFile: SourceFile;
+}
+
 export interface TargetSemanticQueries {
   getRuntimeCarrier(subject: ExtensionFactSubject | undefined): TargetTypeRef | undefined;
   getRuntimeCarrierForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
@@ -48,6 +54,7 @@ export interface TargetSemanticQueries {
   isProjectSourceShapeForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): boolean;
   isProjectSourceConstructibleObjectForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): boolean;
   getProjectSourceDeclarationForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Node | undefined;
+  getProjectSourceReferenceForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetProjectSourceReference | undefined;
   describeTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): string | undefined;
 }
 
