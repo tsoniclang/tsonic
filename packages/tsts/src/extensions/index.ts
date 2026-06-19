@@ -47,10 +47,10 @@ export {
   runtimeCarrierFactKey,
   selectedTargetSignatureFactKey,
   sourcePrimitiveFactKey,
-  structFactKey,
   targetConversionFactKey,
   targetBindingFactKey,
   targetOperationFactKey,
+  valueTypeFactKey,
 } from "./facts.js";
 
 export type {
@@ -163,7 +163,6 @@ export type {
   SourcePointerMutability,
   SourcePrimitiveFact,
   SourcePrimitiveKind,
-  StructFact,
   TargetBindingFact,
   TargetConstraint,
   TargetConversionFact,
@@ -172,4 +171,5 @@ export type {
   TargetParameter,
   TargetTypeParameter,
   TargetTypeRef,
+  ValueTypeFact,
 } from "./facts.js";

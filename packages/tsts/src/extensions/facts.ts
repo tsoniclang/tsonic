@@ -79,7 +79,7 @@ export interface PointerFact {
   readonly unsafeRequired: boolean;
 }
 
-export interface StructFact {
+export interface ValueTypeFact {
   readonly valueType: boolean;
   readonly fields?: readonly FieldFact[];
 }
@@ -271,9 +271,9 @@ export const pointerFactKey = defineExtensionFactKey<PointerFact>({
   equals: (left, right) => left.pointee === right.pointee && left.mutability === right.mutability && left.unsafeRequired === right.unsafeRequired,
 });
 
-export const structFactKey = defineExtensionFactKey<StructFact>({
+export const valueTypeFactKey = defineExtensionFactKey<ValueTypeFact>({
   extensionId: "tsts.source-semantics",
-  name: "struct",
+  name: "valueType",
   equals: (left, right) =>
     left.valueType === right.valueType
     && fieldFactArrayEquals(left.fields, right.fields),

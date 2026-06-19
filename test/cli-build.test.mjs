@@ -182,6 +182,66 @@ test("CLI resolves neutral source primitives through provider modules", async ()
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI keeps neutral and C# source semantics in separate virtual modules", async () => {
+  const projectDirectory = resolve(tempRoot, "source-semantics-split");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedSourceSemantics",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { valueType, field, defaultof } from \"@tsonic/core/lang.js\";",
+      "import { struct, attribute } from \"@tsonic/csharp/lang.js\";",
+      "",
+      "export function smoke(): number {",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double smoke\(\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+});
+
+test("CLI rejects C# source aliases imported from neutral core modules", async () => {
+  const projectDirectory = resolve(tempRoot, "source-semantics-wrong-module");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { attribute } from \"@tsonic/core/lang.js\";",
+      "",
+      "export function smoke(): number {",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
+});
+
 test("CLI emits C# generic declarations from TSTS generic AST", async () => {
   const projectDirectory = resolve(tempRoot, "generic-declarations");
   await writeProject(projectDirectory, {
@@ -232,6 +292,97 @@ test("CLI emits C# generic declarations from TSTS generic AST", async () => {
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedGenerics.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
+  const projectDirectory = resolve(tempRoot, "interfaces-and-heritage");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedInterfaces",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export interface Getter<T> {",
+      "  get(): T;",
+      "}",
+      "",
+      "export interface Named {",
+      "  name: string;",
+      "}",
+      "",
+      "export class Base {",
+      "  value(): number {",
+      "    return 1;",
+      "  }",
+      "}",
+      "",
+      "export class Derived extends Base {",
+      "  extra(): number {",
+      "    return this.value();",
+      "  }",
+      "}",
+      "",
+      "export class Box<T> implements Getter<T> {",
+      "  value: T;",
+      "",
+      "  constructor(value: T) {",
+      "    this.value = value;",
+      "  }",
+      "",
+      "  get(): T {",
+      "    return this.value;",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public interface Getter<T>/);
+  assert.match(generatedSource, /T get\(\);/);
+  assert.match(generatedSource, /public interface Named/);
+  assert.match(generatedSource, /string name \{ get; \}/);
+  assert.match(generatedSource, /public class Derived : Base/);
+  assert.match(generatedSource, /public class Box<T> : Getter<T>/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedInterfaces.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects interface index signatures until target indexer facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "interface-index-signature");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export interface Bag {",
+      "  [key: string]: number;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Index signatures require finalized target indexer facts/);
 });
 
 test("CLI rejects generic constraints until target constraint facts are finalized", async () => {

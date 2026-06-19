@@ -14,8 +14,8 @@ export {
 } from "./internal/compiler/program.js";
 export type { Program, ProgramLike, ProgramOptions } from "./internal/compiler/program.js";
 export { Background } from "./go/context.js";
-export { ExtensionConsumerQueries, ExtensionDecisionQuestion, ExtensionDiagnosticStore, ExtensionFactResolver, ExtensionFactStore, ExtensionHost, ExtensionHostDiagnosticCode, ExtensionLifecycleEvent, ProviderRegistry, TstsProviderContractVersion, acceptDecision, argumentPassingFactKey, associatedTypeFactKey, attachExtensionHost, canonicalIdentityFactKey, contextualTargetTypeFactKey, constGenericFactKey, createExtensionConsumerQueries, createSourceSemanticsExtension, defineExtensionFactKey, deferDecision, finalizeExtensionSemantics, flowStateFactKey, functionPointerFactKey, getExtensionHost, hasExtensionHost, instantiatedTargetTypeFactKey, pointerFactKey, providerVirtualDeclarationFactKey, rejectDecision, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitive, sourcePrimitiveFactKey, targetBindingFactKey, targetOperationFactKey } from "./extensions/index.js";
-export type { ArgumentPassingFact, ArgumentPassingMode, AssignabilityRequest, AssociatedTypeFact, AttributeFact, BeforeSemanticsFinalizedLifecycleRequest, CompilerExtension, CompilerExtensionKind, CompilerExtensionIdentity, ConstGenericFact, ContextualTargetTypeFact, ContextualTypeRequest, ContextualTypeResult, ExtendedProgram, ExtensionCanonicalIdentity, ExtensionCanonicalIdentityKind, ExtensionCapabilitySpec, ExtensionCompositionSpec, ExtensionDecision, ExtensionDecisionContext, ExtensionDecisionHook, ExtensionDecisionMap, ExtensionDecisionQuestionName, ExtensionDecisionRequest, ExtensionDecisionResponse, ExtensionDecisionResult, ExtensionDecisionRunOptions, ExtensionDependencySpec, ExtensionDiagnostic, ExtensionDiagnosticCategory, ExtensionDiagnosticRange, ExtensionEvidence, ExtensionFactEntry, ExtensionFactKey, ExtensionFactKeyOptions, ExtensionFactResolution, ExtensionFactResolverCallback, ExtensionFactResolverContext, ExtensionFactSubject, ExtensionFactWriteResult, ExtensionHostOptions, ExtensionImportKind, ExtensionInitializeContext, ExtensionLifecycleContext, ExtensionLifecycleHook, FieldFact, FlowStateFact, FunctionPointerFact, InferTypeArgumentsRequest, InferTypeArgumentsResult, InstantiatedTargetTypeFact, ParameterModeRequest, ParameterModeResult, PointerFact, ProviderDeclarationKind, ProviderDeclarationModel, ProviderExportDeclaration, ProviderIdentity, ProviderMemberDeclaration, ProviderModuleContext, ProviderModuleResolution, ProviderModuleResolveResult, ProviderOwnership, ProviderParameterDeclaration, ProviderResolvedModule, ProviderSignatureDeclaration, ProviderSymbolIdentity, ProviderTypeExpression, ProviderTypeParameterDeclaration, ProviderVirtualDeclarationFact, ResolveCallRequest, ResolveCallResult, ResolveConversionRequest, ResolveConversionResult, ResolveElementAccessRequest, ResolveOperationResult, ResolveOperatorRequest, ResolvePropertyAccessRequest, RuntimeCarrierFact, RuntimeCarrierRequest, RuntimeCarrierResult, SatisfiesConstraintRequest, SelectedTargetSignatureFact, SourceCallMarkerDeclaration, SourceSemanticsExportDeclaration, SourceSemanticsExtensionOptions, SourceSemanticsModule, SourceSemanticsModuleIdentity, SourceFileBoundLifecycleRequest, SourcePointerMutability, SourcePrimitiveDeclaration, SourcePrimitiveFact, SourcePrimitiveKind, SourceTypeMarkerDeclaration, StructFact, TargetBindingFact, TargetBindingProvider, TargetConstraint, TargetIdentity, TargetMember, TargetOperationFact, TargetParameter, TargetSemanticProvider, TargetTypeParameter, TargetTypeRef, ValidateFlowUseRequest, ValidateFlowUseResult } from "./extensions/index.js";
+export { ExtensionConsumerQueries, ExtensionDecisionQuestion, ExtensionDiagnosticStore, ExtensionFactResolver, ExtensionFactStore, ExtensionHost, ExtensionHostDiagnosticCode, ExtensionLifecycleEvent, ProviderRegistry, TstsProviderContractVersion, acceptDecision, argumentPassingFactKey, associatedTypeFactKey, attachExtensionHost, canonicalIdentityFactKey, contextualTargetTypeFactKey, constGenericFactKey, createExtensionConsumerQueries, createSourceSemanticsExtension, defineExtensionFactKey, deferDecision, finalizeExtensionSemantics, flowStateFactKey, functionPointerFactKey, getExtensionHost, hasExtensionHost, instantiatedTargetTypeFactKey, pointerFactKey, providerVirtualDeclarationFactKey, rejectDecision, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitive, sourcePrimitiveFactKey, targetBindingFactKey, targetOperationFactKey, valueTypeFactKey } from "./extensions/index.js";
+export type { ArgumentPassingFact, ArgumentPassingMode, AssignabilityRequest, AssociatedTypeFact, AttributeFact, BeforeSemanticsFinalizedLifecycleRequest, CompilerExtension, CompilerExtensionKind, CompilerExtensionIdentity, ConstGenericFact, ContextualTargetTypeFact, ContextualTypeRequest, ContextualTypeResult, ExtendedProgram, ExtensionCanonicalIdentity, ExtensionCanonicalIdentityKind, ExtensionCapabilitySpec, ExtensionCompositionSpec, ExtensionDecision, ExtensionDecisionContext, ExtensionDecisionHook, ExtensionDecisionMap, ExtensionDecisionQuestionName, ExtensionDecisionRequest, ExtensionDecisionResponse, ExtensionDecisionResult, ExtensionDecisionRunOptions, ExtensionDependencySpec, ExtensionDiagnostic, ExtensionDiagnosticCategory, ExtensionDiagnosticRange, ExtensionEvidence, ExtensionFactEntry, ExtensionFactKey, ExtensionFactKeyOptions, ExtensionFactResolution, ExtensionFactResolverCallback, ExtensionFactResolverContext, ExtensionFactSubject, ExtensionFactWriteResult, ExtensionHostOptions, ExtensionImportKind, ExtensionInitializeContext, ExtensionLifecycleContext, ExtensionLifecycleHook, FieldFact, FlowStateFact, FunctionPointerFact, InferTypeArgumentsRequest, InferTypeArgumentsResult, InstantiatedTargetTypeFact, ParameterModeRequest, ParameterModeResult, PointerFact, ProviderDeclarationKind, ProviderDeclarationModel, ProviderExportDeclaration, ProviderIdentity, ProviderMemberDeclaration, ProviderModuleContext, ProviderModuleResolution, ProviderModuleResolveResult, ProviderOwnership, ProviderParameterDeclaration, ProviderResolvedModule, ProviderSignatureDeclaration, ProviderSymbolIdentity, ProviderTypeExpression, ProviderTypeParameterDeclaration, ProviderVirtualDeclarationFact, ResolveCallRequest, ResolveCallResult, ResolveConversionRequest, ResolveConversionResult, ResolveElementAccessRequest, ResolveOperationResult, ResolveOperatorRequest, ResolvePropertyAccessRequest, RuntimeCarrierFact, RuntimeCarrierRequest, RuntimeCarrierResult, SatisfiesConstraintRequest, SelectedTargetSignatureFact, SourceCallMarkerDeclaration, SourceSemanticsExportDeclaration, SourceSemanticsExtensionOptions, SourceSemanticsModule, SourceSemanticsModuleIdentity, SourceFileBoundLifecycleRequest, SourcePointerMutability, SourcePrimitiveDeclaration, SourcePrimitiveFact, SourcePrimitiveKind, SourceTypeMarkerDeclaration, TargetBindingFact, TargetBindingProvider, TargetConstraint, TargetIdentity, TargetMember, TargetOperationFact, TargetParameter, TargetSemanticProvider, TargetTypeParameter, TargetTypeRef, ValidateFlowUseRequest, ValidateFlowUseResult, ValueTypeFact } from "./extensions/index.js";
 export { ParseBuildCommandLine, ParseCommandLine } from "./internal/tsoptions/commandlineparser.js";
 export type { ParsedBuildCommandLine } from "./internal/tsoptions/parsedbuildcommandline.js";
 export type { ParsedCommandLine } from "./internal/tsoptions/parsedcommandline.js";
@@ -46,12 +46,16 @@ export {
   AsFunctionDeclaration,
   AsIdentifier,
   AsIfStatement,
+  AsIndexSignatureDeclaration,
+  AsInterfaceDeclaration,
   AsMethodDeclaration,
+  AsMethodSignatureDeclaration,
   AsNewExpression,
   AsParameterDeclaration,
   AsParenthesizedExpression,
   AsPropertyAccessExpression,
   AsPropertyDeclaration,
+  AsPropertySignatureDeclaration,
   AsPrefixUnaryExpression,
   AsPostfixUnaryExpression,
   AsReturnStatement,
@@ -123,11 +127,13 @@ export {
   KindIdentifier,
   KindIfStatement,
   KindImportDeclaration,
+  KindIndexSignature,
   KindInterfaceDeclaration,
   KindLabeledStatement,
   KindLessThanEqualsToken,
   KindLessThanToken,
   KindMethodDeclaration,
+  KindMethodSignature,
   KindMinusToken,
   KindMinusMinusToken,
   KindNeverKeyword,
@@ -143,12 +149,14 @@ export {
   KindPercentToken,
   KindPropertyAccessExpression,
   KindPropertyDeclaration,
+  KindPropertySignature,
   KindPrefixUnaryExpression,
   KindPostfixUnaryExpression,
   KindQuestionQuestionToken,
   KindReturnStatement,
   KindSlashToken,
   KindStringLiteral,
+  KindSuperKeyword,
   KindSwitchStatement,
   KindThisKeyword,
   KindThrowStatement,

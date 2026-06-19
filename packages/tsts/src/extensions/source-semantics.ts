@@ -46,7 +46,7 @@ import {
   functionPointerFactKey,
   pointerFactKey,
   sourcePrimitiveFactKey,
-  structFactKey,
+  valueTypeFactKey,
 } from "./facts.js";
 import type {
   ArgumentPassingFact,
@@ -60,7 +60,7 @@ import type {
   PointerFact,
   SourcePrimitiveFact,
   SourcePrimitiveKind,
-  StructFact,
+  ValueTypeFact,
 } from "./facts.js";
 import { ExtensionLifecycleEvent } from "./host.js";
 import type {
@@ -112,7 +112,7 @@ export type SourceCallMarkerKind =
   | "borrow"
   | "borrowMut"
   | "move"
-  | "struct"
+  | "valueType"
   | "field"
   | "attribute"
   | "defaultof";
@@ -196,7 +196,7 @@ export function createSourceSemanticsExtension(options: SourceSemanticsExtension
         "source-semantics.argument-passing",
         "source-semantics.pointer-types",
         "source-semantics.flow-markers",
-        "source-semantics.structs",
+        "source-semantics.value-types",
         "source-semantics.attributes",
         "source-semantics.defaults",
       ],
@@ -390,8 +390,8 @@ function recordSourceSemanticsCallMarker(
     case "field":
       recordFieldMarker(facts, callExpression, evidence);
       return;
-    case "struct":
-      recordStructMarker(facts, callExpression, evidence);
+    case "valueType":
+      recordValueTypeMarker(facts, callExpression, evidence);
       return;
     case "attribute":
       recordAttributeMarker(facts, callExpression, evidence);
@@ -469,7 +469,7 @@ function recordFieldMarker(
   }
 }
 
-function recordStructMarker(
+function recordValueTypeMarker(
   facts: ExtensionFactStore,
   callExpression: Node,
   evidence: readonly ExtensionEvidence[],
@@ -491,9 +491,9 @@ function recordStructMarker(
   const fact = {
     valueType: true,
     fields,
-  } satisfies StructFact;
-  facts.set(callExpression, structFactKey, fact, evidence);
-  recordInitializerOwnerFact(facts, callExpression, structFactKey, fact, evidence);
+  } satisfies ValueTypeFact;
+  facts.set(callExpression, valueTypeFactKey, fact, evidence);
+  recordInitializerOwnerFact(facts, callExpression, valueTypeFactKey, fact, evidence);
 }
 
 function recordAttributeMarker(

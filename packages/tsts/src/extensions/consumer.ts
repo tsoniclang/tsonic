@@ -13,10 +13,10 @@ import {
   runtimeCarrierFactKey,
   selectedTargetSignatureFactKey,
   sourcePrimitiveFactKey,
-  structFactKey,
   targetConversionFactKey,
   targetBindingFactKey,
   targetOperationFactKey,
+  valueTypeFactKey,
 } from "./facts.js";
 import type {
   ArgumentPassingFact,
@@ -33,10 +33,10 @@ import type {
   RuntimeCarrierFact,
   SelectedTargetSignatureFact,
   SourcePrimitiveFact,
-  StructFact,
   TargetConversionFact,
   TargetBindingFact,
   TargetOperationFact,
+  ValueTypeFact,
 } from "./facts.js";
 import type { ExtensionFactEntry, ExtensionFactKey, ExtensionFactSubject, ExtensionHost, ProviderVirtualDeclarationDocument } from "./host.js";
 
@@ -213,16 +213,16 @@ export class ExtensionConsumerQueries {
     return this.mustFact(subject, pointerFactKey, purpose);
   }
 
-  getStructFact(subject: ExtensionFactSubject | undefined): StructFact | undefined {
-    return this.getFact(subject, structFactKey);
+  getValueTypeFact(subject: ExtensionFactSubject | undefined): ValueTypeFact | undefined {
+    return this.getFact(subject, valueTypeFactKey);
   }
 
-  requireStructFact(subject: ExtensionFactSubject, purpose?: string): StructFact | undefined {
-    return this.requireFact(subject, structFactKey, purpose);
+  requireValueTypeFact(subject: ExtensionFactSubject, purpose?: string): ValueTypeFact | undefined {
+    return this.requireFact(subject, valueTypeFactKey, purpose);
   }
 
-  mustStructFact(subject: ExtensionFactSubject, purpose?: string): StructFact {
-    return this.mustFact(subject, structFactKey, purpose);
+  mustValueTypeFact(subject: ExtensionFactSubject, purpose?: string): ValueTypeFact {
+    return this.mustFact(subject, valueTypeFactKey, purpose);
   }
 
   getFieldFact(subject: ExtensionFactSubject | undefined): FieldFact | undefined {

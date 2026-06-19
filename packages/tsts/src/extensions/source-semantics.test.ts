@@ -61,7 +61,7 @@ import {
   pointerFactKey,
   sourcePrimitive,
   sourcePrimitiveFactKey,
-  structFactKey,
+  valueTypeFactKey,
 } from "./index.js";
 import { Diagnostic_Code, Diagnostic_String } from "../internal/ast/diagnostic.js";
 import type { ExtendedProgram } from "./index.js";
@@ -103,7 +103,7 @@ function createExampleSourceSemanticsExtension() {
         { kind: "call-marker", exportName: "borrow", marker: "borrow" },
         { kind: "call-marker", exportName: "borrowMut", marker: "borrowMut" },
         { kind: "call-marker", exportName: "move", marker: "move" },
-        { kind: "call-marker", exportName: "struct", marker: "struct" },
+        { kind: "call-marker", exportName: "valueType", marker: "valueType" },
         { kind: "call-marker", exportName: "field", marker: "field" },
         { kind: "call-marker", exportName: "attribute", marker: "attribute" },
         { kind: "call-marker", exportName: "defaultof", marker: "defaultof" },
@@ -363,27 +363,27 @@ test("source-semantics records ptr and fnptr type facts from canonical type mark
   assert.equal(consumer.getFunctionPointerFact(functionPointerReference)?.parameters.length, 1);
 });
 
-test("source-semantics records struct field attribute and default facts from canonical imports only", () => {
+test("source-semantics records value-type field attribute and default facts from canonical imports only", () => {
   const { extended, program, index } = createProgram(`
     import type { int } from "@example/native/types.js";
-    import { attribute, defaultof, field, struct } from "@example/native/lang.js";
-    import { attribute as localAttribute, defaultof as localDefaultof, field as localField, struct as localStruct } from "./local.js";
+    import { attribute, defaultof, field, valueType } from "@example/native/lang.js";
+    import { attribute as localAttribute, defaultof as localDefaultof, field as localField, valueType as localValueType } from "./local.js";
 
     type RouteAttribute = { route: string };
-    const Point = struct({
+    const Point = valueType({
       x: field<int>(),
       y: field<int>(),
     });
     const route = attribute<RouteAttribute>("/users");
     const zero = defaultof<int>();
-    const Fake = localStruct({
+    const Fake = localValueType({
       x: localField<int>(),
     });
     const fakeRoute = localAttribute<RouteAttribute>("/fake");
     const fakeDefault = localDefaultof<int>();
   `, new Map([
     ["/src/local.ts", [
-      "export function struct<T>(shape: T): T { return shape; }",
+      "export function valueType<T>(shape: T): T { return shape; }",
       "export function field<T>(): T { throw new Error('local'); }",
       "export function attribute<T>(value?: unknown): unknown { return value; }",
       "export function defaultof<T>(): T { throw new Error('local'); }",
@@ -396,12 +396,12 @@ test("source-semantics records struct field attribute and default facts from can
   const pointDeclaration = getVariableDeclaration(index, "Point");
   const pointSymbol = Node_Symbol(pointDeclaration);
   assert.ok(pointSymbol !== undefined);
-  const structCall = getCallExpression(index, "struct", 0);
-  const structFact = extended.extensionHost.facts.get(structCall, structFactKey);
-  assert.equal(structFact?.valueType, true);
-  assert.deepEqual(structFact?.fields?.map((field) => field.name), ["x", "y"]);
-  assert.equal(extended.extensionHost.facts.get(pointDeclaration, structFactKey)?.fields?.length, 2);
-  assert.equal(extended.extensionHost.facts.get(pointSymbol, structFactKey)?.fields?.length, 2);
+  const valueTypeCall = getCallExpression(index, "valueType", 0);
+  const valueTypeFact = extended.extensionHost.facts.get(valueTypeCall, valueTypeFactKey);
+  assert.equal(valueTypeFact?.valueType, true);
+  assert.deepEqual(valueTypeFact?.fields?.map((field) => field.name), ["x", "y"]);
+  assert.equal(extended.extensionHost.facts.get(pointDeclaration, valueTypeFactKey)?.fields?.length, 2);
+  assert.equal(extended.extensionHost.facts.get(pointSymbol, valueTypeFactKey)?.fields?.length, 2);
 
   const xFieldCall = getCallExpression(index, "field", 0);
   const xFieldFact = extended.extensionHost.facts.get(xFieldCall, fieldFactKey);
@@ -424,14 +424,14 @@ test("source-semantics records struct field attribute and default facts from can
   assert.equal(extended.extensionHost.facts.get(defaultValueFact?.type, sourcePrimitiveFactKey)?.kind, "int32");
   assert.equal(extended.extensionHost.facts.get(zeroSymbol, defaultValueFactKey)?.type, defaultValueFact?.type);
 
-  assert.equal(extended.extensionHost.facts.get(getCallExpression(index, "localStruct", 0), structFactKey), undefined);
+  assert.equal(extended.extensionHost.facts.get(getCallExpression(index, "localValueType", 0), valueTypeFactKey), undefined);
   assert.equal(extended.extensionHost.facts.get(getCallExpression(index, "localField", 0), fieldFactKey), undefined);
   assert.equal(extended.extensionHost.facts.get(getCallExpression(index, "localAttribute", 0), attributeFactKey), undefined);
   assert.equal(extended.extensionHost.facts.get(getCallExpression(index, "localDefaultof", 0), defaultValueFactKey), undefined);
 
   assert.equal(finalizeExtensionSemantics(extended.program), extended.extensionHost);
   const consumer = createExtensionConsumerQueries(extended.extensionHost, "test-consumer");
-  assert.equal(consumer.getStructFact(pointSymbol)?.fields?.length, 2);
+  assert.equal(consumer.getValueTypeFact(pointSymbol)?.fields?.length, 2);
   assert.equal(consumer.getFieldFact(xFieldCall)?.name, "x");
   assert.equal(consumer.getAttributeFact(routeSymbol)?.attributeName, "RouteAttribute");
   assert.equal(consumer.getDefaultValueFact(zeroSymbol)?.type, defaultValueFact?.type);
