@@ -1264,7 +1264,7 @@ test("CLI emits module-scope const bindings as C# static readonly fields", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects standalone export declarations until module-export facts are finalized", async () => {
+test("CLI erases source-local standalone export declarations", async () => {
   const projectDirectory = resolve(tempRoot, "standalone-export-declaration");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1281,8 +1281,32 @@ test("CLI rejects standalone export declarations until module-export facts are f
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static readonly double value = 1;/);
+  assert.doesNotMatch(generatedSource, /export|__unsupported/);
+});
+
+test("CLI rejects re-export declarations until module-export facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "re-export-declaration");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/other.ts": "export const value = 1;\n",
+    "src/index.ts": [
+      "export { value } from \"./other.js\";",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Standalone export declarations require finalized TSTS module-export facts/);
+  assert.match(build.stderr, /Re-export declarations require finalized TSTS module-export facts/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 

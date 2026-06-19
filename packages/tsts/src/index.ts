@@ -60,6 +60,7 @@ export {
   AsElementAccessExpression,
   AsEnumDeclaration,
   AsEnumMember,
+  AsExportDeclaration,
   AsExpressionStatement,
   AsForInOrOfStatement,
   AsForStatement,
