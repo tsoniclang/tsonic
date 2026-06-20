@@ -4764,7 +4764,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.charAt(index);",
       "}",
       "",
-      "export function code(value: string, index: int32): int32 {",
+      "export function code(value: string, index: int32): number {",
       "  return value.charCodeAt(index);",
       "}",
       "",
@@ -4831,7 +4831,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.repeat\(value, count\);/);
   assert.match(generatedSource, /public static string character\(string value, int index\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.charAt\(value, index\);/);
-  assert.match(generatedSource, /public static int code\(string value, int index\)/);
+  assert.match(generatedSource, /public static double code\(string value, int index\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.charCodeAt\(value, index\);/);
   assert.match(generatedSource, /public static int\? codePoint\(string value, int index\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.codePointAt\(value, index\);/);
