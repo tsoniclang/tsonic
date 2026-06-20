@@ -3156,12 +3156,12 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
       "  }",
       "}",
       "",
-      "export function readValue(box: Box, fallback: number): number {",
-      "  return box?.value ?? fallback;",
+      "export function readValue(box: Box, defaultValue: number): number {",
+      "  return box?.value ?? defaultValue;",
       "}",
       "",
-      "export function readCall(box: Box, fallback: number): number {",
-      "  return box?.read() ?? fallback;",
+      "export function readCall(box: Box, defaultValue: number): number {",
+      "  return box?.read() ?? defaultValue;",
       "}",
       "",
     ].join("\n"),
@@ -3171,8 +3171,8 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /return box\?\.value \?\? fallback;/);
-  assert.match(generatedSource, /return box\?\.read\(\) \?\? fallback;/);
+  assert.match(generatedSource, /return box\?\.value \?\? defaultValue;/);
+  assert.match(generatedSource, /return box\?\.read\(\) \?\? defaultValue;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOptionalChain.csproj"), "--nologo", "--v:minimal"]);
@@ -3209,8 +3209,8 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
       "  return flag ? box : null;",
       "}",
       "",
-      "export function read(box: Box | null, fallback: number): number {",
-      "  return box?.value ?? fallback;",
+      "export function read(box: Box | null, defaultValue: number): number {",
+      "  return box?.value ?? defaultValue;",
       "}",
       "",
     ].join("\n"),
@@ -3223,8 +3223,8 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
   assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
   assert.match(generatedSource, /return flag \? 1\.5 : null;/);
   assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);
-  assert.match(generatedSource, /public static double read\(Box\? box, double fallback\)/);
-  assert.match(generatedSource, /return box\?\.value \?\? fallback;/);
+  assert.match(generatedSource, /public static double read\(Box\? box, double defaultValue\)/);
+  assert.match(generatedSource, /return box\?\.value \?\? defaultValue;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNullableUnions.csproj"), "--nologo", "--v:minimal"]);
