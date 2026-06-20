@@ -3675,6 +3675,18 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values.indexOf(value);",
       "}",
       "",
+      "export function positionOfFrom(values: int32[], value: int32, start: int32): int32 {",
+      "  return values.indexOf(value, start);",
+      "}",
+      "",
+      "export function lastPositionOf(values: int32[], value: int32): int32 {",
+      "  return values.lastIndexOf(value);",
+      "}",
+      "",
+      "export function lastPositionOfFrom(values: int32[], value: int32, start: int32): int32 {",
+      "  return values.lastIndexOf(value, start);",
+      "}",
+      "",
       "export function destruct(values: int32[]): int32 {",
       "  const [first, second] = values;",
       "  return first + second;",
@@ -3717,6 +3729,12 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return System\.Linq\.Enumerable\.Contains\(values, value\);/);
   assert.match(generatedSource, /public static int positionOf\(int\[\] values, int value\)/);
   assert.match(generatedSource, /return System\.Array\.IndexOf\(values, value\);/);
+  assert.match(generatedSource, /public static int positionOfFrom\(int\[\] values, int value, int start\)/);
+  assert.match(generatedSource, /return System\.Array\.IndexOf\(values, value, start\);/);
+  assert.match(generatedSource, /public static int lastPositionOf\(int\[\] values, int value\)/);
+  assert.match(generatedSource, /return System\.Array\.LastIndexOf\(values, value\);/);
+  assert.match(generatedSource, /public static int lastPositionOfFrom\(int\[\] values, int value, int start\)/);
+  assert.match(generatedSource, /return System\.Array\.LastIndexOf\(values, value, start\);/);
   assert.match(generatedSource, /public static int destruct\(int\[\] values\)/);
   assert.match(generatedSource, /int first = __destructure0\[0\];/);
   assert.match(generatedSource, /int second = __destructure0\[1\];/);
