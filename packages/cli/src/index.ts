@@ -3,8 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { compileProject, parseTsonicProjectConfig, resolveProjectPaths } from "@tsonic/host";
 import type { ProjectBuildResult } from "@tsonic/host";
-import { createTargetRegistry } from "@tsonic/target-api";
-import { createCsharpTargetPack } from "@tsonic/target-csharp";
+import { createStandardTargetRegistry } from "./standard-targets.js";
 
 interface CliResult {
   readonly exitCode: number;
@@ -12,9 +11,7 @@ interface CliResult {
   readonly stderr?: string;
 }
 
-const registry = createTargetRegistry([
-  createCsharpTargetPack(),
-]);
+const registry = createStandardTargetRegistry();
 
 const result = await run(process.argv.slice(2), process.cwd()).catch((error: unknown): CliResult => ({
   exitCode: 1,
