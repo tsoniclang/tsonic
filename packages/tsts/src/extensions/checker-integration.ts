@@ -712,14 +712,27 @@ export function recordExtensionFlowUseValidation(checker: GoPtr<CheckerWithProgr
 }
 
 function recordExtensionCallParameterModes(extensionHost: ExtensionHost, callResult: ResolveCallResult, arguments_: readonly GoPtr<Node>[]): void {
-  if (extensionHost.getDecisionOwner(ExtensionDecisionQuestion.getParameterMode) === undefined) {
-    return;
-  }
+  const parameterModeOwner = extensionHost.getDecisionOwner(ExtensionDecisionQuestion.getParameterMode);
   const parameters = callResult.selectedSignature.member.parameters;
   for (let index = 0; index < parameters.length; index++) {
     const parameter = parameters[index];
     const argument = arguments_[index];
     if (parameter === undefined || argument === undefined) {
+      continue;
+    }
+    if (parameterModeOwner === undefined) {
+      if (parameter.passingMode !== "by-value") {
+        extensionHost.facts.set(argument, argumentPassingFactKey, {
+          mode: parameter.passingMode,
+          targetExpression: argument,
+        }, [{
+          message: "selected target signature parameter passing mode",
+          details: {
+            memberId: callResult.selectedSignature.member.id,
+            parameterName: parameter.name,
+          },
+        }]);
+      }
       continue;
     }
     const result = extensionHost.runDecision(
