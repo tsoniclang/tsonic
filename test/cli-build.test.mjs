@@ -3899,6 +3899,10 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values.includes(value);",
       "}",
       "",
+      "export function hasFrom(values: int32[], value: int32, start: int32): boolean {",
+      "  return values.includes(value, start);",
+      "}",
+      "",
       "export function positionOf(values: int32[], value: int32): int32 {",
       "  return values.indexOf(value);",
       "}",
@@ -3993,15 +3997,17 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static string join\(int\[\] values\)/);
   assert.match(generatedSource, /return string\.Join\("\|", values\);/);
   assert.match(generatedSource, /public static bool has\(int\[\] values, int value\)/);
-  assert.match(generatedSource, /return System\.Linq\.Enumerable\.Contains\(values, value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Includes\(values, value\);/);
+  assert.match(generatedSource, /public static bool hasFrom\(int\[\] values, int value, int start\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Includes\(values, value, start\);/);
   assert.match(generatedSource, /public static int positionOf\(int\[\] values, int value\)/);
-  assert.match(generatedSource, /return System\.Array\.IndexOf\(values, value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.IndexOf\(values, value\);/);
   assert.match(generatedSource, /public static int positionOfFrom\(int\[\] values, int value, int start\)/);
-  assert.match(generatedSource, /return System\.Array\.IndexOf\(values, value, start\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.IndexOf\(values, value, start\);/);
   assert.match(generatedSource, /public static int lastPositionOf\(int\[\] values, int value\)/);
-  assert.match(generatedSource, /return System\.Array\.LastIndexOf\(values, value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.LastIndexOf\(values, value\);/);
   assert.match(generatedSource, /public static int lastPositionOfFrom\(int\[\] values, int value, int start\)/);
-  assert.match(generatedSource, /return System\.Array\.LastIndexOf\(values, value, start\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.LastIndexOf\(values, value, start\);/);
   assert.match(generatedSource, /public static int sumEach\(int\[\] values\)/);
   assert.match(generatedSource, /System\.Array\.ForEach\(values, \(int value\) =>/);
   assert.match(generatedSource, /total \+= value;/);
