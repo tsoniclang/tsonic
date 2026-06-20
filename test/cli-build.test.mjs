@@ -3287,6 +3287,11 @@ test("CLI emits interface object literals through provider object-shape adapters
       "  };",
       "}",
       "",
+      "export function invoke(named: Named): number {",
+      "  const { run } = named;",
+      "  return run(2);",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -3297,6 +3302,7 @@ test("CLI emits interface object literals through provider object-shape adapters
   assert.match(generated, /public class __TsonicShape_Named_[A-Za-z0-9_]+ : Named[\s\S]*public string name[\s\S]*get;[\s\S]*set;[\s\S]*public Func<double, double> __tsonic_shape_method_1_run;/);
   assert.match(generated, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_1_run\(arg0\);/);
   assert.match(generated, /public static Named create\(\)[\s\S]*return new __TsonicShape_Named_[A-Za-z0-9_]+[\s\S]*name = "one",[\s\S]*__tsonic_shape_method_1_run = \(double value\) =>[\s\S]*return value \+ 1;/);
+  assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __destructure\d+\.run;[\s\S]*return run\(2\);/);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
