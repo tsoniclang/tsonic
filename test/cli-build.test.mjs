@@ -3161,6 +3161,8 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
       ],
     }, null, 2),
     "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
       "export class Box {",
       "  value: number = 1;",
       "  read(): number {",
@@ -3176,6 +3178,10 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
       "  return box?.read() ?? defaultValue;",
       "}",
       "",
+      "export function readElement(values: number[] | null, index: int32, defaultValue: number): number {",
+      "  return values?.[index] ?? defaultValue;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -3185,6 +3191,8 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return box\?\.value \?\? defaultValue;/);
   assert.match(generatedSource, /return box\?\.read\(\) \?\? defaultValue;/);
+  assert.match(generatedSource, /public static double readElement\(double\[\]\? values, int index, double defaultValue\)/);
+  assert.match(generatedSource, /return values\?\[index\] \?\? defaultValue;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOptionalChain.csproj"), "--nologo", "--v:minimal"]);
