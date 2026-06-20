@@ -4753,7 +4753,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "}",
       "",
       "export function padded(value: string, width: int32): string {",
-      "  return value.padStart(width, \"0\").padEnd(width + 1, \"_\");",
+      "  return value.padStart(width, \"01\").padEnd(width + 1, \"_-\");",
       "}",
       "",
       "export function repeated(value: string, count: int32): string {",
@@ -4826,7 +4826,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /public static string parts\(string value, int start, int end\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.substring\(value, start, end\) \+ Tsonic\.CSharp\.Js\.String\.slice\(value, start, end\) \+ Tsonic\.CSharp\.Js\.String\.substr\(value, start, end\);/);
   assert.match(generatedSource, /public static string padded\(string value, int width\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.padEnd\(Tsonic\.CSharp\.Js\.String\.padStart\(value, width, "0"\), width \+ 1, "_"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.padEnd\(Tsonic\.CSharp\.Js\.String\.padStart\(value, width, "01"\), width \+ 1, "_-"\);/);
   assert.match(generatedSource, /public static string repeated\(string value, int count\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.repeat\(value, count\);/);
   assert.match(generatedSource, /public static string character\(string value, int index\)/);
