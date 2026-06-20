@@ -3217,8 +3217,16 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
       "  return flag ? 1.5 : null;",
       "}",
       "",
+      "export function maybeBoolean(flag: boolean): boolean | null {",
+      "  return flag ? true : null;",
+      "}",
+      "",
       "export function maybeBox(flag: boolean, box: Box): Box | null {",
       "  return flag ? box : null;",
+      "}",
+      "",
+      "export function readBoolean(value: boolean | null, fallback: boolean): boolean {",
+      "  return value ?? fallback;",
       "}",
       "",
       "export function read(box: Box | null, defaultValue: number): number {",
@@ -3234,7 +3242,11 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
   assert.match(generatedSource, /return flag \? 1\.5 : null;/);
+  assert.match(generatedSource, /public static bool\? maybeBoolean\(bool flag\)/);
+  assert.match(generatedSource, /return flag \? true : null;/);
   assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);
+  assert.match(generatedSource, /public static bool readBoolean\(bool\? value, bool fallback\)/);
+  assert.match(generatedSource, /return value \?\? fallback;/);
   assert.match(generatedSource, /public static double read\(Box\? box, double defaultValue\)/);
   assert.match(generatedSource, /return box\?\.value \?\? defaultValue;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
