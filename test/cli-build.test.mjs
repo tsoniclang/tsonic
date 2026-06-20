@@ -166,7 +166,7 @@ test("CLI resolves neutral source primitives through provider modules", async ()
       ],
     }, null, 2),
     "src/index.ts": [
-      "import type { int32, int128, nativeInt, float64, float16, bool, char16, decimal128 } from \"@tsonic/core/types.js\";",
+      "import type { int32, int128, nativeInt, float64, float16, bool, char, decimal } from \"@tsonic/core/types.js\";",
       "",
       "export function choose(flag: bool, left: int32, right: int32): int32 {",
       "  return flag ? left : right;",
@@ -176,11 +176,11 @@ test("CLI resolves neutral source primitives through provider modules", async ()
       "  return value * 2;",
       "}",
       "",
-      "export function firstChar(value: char16): char16 {",
+      "export function firstChar(value: char): char {",
       "  return value;",
       "}",
       "",
-      "export function keepDecimal(value: decimal128): decimal128 {",
+      "export function keepDecimal(value: decimal): decimal {",
       "  return value;",
       "}",
       "",
@@ -545,8 +545,8 @@ test("CLI emits provider-owned generic collection constructors from virtual targ
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI emits char16 string literals as C# char literals from expected TSTS type", async () => {
-  const projectDirectory = resolve(tempRoot, "char16-literals");
+test("CLI emits char string literals as C# char literals from expected TSTS type", async () => {
+  const projectDirectory = resolve(tempRoot, "char-literals");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -563,21 +563,21 @@ test("CLI emits char16 string literals as C# char literals from expected TSTS ty
       ],
     }, null, 2),
     "src/index.ts": [
-      "import type { char16 } from \"@tsonic/core/types.js\";",
+      "import type { char } from \"@tsonic/core/types.js\";",
       "",
-      "export function letter(): char16 {",
+      "export function letter(): char {",
       "  return \"x\";",
       "}",
       "",
-      "export function newline(): char16 {",
+      "export function newline(): char {",
       "  return \"\\n\";",
       "}",
       "",
-      "export function choose(flag: boolean): char16 {",
+      "export function choose(flag: boolean): char {",
       "  return flag ? \"a\" : `b`;",
       "}",
       "",
-      "export function defaulted(value: char16 = \"q\"): char16 {",
+      "export function defaulted(value: char = \"q\"): char {",
       "  return value;",
       "}",
       "",
@@ -600,8 +600,8 @@ test("CLI emits char16 string literals as C# char literals from expected TSTS ty
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects multi-code-unit string literals for char16 targets", async () => {
-  const projectDirectory = resolve(tempRoot, "char16-invalid-literal");
+test("CLI rejects multi-code-unit string literals for char targets", async () => {
+  const projectDirectory = resolve(tempRoot, "char-invalid-literal");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -610,9 +610,9 @@ test("CLI rejects multi-code-unit string literals for char16 targets", async () 
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "import type { char16 } from \"@tsonic/core/types.js\";",
+      "import type { char } from \"@tsonic/core/types.js\";",
       "",
-      "export function bad(): char16 {",
+      "export function bad(): char {",
       "  return \"xy\";",
       "}",
       "",
@@ -878,7 +878,7 @@ test("CLI keeps neutral and C# source semantics in separate virtual modules", as
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { valueType, field, defaultValue } from \"@tsonic/core/lang.js\";",
+      "import { struct as neutralStruct, field, defaultof as neutralDefaultof } from \"@tsonic/core/lang.js\";",
       "import { struct, attribute, defaultof } from \"@tsonic/csharp/lang.js\";",
       "",
       "export function smoke(): number {",
@@ -906,10 +906,10 @@ test("CLI rejects C# source aliases imported from neutral core modules", async (
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "import { attribute, out } from \"@tsonic/core/lang.js\";",
+      "import type { int } from \"@tsonic/core/types.js\";",
       "",
-      "export function smoke(): number {",
-      "  return 1;",
+      "export function smoke(value: int): int {",
+      "  return value;",
       "}",
       "",
     ].join("\n"),
@@ -938,17 +938,17 @@ test("CLI emits C# structs from neutral value-type facts and C# aliases", async 
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { valueType, field } from \"@tsonic/core/lang.js\";",
-      "import { struct } from \"@tsonic/csharp/lang.js\";",
+      "import { struct, field } from \"@tsonic/core/lang.js\";",
+      "import { struct as csharpStruct } from \"@tsonic/csharp/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "import type { int } from \"@tsonic/csharp/types.js\";",
       "",
-      "export const Point = valueType({",
+      "export const Point = struct({",
       "  x: field<int32>(),",
       "  y: field<int32>(),",
       "});",
       "",
-      "export const Counter = struct({",
+      "export const Counter = csharpStruct({",
       "  value: field<int>(),",
       "});",
       "",
@@ -964,7 +964,7 @@ test("CLI emits C# structs from neutral value-type facts and C# aliases", async 
   assert.match(generatedSource, /public int y;/);
   assert.match(generatedSource, /public struct Counter/);
   assert.match(generatedSource, /public int value;/);
-  assert.doesNotMatch(generatedSource, /valueType/);
+  assert.doesNotMatch(generatedSource, /struct\(/);
   assert.doesNotMatch(generatedSource, /struct\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -994,7 +994,7 @@ test("CLI rejects attribute builder targets without provider target facts", asyn
       "",
     ].join("\n"),
     "src/index.ts": [
-      "import { attributes as A } from \"@tsonic/core/lang.js\";",
+      "import { attribute as A } from \"@tsonic/core/lang.js\";",
       "import { CLSCompliantAttribute } from \"./system-attributes.js\";",
       "",
       "export class Annotated {",
@@ -1036,7 +1036,7 @@ test("CLI emits C# attributes from provider target identity facts", async () => 
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { attributes as A } from \"@tsonic/core/lang.js\";",
+      "import { attribute as A } from \"@tsonic/core/lang.js\";",
       "import { CLSCompliantAttribute } from \"@tsonic/csharp/lang.js\";",
       "",
       "export class Annotated {",
@@ -1086,16 +1086,16 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { defaultValue } from \"@tsonic/core/lang.js\";",
-      "import { defaultof } from \"@tsonic/csharp/lang.js\";",
+      "import { defaultof } from \"@tsonic/core/lang.js\";",
+      "import { defaultof as csharpDefaultof } from \"@tsonic/csharp/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
       "export function zero(): int32 {",
-      "  return defaultValue<int32>();",
+      "  return defaultof<int32>();",
       "}",
       "",
       "export function csharpZero(): int32 {",
-      "  return defaultof<int32>();",
+      "  return csharpDefaultof<int32>();",
       "}",
       "",
     ].join("\n"),
@@ -1108,7 +1108,7 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
   assert.match(generatedSource, /return default\(int\);/);
   assert.match(generatedSource, /public static int csharpZero\(\)/);
   assert.doesNotMatch(generatedSource, /defaultof/);
-  assert.doesNotMatch(generatedSource, /defaultValue/);
+  assert.doesNotMatch(generatedSource, /defaultof/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaults.csproj"), "--nologo", "--v:minimal"]);
@@ -1125,7 +1125,7 @@ test("CLI emits C# argument passing from neutral storage facts and C# aliases", 
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "import { writeonlyRef, readwriteRef, readonlyRef } from \"@tsonic/core/lang.js\";",
+      "import { out as writeonlyRef, ref as readwriteRef, inref as readonlyRef } from \"@tsonic/core/lang.js\";",
       "import { out, ref, inref } from \"@tsonic/csharp/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
@@ -3995,7 +3995,7 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static int count\(int\[\] values\)/);
   assert.match(generatedSource, /return values\.Length;/);
   assert.match(generatedSource, /public static string join\(int\[\] values\)/);
-  assert.match(generatedSource, /return string\.Join\("\|", values\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Join\(values, "\|"\);/);
   assert.match(generatedSource, /public static bool has\(int\[\] values, int value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Includes\(values, value\);/);
   assert.match(generatedSource, /public static bool hasFrom\(int\[\] values, int value, int start\)/);

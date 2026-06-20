@@ -19,6 +19,7 @@ out/
 .analysis/
 .todos/
 .tmp/
+packages/tsts/_vendor/typescript-go/
 
 # Logs and diagnostics
 *.log

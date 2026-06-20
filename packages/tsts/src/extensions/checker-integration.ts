@@ -4,36 +4,49 @@ import type { Node } from "../internal/ast/ast.js";
 import { Node_Arguments, Node_Expression, Node_Symbol, Node_Text, Node_TypeArguments } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import { Node_Name } from "../internal/ast/spine.js";
-import { AsElementAccessExpression, AsTypeOfExpression } from "../internal/ast/generated/casts.js";
-import { KindElementAccessExpression, KindIdentifier, KindPropertyAccessExpression, KindTypeOfExpression } from "../internal/ast/generated/kinds.js";
+import { AsElementAccessExpression, AsForInOrOfStatement, AsPropertyAccessExpression } from "../internal/ast/generated/casts.js";
+import { KindElementAccessExpression, KindIdentifier, KindPrivateIdentifier, KindPropertyAccessExpression, KindQualifiedName } from "../internal/ast/generated/kinds.js";
+import { SymbolFlagsAlias } from "../internal/ast/symbolflags.js";
 import { TokenToString } from "../internal/scanner/scanner.js";
-import type { Type } from "../internal/checker/types.js";
+import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
-import { Checker_getTypeOfExpression } from "../internal/checker/checker/types.js";
 import { Checker_GetAliasedSymbol, Checker_GetSymbolAtLocation, Checker_getResolvedSymbol } from "../internal/checker/checker/symbols.js";
-import { SymbolFlagsAlias } from "../internal/ast/generated/flags.js";
-import { ExtensionDecisionQuestion } from "./decisions.js";
-import type { AssignabilityRequest, ContextualTypeRequest, ContextualTypeResult, InferTypeArgumentsRequest, InferTypeArgumentsResult, ParameterModeRequest, ParameterModeResult, ResolveCallRequest, ResolveCallResult, ResolveConversionRequest, ResolveConversionResult, ResolveElementAccessRequest, ResolveIterationRequest, ResolveOperationResult, ResolveOperatorRequest, ResolvePropertyAccessRequest, RuntimeCarrierRequest, RuntimeCarrierResult, SatisfiesConstraintRequest, ValidateFlowUseRequest, ValidateFlowUseResult } from "./decisions.js";
-import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetIterationFactKey, targetOperationFactKey } from "./facts.js";
-import type { RuntimeCarrierFact } from "./facts.js";
+import { Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
+import { ExtensionObservationPoint } from "./observations.js";
+import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityValidationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
+import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
 import type { ExtensionEvidence, ExtensionFactKey, ExtensionFactSubject, ExtensionHost } from "./host.js";
 import { getExtensionHost } from "./host.js";
 
-type CheckerWithProgram = Checker;
+type CheckerWithProgram = Checker & { readonly program: object };
 
-export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>, callExpression: GoPtr<Node>): void {
+const noCheckedCallMapping: CheckedCallMappingResult = {
+  selectedSignature: {
+    member: {
+      id: "tsts.core.noTargetCallMapping",
+      sourceName: "",
+      targetName: "",
+      kind: "method",
+      parameters: [],
+    },
+  },
+};
+
+const noCheckedOperationMapping: CheckedOperationMappingResult = {
+  operation: {
+    operationId: "tsts.core.noTargetOperationMapping",
+    operationKind: "method",
+    targetOperation: "",
+  },
+};
+
+export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProgram>, callExpression: GoPtr<Node>, sourceSelectedSignature?: GoPtr<Signature>): void {
   if (checker === undefined || callExpression === undefined) {
     return;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (
-    extensionHost === undefined ||
-    (
-      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveCall) === undefined &&
-      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolveCall)
-    )
-  ) {
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedCall) === undefined) {
     return;
   }
 
@@ -41,43 +54,57 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
   if (callee === undefined) {
     return;
   }
+  const calleeSymbols = getReferenceSymbols(checker, callee);
+  const calleeAccess = AsPropertyAccessExpression(callee);
+  const calleeReceiver = calleeAccess?.Expression;
+  const calleeReceiverType = calleeReceiver === undefined ? undefined : Checker_GetTypeAtLocation(checker, calleeReceiver);
+  const calleeReceiverTypeSymbol = calleeReceiverType?.symbol;
+  const calleeReceiverSymbols = getReferenceSymbols(checker, calleeReceiver);
+  const sourceSelectedDeclaration = sourceSelectedSignature?.declaration;
+  const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
+  const sourceSelectedContainerSymbol = sourceSelectedDeclarationContainer === undefined ? undefined : Node_Symbol(sourceSelectedDeclarationContainer);
+  const requireOwner = hasAnyExtensionOwnedSubject(extensionHost, [
+    callee,
+    calleeSymbols.symbol,
+    calleeSymbols.resolvedSymbol,
+    calleeSymbols.aliasedSymbol,
+    calleeReceiver,
+    calleeReceiverType,
+    calleeReceiverTypeSymbol,
+    calleeReceiverSymbols.symbol,
+    calleeReceiverSymbols.resolvedSymbol,
+    calleeReceiverSymbols.aliasedSymbol,
+    sourceSelectedDeclaration,
+    sourceSelectedDeclarationContainer,
+    sourceSelectedContainerSymbol,
+  ]);
 
-  const receiver = getPropertyAccessCallReceiver(callee);
-  const receiverSymbol = receiver === undefined ? undefined : getCallReceiverSymbol(checker, receiver);
-  const resolvedReceiverSymbol = receiver === undefined ? undefined : getCallReceiverResolvedSymbol(checker, receiver);
-  const receiverType = receiver === undefined ? undefined : Checker_getTypeOfExpression(checker, receiver);
-  const calleeSymbol = getCallCalleeSymbol(checker, callee);
-  const resolvedCalleeSymbol = getCallCalleeResolvedSymbol(checker, callee);
-  const calleeType = Checker_getTypeOfExpression(checker, callee);
-  const argumentNodes = definedFactSubjects(Node_Arguments(callExpression) ?? []);
-  const argumentSymbols = argumentNodes.map((argument) =>
-    isNodeSubject(argument) ? getCallArgumentSymbol(checker, argument) : undefined);
-  const resolvedArgumentSymbols = argumentNodes.map((argument) =>
-    isNodeSubject(argument) ? getCallArgumentResolvedSymbol(checker, argument) : undefined);
-  const argumentTypes = argumentNodes.map((argument) =>
-    isNodeSubject(argument) ? Checker_getTypeOfExpression(checker, argument) : undefined);
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.resolveCall,
+  const result = extensionHost.runObservation(
+    ExtensionObservationPoint.mapCheckedCall,
     {
       call: callExpression,
       callee,
-      ...(receiver !== undefined ? { receiver } : {}),
-      ...(receiverSymbol !== undefined ? { receiverSymbol } : {}),
-      ...(resolvedReceiverSymbol !== undefined && resolvedReceiverSymbol !== receiverSymbol ? { resolvedReceiverSymbol } : {}),
-      ...(receiverType !== undefined ? { receiverType } : {}),
-      ...(calleeSymbol !== undefined ? { calleeSymbol } : {}),
-      ...(resolvedCalleeSymbol !== undefined && resolvedCalleeSymbol !== calleeSymbol ? { resolvedCalleeSymbol } : {}),
-      ...(calleeType !== undefined ? { calleeType } : {}),
-      arguments: argumentNodes,
-      argumentSymbols,
-      resolvedArgumentSymbols,
-      argumentTypes,
+      ...(calleeSymbols.symbol !== undefined ? { calleeSymbol: calleeSymbols.symbol } : {}),
+      ...(calleeSymbols.resolvedSymbol !== undefined ? { calleeResolvedSymbol: calleeSymbols.resolvedSymbol } : {}),
+      ...(calleeSymbols.aliasedSymbol !== undefined ? { calleeAliasedSymbol: calleeSymbols.aliasedSymbol } : {}),
+      ...(calleeReceiver !== undefined ? { calleeReceiver } : {}),
+      ...(calleeReceiverType !== undefined ? { calleeReceiverType } : {}),
+      ...(calleeReceiverTypeSymbol !== undefined ? { calleeReceiverTypeSymbol } : {}),
+      ...(calleeReceiverSymbols.symbol !== undefined ? { calleeReceiverSymbol: calleeReceiverSymbols.symbol } : {}),
+      ...(calleeReceiverSymbols.resolvedSymbol !== undefined ? { calleeReceiverResolvedSymbol: calleeReceiverSymbols.resolvedSymbol } : {}),
+      ...(calleeReceiverSymbols.aliasedSymbol !== undefined ? { calleeReceiverAliasedSymbol: calleeReceiverSymbols.aliasedSymbol } : {}),
+      ...(calleeAccess?.name !== undefined ? { calleePropertyName: Node_Text(calleeAccess.name) } : {}),
+      arguments: definedFactSubjects(Node_Arguments(callExpression) ?? []),
+      ...(sourceSelectedSignature !== undefined ? { sourceSelectedSignature } : {}),
+      ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
+      ...(sourceSelectedDeclarationContainer !== undefined ? { sourceSelectedDeclarationContainer } : {}),
+      ...(sourceSelectedContainerSymbol !== undefined ? { sourceSelectedContainerSymbol } : {}),
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
-      throw new Error("Optional extension call resolution unexpectedly reached core fallback.");
+      return noCheckedCallMapping;
     },
-    { deferWhenUnanswered: true },
+    { requireOwner },
   );
 
   if (result.kind !== "accept") {
@@ -85,55 +112,19 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
   }
 
   const arguments_ = Node_Arguments(callExpression) ?? [];
-  const selectedSignature = recordExtensionCallTypeArgumentInference(extensionHost, callee, result.value, arguments_);
+  const selectedSignature = recordExtensionTargetTypeArgumentMapping(extensionHost, callee, sourceSelectedSignature, result.value, arguments_);
   extensionHost.facts.set(callExpression, selectedTargetSignatureFactKey, selectedSignature, result.evidence ?? []);
-  recordExtensionCallReturnCarrier(extensionHost, callExpression, result.value, result.evidence ?? []);
   recordExtensionCallParameterModes(extensionHost, { ...result.value, selectedSignature }, arguments_);
   recordExtensionCallArgumentConversions(extensionHost, { ...result.value, selectedSignature }, arguments_);
 }
 
-function recordExtensionCallReturnCarrier(
-  extensionHost: ExtensionHost,
-  callExpression: Node,
-  callResult: ResolveCallResult,
-  evidence: readonly ExtensionEvidence[],
-): void {
-  if (callResult.returnType === undefined) {
-    return;
-  }
-  const inlineCarrier = asRuntimeCarrierFact(callResult.returnType);
-  if (inlineCarrier !== undefined) {
-    extensionHost.facts.set(callExpression, runtimeCarrierFactKey, inlineCarrier, evidence);
-    return;
-  }
-  const carrier = extensionHost.facts.get(callResult.returnType, runtimeCarrierFactKey) ??
-    extensionHost.factResolver.resolve(callResult.returnType, runtimeCarrierFactKey);
-  if (carrier !== undefined) {
-    extensionHost.facts.set(callExpression, runtimeCarrierFactKey, carrier, evidence);
-  }
-}
-
-function asRuntimeCarrierFact(subject: ExtensionFactSubject): RuntimeCarrierFact | undefined {
-  const candidate = subject as Partial<RuntimeCarrierFact>;
-  return candidate.carrier === undefined ? undefined : {
-    carrier: candidate.carrier,
-    ...(candidate.requiresAllocation === undefined ? {} : { requiresAllocation: candidate.requiresAllocation }),
-  };
-}
-
-export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWithProgram>, propertyAccessExpression: GoPtr<Node>, receiverType: GoPtr<Type>): void {
+export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<CheckerWithProgram>, propertyAccessExpression: GoPtr<Node>): void {
   if (checker === undefined || propertyAccessExpression === undefined) {
     return;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (
-    extensionHost === undefined ||
-    (
-      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolvePropertyAccess) === undefined &&
-      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolvePropertyAccess)
-    )
-  ) {
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedPropertyAccess) === undefined) {
     return;
   }
 
@@ -142,27 +133,49 @@ export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWi
   if (receiver === undefined || propertyName === "") {
     return;
   }
-  const receiverSymbol = getCallReceiverSymbol(checker, receiver);
-  const resolvedReceiverSymbol = getCallReceiverResolvedSymbol(checker, receiver);
+  const receiverType = Checker_GetTypeAtLocation(checker, receiver);
+  const receiverTypeSymbol = receiverType?.symbol;
+  const receiverSymbols = getReferenceSymbols(checker, receiver);
   const propertyNameNode = Node_Name(propertyAccessExpression);
-  const propertySymbol = Node_Symbol(propertyNameNode);
+  const selectedPropertySymbol = propertyNameNode === undefined
+    ? undefined
+    : Node_Symbol(propertyNameNode);
+  const sourceSelectedDeclaration = getPrimaryDeclaration(selectedPropertySymbol);
+  const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
+  const sourceSelectedContainerSymbol = sourceSelectedDeclarationContainer === undefined ? undefined : Node_Symbol(sourceSelectedDeclarationContainer);
+  const requireOwner = hasAnyExtensionOwnedSubject(extensionHost, [
+    receiver,
+    receiverType,
+    receiverTypeSymbol,
+    receiverSymbols.symbol,
+    receiverSymbols.resolvedSymbol,
+    receiverSymbols.aliasedSymbol,
+    selectedPropertySymbol,
+    sourceSelectedDeclaration,
+    sourceSelectedDeclarationContainer,
+    sourceSelectedContainerSymbol,
+  ]);
 
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.resolvePropertyAccess,
+  const result = extensionHost.runObservation(
+    ExtensionObservationPoint.mapCheckedPropertyAccess,
     {
       expression: propertyAccessExpression,
       receiver,
-      ...(receiverSymbol !== undefined ? { receiverSymbol } : {}),
-      ...(resolvedReceiverSymbol !== undefined && resolvedReceiverSymbol !== receiverSymbol ? { resolvedReceiverSymbol } : {}),
       ...(receiverType !== undefined ? { receiverType } : {}),
-      ...(propertySymbol !== undefined ? { propertySymbol } : {}),
+      ...(receiverTypeSymbol !== undefined ? { receiverTypeSymbol } : {}),
+      ...(receiverSymbols.symbol !== undefined ? { receiverSymbol: receiverSymbols.symbol } : {}),
+      ...(receiverSymbols.resolvedSymbol !== undefined ? { receiverResolvedSymbol: receiverSymbols.resolvedSymbol } : {}),
+      ...(receiverSymbols.aliasedSymbol !== undefined ? { receiverAliasedSymbol: receiverSymbols.aliasedSymbol } : {}),
+      ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
+      ...(sourceSelectedDeclarationContainer !== undefined ? { sourceSelectedDeclarationContainer } : {}),
+      ...(sourceSelectedContainerSymbol !== undefined ? { sourceSelectedContainerSymbol } : {}),
       propertyName,
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
-      throw new Error("Optional extension property access resolution unexpectedly reached core fallback.");
+      return noCheckedOperationMapping;
     },
-    { deferWhenUnanswered: true },
+    { requireOwner },
   );
 
   if (result.kind !== "accept") {
@@ -172,19 +185,13 @@ export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWi
   extensionHost.facts.set(propertyAccessExpression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
 }
 
-export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWithProgram>, elementAccessExpression: GoPtr<Node>, receiverType: GoPtr<Type>): void {
+export function recordExtensionCheckedElementAccessMapping(checker: GoPtr<CheckerWithProgram>, elementAccessExpression: GoPtr<Node>): void {
   if (checker === undefined || elementAccessExpression === undefined) {
     return;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (
-    extensionHost === undefined ||
-    (
-      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveElementAccess) === undefined &&
-      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolveElementAccess)
-    )
-  ) {
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedElementAccess) === undefined) {
     return;
   }
 
@@ -193,30 +200,28 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
   if (receiver === undefined || argument === undefined) {
     return;
   }
-  const receiverSymbol = getCallReceiverSymbol(checker, receiver);
-  const resolvedReceiverSymbol = getCallReceiverResolvedSymbol(checker, receiver);
-  const argumentSymbol = getCallArgumentSymbol(checker, argument);
-  const resolvedArgumentSymbol = getCallArgumentResolvedSymbol(checker, argument);
-  const argumentType = Checker_getTypeOfExpression(checker, argument);
+  const receiverType = Checker_GetTypeAtLocation(checker, receiver);
+  const receiverTypeSymbol = receiverType?.symbol;
+  const requireOwner = hasAnyExtensionOwnedSubject(extensionHost, [
+    receiver,
+    receiverType,
+    receiverTypeSymbol,
+  ]);
 
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.resolveElementAccess,
+  const result = extensionHost.runObservation(
+    ExtensionObservationPoint.mapCheckedElementAccess,
     {
       expression: elementAccessExpression,
       receiver,
-      ...(receiverSymbol !== undefined ? { receiverSymbol } : {}),
-      ...(resolvedReceiverSymbol !== undefined && resolvedReceiverSymbol !== receiverSymbol ? { resolvedReceiverSymbol } : {}),
       ...(receiverType !== undefined ? { receiverType } : {}),
+      ...(receiverTypeSymbol !== undefined ? { receiverTypeSymbol } : {}),
       argument,
-      ...(argumentSymbol !== undefined ? { argumentSymbol } : {}),
-      ...(resolvedArgumentSymbol !== undefined ? { resolvedArgumentSymbol } : {}),
-      ...(argumentType !== undefined ? { argumentType } : {}),
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
-      throw new Error("Optional extension element access resolution unexpectedly reached core fallback.");
+      return noCheckedOperationMapping;
     },
-    { deferWhenUnanswered: true },
+    { requireOwner },
   );
 
   if (result.kind !== "accept") {
@@ -226,79 +231,53 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
   extensionHost.facts.set(elementAccessExpression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
 }
 
-export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operatorToken: GoPtr<Node>, left: GoPtr<Node>, right: GoPtr<Node>): void {
+export function recordExtensionCheckedOperatorMapping(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operatorToken: GoPtr<Node>, left: GoPtr<Node>, right: GoPtr<Node>): void {
   if (checker === undefined || expression === undefined || operatorToken === undefined || left === undefined) {
     return;
   }
 
-  const extensionHost = getExtensionHost(checker.program);
-  if (
-    extensionHost === undefined ||
-    (
-      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveOperator) === undefined &&
-      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolveOperator)
-    )
-  ) {
+  recordExtensionCheckedOperatorMappingCore(checker, expression, TokenToString(operatorToken.Kind), left, right);
+}
+
+export function recordExtensionCheckedUnaryOperatorMapping(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operator: string, operand: GoPtr<Node>): void {
+  if (checker === undefined || expression === undefined || operand === undefined || operator === "") {
     return;
   }
 
-  const leftType = Checker_getTypeOfExpression(checker, left);
-  const rightType = right === undefined ? undefined : Checker_getTypeOfExpression(checker, right);
-  const leftSymbol = getOperatorOperandSymbol(checker, left);
-  const rightSymbol = getOperatorOperandSymbol(checker, right);
-  const leftResolvedSymbol = getOperatorOperandResolvedSymbol(checker, left);
-  const rightResolvedSymbol = getOperatorOperandResolvedSymbol(checker, right);
-  const leftAliasedSymbol = getAliasedSymbol(checker, leftResolvedSymbol ?? leftSymbol);
-  const rightAliasedSymbol = getAliasedSymbol(checker, rightResolvedSymbol ?? rightSymbol);
-  const leftSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, left, leftType, leftSymbol);
-  const rightSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, right, rightType, rightSymbol);
-  const leftTypeofOperand = getTypeofOperand(left);
-  const rightTypeofOperand = getTypeofOperand(right);
-  const leftTypeofOperandType = leftTypeofOperand === undefined ? undefined : Checker_getTypeOfExpression(checker, leftTypeofOperand);
-  const rightTypeofOperandType = rightTypeofOperand === undefined ? undefined : Checker_getTypeOfExpression(checker, rightTypeofOperand);
-  const leftTypeofOperandSymbol = getOperatorOperandSymbol(checker, leftTypeofOperand);
-  const rightTypeofOperandSymbol = getOperatorOperandSymbol(checker, rightTypeofOperand);
-  const leftTypeofOperandResolvedSymbol = getOperatorOperandResolvedSymbol(checker, leftTypeofOperand);
-  const rightTypeofOperandResolvedSymbol = getOperatorOperandResolvedSymbol(checker, rightTypeofOperand);
-  const leftTypeofOperandAliasedSymbol = getAliasedSymbol(checker, leftTypeofOperandResolvedSymbol ?? leftTypeofOperandSymbol);
-  const rightTypeofOperandAliasedSymbol = getAliasedSymbol(checker, rightTypeofOperandResolvedSymbol ?? rightTypeofOperandSymbol);
-  const leftTypeofOperandSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, leftTypeofOperand, leftTypeofOperandType, leftTypeofOperandSymbol);
-  const rightTypeofOperandSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, rightTypeofOperand, rightTypeofOperandType, rightTypeofOperandSymbol);
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.resolveOperator,
+  recordExtensionCheckedOperatorMappingCore(checker, expression, operator, operand, undefined);
+}
+
+function recordExtensionCheckedOperatorMappingCore(checker: CheckerWithProgram, expression: Node, operator: string, left: Node, right: GoPtr<Node>): void {
+  const extensionHost = getExtensionHost(checker.program);
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedOperator) === undefined) {
+    return;
+  }
+
+  const leftType = Checker_GetTypeAtLocation(checker, left);
+  const rightType = right === undefined ? undefined : Checker_GetTypeAtLocation(checker, right);
+  const leftSymbols = getReferenceSymbols(checker, left);
+  const rightSymbols = getReferenceSymbols(checker, right);
+  const result = extensionHost.runObservation(
+    ExtensionObservationPoint.mapCheckedOperator,
     {
       expression,
-      operator: TokenToString(operatorToken.Kind),
+      operator,
       left,
       ...(leftType !== undefined ? { leftType } : {}),
-      ...(leftSymbol !== undefined ? { leftSymbol } : {}),
-      ...(leftResolvedSymbol !== undefined && leftResolvedSymbol !== leftSymbol ? { leftResolvedSymbol } : {}),
-      ...(leftAliasedSymbol !== undefined && leftAliasedSymbol !== leftResolvedSymbol && leftAliasedSymbol !== leftSymbol ? { leftAliasedSymbol } : {}),
-      ...(leftSourcePrimitive !== undefined ? { leftSourcePrimitive } : {}),
-      ...(leftTypeofOperand !== undefined ? { leftTypeofOperand } : {}),
-      ...(leftTypeofOperandType !== undefined ? { leftTypeofOperandType } : {}),
-      ...(leftTypeofOperandSymbol !== undefined ? { leftTypeofOperandSymbol } : {}),
-      ...(leftTypeofOperandResolvedSymbol !== undefined && leftTypeofOperandResolvedSymbol !== leftTypeofOperandSymbol ? { leftTypeofOperandResolvedSymbol } : {}),
-      ...(leftTypeofOperandAliasedSymbol !== undefined && leftTypeofOperandAliasedSymbol !== leftTypeofOperandResolvedSymbol && leftTypeofOperandAliasedSymbol !== leftTypeofOperandSymbol ? { leftTypeofOperandAliasedSymbol } : {}),
-      ...(leftTypeofOperandSourcePrimitive !== undefined ? { leftTypeofOperandSourcePrimitive } : {}),
+      ...(leftSymbols.symbol !== undefined ? { leftSymbol: leftSymbols.symbol } : {}),
+      ...(leftSymbols.resolvedSymbol !== undefined ? { leftResolvedSymbol: leftSymbols.resolvedSymbol } : {}),
+      ...(leftSymbols.aliasedSymbol !== undefined ? { leftAliasedSymbol: leftSymbols.aliasedSymbol } : {}),
       ...(right !== undefined ? { right } : {}),
       ...(rightType !== undefined ? { rightType } : {}),
-      ...(rightSymbol !== undefined ? { rightSymbol } : {}),
-      ...(rightResolvedSymbol !== undefined && rightResolvedSymbol !== rightSymbol ? { rightResolvedSymbol } : {}),
-      ...(rightAliasedSymbol !== undefined && rightAliasedSymbol !== rightResolvedSymbol && rightAliasedSymbol !== rightSymbol ? { rightAliasedSymbol } : {}),
-      ...(rightSourcePrimitive !== undefined ? { rightSourcePrimitive } : {}),
-      ...(rightTypeofOperand !== undefined ? { rightTypeofOperand } : {}),
-      ...(rightTypeofOperandType !== undefined ? { rightTypeofOperandType } : {}),
-      ...(rightTypeofOperandSymbol !== undefined ? { rightTypeofOperandSymbol } : {}),
-      ...(rightTypeofOperandResolvedSymbol !== undefined && rightTypeofOperandResolvedSymbol !== rightTypeofOperandSymbol ? { rightTypeofOperandResolvedSymbol } : {}),
-      ...(rightTypeofOperandAliasedSymbol !== undefined && rightTypeofOperandAliasedSymbol !== rightTypeofOperandResolvedSymbol && rightTypeofOperandAliasedSymbol !== rightTypeofOperandSymbol ? { rightTypeofOperandAliasedSymbol } : {}),
-      ...(rightTypeofOperandSourcePrimitive !== undefined ? { rightTypeofOperandSourcePrimitive } : {}),
+      ...(rightSymbols.symbol !== undefined ? { rightSymbol: rightSymbols.symbol } : {}),
+      ...(rightSymbols.resolvedSymbol !== undefined ? { rightResolvedSymbol: rightSymbols.resolvedSymbol } : {}),
+      ...(rightSymbols.aliasedSymbol !== undefined ? { rightAliasedSymbol: rightSymbols.aliasedSymbol } : {}),
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
-      throw new Error("Optional extension operator resolution unexpectedly reached core fallback.");
+      return noCheckedOperationMapping;
     },
-    { deferWhenUnanswered: true },
+    { requireOwner: hasAnyExtensionOwnedSubject(extensionHost, [expression, left, leftType, leftSymbols.symbol, leftSymbols.resolvedSymbol, leftSymbols.aliasedSymbol, right, rightType, rightSymbols.symbol, rightSymbols.resolvedSymbol, rightSymbols.aliasedSymbol]) },
   );
 
   if (result.kind !== "accept") {
@@ -308,231 +287,51 @@ export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProg
   extensionHost.facts.set(expression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
 }
 
-function getTypeofOperand(expression: GoPtr<Node>): GoPtr<Node> {
-  return expression?.Kind === KindTypeOfExpression
-    ? AsTypeOfExpression(expression)?.Expression
-    : undefined;
-}
-
-export function recordExtensionUnaryOperatorResolution(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operator: number, operand: GoPtr<Node>): void {
-  if (checker === undefined || expression === undefined || operand === undefined) {
+export function recordExtensionCheckedIterationMapping(checker: GoPtr<CheckerWithProgram>, statement: GoPtr<Node>, kind: CheckedIterationKind, sourceElementType?: GoPtr<Type>): void {
+  if (checker === undefined || statement === undefined) {
     return;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (
-    extensionHost === undefined ||
-    (
-      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveOperator) === undefined &&
-      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolveOperator)
-    )
-  ) {
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedIteration) === undefined) {
+    return;
+  }
+  const data = AsForInOrOfStatement(statement);
+  const expression = data?.Expression;
+  if (expression === undefined) {
     return;
   }
 
-  const operandType = Checker_getTypeOfExpression(checker, operand);
-  const operandSymbol = getOperatorOperandSymbol(checker, operand);
-  const operandSourcePrimitive = getOperatorOperandSourcePrimitive(extensionHost, operand, operandType, operandSymbol);
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.resolveOperator,
-    {
-      expression,
-      operator: TokenToString(operator),
-      left: operand,
-      ...(operandType !== undefined ? { leftType: operandType } : {}),
-      ...(operandSymbol !== undefined ? { leftSymbol: operandSymbol } : {}),
-      ...(operandSourcePrimitive !== undefined ? { leftSourcePrimitive: operandSourcePrimitive } : {}),
-      ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
-    },
-    () => {
-      throw new Error("Optional extension unary operator resolution unexpectedly reached core fallback.");
-    },
-    { deferWhenUnanswered: true },
-  );
-
-  if (result.kind !== "accept") {
-    return;
-  }
-
-  extensionHost.facts.set(expression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
-}
-
-function getOperatorOperandSymbol(checker: GoPtr<CheckerWithProgram>, operand: GoPtr<Node>): GoPtr<Symbol> {
-  switch (operand?.Kind) {
-    case KindIdentifier:
-    case KindElementAccessExpression:
-      return Checker_GetSymbolAtLocation(checker, operand);
-    case KindPropertyAccessExpression:
-      return Node_Symbol(Node_Name(operand));
-    default:
-      return undefined;
-  }
-}
-
-function getOperatorOperandResolvedSymbol(checker: GoPtr<CheckerWithProgram>, operand: GoPtr<Node>): GoPtr<Symbol> {
-  switch (operand?.Kind) {
-    case KindIdentifier:
-      return Checker_getResolvedSymbol(checker, operand);
-    case KindPropertyAccessExpression:
-      return Node_Symbol(Node_Name(operand));
-    default:
-      return undefined;
-  }
-}
-
-function getAliasedSymbol(checker: GoPtr<CheckerWithProgram>, symbol: GoPtr<Symbol>): GoPtr<Symbol> {
-  if (checker === undefined || symbol === undefined || (symbol.Flags & SymbolFlagsAlias) === 0) {
-    return undefined;
-  }
-  return Checker_GetAliasedSymbol(checker, symbol);
-}
-
-function getCallCalleeSymbol(checker: GoPtr<CheckerWithProgram>, callee: GoPtr<Node>): GoPtr<Symbol> {
-  switch (callee?.Kind) {
-    case KindIdentifier:
-    case KindPropertyAccessExpression:
-    case KindElementAccessExpression:
-      return Checker_GetSymbolAtLocation(checker, callee);
-    default:
-      return undefined;
-  }
-}
-
-function getCallCalleeResolvedSymbol(checker: GoPtr<CheckerWithProgram>, callee: GoPtr<Node>): GoPtr<Symbol> {
-  switch (callee?.Kind) {
-    case KindIdentifier:
-      return Checker_getResolvedSymbol(checker, callee);
-    case KindPropertyAccessExpression:
-      return Node_Symbol(Node_Name(callee));
-    default:
-      return undefined;
-  }
-}
-
-function getPropertyAccessCallReceiver(callee: GoPtr<Node>): GoPtr<Node> {
-  return callee?.Kind === KindPropertyAccessExpression ? Node_Expression(callee) : undefined;
-}
-
-function getCallReceiverSymbol(checker: GoPtr<CheckerWithProgram>, receiver: GoPtr<Node>): GoPtr<Symbol> {
-  switch (receiver?.Kind) {
-    case KindIdentifier:
-    case KindElementAccessExpression:
-      return Checker_GetSymbolAtLocation(checker, receiver);
-    case KindPropertyAccessExpression:
-      return Node_Symbol(Node_Name(receiver));
-    default:
-      return undefined;
-  }
-}
-
-function getCallReceiverResolvedSymbol(checker: GoPtr<CheckerWithProgram>, receiver: GoPtr<Node>): GoPtr<Symbol> {
-  switch (receiver?.Kind) {
-    case KindIdentifier:
-      return Checker_getResolvedSymbol(checker, receiver);
-    case KindPropertyAccessExpression:
-      return Node_Symbol(Node_Name(receiver));
-    default:
-      return undefined;
-  }
-}
-
-function getCallArgumentSymbol(checker: GoPtr<CheckerWithProgram>, argument: GoPtr<Node>): GoPtr<Symbol> {
-  switch (argument?.Kind) {
-    case KindIdentifier:
-    case KindElementAccessExpression:
-      return Checker_GetSymbolAtLocation(checker, argument);
-    case KindPropertyAccessExpression:
-      return Node_Symbol(Node_Name(argument));
-    default:
-      return undefined;
-  }
-}
-
-function getCallArgumentResolvedSymbol(checker: GoPtr<CheckerWithProgram>, argument: GoPtr<Node>): GoPtr<Symbol> {
-  switch (argument?.Kind) {
-    case KindIdentifier:
-      return Checker_getResolvedSymbol(checker, argument);
-    case KindPropertyAccessExpression:
-      return Node_Symbol(Node_Name(argument));
-    default:
-      return undefined;
-  }
-}
-
-function getOperatorOperandSourcePrimitive(
-  extensionHost: ExtensionHost,
-  operand: GoPtr<Node>,
-  operandType: GoPtr<Type>,
-  operandSymbol: GoPtr<Symbol>,
-) {
-  return resolveOptionalSourcePrimitive(extensionHost, operand) ??
-    resolveOptionalSourcePrimitive(extensionHost, operandSymbol) ??
-    resolveOptionalSourcePrimitive(extensionHost, operandType) ??
-    resolveOptionalSourcePrimitive(extensionHost, operandType?.symbol);
-}
-
-function resolveOptionalSourcePrimitive(extensionHost: ExtensionHost, subject: ExtensionFactSubject | undefined) {
-  return subject === undefined ? undefined : extensionHost.factResolver.resolve(subject, sourcePrimitiveFactKey);
-}
-
-export function recordExtensionIterationResolution(
-  checker: GoPtr<CheckerWithProgram>,
-  statement: GoPtr<Node>,
-  iterable: GoPtr<Node>,
-  iterableType: GoPtr<Type>,
-  iteratedType: GoPtr<Type>,
-  iterationKind: ResolveIterationRequest["iterationKind"],
-): void {
-  if (checker === undefined || statement === undefined || iterable === undefined) {
-    return;
-  }
-
-  const extensionHost = getExtensionHost(checker.program);
-  if (
-    extensionHost === undefined ||
-    (
-      extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveIteration) === undefined &&
-      !extensionHost.hasDecisionHook(ExtensionDecisionQuestion.resolveIteration)
-    )
-  ) {
-    return;
-  }
-
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.resolveIteration,
+  const result = extensionHost.runObservation(
+    ExtensionObservationPoint.mapCheckedIteration,
     {
       statement,
-      iterable,
-      ...(iterableType !== undefined ? { iterableType } : {}),
-      iterationKind,
+      expression,
+      ...(data?.Initializer !== undefined ? { initializer: data.Initializer } : {}),
+      kind,
+      ...(sourceElementType !== undefined ? { sourceElementType } : {}),
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
     () => {
-      throw new Error("Optional extension iteration resolution unexpectedly reached core fallback.");
+      return noCheckedOperationMapping;
     },
-    { deferWhenUnanswered: true },
+    { requireOwner: hasAnyExtensionOwnedSubject(extensionHost, [statement, expression, sourceElementType]) },
   );
 
   if (result.kind !== "accept") {
     return;
   }
 
-  const iteration = result.value.iteration.elementType === undefined && result.value.elementType !== undefined
-    ? { ...result.value.iteration, elementType: result.value.elementType }
-    : result.value.iteration;
-  const fact = iteration.elementType === undefined && iteratedType !== undefined
-    ? { ...iteration, elementType: iteratedType }
-    : iteration;
-  extensionHost.facts.set(statement, targetIterationFactKey, fact, result.evidence ?? []);
+  extensionHost.facts.set(statement, targetOperationFactKey, result.value.operation, result.evidence ?? []);
 }
 
-export function recordExtensionTypeArgumentConstraintResolution(checker: GoPtr<CheckerWithProgram>, typeReference: GoPtr<Node>, symbol: GoPtr<Symbol>): boolean {
+export function recordExtensionTargetConstraintValidation(checker: GoPtr<CheckerWithProgram>, typeReference: GoPtr<Node>, symbol: GoPtr<Symbol>): boolean {
   if (checker === undefined || typeReference === undefined || symbol === undefined) {
     return true;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getDecisionOwner(ExtensionDecisionQuestion.satisfiesConstraint) === undefined) {
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.validateTargetConstraint) === undefined) {
     return true;
   }
 
@@ -551,8 +350,8 @@ export function recordExtensionTypeArgumentConstraintResolution(checker: GoPtr<C
       continue;
     }
     for (const constraint of parameter.constraints ?? []) {
-      const result = extensionHost.runDecision(
-        ExtensionDecisionQuestion.satisfiesConstraint,
+      const result = extensionHost.runObservation(
+        ExtensionObservationPoint.validateTargetConstraint,
         {
           source: argument,
           constraint,
@@ -571,26 +370,28 @@ export function recordExtensionTypeArgumentConstraintResolution(checker: GoPtr<C
   return valid;
 }
 
-export function recordExtensionRuntimeCarrierResolution(checker: GoPtr<CheckerWithProgram>, typeReference: GoPtr<Node>, type: GoPtr<Type>, symbol: GoPtr<Symbol>): void {
+export function recordExtensionRuntimeCarrierFact(checker: GoPtr<CheckerWithProgram>, typeReference: GoPtr<Node>, type: GoPtr<Type>, symbol: GoPtr<Symbol>): void {
   if (checker === undefined || type === undefined) {
     return;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getDecisionOwner(ExtensionDecisionQuestion.getRuntimeCarrier) === undefined) {
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.resolveRuntimeCarrier) === undefined) {
     return;
   }
 
-  if (!hasExtensionOwnedSubject(extensionHost, type) && !hasExtensionOwnedSubject(extensionHost, typeReference) && !hasExtensionOwnedSubject(extensionHost, symbol) && !hasExtensionOwnedSubject(extensionHost, type.symbol)) {
+  if (!hasRuntimeCarrierOwnedSubject(extensionHost, type) && !hasRuntimeCarrierOwnedSubject(extensionHost, typeReference) && !hasRuntimeCarrierOwnedSubject(extensionHost, symbol) && !hasRuntimeCarrierOwnedSubject(extensionHost, type.symbol)) {
     return;
   }
 
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.getRuntimeCarrier,
-    {
-      type,
-      ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
-    },
+  const result = extensionHost.runObservation(
+    ExtensionObservationPoint.resolveRuntimeCarrier,
+      {
+        type,
+        ...(typeReference !== undefined ? { sourceTypeReference: typeReference } : {}),
+        ...(symbol !== undefined ? { sourceTypeSymbol: symbol } : {}),
+        ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
+      },
     () => {
       throw new Error("Extension-owned runtime carrier resolution unexpectedly reached core fallback.");
     },
@@ -610,18 +411,18 @@ export function recordExtensionRuntimeCarrierResolution(checker: GoPtr<CheckerWi
   setFactOnOptionalSubject(extensionHost, type.symbol, runtimeCarrierFactKey, fact, result.evidence ?? []);
 }
 
-export function recordExtensionContextualTypeResolution(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, contextualType: GoPtr<Type>): void {
+export function recordExtensionContextualTargetTypeFact(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, contextualType: GoPtr<Type>): void {
   if (checker === undefined || expression === undefined || contextualType === undefined) {
     return;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getDecisionOwner(ExtensionDecisionQuestion.getContextualType) === undefined) {
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.recordContextualTargetType) === undefined) {
     return;
   }
 
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.getContextualType,
+  const result = extensionHost.runObservation(
+    ExtensionObservationPoint.recordContextualTargetType,
     {
       expression,
       context: contextualType,
@@ -630,7 +431,7 @@ export function recordExtensionContextualTypeResolution(checker: GoPtr<CheckerWi
     () => ({
       type: contextualType,
     }),
-    { requireOwner: true },
+    { requireOwner: hasAnyExtensionOwnedSubject(extensionHost, [expression, contextualType]) },
   );
   if (result.kind !== "accept") {
     return;
@@ -642,13 +443,13 @@ export function recordExtensionContextualTypeResolution(checker: GoPtr<CheckerWi
   }, result.evidence ?? []);
 }
 
-export function recordExtensionAssignabilityValidation(checker: GoPtr<CheckerWithProgram>, source: GoPtr<Type>, target: GoPtr<Type>, errorNode: GoPtr<Node>, expression: GoPtr<Node>, relation: AssignabilityRequest["relation"]): bool {
+export function recordExtensionPostCheckAssignabilityValidation(checker: GoPtr<CheckerWithProgram>, source: GoPtr<Type>, target: GoPtr<Type>, errorNode: GoPtr<Node>, expression: GoPtr<Node>, relation: PostCheckAssignabilityValidationRequest["relation"]): bool {
   if (checker === undefined || source === undefined || target === undefined) {
     return true as bool;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getDecisionOwner(ExtensionDecisionQuestion.isAssignableTo) === undefined) {
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.validatePostCheckAssignability) === undefined) {
     return true as bool;
   }
 
@@ -663,8 +464,8 @@ export function recordExtensionAssignabilityValidation(checker: GoPtr<CheckerWit
     return true as bool;
   }
 
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.isAssignableTo,
+  const result = extensionHost.runObservation(
+    ExtensionObservationPoint.validatePostCheckAssignability,
     {
       source,
       target,
@@ -688,7 +489,7 @@ export function recordExtensionFlowUseValidation(checker: GoPtr<CheckerWithProgr
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getDecisionOwner(ExtensionDecisionQuestion.validateFlowUse) === undefined) {
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.validateExtensionFlowUse) === undefined) {
     return;
   }
 
@@ -702,8 +503,8 @@ export function recordExtensionFlowUseValidation(checker: GoPtr<CheckerWithProgr
     return;
   }
 
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.validateFlowUse,
+  const result = extensionHost.runObservation(
+    ExtensionObservationPoint.validateExtensionFlowUse,
     {
       useSite,
       symbol,
@@ -726,32 +527,19 @@ export function recordExtensionFlowUseValidation(checker: GoPtr<CheckerWithProgr
   }
 }
 
-function recordExtensionCallParameterModes(extensionHost: ExtensionHost, callResult: ResolveCallResult, arguments_: readonly GoPtr<Node>[]): void {
-  const parameterModeOwner = extensionHost.getDecisionOwner(ExtensionDecisionQuestion.getParameterMode);
+function recordExtensionCallParameterModes(extensionHost: ExtensionHost, callResult: CheckedCallMappingResult, arguments_: readonly GoPtr<Node>[]): void {
+  if (extensionHost.getObservationOwner(ExtensionObservationPoint.resolveParameterPassing) === undefined) {
+    return;
+  }
   const parameters = callResult.selectedSignature.member.parameters;
-  for (let index = 0; index < arguments_.length; index++) {
+  for (let index = 0; index < parameters.length; index++) {
+    const parameter = parameters[index];
     const argument = arguments_[index];
-    const parameter = getSourceArgumentTargetParameter(callResult, index);
     if (parameter === undefined || argument === undefined) {
       continue;
     }
-    if (parameterModeOwner === undefined) {
-      if (parameter.passingMode !== "by-value") {
-        extensionHost.facts.set(argument, argumentPassingFactKey, {
-          mode: parameter.passingMode,
-          targetExpression: argument,
-        }, [{
-          message: "selected target signature parameter passing mode",
-          details: {
-            memberId: callResult.selectedSignature.member.id,
-            parameterName: parameter.name,
-          },
-        }]);
-      }
-      continue;
-    }
-    const result = extensionHost.runDecision(
-      ExtensionDecisionQuestion.getParameterMode,
+    const result = extensionHost.runObservation(
+      ExtensionObservationPoint.resolveParameterPassing,
       {
         parameter,
         argument,
@@ -769,20 +557,21 @@ function recordExtensionCallParameterModes(extensionHost: ExtensionHost, callRes
   }
 }
 
-function recordExtensionCallTypeArgumentInference(extensionHost: ExtensionHost, callee: Node, callResult: ResolveCallResult, arguments_: readonly GoPtr<Node>[]): ResolveCallResult["selectedSignature"] {
-  if (extensionHost.getDecisionOwner(ExtensionDecisionQuestion.inferTypeArguments) === undefined) {
+function recordExtensionTargetTypeArgumentMapping(extensionHost: ExtensionHost, callee: Node, sourceSelectedSignature: GoPtr<Signature> | undefined, callResult: CheckedCallMappingResult, arguments_: readonly GoPtr<Node>[]): CheckedCallMappingResult["selectedSignature"] {
+  if (extensionHost.getObservationOwner(ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget) === undefined) {
     return callResult.selectedSignature;
   }
 
-  const result = extensionHost.runDecision(
-    ExtensionDecisionQuestion.inferTypeArguments,
+  const result = extensionHost.runObservation(
+    ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget,
     {
       declaration: callee,
       arguments: definedFactSubjects(arguments_),
+      ...(sourceSelectedSignature !== undefined ? { sourceSelectedSignature } : {}),
       ...(callResult.returnType !== undefined ? { contextualType: callResult.returnType } : {}),
     },
     () => ({
-      typeArguments: [],
+      targetTypeArguments: [],
     }),
     { requireOwner: true },
   );
@@ -791,29 +580,23 @@ function recordExtensionCallTypeArgumentInference(extensionHost: ExtensionHost, 
   }
   return {
     ...callResult.selectedSignature,
-    typeArguments: result.value.typeArguments,
-    ...(result.value.targetTypeArguments !== undefined ? { targetTypeArguments: result.value.targetTypeArguments } : {}),
+    targetTypeArguments: result.value.targetTypeArguments,
   };
 }
 
-function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, callResult: ResolveCallResult, arguments_: readonly GoPtr<Node>[]): void {
-  const conversionOwner = extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveConversion);
-  if (conversionOwner === undefined) {
-    recordSelectedSignatureArgumentConversions(extensionHost, callResult, arguments_);
+function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, callResult: CheckedCallMappingResult, arguments_: readonly GoPtr<Node>[]): void {
+  if (extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedConversion) === undefined) {
     return;
   }
   const parameters = callResult.selectedSignature.member.parameters;
-  if (parameters.length === 0) {
-    return;
-  }
-  for (let index = 0; index < arguments_.length; index++) {
+  for (let index = 0; index < parameters.length; index++) {
+    const parameter = parameters[index];
     const argument = arguments_[index];
-    const parameter = getSourceArgumentTargetParameter(callResult, index);
     if (parameter === undefined || argument === undefined) {
       continue;
     }
-    const result = extensionHost.runDecision(
-      ExtensionDecisionQuestion.resolveConversion,
+    const result = extensionHost.runObservation(
+      ExtensionObservationPoint.mapCheckedConversion,
       {
         expression: argument,
         source: argument,
@@ -835,52 +618,45 @@ function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, ca
   }
 }
 
-function recordSelectedSignatureArgumentConversions(extensionHost: ExtensionHost, callResult: ResolveCallResult, arguments_: readonly GoPtr<Node>[]): void {
-  const conversions = callResult.selectedSignature.argumentConversions;
-  if (conversions === undefined) {
-    return;
-  }
-  for (let index = 0; index < arguments_.length; index++) {
-    const argument = arguments_[index];
-    const convertedType = conversions[index];
-    if (argument === undefined || convertedType === undefined) {
-      continue;
-    }
-    extensionHost.facts.set(argument, targetConversionFactKey, {
-      convertedType,
-    }, [{
-      message: "selected target signature argument conversion",
-      details: {
-        memberId: callResult.selectedSignature.member.id,
-        argumentIndex: index,
-      },
-    }]);
-  }
-}
-
-function getSourceArgumentTargetParameter(
-  callResult: ResolveCallResult,
-  sourceArgumentIndex: number,
-): ResolveCallResult["selectedSignature"]["member"]["parameters"][number] | undefined {
-  const parameters = callResult.selectedSignature.member.parameters;
-  const receiverArgumentIndex = callResult.selectedSignature.member.receiverArgumentIndex;
-  if (receiverArgumentIndex === undefined) {
-    return parameters[sourceArgumentIndex];
-  }
-  const targetParameterIndex = sourceArgumentIndex < receiverArgumentIndex
-    ? sourceArgumentIndex
-    : sourceArgumentIndex + 1;
-  return parameters[targetParameterIndex];
-}
-
 function definedFactSubjects<T extends object>(subjects: readonly (T | undefined)[]): readonly ExtensionFactSubject[] {
   return subjects.filter((subject): subject is T => subject !== undefined);
 }
 
-function isNodeSubject(subject: ExtensionFactSubject): subject is Node {
-  return typeof subject === "object" &&
-    subject !== null &&
-    typeof (subject as { readonly Kind?: unknown }).Kind === "number";
+function hasAnyExtensionOwnedSubject(extensionHost: ExtensionHost, subjects: readonly (ExtensionFactSubject | undefined)[]): boolean {
+  return subjects.some((subject) => hasExtensionOwnedSubject(extensionHost, subject));
+}
+
+function getReferenceSymbols(
+  checker: GoPtr<CheckerWithProgram>,
+  node: GoPtr<Node>,
+): { readonly symbol?: Symbol; readonly resolvedSymbol?: Symbol; readonly aliasedSymbol?: Symbol } {
+  if (checker === undefined || node === undefined || !isReferenceSymbolQueryNode(node)) {
+    return {};
+  }
+  const symbol = Checker_GetSymbolAtLocation(checker, node);
+  const resolvedSymbol = Checker_getResolvedSymbol(checker, node);
+  const aliasedSymbol = getAliasedSymbolIfAlias(checker, resolvedSymbol ?? symbol);
+  return {
+    ...(symbol !== undefined ? { symbol } : {}),
+    ...(resolvedSymbol !== undefined ? { resolvedSymbol } : {}),
+    ...(aliasedSymbol !== undefined ? { aliasedSymbol } : {}),
+  };
+}
+
+function isReferenceSymbolQueryNode(node: Node): boolean {
+  return node.Kind === KindIdentifier ||
+    node.Kind === KindPrivateIdentifier ||
+    node.Kind === KindQualifiedName;
+}
+
+function getAliasedSymbolIfAlias(checker: GoPtr<CheckerWithProgram>, symbol: GoPtr<Symbol>): GoPtr<Symbol> {
+  return symbol !== undefined && (symbol.Flags & SymbolFlagsAlias) !== 0
+    ? Checker_GetAliasedSymbol(checker, symbol)
+    : undefined;
+}
+
+function getPrimaryDeclaration(symbol: GoPtr<Symbol>): GoPtr<Node> {
+  return symbol?.ValueDeclaration ?? symbol?.Declarations?.find((candidate): candidate is Node => candidate !== undefined);
 }
 
 function hasExtensionOwnedSubject(extensionHost: ExtensionHost, subject: ExtensionFactSubject | undefined): boolean {
@@ -890,6 +666,16 @@ function hasExtensionOwnedSubject(extensionHost: ExtensionHost, subject: Extensi
   return extensionHost.facts.get(subject, targetBindingFactKey) !== undefined
     || extensionHost.facts.get(subject, providerVirtualDeclarationFactKey) !== undefined
     || extensionHost.facts.get(subject, sourcePrimitiveFactKey) !== undefined
+    || extensionHost.facts.get(subject, argumentPassingFactKey) !== undefined
+    || extensionHost.facts.get(subject, flowStateFactKey) !== undefined
+    || extensionHost.facts.get(subject, runtimeCarrierFactKey) !== undefined;
+}
+
+function hasRuntimeCarrierOwnedSubject(extensionHost: ExtensionHost, subject: ExtensionFactSubject | undefined): boolean {
+  if (subject === undefined) {
+    return false;
+  }
+  return extensionHost.facts.get(subject, sourcePrimitiveFactKey) !== undefined
     || extensionHost.facts.get(subject, argumentPassingFactKey) !== undefined
     || extensionHost.facts.get(subject, flowStateFactKey) !== undefined
     || extensionHost.facts.get(subject, runtimeCarrierFactKey) !== undefined;

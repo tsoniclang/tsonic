@@ -112,6 +112,7 @@ test("compilerOptionsFromSettings maps supported TS-Go directives", () => {
     ["pretty", "true"],
     ["rewriterelativeimportextensions", "true"],
     ["sourcemap", "true"],
+    ["sourceroot", "local"],
     ["strictpropertyinitialization", "false"],
     ["useunknownincatchvariables", "false"],
   ]);
@@ -151,6 +152,7 @@ test("compilerOptionsFromSettings maps supported TS-Go directives", () => {
     pretty: true,
     rewriteRelativeImportExtensions: true,
     sourceMap: true,
+    sourceRoot: "local",
     strictPropertyInitialization: false,
     useUnknownInCatchVariables: false,
   });
@@ -286,6 +288,8 @@ test("compilerOptionsFromSettings maps virtual path options into the materialize
   assert.equal(normalizeHarnessOptionPath("A:/"), "A:/");
   assert.equal(normalizeHarnessOptionPath("A:/", { useCaseSensitiveFileNames: false }), "a:/");
   assert.equal(normalizeHarnessOptionPath("/out"), "out");
+  assert.equal(normalizeHarnessOptionPath("../"), ".virtual-root");
+  assert.equal(normalizeHarnessOptionPath("../out"), ".virtual-root/out");
 });
 
 test("compilerOptionsFromSettings maps virtual typeRoots into the materialized case", () => {
@@ -820,6 +824,35 @@ test("compilerOptionsForMaterializedCase preserves missing module for node modul
 // @filename: a.ts
 import "./b";`, "a.ts");
   assert.equal(compilerOptionsForMaterializedCase(parsed.globalOptions, parsed, ["a.ts"]).module, undefined);
+});
+
+test("compilerOptionsForMaterializedCase preserves TS-Go harness emit directives for on-disk verification", () => {
+  const parsed = parseFileBasedTest(`// @declaration: true
+// @declarationMap: true
+// @sourceMap: true
+// @sourceRoot: local
+// @emitBOM: true
+// @inlineSources: true
+// @stripInternal: true
+// @outDir: dist
+
+/** @internal */
+export const hidden = 1;
+export const visible = 2;`, "emitDirectives.ts");
+  assert.deepEqual(compilerOptionsForMaterializedCase(parsed.globalOptions, parsed, ["emitDirectives.ts"]), {
+    newLine: "crlf",
+    noErrorTruncation: true,
+    skipDefaultLibCheck: true,
+    target: "ES2024",
+    declaration: true,
+    declarationMap: true,
+    emitBOM: true,
+    inlineSources: true,
+    outDir: "dist",
+    sourceMap: true,
+    sourceRoot: "local",
+    stripInternal: true,
+  });
 });
 
 test("compilerOptionsForMaterializedCase prevents JavaScript emit overwrite when harness suppresses output-path checks", () => {

@@ -1,7 +1,7 @@
 import type { bool, byte, int } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 import { NewGoStructMap } from "../../../go/compat.js";
-import { recordExtensionContextualTypeResolution, recordExtensionUnaryOperatorResolution } from "../../../extensions/checker-integration.js";
+import { recordExtensionCheckedUnaryOperatorMapping, recordExtensionContextualTargetTypeFact } from "../../../extensions/checker-integration.js";
 import * as core from "../../core/core.js";
 import * as slices from "../../../go/slices.js";
 import { MaxInt } from "../../../go/math.js";
@@ -28,7 +28,6 @@ import {
   KindSatisfiesExpression, KindExportAssignment, KindJsxExpression, KindJsxAttribute, KindJsxSpreadAttribute,
   KindJsxOpeningElement, KindJsxSelfClosingElement, KindImportAttribute, KindVariableDeclaration, KindBindingElement,
   KindMethodDeclaration, KindMethodSignature,
-  KindTypeOfKeyword,
 } from "../../ast/generated/kinds.js";
 import { AsElementAccessExpression, AsArrayTypeNode, AsTaggedTemplateExpression, AsTypeOperatorNode, AsConditionalExpression, AsYieldExpression, AsRegularExpressionLiteral, AsNamedTupleMember, AsConditionalTypeNode, AsTemplateLiteralTypeNode, AsUnionTypeNode, AsIntersectionTypeNode, AsTemplateLiteralTypeSpan, AsMappedTypeNode, AsLiteralTypeNode, AsTypeReferenceNode, AsTypeParameterDeclaration, AsBinaryExpression, AsTemplateExpression, AsTemplateSpan, AsTypeQueryNode, AsJSDocVariadicType, AsTypePredicateNode, AsObjectLiteralExpression, AsIdentifier, AsMetaProperty } from "../../ast/generated/casts.js";
 import type { Diagnostic, DiagnosticsCollection } from "../../ast/diagnostic.js";
@@ -2756,8 +2755,9 @@ export function Checker_assignBindingElementTypes(receiver: GoPtr<Checker>, patt
  * }
  */
 export function Checker_checkTypeOfExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type> {
-  Checker_checkExpression(receiver, Node_Expression(node));
-  recordExtensionUnaryOperatorResolution(receiver, node, KindTypeOfKeyword, Node_Expression(node));
+  const expression = Node_Expression(node);
+  Checker_checkExpression(receiver, expression);
+  recordExtensionCheckedUnaryOperatorMapping(receiver, node, "typeof", expression);
   return receiver!.typeofType;
 }
 
@@ -4065,10 +4065,6 @@ export function Checker_checkObjectLiteralMethod(receiver: GoPtr<Checker>, node:
   Checker_checkGrammarMethod(receiver, node);
   if (IsComputedPropertyName(Node_Name(node))) {
     Checker_checkComputedPropertyName(receiver, Node_Name(node));
-  }
-  const contextualType = Checker_getContextualTypeForObjectLiteralMethod(receiver, node, ContextFlagsNone);
-  if (contextualType !== undefined) {
-    recordExtensionContextualTypeResolution(receiver, node, contextualType);
   }
   const uninstantiatedType = Checker_checkFunctionExpressionOrObjectLiteralMethod(receiver, node, checkMode);
   return Checker_instantiateTypeWithSingleGenericCallSignature(receiver, node, uninstantiatedType, checkMode);
@@ -13933,7 +13929,7 @@ export function Checker_getContextualType(receiver: GoPtr<Checker>, node: GoPtr<
     return undefined;
   }
   const record = (contextualType: GoPtr<Type>): GoPtr<Type> => {
-    recordExtensionContextualTypeResolution(receiver, node, contextualType);
+    recordExtensionContextualTargetTypeFact(receiver, node, contextualType);
     return contextualType;
   };
   const index = Checker_findContextualNode(receiver, node, contextFlags === ContextFlagsNone);

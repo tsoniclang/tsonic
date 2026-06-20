@@ -10,7 +10,7 @@ import { Node_End, Node_ForEachChild, Node_Pos } from "../internal/ast/spine.js"
 import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
 import { Diagnostic_Code, Diagnostic_End, Diagnostic_Pos, Diagnostic_String } from "../internal/ast/diagnostic.js";
 import { AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
-import { KindArrowFunction, KindBinaryExpression, KindCallExpression, KindElementAccessExpression, KindForOfStatement, KindIdentifier, KindNumberKeyword, KindPropertyAccessExpression, KindTypeReference } from "../internal/ast/generated/kinds.js";
+import { KindArrowFunction, KindBinaryExpression, KindCallExpression, KindElementAccessExpression, KindIdentifier, KindNumberKeyword, KindPropertyAccessExpression, KindTypeReference } from "../internal/ast/generated/kinds.js";
 import { LibPath, WrapFS } from "../internal/bundled/bundled.js";
 import type { CompilerOptions } from "../internal/core/compileroptions.js";
 import { ResolutionModeESM } from "../internal/core/compileroptions.js";
@@ -30,9 +30,9 @@ import type { Program, ProgramOptions } from "../internal/compiler/program.js";
 import type { ParseConfigHost } from "../internal/tsoptions/tsconfigparsing.js";
 import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
 import { FromMap } from "../internal/vfs/vfstest/vfstest.js";
-import { TstsProviderContractVersion, ExtensionDecisionQuestion, ExtensionHostDiagnosticCode, acceptDecision, argumentPassingFactKey, attachExtensionHost, createExtensionConsumerQueries, createSourceSemanticsExtension, deferDecision, finalizeExtensionSemantics, getExtensionHost, rejectDecision, runtimeCarrierFactKey, sourcePrimitive, sourcePrimitiveFactKey, targetConversionFactKey } from "./index.js";
-import { canonicalIdentityFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, selectedTargetSignatureFactKey, targetIterationFactKey, targetOperationFactKey, targetBindingFactKey } from "./index.js";
-import type { CompilerExtension, ExtensionDecisionContext, ExtensionFactSubject, ResolveCallRequest, SatisfiesConstraintRequest, SourcePrimitiveFact, SelectedTargetSignatureFact, TargetIterationFact, TargetOperationFact, TargetBindingProvider, TargetIdentity, TargetMember, TargetSemanticProvider } from "./index.js";
+import { TstsProviderContractVersion, ExtensionHostDiagnosticCode, ExtensionObservationPoint, acceptObservation, argumentPassingFactKey, attachExtensionHost, createExtensionConsumerQueries, createSourceSemanticsExtension, deferObservation, finalizeExtensionSemantics, getExtensionHost, rejectObservation, runtimeCarrierFactKey, sourcePrimitive, sourcePrimitiveFactKey, targetConversionFactKey } from "./index.js";
+import { canonicalIdentityFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, selectedTargetSignatureFactKey, targetOperationFactKey, targetBindingFactKey } from "./index.js";
+import type { CheckedCallMappingRequest, CompilerExtension, ExtensionFactSubject, ExtensionObservationContext, SourcePrimitiveFact, SelectedTargetSignatureFact, TargetConstraintValidationRequest, TargetOperationFact, TargetBindingProvider, TargetIdentity, TargetMember, TargetSemanticProvider } from "./index.js";
 
 function createExampleSourceSemanticsExtension(): CompilerExtension {
   return createSourceSemanticsExtension({
@@ -127,12 +127,7 @@ test("provider-backed virtual modules participate in normal program binding", ()
   assert.equal(constraint?.kind === "implements" ? constraint.contract : undefined, "System.IEquatable`1");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.id, "Contains(T)");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.parameters[0]?.type.kind, "type-parameter");
-  assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.parameters[0]?.passingMode, "by-value");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.returnType?.kind, "source-primitive");
-  const matrixSymbol = virtualModuleSymbol?.Exports?.get("Matrix");
-  const matrixReturnType = extended.extensionHost.facts.get(matrixSymbol, targetBindingFactKey)?.members?.[0]?.returnType;
-  assert.equal(matrixReturnType?.kind, "array");
-  assert.equal(matrixReturnType?.kind === "array" ? matrixReturnType.rank : undefined, 2);
 
   const call = findFirstNodeByKind(index, KindCallExpression);
   assert.equal(extended.extensionHost.facts.get(call, selectedTargetSignatureFactKey), undefined);
@@ -143,53 +138,6 @@ test("provider-backed virtual modules participate in normal program binding", ()
   assert.equal(consumer.getVirtualDeclaration(searchValuesSymbol)?.exportName, "SearchValues");
   assert.equal(consumer.getTargetBindingFact(searchValuesSymbol)?.id, "System.Buffers.SearchValues`1");
   assert.equal(consumer.getSelectedTargetCall(call), undefined);
-});
-
-test("provider virtual signatures preserve explicit parameter passing modes", () => {
-  let fs = FromMap(new Map<string, string>([
-    ["/src/index.ts", `
-      import { SearchValues } from "@example/dotnet/System.Buffers.js";
-
-      declare const values: SearchValues<number>;
-      values.Contains(1);
-    `],
-    ["/src/tsconfig.json", JSON.stringify({
-      compilerOptions: {
-        noLib: true,
-        module: "esnext",
-        moduleResolution: "bundler",
-      },
-      files: ["index.ts"],
-    })],
-  ]), false as bool);
-  fs = WrapFS(fs);
-
-  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
-  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
-  assert.equal((configErrors ?? []).length, 0);
-
-  const options = {
-    Config: parsed,
-    Host: host,
-  } satisfies ProgramOptions;
-  const extended = attachExtensionHost(options, {
-    activeTarget: "dotnet",
-    extensions: [providerExtension("@example/dotnet/System.Buffers.js", false, undefined, "byref-readonly")],
-  });
-
-  const program = NewProgram(options);
-  const index = Program_GetSourceFile(program, "/src/index.ts");
-  assert.ok(index !== undefined);
-  assertCleanProgram(program, index);
-
-  Program_BindSourceFiles(program);
-  const virtualFile = Program_GetSourceFile(program, "tsts-provider://dotnet/System.Buffers");
-  assert.ok(virtualFile !== undefined);
-  const searchValuesSymbol = Node_Symbol(virtualFile as never)?.Exports?.get("SearchValues");
-  assert.ok(searchValuesSymbol !== undefined);
-
-  const targetBinding = extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey);
-  assert.equal(targetBinding?.members?.[0]?.parameters[0]?.passingMode, "byref-readonly");
 });
 
 test("provider-backed virtual modules support alias and namespace import forms", () => {
@@ -326,7 +274,7 @@ test("checker records provider-owned target call facts for consumers", () => {
   assert.equal(consumer.getSelectedTargetCall(call)?.member.id, "Contains(T)");
 });
 
-test("checker records provider-owned generic inference facts on selected calls", () => {
+test("checker records provider-owned target type argument facts on selected calls", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
       declare function convert<T>(value: number): T;
@@ -362,12 +310,11 @@ test("checker records provider-owned generic inference facts on selected calls",
   assertCleanProgram(program, index);
 
   const call = findFirstNodeByKind(index, KindCallExpression);
-  const argument = getFirstCallArgument(call);
   assert.equal(finalizeExtensionSemantics(options), extended.extensionHost);
   const consumer = createExtensionConsumerQueries(extended.extensionHost, "emitter");
   const selectedCall = consumer.getSelectedTargetCall(call);
   assert.equal(selectedCall?.member.id, "System.Convert.ChangeType<T>(System.Int32)");
-  assert.equal(selectedCall?.typeArguments?.[0], argument);
+  assert.equal(selectedCall?.typeArguments, undefined);
   assert.deepEqual(selectedCall?.targetTypeArguments, [{ kind: "source-primitive", name: "int32" }]);
 });
 
@@ -512,119 +459,6 @@ test("checker records parameter mode facts per argument without collapsing them 
   assert.equal(extended.extensionHost.facts.get(second, argumentPassingFactKey)?.mode, "byref-readonly");
   assert.equal(extended.extensionHost.facts.get(call, argumentPassingFactKey), undefined);
   assert.equal(extended.extensionHost.diagnostics.all().some((diagnostic) => diagnostic.extensionCode === "FACT_CONFLICT"), false);
-});
-
-test("checker records selected signature parameter modes without requiring a duplicate mode hook", () => {
-  const selectedSignature = {
-    member: searchValuesContainsTargetMember("byref-readonly"),
-  } satisfies SelectedTargetSignatureFact;
-  let fs = FromMap(new Map<string, string>([
-    ["/src/index.ts", `
-      declare function contains(value: number): boolean;
-      declare let value: number;
-      contains(value);
-    `],
-    ["/src/tsconfig.json", JSON.stringify({
-      compilerOptions: {
-        noLib: true,
-        module: "esnext",
-        moduleResolution: "bundler",
-      },
-      files: ["index.ts"],
-    })],
-  ]), false as bool);
-  fs = WrapFS(fs);
-
-  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
-  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
-  assert.equal((configErrors ?? []).length, 0);
-
-  const options = {
-    Config: parsed,
-    Host: host,
-  } satisfies ProgramOptions;
-  const extended = attachExtensionHost(options, {
-    activeTarget: "dotnet",
-    extensions: [providerExtension("@example/dotnet/System.Console.js", false, semanticProvider(selectedSignature))],
-  });
-
-  const program = NewProgram(options);
-  const index = Program_GetSourceFile(program, "/src/index.ts");
-  assert.ok(index !== undefined);
-  assertCleanProgram(program, index);
-
-  const call = findFirstNodeByKind(index, KindCallExpression);
-  const argument = getFirstCallArgument(call);
-  assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.mode, "byref-readonly");
-  assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.targetExpression, argument);
-});
-
-test("checker maps receiver-injected target parameters onto source arguments", () => {
-  const selectedSignature = {
-    member: {
-      id: "ReceiverOps.Add(Box,System.Int32)",
-      sourceName: "add",
-      targetName: "Add",
-      kind: "method",
-      static: true,
-      receiverArgumentIndex: 0,
-      parameters: [
-        {
-          name: "receiver",
-          type: { kind: "target-named", id: "Example.Box" },
-          passingMode: "by-value",
-        },
-        {
-          name: "value",
-          type: { kind: "target-named", id: "System.Int32" },
-          passingMode: "byref-readonly",
-        },
-      ],
-    },
-    argumentConversions: [{ kind: "target-named", id: "System.Int32" }],
-  } satisfies SelectedTargetSignatureFact;
-  let fs = FromMap(new Map<string, string>([
-    ["/src/index.ts", `
-      declare const values: { add(value: number): void };
-      declare let value: number;
-      values.add(value);
-    `],
-    ["/src/tsconfig.json", JSON.stringify({
-      compilerOptions: {
-        noLib: true,
-        module: "esnext",
-        moduleResolution: "bundler",
-      },
-      files: ["index.ts"],
-    })],
-  ]), false as bool);
-  fs = WrapFS(fs);
-
-  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
-  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
-  assert.equal((configErrors ?? []).length, 0);
-
-  const options = {
-    Config: parsed,
-    Host: host,
-  } satisfies ProgramOptions;
-  const extended = attachExtensionHost(options, {
-    activeTarget: "dotnet",
-    extensions: [providerExtension("@example/dotnet/System.Console.js", false, semanticProvider(selectedSignature))],
-  });
-
-  const program = NewProgram(options);
-  const index = Program_GetSourceFile(program, "/src/index.ts");
-  assert.ok(index !== undefined);
-  assertCleanProgram(program, index);
-
-  const call = findFirstNodeByKind(index, KindCallExpression);
-  const argument = getFirstCallArgument(call);
-  assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.mode, "byref-readonly");
-  assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.targetExpression, argument);
-  const conversion = extended.extensionHost.facts.get(argument, targetConversionFactKey);
-  assert.equal(conversion?.convertedType?.kind, "target-named");
-  assert.equal(conversion?.convertedType?.kind === "target-named" ? conversion.convertedType.id : undefined, "System.Int32");
 });
 
 test("checker records provider-owned runtime carrier and argument conversion facts", () => {
@@ -943,7 +777,7 @@ test("provider extensions can drive a realistic emitter-facing fact chain", () =
   assert.equal(consumer.getRuntimeCarrierFact(searchValuesTypeReference)?.carrier.kind, "target-named");
 });
 
-test("deferred provider call seams do not poison source calls", () => {
+test("checker-owned target call seam reports deferred providers without fallback facts", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
       declare function contains(value: number): boolean;
@@ -976,7 +810,7 @@ test("deferred provider call seams do not poison source calls", () => {
   const program = NewProgram(options);
   assert.ok(program !== undefined);
   assert.equal(getExtensionHost(program), extended.extensionHost);
-  assert.equal(extended.extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveCall)?.identity.id, "dotnet-provider-extension");
+  assert.equal(extended.extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedCall)?.identity.id, "dotnet-provider-extension");
   const index = Program_GetSourceFile(program, "/src/index.ts");
   assert.ok(index !== undefined);
   assert.equal(Program_GetProgramDiagnostics(program).length, 0);
@@ -985,7 +819,7 @@ test("deferred provider call seams do not poison source calls", () => {
 
   const call = findFirstNodeByKind(index, KindCallExpression);
   assert.equal(extended.extensionHost.facts.get(call, selectedTargetSignatureFactKey), undefined);
-  assert.equal(extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.decisionOwnerDeferred).length, 0);
+  assert.equal(extended.extensionHost.diagnostics.all().at(-1)?.numericCode, ExtensionHostDiagnosticCode.observationOwnerDeferred);
 
   assert.equal(finalizeExtensionSemantics(options), extended.extensionHost);
   const consumer = createExtensionConsumerQueries(extended.extensionHost, "emitter");
@@ -1023,13 +857,9 @@ test("checker records provider-owned member element and operator facts for consu
     Config: parsed,
     Host: host,
   } satisfies ProgramOptions;
-  const capture = {
-    propertyReceiverTypeSeen: false,
-    elementReceiverTypeSeen: false,
-  };
   const extended = attachExtensionHost(options, {
     activeTarget: "dotnet",
-    extensions: [providerExtension("@example/dotnet/System.Console.js", false, surfaceSemanticProvider(capture))],
+    extensions: [providerExtension("@example/dotnet/System.Console.js", false, surfaceSemanticProvider())],
   });
 
   const program = NewProgram(options);
@@ -1041,8 +871,6 @@ test("checker records provider-owned member element and operator facts for consu
   const elementAccess = findFirstNodeByKind(index, KindElementAccessExpression);
   const binaryExpression = findFirstNodeByKind(index, KindBinaryExpression);
 
-  assert.equal(capture.propertyReceiverTypeSeen, true);
-  assert.equal(capture.elementReceiverTypeSeen, true);
   assert.equal(extended.extensionHost.facts.get(propertyAccess, targetOperationFactKey)?.operationId, "System.String.Length");
   assert.equal(extended.extensionHost.facts.get(elementAccess, targetOperationFactKey)?.operationId, "System.ReadOnlySpan.GetItem");
   assert.equal(extended.extensionHost.facts.get(binaryExpression, targetOperationFactKey)?.operationId, "System.Int32.op_Addition");
@@ -1054,73 +882,7 @@ test("checker records provider-owned member element and operator facts for consu
   assert.equal(consumer.getSelectedTargetOperator(binaryExpression)?.targetOperation, "System.Int32.op_Addition");
 });
 
-test("checker records provider-owned iteration facts for consumers", () => {
-  let fs = FromMap(new Map<string, string>([
-    ["/src/index.ts", `
-      declare const Symbol: { readonly iterator: unique symbol };
-      interface IteratorResult<T> {
-        value: T;
-        done: boolean;
-      }
-      interface Iterator<T> {
-        next(): IteratorResult<T>;
-      }
-      interface Iterable<T> {
-        [Symbol.iterator](): Iterator<T>;
-      }
-
-      export function sum(values: Iterable<number>): number {
-        let total = 0;
-        for (const value of values) {
-          total = total + value;
-        }
-        return total;
-      }
-    `],
-    ["/src/tsconfig.json", JSON.stringify({
-      compilerOptions: {
-        noLib: true,
-        module: "esnext",
-        moduleResolution: "bundler",
-      },
-      files: ["index.ts"],
-    })],
-  ]), false as bool);
-  fs = WrapFS(fs);
-
-  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
-  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
-  assert.equal((configErrors ?? []).length, 0);
-
-  const options = {
-    Config: parsed,
-    Host: host,
-  } satisfies ProgramOptions;
-  const capture = {
-    iterableTypeSeen: false,
-    iterationKind: "",
-  };
-  const extended = attachExtensionHost(options, {
-    activeTarget: "dotnet",
-    extensions: [semanticOnlyExtension("dotnet-iteration-extension", iterationSemanticProvider(capture))],
-  });
-
-  const program = NewProgram(options);
-  const index = Program_GetSourceFile(program, "/src/index.ts");
-  assert.ok(index !== undefined);
-  assertCleanProgram(program, index);
-
-  const forOf = findFirstNodeByKind(index, KindForOfStatement);
-  assert.equal(capture.iterableTypeSeen, true);
-  assert.equal(capture.iterationKind, "sync");
-  assert.equal(extended.extensionHost.facts.get(forOf, targetIterationFactKey)?.operationId, "System.Array.Enumerate");
-
-  assert.equal(finalizeExtensionSemantics(options), extended.extensionHost);
-  const consumer = createExtensionConsumerQueries(extended.extensionHost, "emitter");
-  assert.equal(consumer.getSelectedTargetIteration(forOf)?.targetOperation, "foreach");
-});
-
-test("optional member element and operator seams defer without fallback facts", () => {
+test("checker-owned member element and operator seams report deferred providers without fallback facts", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
       declare const text: { length: number };
@@ -1168,7 +930,7 @@ test("optional member element and operator seams defer without fallback facts", 
   assert.equal(extended.extensionHost.facts.get(propertyAccess, targetOperationFactKey), undefined);
   assert.equal(extended.extensionHost.facts.get(elementAccess, targetOperationFactKey), undefined);
   assert.equal(extended.extensionHost.facts.get(binaryExpression, targetOperationFactKey), undefined);
-  assert.equal(extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.decisionOwnerDeferred).length, 0);
+  assert.ok(extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.observationOwnerDeferred).length >= 3);
 });
 
 test("extension-owned semantic rejections surface through standard diagnostics with source location", () => {
@@ -1433,12 +1195,7 @@ test("configured provider-owned imports diagnose missing providers and do not fa
   assert.ok(!sourceFileNames.includes("/src/node_modules/@target/runtime.js"));
 });
 
-function providerExtension(
-  specifier: string,
-  reject = false,
-  provider?: TargetSemanticProvider,
-  containsPassingMode: TargetMember["parameters"][number]["passingMode"] = "by-value",
-): CompilerExtension {
+function providerExtension(specifier: string, reject = false, provider?: TargetSemanticProvider): CompilerExtension {
   return {
     identity: {
       id: "dotnet-provider-extension",
@@ -1446,7 +1203,7 @@ function providerExtension(
       capabilityNamespace: "dotnet",
     },
     initialize(context): void {
-      context.registerTargetBindingProvider(dotnetProvider(specifier, reject, containsPassingMode));
+      context.registerTargetBindingProvider(dotnetProvider(specifier, reject));
       if (provider !== undefined) {
         assert.equal(context.registerTargetSemanticProvider(provider), true);
       }
@@ -1476,7 +1233,7 @@ function semanticProvider(selectedSignature: SelectedTargetSignatureFact): Targe
       extensionContractVersion: TstsProviderContractVersion,
       providerKind: "semantic",
     },
-    resolveCall: () => acceptDecision({
+    mapCheckedCall: () => acceptObservation({
       selectedSignature,
       returnType: semanticSubject("bool"),
     }),
@@ -1492,7 +1249,7 @@ function genericInferenceSemanticProvider(): TargetSemanticProvider {
       extensionContractVersion: TstsProviderContractVersion,
       providerKind: "semantic",
     },
-    resolveCall: () => acceptDecision({
+    mapCheckedCall: () => acceptObservation({
       selectedSignature: {
         member: {
           id: "System.Convert.ChangeType<T>(System.Int32)",
@@ -1510,8 +1267,7 @@ function genericInferenceSemanticProvider(): TargetSemanticProvider {
       },
       returnType: semanticSubject("T"),
     }),
-    inferTypeArguments: (request) => acceptDecision({
-      typeArguments: request.arguments,
+    mapInferredSourceTypeArgumentsToTarget: () => acceptObservation({
       targetTypeArguments: [{ kind: "source-primitive", name: "int32" }],
     }),
   };
@@ -1526,7 +1282,7 @@ function contextualSemanticProvider(): TargetSemanticProvider {
       extensionContractVersion: TstsProviderContractVersion,
       providerKind: "semantic",
     },
-    getContextualType: (request) => acceptDecision({
+    recordContextualTargetType: (request) => acceptObservation({
       type: request.context,
       targetType: {
         kind: "target-named",
@@ -1549,18 +1305,18 @@ function deferredSemanticProvider(): TargetSemanticProvider {
       extensionContractVersion: TstsProviderContractVersion,
       providerKind: "semantic",
     },
-    resolveCall: () => deferDecision,
+    mapCheckedCall: () => deferObservation,
   };
 }
 
 function parameterModeSemanticProvider(selectedSignature: SelectedTargetSignatureFact): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-parameter-mode-semantic-provider"),
-    resolveCall: () => acceptDecision({
+    mapCheckedCall: () => acceptObservation({
       selectedSignature,
       returnType: semanticSubject("bool"),
     }),
-    getParameterMode: (request) => acceptDecision({
+    resolveParameterPassing: (request) => acceptObservation({
       passing: {
         mode: "byref-readonly",
         ...(request.argument !== undefined ? { targetExpression: request.argument } : {}),
@@ -1573,14 +1329,14 @@ function parameterModeSequenceSemanticProvider(selectedSignature: SelectedTarget
   let parameterIndex = 0;
   return {
     identity: semanticProviderIdentity("dotnet-parameter-mode-sequence-semantic-provider"),
-    resolveCall: () => acceptDecision({
+    mapCheckedCall: () => acceptObservation({
       selectedSignature,
       returnType: semanticSubject("void"),
     }),
-    getParameterMode: (request) => {
+    resolveParameterPassing: (request) => {
       const mode = parameterIndex === 0 ? "by-value" : "byref-readonly";
       parameterIndex += 1;
-      return acceptDecision({
+      return acceptObservation({
         passing: {
           mode,
           ...(request.argument !== undefined ? { targetExpression: request.argument } : {}),
@@ -1593,17 +1349,17 @@ function parameterModeSequenceSemanticProvider(selectedSignature: SelectedTarget
 function carrierConversionSemanticProvider(): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-carrier-conversion-semantic-provider"),
-    resolveCall: () => acceptDecision({
+    mapCheckedCall: () => acceptObservation({
       selectedSignature: {
         member: byteConversionTargetMember(),
       },
       returnType: semanticSubject("number"),
     }),
-    resolveConversion: () => acceptDecision({
+    mapCheckedConversion: () => acceptObservation({
       convertedType: { kind: "target-named", id: "System.Byte" },
       operation: targetOperation("System.Convert.ToByte", "method", "number"),
     }),
-    getRuntimeCarrier: () => acceptDecision({
+    resolveRuntimeCarrier: () => acceptObservation({
       carrier: { kind: "target-named", id: "System.Buffers.SearchValues`1" },
       requiresAllocation: false,
     }),
@@ -1613,26 +1369,25 @@ function carrierConversionSemanticProvider(): TargetSemanticProvider {
 function compositeDotnetProvider(): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-composite-semantic-provider"),
-    satisfiesConstraint: (request, context) => constraintSemanticProvider().satisfiesConstraint!(request, context),
-    resolveCall: () => acceptDecision({
+    validateTargetConstraint: (request, context) => constraintSemanticProvider().validateTargetConstraint!(request, context),
+    mapCheckedCall: () => acceptObservation({
       selectedSignature: selectedSearchValuesContainsSignature(),
       returnType: semanticSubject("bool"),
     }),
-    inferTypeArguments: (request) => acceptDecision({
-      typeArguments: request.arguments,
+    mapInferredSourceTypeArgumentsToTarget: () => acceptObservation({
       targetTypeArguments: [{ kind: "source-primitive", name: "int32" }],
     }),
-    getParameterMode: (request) => acceptDecision({
+    resolveParameterPassing: (request) => acceptObservation({
       passing: {
         mode: "byref-readonly",
         ...(request.argument !== undefined ? { targetExpression: request.argument } : {}),
       },
     }),
-    resolveConversion: () => acceptDecision({
+    mapCheckedConversion: () => acceptObservation({
       convertedType: { kind: "target-named", id: "System.Int32" },
       operation: targetOperation("System.Int32.Identity", "method", "int32"),
     }),
-    getRuntimeCarrier: () => acceptDecision({
+    resolveRuntimeCarrier: () => acceptObservation({
       carrier: { kind: "target-named", id: "System.Buffers.SearchValues`1" },
       requiresAllocation: false,
     }),
@@ -1648,12 +1403,12 @@ function rustFlowSemanticProvider(): TargetSemanticProvider {
       extensionContractVersion: TstsProviderContractVersion,
       providerKind: "semantic",
     },
-    validateFlowUse: (request, context) => {
+    validateExtensionFlowUse: (request, context) => {
       const state = context.facts.get(request.symbol, flowStateFactKey);
       if (state?.state !== "moved") {
-        return acceptDecision({ valid: true });
+        return acceptObservation({ valid: true });
       }
-      return rejectDecision({
+      return rejectObservation({
         extensionId: context.extensionId,
         extensionCode: "RUST_MOVED_VALUE",
         numericCode: 9920301,
@@ -1677,12 +1432,12 @@ function rustAssignabilityProvider(): TargetSemanticProvider {
       extensionContractVersion: TstsProviderContractVersion,
       providerKind: "semantic",
     },
-    isAssignableTo: (request, context) => {
+    validatePostCheckAssignability: (request, context) => {
       const state = context.facts.get(request.expression, flowStateFactKey);
       if (state?.state !== "moved") {
-        return acceptDecision(true);
+        return acceptObservation(true);
       }
-      return rejectDecision({
+      return rejectObservation({
         extensionId: context.extensionId,
         extensionCode: "RUST_MOVED_ASSIGNMENT",
         numericCode: 9920401,
@@ -1697,70 +1452,37 @@ function rustAssignabilityProvider(): TargetSemanticProvider {
   };
 }
 
-function surfaceSemanticProvider(capture?: { propertyReceiverTypeSeen: boolean; elementReceiverTypeSeen: boolean }): TargetSemanticProvider {
+function surfaceSemanticProvider(): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-surface-semantic-provider"),
-    resolvePropertyAccess: (request) => {
-      if (request.receiverType !== undefined && capture !== undefined) {
-        capture.propertyReceiverTypeSeen = true;
-      }
-      return acceptDecision({
-        operation: targetOperation("System.String.Length", "property", "int32"),
-        resultType: semanticSubject("int32"),
-      });
-    },
-    resolveElementAccess: (request) => {
-      if (request.receiverType !== undefined && capture !== undefined) {
-        capture.elementReceiverTypeSeen = true;
-      }
-      return acceptDecision({
-        operation: targetOperation("System.ReadOnlySpan.GetItem", "indexer", "char16"),
-        resultType: semanticSubject("char16"),
-      });
-    },
-    resolveOperator: () => acceptDecision({
+    mapCheckedPropertyAccess: () => acceptObservation({
+      operation: targetOperation("System.String.Length", "property", "int32"),
+      resultType: semanticSubject("int32"),
+    }),
+    mapCheckedElementAccess: () => acceptObservation({
+      operation: targetOperation("System.ReadOnlySpan.GetItem", "indexer", "char"),
+      resultType: semanticSubject("char"),
+    }),
+    mapCheckedOperator: () => acceptObservation({
       operation: targetOperation("System.Int32.op_Addition", "operator", "int32"),
       resultType: semanticSubject("int32"),
     }),
   };
 }
 
-function iterationSemanticProvider(capture?: { iterableTypeSeen: boolean; iterationKind: string }): TargetSemanticProvider {
-  return {
-    identity: semanticProviderIdentity("dotnet-iteration-semantic-provider"),
-    resolveIteration: (request) => {
-      if (request.iterableType !== undefined && capture !== undefined) {
-        capture.iterableTypeSeen = true;
-      }
-      if (capture !== undefined) {
-        capture.iterationKind = request.iterationKind;
-      }
-      return acceptDecision({
-        iteration: {
-          operationId: "System.Array.Enumerate",
-          iterationKind: "sync",
-          targetOperation: "foreach",
-          elementType: semanticSubject("number"),
-        } satisfies TargetIterationFact,
-        elementType: semanticSubject("number"),
-      });
-    },
-  };
-}
-
 function deferredSurfaceSemanticProvider(): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-deferred-surface-semantic-provider"),
-    resolvePropertyAccess: () => deferDecision,
-    resolveElementAccess: () => deferDecision,
-    resolveOperator: () => deferDecision,
+    mapCheckedPropertyAccess: () => deferObservation,
+    mapCheckedElementAccess: () => deferObservation,
+    mapCheckedOperator: () => deferObservation,
   };
 }
 
 function rejectingCallSemanticProvider(): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-rejecting-call-semantic-provider"),
-    resolveCall: (request: ResolveCallRequest) => ({
+    mapCheckedCall: (request: CheckedCallMappingRequest) => ({
       kind: "reject",
       diagnostic: {
         extensionId: "dotnet-rejecting-call-semantic-provider",
@@ -1780,9 +1502,9 @@ function rejectingCallSemanticProvider(): TargetSemanticProvider {
 function sourceSpanRejectingCallProvider(): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-source-span-rejecting-call-provider"),
-    resolveCall: (request: ResolveCallRequest) => {
+    mapCheckedCall: (request: CheckedCallMappingRequest) => {
       const call = request.call as GoPtr<Node>;
-      return rejectDecision({
+      return rejectObservation({
         extensionId: "dotnet-source-span-rejecting-call-provider",
         extensionCode: "DOTNET_PIN_REQUIRES_FIXED",
         numericCode: 9910126,
@@ -1804,7 +1526,7 @@ function sourceSpanRejectingCallProvider(): TargetSemanticProvider {
 function rejectingNativeArrayPushProvider(): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-native-array-surface-provider"),
-    resolveCall: (request: ResolveCallRequest) => rejectDecision({
+    mapCheckedCall: (request: CheckedCallMappingRequest) => rejectObservation({
       extensionId: "dotnet-native-array-surface-provider",
       extensionCode: "DOTNET_NATIVE_ARRAY_PUSH",
       numericCode: 9910301,
@@ -1827,7 +1549,7 @@ function rustVecSurfaceProvider(): TargetSemanticProvider {
       extensionContractVersion: TstsProviderContractVersion,
       providerKind: "semantic",
     },
-    resolveCall: () => acceptDecision({
+    mapCheckedCall: () => acceptObservation({
       selectedSignature: {
         member: {
           id: "alloc.vec.Vec.push(i32)",
@@ -1850,17 +1572,17 @@ function rustVecSurfaceProvider(): TargetSemanticProvider {
 function constraintSemanticProvider(): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-constraint-semantic-provider"),
-    satisfiesConstraint: (request, context) => {
+    validateTargetConstraint: (request, context) => {
       const primitive = getSourcePrimitiveForConstraintArgument(request.source, context);
       if (request.constraint.kind === "implements" && request.constraint.contract === "System.IEquatable`1" && primitive?.kind === "int32") {
-        return acceptDecision(true, [{ message: "Source primitive int32 maps to System.Int32, which implements System.IEquatable<System.Int32>." }]);
+        return acceptObservation(true, [{ message: "Source primitive int32 maps to System.Int32, which implements System.IEquatable<System.Int32>." }]);
       }
       return rejectTargetConstraint(request, context);
     },
   };
 }
 
-function rejectTargetConstraint(request: SatisfiesConstraintRequest, context: ExtensionDecisionContext) {
+function rejectTargetConstraint(request: TargetConstraintValidationRequest, context: ExtensionObservationContext) {
   return {
     kind: "reject" as const,
     diagnostic: {
@@ -1885,7 +1607,7 @@ function getConstraintDiagnosticIdentity(source: ExtensionFactSubject): string {
   return `dotnet-constraint:${typeof source}:${String(source)}`;
 }
 
-function getSourcePrimitiveForConstraintArgument(source: ExtensionFactSubject, context: ExtensionDecisionContext): SourcePrimitiveFact | undefined {
+function getSourcePrimitiveForConstraintArgument(source: ExtensionFactSubject, context: ExtensionObservationContext): SourcePrimitiveFact | undefined {
   if (source === null || source === undefined || typeof source !== "object") {
     return undefined;
   }
@@ -1933,11 +1655,7 @@ function targetOperation(operationId: string, operationKind: TargetOperationFact
   };
 }
 
-function dotnetProvider(
-  specifier: string,
-  reject: boolean,
-  containsPassingMode: TargetMember["parameters"][number]["passingMode"],
-): TargetBindingProvider {
+function dotnetProvider(specifier: string, reject: boolean): TargetBindingProvider {
   const targetIdentity: TargetIdentity = {
     target: "dotnet",
     id: "System.Buffers.SearchValues`1",
@@ -1999,28 +1717,9 @@ function dotnetProvider(
             kind: "method",
             signatures: [{
               id: "Contains(T)",
-              parameters: [{ name: "value", type: { kind: "type-parameter", name: "T" }, passingMode: containsPassingMode }],
+              parameters: [{ name: "value", type: { kind: "type-parameter", name: "T" } }],
               returnType: { kind: "boolean" },
             }],
-          }],
-        }, {
-          id: "Matrix",
-          name: "Matrix",
-          kind: "class",
-          targetIdentity: {
-            target: "dotnet",
-            id: "Example.Matrix",
-            displayName: "Example.Matrix",
-          },
-          members: [{
-            id: "values",
-            name: "values",
-            kind: "property",
-            type: {
-              kind: "array",
-              elementType: { kind: "source-primitive", name: "int32" },
-              rank: 2,
-            },
           }],
         }],
       };

@@ -141,7 +141,7 @@ export function PackageId_PackageName(receiver: GoPtr<PackageId>): string {
   return p.Name;
 }
 
-export const ResolvedModuleExtensionProviderVirtual = "provider-virtual";
+export const ResolvedModuleExtensionProviderVirtual = extension.ExtensionDts;
 
 export interface ResolvedModuleProviderVirtual {
   ProviderId: string;

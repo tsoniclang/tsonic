@@ -543,6 +543,9 @@ export function Checker_getInstantiationExpressionType(receiver: GoPtr<Checker>,
 export function Checker_getTypeOfInstantiatedSymbol(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>): GoPtr<Type> {
   const links = LinkStore_Get(receiver!.valueSymbolLinks, symbol_);
   if (links!.resolvedType === undefined) {
+    if (links!.target === undefined) {
+      return Checker_getTypeOfSymbol(receiver, symbol_);
+    }
     links!.resolvedType = Checker_instantiateType(receiver, Checker_getTypeOfSymbol(receiver, links!.target), links!.mapper);
   }
   return links!.resolvedType;
@@ -563,6 +566,9 @@ export function Checker_getTypeOfInstantiatedSymbol(receiver: GoPtr<Checker>, sy
 export function Checker_getWriteTypeOfInstantiatedSymbol(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>): GoPtr<Type> {
   const links = LinkStore_Get(receiver!.valueSymbolLinks, symbol_);
   if (links!.writeType === undefined) {
+    if (links!.target === undefined) {
+      return Checker_getWriteTypeOfSymbol(receiver, symbol_);
+    }
     links!.writeType = Checker_instantiateType(receiver, Checker_getWriteTypeOfSymbol(receiver, links!.target), links!.mapper);
   }
   return links!.writeType;

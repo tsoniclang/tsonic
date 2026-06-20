@@ -7,7 +7,7 @@ import { Node_Text } from "../internal/ast/ast.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { Diagnostic_String } from "../internal/ast/diagnostic.js";
-import { KindArrowFunction, KindCallExpression, KindEnumMember, KindExpressionStatement, KindFunctionDeclaration, KindIdentifier, KindPropertyAccessExpression } from "../internal/ast/generated/kinds.js";
+import { KindArrowFunction, KindCallExpression, KindExpressionStatement, KindIdentifier, KindPropertyAccessExpression } from "../internal/ast/generated/kinds.js";
 import { LibPath, WrapFS } from "../internal/bundled/bundled.js";
 import type { CompilerOptions } from "../internal/core/compileroptions.js";
 import { NewCompilerHost } from "../internal/compiler/host.js";
@@ -17,12 +17,11 @@ import { TypeFlagsNumber, TypeFlagsString } from "../internal/checker/types.js";
 import type { ParseConfigHost } from "../internal/tsoptions/tsconfigparsing.js";
 import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
 import { FromMap } from "../internal/vfs/vfstest/vfstest.js";
-import { createTypeCheckerQueries, getTypeScriptTypeReferenceInfo } from "../index.js";
+import { createTypeCheckerQueries } from "../index.js";
 
 test("public type-checker queries expose TS-Go checker facts without emitter re-analysis", () => {
   const { program, index } = createProgram(`
     function id<T>(x: T): T { return x; }
-    function inferred() { return 123; }
     declare function takes(callback: (value: number) => void): void;
     declare let value: string | number;
 
@@ -52,12 +51,6 @@ test("public type-checker queries expose TS-Go checker facts without emitter re-
   const signature = queries.getResolvedSignature(call);
   assert.equal(signature?.parameters[0]?.Name, "x");
 
-  const inferredFunction = findFunctionDeclarationByName(index, "inferred");
-  const inferredSignature = queries.getSignatureFromDeclaration(inferredFunction);
-  assert.ok(inferredSignature !== undefined);
-  const inferredReturnType = queries.getReturnTypeOfSignature(inferredSignature);
-  assert.equal((inferredReturnType?.flags ?? 0) & TypeFlagsNumber, TypeFlagsNumber);
-
   const arrow = findFirstNodeByKind(index, KindArrowFunction);
   assert.ok(queries.getContextualType(arrow) !== undefined);
 });
@@ -73,12 +66,6 @@ test("public type-checker queries expose instantiated generic member types", () 
   assertCleanSemanticDiagnostics(program, index);
 
   const queries = createTypeCheckerQueries(program);
-  const nestedValueAccess = findPropertyAccessByName(index, "value", (node) => node?.Parent?.Kind === KindPropertyAccessExpression);
-  const nestedValueType = queries.getTypeAtLocation(nestedValueAccess);
-  const nestedValueReference = getTypeScriptTypeReferenceInfo(nestedValueType);
-  assert.equal(nestedValueReference?.targetSymbol?.Name, "Box");
-  assert.equal(nestedValueReference?.typeArguments.length, 1);
-
   const finalValueAccess = findPropertyAccessByName(index, "value", (node) => node?.Parent?.Kind === KindExpressionStatement);
   const finalValueType = queries.getTypeAtLocation(finalValueAccess);
   assert.equal((finalValueType?.flags ?? 0) & TypeFlagsNumber, TypeFlagsNumber);
@@ -108,27 +95,6 @@ test("public type-checker queries expose flow-narrowed receiver member access", 
   const valueType = queries.getTypeAtLocation(valueAccess);
   assert.equal((valueType?.flags ?? 0) & TypeFlagsString, TypeFlagsString);
   assert.equal(queries.getSymbolAtLocation(Node_Name(valueAccess))?.Name, "value");
-});
-
-test("public type-checker queries expose TS-Go enum-member constant evaluation", () => {
-  const { program, index } = createProgram(`
-    enum Direction {
-      Up = 1,
-      Down = 2,
-      Left = 4,
-      Right = Left << 1,
-      Text = "text",
-    }
-  `);
-  assertCleanSemanticDiagnostics(program, index);
-
-  const queries = createTypeCheckerQueries(program);
-  assert.equal(queries.getEnumMemberValue(findEnumMemberByName(index, "Up"))?.value, 1);
-  assert.equal(queries.getEnumMemberValue(findEnumMemberByName(index, "Right"))?.value, 8);
-
-  const textValue = queries.getEnumMemberValue(findEnumMemberByName(index, "Text"));
-  assert.equal(textValue?.value, "text");
-  assert.equal(textValue?.isSyntacticallyString, true);
 });
 
 function createProgram(sourceText: string): { readonly program: GoPtr<Program>; readonly index: GoPtr<SourceFile> } {
@@ -187,32 +153,10 @@ function findFirstNodeByKind(root: GoPtr<Node>, kind: number): GoPtr<Node> {
   return found;
 }
 
-function findFunctionDeclarationByName(root: GoPtr<Node>, name: string): GoPtr<Node> {
-  let found: GoPtr<Node>;
-  visitNodes(root, (node) => {
-    if (found === undefined && node?.Kind === KindFunctionDeclaration && Node_Text(Node_Name(node)) === name) {
-      found = node;
-    }
-  });
-  assert.ok(found !== undefined);
-  return found;
-}
-
 function findPropertyAccessByName(root: GoPtr<Node>, name: string, predicate: (node: GoPtr<Node>) => boolean): GoPtr<Node> {
   let found: GoPtr<Node>;
   visitNodes(root, (node) => {
     if (found === undefined && node?.Kind === KindPropertyAccessExpression && Node_Text(Node_Name(node)) === name && predicate(node)) {
-      found = node;
-    }
-  });
-  assert.ok(found !== undefined);
-  return found;
-}
-
-function findEnumMemberByName(root: GoPtr<Node>, name: string): GoPtr<Node> {
-  let found: GoPtr<Node>;
-  visitNodes(root, (node) => {
-    if (found === undefined && node?.Kind === KindEnumMember && Node_Text(Node_Name(node)) === name) {
       found = node;
     }
   });

@@ -1,34 +1,49 @@
+import type { bool } from "../go/scalars.js";
 import type { GoPtr } from "../go/compat.js";
 import type { Context } from "../go/context.js";
 import { Background } from "../go/context.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
-import { Node_Symbol, SourceFile_as_ast_HasFileName } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
-import { GetSourceFileOfNode, IsStringLiteralLike } from "../internal/ast/utilities.js";
-import { Program_GetResolvedModuleFromModuleSpecifier, Program_GetSourceFileForResolvedModule, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
+import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
+import { Program_GetSourceFiles, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import type { Program } from "../internal/compiler/program.js";
-import { Checker_TryGetMemberInModuleExports } from "../internal/checker/services.js";
-import { Checker_getResolvedSignature, Checker_getReturnTypeOfSignature, Checker_getSignatureFromDeclaration } from "../internal/checker/checker/signatures.js";
+import {
+  Checker_GetPropertyOfType,
+  Checker_GetReturnTypeOfSignature,
+  Checker_GetSignaturesOfType,
+  Checker_GetTypeFromTypeNode,
+  Checker_GetTypeOfPropertyOfType,
+} from "../internal/checker/exports.js";
+import { Checker_getResolvedSignature } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal } from "../internal/checker/checker/state.js";
 import type { Checker } from "../internal/checker/checker/state.js";
-import { Checker_GetAliasedSymbol, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getEnumMemberValue, Checker_getResolvedSymbol, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol } from "../internal/checker/checker/symbols.js";
-import { Checker_getContextualType, Checker_getTypeFromTypeNode, Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
+import {
+  Checker_GetAliasedSymbol,
+  Checker_GetSymbolAtLocation,
+  Checker_getDeclaredTypeOfSymbol,
+  Checker_getResolvedSymbol,
+  Checker_getResolvedSymbolOrNil,
+  Checker_getTypeOfSymbol,
+  Checker_resolveExternalModuleName,
+  Checker_resolveExternalModuleSymbol,
+} from "../internal/checker/checker/symbols.js";
+import { Checker_getContextualType, Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
+import { Checker_GetConstantValue, Checker_GetExportsOfModule } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
-import type { ContextFlags, Signature, Type } from "../internal/checker/types.js";
+import type { ContextFlags, Signature, SignatureKind, Type } from "../internal/checker/types.js";
 import { ContextFlagsNone } from "../internal/checker/types.js";
-import { KindEnumMember } from "../internal/ast/generated/kinds.js";
-import { SymbolFlagsAlias } from "../internal/ast/generated/flags.js";
+import { AsBinaryExpression } from "../internal/ast/generated/casts.js";
+import { IsBinaryExpression, IsCallExpression, IsElementAccessExpression, IsNewExpression, IsPropertyAccessExpression } from "../internal/ast/generated/predicates.js";
+import {
+  recordExtensionCheckedCallMapping,
+  recordExtensionCheckedElementAccessMapping,
+  recordExtensionCheckedOperatorMapping,
+  recordExtensionCheckedPropertyAccessMapping,
+} from "../extensions/checker-integration.js";
 
 export interface TypeCheckerQueryOptions {
   readonly context?: Context;
   readonly sourceFile?: GoPtr<SourceFile>;
-}
-
-export interface TypeScriptEnumMemberValue {
-  readonly value: string | number | undefined;
-  readonly isSyntacticallyString: boolean;
-  readonly resolvedOtherFiles: boolean;
-  readonly hasExternalReferences: boolean;
 }
 
 export interface TypeCheckerQueries {
@@ -39,23 +54,30 @@ export interface TypeCheckerQueries {
   readonly getResolvedSymbol: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
   readonly getResolvedSymbolOrNil: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
   readonly getAliasedSymbol: (symbol: GoPtr<Symbol>, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
-  readonly getResolvedModuleSourceFile: (containingSourceFile: GoPtr<SourceFile>, moduleSpecifier: GoPtr<Node>) => GoPtr<SourceFile>;
-  readonly getModuleExportSymbol: (moduleSourceFile: GoPtr<SourceFile>, exportName: string, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
   readonly getTypeOfSymbol: (symbol: GoPtr<Symbol>, options?: TypeCheckerQueryOptions) => GoPtr<Type>;
   readonly getDeclaredTypeOfSymbol: (symbol: GoPtr<Symbol>, options?: TypeCheckerQueryOptions) => GoPtr<Type>;
   readonly getResolvedSignature: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Signature>;
-  readonly getSignatureFromDeclaration: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Signature>;
   readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>, options?: TypeCheckerQueryOptions) => GoPtr<Type>;
-  readonly getEnumMemberValue: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => TypeScriptEnumMemberValue | undefined;
-  readonly typeToString: (type: GoPtr<Type>, options?: TypeCheckerQueryOptions) => string | undefined;
+  readonly getSignaturesOfType: (type: GoPtr<Type>, kind: SignatureKind, options?: TypeCheckerQueryOptions) => readonly GoPtr<Signature>[];
+  readonly getPropertyOfType: (type: GoPtr<Type>, name: string, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
+  readonly getTypeOfPropertyOfType: (type: GoPtr<Type>, name: string, options?: TypeCheckerQueryOptions) => GoPtr<Type>;
+  readonly getConstantValue: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => unknown;
+  readonly typeToString: (type: GoPtr<Type>, options?: TypeCheckerQueryOptions) => string;
+  readonly getModuleSymbolFromSpecifier: (moduleSpecifier: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
+  readonly getResolvedExternalModuleSymbol: (moduleSymbol: GoPtr<Symbol>, dontResolveAlias?: boolean, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
+  readonly getExportsOfModule: (moduleSymbol: GoPtr<Symbol>, options?: TypeCheckerQueryOptions) => readonly GoPtr<Symbol>[];
 }
 
 export function createTypeCheckerQueries(program: GoPtr<Program>, defaultOptions: TypeCheckerQueryOptions = {}): TypeCheckerQueries {
   return {
     getTypeAtLocation: (node, options = {}) =>
-      withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_GetTypeAtLocation(checker, node)),
+      withCheckerForNode(program, node, defaultOptions, options, (checker) => {
+        const type = Checker_GetTypeAtLocation(checker, node);
+        recordCheckedOperationForPublicQuery(checker, node);
+        return type;
+      }),
     getTypeFromTypeNode: (node, options = {}) =>
-      withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getTypeFromTypeNode(checker, node)),
+      withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
     getContextualType: (node, contextFlags = ContextFlagsNone, options = {}) =>
       withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getContextualType(checker, node, contextFlags)),
     getSymbolAtLocation: (node, options = {}) =>
@@ -64,76 +86,66 @@ export function createTypeCheckerQueries(program: GoPtr<Program>, defaultOptions
       withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getResolvedSymbol(checker, node)),
     getResolvedSymbolOrNil: (node, options = {}) =>
       withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getResolvedSymbolOrNil(checker, node)),
-    getAliasedSymbol: (symbol, options = {}) => {
-      if (symbol === undefined || (symbol.Flags & SymbolFlagsAlias) === 0) {
-        return undefined;
-      }
-      return withCheckerForSymbol(program, symbol, defaultOptions, options, (checker) => Checker_GetAliasedSymbol(checker, symbol));
-    },
-    getResolvedModuleSourceFile: (containingSourceFile, moduleSpecifier) =>
-      getResolvedModuleSourceFile(program, containingSourceFile, moduleSpecifier),
-    getModuleExportSymbol: (moduleSourceFile, exportName, options = {}) =>
-      withChecker(program, moduleSourceFile, defaultOptions, options, (checker) => {
-        const moduleSymbol = Node_Symbol(moduleSourceFile);
-        return moduleSymbol === undefined
-          ? undefined
-          : Checker_TryGetMemberInModuleExports(checker, exportName, moduleSymbol);
-      }),
+    getAliasedSymbol: (symbol, options = {}) =>
+      withCheckerForSymbol(program, symbol, defaultOptions, options, (checker) => Checker_GetAliasedSymbol(checker, symbol)),
     getTypeOfSymbol: (symbol, options = {}) =>
       withCheckerForSymbol(program, symbol, defaultOptions, options, (checker) => Checker_getTypeOfSymbol(checker, symbol)),
     getDeclaredTypeOfSymbol: (symbol, options = {}) =>
       withCheckerForSymbol(program, symbol, defaultOptions, options, (checker) => Checker_getDeclaredTypeOfSymbol(checker, symbol)),
     getResolvedSignature: (node, options = {}) =>
-      withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal)),
-    getSignatureFromDeclaration: (node, options = {}) =>
-      withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getSignatureFromDeclaration(checker, node)),
+      withCheckerForNode(program, node, defaultOptions, options, (checker) => {
+        const signature = Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal);
+        recordCheckedOperationForPublicQuery(checker, node, signature);
+        return signature;
+      }),
     getReturnTypeOfSignature: (signature, options = {}) =>
-      withCheckerForSignature(program, signature, defaultOptions, options, (checker) => Checker_getReturnTypeOfSignature(checker, signature)),
-    getEnumMemberValue: (node, options = {}) =>
-      withCheckerForNode(program, node, defaultOptions, options, (checker) => getEnumMemberValue(checker, node)),
+      withCheckerForSubject(program, signature, defaultOptions, options, (checker) => Checker_GetReturnTypeOfSignature(checker, signature)),
+    getSignaturesOfType: (type, kind, options = {}) =>
+      withCheckerForSubject(program, type, defaultOptions, options, (checker) => Checker_GetSignaturesOfType(checker, type, kind)) ?? [],
+    getPropertyOfType: (type, name, options = {}) =>
+      withCheckerForSubject(program, type, defaultOptions, options, (checker) => Checker_GetPropertyOfType(checker, type, name)),
+    getTypeOfPropertyOfType: (type, name, options = {}) =>
+      withCheckerForSubject(program, type, defaultOptions, options, (checker) => Checker_GetTypeOfPropertyOfType(checker, type, name)),
+    getConstantValue: (node, options = {}) =>
+      withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_GetConstantValue(checker, node)),
     typeToString: (type, options = {}) =>
-      withChecker(program, options.sourceFile ?? defaultOptions.sourceFile, defaultOptions, options, (checker) =>
-        type === undefined ? undefined : Checker_TypeToString(checker, type)),
+      withCheckerForSubject(program, type, defaultOptions, options, (checker) => Checker_TypeToString(checker, type)) ?? "",
+    getModuleSymbolFromSpecifier: (moduleSpecifier, options = {}) =>
+      withCheckerForNode(program, moduleSpecifier, defaultOptions, options, (checker) => Checker_resolveExternalModuleName(checker, moduleSpecifier, moduleSpecifier, true as bool)),
+    getResolvedExternalModuleSymbol: (moduleSymbol, dontResolveAlias = false, options = {}) =>
+      withCheckerForSymbol(program, moduleSymbol, defaultOptions, options, (checker) => Checker_resolveExternalModuleSymbol(checker, moduleSymbol, dontResolveAlias as bool)),
+    getExportsOfModule: (moduleSymbol, options = {}) =>
+      withCheckerForSymbol(program, moduleSymbol, defaultOptions, options, (checker) => Checker_GetExportsOfModule(checker, moduleSymbol)) ?? [],
   };
 }
 
-function getResolvedModuleSourceFile(
-  program: GoPtr<Program>,
-  containingSourceFile: GoPtr<SourceFile>,
-  moduleSpecifier: GoPtr<Node>,
-): GoPtr<SourceFile> {
-  if (
-    program === undefined ||
-    containingSourceFile === undefined ||
-    moduleSpecifier === undefined ||
-    !IsStringLiteralLike(moduleSpecifier)
-  ) {
-    return undefined;
+function recordCheckedOperationForPublicQuery(
+  checker: GoPtr<Checker>,
+  node: GoPtr<Node>,
+  sourceSelectedSignature?: GoPtr<Signature>,
+): void {
+  if (checker === undefined || node === undefined) {
+    return;
   }
-  const resolved = Program_GetResolvedModuleFromModuleSpecifier(
-    program,
-    SourceFile_as_ast_HasFileName(containingSourceFile),
-    moduleSpecifier,
-  );
-  return resolved === undefined || resolved.ResolvedFileName === ""
-    ? undefined
-    : Program_GetSourceFileForResolvedModule(program, resolved.ResolvedFileName);
-}
-
-function getEnumMemberValue(checker: GoPtr<Checker>, node: GoPtr<Node>): TypeScriptEnumMemberValue | undefined {
-  if (checker === undefined || node === undefined || node.Kind !== KindEnumMember) {
-    return undefined;
+  if (IsCallExpression(node) || IsNewExpression(node)) {
+    const signature = sourceSelectedSignature ?? Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal);
+    recordExtensionCheckedCallMapping(checker, node, signature);
+    return;
   }
-  const result = Checker_getEnumMemberValue(checker, node);
-  const value = typeof result.Value === "number" || typeof result.Value === "string"
-    ? result.Value
-    : undefined;
-  return {
-    value,
-    isSyntacticallyString: result.IsSyntacticallyString,
-    resolvedOtherFiles: result.ResolvedOtherFiles,
-    hasExternalReferences: result.HasExternalReferences,
-  };
+  if (IsPropertyAccessExpression(node)) {
+    recordExtensionCheckedPropertyAccessMapping(checker, node);
+    return;
+  }
+  if (IsElementAccessExpression(node)) {
+    recordExtensionCheckedElementAccessMapping(checker, node);
+    return;
+  }
+  if (IsBinaryExpression(node)) {
+    const binary = AsBinaryExpression(node);
+    if (binary?.OperatorToken !== undefined && binary.Left !== undefined) {
+      recordExtensionCheckedOperatorMapping(checker, node, binary.OperatorToken, binary.Left, binary.Right);
+    }
+  }
 }
 
 function withCheckerForNode<T>(
@@ -162,17 +174,18 @@ function withCheckerForSymbol<T>(
   return withChecker(program, options.sourceFile ?? defaultOptions.sourceFile ?? getSymbolSourceFile(symbol), defaultOptions, options, callback);
 }
 
-function withCheckerForSignature<T>(
+function withCheckerForSubject<T>(
   program: GoPtr<Program>,
-  signature: GoPtr<Signature>,
+  subject: object | undefined,
   defaultOptions: TypeCheckerQueryOptions,
   options: TypeCheckerQueryOptions,
   callback: (checker: GoPtr<Checker>) => GoPtr<T>,
 ): GoPtr<T> {
-  if (signature === undefined) {
+  if (subject === undefined) {
     return undefined;
   }
-  return withChecker(program, options.sourceFile ?? defaultOptions.sourceFile ?? GetSourceFileOfNode(signature.declaration), defaultOptions, options, callback);
+  const sourceFile = options.sourceFile ?? defaultOptions.sourceFile ?? (isNode(subject) ? GetSourceFileOfNode(subject) : undefined) ?? Program_GetSourceFiles(program)?.[0];
+  return withChecker(program, sourceFile, defaultOptions, options, callback);
 }
 
 function withChecker<T>(
@@ -196,4 +209,8 @@ function withChecker<T>(
 function getSymbolSourceFile(symbol: GoPtr<Symbol>): GoPtr<SourceFile> {
   const declaration = symbol?.ValueDeclaration ?? symbol?.Declarations?.find((candidate) => candidate !== undefined);
   return GetSourceFileOfNode(declaration);
+}
+
+function isNode(subject: object | undefined): subject is Node {
+  return subject !== undefined && "Kind" in subject && "Loc" in subject;
 }

@@ -8,19 +8,15 @@ import {
   fieldFactKey,
   functionPointerFactKey,
   instantiatedTargetTypeFactKey,
-  objectShapeFactKey,
   providerVirtualDeclarationFactKey,
   pointerFactKey,
   runtimeCarrierFactKey,
   selectedTargetSignatureFactKey,
-  sourceMarkerFactKey,
   sourcePrimitiveFactKey,
+  structFactKey,
   targetConversionFactKey,
   targetBindingFactKey,
-  targetIterationFactKey,
   targetOperationFactKey,
-  targetTypeParameterConstraintFactKey,
-  valueTypeFactKey,
 } from "./facts.js";
 import type {
   ArgumentPassingFact,
@@ -32,19 +28,15 @@ import type {
   FieldFact,
   FunctionPointerFact,
   InstantiatedTargetTypeFact,
-  ObjectShapeFact,
   PointerFact,
   ProviderVirtualDeclarationFact,
   RuntimeCarrierFact,
   SelectedTargetSignatureFact,
-  SourceMarkerFact,
   SourcePrimitiveFact,
+  StructFact,
   TargetConversionFact,
   TargetBindingFact,
-  TargetIterationFact,
   TargetOperationFact,
-  TargetTypeParameterConstraintFact,
-  ValueTypeFact,
 } from "./facts.js";
 import type { ExtensionFactEntry, ExtensionFactKey, ExtensionFactSubject, ExtensionHost, ProviderVirtualDeclarationDocument } from "./host.js";
 
@@ -99,18 +91,6 @@ export class ExtensionConsumerQueries {
 
   mustTargetBindingFact(subject: ExtensionFactSubject, purpose?: string): TargetBindingFact {
     return this.mustFact(subject, targetBindingFactKey, purpose);
-  }
-
-  getTargetTypeParameterConstraintFact(subject: ExtensionFactSubject | undefined): TargetTypeParameterConstraintFact | undefined {
-    return this.getFact(subject, targetTypeParameterConstraintFactKey);
-  }
-
-  requireTargetTypeParameterConstraintFact(subject: ExtensionFactSubject, purpose?: string): TargetTypeParameterConstraintFact | undefined {
-    return this.requireFact(subject, targetTypeParameterConstraintFactKey, purpose);
-  }
-
-  mustTargetTypeParameterConstraintFact(subject: ExtensionFactSubject, purpose?: string): TargetTypeParameterConstraintFact {
-    return this.mustFact(subject, targetTypeParameterConstraintFactKey, purpose);
   }
 
   getSelectedTargetCall(subject: ExtensionFactSubject | undefined): SelectedTargetSignatureFact | undefined {
@@ -173,16 +153,16 @@ export class ExtensionConsumerQueries {
     return this.mustFact(subject, targetOperationFactKey, purpose);
   }
 
-  getSelectedTargetIteration(subject: ExtensionFactSubject | undefined): TargetIterationFact | undefined {
-    return this.getFact(subject, targetIterationFactKey);
+  getSelectedTargetIteration(subject: ExtensionFactSubject | undefined): TargetOperationFact | undefined {
+    return this.getFact(subject, targetOperationFactKey);
   }
 
-  requireSelectedTargetIteration(subject: ExtensionFactSubject, purpose?: string): TargetIterationFact | undefined {
-    return this.requireFact(subject, targetIterationFactKey, purpose);
+  requireSelectedTargetIteration(subject: ExtensionFactSubject, purpose?: string): TargetOperationFact | undefined {
+    return this.requireFact(subject, targetOperationFactKey, purpose);
   }
 
-  mustSelectedTargetIteration(subject: ExtensionFactSubject, purpose?: string): TargetIterationFact {
-    return this.mustFact(subject, targetIterationFactKey, purpose);
+  mustSelectedTargetIteration(subject: ExtensionFactSubject, purpose?: string): TargetOperationFact {
+    return this.mustFact(subject, targetOperationFactKey, purpose);
   }
 
   getRuntimeCarrierFact(subject: ExtensionFactSubject | undefined): RuntimeCarrierFact | undefined {
@@ -195,18 +175,6 @@ export class ExtensionConsumerQueries {
 
   mustRuntimeCarrierFact(subject: ExtensionFactSubject, purpose?: string): RuntimeCarrierFact {
     return this.mustFact(subject, runtimeCarrierFactKey, purpose);
-  }
-
-  getObjectShapeFact(subject: ExtensionFactSubject | undefined): ObjectShapeFact | undefined {
-    return this.getFact(subject, objectShapeFactKey);
-  }
-
-  requireObjectShapeFact(subject: ExtensionFactSubject, purpose?: string): ObjectShapeFact | undefined {
-    return this.requireFact(subject, objectShapeFactKey, purpose);
-  }
-
-  mustObjectShapeFact(subject: ExtensionFactSubject, purpose?: string): ObjectShapeFact {
-    return this.mustFact(subject, objectShapeFactKey, purpose);
   }
 
   getTargetConversionFact(subject: ExtensionFactSubject | undefined): TargetConversionFact | undefined {
@@ -257,16 +225,16 @@ export class ExtensionConsumerQueries {
     return this.mustFact(subject, pointerFactKey, purpose);
   }
 
-  getValueTypeFact(subject: ExtensionFactSubject | undefined): ValueTypeFact | undefined {
-    return this.getFact(subject, valueTypeFactKey);
+  getStructFact(subject: ExtensionFactSubject | undefined): StructFact | undefined {
+    return this.getFact(subject, structFactKey);
   }
 
-  requireValueTypeFact(subject: ExtensionFactSubject, purpose?: string): ValueTypeFact | undefined {
-    return this.requireFact(subject, valueTypeFactKey, purpose);
+  requireStructFact(subject: ExtensionFactSubject, purpose?: string): StructFact | undefined {
+    return this.requireFact(subject, structFactKey, purpose);
   }
 
-  mustValueTypeFact(subject: ExtensionFactSubject, purpose?: string): ValueTypeFact {
-    return this.mustFact(subject, valueTypeFactKey, purpose);
+  mustStructFact(subject: ExtensionFactSubject, purpose?: string): StructFact {
+    return this.mustFact(subject, structFactKey, purpose);
   }
 
   getFieldFact(subject: ExtensionFactSubject | undefined): FieldFact | undefined {
@@ -279,18 +247,6 @@ export class ExtensionConsumerQueries {
 
   mustFieldFact(subject: ExtensionFactSubject, purpose?: string): FieldFact {
     return this.mustFact(subject, fieldFactKey, purpose);
-  }
-
-  getSourceMarkerFact(subject: ExtensionFactSubject | undefined): SourceMarkerFact | undefined {
-    return this.getFact(subject, sourceMarkerFactKey);
-  }
-
-  requireSourceMarkerFact(subject: ExtensionFactSubject, purpose?: string): SourceMarkerFact | undefined {
-    return this.requireFact(subject, sourceMarkerFactKey, purpose);
-  }
-
-  mustSourceMarkerFact(subject: ExtensionFactSubject, purpose?: string): SourceMarkerFact {
-    return this.mustFact(subject, sourceMarkerFactKey, purpose);
   }
 
   getAttributeFact(subject: ExtensionFactSubject | undefined): AttributeFact | undefined {

@@ -1,13 +1,14 @@
 import {
-  LibPath,
-  NewCachedFSCompilerHost,
+  createCompilerHost,
+  createInMemoryFileSystem,
+  getBundledLibraryPath,
   ParseCommandLine,
-  OSFileSystem,
-  WrapBundledFileSystem,
   formatDiagnostics,
 } from "@tsonic/tsts";
 import type { ProgramOptions } from "@tsonic/tsts";
 import type { TsonicProjectConfig } from "@tsonic/target-api";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { resolveProjectPaths } from "./project-paths.js";
 
 export interface CreateProgramOptionsInput {
@@ -24,8 +25,14 @@ export interface CreatedProgramOptions {
 
 export function createProgramOptionsForProject(input: CreateProgramOptionsInput): CreatedProgramOptions {
   const paths = resolveProjectPaths(input);
-  const fileSystem = WrapBundledFileSystem(OSFileSystem());
-  const host = NewCachedFSCompilerHost(paths.projectRoot, fileSystem, LibPath(), undefined, undefined);
+  const fileSystem = createInMemoryFileSystem({
+    files: collectProjectFiles(paths.projectRoot),
+  });
+  const host = createCompilerHost({
+    currentDirectory: paths.projectRoot,
+    fileSystem,
+    defaultLibraryPath: getBundledLibraryPath(),
+  });
   const parsed = ParseCommandLine([
     "--target",
     "es2024",
@@ -57,4 +64,41 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     projectRoot: paths.projectRoot,
     outputRoot: paths.outputRoot,
   };
+}
+
+function collectProjectFiles(projectRoot: string): ReadonlyMap<string, string> {
+  const files = new Map<string, string>();
+  visitDirectory(projectRoot, files);
+  return files;
+}
+
+function visitDirectory(directory: string, files: Map<string, string>): void {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (shouldSkipEntry(entry.name)) {
+      continue;
+    }
+    const fullPath = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      visitDirectory(fullPath, files);
+      continue;
+    }
+    if (!entry.isFile() || !isCompilerInputFile(entry.name)) {
+      continue;
+    }
+    const normalizedPath = fullPath.split("\\").join("/");
+    files.set(normalizedPath, readFileSync(fullPath, "utf8"));
+  }
+}
+
+function shouldSkipEntry(name: string): boolean {
+  return name === ".git" ||
+    name === ".temp" ||
+    name === "bin" ||
+    name === "dist" ||
+    name === "node_modules" ||
+    name === "obj";
+}
+
+function isCompilerInputFile(name: string): boolean {
+  return /\.(?:cts|mts|tsx?|jsx?|json)$/.test(name);
 }

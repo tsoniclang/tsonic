@@ -1,6 +1,6 @@
 import type { bool, int } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
-import { recordExtensionElementAccessResolution, recordExtensionFlowUseValidation, recordExtensionIterationResolution, recordExtensionPropertyAccessResolution, recordExtensionRuntimeCarrierResolution, recordExtensionTypeArgumentConstraintResolution } from "../../../extensions/checker-integration.js";
+import { recordExtensionCheckedElementAccessMapping, recordExtensionCheckedPropertyAccessMapping, recordExtensionFlowUseValidation, recordExtensionRuntimeCarrierFact, recordExtensionTargetConstraintValidation } from "../../../extensions/checker-integration.js";
 import { NewGoStructMap } from "../../../go/compat.js";
 import { GetNamespaceDeclarationNode, IsImportCall, IsImportOrExportSpecifier } from "../../ast/utilities.js";
 import { Named_imports_from_a_JSON_file_into_an_ECMAScript_module_are_not_allowed_when_module_is_set_to_0 } from "../../diagnostics/generated/messages.js";
@@ -60,7 +60,7 @@ import { NodeFlagsPossiblyContainsImportMeta, NodeFlagsBlockScoped } from "../..
 import { InternalSymbolNameComputed, InternalSymbolNameAssignmentDeclaration, InternalSymbolNameExportEquals, InternalSymbolNameImportAttributes, InternalSymbolNameExportStar, InternalSymbolNameIndex, InternalSymbolNameMissing, InternalSymbolNameDefault, InternalSymbolNameType, InternalSymbolNameCall, InternalSymbolNameNew, InternalSymbolNameModuleExports, InternalSymbolNamePrefix, InternalSymbolNameThis, InternalSymbolNameConstructor, SymbolName } from "../../ast/symbol.js";
 import { Memoize, IfElse, Find, Filter, Map, Some, Every, GetSpellingSuggestion, ConcatenateSeq, FindLast, LastOrNil, OrElse, CountWhere, AppendIfUnique, FirstOrNil } from "../../core/core.js";
 import type { LinkStore } from "../../core/linkstore.js";
-import { LinkStore_Get } from "../../core/linkstore.js";
+import { LinkStore_Get, LinkStore_TryGet } from "../../core/linkstore.js";
 import { IsNonLocalAlias, GetSourceFileOfNode, GetFirstIdentifier, GetNodeId, NodeKindIs, FindAncestor, FindAncestorOrQuit, FindAncestorFalse, FindAncestorTrue, FindAncestorQuit, ToFindAncestorResult, GetNameOfDeclaration, GetContainingClass, GetContainingFunction, IsAmbientModule, IsGlobalScopeAugmentation, IsExternalModuleAugmentation, IsStatic, IsClassLike, IsClassOrInterfaceLike, IsParameterPropertyDeclaration, IsFunctionLike, GetImmediatelyInvokedFunctionExpression, IsExternalOrCommonJSModule, IsBlockOrCatchScoped, HasStaticModifier, IsAliasSymbolDeclaration, HasAccessorModifier, IsQuestionToken, IsPrivateIdentifierClassElementDeclaration, IsFunctionLikeDeclaration, NodeIsMissing, NodeIsSynthesized, GetRootDeclaration, IsValidTypeOnlyAliasUseSite, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, GetEnclosingBlockScopeContainer, IsAccessor, FindAncestorKind, IsEntityName, IsEntityNameExpression, GetHostSignatureFromJSDoc, HasSyntacticModifier, HasModifier, NodeIsPresent, GetDeclarationOfKind, IsBindingPattern, IsVariableDeclarationInitializedToRequire, IsVariableLike, IsTypeDeclaration, GetExternalModuleName, GetImportAttributes, IsExclusivelyTypeOnlyImportOrExport, IsGlobalSourceFile, GetDeclarationContainer, GetAssignmentDeclarationKind, JSDeclarationKindModuleExports, JSDeclarationKindExportsProperty, FindConstructorDeclaration, GetFirstConstructorWithBody, HasAbstractModifier, IsThisInTypeQuery, SkipParentheses, GetSymbolId, GetModuleInstanceState, ModuleInstanceStateNonInstantiated, ModuleInstanceStateInstantiated, NewHasFileName, IsEnumConst, IsComputedNonLiteralName, GetTextOfPropertyName, IsInfinityOrNaNString, HasDynamicName, HasContextSensitiveParameters, IsAssignmentTarget, IsStringLiteralLike, GetReparsedNodeForNode, GetPropertyNameForPropertyNameNode, IsThisIdentifier, IsPartOfTypeQuery, IsPartOfTypeNode, IsPropertyName, CanHaveSymbol, IsExpression, IsExpressionNode, IsAssertionExpression, IsThisParameter, IsInJSFile, IsOptionalChain, IsNodeDescendantOf, GetSourceFileOfModule, IsJsonSourceFile, ModuleExportNameIsDefault, IsRightSideOfQualifiedNameOrPropertyAccess, GetExternalModuleImportEqualsDeclarationExpression, IsExternalModuleImportEqualsDeclaration, IsDeclarationNameOrImportPropertyName, IsLiteralComputedPropertyDeclarationName, IsLiteralImportTypeNode, IsBindableObjectDefinePropertyCall, IsJsxTagName, IsInExpressionContext, IsExpressionWithTypeArgumentsInClassExtendsClause, IsJSDocNameReferenceContext, GetNodeAtPosition, IsForInOrOfStatement, IsLeftHandSideExpression, IsTypeReferenceType, IsDeclarationName, IsAccessExpression, HasAmbientModifier, IsClassElement, IsCatchClauseVariableDeclarationOrBindingElement, IsObjectLiteralOrClassExpressionMethodOrAccessor, IsPlainJSFile, IsImportOrImportEqualsDeclaration, IsInternalModuleImportEqualsDeclaration, IsJsxOpeningLikeElement, GetCombinedNodeFlags } from "../../ast/utilities.js";
 import { GetNewTargetContainer } from "../../ast/utilities.js";
 import { GetExtendsHeritageClauseElement, GetExtendsHeritageClauseElements, GetImplementsHeritageClauseElements, IsPartOfParameterDeclaration } from "../../ast/utilities.js";
@@ -1517,8 +1517,8 @@ export function Checker_checkTypeReferenceOrImport(receiver: GoPtr<Checker>, nod
     }
     const symbol_ = Checker_getResolvedSymbolOrNil(receiver, node);
     if (symbol_ !== undefined) {
-      recordExtensionTypeArgumentConstraintResolution(receiver, node, symbol_);
-      recordExtensionRuntimeCarrierResolution(receiver, node, t, symbol_);
+      recordExtensionTargetConstraintValidation(receiver, node, symbol_);
+      recordExtensionRuntimeCarrierFact(receiver, node, t, symbol_);
       if (Some(symbol_!.Declarations as GoSlice<GoPtr<Node>>, (d) => (IsTypeDeclaration(d) && Checker_IsDeprecatedDeclaration(receiver, d)) as boolean)) {
         Checker_addDeprecatedSuggestion(receiver, Checker_getDeprecatedSuggestionNode(receiver, node), symbol_!.Declarations as GoSlice<GoPtr<Node>>, symbol_!.Name);
       }
@@ -5458,9 +5458,8 @@ export function Checker_checkIndexedAccess(receiver: GoPtr<Checker>, node: GoPtr
   if ((node!.Flags & NodeFlagsOptionalChain) !== 0) {
     return Checker_checkElementAccessChain(receiver, node, checkMode);
   }
-  const receiverType = Checker_checkNonNullExpression(receiver, Node_Expression(node));
-  const result = Checker_checkElementAccessExpression(receiver, node, receiverType, checkMode);
-  recordExtensionElementAccessResolution(receiver, node, receiverType);
+  const result = Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullExpression(receiver, Node_Expression(node)), checkMode);
+  recordExtensionCheckedElementAccessMapping(receiver, node);
   return result;
 }
 
@@ -5477,10 +5476,7 @@ export function Checker_checkIndexedAccess(receiver: GoPtr<Checker>, node: GoPtr
 export function Checker_checkElementAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type> {
   const exprType = Checker_checkExpression(receiver, Node_Expression(node));
   const nonOptionalType = Checker_getOptionalExpressionType(receiver, exprType, Node_Expression(node));
-  const receiverType = Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node));
-  const result = Checker_checkElementAccessExpression(receiver, node, receiverType, checkMode);
-  recordExtensionElementAccessResolution(receiver, node, receiverType);
-  return Checker_propagateOptionalTypeMarker(receiver, result, node, nonOptionalType !== exprType);
+  return Checker_propagateOptionalTypeMarker(receiver, Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node)), checkMode), node, nonOptionalType !== exprType);
 }
 
 /**
@@ -6453,15 +6449,13 @@ export function Checker_checkPropertyAccessExpression(receiver: GoPtr<Checker>, 
     return Checker_checkPropertyAccessChain(receiver, node, checkMode);
   }
   const expr = Node_Expression(node);
-  const receiverType = Checker_checkNonNullExpression(receiver, expr);
-  const result = Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, expr, receiverType, AsPropertyAccessExpression(node)!.name, checkMode, writeOnly);
-  recordExtensionPropertyAccessResolution(receiver, node, receiverType);
+  const result = Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, expr, Checker_checkNonNullExpression(receiver, expr), AsPropertyAccessExpression(node)!.name, checkMode, writeOnly);
+  recordExtensionCheckedPropertyAccessMapping(receiver, node);
   return result;
 }
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessChain","kind":"method","status":"implemented","sigHash":"8fddaeae38c55291a27039fd3e34d4f23b91a1185f6450fd8a87c8ef77aeb85e","bodyHash":"8d099873c74d1d2075853d42ef27cf852f70d2462e0b439c46f9177816bb5aa8"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go optional property access checking, extension-enabled programs may record provider-selected surface/target member facts for consumers; no-extension programs and unowned accesses remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkPropertyAccessChain(node *ast.Node, checkMode CheckMode) *Type {
@@ -6473,10 +6467,7 @@ export function Checker_checkPropertyAccessExpression(receiver: GoPtr<Checker>, 
 export function Checker_checkPropertyAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type> {
   const leftType = Checker_checkExpression(receiver, Node_Expression(node));
   const nonOptionalType = Checker_getOptionalExpressionType(receiver, leftType, Node_Expression(node));
-  const nonNullType = Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node));
-  const result = Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, Node_Expression(node), nonNullType, Node_Name(node), checkMode, false);
-  recordExtensionPropertyAccessResolution(receiver, node, nonNullType);
-  return Checker_propagateOptionalTypeMarker(receiver, result, node, nonOptionalType !== leftType);
+  return Checker_propagateOptionalTypeMarker(receiver, Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, Node_Expression(node), Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node)), Node_Name(node), checkMode, false), node, nonOptionalType !== leftType);
 }
 
 /**
@@ -10988,7 +10979,7 @@ export function Checker_getWriteTypeOfSymbol(receiver: GoPtr<Checker>, symbol_: 
     return Checker_removeMissingType(receiver, Checker_getTypeOfSymbol(receiver, symbol_), (symbol_!.Flags & SymbolFlagsOptional) !== 0);
   }
   if ((symbol_!.Flags & SymbolFlagsAccessor) !== 0) {
-    if ((symbol_!.CheckFlags & CheckFlagsInstantiated) !== 0) {
+    if ((symbol_!.CheckFlags & CheckFlagsInstantiated) !== 0 && Checker_hasInstantiatedSymbolTarget(receiver, symbol_)) {
       return Checker_getWriteTypeOfInstantiatedSymbol(receiver, symbol_);
     }
     return Checker_getWriteTypeOfAccessors(receiver, symbol_);
@@ -11118,7 +11109,7 @@ export function Checker_getTypeOfSymbol(receiver: GoPtr<Checker>, symbol_: GoPtr
   if ((symbol_!.CheckFlags & CheckFlagsDeferredType) !== 0) {
     return Checker_getTypeOfSymbolWithDeferredType(receiver, symbol_);
   }
-  if ((symbol_!.CheckFlags & CheckFlagsInstantiated) !== 0) {
+  if ((symbol_!.CheckFlags & CheckFlagsInstantiated) !== 0 && Checker_hasInstantiatedSymbolTarget(receiver, symbol_)) {
     return Checker_getTypeOfInstantiatedSymbol(receiver, symbol_);
   }
   if ((symbol_!.CheckFlags & CheckFlagsMapped) !== 0) {
@@ -11143,6 +11134,10 @@ export function Checker_getTypeOfSymbol(receiver: GoPtr<Checker>, symbol_: GoPtr
     return Checker_getTypeOfAlias(receiver, symbol_);
   }
   return receiver!.errorType;
+}
+
+function Checker_hasInstantiatedSymbolTarget(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>): bool {
+  return LinkStore_TryGet(receiver!.valueSymbolLinks, symbol_)?.target !== undefined;
 }
 
 /**
@@ -11323,24 +11318,11 @@ export function Checker_getTypeForVariableLikeDeclaration(receiver: GoPtr<Checke
     const grandParent = declaration!.Parent!.Parent;
     switch (grandParent!.Kind) {
       case KindForInStatement: {
-        const expression = Node_Expression(grandParent);
-        const iterableType = Checker_checkExpressionEx(receiver, expression, checkMode);
-        const indexType = Checker_getIndexType(receiver, Checker_getNonNullableTypeIfNeeded(receiver, iterableType));
-        const keyType = (indexType!.flags & (TypeFlagsTypeParameter | TypeFlagsIndex)) !== 0
-          ? Checker_getExtractStringType(receiver, indexType)
-          : receiver!.stringType;
-        recordExtensionIterationResolution(
-          receiver,
-          grandParent,
-          expression,
-          iterableType,
-          keyType,
-          "property-key",
-        );
+        const indexType = Checker_getIndexType(receiver, Checker_getNonNullableTypeIfNeeded(receiver, Checker_checkExpressionEx(receiver, Node_Expression(grandParent), checkMode)));
         if ((indexType!.flags & (TypeFlagsTypeParameter | TypeFlagsIndex)) !== 0) {
-          return keyType;
+          return Checker_getExtractStringType(receiver, indexType);
         }
-        return keyType;
+        return receiver!.stringType;
       }
       case KindForOfStatement:
         return Checker_checkRightHandSideOfForOf(receiver, grandParent);
