@@ -3743,6 +3743,14 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return total;",
       "}",
       "",
+      "export function hasPositive(values: int32[]): boolean {",
+      "  return values.some((value: int32) => value > 0);",
+      "}",
+      "",
+      "export function allPositive(values: int32[]): boolean {",
+      "  return values.every((value: int32) => value > 0);",
+      "}",
+      "",
       "export function destruct(values: int32[]): int32 {",
       "  const [first, second] = values;",
       "  return first + second;",
@@ -3794,6 +3802,10 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static int sumEach\(int\[\] values\)/);
   assert.match(generatedSource, /System\.Array\.ForEach\(values, \(int value\) =>/);
   assert.match(generatedSource, /total \+= value;/);
+  assert.match(generatedSource, /public static bool hasPositive\(int\[\] values\)/);
+  assert.match(generatedSource, /return System\.Linq\.Enumerable\.Any\(values, \(int value\) => value > 0\);/);
+  assert.match(generatedSource, /public static bool allPositive\(int\[\] values\)/);
+  assert.match(generatedSource, /return System\.Linq\.Enumerable\.All\(values, \(int value\) => value > 0\);/);
   assert.match(generatedSource, /public static int destruct\(int\[\] values\)/);
   assert.match(generatedSource, /int first = __destructure0\[0\];/);
   assert.match(generatedSource, /int second = __destructure0\[1\];/);
