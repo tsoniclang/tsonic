@@ -4342,6 +4342,14 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.trim().toLowerCase().toUpperCase();",
       "}",
       "",
+      "export function trimEdges(value: string): string {",
+      "  return value.trimStart().trimEnd();",
+      "}",
+      "",
+      "export function glue(value: string, left: string, right: string): string {",
+      "  return value.concat(left, right);",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -4359,6 +4367,10 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return value\.IndexOf\(needle, start\);/);
   assert.match(generatedSource, /public static string normalize\(string value\)/);
   assert.match(generatedSource, /return value\.Trim\(\)\.ToLower\(\)\.ToUpper\(\);/);
+  assert.match(generatedSource, /public static string trimEdges\(string value\)/);
+  assert.match(generatedSource, /return value\.TrimStart\(\)\.TrimEnd\(\);/);
+  assert.match(generatedSource, /public static string glue\(string value, string left, string right\)/);
+  assert.match(generatedSource, /return string\.Concat\(value, left, right\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStringCalls.csproj"), "--nologo", "--v:minimal"]);
