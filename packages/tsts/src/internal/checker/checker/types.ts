@@ -4064,6 +4064,10 @@ export function Checker_checkObjectLiteralMethod(receiver: GoPtr<Checker>, node:
   if (IsComputedPropertyName(Node_Name(node))) {
     Checker_checkComputedPropertyName(receiver, Node_Name(node));
   }
+  const contextualType = Checker_getContextualTypeForObjectLiteralMethod(receiver, node, ContextFlagsNone);
+  if (contextualType !== undefined) {
+    recordExtensionContextualTypeResolution(receiver, node, contextualType);
+  }
   const uninstantiatedType = Checker_checkFunctionExpressionOrObjectLiteralMethod(receiver, node, checkMode);
   return Checker_instantiateTypeWithSingleGenericCallSignature(receiver, node, uninstantiatedType, checkMode);
 }
