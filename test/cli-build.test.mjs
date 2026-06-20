@@ -4748,6 +4748,14 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.charCodeAt(index);",
       "}",
       "",
+      "export function codePoint(value: string, index: int32): int32 | undefined {",
+      "  return value.codePointAt(index);",
+      "}",
+      "",
+      "export function codePointOrMissing(value: string, index: int32): int32 {",
+      "  return value.codePointAt(index) ?? -1;",
+      "}",
+      "",
       "export function splitParts(value: string, separator: string, limit: int32): string[] {",
       "  return value.split(separator, limit);",
       "}",
@@ -4787,6 +4795,10 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.charAt\(value, index\);/);
   assert.match(generatedSource, /public static int code\(string value, int index\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.charCodeAt\(value, index\);/);
+  assert.match(generatedSource, /public static int\? codePoint\(string value, int index\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.codePointAt\(value, index\);/);
+  assert.match(generatedSource, /public static int codePointOrMissing\(string value, int index\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.codePointAt\(value, index\) \?\? -1;/);
   assert.match(generatedSource, /public static string\[\] splitParts\(string value, string separator, int limit\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.split\(value, separator, limit\);/);
   assert.match(generatedSource, /public static string primitive\(string value\)/);
@@ -4811,10 +4823,6 @@ test("CLI rejects string methods without exact provider-backed JS semantics", as
       "",
       "export function replaced(value: string): string {",
       "  return value.replace(\"a\", \"b\");",
-      "}",
-      "",
-      "export function codePoint(value: string, index: int32): number | undefined {",
-      "  return value.codePointAt(index);",
       "}",
       "",
       "export function atOrEmpty(value: string, index: int32): string {",
