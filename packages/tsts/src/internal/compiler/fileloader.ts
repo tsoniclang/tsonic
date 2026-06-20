@@ -294,7 +294,7 @@ function fileLoader_resolveProviderVirtualModule(receiver: GoPtr<fileLoader>, ex
     ResolvedUsingTsExtension: false,
     PackageId: {
       Name: result.module.resolution.packageName ?? "",
-      SubModuleName: "",
+      SubModuleName: getProviderPackageSubModuleName(result.module.resolution.packageName, result.module.resolution.moduleSpecifier),
       Version: result.module.resolution.packageVersion ?? "",
       PeerDependencies: "",
     },
@@ -307,6 +307,14 @@ function fileLoader_resolveProviderVirtualModule(receiver: GoPtr<fileLoader>, ex
       ModuleSpecifier: result.module.resolution.moduleSpecifier,
     },
   };
+}
+
+function getProviderPackageSubModuleName(packageName: string | undefined, moduleSpecifier: string): string {
+  if (packageName === undefined || packageName === "") {
+    return "";
+  }
+  const prefix = `${packageName}/`;
+  return moduleSpecifier.startsWith(prefix) ? moduleSpecifier.slice(prefix.length) : "";
 }
 
 /**

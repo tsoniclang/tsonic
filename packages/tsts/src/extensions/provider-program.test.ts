@@ -10,7 +10,7 @@ import { Node_End, Node_ForEachChild, Node_Pos } from "../internal/ast/spine.js"
 import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
 import { Diagnostic_Code, Diagnostic_End, Diagnostic_Pos, Diagnostic_String } from "../internal/ast/diagnostic.js";
 import { AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
-import { KindArrowFunction, KindBinaryExpression, KindCallExpression, KindElementAccessExpression, KindIdentifier, KindNumberKeyword, KindPropertyAccessExpression, KindTypeReference } from "../internal/ast/generated/kinds.js";
+import { KindArrowFunction, KindBinaryExpression, KindCallExpression, KindElementAccessExpression, KindForOfStatement, KindIdentifier, KindNumberKeyword, KindPropertyAccessExpression, KindTypeReference } from "../internal/ast/generated/kinds.js";
 import { LibPath, WrapFS } from "../internal/bundled/bundled.js";
 import type { CompilerOptions } from "../internal/core/compileroptions.js";
 import { ResolutionModeESM } from "../internal/core/compileroptions.js";
@@ -31,8 +31,8 @@ import type { ParseConfigHost } from "../internal/tsoptions/tsconfigparsing.js";
 import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
 import { FromMap } from "../internal/vfs/vfstest/vfstest.js";
 import { TstsProviderContractVersion, ExtensionDecisionQuestion, ExtensionHostDiagnosticCode, acceptDecision, argumentPassingFactKey, attachExtensionHost, createExtensionConsumerQueries, createSourceSemanticsExtension, deferDecision, finalizeExtensionSemantics, getExtensionHost, rejectDecision, runtimeCarrierFactKey, sourcePrimitive, sourcePrimitiveFactKey, targetConversionFactKey } from "./index.js";
-import { canonicalIdentityFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, selectedTargetSignatureFactKey, targetOperationFactKey, targetBindingFactKey } from "./index.js";
-import type { CompilerExtension, ExtensionDecisionContext, ExtensionFactSubject, ResolveCallRequest, SatisfiesConstraintRequest, SourcePrimitiveFact, SelectedTargetSignatureFact, TargetOperationFact, TargetBindingProvider, TargetIdentity, TargetMember, TargetSemanticProvider } from "./index.js";
+import { canonicalIdentityFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, selectedTargetSignatureFactKey, targetIterationFactKey, targetOperationFactKey, targetBindingFactKey } from "./index.js";
+import type { CompilerExtension, ExtensionDecisionContext, ExtensionFactSubject, ResolveCallRequest, SatisfiesConstraintRequest, SourcePrimitiveFact, SelectedTargetSignatureFact, TargetIterationFact, TargetOperationFact, TargetBindingProvider, TargetIdentity, TargetMember, TargetSemanticProvider } from "./index.js";
 
 function createExampleSourceSemanticsExtension(): CompilerExtension {
   return createSourceSemanticsExtension({
@@ -127,7 +127,12 @@ test("provider-backed virtual modules participate in normal program binding", ()
   assert.equal(constraint?.kind === "implements" ? constraint.contract : undefined, "System.IEquatable`1");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.id, "Contains(T)");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.parameters[0]?.type.kind, "type-parameter");
+  assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.parameters[0]?.passingMode, "by-value");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.returnType?.kind, "source-primitive");
+  const matrixSymbol = virtualModuleSymbol?.Exports?.get("Matrix");
+  const matrixReturnType = extended.extensionHost.facts.get(matrixSymbol, targetBindingFactKey)?.members?.[0]?.returnType;
+  assert.equal(matrixReturnType?.kind, "array");
+  assert.equal(matrixReturnType?.kind === "array" ? matrixReturnType.rank : undefined, 2);
 
   const call = findFirstNodeByKind(index, KindCallExpression);
   assert.equal(extended.extensionHost.facts.get(call, selectedTargetSignatureFactKey), undefined);
@@ -138,6 +143,53 @@ test("provider-backed virtual modules participate in normal program binding", ()
   assert.equal(consumer.getVirtualDeclaration(searchValuesSymbol)?.exportName, "SearchValues");
   assert.equal(consumer.getTargetBindingFact(searchValuesSymbol)?.id, "System.Buffers.SearchValues`1");
   assert.equal(consumer.getSelectedTargetCall(call), undefined);
+});
+
+test("provider virtual signatures preserve explicit parameter passing modes", () => {
+  let fs = FromMap(new Map<string, string>([
+    ["/src/index.ts", `
+      import { SearchValues } from "@example/dotnet/System.Buffers.js";
+
+      declare const values: SearchValues<number>;
+      values.Contains(1);
+    `],
+    ["/src/tsconfig.json", JSON.stringify({
+      compilerOptions: {
+        noLib: true,
+        module: "esnext",
+        moduleResolution: "bundler",
+      },
+      files: ["index.ts"],
+    })],
+  ]), false as bool);
+  fs = WrapFS(fs);
+
+  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
+  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
+  assert.equal((configErrors ?? []).length, 0);
+
+  const options = {
+    Config: parsed,
+    Host: host,
+  } satisfies ProgramOptions;
+  const extended = attachExtensionHost(options, {
+    activeTarget: "dotnet",
+    extensions: [providerExtension("@example/dotnet/System.Buffers.js", false, undefined, "byref-readonly")],
+  });
+
+  const program = NewProgram(options);
+  const index = Program_GetSourceFile(program, "/src/index.ts");
+  assert.ok(index !== undefined);
+  assertCleanProgram(program, index);
+
+  Program_BindSourceFiles(program);
+  const virtualFile = Program_GetSourceFile(program, "tsts-provider://dotnet/System.Buffers");
+  assert.ok(virtualFile !== undefined);
+  const searchValuesSymbol = Node_Symbol(virtualFile as never)?.Exports?.get("SearchValues");
+  assert.ok(searchValuesSymbol !== undefined);
+
+  const targetBinding = extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey);
+  assert.equal(targetBinding?.members?.[0]?.parameters[0]?.passingMode, "byref-readonly");
 });
 
 test("provider-backed virtual modules support alias and namespace import forms", () => {
@@ -462,6 +514,119 @@ test("checker records parameter mode facts per argument without collapsing them 
   assert.equal(extended.extensionHost.diagnostics.all().some((diagnostic) => diagnostic.extensionCode === "FACT_CONFLICT"), false);
 });
 
+test("checker records selected signature parameter modes without requiring a duplicate mode hook", () => {
+  const selectedSignature = {
+    member: searchValuesContainsTargetMember("byref-readonly"),
+  } satisfies SelectedTargetSignatureFact;
+  let fs = FromMap(new Map<string, string>([
+    ["/src/index.ts", `
+      declare function contains(value: number): boolean;
+      declare let value: number;
+      contains(value);
+    `],
+    ["/src/tsconfig.json", JSON.stringify({
+      compilerOptions: {
+        noLib: true,
+        module: "esnext",
+        moduleResolution: "bundler",
+      },
+      files: ["index.ts"],
+    })],
+  ]), false as bool);
+  fs = WrapFS(fs);
+
+  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
+  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
+  assert.equal((configErrors ?? []).length, 0);
+
+  const options = {
+    Config: parsed,
+    Host: host,
+  } satisfies ProgramOptions;
+  const extended = attachExtensionHost(options, {
+    activeTarget: "dotnet",
+    extensions: [providerExtension("@example/dotnet/System.Console.js", false, semanticProvider(selectedSignature))],
+  });
+
+  const program = NewProgram(options);
+  const index = Program_GetSourceFile(program, "/src/index.ts");
+  assert.ok(index !== undefined);
+  assertCleanProgram(program, index);
+
+  const call = findFirstNodeByKind(index, KindCallExpression);
+  const argument = getFirstCallArgument(call);
+  assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.mode, "byref-readonly");
+  assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.targetExpression, argument);
+});
+
+test("checker maps receiver-injected target parameters onto source arguments", () => {
+  const selectedSignature = {
+    member: {
+      id: "ReceiverOps.Add(Box,System.Int32)",
+      sourceName: "add",
+      targetName: "Add",
+      kind: "method",
+      static: true,
+      receiverArgumentIndex: 0,
+      parameters: [
+        {
+          name: "receiver",
+          type: { kind: "target-named", id: "Example.Box" },
+          passingMode: "by-value",
+        },
+        {
+          name: "value",
+          type: { kind: "target-named", id: "System.Int32" },
+          passingMode: "byref-readonly",
+        },
+      ],
+    },
+    argumentConversions: [{ kind: "target-named", id: "System.Int32" }],
+  } satisfies SelectedTargetSignatureFact;
+  let fs = FromMap(new Map<string, string>([
+    ["/src/index.ts", `
+      declare const values: { add(value: number): void };
+      declare let value: number;
+      values.add(value);
+    `],
+    ["/src/tsconfig.json", JSON.stringify({
+      compilerOptions: {
+        noLib: true,
+        module: "esnext",
+        moduleResolution: "bundler",
+      },
+      files: ["index.ts"],
+    })],
+  ]), false as bool);
+  fs = WrapFS(fs);
+
+  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
+  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
+  assert.equal((configErrors ?? []).length, 0);
+
+  const options = {
+    Config: parsed,
+    Host: host,
+  } satisfies ProgramOptions;
+  const extended = attachExtensionHost(options, {
+    activeTarget: "dotnet",
+    extensions: [providerExtension("@example/dotnet/System.Console.js", false, semanticProvider(selectedSignature))],
+  });
+
+  const program = NewProgram(options);
+  const index = Program_GetSourceFile(program, "/src/index.ts");
+  assert.ok(index !== undefined);
+  assertCleanProgram(program, index);
+
+  const call = findFirstNodeByKind(index, KindCallExpression);
+  const argument = getFirstCallArgument(call);
+  assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.mode, "byref-readonly");
+  assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.targetExpression, argument);
+  const conversion = extended.extensionHost.facts.get(argument, targetConversionFactKey);
+  assert.equal(conversion?.convertedType?.kind, "target-named");
+  assert.equal(conversion?.convertedType?.kind === "target-named" ? conversion.convertedType.id : undefined, "System.Int32");
+});
+
 test("checker records provider-owned runtime carrier and argument conversion facts", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
@@ -778,7 +943,7 @@ test("provider extensions can drive a realistic emitter-facing fact chain", () =
   assert.equal(consumer.getRuntimeCarrierFact(searchValuesTypeReference)?.carrier.kind, "target-named");
 });
 
-test("checker-owned target call seam reports deferred providers without fallback facts", () => {
+test("deferred provider call seams do not poison source calls", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
       declare function contains(value: number): boolean;
@@ -820,7 +985,7 @@ test("checker-owned target call seam reports deferred providers without fallback
 
   const call = findFirstNodeByKind(index, KindCallExpression);
   assert.equal(extended.extensionHost.facts.get(call, selectedTargetSignatureFactKey), undefined);
-  assert.equal(extended.extensionHost.diagnostics.all().at(-1)?.numericCode, ExtensionHostDiagnosticCode.decisionOwnerDeferred);
+  assert.equal(extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.decisionOwnerDeferred).length, 0);
 
   assert.equal(finalizeExtensionSemantics(options), extended.extensionHost);
   const consumer = createExtensionConsumerQueries(extended.extensionHost, "emitter");
@@ -858,9 +1023,13 @@ test("checker records provider-owned member element and operator facts for consu
     Config: parsed,
     Host: host,
   } satisfies ProgramOptions;
+  const capture = {
+    propertyReceiverTypeSeen: false,
+    elementReceiverTypeSeen: false,
+  };
   const extended = attachExtensionHost(options, {
     activeTarget: "dotnet",
-    extensions: [providerExtension("@example/dotnet/System.Console.js", false, surfaceSemanticProvider())],
+    extensions: [providerExtension("@example/dotnet/System.Console.js", false, surfaceSemanticProvider(capture))],
   });
 
   const program = NewProgram(options);
@@ -872,6 +1041,8 @@ test("checker records provider-owned member element and operator facts for consu
   const elementAccess = findFirstNodeByKind(index, KindElementAccessExpression);
   const binaryExpression = findFirstNodeByKind(index, KindBinaryExpression);
 
+  assert.equal(capture.propertyReceiverTypeSeen, true);
+  assert.equal(capture.elementReceiverTypeSeen, true);
   assert.equal(extended.extensionHost.facts.get(propertyAccess, targetOperationFactKey)?.operationId, "System.String.Length");
   assert.equal(extended.extensionHost.facts.get(elementAccess, targetOperationFactKey)?.operationId, "System.ReadOnlySpan.GetItem");
   assert.equal(extended.extensionHost.facts.get(binaryExpression, targetOperationFactKey)?.operationId, "System.Int32.op_Addition");
@@ -883,7 +1054,73 @@ test("checker records provider-owned member element and operator facts for consu
   assert.equal(consumer.getSelectedTargetOperator(binaryExpression)?.targetOperation, "System.Int32.op_Addition");
 });
 
-test("checker-owned member element and operator seams report deferred providers without fallback facts", () => {
+test("checker records provider-owned iteration facts for consumers", () => {
+  let fs = FromMap(new Map<string, string>([
+    ["/src/index.ts", `
+      declare const Symbol: { readonly iterator: unique symbol };
+      interface IteratorResult<T> {
+        value: T;
+        done: boolean;
+      }
+      interface Iterator<T> {
+        next(): IteratorResult<T>;
+      }
+      interface Iterable<T> {
+        [Symbol.iterator](): Iterator<T>;
+      }
+
+      export function sum(values: Iterable<number>): number {
+        let total = 0;
+        for (const value of values) {
+          total = total + value;
+        }
+        return total;
+      }
+    `],
+    ["/src/tsconfig.json", JSON.stringify({
+      compilerOptions: {
+        noLib: true,
+        module: "esnext",
+        moduleResolution: "bundler",
+      },
+      files: ["index.ts"],
+    })],
+  ]), false as bool);
+  fs = WrapFS(fs);
+
+  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
+  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
+  assert.equal((configErrors ?? []).length, 0);
+
+  const options = {
+    Config: parsed,
+    Host: host,
+  } satisfies ProgramOptions;
+  const capture = {
+    iterableTypeSeen: false,
+    iterationKind: "",
+  };
+  const extended = attachExtensionHost(options, {
+    activeTarget: "dotnet",
+    extensions: [semanticOnlyExtension("dotnet-iteration-extension", iterationSemanticProvider(capture))],
+  });
+
+  const program = NewProgram(options);
+  const index = Program_GetSourceFile(program, "/src/index.ts");
+  assert.ok(index !== undefined);
+  assertCleanProgram(program, index);
+
+  const forOf = findFirstNodeByKind(index, KindForOfStatement);
+  assert.equal(capture.iterableTypeSeen, true);
+  assert.equal(capture.iterationKind, "sync");
+  assert.equal(extended.extensionHost.facts.get(forOf, targetIterationFactKey)?.operationId, "System.Array.Enumerate");
+
+  assert.equal(finalizeExtensionSemantics(options), extended.extensionHost);
+  const consumer = createExtensionConsumerQueries(extended.extensionHost, "emitter");
+  assert.equal(consumer.getSelectedTargetIteration(forOf)?.targetOperation, "foreach");
+});
+
+test("optional member element and operator seams defer without fallback facts", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
       declare const text: { length: number };
@@ -931,7 +1168,7 @@ test("checker-owned member element and operator seams report deferred providers 
   assert.equal(extended.extensionHost.facts.get(propertyAccess, targetOperationFactKey), undefined);
   assert.equal(extended.extensionHost.facts.get(elementAccess, targetOperationFactKey), undefined);
   assert.equal(extended.extensionHost.facts.get(binaryExpression, targetOperationFactKey), undefined);
-  assert.ok(extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.decisionOwnerDeferred).length >= 3);
+  assert.equal(extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.decisionOwnerDeferred).length, 0);
 });
 
 test("extension-owned semantic rejections surface through standard diagnostics with source location", () => {
@@ -1196,7 +1433,12 @@ test("configured provider-owned imports diagnose missing providers and do not fa
   assert.ok(!sourceFileNames.includes("/src/node_modules/@target/runtime.js"));
 });
 
-function providerExtension(specifier: string, reject = false, provider?: TargetSemanticProvider): CompilerExtension {
+function providerExtension(
+  specifier: string,
+  reject = false,
+  provider?: TargetSemanticProvider,
+  containsPassingMode: TargetMember["parameters"][number]["passingMode"] = "by-value",
+): CompilerExtension {
   return {
     identity: {
       id: "dotnet-provider-extension",
@@ -1204,7 +1446,7 @@ function providerExtension(specifier: string, reject = false, provider?: TargetS
       capabilityNamespace: "dotnet",
     },
     initialize(context): void {
-      context.registerTargetBindingProvider(dotnetProvider(specifier, reject));
+      context.registerTargetBindingProvider(dotnetProvider(specifier, reject, containsPassingMode));
       if (provider !== undefined) {
         assert.equal(context.registerTargetSemanticProvider(provider), true);
       }
@@ -1455,21 +1697,54 @@ function rustAssignabilityProvider(): TargetSemanticProvider {
   };
 }
 
-function surfaceSemanticProvider(): TargetSemanticProvider {
+function surfaceSemanticProvider(capture?: { propertyReceiverTypeSeen: boolean; elementReceiverTypeSeen: boolean }): TargetSemanticProvider {
   return {
     identity: semanticProviderIdentity("dotnet-surface-semantic-provider"),
-    resolvePropertyAccess: () => acceptDecision({
-      operation: targetOperation("System.String.Length", "property", "int32"),
-      resultType: semanticSubject("int32"),
-    }),
-    resolveElementAccess: () => acceptDecision({
-      operation: targetOperation("System.ReadOnlySpan.GetItem", "indexer", "char"),
-      resultType: semanticSubject("char"),
-    }),
+    resolvePropertyAccess: (request) => {
+      if (request.receiverType !== undefined && capture !== undefined) {
+        capture.propertyReceiverTypeSeen = true;
+      }
+      return acceptDecision({
+        operation: targetOperation("System.String.Length", "property", "int32"),
+        resultType: semanticSubject("int32"),
+      });
+    },
+    resolveElementAccess: (request) => {
+      if (request.receiverType !== undefined && capture !== undefined) {
+        capture.elementReceiverTypeSeen = true;
+      }
+      return acceptDecision({
+        operation: targetOperation("System.ReadOnlySpan.GetItem", "indexer", "char16"),
+        resultType: semanticSubject("char16"),
+      });
+    },
     resolveOperator: () => acceptDecision({
       operation: targetOperation("System.Int32.op_Addition", "operator", "int32"),
       resultType: semanticSubject("int32"),
     }),
+  };
+}
+
+function iterationSemanticProvider(capture?: { iterableTypeSeen: boolean; iterationKind: string }): TargetSemanticProvider {
+  return {
+    identity: semanticProviderIdentity("dotnet-iteration-semantic-provider"),
+    resolveIteration: (request) => {
+      if (request.iterableType !== undefined && capture !== undefined) {
+        capture.iterableTypeSeen = true;
+      }
+      if (capture !== undefined) {
+        capture.iterationKind = request.iterationKind;
+      }
+      return acceptDecision({
+        iteration: {
+          operationId: "System.Array.Enumerate",
+          iterationKind: "sync",
+          targetOperation: "foreach",
+          elementType: semanticSubject("number"),
+        } satisfies TargetIterationFact,
+        elementType: semanticSubject("number"),
+      });
+    },
   };
 }
 
@@ -1658,7 +1933,11 @@ function targetOperation(operationId: string, operationKind: TargetOperationFact
   };
 }
 
-function dotnetProvider(specifier: string, reject: boolean): TargetBindingProvider {
+function dotnetProvider(
+  specifier: string,
+  reject: boolean,
+  containsPassingMode: TargetMember["parameters"][number]["passingMode"],
+): TargetBindingProvider {
   const targetIdentity: TargetIdentity = {
     target: "dotnet",
     id: "System.Buffers.SearchValues`1",
@@ -1720,9 +1999,28 @@ function dotnetProvider(specifier: string, reject: boolean): TargetBindingProvid
             kind: "method",
             signatures: [{
               id: "Contains(T)",
-              parameters: [{ name: "value", type: { kind: "type-parameter", name: "T" } }],
+              parameters: [{ name: "value", type: { kind: "type-parameter", name: "T" }, passingMode: containsPassingMode }],
               returnType: { kind: "boolean" },
             }],
+          }],
+        }, {
+          id: "Matrix",
+          name: "Matrix",
+          kind: "class",
+          targetIdentity: {
+            target: "dotnet",
+            id: "Example.Matrix",
+            displayName: "Example.Matrix",
+          },
+          members: [{
+            id: "values",
+            name: "values",
+            kind: "property",
+            type: {
+              kind: "array",
+              elementType: { kind: "source-primitive", name: "int32" },
+              rank: 2,
+            },
           }],
         }],
       };

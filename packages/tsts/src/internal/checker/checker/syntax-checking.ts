@@ -1,6 +1,6 @@
 import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice, GoMap } from "../../../go/compat.js";
-import { recordExtensionOperatorResolution } from "../../../extensions/checker-integration.js";
+import { recordExtensionIterationResolution, recordExtensionOperatorResolution, recordExtensionUnaryOperatorResolution } from "../../../extensions/checker-integration.js";
 import type { Context } from "../../../go/context.js";
 import { Node_AsNode, Node_Pos, Node_End, Node_Name, Node_BodyData } from "../../ast/spine.js";
 import type { Node } from "../../ast/spine.js";
@@ -2330,18 +2330,22 @@ export function Checker_checkPrefixUnaryExpression(receiver: GoPtr<Checker>, nod
   if (operandType === receiver!.silentNeverType) {
     return receiver!.silentNeverType;
   }
+  const recordAndReturn = (result: GoPtr<Type>): GoPtr<Type> => {
+    recordExtensionUnaryOperatorResolution(receiver, node, expr.Operator, expr.Operand);
+    return result;
+  };
   switch (expr.Operand!.Kind) {
     case KindNumericLiteral:
       switch (expr.Operator) {
         case KindMinusToken:
-          return Checker_getFreshTypeOfLiteralType(receiver, Checker_getNumberLiteralType(receiver, -FromString(Node_Text(expr.Operand)) as Number));
+          return recordAndReturn(Checker_getFreshTypeOfLiteralType(receiver, Checker_getNumberLiteralType(receiver, -FromString(Node_Text(expr.Operand)) as Number)));
         case KindPlusToken:
-          return Checker_getFreshTypeOfLiteralType(receiver, Checker_getNumberLiteralType(receiver, +FromString(Node_Text(expr.Operand)) as Number));
+          return recordAndReturn(Checker_getFreshTypeOfLiteralType(receiver, Checker_getNumberLiteralType(receiver, +FromString(Node_Text(expr.Operand)) as Number)));
       }
       break;
     case KindBigIntLiteral:
       if (expr.Operator === KindMinusToken) {
-        return Checker_getFreshTypeOfLiteralType(receiver, Checker_getBigIntLiteralType(receiver, NewPseudoBigInt(ParsePseudoBigInt(Node_Text(expr.Operand)), true)));
+        return recordAndReturn(Checker_getFreshTypeOfLiteralType(receiver, Checker_getBigIntLiteralType(receiver, NewPseudoBigInt(ParsePseudoBigInt(Node_Text(expr.Operand)), true))));
       }
       break;
   }
@@ -2357,19 +2361,19 @@ export function Checker_checkPrefixUnaryExpression(receiver: GoPtr<Checker>, nod
         if (Checker_maybeTypeOfKindConsideringBaseConstraint(receiver, operandType, TypeFlagsBigIntLike)) {
           Checker_error(receiver, expr.Operand, Operator_0_cannot_be_applied_to_type_1, TokenToString(expr.Operator), Checker_TypeToString(receiver, Checker_getBaseTypeOfLiteralType(receiver, operandType)));
         }
-        return receiver!.numberType;
+        return recordAndReturn(receiver!.numberType);
       }
-      return Checker_getUnaryResultType(receiver, operandType);
+      return recordAndReturn(Checker_getUnaryResultType(receiver, operandType));
     case KindExclamationToken: {
       Checker_checkTruthinessOfType(receiver, operandType, expr.Operand);
       const facts = Checker_getTypeFacts(receiver, operandType, TypeFactsTruthy | TypeFactsFalsy);
       switch (facts) {
         case TypeFactsTruthy:
-          return receiver!.falseType;
+          return recordAndReturn(receiver!.falseType);
         case TypeFactsFalsy:
-          return receiver!.trueType;
+          return recordAndReturn(receiver!.trueType);
         default:
-          return receiver!.booleanType;
+          return recordAndReturn(receiver!.booleanType);
       }
     }
     case KindPlusPlusToken:
@@ -2389,10 +2393,10 @@ export function Checker_checkPrefixUnaryExpression(receiver: GoPtr<Checker>, nod
           The_operand_of_an_increment_or_decrement_operator_may_not_be_an_optional_property_access,
         );
       }
-      return Checker_getUnaryResultType(receiver, operandType);
+      return recordAndReturn(Checker_getUnaryResultType(receiver, operandType));
     }
   }
-  return receiver!.errorType;
+  return recordAndReturn(receiver!.errorType);
 }
 
 /**
@@ -2434,6 +2438,7 @@ export function Checker_checkPostfixUnaryExpression(receiver: GoPtr<Checker>, no
       The_operand_of_an_increment_or_decrement_operator_may_not_be_an_optional_property_access,
     );
   }
+  recordExtensionUnaryOperatorResolution(receiver, node, expr.Operator, expr.Operand);
   return Checker_getUnaryResultType(receiver, operandType);
 }
 
@@ -2773,7 +2778,6 @@ export function Checker_checkBinaryExpression(receiver: GoPtr<Checker>, node: Go
   const binary = AsBinaryExpression(node);
   if (isIterativelyCheckableNonLogicalBinaryExpression(node)) {
     const result = Checker_checkNonLogicalBinaryExpressionIterative(receiver, node, checkMode);
-    recordExtensionOperatorResolution(receiver, node, binary!.OperatorToken, binary!.Left, binary!.Right);
     return result;
   }
   const result = Checker_checkBinaryLikeExpression(receiver, binary!.Left, binary!.OperatorToken, binary!.Right, checkMode, node);
@@ -2794,12 +2798,15 @@ function Checker_checkNonLogicalBinaryExpressionIterative(receiver: GoPtr<Checke
     const binary = AsBinaryExpression(current);
     const rightType = Checker_checkExpressionEx(receiver, binary!.Right, checkMode);
     if (index === 0) {
-      return Checker_checkBinaryLikeExpressionWithTypes(receiver, binary!.Left, binary!.OperatorToken, binary!.Right, checkMode, current, leftType, rightType);
+      const result = Checker_checkBinaryLikeExpressionWithTypes(receiver, binary!.Left, binary!.OperatorToken, binary!.Right, checkMode, current, leftType, rightType);
+      recordExtensionOperatorResolution(receiver, current, binary!.OperatorToken, binary!.Left, binary!.Right);
+      return result;
     }
     const saveCurrentNode = receiver!.currentNode;
     receiver!.currentNode = current;
     receiver!.instantiationCount = 0;
     const uninstantiatedType = Checker_checkBinaryLikeExpressionWithTypes(receiver, binary!.Left, binary!.OperatorToken, binary!.Right, checkMode, current, leftType, rightType);
+    recordExtensionOperatorResolution(receiver, current, binary!.OperatorToken, binary!.Left, binary!.Right);
     leftType = Checker_instantiateTypeWithSingleGenericCallSignature(receiver, current, uninstantiatedType, checkMode);
     if (isConstEnumObjectType(leftType)) {
       Checker_checkConstEnumAccess(receiver, current, leftType);
@@ -3588,7 +3595,18 @@ export function keyBuilder_writeNode(receiver: GoPtr<keyBuilder>, node: GoPtr<No
  */
 export function Checker_checkRightHandSideOfForOf(receiver: GoPtr<Checker>, statement: GoPtr<Node>): GoPtr<Type> {
   const use = IfElse(AsForInOrOfStatement(statement)!.AwaitModifier !== undefined, IterationUseForAwaitOf, IterationUseForOf);
-  return Checker_checkIteratedTypeOrElementType(receiver, use, Checker_checkNonNullExpression(receiver, Node_Expression(statement)), receiver!.undefinedType, Node_Expression(statement));
+  const expression = Node_Expression(statement);
+  const iterableType = Checker_checkNonNullExpression(receiver, expression);
+  const iteratedType = Checker_checkIteratedTypeOrElementType(receiver, use, iterableType, receiver!.undefinedType, expression);
+  recordExtensionIterationResolution(
+    receiver,
+    statement,
+    expression,
+    iterableType,
+    iteratedType,
+    AsForInOrOfStatement(statement)!.AwaitModifier !== undefined ? "async" : "sync",
+  );
+  return iteratedType;
 }
 
 /**

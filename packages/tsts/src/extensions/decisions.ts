@@ -2,9 +2,11 @@ import type {
   ArgumentPassingFact,
   ArgumentPassingMode,
   SelectedTargetSignatureFact,
+  SourcePrimitiveFact,
   TargetConstraint,
   TargetTypeRef,
   TargetOperationFact,
+  TargetIterationFact,
 } from "./facts.js";
 import type { ExtensionDiagnostic, ExtensionDiagnosticStore, ExtensionEvidence, ExtensionFactResolver, ExtensionFactStore, ExtensionFactSubject, ExtensionHost } from "./host.js";
 
@@ -17,6 +19,7 @@ export type ExtensionDecisionResult<T> =
   | { readonly kind: "core"; readonly value: T }
   | { readonly kind: "accept"; readonly value: T; readonly extensionId: string; readonly evidence?: readonly ExtensionEvidence[] }
   | { readonly kind: "reject"; readonly diagnostic: ExtensionDiagnostic; readonly extensionId: string }
+  | { readonly kind: "deferred"; readonly question: ExtensionDecisionQuestionName }
   | { readonly kind: "missing-owner"; readonly question: ExtensionDecisionQuestionName }
   | { readonly kind: "owner-deferred"; readonly question: ExtensionDecisionQuestionName; readonly extensionId: string }
   | { readonly kind: "conflict"; readonly question: ExtensionDecisionQuestionName };
@@ -42,6 +45,7 @@ export const ExtensionDecisionQuestion = {
   resolveConversion: "type.resolveConversion",
   getParameterMode: "signature.getParameterMode",
   getRuntimeCarrier: "type.getRuntimeCarrier",
+  resolveIteration: "flow.resolveIteration",
   validateFlowUse: "flow.validateUse",
 } as const;
 
@@ -49,6 +53,7 @@ export type ExtensionDecisionQuestionName = typeof ExtensionDecisionQuestion[key
 
 export interface ExtensionDecisionRunOptions {
   readonly requireOwner?: boolean;
+  readonly deferWhenUnanswered?: boolean;
 }
 
 export interface SatisfiesConstraintRequest {
@@ -69,7 +74,17 @@ export interface AssignabilityRequest {
 export interface ResolveCallRequest {
   readonly call: ExtensionFactSubject;
   readonly callee: ExtensionFactSubject;
+  readonly receiver?: ExtensionFactSubject;
+  readonly receiverSymbol?: ExtensionFactSubject;
+  readonly resolvedReceiverSymbol?: ExtensionFactSubject;
+  readonly receiverType?: ExtensionFactSubject;
+  readonly calleeSymbol?: ExtensionFactSubject;
+  readonly resolvedCalleeSymbol?: ExtensionFactSubject;
+  readonly calleeType?: ExtensionFactSubject;
   readonly arguments: readonly ExtensionFactSubject[];
+  readonly argumentSymbols?: readonly (ExtensionFactSubject | undefined)[];
+  readonly resolvedArgumentSymbols?: readonly (ExtensionFactSubject | undefined)[];
+  readonly argumentTypes?: readonly (ExtensionFactSubject | undefined)[];
   readonly target?: string;
 }
 
@@ -92,6 +107,11 @@ export interface InferTypeArgumentsResult {
 export interface ResolvePropertyAccessRequest {
   readonly expression: ExtensionFactSubject;
   readonly receiver: ExtensionFactSubject;
+  readonly receiverSymbol?: ExtensionFactSubject;
+  readonly resolvedReceiverSymbol?: ExtensionFactSubject;
+  readonly receiverType?: ExtensionFactSubject;
+  readonly propertySymbol?: ExtensionFactSubject;
+  readonly resolvedPropertySymbol?: ExtensionFactSubject;
   readonly propertyName: string;
   readonly target?: string;
 }
@@ -99,7 +119,11 @@ export interface ResolvePropertyAccessRequest {
 export interface ResolveElementAccessRequest {
   readonly expression: ExtensionFactSubject;
   readonly receiver: ExtensionFactSubject;
+  readonly receiverType?: ExtensionFactSubject;
   readonly argument: ExtensionFactSubject;
+  readonly argumentSymbol?: ExtensionFactSubject;
+  readonly resolvedArgumentSymbol?: ExtensionFactSubject;
+  readonly argumentType?: ExtensionFactSubject;
   readonly target?: string;
 }
 
@@ -107,7 +131,29 @@ export interface ResolveOperatorRequest {
   readonly expression: ExtensionFactSubject;
   readonly operator: string;
   readonly left: ExtensionFactSubject;
+  readonly leftType?: ExtensionFactSubject;
+  readonly leftSymbol?: ExtensionFactSubject;
+  readonly leftResolvedSymbol?: ExtensionFactSubject;
+  readonly leftAliasedSymbol?: ExtensionFactSubject;
+  readonly leftSourcePrimitive?: SourcePrimitiveFact;
+  readonly leftTypeofOperand?: ExtensionFactSubject;
+  readonly leftTypeofOperandType?: ExtensionFactSubject;
+  readonly leftTypeofOperandSymbol?: ExtensionFactSubject;
+  readonly leftTypeofOperandResolvedSymbol?: ExtensionFactSubject;
+  readonly leftTypeofOperandAliasedSymbol?: ExtensionFactSubject;
+  readonly leftTypeofOperandSourcePrimitive?: SourcePrimitiveFact;
   readonly right?: ExtensionFactSubject;
+  readonly rightType?: ExtensionFactSubject;
+  readonly rightSymbol?: ExtensionFactSubject;
+  readonly rightResolvedSymbol?: ExtensionFactSubject;
+  readonly rightAliasedSymbol?: ExtensionFactSubject;
+  readonly rightSourcePrimitive?: SourcePrimitiveFact;
+  readonly rightTypeofOperand?: ExtensionFactSubject;
+  readonly rightTypeofOperandType?: ExtensionFactSubject;
+  readonly rightTypeofOperandSymbol?: ExtensionFactSubject;
+  readonly rightTypeofOperandResolvedSymbol?: ExtensionFactSubject;
+  readonly rightTypeofOperandAliasedSymbol?: ExtensionFactSubject;
+  readonly rightTypeofOperandSourcePrimitive?: SourcePrimitiveFact;
   readonly target?: string;
 }
 
@@ -146,6 +192,19 @@ export interface RuntimeCarrierRequest {
 export interface RuntimeCarrierResult {
   readonly carrier: TargetTypeRef;
   readonly requiresAllocation?: boolean;
+}
+
+export interface ResolveIterationRequest {
+  readonly statement: ExtensionFactSubject;
+  readonly iterable: ExtensionFactSubject;
+  readonly iterableType?: ExtensionFactSubject;
+  readonly iterationKind: "sync" | "async" | "property-key";
+  readonly target?: string;
+}
+
+export interface ResolveIterationResult {
+  readonly iteration: TargetIterationFact;
+  readonly elementType?: ExtensionFactSubject;
 }
 
 export interface ContextualTypeRequest {
@@ -216,6 +275,10 @@ export interface ExtensionDecisionMap {
   readonly [ExtensionDecisionQuestion.getRuntimeCarrier]: {
     readonly request: RuntimeCarrierRequest;
     readonly result: RuntimeCarrierResult;
+  };
+  readonly [ExtensionDecisionQuestion.resolveIteration]: {
+    readonly request: ResolveIterationRequest;
+    readonly result: ResolveIterationResult;
   };
   readonly [ExtensionDecisionQuestion.validateFlowUse]: {
     readonly request: ValidateFlowUseRequest;

@@ -1,6 +1,18 @@
 import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
-import { Node_Symbol, SourceFile_FileName } from "../internal/ast/ast.js";
+import {
+  Node_Elements,
+  Node_ImportClause,
+  Node_ModuleSpecifier,
+  Node_PropertyName,
+  Node_Statements,
+  Node_Symbol,
+  Node_Text,
+  SourceFile_FileName,
+} from "../internal/ast/ast.js";
+import { Node_Name } from "../internal/ast/spine.js";
+import { AsImportClause } from "../internal/ast/generated/casts.js";
+import { KindImportDeclaration, KindNamedImports } from "../internal/ast/generated/kinds.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import {
   canonicalIdentityFactKey,
@@ -47,6 +59,9 @@ export function recordBoundSourceFileExtensionFacts(program: object, file: GoPtr
     fileName,
     ...(virtualModule !== undefined ? { providerVirtualModule: virtualModule } : {}),
   });
+  if (virtualModule === undefined) {
+    recordProviderImportBindingFacts(extensionHost, file);
+  }
 }
 
 export function finalizeExtensionSemantics(program: object): ExtensionHost | undefined {
@@ -107,6 +122,62 @@ function recordProviderVirtualModuleFacts(extensionHost: ExtensionHost, file: So
   }
 }
 
+function recordProviderImportBindingFacts(extensionHost: ExtensionHost, file: SourceFile): void {
+  const fileName = SourceFile_FileName(file);
+  const providerContext = {
+    containingFile: fileName,
+    ...(extensionHost.activeTarget !== undefined ? { activeTarget: extensionHost.activeTarget } : {}),
+    ...(extensionHost.activeSurface !== undefined ? { activeSurface: extensionHost.activeSurface } : {}),
+  };
+  for (const statement of Node_Statements(file) ?? []) {
+    if (statement?.Kind !== KindImportDeclaration) {
+      continue;
+    }
+    const moduleSpecifier = Node_ModuleSpecifier(statement);
+    if (moduleSpecifier === undefined) {
+      continue;
+    }
+    const resolved = extensionHost.providers.resolveVirtualModule(Node_Text(moduleSpecifier), providerContext);
+    if (resolved.kind !== "resolved") {
+      continue;
+    }
+    const importClause = AsImportClause(Node_ImportClause(statement));
+    const namedBindings = importClause?.NamedBindings;
+    if (namedBindings?.Kind !== KindNamedImports) {
+      continue;
+    }
+    const evidence = getProviderVirtualModuleEvidence(resolved.module);
+    for (const importSpecifier of Node_Elements(namedBindings) ?? []) {
+      if (importSpecifier === undefined) {
+        continue;
+      }
+      const localName = Node_Name(importSpecifier);
+      if (localName === undefined) {
+        continue;
+      }
+      const exportName = Node_Text(Node_PropertyName(importSpecifier) ?? localName);
+      const declaration = resolved.module.declarationModel.exports.find((candidate) => candidate.name === exportName);
+      if (declaration === undefined) {
+        continue;
+      }
+      const targetBinding = getTargetBindingFact(resolved.module, declaration);
+      if (targetBinding === undefined) {
+        continue;
+      }
+      extensionHost.facts.set(importSpecifier, targetBindingFactKey, targetBinding, evidence);
+      extensionHost.facts.set(localName, targetBindingFactKey, targetBinding, evidence);
+      const importSymbol = Node_Symbol(importSpecifier);
+      if (importSymbol !== undefined) {
+        extensionHost.facts.set(importSymbol, targetBindingFactKey, targetBinding, evidence);
+      }
+      const localSymbol = Node_Symbol(localName);
+      if (localSymbol !== undefined && localSymbol !== importSymbol) {
+        extensionHost.facts.set(localSymbol, targetBindingFactKey, targetBinding, evidence);
+      }
+    }
+  }
+}
+
 function getProviderVirtualModuleEvidence(virtualModule: ProviderResolvedModule): readonly ExtensionEvidence[] {
   return [{
     message: "provider virtual module",
@@ -127,6 +198,10 @@ function getTargetBindingFact(virtualModule: ProviderResolvedModule, declaration
   if (declaration.targetIdentity === undefined) {
     return undefined;
   }
+  const declaringType = {
+    kind: "target-named",
+    id: declaration.targetIdentity.id,
+  } satisfies TargetTypeRef;
   return {
     id: declaration.targetIdentity.id,
     sourceName: declaration.name,
@@ -138,7 +213,7 @@ function getTargetBindingFact(virtualModule: ProviderResolvedModule, declaration
         typeParameters: declaration.typeParameters.map(getTargetTypeParameter),
       }
       : {}),
-    ...(declaration.members !== undefined ? { members: declaration.members.flatMap(getTargetMembers) } : {}),
+    ...(declaration.members !== undefined ? { members: declaration.members.flatMap((member) => getTargetMembers(member, declaringType)) } : {}),
   };
 }
 
@@ -151,30 +226,32 @@ function getTargetTypeParameter(parameter: ProviderTypeParameterDeclaration): Ta
   };
 }
 
-function getTargetMembers(member: ProviderMemberDeclaration): readonly TargetMember[] {
+function getTargetMembers(member: ProviderMemberDeclaration, declaringType?: TargetTypeRef): readonly TargetMember[] {
   if (member.signatures !== undefined && member.signatures.length > 0) {
-    return member.signatures.map((signature) => getTargetMemberFromSignature(member.name, member.kind, signature, member));
+    return member.signatures.map((signature) => getTargetMemberFromSignature(member.name, member.kind, signature, member, declaringType));
   }
   return [{
     id: member.id,
     sourceName: member.name,
-    targetName: member.name,
+    targetName: member.targetName ?? member.name,
     kind: member.kind,
     parameters: [],
     ...(member.static !== undefined ? { static: member.static } : {}),
+    ...(declaringType !== undefined ? { declaringType } : {}),
     ...(member.type !== undefined ? { returnType: getTargetTypeRef(member.type) } : {}),
   }];
 }
 
-function getTargetMemberFromSignature(sourceName: string, kind: TargetMember["kind"], signature: ProviderSignatureDeclaration, member?: ProviderMemberDeclaration): TargetMember {
+function getTargetMemberFromSignature(sourceName: string, kind: TargetMember["kind"], signature: ProviderSignatureDeclaration, member?: ProviderMemberDeclaration, declaringType?: TargetTypeRef): TargetMember {
   const typeParameters = (signature.typeParameters ?? []).map(getTargetTypeParameter);
   return {
     id: signature.id,
     sourceName,
-    targetName: signature.name ?? member?.name ?? sourceName,
+    targetName: signature.name ?? member?.targetName ?? member?.name ?? sourceName,
     kind,
     parameters: signature.parameters.map(getTargetParameter),
     ...(member?.static !== undefined ? { static: member.static } : {}),
+    ...(declaringType !== undefined ? { declaringType } : {}),
     ...(signature.returnType !== undefined ? { returnType: getTargetTypeRef(signature.returnType) } : {}),
     ...(typeParameters.length > 0 ? { typeParameters } : {}),
     overloadGroup: member?.id ?? sourceName,
@@ -192,7 +269,7 @@ function getTargetParameter(parameter: ProviderParameterDeclaration): TargetPara
 }
 
 function getArgumentPassingMode(parameter: ProviderParameterDeclaration): ArgumentPassingMode {
-  return "by-value";
+  return parameter.passingMode ?? "by-value";
 }
 
 function getTargetConstraint(type: ProviderTypeExpression): readonly TargetConstraint[] {
@@ -218,6 +295,11 @@ function getTargetTypeRef(type: ProviderTypeExpression): TargetTypeRef {
       return { kind: "source-primitive", name: getSourcePrimitiveKind(type.name) };
     case "type-parameter":
       return { kind: "type-parameter", name: type.name };
+    case "reference":
+      return {
+        kind: "opaque",
+        id: `${type.name}${type.typeArguments === undefined || type.typeArguments.length === 0 ? "" : `<${type.typeArguments.map((argument) => getTargetTypeRef(argument).kind).join(",")}>`}`,
+      };
     case "target-named":
       return {
         kind: "target-named",
@@ -225,7 +307,11 @@ function getTargetTypeRef(type: ProviderTypeExpression): TargetTypeRef {
         ...(type.typeArguments !== undefined ? { typeArguments: type.typeArguments.map(getTargetTypeRef) } : {}),
       };
     case "array":
-      return { kind: "array", element: getTargetTypeRef(type.elementType) };
+      return {
+        kind: "array",
+        element: getTargetTypeRef(type.elementType),
+        ...(type.rank !== undefined ? { rank: type.rank } : {}),
+      };
     case "tuple":
       return { kind: "tuple", elements: type.elementTypes.map(getTargetTypeRef) };
     case "function":
@@ -255,8 +341,10 @@ function getSourcePrimitiveKind(name: string): SourcePrimitiveKind {
     case "bool":
     case "boolean":
       return "bool";
-    case "char":
-      return "char";
+    case "char16":
+      return "char16";
+    case "char32":
+      return "char32";
     case "sbyte":
     case "int8":
       return "int8";
@@ -296,8 +384,8 @@ function getSourcePrimitiveKind(name: string): SourcePrimitiveKind {
     case "double":
     case "float64":
       return "float64";
-    case "decimal":
-      return "decimal";
+    case "decimal128":
+      return "decimal128";
     case "int128":
       return "int128";
     case "uint128":

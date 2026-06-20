@@ -15,7 +15,8 @@ export type ExtensionImportKind = "type" | "value" | "namespace" | "unknown";
 
 export type SourcePrimitiveKind =
   | "bool"
-  | "char"
+  | "char16"
+  | "char32"
   | "int8"
   | "uint8"
   | "int16"
@@ -29,7 +30,7 @@ export type SourcePrimitiveKind =
   | "float16"
   | "float32"
   | "float64"
-  | "decimal"
+  | "decimal128"
   | "int128"
   | "uint128";
 
@@ -67,6 +68,11 @@ export interface ArgumentPassingFact {
   readonly targetExpression?: ExtensionFactSubject;
 }
 
+export interface SourceMarkerFact {
+  readonly marker: string;
+  readonly erasedRuntimeExpression: boolean;
+}
+
 export interface FunctionPointerFact {
   readonly parameters: readonly ExtensionFactSubject[];
   readonly result: ExtensionFactSubject;
@@ -79,7 +85,7 @@ export interface PointerFact {
   readonly unsafeRequired: boolean;
 }
 
-export interface StructFact {
+export interface ValueTypeFact {
   readonly valueType: boolean;
   readonly fields?: readonly FieldFact[];
 }
@@ -90,10 +96,14 @@ export interface FieldFact {
   readonly readonly?: boolean;
 }
 
-export interface AttributeFact {
+export interface AttributeApplicationFact {
   readonly target: ExtensionFactSubject;
   readonly attributeName: string;
   readonly arguments?: readonly ExtensionFactSubject[];
+}
+
+export interface AttributeFact {
+  readonly attributes: readonly AttributeApplicationFact[];
 }
 
 export interface DefaultValueFact {
@@ -104,6 +114,7 @@ export type TargetTypeRef =
   | { readonly kind: "source-primitive"; readonly name: SourcePrimitiveKind }
   | { readonly kind: "target-named"; readonly id: string; readonly typeArguments?: readonly TargetTypeRef[] }
   | { readonly kind: "type-parameter"; readonly name: string }
+  | { readonly kind: "nullable"; readonly inner: TargetTypeRef }
   | { readonly kind: "array"; readonly element: TargetTypeRef; readonly rank?: number }
   | { readonly kind: "tuple"; readonly elements: readonly TargetTypeRef[] }
   | { readonly kind: "pointer"; readonly pointee: TargetTypeRef; readonly mutability?: "const" | "mut" | "target-defined" }
@@ -132,6 +143,10 @@ export interface TargetTypeParameter {
   readonly variance?: "in" | "out" | "invariant" | "target-defined";
 }
 
+export interface TargetTypeParameterConstraintFact {
+  readonly constraints: readonly TargetConstraint[];
+}
+
 export interface TargetParameter {
   readonly name: string;
   readonly type: TargetTypeRef;
@@ -146,7 +161,9 @@ export interface TargetMember {
   readonly targetName: string;
   readonly kind: "method" | "constructor" | "property" | "field" | "indexer" | "event" | "operator";
   readonly static?: boolean;
+  readonly declaringType?: TargetTypeRef;
   readonly parameters: readonly TargetParameter[];
+  readonly receiverArgumentIndex?: number;
   readonly returnType?: TargetTypeRef;
   readonly typeParameters?: readonly TargetTypeParameter[];
   readonly overloadGroup?: string;
@@ -185,7 +202,18 @@ export interface TargetOperationFact {
   readonly operationId: string;
   readonly operationKind: "property" | "method" | "indexer" | "operator" | "constructor";
   readonly targetOperation: string;
+  readonly static?: boolean;
+  readonly declaringType?: TargetTypeRef;
+  readonly targetType?: TargetTypeRef;
   readonly resultType?: ExtensionFactSubject;
+  readonly evidence?: readonly ExtensionEvidence[];
+}
+
+export interface TargetIterationFact {
+  readonly operationId: string;
+  readonly iterationKind: "sync" | "async" | "property-key";
+  readonly targetOperation: string;
+  readonly elementType?: ExtensionFactSubject;
   readonly evidence?: readonly ExtensionEvidence[];
 }
 
@@ -198,6 +226,22 @@ export interface FlowStateFact {
 export interface RuntimeCarrierFact {
   readonly carrier: TargetTypeRef;
   readonly requiresAllocation?: boolean;
+}
+
+export interface ObjectShapeMemberFact {
+  readonly sourceName: string;
+  readonly targetName: string;
+  readonly memberKind: "property" | "method";
+  readonly type: TargetTypeRef;
+  readonly optional?: boolean;
+  readonly readonly?: boolean;
+}
+
+export interface ObjectShapeFact {
+  readonly targetType: TargetTypeRef;
+  readonly members: readonly ObjectShapeMemberFact[];
+  readonly implements?: readonly TargetTypeRef[];
+  readonly constructible?: boolean;
 }
 
 export interface TargetConversionFact {
@@ -254,6 +298,12 @@ export const argumentPassingFactKey = defineExtensionFactKey<ArgumentPassingFact
   equals: (left, right) => left.mode === right.mode && left.targetExpression === right.targetExpression,
 });
 
+export const sourceMarkerFactKey = defineExtensionFactKey<SourceMarkerFact>({
+  extensionId: "tsts.source-semantics",
+  name: "sourceMarker",
+  equals: (left, right) => left.marker === right.marker && left.erasedRuntimeExpression === right.erasedRuntimeExpression,
+});
+
 export const functionPointerFactKey = defineExtensionFactKey<FunctionPointerFact>({
   extensionId: "tsts.source-semantics",
   name: "functionPointer",
@@ -271,9 +321,9 @@ export const pointerFactKey = defineExtensionFactKey<PointerFact>({
   equals: (left, right) => left.pointee === right.pointee && left.mutability === right.mutability && left.unsafeRequired === right.unsafeRequired,
 });
 
-export const structFactKey = defineExtensionFactKey<StructFact>({
+export const valueTypeFactKey = defineExtensionFactKey<ValueTypeFact>({
   extensionId: "tsts.source-semantics",
-  name: "struct",
+  name: "valueType",
   equals: (left, right) =>
     left.valueType === right.valueType
     && fieldFactArrayEquals(left.fields, right.fields),
@@ -289,9 +339,7 @@ export const attributeFactKey = defineExtensionFactKey<AttributeFact>({
   extensionId: "tsts.source-semantics",
   name: "attribute",
   equals: (left, right) =>
-    left.target === right.target
-    && left.attributeName === right.attributeName
-    && factSubjectArrayEquals(left.arguments, right.arguments),
+    attributeApplicationFactArrayEquals(left.attributes, right.attributes),
 });
 
 export const defaultValueFactKey = defineExtensionFactKey<DefaultValueFact>({
@@ -304,6 +352,12 @@ export const targetBindingFactKey = defineExtensionFactKey<TargetBindingFact>({
   extensionId: "tsts.target-bindings",
   name: "targetBinding",
   equals: targetBindingFactEquals,
+});
+
+export const targetTypeParameterConstraintFactKey = defineExtensionFactKey<TargetTypeParameterConstraintFact>({
+  extensionId: "tsts.target-bindings",
+  name: "targetTypeParameterConstraint",
+  equals: (left, right) => targetConstraintArrayEquals(left.constraints, right.constraints),
 });
 
 export const instantiatedTargetTypeFactKey = defineExtensionFactKey<InstantiatedTargetTypeFact>({
@@ -337,6 +391,12 @@ export const targetOperationFactKey = defineExtensionFactKey<TargetOperationFact
   equals: targetOperationFactEquals,
 });
 
+export const targetIterationFactKey = defineExtensionFactKey<TargetIterationFact>({
+  extensionId: "tsts.target-bindings",
+  name: "targetIteration",
+  equals: targetIterationFactEquals,
+});
+
 export const flowStateFactKey = defineExtensionFactKey<FlowStateFact>({
   extensionId: "tsts.flow",
   name: "flowState",
@@ -347,6 +407,12 @@ export const runtimeCarrierFactKey = defineExtensionFactKey<RuntimeCarrierFact>(
   extensionId: "tsts.target-bindings",
   name: "runtimeCarrier",
   equals: (left, right) => targetTypeRefEquals(left.carrier, right.carrier) && left.requiresAllocation === right.requiresAllocation,
+});
+
+export const objectShapeFactKey = defineExtensionFactKey<ObjectShapeFact>({
+  extensionId: "tsts.target-bindings",
+  name: "objectShape",
+  equals: objectShapeFactEquals,
 });
 
 export const targetConversionFactKey = defineExtensionFactKey<TargetConversionFact>({
@@ -407,6 +473,36 @@ function fieldFactEquals(left: FieldFact, right: FieldFact): boolean {
   return left.name === right.name && left.type === right.type && left.readonly === right.readonly;
 }
 
+function objectShapeFactEquals(left: ObjectShapeFact, right: ObjectShapeFact): boolean {
+  return targetTypeRefEquals(left.targetType, right.targetType)
+    && left.constructible === right.constructible
+    && targetTypeRefArrayEquals(left.implements, right.implements)
+    && left.members.length === right.members.length
+    && left.members.every((member, index) => objectShapeMemberFactEquals(member, right.members[index]!));
+}
+
+function objectShapeMemberFactEquals(left: ObjectShapeMemberFact, right: ObjectShapeMemberFact): boolean {
+  return left.sourceName === right.sourceName
+    && left.targetName === right.targetName
+    && left.memberKind === right.memberKind
+    && targetTypeRefEquals(left.type, right.type)
+    && left.optional === right.optional
+    && left.readonly === right.readonly;
+}
+
+function attributeApplicationFactArrayEquals(left: readonly AttributeApplicationFact[] | undefined, right: readonly AttributeApplicationFact[] | undefined): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.length === right.length && left.every((value, index) => attributeApplicationFactEquals(value, right[index]!));
+}
+
+function attributeApplicationFactEquals(left: AttributeApplicationFact, right: AttributeApplicationFact): boolean {
+  return left.target === right.target
+    && left.attributeName === right.attributeName
+    && factSubjectArrayEquals(left.arguments, right.arguments);
+}
+
 function targetTypeRefArrayEquals(left: readonly TargetTypeRef[] | undefined, right: readonly TargetTypeRef[] | undefined): boolean {
   if (left === undefined || right === undefined) {
     return left === right;
@@ -438,7 +534,9 @@ function targetMemberEquals(left: TargetMember, right: TargetMember): boolean {
     && left.targetName === right.targetName
     && left.kind === right.kind
     && left.static === right.static
+    && optionalTargetTypeRefEquals(left.declaringType, right.declaringType)
     && targetParameterArrayEquals(left.parameters, right.parameters)
+    && left.receiverArgumentIndex === right.receiverArgumentIndex
     && optionalTargetTypeRefEquals(left.returnType, right.returnType)
     && targetTypeParameterArrayEquals(left.typeParameters, right.typeParameters)
     && left.overloadGroup === right.overloadGroup;
@@ -512,7 +610,17 @@ function targetOperationFactEquals(left: TargetOperationFact, right: TargetOpera
   return left.operationId === right.operationId
     && left.operationKind === right.operationKind
     && left.targetOperation === right.targetOperation
+    && left.static === right.static
+    && optionalTargetTypeRefEquals(left.declaringType, right.declaringType)
+    && optionalTargetTypeRefEquals(left.targetType, right.targetType)
     && left.resultType === right.resultType;
+}
+
+function targetIterationFactEquals(left: TargetIterationFact, right: TargetIterationFact): boolean {
+  return left.operationId === right.operationId
+    && left.iterationKind === right.iterationKind
+    && left.targetOperation === right.targetOperation
+    && left.elementType === right.elementType;
 }
 
 function targetTypeRefEquals(left: TargetTypeRef, right: TargetTypeRef): boolean {
@@ -528,6 +636,8 @@ function targetTypeRefEquals(left: TargetTypeRef, right: TargetTypeRef): boolean
         && targetTypeRefListEquals(left.typeArguments ?? [], right.typeArguments ?? []);
     case "type-parameter":
       return right.kind === "type-parameter" && left.name === right.name;
+    case "nullable":
+      return right.kind === "nullable" && targetTypeRefEquals(left.inner, right.inner);
     case "array":
       return right.kind === "array" && left.rank === right.rank && targetTypeRefEquals(left.element, right.element);
     case "tuple":

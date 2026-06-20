@@ -1,6 +1,6 @@
 import type { bool, int } from "../../../go/scalars.js";
 import type { GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
-import { recordExtensionElementAccessResolution, recordExtensionFlowUseValidation, recordExtensionPropertyAccessResolution, recordExtensionRuntimeCarrierResolution, recordExtensionTypeArgumentConstraintResolution } from "../../../extensions/checker-integration.js";
+import { recordExtensionElementAccessResolution, recordExtensionFlowUseValidation, recordExtensionIterationResolution, recordExtensionPropertyAccessResolution, recordExtensionRuntimeCarrierResolution, recordExtensionTypeArgumentConstraintResolution } from "../../../extensions/checker-integration.js";
 import { NewGoStructMap } from "../../../go/compat.js";
 import { GetNamespaceDeclarationNode, IsImportCall, IsImportOrExportSpecifier } from "../../ast/utilities.js";
 import { Named_imports_from_a_JSON_file_into_an_ECMAScript_module_are_not_allowed_when_module_is_set_to_0 } from "../../diagnostics/generated/messages.js";
@@ -5458,8 +5458,9 @@ export function Checker_checkIndexedAccess(receiver: GoPtr<Checker>, node: GoPtr
   if ((node!.Flags & NodeFlagsOptionalChain) !== 0) {
     return Checker_checkElementAccessChain(receiver, node, checkMode);
   }
-  const result = Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullExpression(receiver, Node_Expression(node)), checkMode);
-  recordExtensionElementAccessResolution(receiver, node);
+  const receiverType = Checker_checkNonNullExpression(receiver, Node_Expression(node));
+  const result = Checker_checkElementAccessExpression(receiver, node, receiverType, checkMode);
+  recordExtensionElementAccessResolution(receiver, node, receiverType);
   return result;
 }
 
@@ -6449,13 +6450,15 @@ export function Checker_checkPropertyAccessExpression(receiver: GoPtr<Checker>, 
     return Checker_checkPropertyAccessChain(receiver, node, checkMode);
   }
   const expr = Node_Expression(node);
-  const result = Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, expr, Checker_checkNonNullExpression(receiver, expr), AsPropertyAccessExpression(node)!.name, checkMode, writeOnly);
-  recordExtensionPropertyAccessResolution(receiver, node);
+  const receiverType = Checker_checkNonNullExpression(receiver, expr);
+  const result = Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, expr, receiverType, AsPropertyAccessExpression(node)!.name, checkMode, writeOnly);
+  recordExtensionPropertyAccessResolution(receiver, node, receiverType);
   return result;
 }
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessChain","kind":"method","status":"implemented","sigHash":"8fddaeae38c55291a27039fd3e34d4f23b91a1185f6450fd8a87c8ef77aeb85e","bodyHash":"8d099873c74d1d2075853d42ef27cf852f70d2462e0b439c46f9177816bb5aa8"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go optional property access checking, extension-enabled programs may record provider-selected surface/target member facts for consumers; no-extension programs and unowned accesses remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkPropertyAccessChain(node *ast.Node, checkMode CheckMode) *Type {
@@ -6467,7 +6470,10 @@ export function Checker_checkPropertyAccessExpression(receiver: GoPtr<Checker>, 
 export function Checker_checkPropertyAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type> {
   const leftType = Checker_checkExpression(receiver, Node_Expression(node));
   const nonOptionalType = Checker_getOptionalExpressionType(receiver, leftType, Node_Expression(node));
-  return Checker_propagateOptionalTypeMarker(receiver, Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, Node_Expression(node), Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node)), Node_Name(node), checkMode, false), node, nonOptionalType !== leftType);
+  const nonNullType = Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node));
+  const result = Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, Node_Expression(node), nonNullType, Node_Name(node), checkMode, false);
+  recordExtensionPropertyAccessResolution(receiver, node, nonNullType);
+  return Checker_propagateOptionalTypeMarker(receiver, result, node, nonOptionalType !== leftType);
 }
 
 /**
@@ -11314,11 +11320,24 @@ export function Checker_getTypeForVariableLikeDeclaration(receiver: GoPtr<Checke
     const grandParent = declaration!.Parent!.Parent;
     switch (grandParent!.Kind) {
       case KindForInStatement: {
-        const indexType = Checker_getIndexType(receiver, Checker_getNonNullableTypeIfNeeded(receiver, Checker_checkExpressionEx(receiver, Node_Expression(grandParent), checkMode)));
+        const expression = Node_Expression(grandParent);
+        const iterableType = Checker_checkExpressionEx(receiver, expression, checkMode);
+        const indexType = Checker_getIndexType(receiver, Checker_getNonNullableTypeIfNeeded(receiver, iterableType));
+        const keyType = (indexType!.flags & (TypeFlagsTypeParameter | TypeFlagsIndex)) !== 0
+          ? Checker_getExtractStringType(receiver, indexType)
+          : receiver!.stringType;
+        recordExtensionIterationResolution(
+          receiver,
+          grandParent,
+          expression,
+          iterableType,
+          keyType,
+          "property-key",
+        );
         if ((indexType!.flags & (TypeFlagsTypeParameter | TypeFlagsIndex)) !== 0) {
-          return Checker_getExtractStringType(receiver, indexType);
+          return keyType;
         }
-        return receiver!.stringType;
+        return keyType;
       }
       case KindForOfStatement:
         return Checker_checkRightHandSideOfForOf(receiver, grandParent);

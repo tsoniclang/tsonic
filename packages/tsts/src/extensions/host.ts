@@ -13,7 +13,7 @@ import type {
   ExtensionDecisionRunOptions,
 } from "./decisions.js";
 import { ExtensionDecisionQuestion } from "./decisions.js";
-import type { SourcePrimitiveKind } from "./facts.js";
+import type { ArgumentPassingMode, SourcePrimitiveKind } from "./facts.js";
 
 export interface ExtensionEvidence {
   readonly message: string;
@@ -154,6 +154,7 @@ export type ExtensionFactResolverCallback<T> = (subject: ExtensionFactSubject, c
 
 export interface ExtensionFactResolverContext {
   readonly facts: ExtensionFactStore;
+  readonly factResolver: ExtensionFactResolver;
   readonly diagnostics: ExtensionDiagnosticStore;
 }
 
@@ -225,8 +226,9 @@ export type ProviderTypeExpression =
   | { readonly kind: "object" }
   | { readonly kind: "source-primitive"; readonly name: SourcePrimitiveKind }
   | { readonly kind: "type-parameter"; readonly name: string }
+  | { readonly kind: "reference"; readonly name: string; readonly typeArguments?: readonly ProviderTypeExpression[] }
   | { readonly kind: "target-named"; readonly target: string; readonly id: string; readonly displayName?: string; readonly typeArguments?: readonly ProviderTypeExpression[]; readonly sourceShape?: ProviderTypeExpression }
-  | { readonly kind: "array"; readonly elementType: ProviderTypeExpression }
+  | { readonly kind: "array"; readonly elementType: ProviderTypeExpression; readonly rank?: number }
   | { readonly kind: "tuple"; readonly elementTypes: readonly ProviderTypeExpression[] }
   | { readonly kind: "union"; readonly types: readonly ProviderTypeExpression[] }
   | { readonly kind: "intersection"; readonly types: readonly ProviderTypeExpression[] }
@@ -237,6 +239,7 @@ export type ProviderTypeExpression =
 export interface ProviderParameterDeclaration {
   readonly name: string;
   readonly type: ProviderTypeExpression;
+  readonly passingMode?: ArgumentPassingMode;
   readonly optional?: boolean;
   readonly rest?: boolean;
 }
@@ -253,6 +256,7 @@ export interface ProviderSignatureDeclaration {
 export interface ProviderMemberDeclaration {
   readonly id: string;
   readonly name: string;
+  readonly targetName?: string;
   readonly kind: "method" | "constructor" | "property" | "field" | "indexer";
   readonly static?: boolean;
   readonly type?: ProviderTypeExpression;
@@ -365,6 +369,7 @@ export interface TargetSemanticProvider {
   resolveConversion?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.resolveConversion>;
   getParameterMode?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.getParameterMode>;
   getRuntimeCarrier?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.getRuntimeCarrier>;
+  resolveIteration?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.resolveIteration>;
   validateFlowUse?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.validateFlowUse>;
 }
 
@@ -642,7 +647,7 @@ export class ExtensionFactResolver {
     }
 
     for (const resolver of resolvers) {
-      const resolved = resolver(subject, { facts: this.#facts, diagnostics: this.#diagnostics }) as ExtensionFactResolution<T> | undefined;
+      const resolved = resolver(subject, { facts: this.#facts, factResolver: this, diagnostics: this.#diagnostics }) as ExtensionFactResolution<T> | undefined;
       if (resolved !== undefined) {
         this.#facts.setResolved(subject, key, resolved.value, resolved.evidence ?? []);
         return resolved.value;
@@ -975,6 +980,10 @@ export class ExtensionHost {
     return ownerId === undefined ? undefined : this.#extensionsById.get(ownerId);
   }
 
+  hasDecisionHook(question: ExtensionDecisionQuestionName): boolean {
+    return (this.#decisionHooks.get(question)?.length ?? 0) > 0;
+  }
+
   requireDecisionOwner(question: ExtensionDecisionQuestionName): CompilerExtension | undefined {
     const owner = this.getDecisionOwner(question);
     if (owner !== undefined) {
@@ -1040,6 +1049,9 @@ export class ExtensionHost {
     const selectedHooks = owner === undefined ? hooks : hooks.filter((hook) => hook.extensionId === owner.identity.id);
 
     if (selectedHooks.length === 0) {
+      if (options.deferWhenUnanswered === true) {
+        return { kind: "deferred", question };
+      }
       if (owner !== undefined && options.requireOwner === true) {
         this.diagnostics.append(createHostDiagnostic({
           extensionCode: "DECISION_OWNER_DEFERRED",
@@ -1093,6 +1105,9 @@ export class ExtensionHost {
     }
 
     if (nonDeferred.length === 0) {
+      if (options.deferWhenUnanswered === true) {
+        return { kind: "deferred", question };
+      }
       if (owner !== undefined && options.requireOwner === true) {
         this.diagnostics.append(createHostDiagnostic({
           extensionCode: "DECISION_OWNER_DEFERRED",
@@ -1294,6 +1309,7 @@ export class ExtensionHost {
     registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.resolveConversion, provider.resolveConversion);
     registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.getParameterMode, provider.getParameterMode);
     registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.getRuntimeCarrier, provider.getRuntimeCarrier);
+    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.resolveIteration, provider.resolveIteration);
     registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.validateFlowUse, provider.validateFlowUse);
   }
 }
@@ -1649,6 +1665,8 @@ function renderProviderTypeExpression(type: ProviderTypeExpression): string {
       return renderSourcePrimitiveType(type.name);
     case "type-parameter":
       return type.name;
+    case "reference":
+      return `${type.name}${renderProviderTypeArguments(type.typeArguments ?? [])}`;
     case "target-named":
     case "opaque":
       return renderProviderTypeExpression(type.sourceShape!);
@@ -1667,11 +1685,19 @@ function renderProviderTypeExpression(type: ProviderTypeExpression): string {
   }
 }
 
+function renderProviderTypeArguments(typeArguments: readonly ProviderTypeExpression[]): string {
+  if (typeArguments.length === 0) {
+    return "";
+  }
+  return `<${typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
+}
+
 function renderSourcePrimitiveType(name: SourcePrimitiveKind): string {
   switch (name) {
     case "bool":
       return "boolean";
-    case "char":
+    case "char16":
+    case "char32":
       return "string";
     default:
       return "number";
@@ -1772,6 +1798,7 @@ function hasRequiredProviderExportShape(value: ProviderExportDeclaration): boole
 function isValidProviderMemberDeclaration(value: ProviderMemberDeclaration): boolean {
   return value.id.length > 0
     && (value.kind === "constructor" || isIdentifierText(value.name))
+    && (value.targetName === undefined || value.targetName.length > 0)
     && hasRequiredProviderMemberShape(value)
     && (value.type === undefined || isValidProviderTypeExpression(value.type))
     && (value.signatures ?? []).every(isValidProviderSignatureDeclaration);
@@ -1808,7 +1835,24 @@ function isValidProviderSignatureDeclaration(value: ProviderSignatureDeclaration
 }
 
 function isValidProviderParameterDeclaration(value: ProviderParameterDeclaration): boolean {
-  return isIdentifierText(value.name) && isValidProviderTypeExpression(value.type);
+  return isIdentifierText(value.name)
+    && isValidProviderTypeExpression(value.type)
+    && (value.passingMode === undefined || isValidArgumentPassingMode(value.passingMode));
+}
+
+function isValidArgumentPassingMode(value: unknown): value is ArgumentPassingMode {
+  switch (value) {
+    case "by-value":
+    case "byref-readonly":
+    case "byref-readwrite":
+    case "byref-writeonly-must-init":
+    case "borrow-shared":
+    case "borrow-mut":
+    case "move":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function isValidProviderTypeParameterDeclaration(value: ProviderTypeParameterDeclaration): boolean {
@@ -1831,6 +1875,8 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
       return isKnownSourcePrimitive(value.name);
     case "type-parameter":
       return isIdentifierText(value.name);
+    case "reference":
+      return isIdentifierText(value.name) && (value.typeArguments ?? []).every(isValidProviderTypeExpression);
     case "target-named":
       return value.target.length > 0
         && value.id.length > 0
@@ -1838,7 +1884,8 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
         && value.sourceShape !== undefined
         && isValidProviderTypeExpression(value.sourceShape);
     case "array":
-      return isValidProviderTypeExpression(value.elementType);
+      return isValidProviderTypeExpression(value.elementType)
+        && (value.rank === undefined || isValidProviderArrayRank(value.rank));
     case "tuple":
       return value.elementTypes.every(isValidProviderTypeExpression);
     case "union":
@@ -1855,6 +1902,10 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
         && value.sourceShape !== undefined
         && isValidProviderTypeExpression(value.sourceShape);
   }
+}
+
+function isValidProviderArrayRank(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 function isIdentifierText(text: string): boolean {
@@ -1879,8 +1930,9 @@ function isKnownSourcePrimitive(name: SourcePrimitiveKind): boolean {
     case "float16":
     case "float32":
     case "float64":
-    case "decimal":
-    case "char":
+    case "decimal128":
+    case "char16":
+    case "char32":
       return true;
     default:
       return false;
