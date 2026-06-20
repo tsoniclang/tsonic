@@ -3800,6 +3800,14 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values.every((value: int32) => value > 0);",
       "}",
       "",
+      "export function firstPositiveIndex(values: int32[]): int32 {",
+      "  return values.findIndex((value: int32) => value > 0);",
+      "}",
+      "",
+      "export function lastPositiveIndex(values: int32[]): int32 {",
+      "  return values.findLastIndex((value: int32) => value > 0);",
+      "}",
+      "",
       "export function destruct(values: int32[]): int32 {",
       "  const [first, second] = values;",
       "  return first + second;",
@@ -3855,6 +3863,10 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return System\.Linq\.Enumerable\.Any\(values, \(int value\) => value > 0\);/);
   assert.match(generatedSource, /public static bool allPositive\(int\[\] values\)/);
   assert.match(generatedSource, /return System\.Linq\.Enumerable\.All\(values, \(int value\) => value > 0\);/);
+  assert.match(generatedSource, /public static int firstPositiveIndex\(int\[\] values\)/);
+  assert.match(generatedSource, /return System\.Array\.FindIndex\(values, \(int value\) => value > 0\);/);
+  assert.match(generatedSource, /public static int lastPositiveIndex\(int\[\] values\)/);
+  assert.match(generatedSource, /return System\.Array\.FindLastIndex\(values, \(int value\) => value > 0\);/);
   assert.match(generatedSource, /public static int destruct\(int\[\] values\)/);
   assert.match(generatedSource, /int first = __destructure0\[0\];/);
   assert.match(generatedSource, /int second = __destructure0\[1\];/);
@@ -3872,6 +3884,30 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySurfaceOperations.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects array callbacks that require unmodeled callback-arity adapters", async () => {
+  const projectDirectory = resolve(tempRoot, "array-callback-arity-rejection");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function hasIndexedPositive(values: int32[]): boolean {",
+      "  return values.some((value: int32, index: number) => value > 0 && index > 0);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
 });
 
 test("CLI emits void-expression statement and return lowering as discard evaluation", async () => {
