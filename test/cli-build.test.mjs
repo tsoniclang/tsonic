@@ -660,6 +660,18 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
       "  return Math.sin(value) + Math.cos(value) + Math.sqrt(Math.pow(value, 2));",
       "}",
       "",
+      "export function inverse(value: number): number {",
+      "  return Math.acos(value) + Math.asin(value) + Math.atan(value) + Math.atan2(value, 2);",
+      "}",
+      "",
+      "export function logs(value: number): number {",
+      "  return Math.exp(value) + Math.log(value) + Math.log10(value) + Math.log2(value);",
+      "}",
+      "",
+      "export function hyperbolic(value: number): number {",
+      "  return Math.sinh(value) + Math.cosh(value) + Math.tanh(value);",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -673,6 +685,12 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
   assert.match(generatedSource, /return System\.Math\.Max\(low, System\.Math\.Min\(high, value\)\);/);
   assert.match(generatedSource, /public static double curve\(double value\)/);
   assert.match(generatedSource, /System\.Math\.Sin\(value\) \+ System\.Math\.Cos\(value\) \+ System\.Math\.Sqrt\(System\.Math\.Pow\(value, 2\)\)/);
+  assert.match(generatedSource, /public static double inverse\(double value\)/);
+  assert.match(generatedSource, /System\.Math\.Acos\(value\) \+ System\.Math\.Asin\(value\) \+ System\.Math\.Atan\(value\) \+ System\.Math\.Atan2\(value, 2\)/);
+  assert.match(generatedSource, /public static double logs\(double value\)/);
+  assert.match(generatedSource, /System\.Math\.Exp\(value\) \+ System\.Math\.Log\(value\) \+ System\.Math\.Log10\(value\) \+ System\.Math\.Log2\(value\)/);
+  assert.match(generatedSource, /public static double hyperbolic\(double value\)/);
+  assert.match(generatedSource, /System\.Math\.Sinh\(value\) \+ System\.Math\.Cosh\(value\) \+ System\.Math\.Tanh\(value\)/);
   assert.doesNotMatch(generatedSource, /return Math\./);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardMathCalls.csproj"), "--nologo", "--v:minimal"]);
