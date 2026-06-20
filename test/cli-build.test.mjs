@@ -3677,6 +3677,11 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return first + second;",
       "}",
       "",
+      "export function destructRest(values: int32[]): int32[] {",
+      "  const [first, ...rest] = values;",
+      "  return rest;",
+      "}",
+      "",
       "export function append(values: int32[], value: int32): int32[] {",
       "  return [...values, value];",
       "}",
@@ -3707,6 +3712,9 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static int destructDefault\(int\[\] values\)/);
   assert.match(generatedSource, /int first = (__destructure\d+)\.Length > 0 \? \1\[0\] : 1;/);
   assert.match(generatedSource, /int second = (__destructure\d+)\.Length > 1 \? \1\[1\] : 2;/);
+  assert.match(generatedSource, /public static int\[\] destructRest\(int\[\] values\)/);
+  assert.match(generatedSource, /int\[\] rest = System\.Linq\.Enumerable\.ToArray\(System\.Linq\.Enumerable\.Skip\((__destructure\d+), 1\)\);/);
+  assert.match(generatedSource, /return rest;/);
   assert.match(generatedSource, /public static int\[\] append\(int\[\] values, int value\)/);
   assert.match(generatedSource, /return System\.Linq\.Enumerable\.ToArray\(System\.Linq\.Enumerable\.Concat\(values, new int\[\] \{ value \}\)\);/);
   assert.match(generatedSource, /public static int\[\] prepend\(int\[\] values, int value\)/);
