@@ -15,12 +15,16 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TSGO_BIN="$REPO_ROOT/node_modules/.bin/tsgo"
+CONFIG_DIR="$(dirname "$CONFIG_PATH")"
 
 if [[ ! -x "$TSGO_BIN" ]]; then
   echo "FAIL: TS-Go v7 compiler is missing: $TSGO_BIN" >&2
   echo "Run npm install in the repo root." >&2
   exit 1
 fi
+
+rm -rf "$CONFIG_DIR/dist"
+find "$CONFIG_DIR" -maxdepth 1 -name '*.tsbuildinfo' -type f -delete
 
 cd "$REPO_ROOT"
 exec "$TSGO_BIN" -p "$CONFIG_PATH" "$@"
