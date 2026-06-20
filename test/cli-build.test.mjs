@@ -4147,6 +4147,11 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
       "  return { value, label: \"ok\" };",
       "}",
       "",
+      "export function fromLocal(input: { value: number; label: string }): number {",
+      "  const { value } = input;",
+      "  return value;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -4161,10 +4166,37 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
   assert.match(generatedSource, /double value = __param0\.value;/);
   assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ create\(double value\)/);
   assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = "ok",\s*\};/);
+  assert.match(generatedSource, /public static double fromLocal\(__TsonicShape_[A-Za-z0-9_]+ input\)/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __destructure\d+ = input;/);
+  assert.match(generatedSource, /double value = __destructure\d+\.value;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapes.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects object rest destructuring until rest binding object-shape facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "object-rest-destructuring");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function restLabel(input: { value: number; label: string; active: boolean }): string {",
+      "  const { value, ...rest } = input;",
+      "  return rest.label;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Object rest destructuring requires finalized provider object-shape facts for the rest binding/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI emits object-shape spread from finalized provider object-shape facts", async () => {
