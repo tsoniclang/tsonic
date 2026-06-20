@@ -3714,8 +3714,46 @@ test("CLI emits string for-of from provider code-point iteration facts", async (
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects primitive generic constraints until provider constraint facts are finalized", async () => {
+test("CLI emits primitive generic constraints from provider facts", async () => {
   const projectDirectory = resolve(tempRoot, "primitive-generic-constraints");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedPrimitiveGenericConstraints",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function constrained<T extends number>(value: T): T {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static T constrained<T>\(T value\)/);
+  assert.match(generatedSource, /where T : System\.Numerics\.INumber<T>/);
+  assert.match(generatedSource, /return value;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedPrimitiveGenericConstraints.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects unsupported primitive generic constraints without provider facts", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-primitive-generic-constraints");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -3724,7 +3762,7 @@ test("CLI rejects primitive generic constraints until provider constraint facts 
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "export function constrained<T extends number>(value: T): T {",
+      "export function constrained<T extends string>(value: T): T {",
       "  return value;",
       "}",
       "",

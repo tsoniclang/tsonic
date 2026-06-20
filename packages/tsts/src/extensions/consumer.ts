@@ -19,6 +19,7 @@ import {
   targetBindingFactKey,
   targetIterationFactKey,
   targetOperationFactKey,
+  targetTypeParameterConstraintFactKey,
   valueTypeFactKey,
 } from "./facts.js";
 import type {
@@ -42,6 +43,7 @@ import type {
   TargetBindingFact,
   TargetIterationFact,
   TargetOperationFact,
+  TargetTypeParameterConstraintFact,
   ValueTypeFact,
 } from "./facts.js";
 import type { ExtensionFactEntry, ExtensionFactKey, ExtensionFactSubject, ExtensionHost, ProviderVirtualDeclarationDocument } from "./host.js";
@@ -97,6 +99,18 @@ export class ExtensionConsumerQueries {
 
   mustTargetBindingFact(subject: ExtensionFactSubject, purpose?: string): TargetBindingFact {
     return this.mustFact(subject, targetBindingFactKey, purpose);
+  }
+
+  getTargetTypeParameterConstraintFact(subject: ExtensionFactSubject | undefined): TargetTypeParameterConstraintFact | undefined {
+    return this.getFact(subject, targetTypeParameterConstraintFactKey);
+  }
+
+  requireTargetTypeParameterConstraintFact(subject: ExtensionFactSubject, purpose?: string): TargetTypeParameterConstraintFact | undefined {
+    return this.requireFact(subject, targetTypeParameterConstraintFactKey, purpose);
+  }
+
+  mustTargetTypeParameterConstraintFact(subject: ExtensionFactSubject, purpose?: string): TargetTypeParameterConstraintFact {
+    return this.mustFact(subject, targetTypeParameterConstraintFactKey, purpose);
   }
 
   getSelectedTargetCall(subject: ExtensionFactSubject | undefined): SelectedTargetSignatureFact | undefined {

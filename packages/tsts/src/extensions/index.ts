@@ -66,6 +66,7 @@ export {
   targetBindingFactKey,
   targetIterationFactKey,
   targetOperationFactKey,
+  targetTypeParameterConstraintFactKey,
   valueTypeFactKey,
 } from "./facts.js";
 
@@ -193,6 +194,7 @@ export type {
   TargetOperationFact,
   TargetParameter,
   TargetTypeParameter,
+  TargetTypeParameterConstraintFact,
   TargetTypeRef,
   ValueTypeFact,
 } from "./facts.js";

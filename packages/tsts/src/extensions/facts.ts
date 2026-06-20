@@ -143,6 +143,10 @@ export interface TargetTypeParameter {
   readonly variance?: "in" | "out" | "invariant" | "target-defined";
 }
 
+export interface TargetTypeParameterConstraintFact {
+  readonly constraints: readonly TargetConstraint[];
+}
+
 export interface TargetParameter {
   readonly name: string;
   readonly type: TargetTypeRef;
@@ -348,6 +352,12 @@ export const targetBindingFactKey = defineExtensionFactKey<TargetBindingFact>({
   extensionId: "tsts.target-bindings",
   name: "targetBinding",
   equals: targetBindingFactEquals,
+});
+
+export const targetTypeParameterConstraintFactKey = defineExtensionFactKey<TargetTypeParameterConstraintFact>({
+  extensionId: "tsts.target-bindings",
+  name: "targetTypeParameterConstraint",
+  equals: (left, right) => targetConstraintArrayEquals(left.constraints, right.constraints),
 });
 
 export const instantiatedTargetTypeFactKey = defineExtensionFactKey<InstantiatedTargetTypeFact>({
