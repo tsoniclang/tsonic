@@ -3429,6 +3429,36 @@ test("CLI emits generic interface object literals through specialized provider a
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits source-owned object initializers with identifier-compatible string property names", async () => {
+  const projectDirectory = resolve(tempRoot, "source-object-string-initializers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Box {",
+      "  value: number = 0;",
+      "}",
+      "",
+      "export function create(): Box {",
+      "  return { \"value\": 42 };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generated = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generated, /public static Box create\(\)[\s\S]*return new Box[\s\S]*value = 42,/);
+  assert.doesNotMatch(generated, /unsupported|invalid/i);
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects class object literals when parameterless construction is unavailable", async () => {
   const projectDirectory = resolve(tempRoot, "required-constructor-object-initializers");
   await writeProject(projectDirectory, {
