@@ -4704,12 +4704,12 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.toString();",
       "}",
       "",
-      "export function has(value: string, needle: string): boolean {",
-      "  return value.includes(needle);",
+      "export function has(value: string, needle: string, start: int32): boolean {",
+      "  return value.includes(needle, start);",
       "}",
       "",
-      "export function bounds(value: string, prefix: string, suffix: string): boolean {",
-      "  return value.startsWith(prefix) && value.endsWith(suffix);",
+      "export function bounds(value: string, prefix: string, suffix: string, start: int32, end: int32): boolean {",
+      "  return value.startsWith(prefix, start) && value.endsWith(suffix, end);",
       "}",
       "",
       "export function position(value: string, needle: string, start: int32): int32 {",
@@ -4801,12 +4801,12 @@ test("CLI emits string instance calls from selected target signature facts", asy
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string text\(string value\)/);
   assert.match(generatedSource, /return value\.ToString\(\);/);
-  assert.match(generatedSource, /public static bool has\(string value, string needle\)/);
-  assert.match(generatedSource, /return value\.Contains\(needle\);/);
-  assert.match(generatedSource, /public static bool bounds\(string value, string prefix, string suffix\)/);
-  assert.match(generatedSource, /return value\.StartsWith\(prefix\) && value\.EndsWith\(suffix\);/);
+  assert.match(generatedSource, /public static bool has\(string value, string needle, int start\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.includes\(value, needle, start\);/);
+  assert.match(generatedSource, /public static bool bounds\(string value, string prefix, string suffix, int start, int end\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.startsWith\(value, prefix, start\) && Tsonic\.CSharp\.Js\.String\.endsWith\(value, suffix, end\);/);
   assert.match(generatedSource, /public static int position\(string value, string needle, int start\)/);
-  assert.match(generatedSource, /return value\.IndexOf\(needle, start\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.indexOf\(value, needle, start\);/);
   assert.match(generatedSource, /public static int lastPosition\(string value, string needle, int start\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.lastIndexOf\(value, needle, start\);/);
   assert.match(generatedSource, /public static int lastPositionDefault\(string value, string needle\)/);
