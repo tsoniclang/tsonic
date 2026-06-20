@@ -226,6 +226,7 @@ export interface RuntimeCarrierFact {
 export interface ObjectShapeMemberFact {
   readonly sourceName: string;
   readonly targetName: string;
+  readonly memberKind: "property" | "method";
   readonly type: TargetTypeRef;
   readonly optional?: boolean;
   readonly readonly?: boolean;
@@ -472,6 +473,7 @@ function objectShapeFactEquals(left: ObjectShapeFact, right: ObjectShapeFact): b
 function objectShapeMemberFactEquals(left: ObjectShapeMemberFact, right: ObjectShapeMemberFact): boolean {
   return left.sourceName === right.sourceName
     && left.targetName === right.targetName
+    && left.memberKind === right.memberKind
     && targetTypeRefEquals(left.type, right.type)
     && left.optional === right.optional
     && left.readonly === right.readonly;

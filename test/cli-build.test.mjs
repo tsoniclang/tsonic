@@ -3252,10 +3252,16 @@ test("CLI emits interface object literals through provider object-shape adapters
     "src/index.ts": [
       "export interface Named {",
       "  name: string;",
+      "  run(value: number): number;",
       "}",
       "",
       "export function create(): Named {",
-      "  return { name: \"one\" };",
+      "  return {",
+      "    name: \"one\",",
+      "    run(value: number) {",
+      "      return value + 1;",
+      "    },",
+      "  };",
       "}",
       "",
     ].join("\n"),
@@ -3264,9 +3270,10 @@ test("CLI emits interface object literals through provider object-shape adapters
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
   const generated = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generated, /public interface Named[\s\S]*string name \{ get; \}/);
-  assert.match(generated, /public class __TsonicShape_Named_[A-Za-z0-9_]+ : Named[\s\S]*public string name[\s\S]*get;[\s\S]*set;/);
-  assert.match(generated, /public static Named create\(\)[\s\S]*return new __TsonicShape_Named_[A-Za-z0-9_]+[\s\S]*name = "one",/);
+  assert.match(generated, /public interface Named[\s\S]*string name \{ get; \}[\s\S]*double run\(double value\);/);
+  assert.match(generated, /public class __TsonicShape_Named_[A-Za-z0-9_]+ : Named[\s\S]*public string name[\s\S]*get;[\s\S]*set;[\s\S]*public Func<double, double> __tsonic_shape_method_1_run;/);
+  assert.match(generated, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_1_run\(arg0\);/);
+  assert.match(generated, /public static Named create\(\)[\s\S]*return new __TsonicShape_Named_[A-Za-z0-9_]+[\s\S]*name = "one",[\s\S]*__tsonic_shape_method_1_run = \(double value\) =>[\s\S]*return value \+ 1;/);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
@@ -3813,8 +3820,9 @@ test("CLI emits structural type-literal methods as delegate-backed object shapes
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public Func<double, double> run;/);
-  assert.match(generatedSource, /run = \(double value\) =>/);
+  assert.match(generatedSource, /public Func<double, double> __tsonic_shape_method_0_run;/);
+  assert.match(generatedSource, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_0_run\(arg0\);/);
+  assert.match(generatedSource, /__tsonic_shape_method_0_run = \(double value\) =>/);
   assert.match(generatedSource, /return value \+ 1;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
