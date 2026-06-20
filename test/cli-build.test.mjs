@@ -4667,6 +4667,39 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects string methods without exact provider-backed JS semantics", async () => {
+  const projectDirectory = resolve(tempRoot, "string-call-target-fact-rejections");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function replaced(value: string): string {",
+      "  return value.replace(\"a\", \"b\");",
+      "}",
+      "",
+      "export function codePoint(value: string, index: int32): number | undefined {",
+      "  return value.codePointAt(index);",
+      "}",
+      "",
+      "export function atOrEmpty(value: string, index: int32): string {",
+      "  return value.at(index) ?? \"\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI rejects non-source-owned constructors without selected target signature facts", async () => {
   const projectDirectory = resolve(tempRoot, "builtin-constructor-requires-target-facts");
   await writeProject(projectDirectory, {
