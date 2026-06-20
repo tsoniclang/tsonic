@@ -3686,6 +3686,49 @@ test("CLI emits void-expression statement and return lowering as discard evaluat
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits RegExp literals through provider-backed JS runtime carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "regexp-literal-carrier");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedRegExpLiteralCarrier",
+            references: {
+              projects: [
+                resolve(repoRoot, "../csharp-js/src/Tsonic.CSharp.Js/Tsonic.CSharp.Js.csproj"),
+              ],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function matches(input: string): boolean {",
+      "  const expression = /abc/i;",
+      "  return expression.test(input);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.RegExp expression = new Tsonic\.CSharp\.Js\.RegExp\("abc", "i"\);/);
+  assert.match(generatedSource, /return expression\.test\(input\);/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRegExpLiteralCarrier.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits string element access from selected provider index facts", async () => {
   const projectDirectory = resolve(tempRoot, "string-element-access");
   await writeProject(projectDirectory, {
