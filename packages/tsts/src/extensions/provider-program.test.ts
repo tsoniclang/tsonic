@@ -581,6 +581,7 @@ test("checker maps receiver-injected target parameters onto source arguments", (
         },
       ],
     },
+    argumentConversions: [{ kind: "target-named", id: "System.Int32" }],
   } satisfies SelectedTargetSignatureFact;
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
@@ -621,6 +622,9 @@ test("checker maps receiver-injected target parameters onto source arguments", (
   const argument = getFirstCallArgument(call);
   assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.mode, "byref-readonly");
   assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.targetExpression, argument);
+  const conversion = extended.extensionHost.facts.get(argument, targetConversionFactKey);
+  assert.equal(conversion?.convertedType?.kind, "target-named");
+  assert.equal(conversion?.convertedType?.kind === "target-named" ? conversion.convertedType.id : undefined, "System.Int32");
 });
 
 test("checker records provider-owned runtime carrier and argument conversion facts", () => {

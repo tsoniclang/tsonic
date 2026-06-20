@@ -782,7 +782,13 @@ function recordExtensionCallTypeArgumentInference(extensionHost: ExtensionHost, 
 }
 
 function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, callResult: ResolveCallResult, arguments_: readonly GoPtr<Node>[]): void {
-  if (extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveConversion) === undefined) {
+  const conversionOwner = extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveConversion);
+  if (conversionOwner === undefined) {
+    recordSelectedSignatureArgumentConversions(extensionHost, callResult, arguments_);
+    return;
+  }
+  const parameters = callResult.selectedSignature.member.parameters;
+  if (parameters.length === 0) {
     return;
   }
   for (let index = 0; index < arguments_.length; index++) {
@@ -811,6 +817,29 @@ function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, ca
       ...(result.value.convertedType !== undefined ? { convertedType: result.value.convertedType } : {}),
       ...(result.value.operation !== undefined ? { operation: result.value.operation } : {}),
     }, result.evidence ?? []);
+  }
+}
+
+function recordSelectedSignatureArgumentConversions(extensionHost: ExtensionHost, callResult: ResolveCallResult, arguments_: readonly GoPtr<Node>[]): void {
+  const conversions = callResult.selectedSignature.argumentConversions;
+  if (conversions === undefined) {
+    return;
+  }
+  for (let index = 0; index < arguments_.length; index++) {
+    const argument = arguments_[index];
+    const convertedType = conversions[index];
+    if (argument === undefined || convertedType === undefined) {
+      continue;
+    }
+    extensionHost.facts.set(argument, targetConversionFactKey, {
+      convertedType,
+    }, [{
+      message: "selected target signature argument conversion",
+      details: {
+        memberId: callResult.selectedSignature.member.id,
+        argumentIndex: index,
+      },
+    }]);
   }
 }
 
