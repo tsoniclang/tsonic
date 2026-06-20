@@ -129,6 +129,10 @@ test("provider-backed virtual modules participate in normal program binding", ()
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.parameters[0]?.type.kind, "type-parameter");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.parameters[0]?.passingMode, "by-value");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.returnType?.kind, "source-primitive");
+  const matrixSymbol = virtualModuleSymbol?.Exports?.get("Matrix");
+  const matrixReturnType = extended.extensionHost.facts.get(matrixSymbol, targetBindingFactKey)?.members?.[0]?.returnType;
+  assert.equal(matrixReturnType?.kind, "array");
+  assert.equal(matrixReturnType?.kind === "array" ? matrixReturnType.rank : undefined, 2);
 
   const call = findFirstNodeByKind(index, KindCallExpression);
   assert.equal(extended.extensionHost.facts.get(call, selectedTargetSignatureFactKey), undefined);
@@ -1885,6 +1889,25 @@ function dotnetProvider(
               parameters: [{ name: "value", type: { kind: "type-parameter", name: "T" }, passingMode: containsPassingMode }],
               returnType: { kind: "boolean" },
             }],
+          }],
+        }, {
+          id: "Matrix",
+          name: "Matrix",
+          kind: "class",
+          targetIdentity: {
+            target: "dotnet",
+            id: "Example.Matrix",
+            displayName: "Example.Matrix",
+          },
+          members: [{
+            id: "values",
+            name: "values",
+            kind: "property",
+            type: {
+              kind: "array",
+              elementType: { kind: "source-primitive", name: "int32" },
+              rank: 2,
+            },
           }],
         }],
       };

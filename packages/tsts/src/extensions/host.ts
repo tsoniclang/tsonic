@@ -228,7 +228,7 @@ export type ProviderTypeExpression =
   | { readonly kind: "type-parameter"; readonly name: string }
   | { readonly kind: "reference"; readonly name: string; readonly typeArguments?: readonly ProviderTypeExpression[] }
   | { readonly kind: "target-named"; readonly target: string; readonly id: string; readonly displayName?: string; readonly typeArguments?: readonly ProviderTypeExpression[]; readonly sourceShape?: ProviderTypeExpression }
-  | { readonly kind: "array"; readonly elementType: ProviderTypeExpression }
+  | { readonly kind: "array"; readonly elementType: ProviderTypeExpression; readonly rank?: number }
   | { readonly kind: "tuple"; readonly elementTypes: readonly ProviderTypeExpression[] }
   | { readonly kind: "union"; readonly types: readonly ProviderTypeExpression[] }
   | { readonly kind: "intersection"; readonly types: readonly ProviderTypeExpression[] }
@@ -1884,7 +1884,8 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
         && value.sourceShape !== undefined
         && isValidProviderTypeExpression(value.sourceShape);
     case "array":
-      return isValidProviderTypeExpression(value.elementType);
+      return isValidProviderTypeExpression(value.elementType)
+        && (value.rank === undefined || isValidProviderArrayRank(value.rank));
     case "tuple":
       return value.elementTypes.every(isValidProviderTypeExpression);
     case "union":
@@ -1901,6 +1902,10 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
         && value.sourceShape !== undefined
         && isValidProviderTypeExpression(value.sourceShape);
   }
+}
+
+function isValidProviderArrayRank(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 function isIdentifierText(text: string): boolean {

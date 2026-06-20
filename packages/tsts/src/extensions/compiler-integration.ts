@@ -307,7 +307,11 @@ function getTargetTypeRef(type: ProviderTypeExpression): TargetTypeRef {
         ...(type.typeArguments !== undefined ? { typeArguments: type.typeArguments.map(getTargetTypeRef) } : {}),
       };
     case "array":
-      return { kind: "array", element: getTargetTypeRef(type.elementType) };
+      return {
+        kind: "array",
+        element: getTargetTypeRef(type.elementType),
+        ...(type.rank !== undefined ? { rank: type.rank } : {}),
+      };
     case "tuple":
       return { kind: "tuple", elements: type.elementTypes.map(getTargetTypeRef) };
     case "function":
