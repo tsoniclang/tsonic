@@ -611,6 +611,14 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
       "  return typeof value !== \"string\";",
       "}",
       "",
+      "export function isNumber(value: number | null): boolean {",
+      "  return typeof value === \"number\";",
+      "}",
+      "",
+      "export function isBoolean(value: boolean | null): boolean {",
+      "  return typeof value === \"boolean\";",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -623,6 +631,10 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
   assert.match(generatedSource, /return value\.Length;/);
   assert.match(generatedSource, /public static bool isMissing\(string\? value\)/);
   assert.match(generatedSource, /return value is not string;/);
+  assert.match(generatedSource, /public static bool isNumber\(double\? value\)/);
+  assert.match(generatedSource, /return value is double;/);
+  assert.match(generatedSource, /public static bool isBoolean\(bool\? value\)/);
+  assert.match(generatedSource, /return value is bool;/);
   assert.doesNotMatch(generatedSource, /typeof/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
