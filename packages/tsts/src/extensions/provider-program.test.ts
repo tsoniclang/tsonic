@@ -127,6 +127,7 @@ test("provider-backed virtual modules participate in normal program binding", ()
   assert.equal(constraint?.kind === "implements" ? constraint.contract : undefined, "System.IEquatable`1");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.id, "Contains(T)");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.parameters[0]?.type.kind, "type-parameter");
+  assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.parameters[0]?.passingMode, "by-value");
   assert.equal(extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey)?.members?.[0]?.returnType?.kind, "source-primitive");
 
   const call = findFirstNodeByKind(index, KindCallExpression);
@@ -138,6 +139,53 @@ test("provider-backed virtual modules participate in normal program binding", ()
   assert.equal(consumer.getVirtualDeclaration(searchValuesSymbol)?.exportName, "SearchValues");
   assert.equal(consumer.getTargetBindingFact(searchValuesSymbol)?.id, "System.Buffers.SearchValues`1");
   assert.equal(consumer.getSelectedTargetCall(call), undefined);
+});
+
+test("provider virtual signatures preserve explicit parameter passing modes", () => {
+  let fs = FromMap(new Map<string, string>([
+    ["/src/index.ts", `
+      import { SearchValues } from "@example/dotnet/System.Buffers.js";
+
+      declare const values: SearchValues<number>;
+      values.Contains(1);
+    `],
+    ["/src/tsconfig.json", JSON.stringify({
+      compilerOptions: {
+        noLib: true,
+        module: "esnext",
+        moduleResolution: "bundler",
+      },
+      files: ["index.ts"],
+    })],
+  ]), false as bool);
+  fs = WrapFS(fs);
+
+  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
+  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
+  assert.equal((configErrors ?? []).length, 0);
+
+  const options = {
+    Config: parsed,
+    Host: host,
+  } satisfies ProgramOptions;
+  const extended = attachExtensionHost(options, {
+    activeTarget: "dotnet",
+    extensions: [providerExtension("@example/dotnet/System.Buffers.js", false, undefined, "byref-readonly")],
+  });
+
+  const program = NewProgram(options);
+  const index = Program_GetSourceFile(program, "/src/index.ts");
+  assert.ok(index !== undefined);
+  assertCleanProgram(program, index);
+
+  Program_BindSourceFiles(program);
+  const virtualFile = Program_GetSourceFile(program, "tsts-provider://dotnet/System.Buffers");
+  assert.ok(virtualFile !== undefined);
+  const searchValuesSymbol = Node_Symbol(virtualFile as never)?.Exports?.get("SearchValues");
+  assert.ok(searchValuesSymbol !== undefined);
+
+  const targetBinding = extended.extensionHost.facts.get(searchValuesSymbol, targetBindingFactKey);
+  assert.equal(targetBinding?.members?.[0]?.parameters[0]?.passingMode, "byref-readonly");
 });
 
 test("provider-backed virtual modules support alias and namespace import forms", () => {
@@ -1268,7 +1316,12 @@ test("configured provider-owned imports diagnose missing providers and do not fa
   assert.ok(!sourceFileNames.includes("/src/node_modules/@target/runtime.js"));
 });
 
-function providerExtension(specifier: string, reject = false, provider?: TargetSemanticProvider): CompilerExtension {
+function providerExtension(
+  specifier: string,
+  reject = false,
+  provider?: TargetSemanticProvider,
+  containsPassingMode: TargetMember["parameters"][number]["passingMode"] = "by-value",
+): CompilerExtension {
   return {
     identity: {
       id: "dotnet-provider-extension",
@@ -1276,7 +1329,7 @@ function providerExtension(specifier: string, reject = false, provider?: TargetS
       capabilityNamespace: "dotnet",
     },
     initialize(context): void {
-      context.registerTargetBindingProvider(dotnetProvider(specifier, reject));
+      context.registerTargetBindingProvider(dotnetProvider(specifier, reject, containsPassingMode));
       if (provider !== undefined) {
         assert.equal(context.registerTargetSemanticProvider(provider), true);
       }
@@ -1763,7 +1816,11 @@ function targetOperation(operationId: string, operationKind: TargetOperationFact
   };
 }
 
-function dotnetProvider(specifier: string, reject: boolean): TargetBindingProvider {
+function dotnetProvider(
+  specifier: string,
+  reject: boolean,
+  containsPassingMode: TargetMember["parameters"][number]["passingMode"],
+): TargetBindingProvider {
   const targetIdentity: TargetIdentity = {
     target: "dotnet",
     id: "System.Buffers.SearchValues`1",
@@ -1825,7 +1882,7 @@ function dotnetProvider(specifier: string, reject: boolean): TargetBindingProvid
             kind: "method",
             signatures: [{
               id: "Contains(T)",
-              parameters: [{ name: "value", type: { kind: "type-parameter", name: "T" } }],
+              parameters: [{ name: "value", type: { kind: "type-parameter", name: "T" }, passingMode: containsPassingMode }],
               returnType: { kind: "boolean" },
             }],
           }],

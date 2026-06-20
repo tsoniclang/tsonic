@@ -13,7 +13,7 @@ import type {
   ExtensionDecisionRunOptions,
 } from "./decisions.js";
 import { ExtensionDecisionQuestion } from "./decisions.js";
-import type { SourcePrimitiveKind } from "./facts.js";
+import type { ArgumentPassingMode, SourcePrimitiveKind } from "./facts.js";
 
 export interface ExtensionEvidence {
   readonly message: string;
@@ -239,6 +239,7 @@ export type ProviderTypeExpression =
 export interface ProviderParameterDeclaration {
   readonly name: string;
   readonly type: ProviderTypeExpression;
+  readonly passingMode?: ArgumentPassingMode;
   readonly optional?: boolean;
   readonly rest?: boolean;
 }
@@ -1834,7 +1835,24 @@ function isValidProviderSignatureDeclaration(value: ProviderSignatureDeclaration
 }
 
 function isValidProviderParameterDeclaration(value: ProviderParameterDeclaration): boolean {
-  return isIdentifierText(value.name) && isValidProviderTypeExpression(value.type);
+  return isIdentifierText(value.name)
+    && isValidProviderTypeExpression(value.type)
+    && (value.passingMode === undefined || isValidArgumentPassingMode(value.passingMode));
+}
+
+function isValidArgumentPassingMode(value: unknown): value is ArgumentPassingMode {
+  switch (value) {
+    case "by-value":
+    case "byref-readonly":
+    case "byref-readwrite":
+    case "byref-writeonly-must-init":
+    case "borrow-shared":
+    case "borrow-mut":
+    case "move":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function isValidProviderTypeParameterDeclaration(value: ProviderTypeParameterDeclaration): boolean {
