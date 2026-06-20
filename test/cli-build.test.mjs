@@ -884,6 +884,56 @@ test("CLI emits C# argument passing from neutral storage facts and C# aliases", 
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
+test("CLI emits C# pointer and function-pointer types from source marker facts", async () => {
+  const projectDirectory = resolve(tempRoot, "pointer-function-pointer-types");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedPointers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import type { ptr, fnptr } from \"@tsonic/csharp/lang.js\";",
+      "",
+      "export class NativeSlots {",
+      "  current: ptr<int32>;",
+      "  callback: fnptr<[int32], int32>;",
+      "",
+      "  constructor(current: ptr<int32>, callback: fnptr<[int32], int32>) {",
+      "    this.current = current;",
+      "    this.callback = callback;",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedPointers.csproj"), "utf8");
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedProject, /<AllowUnsafeBlocks>true<\/AllowUnsafeBlocks>/);
+  assert.match(generatedSource, /public unsafe class NativeSlots/);
+  assert.match(generatedSource, /public int\* current;/);
+  assert.match(generatedSource, /public delegate\*<int, int> callback;/);
+  assert.match(generatedSource, /public NativeSlots\(int\* current, delegate\*<int, int> callback\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedPointers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits C# string literals and template expressions from TSTS AST", async () => {
   const projectDirectory = resolve(tempRoot, "template-expressions");
   await writeProject(projectDirectory, {
