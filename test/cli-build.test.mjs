@@ -3921,26 +3921,26 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "",
       "export function sumEach(values: int32[]): int32 {",
       "  let total: int32 = 0;",
-      "  values.forEach((value: int32) => {",
-      "    total += value;",
+      "  values.forEach((value: int32, index: int32, source: int32[]) => {",
+      "    total += value + index + source.length;",
       "  });",
       "  return total;",
       "}",
       "",
       "export function hasPositive(values: int32[]): boolean {",
-      "  return values.some((value: int32) => value > 0);",
+      "  return values.some((value: int32, index: int32) => value > 0 && index > 0);",
       "}",
       "",
       "export function allPositive(values: int32[]): boolean {",
-      "  return values.every((value: int32) => value > 0);",
+      "  return values.every((value: int32, index: int32, source: int32[]) => source.length > index && value > 0);",
       "}",
       "",
       "export function firstPositiveIndex(values: int32[]): int32 {",
-      "  return values.findIndex((value: int32) => value > 0);",
+      "  return values.findIndex((value: int32, index: int32) => value > 0 && index > 0);",
       "}",
       "",
       "export function lastPositiveIndex(values: int32[]): int32 {",
-      "  return values.findLastIndex((value: int32) => value > 0);",
+      "  return values.findLastIndex((value: int32, index: int32, source: int32[]) => source.length > index && value > 0);",
       "}",
       "",
       "export function sliceAll(values: int32[]): int32[] {",
@@ -4009,16 +4009,16 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static int lastPositionOfFrom\(int\[\] values, int value, int start\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.LastIndexOf\(values, value, start\);/);
   assert.match(generatedSource, /public static int sumEach\(int\[\] values\)/);
-  assert.match(generatedSource, /System\.Array\.ForEach\(values, \(int value\) =>/);
-  assert.match(generatedSource, /total \+= value;/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.ArrayHelpers\.ForEach\(values, \(int value, int index, int\[\] source\) =>/);
+  assert.match(generatedSource, /total \+= value \+ index \+ source\.Length;/);
   assert.match(generatedSource, /public static bool hasPositive\(int\[\] values\)/);
-  assert.match(generatedSource, /return System\.Linq\.Enumerable\.Any\(values, \(int value\) => value > 0\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Some\(values, \(int value, int index\) => value > 0 && index > 0\);/);
   assert.match(generatedSource, /public static bool allPositive\(int\[\] values\)/);
-  assert.match(generatedSource, /return System\.Linq\.Enumerable\.All\(values, \(int value\) => value > 0\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Every\(values, \(int value, int index, int\[\] source\) => source\.Length > index && value > 0\);/);
   assert.match(generatedSource, /public static int firstPositiveIndex\(int\[\] values\)/);
-  assert.match(generatedSource, /return System\.Array\.FindIndex\(values, \(int value\) => value > 0\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.FindIndex\(values, \(int value, int index\) => value > 0 && index > 0\);/);
   assert.match(generatedSource, /public static int lastPositiveIndex\(int\[\] values\)/);
-  assert.match(generatedSource, /return System\.Array\.FindLastIndex\(values, \(int value\) => value > 0\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.FindLastIndex\(values, \(int value, int index, int\[\] source\) => source\.Length > index && value > 0\);/);
   assert.match(generatedSource, /public static int\[\] sliceAll\(int\[\] values\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\(values\);/);
   assert.match(generatedSource, /public static int\[\] sliceFrom\(int\[\] values, int start\)/);
@@ -4077,28 +4077,51 @@ test("CLI rejects fixed CLR array mutators without JSArray carrier facts", async
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI rejects array callbacks that require unmodeled callback-arity adapters", async () => {
-  const projectDirectory = resolve(tempRoot, "array-callback-arity-rejection");
+test("CLI emits array callbacks with JS callback arities from provider facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-callback-arity-helpers");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
       outDir: "out",
-      targets: [{ id: "csharp" }],
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArrayCallbacks",
+            references: {
+              projects: [
+                resolve(repoRoot, "../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"),
+              ],
+            },
+          },
+        },
+      ],
     }, null, 2),
     "src/index.ts": [
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
       "export function hasIndexedPositive(values: int32[]): boolean {",
-      "  return values.some((value: int32, index: number) => value > 0 && index > 0);",
+      "  return values.some((value: int32, index: int32) => value > 0 && index > 0);",
+      "}",
+      "",
+      "export function allFromSource(values: int32[]): boolean {",
+      "  return values.every((value: int32, index: int32, source: int32[]) => source[index] === value);",
       "}",
       "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Some\(values, \(int value, int index\) => value > 0 && index > 0\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Every\(values, \(int value, int index, int\[\] source\) => source\[index\] == value\);/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayCallbacks.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI emits void-expression statement and return lowering as discard evaluation", async () => {
