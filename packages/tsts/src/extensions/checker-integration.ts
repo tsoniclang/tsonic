@@ -15,6 +15,7 @@ import { SymbolFlagsAlias } from "../internal/ast/generated/flags.js";
 import { ExtensionDecisionQuestion } from "./decisions.js";
 import type { AssignabilityRequest, ContextualTypeRequest, ContextualTypeResult, InferTypeArgumentsRequest, InferTypeArgumentsResult, ParameterModeRequest, ParameterModeResult, ResolveCallRequest, ResolveCallResult, ResolveConversionRequest, ResolveConversionResult, ResolveElementAccessRequest, ResolveIterationRequest, ResolveOperationResult, ResolveOperatorRequest, ResolvePropertyAccessRequest, RuntimeCarrierRequest, RuntimeCarrierResult, SatisfiesConstraintRequest, ValidateFlowUseRequest, ValidateFlowUseResult } from "./decisions.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetIterationFactKey, targetOperationFactKey } from "./facts.js";
+import type { RuntimeCarrierFact } from "./facts.js";
 import type { ExtensionEvidence, ExtensionFactKey, ExtensionFactSubject, ExtensionHost } from "./host.js";
 import { getExtensionHost } from "./host.js";
 
@@ -86,8 +87,38 @@ export function recordExtensionCallResolution(checker: GoPtr<CheckerWithProgram>
   const arguments_ = Node_Arguments(callExpression) ?? [];
   const selectedSignature = recordExtensionCallTypeArgumentInference(extensionHost, callee, result.value, arguments_);
   extensionHost.facts.set(callExpression, selectedTargetSignatureFactKey, selectedSignature, result.evidence ?? []);
+  recordExtensionCallReturnCarrier(extensionHost, callExpression, result.value, result.evidence ?? []);
   recordExtensionCallParameterModes(extensionHost, { ...result.value, selectedSignature }, arguments_);
   recordExtensionCallArgumentConversions(extensionHost, { ...result.value, selectedSignature }, arguments_);
+}
+
+function recordExtensionCallReturnCarrier(
+  extensionHost: ExtensionHost,
+  callExpression: Node,
+  callResult: ResolveCallResult,
+  evidence: readonly ExtensionEvidence[],
+): void {
+  if (callResult.returnType === undefined) {
+    return;
+  }
+  const inlineCarrier = asRuntimeCarrierFact(callResult.returnType);
+  if (inlineCarrier !== undefined) {
+    extensionHost.facts.set(callExpression, runtimeCarrierFactKey, inlineCarrier, evidence);
+    return;
+  }
+  const carrier = extensionHost.facts.get(callResult.returnType, runtimeCarrierFactKey) ??
+    extensionHost.factResolver.resolve(callResult.returnType, runtimeCarrierFactKey);
+  if (carrier !== undefined) {
+    extensionHost.facts.set(callExpression, runtimeCarrierFactKey, carrier, evidence);
+  }
+}
+
+function asRuntimeCarrierFact(subject: ExtensionFactSubject): RuntimeCarrierFact | undefined {
+  const candidate = subject as Partial<RuntimeCarrierFact>;
+  return candidate.carrier === undefined ? undefined : {
+    carrier: candidate.carrier,
+    ...(candidate.requiresAllocation === undefined ? {} : { requiresAllocation: candidate.requiresAllocation }),
+  };
 }
 
 export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWithProgram>, propertyAccessExpression: GoPtr<Node>, receiverType: GoPtr<Type>): void {

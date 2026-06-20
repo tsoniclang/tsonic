@@ -4558,6 +4558,11 @@ test("CLI emits string instance calls from selected target signature facts", asy
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedStringCalls",
+            references: {
+              projects: [
+                resolve(repoRoot, "../csharp-js/src/Tsonic.CSharp.Js/Tsonic.CSharp.Js.csproj"),
+              ],
+            },
           },
         },
       ],
@@ -4593,6 +4598,34 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.concat(left, right);",
       "}",
       "",
+      "export function parts(value: string, start: int32, end: int32): string {",
+      "  return value.substring(start, end) + value.slice(start, end) + value.substr(start, end);",
+      "}",
+      "",
+      "export function padded(value: string, width: int32): string {",
+      "  return value.padStart(width, \"0\").padEnd(width + 1, \"_\");",
+      "}",
+      "",
+      "export function repeated(value: string, count: int32): string {",
+      "  return value.repeat(count);",
+      "}",
+      "",
+      "export function character(value: string, index: int32): string {",
+      "  return value.charAt(index);",
+      "}",
+      "",
+      "export function code(value: string, index: int32): int32 {",
+      "  return value.charCodeAt(index);",
+      "}",
+      "",
+      "export function splitParts(value: string, separator: string, limit: int32): string[] {",
+      "  return value.split(separator, limit);",
+      "}",
+      "",
+      "export function primitive(value: string): string {",
+      "  return value.valueOf();",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -4614,6 +4647,20 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return value\.TrimStart\(\)\.TrimEnd\(\);/);
   assert.match(generatedSource, /public static string glue\(string value, string left, string right\)/);
   assert.match(generatedSource, /return string\.Concat\(value, left, right\);/);
+  assert.match(generatedSource, /public static string parts\(string value, int start, int end\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.substring\(value, start, end\) \+ Tsonic\.CSharp\.Js\.String\.slice\(value, start, end\) \+ Tsonic\.CSharp\.Js\.String\.substr\(value, start, end\);/);
+  assert.match(generatedSource, /public static string padded\(string value, int width\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.padEnd\(Tsonic\.CSharp\.Js\.String\.padStart\(value, width, "0"\), width \+ 1, "_"\);/);
+  assert.match(generatedSource, /public static string repeated\(string value, int count\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.repeat\(value, count\);/);
+  assert.match(generatedSource, /public static string character\(string value, int index\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.charAt\(value, index\);/);
+  assert.match(generatedSource, /public static int code\(string value, int index\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.charCodeAt\(value, index\);/);
+  assert.match(generatedSource, /public static string\[\] splitParts\(string value, string separator, int limit\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.split\(value, separator, limit\);/);
+  assert.match(generatedSource, /public static string primitive\(string value\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.valueOf\(value\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStringCalls.csproj"), "--nologo", "--v:minimal"]);
