@@ -611,6 +611,14 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
       "  return typeof value !== \"string\";",
       "}",
       "",
+      "export function isNumber(value: number | null): boolean {",
+      "  return typeof value === \"number\";",
+      "}",
+      "",
+      "export function isBoolean(value: boolean | null): boolean {",
+      "  return typeof value === \"boolean\";",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -623,6 +631,10 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
   assert.match(generatedSource, /return value\.Length;/);
   assert.match(generatedSource, /public static bool isMissing\(string\? value\)/);
   assert.match(generatedSource, /return value is not string;/);
+  assert.match(generatedSource, /public static bool isNumber\(double\? value\)/);
+  assert.match(generatedSource, /return value is double;/);
+  assert.match(generatedSource, /public static bool isBoolean\(bool\? value\)/);
+  assert.match(generatedSource, /return value is bool;/);
   assert.doesNotMatch(generatedSource, /typeof/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -3149,6 +3161,8 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
       ],
     }, null, 2),
     "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
       "export class Box {",
       "  value: number = 1;",
       "  read(): number {",
@@ -3164,6 +3178,10 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
       "  return box?.read() ?? defaultValue;",
       "}",
       "",
+      "export function readElement(values: number[] | null, index: int32, defaultValue: number): number {",
+      "  return values?.[index] ?? defaultValue;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -3173,6 +3191,8 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return box\?\.value \?\? defaultValue;/);
   assert.match(generatedSource, /return box\?\.read\(\) \?\? defaultValue;/);
+  assert.match(generatedSource, /public static double readElement\(double\[\]\? values, int index, double defaultValue\)/);
+  assert.match(generatedSource, /return values\?\[index\] \?\? defaultValue;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOptionalChain.csproj"), "--nologo", "--v:minimal"]);
@@ -3205,8 +3225,16 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
       "  return flag ? 1.5 : null;",
       "}",
       "",
+      "export function maybeBoolean(flag: boolean): boolean | null {",
+      "  return flag ? true : null;",
+      "}",
+      "",
       "export function maybeBox(flag: boolean, box: Box): Box | null {",
       "  return flag ? box : null;",
+      "}",
+      "",
+      "export function readBoolean(value: boolean | null, fallback: boolean): boolean {",
+      "  return value ?? fallback;",
       "}",
       "",
       "export function read(box: Box | null, defaultValue: number): number {",
@@ -3222,7 +3250,11 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
   assert.match(generatedSource, /return flag \? 1\.5 : null;/);
+  assert.match(generatedSource, /public static bool\? maybeBoolean\(bool flag\)/);
+  assert.match(generatedSource, /return flag \? true : null;/);
   assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);
+  assert.match(generatedSource, /public static bool readBoolean\(bool\? value, bool fallback\)/);
+  assert.match(generatedSource, /return value \?\? fallback;/);
   assert.match(generatedSource, /public static double read\(Box\? box, double defaultValue\)/);
   assert.match(generatedSource, /return box\?\.value \?\? defaultValue;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -3429,6 +3461,36 @@ test("CLI emits generic interface object literals through specialized provider a
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits source-owned object initializers with identifier-compatible string property names", async () => {
+  const projectDirectory = resolve(tempRoot, "source-object-string-initializers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Box {",
+      "  value: number = 0;",
+      "}",
+      "",
+      "export function create(): Box {",
+      "  return { \"value\": 42 };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generated = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generated, /public static Box create\(\)[\s\S]*return new Box[\s\S]*value = 42,/);
+  assert.doesNotMatch(generated, /unsupported|invalid/i);
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects class object literals when parameterless construction is unavailable", async () => {
   const projectDirectory = resolve(tempRoot, "required-constructor-object-initializers");
   await writeProject(projectDirectory, {
@@ -3631,6 +3693,103 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return first \+ second;/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySurfaceOperations.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits void-expression statement and return lowering as discard evaluation", async () => {
+  const projectDirectory = resolve(tempRoot, "void-expression-discard");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedVoidExpressionDiscard",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function bump(value: int32): int32 {",
+      "  return value + 1;",
+      "}",
+      "",
+      "export function discardCall(value: int32): void {",
+      "  void bump(value);",
+      "}",
+      "",
+      "export function returnDiscard(value: int32): void {",
+      "  return void bump(value);",
+      "}",
+      "",
+      "export function discardLiteral(): void {",
+      "  void 0;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static void discardCall\(int value\)[\s\S]*bump\(value\);/);
+  assert.match(generatedSource, /public static void returnDiscard\(int value\)[\s\S]*bump\(value\);[\s\S]*return;/);
+  assert.match(generatedSource, /public static void discardLiteral\(\)[\s\S]*_ = 0;/);
+  assert.doesNotMatch(generatedSource, /return bump\(value\);/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedVoidExpressionDiscard.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits RegExp literals through provider-backed JS runtime carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "regexp-literal-carrier");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedRegExpLiteralCarrier",
+            references: {
+              projects: [
+                resolve(repoRoot, "../csharp-js/src/Tsonic.CSharp.Js/Tsonic.CSharp.Js.csproj"),
+              ],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function matches(input: string): boolean {",
+      "  const expression = /abc/i;",
+      "  const constructed = new RegExp(\"xyz\", \"g\");",
+      "  return expression.test(input) || constructed.test(input);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.RegExp expression = new Tsonic\.CSharp\.Js\.RegExp\("abc", "i"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.RegExp constructed = new Tsonic\.CSharp\.Js\.RegExp\("xyz", "g"\);/);
+  assert.match(generatedSource, /return expression\.test\(input\) \|\| constructed\.test\(input\);/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRegExpLiteralCarrier.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 

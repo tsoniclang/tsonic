@@ -166,7 +166,7 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
   const argumentSymbol = isSymbolBearingExpression(argument)
     ? Checker_GetSymbolAtLocation(checker, argument)
     : undefined;
-  const resolvedArgumentSymbol = isSymbolBearingExpression(argument)
+  const resolvedArgumentSymbol = isResolvedSymbolBearingExpression(argument)
     ? Checker_getResolvedSymbol(checker, argument)
     : undefined;
   const argumentType = Checker_getTypeOfExpression(checker, argument);
@@ -200,6 +200,11 @@ function isSymbolBearingExpression(node: GoPtr<Node>): boolean {
   return node?.Kind === KindIdentifier ||
     node?.Kind === KindPropertyAccessExpression ||
     node?.Kind === KindElementAccessExpression;
+}
+
+function isResolvedSymbolBearingExpression(node: GoPtr<Node>): boolean {
+  return node?.Kind === KindIdentifier ||
+    node?.Kind === KindPropertyAccessExpression;
 }
 
 export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operatorToken: GoPtr<Node>, left: GoPtr<Node>, right: GoPtr<Node>): void {
@@ -348,7 +353,6 @@ function getOperatorOperandResolvedSymbol(checker: GoPtr<CheckerWithProgram>, op
   switch (operand?.Kind) {
     case KindIdentifier:
     case KindPropertyAccessExpression:
-    case KindElementAccessExpression:
       return Checker_getResolvedSymbol(checker, operand);
     default:
       return undefined;
@@ -403,7 +407,6 @@ function getCallReceiverResolvedSymbol(checker: GoPtr<CheckerWithProgram>, recei
   switch (receiver?.Kind) {
     case KindIdentifier:
     case KindPropertyAccessExpression:
-    case KindElementAccessExpression:
       return Checker_getResolvedSymbol(checker, receiver);
     default:
       return undefined;
@@ -425,7 +428,6 @@ function getCallArgumentResolvedSymbol(checker: GoPtr<CheckerWithProgram>, argum
   switch (argument?.Kind) {
     case KindIdentifier:
     case KindPropertyAccessExpression:
-    case KindElementAccessExpression:
       return Checker_getResolvedSymbol(checker, argument);
     default:
       return undefined;

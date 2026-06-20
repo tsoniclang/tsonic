@@ -5477,7 +5477,10 @@ export function Checker_checkIndexedAccess(receiver: GoPtr<Checker>, node: GoPtr
 export function Checker_checkElementAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type> {
   const exprType = Checker_checkExpression(receiver, Node_Expression(node));
   const nonOptionalType = Checker_getOptionalExpressionType(receiver, exprType, Node_Expression(node));
-  return Checker_propagateOptionalTypeMarker(receiver, Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node)), checkMode), node, nonOptionalType !== exprType);
+  const receiverType = Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node));
+  const result = Checker_checkElementAccessExpression(receiver, node, receiverType, checkMode);
+  recordExtensionElementAccessResolution(receiver, node, receiverType);
+  return Checker_propagateOptionalTypeMarker(receiver, result, node, nonOptionalType !== exprType);
 }
 
 /**
