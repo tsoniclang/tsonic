@@ -340,6 +340,29 @@ test("CLI emits provider-owned static C# properties from selected TSTS target fa
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects provider-owned identifiers outside selected target operations", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-identifier-value");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Environment } from \"@tsonic/csharp/lang.js\";",
+      "",
+      "export const environment = Environment;",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /(Provider-owned|Declaration\/provider) identifier 'Environment' requires a selected target operation or type-position usage before C# emission/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI emits provider-owned instance C# members from receiver type facts", async () => {
   const projectDirectory = resolve(tempRoot, "provider-instance-members");
   await writeProject(projectDirectory, {
