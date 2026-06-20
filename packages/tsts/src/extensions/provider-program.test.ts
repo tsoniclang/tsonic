@@ -559,6 +559,70 @@ test("checker records selected signature parameter modes without requiring a dup
   assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.targetExpression, argument);
 });
 
+test("checker maps receiver-injected target parameters onto source arguments", () => {
+  const selectedSignature = {
+    member: {
+      id: "ReceiverOps.Add(Box,System.Int32)",
+      sourceName: "add",
+      targetName: "Add",
+      kind: "method",
+      static: true,
+      receiverArgumentIndex: 0,
+      parameters: [
+        {
+          name: "receiver",
+          type: { kind: "target-named", id: "Example.Box" },
+          passingMode: "by-value",
+        },
+        {
+          name: "value",
+          type: { kind: "target-named", id: "System.Int32" },
+          passingMode: "byref-readonly",
+        },
+      ],
+    },
+  } satisfies SelectedTargetSignatureFact;
+  let fs = FromMap(new Map<string, string>([
+    ["/src/index.ts", `
+      declare const values: { add(value: number): void };
+      declare let value: number;
+      values.add(value);
+    `],
+    ["/src/tsconfig.json", JSON.stringify({
+      compilerOptions: {
+        noLib: true,
+        module: "esnext",
+        moduleResolution: "bundler",
+      },
+      files: ["index.ts"],
+    })],
+  ]), false as bool);
+  fs = WrapFS(fs);
+
+  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
+  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
+  assert.equal((configErrors ?? []).length, 0);
+
+  const options = {
+    Config: parsed,
+    Host: host,
+  } satisfies ProgramOptions;
+  const extended = attachExtensionHost(options, {
+    activeTarget: "dotnet",
+    extensions: [providerExtension("@example/dotnet/System.Console.js", false, semanticProvider(selectedSignature))],
+  });
+
+  const program = NewProgram(options);
+  const index = Program_GetSourceFile(program, "/src/index.ts");
+  assert.ok(index !== undefined);
+  assertCleanProgram(program, index);
+
+  const call = findFirstNodeByKind(index, KindCallExpression);
+  const argument = getFirstCallArgument(call);
+  assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.mode, "byref-readonly");
+  assert.equal(extended.extensionHost.facts.get(argument, argumentPassingFactKey)?.targetExpression, argument);
+});
+
 test("checker records provider-owned runtime carrier and argument conversion facts", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `

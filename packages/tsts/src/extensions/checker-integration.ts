@@ -714,9 +714,9 @@ export function recordExtensionFlowUseValidation(checker: GoPtr<CheckerWithProgr
 function recordExtensionCallParameterModes(extensionHost: ExtensionHost, callResult: ResolveCallResult, arguments_: readonly GoPtr<Node>[]): void {
   const parameterModeOwner = extensionHost.getDecisionOwner(ExtensionDecisionQuestion.getParameterMode);
   const parameters = callResult.selectedSignature.member.parameters;
-  for (let index = 0; index < parameters.length; index++) {
-    const parameter = parameters[index];
+  for (let index = 0; index < arguments_.length; index++) {
     const argument = arguments_[index];
+    const parameter = getSourceArgumentTargetParameter(callResult, index);
     if (parameter === undefined || argument === undefined) {
       continue;
     }
@@ -785,10 +785,9 @@ function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, ca
   if (extensionHost.getDecisionOwner(ExtensionDecisionQuestion.resolveConversion) === undefined) {
     return;
   }
-  const parameters = callResult.selectedSignature.member.parameters;
-  for (let index = 0; index < parameters.length; index++) {
-    const parameter = parameters[index];
+  for (let index = 0; index < arguments_.length; index++) {
     const argument = arguments_[index];
+    const parameter = getSourceArgumentTargetParameter(callResult, index);
     if (parameter === undefined || argument === undefined) {
       continue;
     }
@@ -813,6 +812,21 @@ function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, ca
       ...(result.value.operation !== undefined ? { operation: result.value.operation } : {}),
     }, result.evidence ?? []);
   }
+}
+
+function getSourceArgumentTargetParameter(
+  callResult: ResolveCallResult,
+  sourceArgumentIndex: number,
+): ResolveCallResult["selectedSignature"]["member"]["parameters"][number] | undefined {
+  const parameters = callResult.selectedSignature.member.parameters;
+  const receiverArgumentIndex = callResult.selectedSignature.member.receiverArgumentIndex;
+  if (receiverArgumentIndex === undefined) {
+    return parameters[sourceArgumentIndex];
+  }
+  const targetParameterIndex = sourceArgumentIndex < receiverArgumentIndex
+    ? sourceArgumentIndex
+    : sourceArgumentIndex + 1;
+  return parameters[targetParameterIndex];
 }
 
 function definedFactSubjects<T extends object>(subjects: readonly (T | undefined)[]): readonly ExtensionFactSubject[] {
