@@ -3741,7 +3741,8 @@ test("CLI emits RegExp literals through provider-backed JS runtime carriers", as
     "src/index.ts": [
       "export function matches(input: string): boolean {",
       "  const expression = /abc/i;",
-      "  return expression.test(input);",
+      "  const constructed = new RegExp(\"xyz\", \"g\");",
+      "  return expression.test(input) || constructed.test(input);",
       "}",
       "",
     ].join("\n"),
@@ -3752,7 +3753,8 @@ test("CLI emits RegExp literals through provider-backed JS runtime carriers", as
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.RegExp expression = new Tsonic\.CSharp\.Js\.RegExp\("abc", "i"\);/);
-  assert.match(generatedSource, /return expression\.test\(input\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.RegExp constructed = new Tsonic\.CSharp\.Js\.RegExp\("xyz", "g"\);/);
+  assert.match(generatedSource, /return expression\.test\(input\) \|\| constructed\.test\(input\);/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRegExpLiteralCarrier.csproj"), "--nologo", "--v:minimal"]);
