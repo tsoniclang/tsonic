@@ -4290,8 +4290,26 @@ test("CLI emits string instance calls from selected target signature facts", asy
       ],
     }, null, 2),
     "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
       "export function text(value: string): string {",
       "  return value.toString();",
+      "}",
+      "",
+      "export function has(value: string, needle: string): boolean {",
+      "  return value.includes(needle);",
+      "}",
+      "",
+      "export function bounds(value: string, prefix: string, suffix: string): boolean {",
+      "  return value.startsWith(prefix) && value.endsWith(suffix);",
+      "}",
+      "",
+      "export function position(value: string, needle: string, start: int32): int32 {",
+      "  return value.indexOf(needle, start);",
+      "}",
+      "",
+      "export function normalize(value: string): string {",
+      "  return value.trim().toLowerCase().toUpperCase();",
       "}",
       "",
     ].join("\n"),
@@ -4303,6 +4321,14 @@ test("CLI emits string instance calls from selected target signature facts", asy
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string text\(string value\)/);
   assert.match(generatedSource, /return value\.ToString\(\);/);
+  assert.match(generatedSource, /public static bool has\(string value, string needle\)/);
+  assert.match(generatedSource, /return value\.Contains\(needle\);/);
+  assert.match(generatedSource, /public static bool bounds\(string value, string prefix, string suffix\)/);
+  assert.match(generatedSource, /return value\.StartsWith\(prefix\) && value\.EndsWith\(suffix\);/);
+  assert.match(generatedSource, /public static int position\(string value, string needle, int start\)/);
+  assert.match(generatedSource, /return value\.IndexOf\(needle, start\);/);
+  assert.match(generatedSource, /public static string normalize\(string value\)/);
+  assert.match(generatedSource, /return value\.Trim\(\)\.ToLower\(\)\.ToUpper\(\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStringCalls.csproj"), "--nologo", "--v:minimal"]);
