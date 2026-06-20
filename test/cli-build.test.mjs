@@ -488,6 +488,12 @@ test("CLI emits provider-owned generic collection constructors from virtual targ
       "  return values[0] + values.count;",
       "}",
       "",
+      "export function replaceFirst(value: int32): int32 {",
+      "  const values = new List<int32>([1, 2, 3]);",
+      "  values[0] = value;",
+      "  return values[0];",
+      "}",
+      "",
       "export function searchInts(): boolean {",
       "  const values = new List<int32>([1, 2, 3]);",
       "  return values.contains(2) && values.indexOf(1) === 0;",
@@ -521,6 +527,9 @@ test("CLI emits provider-owned generic collection constructors from virtual targ
   assert.match(generatedSource, /values\.Add\(1\);/);
   assert.match(generatedSource, /values\.Add\(2\);/);
   assert.match(generatedSource, /return values\[0\] \+ values\.Count;/);
+  assert.match(generatedSource, /public static int replaceFirst\(int value\)/);
+  assert.match(generatedSource, /values\[0\] = value;/);
+  assert.match(generatedSource, /return values\[0\];/);
   assert.match(generatedSource, /public static bool searchInts\(\)/);
   assert.match(generatedSource, /return values\.Contains\(2\) && values\.IndexOf\(1\) == 0;/);
   assert.match(generatedSource, /public static int\[\] removeInts\(\)/);
@@ -3816,6 +3825,11 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values[index];",
       "}",
       "",
+      "export function assign(values: int32[], index: int32, value: int32): int32 {",
+      "  values[index] = value;",
+      "  return values[index];",
+      "}",
+      "",
       "export function count(values: int32[]): int32 {",
       "  return values.length;",
       "}",
@@ -3913,6 +3927,9 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static int first\(int\[\] values\)/);
   assert.match(generatedSource, /return values\[0\];/);
   assert.match(generatedSource, /public static int pick\(int\[\] values, int index\)/);
+  assert.match(generatedSource, /return values\[index\];/);
+  assert.match(generatedSource, /public static int assign\(int\[\] values, int index, int value\)/);
+  assert.match(generatedSource, /values\[index\] = value;/);
   assert.match(generatedSource, /return values\[index\];/);
   assert.match(generatedSource, /public static int count\(int\[\] values\)/);
   assert.match(generatedSource, /return values\.Length;/);
