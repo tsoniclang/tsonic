@@ -451,6 +451,54 @@ test("CLI emits provider-owned instance C# members from receiver type facts", as
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits provider-owned generic collection constructors from virtual target modules", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-generic-list-constructor");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderGenericList",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
+      "",
+      "export function makeInts(): List<int32> {",
+      "  return new List<int32>([1, 2, 3]);",
+      "}",
+      "",
+      "export function countInts(): int32 {",
+      "  const values = new List<int32>([1, 2, 3]);",
+      "  return values.count;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /System\.Collections\.Generic\.List<int> makeInts\(\)/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.List<int> values = new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
+  assert.match(generatedSource, /return values\.Count;/);
+  assert.doesNotMatch(generatedSource, /bindings\.json/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderGenericList.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits char16 string literals as C# char literals from expected TSTS type", async () => {
   const projectDirectory = resolve(tempRoot, "char16-literals");
   await writeProject(projectDirectory, {
