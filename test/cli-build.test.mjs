@@ -3667,6 +3667,14 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values.join(\"|\");",
       "}",
       "",
+      "export function has(values: int32[], value: int32): boolean {",
+      "  return values.includes(value);",
+      "}",
+      "",
+      "export function positionOf(values: int32[], value: int32): int32 {",
+      "  return values.indexOf(value);",
+      "}",
+      "",
       "export function destruct(values: int32[]): int32 {",
       "  const [first, second] = values;",
       "  return first + second;",
@@ -3705,6 +3713,10 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return values\.Length;/);
   assert.match(generatedSource, /public static string join\(int\[\] values\)/);
   assert.match(generatedSource, /return string\.Join\("\|", values\);/);
+  assert.match(generatedSource, /public static bool has\(int\[\] values, int value\)/);
+  assert.match(generatedSource, /return System\.Linq\.Enumerable\.Contains\(values, value\);/);
+  assert.match(generatedSource, /public static int positionOf\(int\[\] values, int value\)/);
+  assert.match(generatedSource, /return System\.Array\.IndexOf\(values, value\);/);
   assert.match(generatedSource, /public static int destruct\(int\[\] values\)/);
   assert.match(generatedSource, /int first = __destructure0\[0\];/);
   assert.match(generatedSource, /int second = __destructure0\[1\];/);
