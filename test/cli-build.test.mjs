@@ -2471,11 +2471,11 @@ test("CLI emits source-owned local object destructuring", async () => {
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /var __destructure0 = point;/);
+  assert.match(generatedSource, /Point __destructure0 = point;/);
   assert.match(generatedSource, /double x = __destructure0\.x;/);
   assert.match(generatedSource, /double aliasX = __destructure\d+\.x;/);
   assert.match(generatedSource, /double stringY = __destructure\d+\.y;/);
-  assert.match(generatedSource, /var __destructure\d+ = __destructure\d+\.child;/);
+  assert.match(generatedSource, /Point __destructure\d+ = __destructure\d+\.child;/);
   assert.match(generatedSource, /double nestedX = __destructure\d+\.x;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -2526,7 +2526,7 @@ test("CLI emits source-owned parameter and for-initializer object destructuring"
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double fromObjectParameter\(Point __param0\)/);
   assert.match(generatedSource, /double x = __param0\.x;/);
-  assert.match(generatedSource, /var __destructure0 = point;/);
+  assert.match(generatedSource, /Point __destructure0 = point;/);
   assert.match(generatedSource, /double x = __destructure0\.x;/);
   assert.match(generatedSource, /for \(; x < 2; \)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -3769,7 +3769,7 @@ test("CLI emits array for-in from provider enumeration facts", async () => {
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /var __forInTarget0 = values;/);
+  assert.match(generatedSource, /double\[\] __forInTarget0 = values;/);
   assert.match(generatedSource, /for \(int __forInIndex0 = 0; __forInIndex0 < __forInTarget0\.Length; __forInIndex0\+\+\)/);
   assert.match(generatedSource, /string key = __forInIndex0\.ToString\(System\.Globalization\.CultureInfo\.InvariantCulture\);/);
   assert.match(generatedSource, /total = total \+ key\.Length;/);
@@ -3815,7 +3815,7 @@ test("CLI emits object-shape for-in from finalized provider enumeration facts", 
   assert.match(generatedSource, /public class __TsonicShape_/);
   assert.match(generatedSource, /public double value;/);
   assert.match(generatedSource, /public string label;/);
-  assert.match(generatedSource, /var __forInTarget0 = values;/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __forInTarget0 = values;/);
   assert.match(generatedSource, /string\[\] __forInKeys0 = new string\[\] \{ "value", "label" \};/);
   assert.match(generatedSource, /for \(int __forInIndex0 = 0; __forInIndex0 < __forInKeys0\.Length; __forInIndex0\+\+\)/);
   assert.match(generatedSource, /string key = __forInKeys0\[__forInIndex0\];/);
