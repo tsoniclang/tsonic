@@ -3735,6 +3735,14 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values.lastIndexOf(value, start);",
       "}",
       "",
+      "export function sumEach(values: int32[]): int32 {",
+      "  let total: int32 = 0;",
+      "  values.forEach((value: int32) => {",
+      "    total += value;",
+      "  });",
+      "  return total;",
+      "}",
+      "",
       "export function destruct(values: int32[]): int32 {",
       "  const [first, second] = values;",
       "  return first + second;",
@@ -3783,6 +3791,9 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return System\.Array\.LastIndexOf\(values, value\);/);
   assert.match(generatedSource, /public static int lastPositionOfFrom\(int\[\] values, int value, int start\)/);
   assert.match(generatedSource, /return System\.Array\.LastIndexOf\(values, value, start\);/);
+  assert.match(generatedSource, /public static int sumEach\(int\[\] values\)/);
+  assert.match(generatedSource, /System\.Array\.ForEach\(values, \(int value\) =>/);
+  assert.match(generatedSource, /total \+= value;/);
   assert.match(generatedSource, /public static int destruct\(int\[\] values\)/);
   assert.match(generatedSource, /int first = __destructure0\[0\];/);
   assert.match(generatedSource, /int second = __destructure0\[1\];/);
