@@ -119,6 +119,8 @@ export interface ResolvePropertyAccessRequest {
 export interface ResolveElementAccessRequest {
   readonly expression: ExtensionFactSubject;
   readonly receiver: ExtensionFactSubject;
+  readonly receiverSymbol?: ExtensionFactSubject;
+  readonly resolvedReceiverSymbol?: ExtensionFactSubject;
   readonly receiverType?: ExtensionFactSubject;
   readonly argument: ExtensionFactSubject;
   readonly argumentSymbol?: ExtensionFactSubject;

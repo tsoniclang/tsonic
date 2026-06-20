@@ -1,7 +1,7 @@
 import type { bool } from "../go/scalars.js";
 import type { GoPtr } from "../go/compat.js";
 import type { Node } from "../internal/ast/ast.js";
-import { Node_Arguments, Node_Expression, Node_Text, Node_TypeArguments } from "../internal/ast/ast.js";
+import { Node_Arguments, Node_Expression, Node_Symbol, Node_Text, Node_TypeArguments } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import { Node_Name } from "../internal/ast/spine.js";
 import { AsElementAccessExpression, AsTypeOfExpression } from "../internal/ast/generated/casts.js";
@@ -113,8 +113,8 @@ export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWi
   }
   const receiverSymbol = getCallReceiverSymbol(checker, receiver);
   const resolvedReceiverSymbol = getCallReceiverResolvedSymbol(checker, receiver);
-  const propertySymbol = getPropertyAccessSymbol(checker, propertyAccessExpression);
-  const resolvedPropertySymbol = getPropertyAccessResolvedSymbol(checker, propertyAccessExpression);
+  const propertyNameNode = Node_Name(propertyAccessExpression);
+  const propertySymbol = Node_Symbol(propertyNameNode);
 
   const result = extensionHost.runDecision(
     ExtensionDecisionQuestion.resolvePropertyAccess,
@@ -125,7 +125,6 @@ export function recordExtensionPropertyAccessResolution(checker: GoPtr<CheckerWi
       ...(resolvedReceiverSymbol !== undefined && resolvedReceiverSymbol !== receiverSymbol ? { resolvedReceiverSymbol } : {}),
       ...(receiverType !== undefined ? { receiverType } : {}),
       ...(propertySymbol !== undefined ? { propertySymbol } : {}),
-      ...(resolvedPropertySymbol !== undefined && resolvedPropertySymbol !== propertySymbol ? { resolvedPropertySymbol } : {}),
       propertyName,
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
@@ -163,12 +162,10 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
   if (receiver === undefined || argument === undefined) {
     return;
   }
-  const argumentSymbol = isSymbolBearingExpression(argument)
-    ? Checker_GetSymbolAtLocation(checker, argument)
-    : undefined;
-  const resolvedArgumentSymbol = isResolvedSymbolBearingExpression(argument)
-    ? Checker_getResolvedSymbol(checker, argument)
-    : undefined;
+  const receiverSymbol = getCallReceiverSymbol(checker, receiver);
+  const resolvedReceiverSymbol = getCallReceiverResolvedSymbol(checker, receiver);
+  const argumentSymbol = getCallArgumentSymbol(checker, argument);
+  const resolvedArgumentSymbol = getCallArgumentResolvedSymbol(checker, argument);
   const argumentType = Checker_getTypeOfExpression(checker, argument);
 
   const result = extensionHost.runDecision(
@@ -176,6 +173,8 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
     {
       expression: elementAccessExpression,
       receiver,
+      ...(receiverSymbol !== undefined ? { receiverSymbol } : {}),
+      ...(resolvedReceiverSymbol !== undefined && resolvedReceiverSymbol !== receiverSymbol ? { resolvedReceiverSymbol } : {}),
       ...(receiverType !== undefined ? { receiverType } : {}),
       argument,
       ...(argumentSymbol !== undefined ? { argumentSymbol } : {}),
@@ -194,17 +193,6 @@ export function recordExtensionElementAccessResolution(checker: GoPtr<CheckerWit
   }
 
   extensionHost.facts.set(elementAccessExpression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
-}
-
-function isSymbolBearingExpression(node: GoPtr<Node>): boolean {
-  return node?.Kind === KindIdentifier ||
-    node?.Kind === KindPropertyAccessExpression ||
-    node?.Kind === KindElementAccessExpression;
-}
-
-function isResolvedSymbolBearingExpression(node: GoPtr<Node>): boolean {
-  return node?.Kind === KindIdentifier ||
-    node?.Kind === KindPropertyAccessExpression;
 }
 
 export function recordExtensionOperatorResolution(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operatorToken: GoPtr<Node>, left: GoPtr<Node>, right: GoPtr<Node>): void {
@@ -341,9 +329,10 @@ export function recordExtensionUnaryOperatorResolution(checker: GoPtr<CheckerWit
 function getOperatorOperandSymbol(checker: GoPtr<CheckerWithProgram>, operand: GoPtr<Node>): GoPtr<Symbol> {
   switch (operand?.Kind) {
     case KindIdentifier:
-    case KindPropertyAccessExpression:
     case KindElementAccessExpression:
       return Checker_GetSymbolAtLocation(checker, operand);
+    case KindPropertyAccessExpression:
+      return Node_Symbol(Node_Name(operand));
     default:
       return undefined;
   }
@@ -352,8 +341,9 @@ function getOperatorOperandSymbol(checker: GoPtr<CheckerWithProgram>, operand: G
 function getOperatorOperandResolvedSymbol(checker: GoPtr<CheckerWithProgram>, operand: GoPtr<Node>): GoPtr<Symbol> {
   switch (operand?.Kind) {
     case KindIdentifier:
-    case KindPropertyAccessExpression:
       return Checker_getResolvedSymbol(checker, operand);
+    case KindPropertyAccessExpression:
+      return Node_Symbol(Node_Name(operand));
     default:
       return undefined;
   }
@@ -380,9 +370,9 @@ function getCallCalleeSymbol(checker: GoPtr<CheckerWithProgram>, callee: GoPtr<N
 function getCallCalleeResolvedSymbol(checker: GoPtr<CheckerWithProgram>, callee: GoPtr<Node>): GoPtr<Symbol> {
   switch (callee?.Kind) {
     case KindIdentifier:
-    case KindPropertyAccessExpression:
-    case KindElementAccessExpression:
       return Checker_getResolvedSymbol(checker, callee);
+    case KindPropertyAccessExpression:
+      return Node_Symbol(Node_Name(callee));
     default:
       return undefined;
   }
@@ -395,9 +385,10 @@ function getPropertyAccessCallReceiver(callee: GoPtr<Node>): GoPtr<Node> {
 function getCallReceiverSymbol(checker: GoPtr<CheckerWithProgram>, receiver: GoPtr<Node>): GoPtr<Symbol> {
   switch (receiver?.Kind) {
     case KindIdentifier:
-    case KindPropertyAccessExpression:
     case KindElementAccessExpression:
       return Checker_GetSymbolAtLocation(checker, receiver);
+    case KindPropertyAccessExpression:
+      return Node_Symbol(Node_Name(receiver));
     default:
       return undefined;
   }
@@ -406,8 +397,9 @@ function getCallReceiverSymbol(checker: GoPtr<CheckerWithProgram>, receiver: GoP
 function getCallReceiverResolvedSymbol(checker: GoPtr<CheckerWithProgram>, receiver: GoPtr<Node>): GoPtr<Symbol> {
   switch (receiver?.Kind) {
     case KindIdentifier:
-    case KindPropertyAccessExpression:
       return Checker_getResolvedSymbol(checker, receiver);
+    case KindPropertyAccessExpression:
+      return Node_Symbol(Node_Name(receiver));
     default:
       return undefined;
   }
@@ -416,9 +408,10 @@ function getCallReceiverResolvedSymbol(checker: GoPtr<CheckerWithProgram>, recei
 function getCallArgumentSymbol(checker: GoPtr<CheckerWithProgram>, argument: GoPtr<Node>): GoPtr<Symbol> {
   switch (argument?.Kind) {
     case KindIdentifier:
-    case KindPropertyAccessExpression:
     case KindElementAccessExpression:
       return Checker_GetSymbolAtLocation(checker, argument);
+    case KindPropertyAccessExpression:
+      return Node_Symbol(Node_Name(argument));
     default:
       return undefined;
   }
@@ -427,23 +420,12 @@ function getCallArgumentSymbol(checker: GoPtr<CheckerWithProgram>, argument: GoP
 function getCallArgumentResolvedSymbol(checker: GoPtr<CheckerWithProgram>, argument: GoPtr<Node>): GoPtr<Symbol> {
   switch (argument?.Kind) {
     case KindIdentifier:
-    case KindPropertyAccessExpression:
       return Checker_getResolvedSymbol(checker, argument);
+    case KindPropertyAccessExpression:
+      return Node_Symbol(Node_Name(argument));
     default:
       return undefined;
   }
-}
-
-function getPropertyAccessSymbol(checker: GoPtr<CheckerWithProgram>, propertyAccessExpression: GoPtr<Node>): GoPtr<Symbol> {
-  return propertyAccessExpression?.Kind === KindPropertyAccessExpression
-    ? Checker_GetSymbolAtLocation(checker, propertyAccessExpression)
-    : undefined;
-}
-
-function getPropertyAccessResolvedSymbol(checker: GoPtr<CheckerWithProgram>, propertyAccessExpression: GoPtr<Node>): GoPtr<Symbol> {
-  return propertyAccessExpression?.Kind === KindPropertyAccessExpression
-    ? Checker_getResolvedSymbol(checker, propertyAccessExpression)
-    : undefined;
 }
 
 function getOperatorOperandSourcePrimitive(

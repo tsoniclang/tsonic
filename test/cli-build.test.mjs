@@ -481,6 +481,31 @@ test("CLI emits provider-owned generic collection constructors from virtual targ
       "  return values.count;",
       "}",
       "",
+      "export function mutateInts(): int32 {",
+      "  const values = new List<int32>();",
+      "  values.add(1);",
+      "  values.add(2);",
+      "  return values[0] + values.count;",
+      "}",
+      "",
+      "export function searchInts(): boolean {",
+      "  const values = new List<int32>([1, 2, 3]);",
+      "  return values.contains(2) && values.indexOf(1) === 0;",
+      "}",
+      "",
+      "export function removeInts(): int32[] {",
+      "  const values = new List<int32>([1, 2, 3]);",
+      "  values.remove(2);",
+      "  values.removeAt(0);",
+      "  return values.toArray();",
+      "}",
+      "",
+      "export function clearInts(): int32 {",
+      "  const values = new List<int32>([1, 2, 3]);",
+      "  values.clear();",
+      "  return values.count;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -492,6 +517,18 @@ test("CLI emits provider-owned generic collection constructors from virtual targ
   assert.match(generatedSource, /return new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
   assert.match(generatedSource, /System\.Collections\.Generic\.List<int> values = new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
   assert.match(generatedSource, /return values\.Count;/);
+  assert.match(generatedSource, /public static int mutateInts\(\)/);
+  assert.match(generatedSource, /values\.Add\(1\);/);
+  assert.match(generatedSource, /values\.Add\(2\);/);
+  assert.match(generatedSource, /return values\[0\] \+ values\.Count;/);
+  assert.match(generatedSource, /public static bool searchInts\(\)/);
+  assert.match(generatedSource, /return values\.Contains\(2\) && values\.IndexOf\(1\) == 0;/);
+  assert.match(generatedSource, /public static int\[\] removeInts\(\)/);
+  assert.match(generatedSource, /values\.Remove\(2\);/);
+  assert.match(generatedSource, /values\.RemoveAt\(0\);/);
+  assert.match(generatedSource, /return values\.ToArray\(\);/);
+  assert.match(generatedSource, /public static int clearInts\(\)/);
+  assert.match(generatedSource, /values\.Clear\(\);/);
   assert.doesNotMatch(generatedSource, /bindings\.json/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
