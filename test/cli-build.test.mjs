@@ -4716,12 +4716,24 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.indexOf(needle, start);",
       "}",
       "",
+      "export function lastPosition(value: string, needle: string, start: int32): int32 {",
+      "  return value.lastIndexOf(needle, start);",
+      "}",
+      "",
+      "export function lastPositionDefault(value: string, needle: string): int32 {",
+      "  return value.lastIndexOf(needle);",
+      "}",
+      "",
       "export function normalize(value: string): string {",
       "  return value.trim().toLowerCase().toUpperCase();",
       "}",
       "",
       "export function trimEdges(value: string): string {",
       "  return value.trimStart().trimEnd();",
+      "}",
+      "",
+      "export function trimAliases(value: string): string {",
+      "  return value.trimLeft().trimRight();",
       "}",
       "",
       "export function glue(value: string, left: string, right: string): string {",
@@ -4787,9 +4799,15 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return value\.StartsWith\(prefix\) && value\.EndsWith\(suffix\);/);
   assert.match(generatedSource, /public static int position\(string value, string needle, int start\)/);
   assert.match(generatedSource, /return value\.IndexOf\(needle, start\);/);
+  assert.match(generatedSource, /public static int lastPosition\(string value, string needle, int start\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.lastIndexOf\(value, needle, start\);/);
+  assert.match(generatedSource, /public static int lastPositionDefault\(string value, string needle\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.lastIndexOf\(value, needle\);/);
   assert.match(generatedSource, /public static string normalize\(string value\)/);
   assert.match(generatedSource, /return value\.Trim\(\)\.ToLower\(\)\.ToUpper\(\);/);
   assert.match(generatedSource, /public static string trimEdges\(string value\)/);
+  assert.match(generatedSource, /return value\.TrimStart\(\)\.TrimEnd\(\);/);
+  assert.match(generatedSource, /public static string trimAliases\(string value\)/);
   assert.match(generatedSource, /return value\.TrimStart\(\)\.TrimEnd\(\);/);
   assert.match(generatedSource, /public static string glue\(string value, string left, string right\)/);
   assert.match(generatedSource, /return string\.Concat\(value, left, right\);/);
