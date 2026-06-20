@@ -4109,6 +4109,68 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits object-shape spread from finalized provider object-shape facts", async () => {
+  const projectDirectory = resolve(tempRoot, "object-shape-spread");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedObjectShapeSpread",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function clone(input: { value: number; label: string }, value: number): { value: number; label: string } {",
+      "  return { ...input, value };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ clone\(__TsonicShape_[A-Za-z0-9_]+ input, double value\)/);
+  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = input\.label,\s*\};/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapeSpread.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects non-identifier object spread until single-evaluation provider lowering exists", async () => {
+  const projectDirectory = resolve(tempRoot, "object-spread-single-evaluation");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "type Box = { value: number };",
+      "",
+      "export function clone(create: () => Box): Box {",
+      "  return { ...create() };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Object literal spread requires a single-evaluation provider lowering/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI emits structural type-literal methods as delegate-backed object shapes", async () => {
   const projectDirectory = resolve(tempRoot, "structural-object-methods");
   await writeProject(projectDirectory, {
