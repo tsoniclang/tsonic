@@ -3672,6 +3672,14 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return first + second;",
       "}",
       "",
+      "export function append(values: int32[], value: int32): int32[] {",
+      "  return [...values, value];",
+      "}",
+      "",
+      "export function prepend(values: int32[], value: int32): int32[] {",
+      "  return [value, ...values];",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -3691,6 +3699,10 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /int first = __destructure0\[0\];/);
   assert.match(generatedSource, /int second = __destructure0\[1\];/);
   assert.match(generatedSource, /return first \+ second;/);
+  assert.match(generatedSource, /public static int\[\] append\(int\[\] values, int value\)/);
+  assert.match(generatedSource, /return System\.Linq\.Enumerable\.ToArray\(System\.Linq\.Enumerable\.Concat\(values, new int\[\] \{ value \}\)\);/);
+  assert.match(generatedSource, /public static int\[\] prepend\(int\[\] values, int value\)/);
+  assert.match(generatedSource, /return System\.Linq\.Enumerable\.ToArray\(System\.Linq\.Enumerable\.Concat\(new int\[\] \{ value \}, values\)\);/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySurfaceOperations.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
