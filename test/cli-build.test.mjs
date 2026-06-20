@@ -3511,6 +3511,10 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values.length;",
       "}",
       "",
+      "export function join(values: int32[]): string {",
+      "  return values.join(\"|\");",
+      "}",
+      "",
       "export function destruct(values: int32[]): int32 {",
       "  const [first, second] = values;",
       "  return first + second;",
@@ -3529,6 +3533,8 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return values\[index\];/);
   assert.match(generatedSource, /public static int count\(int\[\] values\)/);
   assert.match(generatedSource, /return values\.Length;/);
+  assert.match(generatedSource, /public static string join\(int\[\] values\)/);
+  assert.match(generatedSource, /return string\.Join\("\|", values\);/);
   assert.match(generatedSource, /public static int destruct\(int\[\] values\)/);
   assert.match(generatedSource, /int first = __destructure0\[0\];/);
   assert.match(generatedSource, /int second = __destructure0\[1\];/);

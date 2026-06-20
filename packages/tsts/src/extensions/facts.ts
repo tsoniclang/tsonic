@@ -159,6 +159,7 @@ export interface TargetMember {
   readonly static?: boolean;
   readonly declaringType?: TargetTypeRef;
   readonly parameters: readonly TargetParameter[];
+  readonly receiverArgumentIndex?: number;
   readonly returnType?: TargetTypeRef;
   readonly typeParameters?: readonly TargetTypeParameter[];
   readonly overloadGroup?: string;
@@ -525,6 +526,7 @@ function targetMemberEquals(left: TargetMember, right: TargetMember): boolean {
     && left.static === right.static
     && optionalTargetTypeRefEquals(left.declaringType, right.declaringType)
     && targetParameterArrayEquals(left.parameters, right.parameters)
+    && left.receiverArgumentIndex === right.receiverArgumentIndex
     && optionalTargetTypeRefEquals(left.returnType, right.returnType)
     && targetTypeParameterArrayEquals(left.typeParameters, right.typeParameters)
     && left.overloadGroup === right.overloadGroup;
