@@ -4740,6 +4740,10 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.replace(search, replacement);",
       "}",
       "",
+      "export function replacedAll(value: string, search: string, replacement: string): string {",
+      "  return value.replaceAll(search, replacement);",
+      "}",
+      "",
       "export function glue(value: string, left: string, right: string): string {",
       "  return value.concat(left, right);",
       "}",
@@ -4815,6 +4819,8 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return value\.TrimStart\(\)\.TrimEnd\(\);/);
   assert.match(generatedSource, /public static string replaced\(string value, string search, string replacement\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.replace\(value, search, replacement\);/);
+  assert.match(generatedSource, /public static string replacedAll\(string value, string search, string replacement\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.replaceAll\(value, search, replacement\);/);
   assert.match(generatedSource, /public static string glue\(string value, string left, string right\)/);
   assert.match(generatedSource, /return string\.Concat\(value, left, right\);/);
   assert.match(generatedSource, /public static string parts\(string value, int start, int end\)/);
@@ -4859,6 +4865,10 @@ test("CLI rejects string methods without exact provider-backed JS semantics", as
       "",
       "export function replacedWithPattern(value: string, pattern: RegExp): string {",
       "  return value.replace(pattern, \"b\");",
+      "}",
+      "",
+      "export function replacedAllWithPattern(value: string, pattern: RegExp): string {",
+      "  return value.replaceAll(pattern, \"b\");",
       "}",
       "",
       "export function atOrEmpty(value: string, index: int32): string {",
