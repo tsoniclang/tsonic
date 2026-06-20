@@ -630,6 +630,55 @@ test("CLI resolves TypeScript aliases through TSTS semantics before C# type rend
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits standard Math calls from selected TSTS provider facts", async () => {
+  const projectDirectory = resolve(tempRoot, "standard-math-calls");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStandardMathCalls",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function normalize(value: number): number {",
+      "  return Math.trunc(Math.abs(value));",
+      "}",
+      "",
+      "export function clamp(value: number, low: number, high: number): number {",
+      "  return Math.max(low, Math.min(high, value));",
+      "}",
+      "",
+      "export function curve(value: number): number {",
+      "  return Math.sin(value) + Math.cos(value) + Math.sqrt(Math.pow(value, 2));",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double normalize\(double value\)/);
+  assert.match(generatedSource, /return System\.Math\.Truncate\(System\.Math\.Abs\(value\)\);/);
+  assert.match(generatedSource, /public static double clamp\(double value, double low, double high\)/);
+  assert.match(generatedSource, /return System\.Math\.Max\(low, System\.Math\.Min\(high, value\)\);/);
+  assert.match(generatedSource, /public static double curve\(double value\)/);
+  assert.match(generatedSource, /System\.Math\.Sin\(value\) \+ System\.Math\.Cos\(value\) \+ System\.Math\.Sqrt\(System\.Math\.Pow\(value, 2\)\)/);
+  assert.doesNotMatch(generatedSource, /return Math\./);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardMathCalls.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits typeof narrowing through selected TSTS target facts", async () => {
   const projectDirectory = resolve(tempRoot, "typeof-narrowing");
   await writeProject(projectDirectory, {
