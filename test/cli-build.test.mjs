@@ -4033,12 +4033,12 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /int first = (__destructure\d+)\.Length > 0 \? \1\[0\] : 1;/);
   assert.match(generatedSource, /int second = (__destructure\d+)\.Length > 1 \? \1\[1\] : 2;/);
   assert.match(generatedSource, /public static int\[\] destructRest\(int\[\] values\)/);
-  assert.match(generatedSource, /int\[\] rest = System\.Linq\.Enumerable\.ToArray\(System\.Linq\.Enumerable\.Skip\((__destructure\d+), 1\)\);/);
+  assert.match(generatedSource, /int\[\] rest = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\((__destructure\d+), 1\);/);
   assert.match(generatedSource, /return rest;/);
   assert.match(generatedSource, /public static int\[\] append\(int\[\] values, int value\)/);
-  assert.match(generatedSource, /return System\.Linq\.Enumerable\.ToArray\(System\.Linq\.Enumerable\.Concat\(values, new int\[\] \{ value \}\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(values, new int\[\] \{ value \}\);/);
   assert.match(generatedSource, /public static int\[\] prepend\(int\[\] values, int value\)/);
-  assert.match(generatedSource, /return System\.Linq\.Enumerable\.ToArray\(System\.Linq\.Enumerable\.Concat\(new int\[\] \{ value \}, values\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(new int\[\] \{ value \}, values\);/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySurfaceOperations.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
