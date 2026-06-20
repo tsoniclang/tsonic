@@ -225,6 +225,46 @@ test("CLI resolves neutral source primitives through provider modules", async ()
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits explicit C# target .NET references without host inference", async () => {
+  const projectDirectory = resolve(tempRoot, "target-references");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            assemblyName: "SmokeGeneratedReferences",
+            references: {
+              projects: ["../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"],
+              packages: [{ include: "Tsonic.CSharp.Runtime", version: "0.0.1" }],
+              frameworks: ["Microsoft.AspNetCore.App"],
+              assemblies: [{ include: "Example.Assembly", hintPath: "../lib/Example.Assembly.dll" }],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function value(): number {",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedReferences.csproj"), "utf8");
+  assert.match(generatedProject, /<ProjectReference Include="\.\.\/csharp-runtime\/src\/Tsonic\.CSharp\.Runtime\/Tsonic\.CSharp\.Runtime\.csproj" \/>/);
+  assert.match(generatedProject, /<PackageReference Include="Tsonic\.CSharp\.Runtime" Version="0\.0\.1" \/>/);
+  assert.match(generatedProject, /<FrameworkReference Include="Microsoft\.AspNetCore\.App" \/>/);
+  assert.match(generatedProject, /<Reference Include="Example\.Assembly" HintPath="\.\.\/lib\/Example\.Assembly\.dll" \/>/);
+});
+
 test("CLI emits provider-owned static C# calls from selected TSTS target facts", async () => {
   const projectDirectory = resolve(tempRoot, "provider-static-calls");
   await writeProject(projectDirectory, {
