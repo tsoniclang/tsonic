@@ -3634,6 +3634,58 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits void-expression statement and return lowering as discard evaluation", async () => {
+  const projectDirectory = resolve(tempRoot, "void-expression-discard");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedVoidExpressionDiscard",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function bump(value: int32): int32 {",
+      "  return value + 1;",
+      "}",
+      "",
+      "export function discardCall(value: int32): void {",
+      "  void bump(value);",
+      "}",
+      "",
+      "export function returnDiscard(value: int32): void {",
+      "  return void bump(value);",
+      "}",
+      "",
+      "export function discardLiteral(): void {",
+      "  void 0;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static void discardCall\(int value\)[\s\S]*bump\(value\);/);
+  assert.match(generatedSource, /public static void returnDiscard\(int value\)[\s\S]*bump\(value\);[\s\S]*return;/);
+  assert.match(generatedSource, /public static void discardLiteral\(\)[\s\S]*_ = 0;/);
+  assert.doesNotMatch(generatedSource, /return bump\(value\);/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedVoidExpressionDiscard.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits string element access from selected provider index facts", async () => {
   const projectDirectory = resolve(tempRoot, "string-element-access");
   await writeProject(projectDirectory, {
