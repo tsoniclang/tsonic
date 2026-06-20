@@ -761,6 +761,8 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
       ],
     }, null, 2),
     "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
       "export function lengthOrZero(value: string | null): number {",
       "  if (typeof value === \"string\") {",
       "    return value.length;",
@@ -780,6 +782,22 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
       "  return typeof value === \"boolean\";",
       "}",
       "",
+      "export function kindOfString(value: string): string {",
+      "  return typeof value;",
+      "}",
+      "",
+      "export function kindOfNumber(value: number): string {",
+      "  return typeof value;",
+      "}",
+      "",
+      "export function kindOfBoolean(value: boolean): string {",
+      "  return typeof value;",
+      "}",
+      "",
+      "export function kindOfInt32(value: int32): string {",
+      "  return typeof value;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -796,11 +814,50 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
   assert.match(generatedSource, /return value is double;/);
   assert.match(generatedSource, /public static bool isBoolean\(bool\? value\)/);
   assert.match(generatedSource, /return value is bool;/);
+  assert.match(generatedSource, /public static string kindOfString\(string value\)/);
+  assert.match(generatedSource, /return "string";/);
+  assert.match(generatedSource, /public static string kindOfNumber\(double value\)/);
+  assert.match(generatedSource, /return "number";/);
+  assert.match(generatedSource, /public static string kindOfBoolean\(bool value\)/);
+  assert.match(generatedSource, /return "boolean";/);
+  assert.match(generatedSource, /public static string kindOfInt32\(int value\)/);
+  assert.match(generatedSource, /return "number";/);
   assert.doesNotMatch(generatedSource, /typeof/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeofNarrowing.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects standalone typeof without selected exact provider runtime-kind facts", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-standalone-typeof");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedUnsupportedStandaloneTypeof",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function kindOfMaybeString(value: string | null): string {",
+      "  return typeof value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+
+  assert.notEqual(build.status, 0);
+  assert.match(build.stderr, /C# typeof expression emission requires a selected provider typeof operator fact/);
 });
 
 test("CLI keeps neutral and C# source semantics in separate virtual modules", async () => {
