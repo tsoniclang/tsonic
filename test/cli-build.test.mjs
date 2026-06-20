@@ -3796,6 +3796,11 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedArraySurfaceOperations",
+            references: {
+              projects: [
+                resolve(repoRoot, "../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"),
+              ],
+            },
           },
         },
       ],
@@ -3863,6 +3868,18 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values.findLastIndex((value: int32) => value > 0);",
       "}",
       "",
+      "export function sliceAll(values: int32[]): int32[] {",
+      "  return values.slice();",
+      "}",
+      "",
+      "export function sliceFrom(values: int32[], start: int32): int32[] {",
+      "  return values.slice(start);",
+      "}",
+      "",
+      "export function sliceRange(values: int32[], start: int32, end: int32): int32[] {",
+      "  return values.slice(start, end);",
+      "}",
+      "",
       "export function destruct(values: int32[]): int32 {",
       "  const [first, second] = values;",
       "  return first + second;",
@@ -3922,6 +3939,12 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return System\.Array\.FindIndex\(values, \(int value\) => value > 0\);/);
   assert.match(generatedSource, /public static int lastPositiveIndex\(int\[\] values\)/);
   assert.match(generatedSource, /return System\.Array\.FindLastIndex\(values, \(int value\) => value > 0\);/);
+  assert.match(generatedSource, /public static int\[\] sliceAll\(int\[\] values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\(values\);/);
+  assert.match(generatedSource, /public static int\[\] sliceFrom\(int\[\] values, int start\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\(values, start\);/);
+  assert.match(generatedSource, /public static int\[\] sliceRange\(int\[\] values, int start, int end\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\(values, start, end\);/);
   assert.match(generatedSource, /public static int destruct\(int\[\] values\)/);
   assert.match(generatedSource, /int first = __destructure0\[0\];/);
   assert.match(generatedSource, /int second = __destructure0\[1\];/);
@@ -3939,6 +3962,39 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySurfaceOperations.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects fixed CLR array mutators without JSArray carrier facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-fixed-mutator-rejections");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function append(values: int32[], value: int32): int32 {",
+      "  return values.push(value);",
+      "}",
+      "",
+      "export function removeLast(values: int32[]): int32 | undefined {",
+      "  return values.pop();",
+      "}",
+      "",
+      "export function splice(values: int32[]): int32[] {",
+      "  return values.splice(1, 1);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects array callbacks that require unmodeled callback-arity adapters", async () => {
