@@ -380,6 +380,110 @@ test("CLI emits provider-owned static C# properties from selected TSTS target fa
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits provider-owned System.Console and System.Math calls from .NET virtual modules", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-system-console-math");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderConsoleMath",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console, Math } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export function show(value: number): void {",
+      "  Console.writeLine(Math.sqrt(value));",
+      "}",
+      "",
+      "export function showText(value: string): void {",
+      "  Console.write(value);",
+      "  Console.writeLine();",
+      "}",
+      "",
+      "export function read(): string {",
+      "  return Console.readLine();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static void show\(double value\)/);
+  assert.match(generatedSource, /System\.Console\.WriteLine\(System\.Math\.Sqrt\(value\)\);/);
+  assert.match(generatedSource, /System\.Console\.Write\(value\);/);
+  assert.match(generatedSource, /System\.Console\.WriteLine\(\);/);
+  assert.match(generatedSource, /return System\.Console\.ReadLine\(\);/);
+  assert.doesNotMatch(generatedSource, /return Console\.|Console\.write|Math\.sqrt|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderConsoleMath.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits provider-owned System.IO calls from .NET virtual modules", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-system-io");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderSystemIO",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { File, Path } from \"@tsonic/dotnet/System.IO.js\";",
+      "",
+      "export function combine(root: string, name: string): string {",
+      "  return Path.combine(root, name);",
+      "}",
+      "",
+      "export function exists(root: string, name: string): boolean {",
+      "  return File.exists(Path.combine(root, name));",
+      "}",
+      "",
+      "export function read(path: string): string {",
+      "  return File.readAllText(path);",
+      "}",
+      "",
+      "export function write(path: string, contents: string): void {",
+      "  File.writeAllText(path, contents);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return System\.IO\.Path\.Combine\(root, name\);/);
+  assert.match(generatedSource, /return System\.IO\.File\.Exists\(System\.IO\.Path\.Combine\(root, name\)\);/);
+  assert.match(generatedSource, /return System\.IO\.File\.ReadAllText\(path\);/);
+  assert.match(generatedSource, /System\.IO\.File\.WriteAllText\(path, contents\);/);
+  assert.doesNotMatch(generatedSource, /File\.exists|Path\.combine|File\.readAllText|File\.writeAllText|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderSystemIO.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects provider-owned identifiers outside selected target operations", async () => {
   const projectDirectory = resolve(tempRoot, "provider-identifier-value");
   await writeProject(projectDirectory, {
