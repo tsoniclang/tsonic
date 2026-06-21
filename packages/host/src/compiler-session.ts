@@ -121,16 +121,16 @@ function createTargetSemanticQueries(
       }
       if (isTypeSyntaxNode(ast, node)) {
         return getRuntimeCarrier(facts, node) ??
-          getRuntimeCarrierFromSourceSyntax(ast, checker, types, facts, node, options, sourceFiles) ??
-          getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
+          getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options) ??
+          getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles);
       }
       return getRuntimeCarrier(facts, node) ??
         getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)) ??
         getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getSymbolAtReferenceNode(ast, checker, node, options), options)) ??
         getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)) ??
         getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getResolvedSymbolForReferenceNode(ast, checker, node, options), options)) ??
-        getRuntimeCarrierFromSourceSyntax(ast, checker, types, facts, node, options, sourceFiles) ??
-        getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
+        getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options) ??
+        getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles);
     },
     getTargetBinding(subject) {
       return facts.getTargetBindingFact(subject);
@@ -262,7 +262,7 @@ function getRuntimeCarrier(
   return primitive === undefined ? undefined : { kind: "source-primitive", name: primitive.kind };
 }
 
-function getRuntimeCarrierFromSourceSyntax(
+function getRuntimeCarrierFromDeclaredFactGraph(
   ast: AstReader,
   checker: TypeCheckerQueries,
   types: TypeShapeQueries,
@@ -285,7 +285,7 @@ function getRuntimeCarrierFromSourceSyntax(
     return direct;
   }
   if (ast.is.IsTypeReferenceNode(node)) {
-    const aliasCarrier = getRuntimeCarrierFromTypeAliasDeclarations(
+    const aliasCarrier = getRuntimeCarrierFromTypeAliasFactGraph(
       ast,
       checker,
       types,
@@ -305,7 +305,7 @@ function getRuntimeCarrierFromSourceSyntax(
       const typeArguments = ast.typeArguments(node)
         .map((argument) => argument === undefined
           ? undefined
-          : getTargetTypeRefFromSourceTypeNode(ast, checker, types, facts, argument, options, sourceFiles, nextSeen));
+          : getTargetTypeRefFromDeclaredTypeNode(ast, checker, types, facts, argument, options, sourceFiles, nextSeen));
       if (typeArguments.some((argument) => argument === undefined)) {
         return { kind: "target-named", id: binding.id };
       }
@@ -317,38 +317,15 @@ function getRuntimeCarrierFromSourceSyntax(
     }
     return direct;
   }
-  if (ast.is.IsNewExpression(node)) {
-    const expression = ast.as.AsNewExpression(node);
-    const targetExpression = expression?.Expression;
-    const targetBinding = targetExpression === undefined
-      ? undefined
-      : facts.getTargetBindingFact(getSymbolAtReferenceNode(ast, checker, targetExpression, options)) ??
-        facts.getTargetBindingFact(getResolvedSymbolForReferenceNode(ast, checker, targetExpression, options)) ??
-        facts.getTargetBindingFact(getSemanticTypeForNode(ast, checker, targetExpression, options)?.symbol);
-    if (targetBinding !== undefined) {
-      const typeArguments = ast.typeArguments(node)
-        .map((argument) => argument === undefined
-          ? undefined
-          : getTargetTypeRefFromSourceTypeNode(ast, checker, types, facts, argument, options, sourceFiles, nextSeen));
-      if (typeArguments.some((argument) => argument === undefined)) {
-        return { kind: "target-named", id: targetBinding.id };
-      }
-      return {
-        kind: "target-named",
-        id: targetBinding.id,
-        ...(typeArguments.length > 0 ? { typeArguments: typeArguments as readonly TargetTypeRef[] } : {}),
-      };
-    }
-  }
   const reference = getProjectSourceReferenceForNode(ast, checker, types, node, options, sourceFiles);
   const declaration = reference?.declaration as (Node & { readonly Type?: Node; readonly Initializer?: Node }) | undefined;
   const declarationSubject = declaration?.Type ?? declaration?.Initializer;
   return declarationSubject === undefined
     ? direct
-    : getRuntimeCarrierFromSourceSyntax(ast, checker, types, facts, declarationSubject, options, sourceFiles, nextSeen) ?? direct;
+    : getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, declarationSubject, options, sourceFiles, nextSeen) ?? direct;
 }
 
-function getRuntimeCarrierFromTypeAliasDeclarations(
+function getRuntimeCarrierFromTypeAliasFactGraph(
   ast: AstReader,
   checker: TypeCheckerQueries,
   types: TypeShapeQueries,
@@ -366,7 +343,7 @@ function getRuntimeCarrierFromTypeAliasDeclarations(
     }
     const declarationSourceFile = ast.getSourceFile(typeNode) ?? options.sourceFile;
     const declarationOptions = { sourceFile: declarationSourceFile };
-    const syntaxCarrier = getRuntimeCarrierFromSourceSyntax(
+    const declaredCarrier = getRuntimeCarrierFromDeclaredFactGraph(
       ast,
       checker,
       types,
@@ -376,8 +353,8 @@ function getRuntimeCarrierFromTypeAliasDeclarations(
       sourceFiles,
       seen,
     );
-    if (syntaxCarrier !== undefined) {
-      return syntaxCarrier;
+    if (declaredCarrier !== undefined) {
+      return declaredCarrier;
     }
     const semanticCarrier = getRuntimeCarrierForSemanticType(ast, checker, types, facts, typeNode, declarationOptions);
     if (semanticCarrier !== undefined) {
@@ -392,7 +369,7 @@ function getDeclarationTypeNode(declaration: Node | undefined): Node | undefined
     asNode((declaration as { readonly Type?: unknown; readonly type?: unknown } | undefined)?.type);
 }
 
-function getTargetTypeRefFromSourceTypeNode(
+function getTargetTypeRefFromDeclaredTypeNode(
   ast: AstReader,
   checker: TypeCheckerQueries,
   types: TypeShapeQueries,
@@ -402,7 +379,7 @@ function getTargetTypeRefFromSourceTypeNode(
   sourceFiles: readonly SourceFile[],
   seen: ReadonlySet<Node>,
 ): TargetTypeRef | undefined {
-  return getRuntimeCarrierFromSourceSyntax(ast, checker, types, facts, node, options, sourceFiles, seen) ??
+  return getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles, seen) ??
     getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
 }
 

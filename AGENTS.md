@@ -114,6 +114,9 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 
 ## Compatibility Policy (IMPORTANT)
 
+- WCBUBWHB means “What Can Be, Unburdened By What Has Been”: design the final from-scratch architecture directly, remove stale assumptions instead of accommodating them, and reassess existing APIs whenever new architecture is introduced.
+- Product architecture may not have “final” and “intermediate” shapes. Do not land bridge architecture, temporary product paths, temporary fallbacks, or transitional internal APIs on the way to the intended design.
+- If the current code shape conflicts with the final architecture, break the stale shape and repair callers against the final design; do not preserve the stale shape while adding the new one.
 - Backward compatibility is not required unless specifically and explicitly requested by the maintainer.
 - Always attempt the final-grade architecture directly. Do not land temporary bridge code, intermediate compatibility paths, or staged “fix it now, clean it later” product changes.
 - Do not preserve, add, or route through compatibility shims, bridge code, dual-path behavior, or legacy codepaths for native first-party packages.

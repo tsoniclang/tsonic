@@ -326,6 +326,7 @@ export interface ExtensionLifecycleContext {
   readonly event: string;
   readonly extensionId: string;
   readonly host: ExtensionHost;
+  readonly compiler?: ExtensionCompilerQueries;
 }
 
 export type ExtensionLifecycleHook<TRequest> = (request: TRequest, context: ExtensionLifecycleContext) => void;
@@ -1141,6 +1142,7 @@ export class ExtensionHost {
           event,
           extensionId: registered.extensionId,
           host: this,
+          ...(this.#compilerQueries !== undefined ? { compiler: this.#compilerQueries } : {}),
         });
       } catch (error) {
         this.diagnostics.append(createHostDiagnostic({
