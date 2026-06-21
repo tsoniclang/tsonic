@@ -1388,7 +1388,7 @@ export function Program_GetPackagesMap(receiver: GoPtr<Program>): GoMap<string, 
     for (const [, resolvedModulesInFile] of receiver!.__tsgoEmbedded0!.resolvedModules ?? []) {
       for (const [, mod] of resolvedModulesInFile ?? []) {
         const m = mod as GoPtr<ResolvedModule>;
-        if (m !== undefined && !ResolvedModule_IsProviderVirtual(m) && m!.PackageId !== undefined && m!.PackageId.Name !== "") {
+        if (m !== undefined && m!.PackageId !== undefined && m!.PackageId.Name !== "") {
           receiver!.packagesMap.set(
             m!.PackageId.Name,
             (receiver!.packagesMap.get(m!.PackageId.Name) || (m!.Extension === ".d.ts")) as bool,

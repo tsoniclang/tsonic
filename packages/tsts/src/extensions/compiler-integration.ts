@@ -1,18 +1,8 @@
 import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
-import {
-  Node_Elements,
-  Node_ImportClause,
-  Node_ModuleSpecifier,
-  Node_PropertyName,
-  Node_Statements,
-  Node_Symbol,
-  Node_Text,
-  SourceFile_FileName,
-} from "../internal/ast/ast.js";
+import { Node_Members, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
 import { Node_Name } from "../internal/ast/spine.js";
-import { AsImportClause } from "../internal/ast/generated/casts.js";
-import { KindImportDeclaration, KindNamedImports } from "../internal/ast/generated/kinds.js";
+import { KindConstructor } from "../internal/ast/generated/kinds.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import {
   canonicalIdentityFactKey,
@@ -59,9 +49,6 @@ export function recordBoundSourceFileExtensionFacts(program: object, file: GoPtr
     fileName,
     ...(virtualModule !== undefined ? { providerVirtualModule: virtualModule } : {}),
   });
-  if (virtualModule === undefined) {
-    recordProviderImportBindingFacts(extensionHost, file);
-  }
 }
 
 export function finalizeExtensionSemantics(program: object): ExtensionHost | undefined {
@@ -113,69 +100,87 @@ function recordProviderVirtualModuleFacts(extensionHost: ExtensionHost, file: So
       exportName: declaration.name,
       canonicalSymbolId: getSymbolFactId(symbol),
     }, evidence);
-    extensionHost.facts.set(symbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration), evidence);
-
     const targetBinding = getTargetBindingFact(virtualModule, declaration);
+    const declarationFact = getProviderVirtualDeclarationFact(virtualModule, declaration);
+    extensionHost.facts.set(symbol, providerVirtualDeclarationFactKey, declarationFact, evidence);
     if (targetBinding !== undefined) {
       extensionHost.facts.set(symbol, targetBindingFactKey, targetBinding, evidence);
+    }
+    const declarationNode = symbol.Declarations?.find((candidate): candidate is Node => candidate !== undefined);
+    if (declarationNode !== undefined) {
+      extensionHost.facts.set(declarationNode, providerVirtualDeclarationFactKey, declarationFact, evidence);
+      if (targetBinding !== undefined) {
+        extensionHost.facts.set(declarationNode, targetBindingFactKey, targetBinding, evidence);
+      }
+      const declarationSymbol = Node_Symbol(declarationNode);
+      if (declarationSymbol !== undefined) {
+        extensionHost.facts.set(declarationSymbol, providerVirtualDeclarationFactKey, declarationFact, evidence);
+        if (targetBinding !== undefined) {
+          extensionHost.facts.set(declarationSymbol, targetBindingFactKey, targetBinding, evidence);
+        }
+      }
+    }
+    recordProviderVirtualMemberFacts(extensionHost, virtualModule, declaration, symbol, evidence);
+  }
+}
+
+function recordProviderVirtualMemberFacts(
+  extensionHost: ExtensionHost,
+  virtualModule: ProviderResolvedModule,
+  exportDeclaration: ProviderExportDeclaration,
+  exportSymbol: Symbol,
+  evidence: readonly ExtensionEvidence[],
+): void {
+  const declarationNode = exportSymbol.Declarations?.find((declaration): declaration is Node => declaration !== undefined);
+  if (declarationNode === undefined || exportDeclaration.members === undefined) {
+    return;
+  }
+  const memberNodes = Node_Members(declarationNode) ?? [];
+  for (const member of exportDeclaration.members) {
+    const matchingDeclarations = memberNodes.filter((candidate): candidate is Node => candidate !== undefined && isProviderMemberDeclaration(candidate, member));
+    if (matchingDeclarations.length === 0) {
+      continue;
+    }
+    if (member.signatures !== undefined && member.signatures.length > 0) {
+      for (let index = 0; index < member.signatures.length; index++) {
+        const signature = member.signatures[index];
+        const memberNode = matchingDeclarations[index];
+        if (signature !== undefined && memberNode !== undefined) {
+          recordProviderVirtualMemberFact(extensionHost, virtualModule, exportDeclaration, member, signature, memberNode, evidence);
+        }
+      }
+      continue;
+    }
+    const memberNode = matchingDeclarations[0];
+    if (memberNode !== undefined) {
+      recordProviderVirtualMemberFact(extensionHost, virtualModule, exportDeclaration, member, undefined, memberNode, evidence);
     }
   }
 }
 
-function recordProviderImportBindingFacts(extensionHost: ExtensionHost, file: SourceFile): void {
-  const fileName = SourceFile_FileName(file);
-  const providerContext = {
-    containingFile: fileName,
-    ...(extensionHost.activeTarget !== undefined ? { activeTarget: extensionHost.activeTarget } : {}),
-    ...(extensionHost.activeSurface !== undefined ? { activeSurface: extensionHost.activeSurface } : {}),
-  };
-  for (const statement of Node_Statements(file) ?? []) {
-    if (statement?.Kind !== KindImportDeclaration) {
-      continue;
-    }
-    const moduleSpecifier = Node_ModuleSpecifier(statement);
-    if (moduleSpecifier === undefined) {
-      continue;
-    }
-    const resolved = extensionHost.providers.resolveVirtualModule(Node_Text(moduleSpecifier), providerContext);
-    if (resolved.kind !== "resolved") {
-      continue;
-    }
-    const importClause = AsImportClause(Node_ImportClause(statement));
-    const namedBindings = importClause?.NamedBindings;
-    if (namedBindings?.Kind !== KindNamedImports) {
-      continue;
-    }
-    const evidence = getProviderVirtualModuleEvidence(resolved.module);
-    for (const importSpecifier of Node_Elements(namedBindings) ?? []) {
-      if (importSpecifier === undefined) {
-        continue;
-      }
-      const localName = Node_Name(importSpecifier);
-      if (localName === undefined) {
-        continue;
-      }
-      const exportName = Node_Text(Node_PropertyName(importSpecifier) ?? localName);
-      const declaration = resolved.module.declarationModel.exports.find((candidate) => candidate.name === exportName);
-      if (declaration === undefined) {
-        continue;
-      }
-      const targetBinding = getTargetBindingFact(resolved.module, declaration);
-      if (targetBinding === undefined) {
-        continue;
-      }
-      extensionHost.facts.set(importSpecifier, targetBindingFactKey, targetBinding, evidence);
-      extensionHost.facts.set(localName, targetBindingFactKey, targetBinding, evidence);
-      const importSymbol = Node_Symbol(importSpecifier);
-      if (importSymbol !== undefined) {
-        extensionHost.facts.set(importSymbol, targetBindingFactKey, targetBinding, evidence);
-      }
-      const localSymbol = Node_Symbol(localName);
-      if (localSymbol !== undefined && localSymbol !== importSymbol) {
-        extensionHost.facts.set(localSymbol, targetBindingFactKey, targetBinding, evidence);
-      }
-    }
+function recordProviderVirtualMemberFact(
+  extensionHost: ExtensionHost,
+  virtualModule: ProviderResolvedModule,
+  exportDeclaration: ProviderExportDeclaration,
+  member: ProviderMemberDeclaration,
+  signature: ProviderSignatureDeclaration | undefined,
+  declarationNode: Node,
+  evidence: readonly ExtensionEvidence[],
+): void {
+  const fact = getProviderVirtualDeclarationFact(virtualModule, exportDeclaration, member, signature);
+  extensionHost.facts.set(declarationNode, providerVirtualDeclarationFactKey, fact, evidence);
+  const symbol = Node_Symbol(declarationNode);
+  if (symbol !== undefined) {
+    extensionHost.facts.set(symbol, providerVirtualDeclarationFactKey, fact, evidence);
   }
+}
+
+function isProviderMemberDeclaration(node: Node, member: ProviderMemberDeclaration): boolean {
+  if (member.kind === "constructor") {
+    return node.Kind === KindConstructor;
+  }
+  const name = Node_Name(node);
+  return name !== undefined && Node_Text(name) === member.name;
 }
 
 function getProviderVirtualModuleEvidence(virtualModule: ProviderResolvedModule): readonly ExtensionEvidence[] {
@@ -198,10 +203,6 @@ function getTargetBindingFact(virtualModule: ProviderResolvedModule, declaration
   if (declaration.targetIdentity === undefined) {
     return undefined;
   }
-  const declaringType = {
-    kind: "target-named",
-    id: declaration.targetIdentity.id,
-  } satisfies TargetTypeRef;
   return {
     id: declaration.targetIdentity.id,
     sourceName: declaration.name,
@@ -213,7 +214,7 @@ function getTargetBindingFact(virtualModule: ProviderResolvedModule, declaration
         typeParameters: declaration.typeParameters.map(getTargetTypeParameter),
       }
       : {}),
-    ...(declaration.members !== undefined ? { members: declaration.members.flatMap((member) => getTargetMembers(member, declaringType)) } : {}),
+    ...(declaration.members !== undefined ? { members: declaration.members.flatMap((member) => getTargetMembers(member, getDeclaringTargetTypeRef(declaration))) } : {}),
   };
 }
 
@@ -226,32 +227,54 @@ function getTargetTypeParameter(parameter: ProviderTypeParameterDeclaration): Ta
   };
 }
 
-function getTargetMembers(member: ProviderMemberDeclaration, declaringType?: TargetTypeRef): readonly TargetMember[] {
+function getDeclaringTargetTypeRef(declaration: ProviderExportDeclaration): TargetTypeRef | undefined {
+  return declaration.targetIdentity === undefined
+    ? undefined
+    : {
+      kind: "target-named",
+      id: declaration.targetIdentity.id,
+    };
+}
+
+function getTargetMembers(member: ProviderMemberDeclaration, declaringType: TargetTypeRef | undefined): readonly TargetMember[] {
   if (member.signatures !== undefined && member.signatures.length > 0) {
     return member.signatures.map((signature) => getTargetMemberFromSignature(member.name, member.kind, signature, member, declaringType));
   }
   return [{
     id: member.id,
     sourceName: member.name,
-    targetName: member.targetName ?? member.name,
+    targetName: getTargetMemberName(member),
     kind: member.kind,
+    ...(declaringType !== undefined ? { declaringType } : {}),
     parameters: [],
     ...(member.static !== undefined ? { static: member.static } : {}),
-    ...(declaringType !== undefined ? { declaringType } : {}),
     ...(member.type !== undefined ? { returnType: getTargetTypeRef(member.type) } : {}),
   }];
 }
 
-function getTargetMemberFromSignature(sourceName: string, kind: TargetMember["kind"], signature: ProviderSignatureDeclaration, member?: ProviderMemberDeclaration, declaringType?: TargetTypeRef): TargetMember {
+function getTargetMemberName(member: ProviderMemberDeclaration): string {
+  const paren = member.id.indexOf("(");
+  const qualifiedName = paren === -1 ? member.id : member.id.slice(0, paren);
+  const lastDot = qualifiedName.lastIndexOf(".");
+  return lastDot === -1 ? (member.id === member.name ? member.name : member.id) : qualifiedName.slice(lastDot + 1);
+}
+
+function getTargetMemberFromSignature(
+  sourceName: string,
+  kind: TargetMember["kind"],
+  signature: ProviderSignatureDeclaration,
+  member?: ProviderMemberDeclaration,
+  declaringType?: TargetTypeRef,
+): TargetMember {
   const typeParameters = (signature.typeParameters ?? []).map(getTargetTypeParameter);
   return {
     id: signature.id,
     sourceName,
-    targetName: signature.name ?? member?.targetName ?? member?.name ?? sourceName,
+    targetName: signature.name ?? member?.name ?? sourceName,
     kind,
+    ...(declaringType !== undefined ? { declaringType } : {}),
     parameters: signature.parameters.map(getTargetParameter),
     ...(member?.static !== undefined ? { static: member.static } : {}),
-    ...(declaringType !== undefined ? { declaringType } : {}),
     ...(signature.returnType !== undefined ? { returnType: getTargetTypeRef(signature.returnType) } : {}),
     ...(typeParameters.length > 0 ? { typeParameters } : {}),
     overloadGroup: member?.id ?? sourceName,
@@ -269,7 +292,7 @@ function getTargetParameter(parameter: ProviderParameterDeclaration): TargetPara
 }
 
 function getArgumentPassingMode(parameter: ProviderParameterDeclaration): ArgumentPassingMode {
-  return parameter.passingMode ?? "by-value";
+  return "by-value";
 }
 
 function getTargetConstraint(type: ProviderTypeExpression): readonly TargetConstraint[] {
@@ -295,11 +318,8 @@ function getTargetTypeRef(type: ProviderTypeExpression): TargetTypeRef {
       return { kind: "source-primitive", name: getSourcePrimitiveKind(type.name) };
     case "type-parameter":
       return { kind: "type-parameter", name: type.name };
-    case "reference":
-      return {
-        kind: "opaque",
-        id: `${type.name}${type.typeArguments === undefined || type.typeArguments.length === 0 ? "" : `<${type.typeArguments.map((argument) => getTargetTypeRef(argument).kind).join(",")}>`}`,
-      };
+    case "provider-ref":
+      return { kind: "opaque", id: type.name };
     case "target-named":
       return {
         kind: "target-named",
@@ -307,11 +327,7 @@ function getTargetTypeRef(type: ProviderTypeExpression): TargetTypeRef {
         ...(type.typeArguments !== undefined ? { typeArguments: type.typeArguments.map(getTargetTypeRef) } : {}),
       };
     case "array":
-      return {
-        kind: "array",
-        element: getTargetTypeRef(type.elementType),
-        ...(type.rank !== undefined ? { rank: type.rank } : {}),
-      };
+      return { kind: "array", element: getTargetTypeRef(type.elementType) };
     case "tuple":
       return { kind: "tuple", elements: type.elementTypes.map(getTargetTypeRef) };
     case "function":
@@ -341,10 +357,8 @@ function getSourcePrimitiveKind(name: string): SourcePrimitiveKind {
     case "bool":
     case "boolean":
       return "bool";
-    case "char16":
-      return "char16";
-    case "char32":
-      return "char32";
+    case "char":
+      return "char";
     case "sbyte":
     case "int8":
       return "int8";
@@ -384,8 +398,8 @@ function getSourcePrimitiveKind(name: string): SourcePrimitiveKind {
     case "double":
     case "float64":
       return "float64";
-    case "decimal128":
-      return "decimal128";
+    case "decimal":
+      return "decimal";
     case "int128":
       return "int128";
     case "uint128":
@@ -395,7 +409,12 @@ function getSourcePrimitiveKind(name: string): SourcePrimitiveKind {
   }
 }
 
-function getProviderVirtualDeclarationFact(virtualModule: ProviderResolvedModule, declaration?: ProviderExportDeclaration): ProviderVirtualDeclarationFact {
+function getProviderVirtualDeclarationFact(
+  virtualModule: ProviderResolvedModule,
+  declaration?: ProviderExportDeclaration,
+  member?: ProviderMemberDeclaration,
+  signature?: ProviderSignatureDeclaration,
+): ProviderVirtualDeclarationFact {
   return {
     providerId: virtualModule.provider.identity.id,
     providerVersion: virtualModule.provider.identity.version,
@@ -403,6 +422,8 @@ function getProviderVirtualDeclarationFact(virtualModule: ProviderResolvedModule
     moduleSpecifier: virtualModule.resolution.moduleSpecifier,
     virtualFileName: virtualModule.resolution.virtualFileName,
     ...(declaration !== undefined ? { exportName: declaration.name } : {}),
+    ...(member !== undefined ? { memberName: member.name } : {}),
+    ...(signature !== undefined ? { signatureId: signature.id } : {}),
     ...(declaration?.targetIdentity !== undefined
       ? {
         targetIdentity: {

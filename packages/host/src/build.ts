@@ -43,7 +43,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       target,
       targetPack,
     });
-    const tstsDiagnostics = collectTstsDiagnostics(session.program, session.sourceFiles, paths.projectRoot);
+    const tstsDiagnostics = collectTstsDiagnostics(session, paths.projectRoot);
     diagnostics.push(...tstsDiagnostics);
     if (tstsDiagnostics.some((diagnostic) => diagnostic.category === "error")) {
       targets.push({

@@ -2,8 +2,6 @@ import type { bool } from "../go/scalars.js";
 import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
-import type { Type } from "../internal/checker/types.js";
-import { Type_Alias, TypeAlias_Symbol } from "../internal/checker/types.js";
 import {
   Node_Arguments,
   Node_Body,
@@ -11,9 +9,7 @@ import {
   Node_Elements,
   Node_ImportClause,
   Node_Initializer,
-  Node_Members,
   Node_ModuleSpecifier,
-  Node_Parameters,
   Node_PropertyName,
   Node_Properties,
   Node_Statements,
@@ -23,36 +19,28 @@ import {
   Node_TypeArguments,
 } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
-import { AsCallExpression, AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsParenthesizedExpression, AsPropertyAccessExpression, AsQualifiedName, AsTypeAliasDeclaration, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
+import { AsCallExpression, AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
 import {
   KindArrowFunction,
   KindCallExpression,
-  KindClassDeclaration,
   KindExportDeclaration,
-  KindGetAccessor,
-  KindIdentifier,
   KindImportDeclaration,
-  KindMethodDeclaration,
+  KindIdentifier,
   KindNamedImports,
   KindNamedExports,
   KindNamespaceImport,
-  KindNoSubstitutionTemplateLiteral,
   KindObjectLiteralExpression,
-  KindParameter,
-  KindParenthesizedExpression,
   KindPropertyAccessExpression,
   KindPropertyAssignment,
   KindPropertyDeclaration,
   KindQualifiedName,
-  KindSetAccessor,
   KindStringLiteral,
   KindTypeKeyword,
   KindTypeReference,
   KindTupleType,
-  KindTypeAliasDeclaration,
   KindVariableDeclaration,
 } from "../internal/ast/generated/kinds.js";
-import { GetSourceFileOfNode, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
+import { IsLeftHandSideExpression } from "../internal/ast/utilities.js";
 import {
   argumentPassingFactKey,
   attributeFactKey,
@@ -62,14 +50,11 @@ import {
   flowStateFactKey,
   functionPointerFactKey,
   pointerFactKey,
-  sourceMarkerFactKey,
   sourcePrimitiveFactKey,
-  targetOperationFactKey,
-  valueTypeFactKey,
+  structFactKey,
 } from "./facts.js";
 import type {
   ArgumentPassingFact,
-  AttributeApplicationFact,
   AttributeFact,
   DefaultValueFact,
   ExtensionCanonicalIdentity,
@@ -80,8 +65,7 @@ import type {
   PointerFact,
   SourcePrimitiveFact,
   SourcePrimitiveKind,
-  SourceMarkerFact,
-  ValueTypeFact,
+  StructFact,
 } from "./facts.js";
 import { ExtensionLifecycleEvent } from "./host.js";
 import type {
@@ -127,19 +111,18 @@ export interface SourcePrimitiveDeclaration extends Omit<SourcePrimitiveFact, "k
 }
 
 export type SourceCallMarkerKind =
-  | "byrefReadonly"
-  | "byrefReadwrite"
-  | "byrefWriteonlyMustInit"
-  | "borrowShared"
-  | "borrowMutable"
+  | "out"
+  | "ref"
+  | "inref"
+  | "borrow"
+  | "borrowMut"
   | "move"
-  | "valueType"
+  | "struct"
   | "field"
   | "attribute"
-  | "attributes"
-  | "defaultValue";
+  | "defaultof";
 
-type ArgumentPassingMarkerKind = Extract<SourceCallMarkerKind, "byrefReadonly" | "byrefReadwrite" | "byrefWriteonlyMustInit">;
+type ArgumentPassingMarkerKind = Extract<SourceCallMarkerKind, "out" | "ref" | "inref">;
 
 export interface SourceCallMarkerDeclaration {
   readonly kind: "call-marker";
@@ -147,7 +130,7 @@ export interface SourceCallMarkerDeclaration {
   readonly marker: SourceCallMarkerKind;
 }
 
-export type SourceTypeMarkerKind = "pointer" | "functionPointer";
+export type SourceTypeMarkerKind = "ptr" | "fnptr";
 
 export interface SourceTypeMarkerDeclaration {
   readonly kind: "type-marker";
@@ -172,20 +155,6 @@ interface SourceSemanticsModuleRuntime extends SourceSemanticsModuleIdentity {
   readonly primitivesByExportName: ReadonlyMap<string, SourcePrimitiveDeclaration>;
   readonly callMarkersByExportName: ReadonlyMap<string, SourceCallMarkerDeclaration>;
   readonly typeMarkersByExportName: ReadonlyMap<string, SourceTypeMarkerDeclaration>;
-}
-
-interface PendingAttributeFact {
-  readonly attributes: AttributeApplicationFact[];
-  readonly evidence: ExtensionEvidence[];
-}
-
-type AttributeFactAccumulator = Map<ExtensionFactSubject, PendingAttributeFact>;
-
-interface AttributeBuilderTarget {
-  readonly subject: ExtensionFactSubject;
-  readonly classDeclaration?: Node;
-  readonly memberDeclaration?: Node;
-  readonly methodDeclaration?: Node;
 }
 
 function createSourceSemanticsModules(modules: readonly SourceSemanticsModule[]): readonly SourceSemanticsModuleRuntime[] {
@@ -232,7 +201,7 @@ export function createSourceSemanticsExtension(options: SourceSemanticsExtension
         "source-semantics.argument-passing",
         "source-semantics.pointer-types",
         "source-semantics.flow-markers",
-        "source-semantics.value-types",
+        "source-semantics.structs",
         "source-semantics.attributes",
         "source-semantics.defaults",
       ],
@@ -275,12 +244,8 @@ function recordSourceSemanticsFacts(
     }
   }
   const markerImportIndex = createSourceSemanticsMarkerImportIndex(sourceFile, modules);
-  const attributeFacts: AttributeFactAccumulator = new Map();
-  recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, modules, markerImportIndex, attributeFacts);
+  recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, modules, markerImportIndex);
   recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerImportIndex);
-  recordSourceSemanticsTypeAliases(facts, sourceFile);
-  recordSourceSemanticsTypedDeclarations(facts, sourceFile);
-  flushAttributeFacts(facts, attributeFacts);
 }
 
 function recordSourceSemanticsImportClause(
@@ -371,18 +336,17 @@ function recordSourceSemanticsCallMarkers(
   sourceFile: GoPtr<SourceFile>,
   modules: readonly SourceSemanticsModuleRuntime[],
   markerImportIndex: SourceSemanticsMarkerImportIndex,
-  attributeFacts: AttributeFactAccumulator,
 ): void {
   visitSourceSemanticsNodePost(sourceFile, (node) => {
     if (node?.Kind !== KindCallExpression) {
       return;
     }
-    recordAttributeBuilderAddCall(facts, diagnostics, extensionId, sourceFile, node, modules, markerImportIndex, attributeFacts);
     const marker = resolveSourceSemanticsCallMarkerReference(facts, Node_Expression(node), modules, markerImportIndex);
-    if (marker === undefined) {
+    if (marker !== undefined) {
+      recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, node, marker);
       return;
     }
-    recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, node, marker, attributeFacts);
+    recordAttributeBuilderCall(facts, node, createMarkerEvidence("attribute"));
   });
 }
 
@@ -392,13 +356,12 @@ function recordSourceSemanticsCallMarker(
   extensionId: string,
   callExpression: Node,
   marker: SourceCallMarkerDeclaration,
-  attributeFacts: AttributeFactAccumulator,
 ): void {
   const evidence = createMarkerEvidence(marker.exportName);
   switch (marker.marker) {
-    case "byrefReadonly":
-    case "byrefReadwrite":
-    case "byrefWriteonlyMustInit": {
+    case "out":
+    case "ref":
+    case "inref": {
       const argument = (Node_Arguments(callExpression) ?? [])[0];
       if (argument === undefined) {
         return;
@@ -406,7 +369,7 @@ function recordSourceSemanticsCallMarker(
       recordArgumentPassingMarker(facts, diagnostics, extensionId, callExpression, argument, marker, evidence);
       return;
     }
-    case "borrowShared": {
+    case "borrow": {
       const argument = (Node_Arguments(callExpression) ?? [])[0];
       if (argument === undefined) {
         return;
@@ -414,7 +377,7 @@ function recordSourceSemanticsCallMarker(
       recordFlowMarker(facts, callExpression, argument, { state: "borrowed-shared" }, evidence);
       return;
     }
-    case "borrowMutable": {
+    case "borrowMut": {
       const argument = (Node_Arguments(callExpression) ?? [])[0];
       if (argument === undefined) {
         return;
@@ -433,299 +396,16 @@ function recordSourceSemanticsCallMarker(
     case "field":
       recordFieldMarker(facts, callExpression, evidence);
       return;
-    case "valueType":
-      recordValueTypeMarker(facts, callExpression, evidence);
+    case "struct":
+      recordStructMarker(facts, callExpression, evidence);
       return;
     case "attribute":
-      recordAttributeMarker(facts, attributeFacts, callExpression, evidence);
+      recordAttributeMarker(facts, callExpression, evidence);
       return;
-    case "attributes":
-      recordSourceMarker(facts, callExpression, marker.marker, evidence);
-      return;
-    case "defaultValue":
+    case "defaultof":
       recordDefaultValueMarker(facts, callExpression, evidence);
       return;
   }
-}
-
-function recordAttributeBuilderAddCall(
-  facts: ExtensionFactStore,
-  diagnostics: ExtensionDiagnosticStore,
-  extensionId: string,
-  sourceFile: GoPtr<SourceFile>,
-  callExpression: Node,
-  modules: readonly SourceSemanticsModuleRuntime[],
-  markerImportIndex: SourceSemanticsMarkerImportIndex,
-  attributeFacts: AttributeFactAccumulator,
-): void {
-  const typedCall = AsCallExpression(callExpression)!;
-  const expression = typedCall.Expression;
-  if (expression?.Kind !== KindPropertyAccessExpression || Node_Text(Node_Name(expression)) !== "add") {
-    return;
-  }
-  const receiver = AsPropertyAccessExpression(expression)!.Expression;
-  const attributeBuilderExpression = isAttributeBuilderExpression(facts, receiver, modules, markerImportIndex);
-  if (attributeBuilderExpression) {
-    recordSourceMarker(facts, callExpression, "attributes", createMarkerEvidence("attributes"));
-  }
-  const target = resolveAttributeBuilderTarget(facts, diagnostics, extensionId, sourceFile, receiver, modules, markerImportIndex);
-  if (target === undefined) {
-    if (attributeBuilderExpression) {
-      appendSourceSemanticsDiagnostic(
-        diagnostics,
-        extensionId,
-        "SOURCE_SEMANTICS_ATTRIBUTE_TARGET_UNRESOLVED",
-        9901110,
-        "attributes(...).add(...) could not resolve its metadata target.",
-        callExpression,
-      );
-    }
-    return;
-  }
-  recordSourceMarker(facts, callExpression, "attributes", createMarkerEvidence("attributes"));
-  const [attributeTarget, ...attributeArguments] = typedCall.Arguments?.Nodes ?? [];
-  if (attributeTarget === undefined) {
-    appendSourceSemanticsDiagnostic(
-      diagnostics,
-      extensionId,
-      "SOURCE_SEMANTICS_ATTRIBUTE_MISSING_TARGET",
-      9901102,
-      "attributes(...).add(...) requires an attribute target as the first argument.",
-      callExpression,
-    );
-    return;
-  }
-  const application = {
-    target: attributeTarget,
-    attributeName: getTypeReferenceNameText(attributeTarget),
-    arguments: definedFactSubjects(attributeArguments),
-  } satisfies AttributeApplicationFact;
-  const evidence = createMarkerEvidence("attributes");
-  appendAttributeFact(attributeFacts, callExpression, application, evidence);
-  appendAttributeFact(attributeFacts, target.subject, application, evidence);
-  const symbol = isAstNode(target.subject) ? Node_Symbol(target.subject) : undefined;
-  if (symbol !== undefined) {
-    appendAttributeFact(attributeFacts, symbol, application, evidence);
-  }
-}
-
-function recordSourceMarker(
-  facts: ExtensionFactStore,
-  callExpression: Node,
-  marker: SourceCallMarkerKind,
-  evidence: readonly ExtensionEvidence[],
-): void {
-  const fact = {
-    marker,
-    erasedRuntimeExpression: true,
-  } satisfies SourceMarkerFact;
-  facts.set(callExpression, sourceMarkerFactKey, fact, evidence);
-}
-
-function isAttributeBuilderExpression(
-  facts: ExtensionFactStore,
-  node: GoPtr<Node>,
-  modules: readonly SourceSemanticsModuleRuntime[],
-  markerImportIndex: SourceSemanticsMarkerImportIndex,
-): boolean {
-  const rootCall = getAttributeBuilderRootCall(node);
-  if (rootCall === undefined) {
-    return false;
-  }
-  return resolveAttributeBuilderRootMarkerFromImportIndex(AsCallExpression(rootCall)?.Expression, markerImportIndex)
-    ?? resolveSourceSemanticsCallMarkerReference(facts, AsCallExpression(rootCall)?.Expression, modules, markerImportIndex)?.marker === "attributes";
-}
-
-function resolveAttributeBuilderRootMarkerFromImportIndex(
-  node: GoPtr<Node>,
-  markerImportIndex: SourceSemanticsMarkerImportIndex,
-): boolean | undefined {
-  if (node === undefined) {
-    return undefined;
-  }
-  if (node.Kind === KindPropertyAccessExpression) {
-    const receiverName = Node_Text(AsPropertyAccessExpression(node)?.Expression);
-    const namespaceModule = markerImportIndex.namespacesByLocalName.get(receiverName);
-    const propertyName = Node_Text(Node_Name(node));
-    return namespaceModule?.callMarkersByExportName.get(propertyName)?.marker === "attributes";
-  }
-  return markerImportIndex.callMarkersByLocalName.get(Node_Text(node))?.marker === "attributes";
-}
-
-function getAttributeBuilderRootCall(node: GoPtr<Node>): Node | undefined {
-  if (node?.Kind !== KindCallExpression) {
-    return undefined;
-  }
-  const expression = AsCallExpression(node)?.Expression;
-  if (expression?.Kind === KindPropertyAccessExpression) {
-    const propertyAccess = AsPropertyAccessExpression(expression)!;
-    const selector = Node_Text(Node_Name(expression));
-    return selector === "method" || selector === "property" || selector === "parameter"
-      ? getAttributeBuilderRootCall(propertyAccess.Expression)
-      : undefined;
-  }
-  return node;
-}
-
-function resolveAttributeBuilderTarget(
-  facts: ExtensionFactStore,
-  diagnostics: ExtensionDiagnosticStore,
-  extensionId: string,
-  sourceFile: GoPtr<SourceFile>,
-  node: GoPtr<Node>,
-  modules: readonly SourceSemanticsModuleRuntime[],
-  markerImportIndex: SourceSemanticsMarkerImportIndex,
-): AttributeBuilderTarget | undefined {
-  if (node?.Kind !== KindCallExpression) {
-    return undefined;
-  }
-  const callExpression = AsCallExpression(node)!;
-  const expression = callExpression.Expression;
-  if (expression?.Kind === KindPropertyAccessExpression) {
-    const propertyAccess = AsPropertyAccessExpression(expression)!;
-    const selector = Node_Text(Node_Name(expression));
-    const receiverTarget = resolveAttributeBuilderTarget(facts, diagnostics, extensionId, sourceFile, propertyAccess.Expression, modules, markerImportIndex);
-    if (receiverTarget === undefined) {
-      return undefined;
-    }
-    switch (selector) {
-      case "method":
-        return resolveAttributeMemberSelector(diagnostics, extensionId, callExpression, receiverTarget, "method");
-      case "property":
-        return resolveAttributeMemberSelector(diagnostics, extensionId, callExpression, receiverTarget, "property");
-      case "parameter":
-        return resolveAttributeParameterSelector(diagnostics, extensionId, callExpression, receiverTarget);
-      default:
-        return undefined;
-    }
-  }
-
-  const isAttributeMarker = resolveAttributeBuilderRootMarkerFromImportIndex(expression, markerImportIndex)
-    ?? resolveSourceSemanticsCallMarkerReference(facts, expression, modules, markerImportIndex)?.marker === "attributes";
-  if (!isAttributeMarker) {
-    return undefined;
-  }
-  const typeArgument = callExpression.TypeArguments?.Nodes?.[0];
-  if (typeArgument === undefined) {
-    appendSourceSemanticsDiagnostic(
-      diagnostics,
-      extensionId,
-      "SOURCE_SEMANTICS_ATTRIBUTES_MISSING_TYPE",
-      9901103,
-      "attributes<T>() requires a target type argument.",
-      callExpression,
-    );
-    return undefined;
-  }
-  const symbol = getTypeReferenceSymbol(typeArgument);
-  const classDeclaration = findClassDeclarationForTypeReference(sourceFile, typeArgument, symbol);
-  return {
-    subject: classDeclaration ?? symbol ?? typeArgument,
-    ...(classDeclaration === undefined ? {} : { classDeclaration }),
-  };
-}
-
-function resolveAttributeMemberSelector(
-  diagnostics: ExtensionDiagnosticStore,
-  extensionId: string,
-  callExpression: Node,
-  receiverTarget: AttributeBuilderTarget,
-  selectorKind: "method" | "property",
-): AttributeBuilderTarget | undefined {
-  const selectorArgument = (Node_Arguments(callExpression) ?? [])[0];
-  const memberName = getPropertySelectorName(selectorArgument);
-  if (memberName === undefined) {
-    appendSourceSemanticsDiagnostic(
-      diagnostics,
-      extensionId,
-      "SOURCE_SEMANTICS_ATTRIBUTE_SELECTOR_INVALID",
-      9901104,
-      `attributes(...).${selectorKind}(...) requires a property-selector arrow expression.`,
-      callExpression,
-    );
-    return undefined;
-  }
-  const classDeclaration = receiverTarget.classDeclaration;
-  if (classDeclaration === undefined) {
-    appendSourceSemanticsDiagnostic(
-      diagnostics,
-      extensionId,
-      "SOURCE_SEMANTICS_ATTRIBUTE_SELECTOR_OWNER_MISSING",
-      9901105,
-      `attributes(...).${selectorKind}(...) requires the target class declaration to be available in the program.`,
-      callExpression,
-    );
-    return undefined;
-  }
-  const memberDeclaration = findClassMemberByName(classDeclaration, memberName, selectorKind);
-  if (memberDeclaration === undefined) {
-    appendSourceSemanticsDiagnostic(
-      diagnostics,
-      extensionId,
-      "SOURCE_SEMANTICS_ATTRIBUTE_SELECTOR_UNRESOLVED",
-      9901106,
-      `attributes(...).${selectorKind}(...) could not resolve member '${memberName}'.`,
-      callExpression,
-    );
-    return undefined;
-  }
-  return {
-    subject: memberDeclaration,
-    classDeclaration,
-    memberDeclaration,
-    ...(selectorKind === "method" ? { methodDeclaration: memberDeclaration } : {}),
-  };
-}
-
-function resolveAttributeParameterSelector(
-  diagnostics: ExtensionDiagnosticStore,
-  extensionId: string,
-  callExpression: Node,
-  receiverTarget: AttributeBuilderTarget,
-): AttributeBuilderTarget | undefined {
-  const methodDeclaration = receiverTarget.methodDeclaration;
-  if (methodDeclaration === undefined) {
-    appendSourceSemanticsDiagnostic(
-      diagnostics,
-      extensionId,
-      "SOURCE_SEMANTICS_ATTRIBUTE_PARAMETER_OWNER_INVALID",
-      9901107,
-      "attributes(...).parameter(...) must follow a resolved method selector.",
-      callExpression,
-    );
-    return undefined;
-  }
-  const parameterName = getStringLiteralText((Node_Arguments(callExpression) ?? [])[0]);
-  if (parameterName === undefined) {
-    appendSourceSemanticsDiagnostic(
-      diagnostics,
-      extensionId,
-      "SOURCE_SEMANTICS_ATTRIBUTE_PARAMETER_SELECTOR_INVALID",
-      9901108,
-      "attributes(...).parameter(...) requires a string-literal parameter name.",
-      callExpression,
-    );
-    return undefined;
-  }
-  const parameter = (Node_Parameters(methodDeclaration) ?? [])
-    .find((candidate) => getSourceSemanticsNameText(candidate) === parameterName);
-  if (parameter === undefined) {
-    appendSourceSemanticsDiagnostic(
-      diagnostics,
-      extensionId,
-      "SOURCE_SEMANTICS_ATTRIBUTE_PARAMETER_UNRESOLVED",
-      9901109,
-      `attributes(...).parameter(...) could not resolve parameter '${parameterName}'.`,
-      callExpression,
-    );
-    return undefined;
-  }
-  return {
-    subject: parameter,
-    ...(receiverTarget.classDeclaration === undefined ? {} : { classDeclaration: receiverTarget.classDeclaration }),
-    ...(receiverTarget.memberDeclaration === undefined ? {} : { memberDeclaration: receiverTarget.memberDeclaration }),
-    methodDeclaration,
-  };
 }
 
 function recordArgumentPassingMarker(
@@ -743,7 +423,6 @@ function recordArgumentPassingMarker(
   } satisfies ArgumentPassingFact;
   facts.set(callExpression, argumentPassingFactKey, fact, evidence);
   if (IsLeftHandSideExpression(target)) {
-    facts.set(target, argumentPassingFactKey, fact, evidence);
     return;
   }
   diagnostics.append({
@@ -761,12 +440,12 @@ function recordArgumentPassingMarker(
 
 function getArgumentPassingMode(kind: ArgumentPassingMarkerKind): ArgumentPassingFact["mode"] {
   switch (kind) {
-    case "byrefReadonly":
-      return "byref-readonly";
-    case "byrefReadwrite":
-      return "byref-readwrite";
-    case "byrefWriteonlyMustInit":
+    case "out":
       return "byref-writeonly-must-init";
+    case "ref":
+      return "byref-readwrite";
+    case "inref":
+      return "byref-readonly";
   }
 }
 
@@ -795,7 +474,7 @@ function recordFieldMarker(
   }
 }
 
-function recordValueTypeMarker(
+function recordStructMarker(
   facts: ExtensionFactStore,
   callExpression: Node,
   evidence: readonly ExtensionEvidence[],
@@ -817,14 +496,13 @@ function recordValueTypeMarker(
   const fact = {
     valueType: true,
     fields,
-  } satisfies ValueTypeFact;
-  facts.set(callExpression, valueTypeFactKey, fact, evidence);
-  recordInitializerOwnerFact(facts, callExpression, valueTypeFactKey, fact, evidence);
+  } satisfies StructFact;
+  facts.set(callExpression, structFactKey, fact, evidence);
+  recordInitializerOwnerFact(facts, callExpression, structFactKey, fact, evidence);
 }
 
 function recordAttributeMarker(
   facts: ExtensionFactStore,
-  attributeFacts: AttributeFactAccumulator,
   callExpression: Node,
   evidence: readonly ExtensionEvidence[],
 ): void {
@@ -832,13 +510,120 @@ function recordAttributeMarker(
   if (target === undefined) {
     return;
   }
-  const application = {
+  const fact = {
     target,
     attributeName: getTypeReferenceNameText(target),
     arguments: definedFactSubjects(Node_Arguments(callExpression) ?? []),
-  } satisfies AttributeApplicationFact;
-  appendAttributeFact(attributeFacts, callExpression, application, evidence);
-  recordInitializerOwnerAttributeFact(facts, attributeFacts, callExpression, application, evidence);
+  } satisfies AttributeFact;
+  facts.set(callExpression, attributeFactKey, fact, evidence);
+  recordInitializerOwnerFact(facts, callExpression, attributeFactKey, fact, evidence);
+}
+
+interface AttributeBuilderContext {
+  readonly applicationTarget: ExtensionFactSubject;
+  readonly applicationParameterName?: string;
+}
+
+function recordAttributeBuilderCall(
+  facts: ExtensionFactStore,
+  callExpression: Node,
+  evidence: readonly ExtensionEvidence[],
+): void {
+  const expression = AsCallExpression(callExpression)?.Expression;
+  if (expression?.Kind !== KindPropertyAccessExpression) {
+    return;
+  }
+  const access = AsPropertyAccessExpression(expression);
+  if (access === undefined) {
+    return;
+  }
+  const name = Node_Name(access);
+  if (name === undefined || Node_Text(name) !== "add") {
+    return;
+  }
+  const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+  if (receiverContext === undefined) {
+    return;
+  }
+  const args = definedFactSubjects(Node_Arguments(callExpression) ?? []);
+  const target = args[0];
+  if (!isNodeSubject(target)) {
+    return;
+  }
+  const fact = {
+    target,
+    applicationTarget: receiverContext.applicationTarget,
+    ...(receiverContext.applicationParameterName !== undefined ? { applicationParameterName: receiverContext.applicationParameterName } : {}),
+    attributeName: getExpressionNameText(target),
+    arguments: args.slice(1),
+  } satisfies AttributeFact;
+  facts.set(callExpression, attributeFactKey, fact, evidence);
+}
+
+function getAttributeBuilderContext(
+  facts: ExtensionFactStore,
+  expression: GoPtr<Node>,
+): AttributeBuilderContext | undefined {
+  if (expression?.Kind !== KindCallExpression) {
+    return undefined;
+  }
+  const existingAttribute = facts.get(expression, attributeFactKey);
+  if (existingAttribute !== undefined) {
+    return {
+      applicationTarget: existingAttribute.target,
+    };
+  }
+
+  const call = AsCallExpression(expression);
+  if (call?.Expression?.Kind !== KindPropertyAccessExpression) {
+    return undefined;
+  }
+  const access = AsPropertyAccessExpression(call.Expression);
+  if (access === undefined) {
+    return undefined;
+  }
+  const name = Node_Name(access);
+  if (name === undefined) {
+    return undefined;
+  }
+  const methodName = Node_Text(name);
+  if (methodName === "property" || methodName === "method") {
+    const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+    const selectedTarget = getAttributeSelectorTarget((Node_Arguments(expression) ?? [])[0]);
+    return receiverContext === undefined || selectedTarget === undefined
+      ? undefined
+      : {
+        applicationTarget: selectedTarget,
+      };
+  }
+  if (methodName === "parameter") {
+    const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+    const parameterName = getStringLiteralText((Node_Arguments(expression) ?? [])[0]);
+    return receiverContext === undefined || parameterName === undefined
+      ? undefined
+      : {
+        applicationTarget: receiverContext.applicationTarget,
+        applicationParameterName: parameterName,
+      };
+  }
+  return undefined;
+}
+
+function getAttributeSelectorTarget(selector: GoPtr<Node>): Node | undefined {
+  if (selector?.Kind !== KindArrowFunction) {
+    return undefined;
+  }
+  const body = Node_Body(selector);
+  return AsPropertyAccessExpression(body);
+}
+
+function getStringLiteralText(node: GoPtr<Node>): string | undefined {
+  return node?.Kind === KindStringLiteral ? Node_Text(node) : undefined;
+}
+
+function getExpressionNameText(node: Node): string {
+  const name = Node_Name(node);
+  return (name === undefined ? "" : Node_Text(name)) || Node_Text(node);
 }
 
 function recordDefaultValueMarker(
@@ -873,51 +658,6 @@ function recordInitializerOwnerFact<TFact>(
   }
 }
 
-function recordInitializerOwnerAttributeFact(
-  facts: ExtensionFactStore,
-  attributeFacts: AttributeFactAccumulator,
-  callExpression: Node,
-  attribute: AttributeApplicationFact,
-  evidence: readonly ExtensionEvidence[],
-): void {
-  const parent = callExpression?.Parent;
-  if (parent === undefined || !isInitializerOwner(parent) || Node_Initializer(parent) !== callExpression) {
-    return;
-  }
-  appendAttributeFact(attributeFacts, parent, attribute, evidence);
-  const symbol = Node_Symbol(parent);
-  if (symbol !== undefined) {
-    appendAttributeFact(attributeFacts, symbol, attribute, evidence);
-  }
-}
-
-function appendAttributeFact(
-  attributeFacts: AttributeFactAccumulator,
-  subject: ExtensionFactSubject | undefined,
-  attribute: AttributeApplicationFact,
-  evidence: readonly ExtensionEvidence[],
-): void {
-  if (subject === undefined) {
-    return;
-  }
-  const pending = attributeFacts.get(subject);
-  if (pending === undefined) {
-    attributeFacts.set(subject, { attributes: [attribute], evidence: [...evidence] });
-    return;
-  }
-  pending.attributes.push(attribute);
-  pending.evidence.push(...evidence);
-}
-
-function flushAttributeFacts(
-  facts: ExtensionFactStore,
-  attributeFacts: AttributeFactAccumulator,
-): void {
-  for (const [subject, pending] of attributeFacts) {
-    facts.set(subject, attributeFactKey, { attributes: pending.attributes }, pending.evidence);
-  }
-}
-
 function isInitializerOwner(node: GoPtr<Node>): boolean {
   return node?.Kind === KindVariableDeclaration || node?.Kind === KindPropertyDeclaration || node?.Kind === KindPropertyAssignment;
 }
@@ -945,170 +685,33 @@ function resolveSourcePrimitiveFact(
   if (subject === null || subject === undefined || typeof subject !== "object") {
     return undefined;
   }
-  const directPrimitive = getDirectSourcePrimitiveSubject(subject);
-  if (directPrimitive !== undefined) {
-    return { value: directPrimitive };
-  }
-  const operationPrimitive = resolvePrimitiveOperationResult(subject, context);
-  if (operationPrimitive !== undefined) {
-    return operationPrimitive;
-  }
-  if (isSemanticTypeSubject(subject)) {
-    const type = subject as Type;
-    const primitiveFromType = resolvePrimitiveSemanticType(type, context.facts);
-    if (primitiveFromType !== undefined) {
-      return primitiveFromType;
-    }
-  }
-  const node = subject as GoPtr<Node>;
-  if (node?.Kind === undefined) {
-    return undefined;
-  }
-  const wrappedPrimitive = resolvePrimitiveWrappedExpression(node, context);
-  if (wrappedPrimitive !== undefined) {
-    return wrappedPrimitive;
-  }
-  if (node?.Kind === KindTypeReference) {
-    const typeName = AsTypeReferenceNode(node)?.TypeName;
-    const primitive = resolvePrimitiveTypeReference(context.facts, typeName, modules);
+  const aliasSymbol = getTypeAliasSymbol(subject);
+  if (aliasSymbol !== undefined) {
+    const primitive = resolvePrimitiveFromTypeAliasSymbol(context.facts, aliasSymbol, modules, undefined, new Set());
     if (primitive !== undefined) {
       return {
         value: stripExportName(primitive.primitiveFact),
         evidence: createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName),
       };
     }
-    const alias = resolvePrimitiveAliasReference(node, context.facts);
-    if (alias !== undefined) {
-      return alias;
-    }
   }
-  return resolvePrimitiveNodeSymbolFact(node, context.facts);
-}
-
-function resolvePrimitiveWrappedExpression(
-  node: GoPtr<Node>,
-  context: ExtensionFactResolverContext,
-): { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined {
-  if (node?.Kind !== KindParenthesizedExpression) {
+  const node = subject as GoPtr<Node>;
+  if (node?.Kind !== KindTypeReference) {
     return undefined;
   }
-  const expression = AsParenthesizedExpression(node)?.Expression;
-  if (expression === undefined) {
-    return undefined;
-  }
-  return resolvePrimitiveOperationResult(expression, context) ??
-    resolvePrimitiveNodeSymbolFact(expression, context.facts);
-}
-
-function getDirectSourcePrimitiveSubject(subject: ExtensionFactSubject): SourcePrimitiveFact | undefined {
-  const primitive = subject as Partial<SourcePrimitiveFact>;
-  return typeof primitive.kind === "string" &&
-    (
-      primitive.runtimeBase === "boolean" ||
-      primitive.runtimeBase === "number" ||
-      primitive.runtimeBase === "bigint" ||
-      primitive.runtimeBase === "string" ||
-      primitive.runtimeBase === "object"
-    )
-    ? primitive as SourcePrimitiveFact
-    : undefined;
-}
-
-function resolvePrimitiveOperationResult(
-  subject: ExtensionFactSubject,
-  context: ExtensionFactResolverContext,
-): { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined {
-  const operation = context.facts.get(subject, targetOperationFactKey);
-  if (operation?.resultType === undefined || operation.resultType === subject) {
-    return undefined;
-  }
-  const primitive = getDirectSourcePrimitiveSubject(operation.resultType) ??
-    context.facts.get(operation.resultType, sourcePrimitiveFactKey);
+  const typeName = AsTypeReferenceNode(node)?.TypeName;
+  const primitive = resolvePrimitiveTypeReference(context.facts, typeName, modules);
   if (primitive === undefined) {
     return undefined;
   }
   return {
-    value: primitive,
-    ...(operation.evidence !== undefined ? { evidence: operation.evidence } : {}),
+    value: stripExportName(primitive.primitiveFact),
+    evidence: createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName),
   };
 }
 
-function resolvePrimitiveSemanticType(
-  type: GoPtr<Type>,
-  facts: ExtensionFactStore,
-): { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined {
-  const aliasSymbol = TypeAlias_Symbol(Type_Alias(type));
-  if (aliasSymbol === undefined) {
-    return undefined;
-  }
-  const primitive = facts.get(aliasSymbol, sourcePrimitiveFactKey);
-  const identity = facts.get(aliasSymbol, canonicalIdentityFactKey);
-  if (primitive === undefined) {
-    return undefined;
-  }
-  const evidence = identity === undefined ? undefined : createAliasEvidence(aliasSymbol.Name, identity.exportName ?? identity.id);
-  return {
-    value: primitive,
-    ...(evidence !== undefined ? { evidence } : {}),
-  };
-}
-
-function resolvePrimitiveNodeSymbolFact(
-  node: GoPtr<Node>,
-  facts: ExtensionFactStore,
-): { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined {
-  if (node === undefined) {
-    return undefined;
-  }
-  const symbol = Node_Symbol(node);
-  if (symbol === undefined) {
-    return undefined;
-  }
-  const primitive = facts.get(symbol, sourcePrimitiveFactKey);
-  const identity = facts.get(symbol, canonicalIdentityFactKey);
-  if (primitive === undefined) {
-    return undefined;
-  }
-  const evidence = identity === undefined ? undefined : createAliasEvidence(symbol.Name, identity.exportName ?? identity.id);
-  return {
-    value: primitive,
-    ...(evidence !== undefined ? { evidence } : {}),
-  };
-}
-
-function resolvePrimitiveAliasReference(
-  typeReference: Node,
-  facts: ExtensionFactStore,
-): { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined {
-  const typeName = AsTypeReferenceNode(typeReference)?.TypeName;
-  if (typeName === undefined || typeName.Kind === KindQualifiedName) {
-    return undefined;
-  }
-  const aliasName = Node_Text(typeName);
-  if (aliasName === "") {
-    return undefined;
-  }
-  const sourceFile = GetSourceFileOfNode(typeReference);
-  let resolved: { readonly value: SourcePrimitiveFact; readonly evidence?: readonly ExtensionEvidence[] } | undefined;
-  visitSourceSemanticsNode(sourceFile, (candidate) => {
-    if (resolved !== undefined || candidate?.Kind !== KindTypeAliasDeclaration) {
-      return;
-    }
-    const alias = AsTypeAliasDeclaration(candidate)!;
-    if (Node_Text(alias.name) !== aliasName) {
-      return;
-    }
-    const primitive = facts.get(alias.Type, sourcePrimitiveFactKey);
-    const identity = facts.get(alias.Type, canonicalIdentityFactKey);
-    if (primitive === undefined || identity === undefined) {
-      return;
-    }
-    resolved = {
-      value: primitive,
-      evidence: createAliasEvidence(aliasName, identity.exportName ?? identity.id),
-    };
-  });
-  return resolved;
+function getTypeAliasSymbol(subject: object): Symbol | undefined {
+  return (subject as { readonly alias?: { readonly symbol?: Symbol } }).alias?.symbol;
 }
 
 function recordSourceSemanticsTypeReferences(
@@ -1149,84 +752,6 @@ function recordSourceSemanticsTypeReferences(
   });
 }
 
-function recordSourceSemanticsTypeAliases(
-  facts: ExtensionFactStore,
-  sourceFile: GoPtr<SourceFile>,
-): void {
-  visitSourceSemanticsNode(sourceFile, (node) => {
-    if (node?.Kind !== KindTypeAliasDeclaration) {
-      return;
-    }
-    const alias = AsTypeAliasDeclaration(node)!;
-    const primitive = facts.get(alias.Type, sourcePrimitiveFactKey);
-    const identity = facts.get(alias.Type, canonicalIdentityFactKey);
-    if (primitive === undefined || identity === undefined || alias.name === undefined) {
-      return;
-    }
-    const evidence = createAliasEvidence(Node_Text(alias.name), identity.exportName ?? identity.id);
-    facts.set(alias.name, sourcePrimitiveFactKey, primitive, evidence);
-    facts.set(alias.name, canonicalIdentityFactKey, identity, evidence);
-    const nameSymbol = Node_Symbol(alias.name);
-    if (nameSymbol !== undefined) {
-      facts.set(nameSymbol, sourcePrimitiveFactKey, primitive, evidence);
-      facts.set(nameSymbol, canonicalIdentityFactKey, identity, evidence);
-    }
-    const declarationSymbol = Node_Symbol(node);
-    if (declarationSymbol !== undefined && declarationSymbol !== nameSymbol) {
-      facts.set(declarationSymbol, sourcePrimitiveFactKey, primitive, evidence);
-      facts.set(declarationSymbol, canonicalIdentityFactKey, identity, evidence);
-    }
-  });
-}
-
-function recordSourceSemanticsTypedDeclarations(
-  facts: ExtensionFactStore,
-  sourceFile: GoPtr<SourceFile>,
-): void {
-  visitSourceSemanticsNode(sourceFile, (node) => {
-    if (
-      node?.Kind !== KindVariableDeclaration &&
-      node?.Kind !== KindParameter &&
-      node?.Kind !== KindPropertyDeclaration
-    ) {
-      return;
-    }
-    const typeNode = Node_Type(node);
-    if (typeNode === undefined) {
-      return;
-    }
-    const primitive = facts.get(typeNode, sourcePrimitiveFactKey);
-    const identity = facts.get(typeNode, canonicalIdentityFactKey);
-    if (primitive === undefined || identity === undefined) {
-      return;
-    }
-    const evidence = createAliasEvidence(Node_Text(Node_Name(node)), identity.exportName ?? identity.id);
-    facts.set(node, sourcePrimitiveFactKey, primitive, evidence);
-    facts.set(node, canonicalIdentityFactKey, identity, evidence);
-    const name = Node_Name(node);
-    if (name !== undefined) {
-      facts.set(name, sourcePrimitiveFactKey, primitive, evidence);
-      facts.set(name, canonicalIdentityFactKey, identity, evidence);
-      const nameSymbol = Node_Symbol(name);
-      if (nameSymbol !== undefined) {
-        facts.set(nameSymbol, sourcePrimitiveFactKey, primitive, evidence);
-        facts.set(nameSymbol, canonicalIdentityFactKey, identity, evidence);
-      }
-    }
-    const declarationSymbol = Node_Symbol(node);
-    if (declarationSymbol !== undefined) {
-      facts.set(declarationSymbol, sourcePrimitiveFactKey, primitive, evidence);
-      facts.set(declarationSymbol, canonicalIdentityFactKey, identity, evidence);
-    }
-  });
-}
-
-function createAliasEvidence(aliasName: string, targetName: string): readonly ExtensionEvidence[] {
-  return [{
-    message: `Type alias '${aliasName}' preserves source primitive '${targetName}'.`,
-  }];
-}
-
 function recordSourceSemanticsTypeMarker(
   facts: ExtensionFactStore,
   typeReference: Node,
@@ -1235,7 +760,7 @@ function recordSourceSemanticsTypeMarker(
 ): void {
   const typeArguments = Node_TypeArguments(typeReference) ?? [];
   const evidence = createMarkerEvidence(marker.exportName);
-  if (marker.marker === "pointer") {
+  if (marker.marker === "ptr") {
     const pointee = typeArguments[0];
     if (pointee === undefined) {
       return;
@@ -1273,132 +798,6 @@ function getFunctionPointerParameters(parameterList: GoPtr<Node>): readonly Exte
   return [parameterList];
 }
 
-function getTypeReferenceSymbol(node: GoPtr<Node>): GoPtr<Symbol> {
-  if (node?.Kind !== KindTypeReference) {
-    return Node_Symbol(node);
-  }
-  const typeName = AsTypeReferenceNode(node)?.TypeName;
-  if (typeName?.Kind === KindQualifiedName) {
-    return Node_Symbol(AsQualifiedName(typeName)?.Right);
-  }
-  return Node_Symbol(typeName);
-}
-
-function findClassDeclarationBySymbol(sourceFile: GoPtr<SourceFile>, symbol: Symbol): Node | undefined {
-  let found: Node | undefined;
-  visitSourceSemanticsNode(sourceFile, (node) => {
-    if (found !== undefined || node?.Kind !== KindClassDeclaration) {
-      return;
-    }
-    if (Node_Symbol(node) === symbol || Node_Symbol(getSourceSemanticsNameNode(node)) === symbol) {
-      found = node;
-    }
-  });
-  return found;
-}
-
-function findClassDeclarationForTypeReference(
-  sourceFile: GoPtr<SourceFile>,
-  typeReference: GoPtr<Node>,
-  symbol: GoPtr<Symbol>,
-): Node | undefined {
-  if (symbol !== undefined) {
-    const bySymbol = findClassDeclarationBySymbol(sourceFile, symbol);
-    if (bySymbol !== undefined) {
-      return bySymbol;
-    }
-  }
-  if (typeReference?.Kind !== KindTypeReference) {
-    return undefined;
-  }
-  const typeNameText = getTypeReferenceNameText(typeReference);
-  if (typeNameText.length === 0 || typeNameText.includes(".")) {
-    return undefined;
-  }
-  let found: Node | undefined;
-  visitSourceSemanticsNode(sourceFile, (node) => {
-    if (found !== undefined || node?.Kind !== KindClassDeclaration || getSourceSemanticsNameText(node) !== typeNameText) {
-      return;
-    }
-    found = node;
-  });
-  return found;
-}
-
-function findClassMemberByName(classDeclaration: Node, memberName: string, selectorKind: "method" | "property"): Node | undefined {
-  for (const member of Node_Members(classDeclaration) ?? []) {
-    if (member === undefined || getSourceSemanticsNameText(member) !== memberName) {
-      continue;
-    }
-    if (selectorKind === "method" && member.Kind === KindMethodDeclaration) {
-      return member;
-    }
-    if (
-      selectorKind === "property"
-      && (member.Kind === KindPropertyDeclaration || member.Kind === KindGetAccessor || member.Kind === KindSetAccessor)
-    ) {
-      return member;
-    }
-  }
-  return undefined;
-}
-
-function getPropertySelectorName(node: GoPtr<Node>): string | undefined {
-  if (node?.Kind !== KindArrowFunction) {
-    return undefined;
-  }
-  const body = Node_Body(node);
-  if (body?.Kind !== KindPropertyAccessExpression) {
-    return undefined;
-  }
-  const text = getSourceSemanticsNameText(body);
-  return text.length === 0 ? undefined : text;
-}
-
-function getSourceSemanticsNameText(node: GoPtr<Node>): string {
-  const name = getSourceSemanticsNameNode(node);
-  return name === undefined ? "" : Node_Text(name);
-}
-
-function getSourceSemanticsNameNode(node: GoPtr<Node>): GoPtr<Node> {
-  const name = Node_Name(node);
-  if (isAstNode(name)) {
-    return name;
-  }
-  const lowerCaseName = (node as { readonly name?: unknown } | undefined)?.name;
-  return isAstNode(lowerCaseName) ? lowerCaseName : undefined;
-}
-
-function getStringLiteralText(node: GoPtr<Node>): string | undefined {
-  return node?.Kind === KindStringLiteral || node?.Kind === KindNoSubstitutionTemplateLiteral
-    ? Node_Text(node)
-    : undefined;
-}
-
-function appendSourceSemanticsDiagnostic(
-  diagnostics: ExtensionDiagnosticStore,
-  extensionId: string,
-  extensionCode: string,
-  numericCode: number,
-  message: string,
-  nodeOrSpan: unknown,
-): void {
-  diagnostics.append({
-    extensionId,
-    extensionCode,
-    numericCode,
-    publicCode: `TSTS_SOURCE_SEMANTICS_${String(numericCode - 9901100).padStart(4, "0")}`,
-    category: "error",
-    message,
-    nodeOrSpan,
-    identity: `${extensionCode}:${numericCode}`,
-  });
-}
-
-function isAstNode(subject: unknown): subject is Node {
-  return typeof (subject as { readonly Kind?: unknown }).Kind === "number";
-}
-
 function resolveSourceSemanticsCallMarkerReference(
   facts: ExtensionFactStore,
   node: GoPtr<Node>,
@@ -1429,10 +828,8 @@ function resolveSourceSemanticsMarkerFromImportIndex<TMarker extends { readonly 
     return undefined;
   }
   if (node.Kind === KindPropertyAccessExpression) {
-    const receiverName = getSimpleIdentifierText(AsPropertyAccessExpression(node)?.Expression);
-    if (receiverName === undefined) {
-      return undefined;
-    }
+    const receiver = AsPropertyAccessExpression(node)?.Expression;
+    const receiverName = receiver?.Kind === KindIdentifier ? Node_Text(receiver) : "";
     const namespaceModule = namespacesByLocalName.get(receiverName);
     const propertyName = Node_Text(Node_Name(node));
     const marker = getModuleMarker(namespaceModule, capability, propertyName);
@@ -1458,11 +855,7 @@ function resolveSourceSemanticsMarkerReference<TMarker extends { readonly export
   }
   if (node.Kind === KindPropertyAccessExpression) {
     const propertyName = Node_Text(Node_Name(node));
-    const receiverExpression = AsPropertyAccessExpression(node)?.Expression;
-    if (receiverExpression?.Kind !== KindIdentifier) {
-      return undefined;
-    }
-    const receiverSymbol = Node_Symbol(receiverExpression);
+    const receiverSymbol = Node_Symbol(AsPropertyAccessExpression(node)?.Expression);
     const receiverIdentity = receiverSymbol === undefined ? undefined : facts.get(receiverSymbol, canonicalIdentityFactKey);
     if (receiverIdentity?.kind !== "module") {
       return undefined;
@@ -1488,10 +881,6 @@ function resolveSourceSemanticsMarkerReference<TMarker extends { readonly export
   }
   const module = modules.find((candidate) => identity.id === `${candidate.moduleSpecifier}::${identity.exportName}`);
   return getModuleMarker(module, capability, identity.exportName) as TMarker | undefined;
-}
-
-function getSimpleIdentifierText(node: GoPtr<Node>): string | undefined {
-  return node?.Kind === KindIdentifier ? Node_Text(node) : undefined;
 }
 
 function createSourceSemanticsMarkerImportIndex(
@@ -1549,6 +938,7 @@ function resolvePrimitiveTypeReference(
   typeName: GoPtr<Node>,
   modules: readonly SourceSemanticsModuleRuntime[],
   importIndex?: SourceSemanticsMarkerImportIndex,
+  seen: ReadonlySet<Symbol> = new Set(),
 ): { readonly moduleIdentity: SourceSemanticsModuleRuntime; readonly exportName: string; readonly primitiveFact: SourcePrimitiveDeclaration; readonly identity: ExtensionCanonicalIdentity } | undefined {
   if (typeName === undefined) {
     return undefined;
@@ -1570,7 +960,7 @@ function resolvePrimitiveTypeReference(
   const primitiveFact = facts.get(typeNameSymbol, sourcePrimitiveFactKey);
   const identity = facts.get(typeNameSymbol, canonicalIdentityFactKey);
   if (primitiveFact === undefined || identity === undefined || identity.exportName === undefined) {
-    return undefined;
+    return resolvePrimitiveFromTypeAliasSymbol(facts, typeNameSymbol, modules, importIndex, seen);
   }
   const moduleIdentity = modules.find((candidate) => identity.id === `${candidate.moduleSpecifier}::${identity.exportName}`);
   if (moduleIdentity === undefined) {
@@ -1583,11 +973,36 @@ function resolvePrimitiveTypeReference(
   return { moduleIdentity, exportName: identity.exportName, primitiveFact: declaration, identity };
 }
 
+function resolvePrimitiveFromTypeAliasSymbol(
+  facts: ExtensionFactStore,
+  symbol: Symbol,
+  modules: readonly SourceSemanticsModuleRuntime[],
+  importIndex: SourceSemanticsMarkerImportIndex | undefined,
+  seen: ReadonlySet<Symbol>,
+): { readonly moduleIdentity: SourceSemanticsModuleRuntime; readonly exportName: string; readonly primitiveFact: SourcePrimitiveDeclaration; readonly identity: ExtensionCanonicalIdentity } | undefined {
+  if (seen.has(symbol)) {
+    return undefined;
+  }
+  const nextSeen = new Set(seen).add(symbol);
+  for (const declaration of symbol.Declarations ?? []) {
+    const aliasType = Node_Type(declaration);
+    if (aliasType?.Kind !== KindTypeReference) {
+      continue;
+    }
+    const aliasTypeName = AsTypeReferenceNode(aliasType)?.TypeName;
+    const primitive = resolvePrimitiveTypeReference(facts, aliasTypeName, modules, importIndex, nextSeen);
+    if (primitive !== undefined) {
+      return primitive;
+    }
+  }
+  return undefined;
+}
+
 function resolvePrimitiveFromImportIndex(
   typeName: GoPtr<Node>,
   importIndex: SourceSemanticsMarkerImportIndex | undefined,
 ): { readonly moduleIdentity: SourceSemanticsModuleRuntime; readonly exportName: string; readonly primitiveFact: SourcePrimitiveDeclaration; readonly identity: ExtensionCanonicalIdentity } | undefined {
-  if (typeName === undefined || importIndex === undefined || typeName.Kind !== KindIdentifier) {
+  if (typeName === undefined || importIndex === undefined) {
     return undefined;
   }
   const binding = importIndex.primitivesByLocalName.get(Node_Text(typeName));
@@ -1681,6 +1096,10 @@ function visitSourceSemanticsNodePost(node: GoPtr<Node>, visit: (node: GoPtr<Nod
 
 function definedFactSubjects<T extends object>(subjects: readonly (T | undefined)[]): readonly ExtensionFactSubject[] {
   return subjects.filter((subject): subject is T => subject !== undefined);
+}
+
+function isNodeSubject(subject: ExtensionFactSubject | undefined): subject is Node {
+  return subject !== undefined && typeof (subject as Node).Kind === "number";
 }
 
 function recordNamespaceImportIdentity(
@@ -1802,13 +1221,6 @@ function getTypeReferenceNameText(node: GoPtr<Node>): string {
     return left === "" ? right : `${left}.${right}`;
   }
   return Node_Text(node);
-}
-
-function isSemanticTypeSubject(subject: ExtensionFactSubject): subject is Type {
-  return subject !== null &&
-    subject !== undefined &&
-    typeof subject === "object" &&
-    typeof (subject as { readonly flags?: unknown }).flags === "number";
 }
 
 function getModuleMarker(moduleIdentity: SourceSemanticsModuleRuntime | undefined, capability: SourceSemanticsModuleCapability, exportName: string): SourceCallMarkerDeclaration | SourceTypeMarkerDeclaration | undefined {

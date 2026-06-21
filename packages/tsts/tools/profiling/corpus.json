@@ -1,0 +1,4 @@
+{ "projects": [
+  { "name": "lib-micro", "cwd": "/tmp", "args": ["--noEmit", "triv.ts"] },
+  { "name": "ms", "cwd": "/home/jeswin/temp/tsts-smoke/ms", "args": ["-p", "tsconfig.json", "--noEmit"] }
+] }

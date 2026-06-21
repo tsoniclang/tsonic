@@ -4,9 +4,9 @@ import {
   ExtensionHost,
   ExtensionHostDiagnosticCode,
   ExtensionLifecycleEvent,
-  ExtensionDecisionQuestion,
+  ExtensionObservationPoint,
   TstsProviderContractVersion,
-  acceptDecision,
+  acceptObservation,
   argumentPassingFactKey,
   attachExtensionHost,
   attachExtensionHostToProgram,
@@ -15,11 +15,11 @@ import {
   constGenericFactKey,
   createExtensionConsumerQueries,
   defineExtensionFactKey,
-  deferDecision,
+  deferObservation,
   flowStateFactKey,
   getExtensionHost,
   hasExtensionHost,
-  rejectDecision,
+  rejectObservation,
   runtimeCarrierFactKey,
   selectedTargetSignatureFactKey,
   sourcePrimitiveFactKey,
@@ -27,21 +27,20 @@ import {
   targetOperationFactKey,
 } from "./index.js";
 import type {
-  AssignabilityRequest,
   CompilerExtension,
   ExtensionDiagnostic,
-  InferTypeArgumentsResult,
+  CheckedConversionMappingResult,
   ProviderDeclarationModel,
   ProviderMemberDeclaration,
   ProviderModuleResolution,
-  ResolveCallRequest,
-  ResolveCallResult,
-  ResolveConversionResult,
-  ResolveElementAccessRequest,
-  ResolveOperationResult,
-  ResolveOperatorRequest,
-  ResolvePropertyAccessRequest,
-  SatisfiesConstraintRequest,
+  CheckedCallMappingRequest,
+  CheckedCallMappingResult,
+  CheckedElementAccessMappingRequest,
+  CheckedOperationMappingResult,
+  CheckedOperatorMappingRequest,
+  CheckedPropertyAccessMappingRequest,
+  TargetConstraintValidationRequest,
+  TargetTypeArgumentMappingResult,
   SelectedTargetSignatureFact,
   SourceFileBoundLifecycleRequest,
   TargetBindingFact,
@@ -49,8 +48,8 @@ import type {
   TargetIdentity,
   TargetOperationFact,
   TargetSemanticProvider,
-  ValidateFlowUseRequest,
-  ValidateFlowUseResult,
+  ExtensionFlowUseValidationRequest,
+  ExtensionFlowUseValidationResult,
 } from "./index.js";
 
 const primitiveFactKey = defineExtensionFactKey({
@@ -62,7 +61,7 @@ function extension(id: string, options: {
   readonly dependsOn?: readonly string[];
   readonly runsAfter?: readonly string[];
   readonly composition?: CompilerExtension["composition"];
-  readonly decisionOwners?: CompilerExtension["decisionOwners"];
+  readonly observationOwners?: CompilerExtension["observationOwners"];
   readonly diagnosticRange?: CompilerExtension["identity"]["diagnosticRange"];
   readonly initialize?: CompilerExtension["initialize"];
 } = {}): CompilerExtension {
@@ -81,7 +80,7 @@ function extension(id: string, options: {
     },
     ...(dependencies !== undefined ? { dependencies } : {}),
     ...(options.composition !== undefined ? { composition: options.composition } : {}),
-    ...(options.decisionOwners !== undefined ? { decisionOwners: options.decisionOwners } : {}),
+    ...(options.observationOwners !== undefined ? { observationOwners: options.observationOwners } : {}),
     ...(options.initialize !== undefined ? { initialize: options.initialize } : {}),
   };
 }
@@ -170,22 +169,22 @@ test("missing dependencies, duplicate ids, and cycles are deterministic diagnost
   assert.equal(initialized.length, 0);
 });
 
-test("decision owners are required and conflicts are reported", () => {
+test("observation owners are required and conflicts are reported", () => {
   const host = new ExtensionHost({}, {
     extensions: [
-      extension("source", { decisionOwners: [ExtensionDecisionQuestion.satisfiesConstraint] }),
-      extension("other", { decisionOwners: [ExtensionDecisionQuestion.satisfiesConstraint] }),
+      extension("source", { observationOwners: [ExtensionObservationPoint.validateTargetConstraint] }),
+      extension("other", { observationOwners: [ExtensionObservationPoint.validateTargetConstraint] }),
     ],
   });
 
-  assert.equal(host.getDecisionOwner(ExtensionDecisionQuestion.satisfiesConstraint)?.identity.id, "other");
-  assert.equal(host.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.decisionOwnerConflict);
+  assert.equal(host.getObservationOwner(ExtensionObservationPoint.validateTargetConstraint)?.identity.id, "other");
+  assert.equal(host.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.observationOwnerConflict);
 
-  assert.equal(host.requireDecisionOwner(ExtensionDecisionQuestion.resolveCall), undefined);
-  assert.equal(host.diagnostics.all().at(-1)?.numericCode, ExtensionHostDiagnosticCode.decisionOwnerMissing);
+  assert.equal(host.requireObservationOwner(ExtensionObservationPoint.mapCheckedCall), undefined);
+  assert.equal(host.diagnostics.all().at(-1)?.numericCode, ExtensionHostDiagnosticCode.observationOwnerMissing);
 
-  host.registerDecisionOwner(ExtensionDecisionQuestion.resolveCall, "missing-extension");
-  assert.equal(host.diagnostics.all().at(-1)?.numericCode, ExtensionHostDiagnosticCode.unknownDecisionOwner);
+  host.registerObservationOwner(ExtensionObservationPoint.mapCheckedCall, "missing-extension");
+  assert.equal(host.diagnostics.all().at(-1)?.numericCode, ExtensionHostDiagnosticCode.unknownObservationOwner);
 });
 
 test("fact store supports insert, idempotent writes, conflicts, and object subjects only", () => {
@@ -336,7 +335,7 @@ test("extensions register binding and semantic providers through initialization 
       extensionContractVersion: TstsProviderContractVersion,
       providerKind: "semantic",
     },
-    getParameterMode: () => acceptDecision({
+    resolveParameterPassing: () => acceptObservation({
       passing: { mode: "byref-writeonly-must-init" },
     }),
   };
@@ -355,7 +354,7 @@ test("extensions register binding and semantic providers through initialization 
   assert.equal(host.providers.getTargetSemanticProvider("dotnet-semantic"), semanticProvider);
   assert.equal(host.diagnostics.hasErrors(), false);
 
-  const parameterMode = host.runDecision(ExtensionDecisionQuestion.getParameterMode, {
+  const parameterMode = host.runObservation(ExtensionObservationPoint.resolveParameterPassing, {
     parameter,
     argument,
     target: "csharp",
@@ -366,7 +365,7 @@ test("extensions register binding and semantic providers through initialization 
   assert.equal(parameterMode.kind === "accept" ? parameterMode.extensionId : undefined, "dotnet");
 });
 
-test("semantic provider methods own typed decisions without hook boilerplate", () => {
+test("semantic provider methods own typed observations without hook boilerplate", () => {
   const expression = {};
   const convertedExpression = {};
   const propertyAccess = {};
@@ -403,44 +402,43 @@ test("semantic provider methods own typed decisions without hook boilerplate", (
               extensionContractVersion: TstsProviderContractVersion,
               providerKind: "semantic",
             },
-            satisfiesConstraint: () => acceptDecision(true),
-            isAssignableTo: () => acceptDecision(true),
-            resolveCall: () => acceptDecision({
+            validateTargetConstraint: () => acceptObservation(true),
+            validatePostCheckAssignability: () => acceptObservation(true),
+            mapCheckedCall: () => acceptObservation({
               selectedSignature: selectedSignature("System.Console.WriteLine(System.Int32)"),
               returnType: voidType,
             }),
-            inferTypeArguments: () => acceptDecision({
-              typeArguments: [int32Type],
+            mapInferredSourceTypeArgumentsToTarget: () => acceptObservation({
               targetTypeArguments: [{ kind: "source-primitive", name: "int32" }],
             }),
-            resolvePropertyAccess: () => acceptDecision({
+            mapCheckedPropertyAccess: () => acceptObservation({
               operation: targetOperation("System.String.Length", "property"),
               resultType: int32Type,
             }),
-            resolveElementAccess: () => acceptDecision({
+            mapCheckedElementAccess: () => acceptObservation({
               operation: targetOperation("System.Span.GetItem", "indexer"),
               resultType: charType,
             }),
-            resolveOperator: () => acceptDecision({
+            mapCheckedOperator: () => acceptObservation({
               operation: targetOperation("System.Int32.op_Addition", "operator"),
               resultType: int32Type,
             }),
-            getContextualType: () => acceptDecision({
+            recordContextualTargetType: () => acceptObservation({
               type: delegateType,
               targetType: { kind: "target-named", id: "System.Func`2" },
             }),
-            resolveConversion: () => acceptDecision({
+            mapCheckedConversion: () => acceptObservation({
               convertedType: { kind: "source-primitive", name: "int32" },
               operation: targetOperation("System.Convert.ToInt32", "method"),
             }),
-            getParameterMode: () => acceptDecision({
+            resolveParameterPassing: () => acceptObservation({
               passing: { mode: "byref-readwrite" },
             }),
-            getRuntimeCarrier: () => acceptDecision({
+            resolveRuntimeCarrier: () => acceptObservation({
               carrier: { kind: "target-named", id: "System.Int32" },
               requiresAllocation: false,
             }),
-            validateFlowUse: () => acceptDecision({
+            validateExtensionFlowUse: () => acceptObservation({
               valid: true,
               targetCompilerValidationRequired: false,
             }),
@@ -450,21 +448,21 @@ test("semantic provider methods own typed decisions without hook boilerplate", (
     ],
   });
 
-  const constraint = host.runDecision(ExtensionDecisionQuestion.satisfiesConstraint, {
+  const constraint = host.runObservation(ExtensionObservationPoint.validateTargetConstraint, {
     source: int32Type,
     constraint: { kind: "implements", contract: "System.IEquatable`1" },
     target: "csharp",
   }, () => false, { requireOwner: true });
   assert.equal(constraint.kind === "accept" ? constraint.value : false, true);
 
-  const assignable = host.runDecision(ExtensionDecisionQuestion.isAssignableTo, {
+  const assignable = host.runObservation(ExtensionObservationPoint.validatePostCheckAssignability, {
     source: int32Type,
     target: longType,
     relation: "assignment",
   }, () => false, { requireOwner: true });
   assert.equal(assignable.kind === "accept" ? assignable.value : false, true);
 
-  const call = host.runDecision(ExtensionDecisionQuestion.resolveCall, {
+  const call = host.runObservation(ExtensionObservationPoint.mapCheckedCall, {
     call: expression,
     callee: consoleWriteLine,
     arguments: [callArgument],
@@ -472,15 +470,15 @@ test("semantic provider methods own typed decisions without hook boilerplate", (
   }, () => ({ selectedSignature: selectedSignature("core") }), { requireOwner: true });
   assert.equal(call.kind === "accept" ? call.value.selectedSignature.member.id : undefined, "System.Console.WriteLine(System.Int32)");
 
-  const noInferredTypeArguments: InferTypeArgumentsResult = { typeArguments: [] };
-  const inferred = host.runDecision(ExtensionDecisionQuestion.inferTypeArguments, {
+  const noInferredTypeArguments: TargetTypeArgumentMappingResult = { targetTypeArguments: [] };
+  const inferred = host.runObservation(ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget, {
     declaration: listAdd,
     arguments: [callArgument],
     contextualType: listInt32,
   }, () => noInferredTypeArguments, { requireOwner: true });
   assert.deepEqual(inferred.kind === "accept" ? inferred.value.targetTypeArguments : [], [{ kind: "source-primitive", name: "int32" }]);
 
-  const property = host.runDecision(ExtensionDecisionQuestion.resolvePropertyAccess, {
+  const property = host.runObservation(ExtensionObservationPoint.mapCheckedPropertyAccess, {
     expression: propertyAccess,
     receiver: stringType,
     propertyName: "length",
@@ -488,7 +486,7 @@ test("semantic provider methods own typed decisions without hook boilerplate", (
   }, () => ({ operation: targetOperation("core", "property") }), { requireOwner: true });
   assert.equal(property.kind === "accept" ? property.value.operation.operationId : undefined, "System.String.Length");
 
-  const element = host.runDecision(ExtensionDecisionQuestion.resolveElementAccess, {
+  const element = host.runObservation(ExtensionObservationPoint.mapCheckedElementAccess, {
     expression: elementAccess,
     receiver: stringType,
     argument: spanArgument,
@@ -496,7 +494,7 @@ test("semantic provider methods own typed decisions without hook boilerplate", (
   }, () => ({ operation: targetOperation("core", "indexer") }), { requireOwner: true });
   assert.equal(element.kind === "accept" ? element.value.operation.operationId : undefined, "System.Span.GetItem");
 
-  const operator = host.runDecision(ExtensionDecisionQuestion.resolveOperator, {
+  const operator = host.runObservation(ExtensionObservationPoint.mapCheckedOperator, {
     expression: operatorExpression,
     operator: "+",
     left: leftOperand,
@@ -505,15 +503,15 @@ test("semantic provider methods own typed decisions without hook boilerplate", (
   }, () => ({ operation: targetOperation("core", "operator") }), { requireOwner: true });
   assert.equal(operator.kind === "accept" ? operator.value.operation.operationId : undefined, "System.Int32.op_Addition");
 
-  const contextual = host.runDecision(ExtensionDecisionQuestion.getContextualType, {
+  const contextual = host.runObservation(ExtensionObservationPoint.recordContextualTargetType, {
     expression: lambda,
     context: delegateType,
     target: "csharp",
   }, () => ({ type: int32Type }), { requireOwner: true });
   assert.equal(contextual.kind === "accept" ? contextual.value.type : undefined, delegateType);
 
-  const noConversion: ResolveConversionResult = {};
-  const conversion = host.runDecision(ExtensionDecisionQuestion.resolveConversion, {
+  const noConversion: CheckedConversionMappingResult = {};
+  const conversion = host.runObservation(ExtensionObservationPoint.mapCheckedConversion, {
     expression: convertedExpression,
     source: byteType,
     target: int32Type,
@@ -521,20 +519,20 @@ test("semantic provider methods own typed decisions without hook boilerplate", (
   }, () => noConversion, { requireOwner: true });
   assert.equal(conversion.kind === "accept" ? conversion.value.operation?.operationId : undefined, "System.Convert.ToInt32");
 
-  const parameterMode = host.runDecision(ExtensionDecisionQuestion.getParameterMode, {
+  const parameterMode = host.runObservation(ExtensionObservationPoint.resolveParameterPassing, {
     parameter: tryParseParameter,
     argument: tryParseArgument,
     target: "csharp",
   }, () => ({ passing: { mode: "by-value" } }), { requireOwner: true });
   assert.equal(parameterMode.kind === "accept" ? parameterMode.value.passing.mode : undefined, "byref-readwrite");
 
-  const carrier = host.runDecision(ExtensionDecisionQuestion.getRuntimeCarrier, {
+  const carrier = host.runObservation(ExtensionObservationPoint.resolveRuntimeCarrier, {
     type: int32Type,
     target: "csharp",
   }, () => ({ carrier: { kind: "opaque", id: "core" } }), { requireOwner: true });
   assert.equal(carrier.kind === "accept" ? carrier.value.carrier.kind : undefined, "target-named");
 
-  const flow = host.runDecision(ExtensionDecisionQuestion.validateFlowUse, {
+  const flow = host.runObservation(ExtensionObservationPoint.validateExtensionFlowUse, {
     useSite: flowUse,
     symbol,
     mode: "read",
@@ -969,15 +967,15 @@ test("lifecycle hook failures are diagnostics with extension identity", () => {
   assert.equal(host.diagnostics.all()[0]?.extensionId, "tsts.extension-host");
 });
 
-test("decision hook failures are diagnostics and do not crash the compiler host", () => {
+test("observation hook failures are diagnostics and do not crash the compiler host", () => {
   const call = {};
   const callee = {};
   const host = new ExtensionHost({}, {
     extensions: [
-      extension("bad-decision-extension", {
-        decisionOwners: [ExtensionDecisionQuestion.resolveCall],
+      extension("bad-observation-extension", {
+        observationOwners: [ExtensionObservationPoint.mapCheckedCall],
         initialize: (context) => {
-          context.registerDecisionHook(ExtensionDecisionQuestion.resolveCall, () => {
+          context.registerObservation(ExtensionObservationPoint.mapCheckedCall, () => {
             throw new Error("boom");
           });
         },
@@ -985,28 +983,28 @@ test("decision hook failures are diagnostics and do not crash the compiler host"
     ],
   });
 
-  const result = host.runDecision(ExtensionDecisionQuestion.resolveCall, {
+  const result = host.runObservation(ExtensionObservationPoint.mapCheckedCall, {
     call,
     callee,
     arguments: [],
   }, () => ({ selectedSignature: selectedSignature("core") }), { requireOwner: true });
 
   assert.equal(result.kind, "reject");
-  assert.equal(host.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.decisionHookFailed);
+  assert.equal(host.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.observationHookFailed);
   assert.equal(host.diagnostics.all()[0]?.extensionId, "tsts.extension-host");
 });
 
 test("diagnostics are deduplicated by stable identity", () => {
   const host = new ExtensionHost({});
 
-  host.requireDecisionOwner(ExtensionDecisionQuestion.resolveCall);
-  host.requireDecisionOwner(ExtensionDecisionQuestion.resolveCall);
+  host.requireObservationOwner(ExtensionObservationPoint.mapCheckedCall);
+  host.requireObservationOwner(ExtensionObservationPoint.mapCheckedCall);
 
-  const ownerMissingDiagnostics = host.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.decisionOwnerMissing);
+  const ownerMissingDiagnostics = host.diagnostics.all().filter((diagnostic) => diagnostic.numericCode === ExtensionHostDiagnosticCode.observationOwnerMissing);
   assert.equal(ownerMissingDiagnostics.length, 1);
 });
 
-test("constraint and assignability decisions use owner hooks instead of core fallback", () => {
+test("target constraint and post-check assignability observations use owner hooks instead of core fallback", () => {
   const intType = {};
   const longType = {};
   const stringType = {};
@@ -1026,26 +1024,26 @@ test("constraint and assignability decisions use owner hooks instead of core fal
       }),
       extension("csharp", {
         dependsOn: ["source"],
-        decisionOwners: [ExtensionDecisionQuestion.satisfiesConstraint, ExtensionDecisionQuestion.isAssignableTo],
+        observationOwners: [ExtensionObservationPoint.validateTargetConstraint, ExtensionObservationPoint.validatePostCheckAssignability],
         initialize: (context) => {
-          context.registerDecisionHook(ExtensionDecisionQuestion.satisfiesConstraint, (request) => {
+          context.registerObservation(ExtensionObservationPoint.validateTargetConstraint, (request) => {
             if (request.source === intType && request.constraint === searchValuesConstraint) {
-              return acceptDecision(true, [{ message: "int32 maps to System.Int32 and implements IEquatable<System.Int32>" }]);
+              return acceptObservation(true, [{ message: "int32 maps to System.Int32 and implements IEquatable<System.Int32>" }]);
             }
-            return deferDecision;
+            return deferObservation;
           });
-          context.registerDecisionHook(ExtensionDecisionQuestion.isAssignableTo, (request) => {
+          context.registerObservation(ExtensionObservationPoint.validatePostCheckAssignability, (request) => {
             if (request.source === intType && request.target === longType) {
-              return acceptDecision(true);
+              return acceptObservation(true);
             }
-            return rejectDecision<boolean>(diagnostic("csharp", "ASSIGNABILITY_REJECTED", 9100001, "source type is not assignable to target type"));
+            return rejectObservation<boolean>(diagnostic("csharp", "ASSIGNABILITY_REJECTED", 9100001, "source type is not assignable to target type"));
           });
         },
       }),
     ],
   });
 
-  const constraintResult = host.runDecision(ExtensionDecisionQuestion.satisfiesConstraint, {
+  const constraintResult = host.runObservation(ExtensionObservationPoint.validateTargetConstraint, {
     source: intType,
     constraint: searchValuesConstraint,
     target: "csharp",
@@ -1058,7 +1056,7 @@ test("constraint and assignability decisions use owner hooks instead of core fal
   assert.equal(constraintResult.kind === "accept" ? constraintResult.value : false, true);
   assert.equal(coreCalled, false);
 
-  const assignabilityResult = host.runDecision(ExtensionDecisionQuestion.isAssignableTo, {
+  const assignabilityResult = host.runObservation(ExtensionObservationPoint.validatePostCheckAssignability, {
     source: intType,
     target: stringType,
     relation: "assignment",
@@ -1068,77 +1066,77 @@ test("constraint and assignability decisions use owner hooks instead of core fal
   assert.equal(host.diagnostics.all().at(-1)?.extensionCode, "ASSIGNABILITY_REJECTED");
 });
 
-test("required extension-owned questions cannot fall back when owner is absent or deferred", () => {
+test("required extension-owned observations cannot fall back when owner is absent or deferred", () => {
   const missingOwnerHost = new ExtensionHost({});
   const call = {};
   const callee = {};
   const argument = {};
-  const missing = missingOwnerHost.runDecision(ExtensionDecisionQuestion.resolveCall, {
+  const missing = missingOwnerHost.runObservation(ExtensionObservationPoint.mapCheckedCall, {
     call,
     callee,
     arguments: [argument],
   }, () => ({ selectedSignature: selectedSignature("core") }), { requireOwner: true });
 
   assert.equal(missing.kind, "missing-owner");
-  assert.equal(missingOwnerHost.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.decisionOwnerMissing);
+  assert.equal(missingOwnerHost.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.observationOwnerMissing);
 
   const deferredOwnerHost = new ExtensionHost({}, {
     extensions: [
       extension("csharp", {
-        decisionOwners: [ExtensionDecisionQuestion.resolveCall],
+        observationOwners: [ExtensionObservationPoint.mapCheckedCall],
         initialize: (context) => {
-          context.registerDecisionHook(ExtensionDecisionQuestion.resolveCall, () => deferDecision);
+          context.registerObservation(ExtensionObservationPoint.mapCheckedCall, () => deferObservation);
         },
       }),
     ],
   });
-  const deferred = deferredOwnerHost.runDecision(ExtensionDecisionQuestion.resolveCall, {
+  const deferred = deferredOwnerHost.runObservation(ExtensionObservationPoint.mapCheckedCall, {
     call,
     callee,
     arguments: [argument],
   }, () => ({ selectedSignature: selectedSignature("core") }), { requireOwner: true });
 
   assert.equal(deferred.kind, "owner-deferred");
-  assert.equal(deferredOwnerHost.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.decisionOwnerDeferred);
+  assert.equal(deferredOwnerHost.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.observationOwnerDeferred);
 });
 
-test("unowned multiple extension decisions produce deterministic conflict", () => {
+test("unowned multiple extension observations produce deterministic conflict", () => {
   const call = {};
   const callee = {};
   const host = new ExtensionHost({}, {
     extensions: [
       extension("a", {
-        initialize: (context) => context.registerDecisionHook(ExtensionDecisionQuestion.resolveCall, () => acceptDecision({ selectedSignature: selectedSignature("a") })),
+        initialize: (context) => context.registerObservation(ExtensionObservationPoint.mapCheckedCall, () => acceptObservation({ selectedSignature: selectedSignature("a") })),
       }),
       extension("b", {
-        initialize: (context) => context.registerDecisionHook(ExtensionDecisionQuestion.resolveCall, () => acceptDecision({ selectedSignature: selectedSignature("b") })),
+        initialize: (context) => context.registerObservation(ExtensionObservationPoint.mapCheckedCall, () => acceptObservation({ selectedSignature: selectedSignature("b") })),
       }),
     ],
   });
 
-  const result = host.runDecision(ExtensionDecisionQuestion.resolveCall, { call, callee, arguments: [] }, () => ({ selectedSignature: selectedSignature("core") }));
+  const result = host.runObservation(ExtensionObservationPoint.mapCheckedCall, { call, callee, arguments: [] }, () => ({ selectedSignature: selectedSignature("core") }));
   assert.equal(result.kind, "conflict");
-  assert.equal(host.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.decisionConflict);
+  assert.equal(host.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.observationConflict);
 });
 
-test("owned multiple non-deferred decisions produce deterministic conflict", () => {
+test("owned multiple non-deferred observations produce deterministic conflict", () => {
   const call = {};
   const callee = {};
   const host = new ExtensionHost({}, {
     extensions: [
       extension("owner", {
-        decisionOwners: [ExtensionDecisionQuestion.resolveCall],
+        observationOwners: [ExtensionObservationPoint.mapCheckedCall],
         initialize: (context) => {
-          context.registerDecisionHook(ExtensionDecisionQuestion.resolveCall, () => acceptDecision({ selectedSignature: selectedSignature("first") }));
-          context.registerDecisionHook(ExtensionDecisionQuestion.resolveCall, () => acceptDecision({ selectedSignature: selectedSignature("second") }));
+          context.registerObservation(ExtensionObservationPoint.mapCheckedCall, () => acceptObservation({ selectedSignature: selectedSignature("first") }));
+          context.registerObservation(ExtensionObservationPoint.mapCheckedCall, () => acceptObservation({ selectedSignature: selectedSignature("second") }));
         },
       }),
     ],
   });
 
-  const result = host.runDecision(ExtensionDecisionQuestion.resolveCall, { call, callee, arguments: [] }, () => ({ selectedSignature: selectedSignature("core") }), { requireOwner: true });
+  const result = host.runObservation(ExtensionObservationPoint.mapCheckedCall, { call, callee, arguments: [] }, () => ({ selectedSignature: selectedSignature("core") }), { requireOwner: true });
   assert.equal(result.kind, "conflict");
-  assert.equal(host.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.decisionConflict);
+  assert.equal(host.diagnostics.all()[0]?.numericCode, ExtensionHostDiagnosticCode.observationConflict);
 });
 
 test("target extension composition requires explicit multi-target mode", () => {
@@ -1162,7 +1160,7 @@ test("target extension composition requires explicit multi-target mode", () => {
   assert.equal(multiTargetHost.diagnostics.hasErrors(), false);
 });
 
-test("call resolution records selected target signature facts", () => {
+test("checked call mapping records selected target signature facts", () => {
   const call = {};
   const callee = {};
   const argument = {};
@@ -1171,24 +1169,24 @@ test("call resolution records selected target signature facts", () => {
   const host = new ExtensionHost({}, {
     extensions: [
       extension("csharp", {
-        decisionOwners: [ExtensionDecisionQuestion.resolveCall],
+        observationOwners: [ExtensionObservationPoint.mapCheckedCall],
         initialize: (context) => {
-          context.registerDecisionHook(ExtensionDecisionQuestion.resolveCall, (request) => {
+          context.registerObservation(ExtensionObservationPoint.mapCheckedCall, (request) => {
             if (request.call === call) {
               context.facts.set(request.call, selectedTargetSignatureFactKey, writeLineInt);
-              return acceptDecision({
+              return acceptObservation({
                 selectedSignature: writeLineInt,
                 returnType: voidType,
               });
             }
-            return deferDecision;
+            return deferObservation;
           });
         },
       }),
     ],
   });
 
-  const result = host.runDecision(ExtensionDecisionQuestion.resolveCall, {
+  const result = host.runObservation(ExtensionObservationPoint.mapCheckedCall, {
     call,
     callee,
     arguments: [argument],
@@ -1199,7 +1197,7 @@ test("call resolution records selected target signature facts", () => {
   assert.equal(host.facts.get(call, selectedTargetSignatureFactKey)?.member.id, "System.Console.WriteLine(System.Int32)");
 });
 
-test("property, element, and operator decisions expose target operations", () => {
+test("property, element, and operator observations expose target operations", () => {
   const lengthExpression = {};
   const indexExpression = {};
   const addExpression = {};
@@ -1212,42 +1210,42 @@ test("property, element, and operator decisions expose target operations", () =>
   const host = new ExtensionHost({}, {
     extensions: [
       extension("surface", {
-        decisionOwners: [
-          ExtensionDecisionQuestion.resolvePropertyAccess,
-          ExtensionDecisionQuestion.resolveElementAccess,
-          ExtensionDecisionQuestion.resolveOperator,
+        observationOwners: [
+          ExtensionObservationPoint.mapCheckedPropertyAccess,
+          ExtensionObservationPoint.mapCheckedElementAccess,
+          ExtensionObservationPoint.mapCheckedOperator,
         ],
         initialize: (context) => {
-          context.registerDecisionHook(ExtensionDecisionQuestion.resolvePropertyAccess, (request) => {
+          context.registerObservation(ExtensionObservationPoint.mapCheckedPropertyAccess, (request) => {
             const operation = targetOperation("System.Array.Length", "property");
             context.facts.set(request.expression, targetOperationFactKey, operation);
-            return acceptDecision({ operation, resultType: int32Type });
+            return acceptObservation({ operation, resultType: int32Type });
           });
-          context.registerDecisionHook(ExtensionDecisionQuestion.resolveElementAccess, (request) => {
+          context.registerObservation(ExtensionObservationPoint.mapCheckedElementAccess, (request) => {
             const operation = targetOperation("System.Array.Get", "indexer");
             context.facts.set(request.expression, targetOperationFactKey, operation);
-            return acceptDecision({ operation, resultType: elementType });
+            return acceptObservation({ operation, resultType: elementType });
           });
-          context.registerDecisionHook(ExtensionDecisionQuestion.resolveOperator, (request) => {
+          context.registerObservation(ExtensionObservationPoint.mapCheckedOperator, (request) => {
             const operation = targetOperation("System.Int32.op_Addition", "operator");
             context.facts.set(request.expression, targetOperationFactKey, operation);
-            return acceptDecision({ operation, resultType: int32Type });
+            return acceptObservation({ operation, resultType: int32Type });
           });
         },
       }),
     ],
   });
 
-  assert.equal(host.runDecision(ExtensionDecisionQuestion.resolvePropertyAccess, { expression: lengthExpression, receiver: arrayType, propertyName: "Length" }, () => ({ operation: targetOperation("core", "property") }), { requireOwner: true }).kind, "accept");
-  assert.equal(host.runDecision(ExtensionDecisionQuestion.resolveElementAccess, { expression: indexExpression, receiver: arrayType, argument: indexArgument }, () => ({ operation: targetOperation("core", "indexer") }), { requireOwner: true }).kind, "accept");
-  assert.equal(host.runDecision(ExtensionDecisionQuestion.resolveOperator, { expression: addExpression, operator: "+", left: leftOperand, right: rightOperand }, () => ({ operation: targetOperation("core", "operator") }), { requireOwner: true }).kind, "accept");
+  assert.equal(host.runObservation(ExtensionObservationPoint.mapCheckedPropertyAccess, { expression: lengthExpression, receiver: arrayType, propertyName: "Length" }, () => ({ operation: targetOperation("core", "property") }), { requireOwner: true }).kind, "accept");
+  assert.equal(host.runObservation(ExtensionObservationPoint.mapCheckedElementAccess, { expression: indexExpression, receiver: arrayType, argument: indexArgument }, () => ({ operation: targetOperation("core", "indexer") }), { requireOwner: true }).kind, "accept");
+  assert.equal(host.runObservation(ExtensionObservationPoint.mapCheckedOperator, { expression: addExpression, operator: "+", left: leftOperand, right: rightOperand }, () => ({ operation: targetOperation("core", "operator") }), { requireOwner: true }).kind, "accept");
 
   assert.equal(host.facts.get(lengthExpression, targetOperationFactKey)?.operationId, "System.Array.Length");
   assert.equal(host.facts.get(indexExpression, targetOperationFactKey)?.operationId, "System.Array.Get");
   assert.equal(host.facts.get(addExpression, targetOperationFactKey)?.operationId, "System.Int32.op_Addition");
 });
 
-test("contextual typing and generic inference decisions preserve target facts", () => {
+test("contextual target type and target type argument observations preserve target facts", () => {
   const lambda = {};
   const listGetItem = {};
   const delegateType = {};
@@ -1257,14 +1255,13 @@ test("contextual typing and generic inference decisions preserve target facts", 
   const host = new ExtensionHost({}, {
     extensions: [
       extension("target", {
-        decisionOwners: [ExtensionDecisionQuestion.getContextualType, ExtensionDecisionQuestion.inferTypeArguments],
+        observationOwners: [ExtensionObservationPoint.recordContextualTargetType, ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget],
         initialize: (context) => {
-          context.registerDecisionHook(ExtensionDecisionQuestion.getContextualType, (request) => acceptDecision({
+          context.registerObservation(ExtensionObservationPoint.recordContextualTargetType, (request) => acceptObservation({
             type: delegateType,
             targetType: { kind: "target-named", id: "System.Func`2" },
           }));
-          context.registerDecisionHook(ExtensionDecisionQuestion.inferTypeArguments, () => acceptDecision({
-            typeArguments: [int32Type],
+          context.registerObservation(ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget, () => acceptObservation({
             targetTypeArguments: [{ kind: "source-primitive", name: "int32" }],
           }));
         },
@@ -1272,11 +1269,11 @@ test("contextual typing and generic inference decisions preserve target facts", 
     ],
   });
 
-  const contextual = host.runDecision(ExtensionDecisionQuestion.getContextualType, { expression: lambda, context: delegateType }, () => ({ type: coreType }), { requireOwner: true });
+  const contextual = host.runObservation(ExtensionObservationPoint.recordContextualTargetType, { expression: lambda, context: delegateType }, () => ({ type: coreType }), { requireOwner: true });
   assert.equal(contextual.kind === "accept" ? contextual.value.type : undefined, delegateType);
 
-  const inferred = host.runDecision(ExtensionDecisionQuestion.inferTypeArguments, { declaration: listGetItem, arguments: [argument] }, () => ({ typeArguments: [] }), { requireOwner: true });
-  assert.deepEqual(inferred.kind === "accept" ? inferred.value.typeArguments : [], [int32Type]);
+  const inferred = host.runObservation(ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget, { declaration: listGetItem, arguments: [argument] }, () => ({ targetTypeArguments: [] }), { requireOwner: true });
+  assert.deepEqual(inferred.kind === "accept" ? inferred.value.targetTypeArguments : [], [{ kind: "source-primitive", name: "int32" }]);
 });
 
 test("flow validation supports local rejection and target compiler validation facts", () => {
@@ -1287,36 +1284,36 @@ test("flow validation supports local rejection and target compiler validation fa
   const host = new ExtensionHost({}, {
     extensions: [
       extension("rust", {
-        decisionOwners: [ExtensionDecisionQuestion.validateFlowUse],
+        observationOwners: [ExtensionObservationPoint.validateExtensionFlowUse],
         initialize: (context) => {
-          context.registerDecisionHook(ExtensionDecisionQuestion.validateFlowUse, (request) => {
+          context.registerObservation(ExtensionObservationPoint.validateExtensionFlowUse, (request) => {
             if (request.useSite === movedUse) {
               context.facts.set(request.useSite, flowStateFactKey, { state: "moved" });
-              return rejectDecision(diagnostic("rust", "VALUE_WAS_MOVED", 9100101, "value was moved and cannot be used here"));
+              return rejectObservation(diagnostic("rust", "VALUE_WAS_MOVED", 9100101, "value was moved and cannot be used here"));
             }
             if (request.useSite === returnedBorrow) {
               context.facts.set(request.useSite, flowStateFactKey, {
                 state: "target-validation-required",
                 targetCompiler: "rustc",
               });
-              return acceptDecision({
+              return acceptObservation({
                 valid: true,
                 targetCompilerValidationRequired: true,
                 targetCompiler: "rustc",
               });
             }
-            return deferDecision;
+            return deferObservation;
           });
         },
       }),
     ],
   });
 
-  const rejected = host.runDecision(ExtensionDecisionQuestion.validateFlowUse, { useSite: movedUse, symbol: movedSymbol, mode: "read", target: "rust" }, () => ({ valid: true }), { requireOwner: true });
+  const rejected = host.runObservation(ExtensionObservationPoint.validateExtensionFlowUse, { useSite: movedUse, symbol: movedSymbol, mode: "read", target: "rust" }, () => ({ valid: true }), { requireOwner: true });
   assert.equal(rejected.kind, "reject");
   assert.equal(host.facts.get(movedUse, flowStateFactKey)?.state, "moved");
 
-  const accepted = host.runDecision(ExtensionDecisionQuestion.validateFlowUse, { useSite: returnedBorrow, symbol: borrowSymbol, mode: "read", target: "rust" }, () => ({ valid: false }), { requireOwner: true });
+  const accepted = host.runObservation(ExtensionObservationPoint.validateExtensionFlowUse, { useSite: returnedBorrow, symbol: borrowSymbol, mode: "read", target: "rust" }, () => ({ valid: false }), { requireOwner: true });
   assert.equal(accepted.kind === "accept" ? accepted.value.targetCompiler : undefined, "rustc");
   assert.equal(host.facts.get(returnedBorrow, flowStateFactKey)?.targetCompiler, "rustc");
 });

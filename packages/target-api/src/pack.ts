@@ -1,14 +1,16 @@
 import type {
+  AstReader,
   CompilerExtension,
   ExtensionConsumerQueries,
   ExtensionFactSubject,
   Node,
-  ObjectShapeFact,
   Program,
   SourceFile,
   Symbol,
   TargetBindingFact,
   TargetTypeRef,
+  Type,
+  TypeShapeQueries,
 } from "@tsonic/tsts";
 import type { TargetCompileResult } from "./artifacts.js";
 import type { TargetSelection, TsonicProjectConfig } from "./config.js";
@@ -43,12 +45,13 @@ export interface TargetProjectSourceReference {
 export interface TargetSemanticQueries {
   getRuntimeCarrier(subject: ExtensionFactSubject | undefined): TargetTypeRef | undefined;
   getRuntimeCarrierForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
-  getObjectShape(subject: ExtensionFactSubject | undefined): ObjectShapeFact | undefined;
-  getObjectShapeForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): ObjectShapeFact | undefined;
   getTargetBinding(subject: ExtensionFactSubject | undefined): TargetBindingFact | undefined;
   getTargetBindingForReference(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetBindingFact | undefined;
   getSymbolAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Symbol | undefined;
   getResolvedSymbol(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Symbol | undefined;
+  getTypeOfSymbol(symbol: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
+  getTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
+  getTypeFromTypeNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
   getEnumMemberConstant(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): { readonly value: string | number | undefined } | undefined;
   getReturnTypeCarrierFromDeclaration(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
   isProjectSourceShapeForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): boolean;
@@ -60,6 +63,8 @@ export interface TargetSemanticQueries {
 
 export interface TargetCompileInput {
   readonly program: Program;
+  readonly ast: AstReader;
+  readonly types: TypeShapeQueries;
   readonly sourceFiles: readonly SourceFile[];
   readonly facts: ExtensionConsumerQueries;
   readonly semantics: TargetSemanticQueries;

@@ -1,6 +1,6 @@
 import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
-import { recordExtensionCallResolution } from "../../../extensions/checker-integration.js";
+import { recordExtensionCheckedCallMapping } from "../../../extensions/checker-integration.js";
 import * as core from "../../core/core.js";
 import * as slices from "../../../go/slices.js";
 import type { Number } from "../../jsnum/jsnum.js";
@@ -2330,7 +2330,7 @@ export function Checker_checkCallExpression(receiver: GoPtr<Checker>, node: GoPt
     return receiver!.silentNeverType;
   }
   Checker_checkDeprecatedSignature(receiver, signature, node);
-  recordExtensionCallResolution(receiver, node);
+  recordExtensionCheckedCallMapping(receiver, node, signature);
   if (Node_Expression(node)!.Kind === KindSuperKeyword) {
     return receiver!.voidType;
   }

@@ -4111,7 +4111,7 @@ export function Checker_getPackagesMap(receiver: GoPtr<Checker>): GoMap<string, 
     for (const [, resolvedModulesInFile] of resolvedModules) {
       for (const [, module_] of resolvedModulesInFile) {
         const module = module_ as GoPtr<ResolvedModule>;
-        if (module !== undefined && !ResolvedModule_IsProviderVirtual(module) && module!.PackageId.Name !== "") {
+        if (module !== undefined && module!.PackageId.Name !== "") {
           receiver!.packagesMap.set(
             module!.PackageId.Name,
             (receiver!.packagesMap.get(module!.PackageId.Name) || module!.Extension === ExtensionDts) as bool,

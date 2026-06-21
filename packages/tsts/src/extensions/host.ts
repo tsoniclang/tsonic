@@ -3,17 +3,18 @@ export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
 
 import type {
-  ExtensionDecision,
-  ExtensionDecisionContext,
-  ExtensionDecisionHook,
-  ExtensionDecisionQuestionName,
-  ExtensionDecisionRequest,
-  ExtensionDecisionResponse,
-  ExtensionDecisionResult,
-  ExtensionDecisionRunOptions,
-} from "./decisions.js";
-import { ExtensionDecisionQuestion } from "./decisions.js";
-import type { ArgumentPassingMode, SourcePrimitiveKind } from "./facts.js";
+  ExtensionObservation,
+  ExtensionObservationContext,
+  ExtensionCompilerQueries,
+  ExtensionObservationHook,
+  ExtensionObservationPointName,
+  ExtensionObservationRequest,
+  ExtensionObservationResponse,
+  ExtensionObservationResult,
+  ExtensionObservationRunOptions,
+} from "./observations.js";
+import { ExtensionObservationPoint } from "./observations.js";
+import type { SourcePrimitiveKind } from "./facts.js";
 
 export interface ExtensionEvidence {
   readonly message: string;
@@ -48,15 +49,15 @@ export const ExtensionHostDiagnosticCode = {
   duplicateExtension: 9000002,
   missingDependency: 9000003,
   dependencyCycle: 9000004,
-  decisionOwnerConflict: 9000005,
-  decisionOwnerMissing: 9000006,
+  observationOwnerConflict: 9000005,
+  observationOwnerMissing: 9000006,
   initializationFailed: 9000007,
   factStoreSealed: 9000008,
   consumerBeforeFinalization: 9000009,
   invalidProvider: 9000010,
-  decisionOwnerDeferred: 9000011,
-  decisionConflict: 9000012,
-  unknownDecisionOwner: 9000013,
+  observationOwnerDeferred: 9000011,
+  observationConflict: 9000012,
+  unknownObservationOwner: 9000013,
   multipleTargetExtensions: 9000014,
   duplicateProvider: 9000015,
   providerOwnershipConflict: 9000016,
@@ -69,7 +70,7 @@ export const ExtensionHostDiagnosticCode = {
   providerOwnershipFailed: 9000023,
   providerResolveFailed: 9000024,
   providerDeclarationFailed: 9000025,
-  decisionHookFailed: 9000026,
+  observationHookFailed: 9000026,
   diagnosticRangeInvalid: 9000027,
   diagnosticCodeOutOfRange: 9000028,
   invalidFactSubject: 9000029,
@@ -107,7 +108,7 @@ export interface CompilerExtension {
   readonly dependencies?: ExtensionDependencySpec;
   readonly capabilities?: ExtensionCapabilitySpec;
   readonly composition?: ExtensionCompositionSpec;
-  readonly decisionOwners?: readonly ExtensionDecisionQuestionName[];
+  readonly observationOwners?: readonly ExtensionObservationPointName[];
   readonly initialize?: (context: ExtensionInitializeContext) => void;
 }
 
@@ -117,8 +118,8 @@ export interface ExtensionInitializeContext {
   readonly factResolver: ExtensionFactResolver;
   readonly diagnostics: ExtensionDiagnosticStore;
   readonly providers: ProviderRegistry;
-  readonly registerDecisionOwner: (question: ExtensionDecisionQuestionName, extensionId: string) => void;
-  readonly registerDecisionHook: <TQuestion extends ExtensionDecisionQuestionName>(question: TQuestion, hook: ExtensionDecisionHook<TQuestion>) => void;
+  readonly registerObservationOwner: (observation: ExtensionObservationPointName, extensionId: string) => void;
+  readonly registerObservation: <TObservation extends ExtensionObservationPointName>(observation: TObservation, hook: ExtensionObservationHook<TObservation>) => void;
   readonly registerLifecycleHook: <TRequest>(event: string, hook: ExtensionLifecycleHook<TRequest>) => void;
   readonly registerTargetBindingProvider: (provider: TargetBindingProvider) => boolean;
   readonly registerTargetSemanticProvider: (provider: TargetSemanticProvider) => boolean;
@@ -154,7 +155,6 @@ export type ExtensionFactResolverCallback<T> = (subject: ExtensionFactSubject, c
 
 export interface ExtensionFactResolverContext {
   readonly facts: ExtensionFactStore;
-  readonly factResolver: ExtensionFactResolver;
   readonly diagnostics: ExtensionDiagnosticStore;
 }
 
@@ -226,9 +226,9 @@ export type ProviderTypeExpression =
   | { readonly kind: "object" }
   | { readonly kind: "source-primitive"; readonly name: SourcePrimitiveKind }
   | { readonly kind: "type-parameter"; readonly name: string }
-  | { readonly kind: "reference"; readonly name: string; readonly typeArguments?: readonly ProviderTypeExpression[] }
+  | { readonly kind: "provider-ref"; readonly name: string; readonly typeArguments?: readonly ProviderTypeExpression[] }
   | { readonly kind: "target-named"; readonly target: string; readonly id: string; readonly displayName?: string; readonly typeArguments?: readonly ProviderTypeExpression[]; readonly sourceShape?: ProviderTypeExpression }
-  | { readonly kind: "array"; readonly elementType: ProviderTypeExpression; readonly rank?: number }
+  | { readonly kind: "array"; readonly elementType: ProviderTypeExpression }
   | { readonly kind: "tuple"; readonly elementTypes: readonly ProviderTypeExpression[] }
   | { readonly kind: "union"; readonly types: readonly ProviderTypeExpression[] }
   | { readonly kind: "intersection"; readonly types: readonly ProviderTypeExpression[] }
@@ -239,7 +239,6 @@ export type ProviderTypeExpression =
 export interface ProviderParameterDeclaration {
   readonly name: string;
   readonly type: ProviderTypeExpression;
-  readonly passingMode?: ArgumentPassingMode;
   readonly optional?: boolean;
   readonly rest?: boolean;
 }
@@ -256,7 +255,6 @@ export interface ProviderSignatureDeclaration {
 export interface ProviderMemberDeclaration {
   readonly id: string;
   readonly name: string;
-  readonly targetName?: string;
   readonly kind: "method" | "constructor" | "property" | "field" | "indexer";
   readonly static?: boolean;
   readonly type?: ProviderTypeExpression;
@@ -358,24 +356,24 @@ export interface TargetBindingProvider {
 
 export interface TargetSemanticProvider {
   readonly identity: ProviderIdentity;
-  satisfiesConstraint?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.satisfiesConstraint>;
-  isAssignableTo?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.isAssignableTo>;
-  resolveCall?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.resolveCall>;
-  inferTypeArguments?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.inferTypeArguments>;
-  resolvePropertyAccess?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.resolvePropertyAccess>;
-  resolveElementAccess?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.resolveElementAccess>;
-  resolveOperator?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.resolveOperator>;
-  getContextualType?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.getContextualType>;
-  resolveConversion?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.resolveConversion>;
-  getParameterMode?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.getParameterMode>;
-  getRuntimeCarrier?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.getRuntimeCarrier>;
-  resolveIteration?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.resolveIteration>;
-  validateFlowUse?: ExtensionDecisionHook<typeof ExtensionDecisionQuestion.validateFlowUse>;
+  validateTargetConstraint?: ExtensionObservationHook<typeof ExtensionObservationPoint.validateTargetConstraint>;
+  validatePostCheckAssignability?: ExtensionObservationHook<typeof ExtensionObservationPoint.validatePostCheckAssignability>;
+  mapCheckedCall?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedCall>;
+  mapInferredSourceTypeArgumentsToTarget?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget>;
+  mapCheckedPropertyAccess?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedPropertyAccess>;
+  mapCheckedElementAccess?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedElementAccess>;
+  mapCheckedOperator?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedOperator>;
+  mapCheckedIteration?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedIteration>;
+  recordContextualTargetType?: ExtensionObservationHook<typeof ExtensionObservationPoint.recordContextualTargetType>;
+  mapCheckedConversion?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedConversion>;
+  resolveParameterPassing?: ExtensionObservationHook<typeof ExtensionObservationPoint.resolveParameterPassing>;
+  resolveRuntimeCarrier?: ExtensionObservationHook<typeof ExtensionObservationPoint.resolveRuntimeCarrier>;
+  validateExtensionFlowUse?: ExtensionObservationHook<typeof ExtensionObservationPoint.validateExtensionFlowUse>;
 }
 
-interface RegisteredDecisionHook {
+interface RegisteredObservationHook {
   readonly extensionId: string;
-  readonly hook: (request: unknown, context: ExtensionDecisionContext) => ExtensionDecision<unknown>;
+  readonly hook: (request: unknown, context: ExtensionObservationContext) => ExtensionObservation<unknown>;
 }
 
 interface RegisteredLifecycleHook {
@@ -647,7 +645,7 @@ export class ExtensionFactResolver {
     }
 
     for (const resolver of resolvers) {
-      const resolved = resolver(subject, { facts: this.#facts, factResolver: this, diagnostics: this.#diagnostics }) as ExtensionFactResolution<T> | undefined;
+      const resolved = resolver(subject, { facts: this.#facts, diagnostics: this.#diagnostics }) as ExtensionFactResolution<T> | undefined;
       if (resolved !== undefined) {
         this.#facts.setResolved(subject, key, resolved.value, resolved.evidence ?? []);
         return resolved.value;
@@ -917,12 +915,13 @@ export class ExtensionHost {
   readonly activeTarget: string | undefined;
   readonly activeSurface: string | undefined;
   readonly #extensionsById = new Map<string, CompilerExtension>();
-  readonly #decisionOwners = new Map<ExtensionDecisionQuestionName, string>();
-  readonly #decisionHooks = new Map<ExtensionDecisionQuestionName, RegisteredDecisionHook[]>();
+  readonly #observationOwners = new Map<ExtensionObservationPointName, string>();
+  readonly #observationHooks = new Map<ExtensionObservationPointName, RegisteredObservationHook[]>();
   readonly #lifecycleHooks = new Map<string, RegisteredLifecycleHook[]>();
   readonly #consumerSubjectIds = new WeakMap<object, number>();
   #nextConsumerSubjectId = 1;
   #finalized = false;
+  #compilerQueries: ExtensionCompilerQueries | undefined;
 
   constructor(program: object, options: ExtensionHostOptions = {}) {
     this.program = program;
@@ -940,8 +939,8 @@ export class ExtensionHost {
       }
       this.#extensionsById.set(extension.identity.id, extension);
       validExtensions.push(extension);
-      for (const question of extension.decisionOwners ?? []) {
-        this.registerDecisionOwner(question, extension.identity.id);
+      for (const observation of extension.observationOwners ?? []) {
+        this.registerObservationOwner(observation, extension.identity.id);
       }
     }
     this.extensions = validExtensions;
@@ -949,63 +948,59 @@ export class ExtensionHost {
     this.#initializeExtensions();
   }
 
-  registerDecisionOwner(question: ExtensionDecisionQuestionName, extensionId: string): void {
+  registerObservationOwner(observation: ExtensionObservationPointName, extensionId: string): void {
     if (!this.#extensionsById.has(extensionId)) {
       this.diagnostics.append(createHostDiagnostic({
-        extensionCode: "UNKNOWN_DECISION_OWNER",
-        numericCode: ExtensionHostDiagnosticCode.unknownDecisionOwner,
-        message: `Semantic question '${question}' was assigned to unknown extension '${extensionId}'.`,
-        identity: `unknown-decision-owner:${question}:${extensionId}`,
+        extensionCode: "UNKNOWN_OBSERVATION_OWNER",
+        numericCode: ExtensionHostDiagnosticCode.unknownObservationOwner,
+        message: `Semantic observation point '${observation}' was assigned to unknown extension '${extensionId}'.`,
+        identity: `unknown-observation-owner:${observation}:${extensionId}`,
       }));
       return;
     }
-    const existingOwner = this.#decisionOwners.get(question);
+    const existingOwner = this.#observationOwners.get(observation);
     if (existingOwner === undefined) {
-      this.#decisionOwners.set(question, extensionId);
+      this.#observationOwners.set(observation, extensionId);
       return;
     }
     if (existingOwner === extensionId) {
       return;
     }
     this.diagnostics.append(createHostDiagnostic({
-      extensionCode: "DECISION_OWNER_CONFLICT",
-      numericCode: ExtensionHostDiagnosticCode.decisionOwnerConflict,
-      message: `Semantic question '${question}' is owned by both '${existingOwner}' and '${extensionId}'.`,
-      identity: `decision-owner-conflict:${question}:${existingOwner}:${extensionId}`,
+      extensionCode: "OBSERVATION_OWNER_CONFLICT",
+      numericCode: ExtensionHostDiagnosticCode.observationOwnerConflict,
+      message: `Semantic observation point '${observation}' is owned by both '${existingOwner}' and '${extensionId}'.`,
+      identity: `observation-owner-conflict:${observation}:${existingOwner}:${extensionId}`,
     }));
   }
 
-  getDecisionOwner(question: ExtensionDecisionQuestionName): CompilerExtension | undefined {
-    const ownerId = this.#decisionOwners.get(question);
+  getObservationOwner(observation: ExtensionObservationPointName): CompilerExtension | undefined {
+    const ownerId = this.#observationOwners.get(observation);
     return ownerId === undefined ? undefined : this.#extensionsById.get(ownerId);
   }
 
-  hasDecisionHook(question: ExtensionDecisionQuestionName): boolean {
-    return (this.#decisionHooks.get(question)?.length ?? 0) > 0;
-  }
-
-  requireDecisionOwner(question: ExtensionDecisionQuestionName): CompilerExtension | undefined {
-    const owner = this.getDecisionOwner(question);
+  requireObservationOwner(observation: ExtensionObservationPointName): CompilerExtension | undefined {
+    const owner = this.getObservationOwner(observation);
     if (owner !== undefined) {
       return owner;
     }
     this.diagnostics.append(createHostDiagnostic({
-      extensionCode: "DECISION_OWNER_MISSING",
-      numericCode: ExtensionHostDiagnosticCode.decisionOwnerMissing,
-      message: `No extension owns semantic question '${question}'.`,
-      identity: `decision-owner-missing:${question}`,
+      extensionCode: "OBSERVATION_OWNER_MISSING",
+      numericCode: ExtensionHostDiagnosticCode.observationOwnerMissing,
+      message: `No extension owns semantic observation point '${observation}'.`,
+      identity: `observation-owner-missing:${observation}`,
     }));
     return undefined;
   }
 
-  registerDecisionHook<TQuestion extends ExtensionDecisionQuestionName>(question: TQuestion, extensionId: string, hook: ExtensionDecisionHook<TQuestion>): void {
-    const hooks = this.#decisionHooks.get(question);
-    const registered: RegisteredDecisionHook = {
+  registerObservation<TObservation extends ExtensionObservationPointName>(observation: TObservation, extensionId: string, hook: ExtensionObservationHook<TObservation>): void {
+    const hooks = this.#observationHooks.get(observation);
+    const registered: RegisteredObservationHook = {
       extensionId,
-      hook: hook as (request: unknown, context: ExtensionDecisionContext) => ExtensionDecision<unknown>,
+      hook: hook as (request: unknown, context: ExtensionObservationContext) => ExtensionObservation<unknown>,
     };
     if (hooks === undefined) {
-      this.#decisionHooks.set(question, [registered]);
+      this.#observationHooks.set(observation, [registered]);
       return;
     }
     hooks.push(registered);
@@ -1029,108 +1024,107 @@ export class ExtensionHost {
     if (!registered) {
       return false;
     }
-    this.#registerTargetSemanticProviderDecisionHooks(extensionId, provider);
+    this.#registerTargetSemanticProviderObservations(extensionId, provider);
     return true;
   }
 
-  runDecision<TQuestion extends ExtensionDecisionQuestionName>(
-    question: TQuestion,
-    request: ExtensionDecisionRequest<TQuestion>,
-    core: () => ExtensionDecisionResponse<TQuestion>,
-    options: ExtensionDecisionRunOptions = {},
-  ): ExtensionDecisionResult<ExtensionDecisionResponse<TQuestion>> {
-    const owner = this.getDecisionOwner(question);
+  setCompilerQueries(queries: ExtensionCompilerQueries): void {
+    this.#compilerQueries = queries;
+  }
+
+  runObservation<TObservation extends ExtensionObservationPointName>(
+    observation: TObservation,
+    request: ExtensionObservationRequest<TObservation>,
+    core: () => ExtensionObservationResponse<TObservation>,
+    options: ExtensionObservationRunOptions = {},
+  ): ExtensionObservationResult<ExtensionObservationResponse<TObservation>> {
+    const owner = this.getObservationOwner(observation);
     if (owner === undefined && options.requireOwner === true) {
-      this.requireDecisionOwner(question);
-      return { kind: "missing-owner", question };
+      this.requireObservationOwner(observation);
+      return { kind: "missing-owner", observation };
     }
 
-    const hooks = this.#decisionHooks.get(question) ?? [];
+    const hooks = this.#observationHooks.get(observation) ?? [];
     const selectedHooks = owner === undefined ? hooks : hooks.filter((hook) => hook.extensionId === owner.identity.id);
 
     if (selectedHooks.length === 0) {
-      if (options.deferWhenUnanswered === true) {
-        return { kind: "deferred", question };
-      }
       if (owner !== undefined && options.requireOwner === true) {
         this.diagnostics.append(createHostDiagnostic({
-          extensionCode: "DECISION_OWNER_DEFERRED",
-          numericCode: ExtensionHostDiagnosticCode.decisionOwnerDeferred,
-          message: `Extension '${owner.identity.id}' owns semantic question '${question}' but registered no decision hook.`,
-          identity: `decision-owner-no-hook:${question}:${owner.identity.id}`,
+          extensionCode: "OBSERVATION_OWNER_DEFERRED",
+          numericCode: ExtensionHostDiagnosticCode.observationOwnerDeferred,
+          message: `Extension '${owner.identity.id}' owns semantic observation point '${observation}' but registered no observation hook.`,
+          identity: `observation-owner-no-hook:${observation}:${owner.identity.id}`,
         }));
-        return { kind: "owner-deferred", question, extensionId: owner.identity.id };
+        return { kind: "owner-deferred", observation, extensionId: owner.identity.id };
       }
       return { kind: "core", value: core() };
     }
 
-    const nonDeferred: Array<ExtensionDecisionResult<ExtensionDecisionResponse<TQuestion>>> = [];
+    const nonDeferred: Array<ExtensionObservationResult<ExtensionObservationResponse<TObservation>>> = [];
     for (const registered of selectedHooks) {
-      let decision: ExtensionDecision<ExtensionDecisionResponse<TQuestion>>;
+      let observationResult: ExtensionObservation<ExtensionObservationResponse<TObservation>>;
       try {
-        decision = registered.hook(request, {
-          question,
+        observationResult = registered.hook(request, {
+          observation,
           extensionId: registered.extensionId,
           host: this,
           facts: this.facts,
           factResolver: this.factResolver,
           diagnostics: this.diagnostics,
-        }) as ExtensionDecision<ExtensionDecisionResponse<TQuestion>>;
+          ...(this.#compilerQueries !== undefined ? { compiler: this.#compilerQueries } : {}),
+        }) as ExtensionObservation<ExtensionObservationResponse<TObservation>>;
       } catch (error) {
         const diagnostic = createHostDiagnostic({
-          extensionCode: "DECISION_HOOK_FAILED",
-          numericCode: ExtensionHostDiagnosticCode.decisionHookFailed,
-          message: `Extension '${registered.extensionId}' failed while answering semantic question '${question}'.`,
+          extensionCode: "OBSERVATION_HOOK_FAILED",
+          numericCode: ExtensionHostDiagnosticCode.observationHookFailed,
+          message: `Extension '${registered.extensionId}' failed while observing semantic point '${observation}'.`,
           evidence: [{ message: "Thrown value", details: error }],
-          identity: `decision-hook-failed:${question}:${registered.extensionId}`,
+          identity: `observation-hook-failed:${observation}:${registered.extensionId}`,
         });
         this.diagnostics.append(diagnostic);
         nonDeferred.push({ kind: "reject", diagnostic, extensionId: registered.extensionId });
         continue;
       }
-      if (decision.kind === "defer") {
+      if (observationResult.kind === "defer") {
         continue;
       }
-      if (decision.kind === "reject") {
-        this.diagnostics.append(decision.diagnostic);
-        nonDeferred.push({ kind: "reject", diagnostic: decision.diagnostic, extensionId: registered.extensionId });
+      if (observationResult.kind === "reject") {
+        this.diagnostics.append(observationResult.diagnostic);
+        nonDeferred.push({ kind: "reject", diagnostic: observationResult.diagnostic, extensionId: registered.extensionId });
         continue;
       }
       nonDeferred.push({
         kind: "accept",
-        value: decision.value,
+        value: observationResult.value,
         extensionId: registered.extensionId,
-        ...(decision.evidence !== undefined ? { evidence: decision.evidence } : {}),
+        ...(observationResult.evidence !== undefined ? { evidence: observationResult.evidence } : {}),
       });
     }
 
     if (nonDeferred.length === 0) {
-      if (options.deferWhenUnanswered === true) {
-        return { kind: "deferred", question };
-      }
       if (owner !== undefined && options.requireOwner === true) {
         this.diagnostics.append(createHostDiagnostic({
-          extensionCode: "DECISION_OWNER_DEFERRED",
-          numericCode: ExtensionHostDiagnosticCode.decisionOwnerDeferred,
-          message: `Extension '${owner.identity.id}' owns semantic question '${question}' but deferred the decision.`,
-          identity: `decision-owner-deferred:${question}:${owner.identity.id}`,
+          extensionCode: "OBSERVATION_OWNER_DEFERRED",
+          numericCode: ExtensionHostDiagnosticCode.observationOwnerDeferred,
+          message: `Extension '${owner.identity.id}' owns semantic observation point '${observation}' but deferred observation.`,
+          identity: `observation-owner-deferred:${observation}:${owner.identity.id}`,
         }));
-        return { kind: "owner-deferred", question, extensionId: owner.identity.id };
+        return { kind: "owner-deferred", observation, extensionId: owner.identity.id };
       }
       return { kind: "core", value: core() };
     }
 
     if (nonDeferred.length > 1) {
       this.diagnostics.append(createHostDiagnostic({
-        extensionCode: "DECISION_CONFLICT",
-        numericCode: ExtensionHostDiagnosticCode.decisionConflict,
+        extensionCode: "OBSERVATION_CONFLICT",
+        numericCode: ExtensionHostDiagnosticCode.observationConflict,
         message: owner === undefined
-          ? `Multiple extensions answered semantic question '${question}' without a registered owner.`
-          : `Extension '${owner.identity.id}' returned multiple non-deferred answers for semantic question '${question}'.`,
-        evidence: nonDeferred.map((decision) => ({ message: `Decision kind: ${decision.kind}`, details: decision })),
-        identity: `decision-conflict:${question}:${owner?.identity.id ?? "unowned"}`,
+          ? `Multiple extensions observed semantic point '${observation}' without a registered owner.`
+          : `Extension '${owner.identity.id}' returned multiple non-deferred observations for semantic point '${observation}'.`,
+        evidence: nonDeferred.map((result) => ({ message: `Observation result kind: ${result.kind}`, details: result })),
+        identity: `observation-conflict:${observation}:${owner?.identity.id ?? "unowned"}`,
       }));
-      return { kind: "conflict", question };
+      return { kind: "conflict", observation };
     }
 
     return nonDeferred[0]!;
@@ -1153,7 +1147,7 @@ export class ExtensionHost {
           extensionCode: "LIFECYCLE_HOOK_FAILED",
           numericCode: ExtensionHostDiagnosticCode.lifecycleHookFailed,
           message: `Extension '${registered.extensionId}' failed during lifecycle event '${event}'.`,
-          evidence: [{ message: "Thrown value", details: error }],
+          evidence: [{ message: "Thrown value", details: describeThrownValue(error) }],
           identity: `lifecycle-hook-failed:${event}:${registered.extensionId}`,
         }));
       }
@@ -1267,8 +1261,8 @@ export class ExtensionHost {
           factResolver: this.factResolver,
           diagnostics: this.diagnostics,
           providers: this.providers,
-          registerDecisionOwner: (question, extensionId) => this.registerDecisionOwner(question, extensionId),
-          registerDecisionHook: (question, hook) => this.registerDecisionHook(question, extension.identity.id, hook),
+          registerObservationOwner: (observation, extensionId) => this.registerObservationOwner(observation, extensionId),
+          registerObservation: (observation, hook) => this.registerObservation(observation, extension.identity.id, hook),
           registerLifecycleHook: (event, hook) => this.registerLifecycleHook(event, extension.identity.id, hook),
           registerTargetBindingProvider: (provider) => this.providers.registerTargetBindingProvider(provider),
           registerTargetSemanticProvider: (provider) => this.registerTargetSemanticProvider(extension.identity.id, provider),
@@ -1297,34 +1291,34 @@ export class ExtensionHost {
     }
   }
 
-  #registerTargetSemanticProviderDecisionHooks(extensionId: string, provider: TargetSemanticProvider): void {
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.satisfiesConstraint, provider.satisfiesConstraint);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.isAssignableTo, provider.isAssignableTo);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.resolveCall, provider.resolveCall);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.inferTypeArguments, provider.inferTypeArguments);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.resolvePropertyAccess, provider.resolvePropertyAccess);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.resolveElementAccess, provider.resolveElementAccess);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.resolveOperator, provider.resolveOperator);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.getContextualType, provider.getContextualType);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.resolveConversion, provider.resolveConversion);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.getParameterMode, provider.getParameterMode);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.getRuntimeCarrier, provider.getRuntimeCarrier);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.resolveIteration, provider.resolveIteration);
-    registerProviderDecisionHook(this, extensionId, ExtensionDecisionQuestion.validateFlowUse, provider.validateFlowUse);
+  #registerTargetSemanticProviderObservations(extensionId: string, provider: TargetSemanticProvider): void {
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.validateTargetConstraint, provider.validateTargetConstraint);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.validatePostCheckAssignability, provider.validatePostCheckAssignability);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedCall, provider.mapCheckedCall);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget, provider.mapInferredSourceTypeArgumentsToTarget);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedPropertyAccess, provider.mapCheckedPropertyAccess);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedElementAccess, provider.mapCheckedElementAccess);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedOperator, provider.mapCheckedOperator);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedIteration, provider.mapCheckedIteration);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.recordContextualTargetType, provider.recordContextualTargetType);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedConversion, provider.mapCheckedConversion);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.resolveParameterPassing, provider.resolveParameterPassing);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.resolveRuntimeCarrier, provider.resolveRuntimeCarrier);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.validateExtensionFlowUse, provider.validateExtensionFlowUse);
   }
 }
 
-function registerProviderDecisionHook<TQuestion extends ExtensionDecisionQuestionName>(
+function registerProviderObservation<TObservation extends ExtensionObservationPointName>(
   host: ExtensionHost,
   extensionId: string,
-  question: TQuestion,
-  handler: ((request: ExtensionDecisionRequest<TQuestion>, context: ExtensionDecisionContext<TQuestion>) => ExtensionDecision<ExtensionDecisionResponse<TQuestion>>) | undefined,
+  observation: TObservation,
+  handler: ((request: ExtensionObservationRequest<TObservation>, context: ExtensionObservationContext<TObservation>) => ExtensionObservation<ExtensionObservationResponse<TObservation>>) | undefined,
 ): void {
   if (handler === undefined) {
     return;
   }
-  host.registerDecisionOwner(question, extensionId);
-  host.registerDecisionHook(question, extensionId, (request, context) => handler(request, context));
+  host.registerObservationOwner(observation, extensionId);
+  host.registerObservation(observation, extensionId, (request, context) => handler(request, context));
 }
 
 const attachedExtensionHosts = new WeakMap<object, ExtensionHost>();
@@ -1494,12 +1488,23 @@ function callProvider<T>(
       message: `Provider '${identity.id}' failed during ${operation} for '${specifier}'.`,
       evidence: [
         { message: "Provider identity", details: identity },
-        { message: "Thrown value", details: error },
+        { message: "Thrown value", details: describeThrownValue(error) },
       ],
       identity: `provider-call-failed:${operation}:${identity.id}:${specifier}`,
     }));
     return undefined;
   }
+}
+
+function describeThrownValue(error: unknown): unknown {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      ...(error.stack !== undefined ? { stack: error.stack } : {}),
+    };
+  }
+  return error;
 }
 
 function createHostDiagnostic(input: {
@@ -1665,8 +1670,10 @@ function renderProviderTypeExpression(type: ProviderTypeExpression): string {
       return renderSourcePrimitiveType(type.name);
     case "type-parameter":
       return type.name;
-    case "reference":
-      return `${type.name}${renderProviderTypeArguments(type.typeArguments ?? [])}`;
+    case "provider-ref":
+      return type.typeArguments === undefined || type.typeArguments.length === 0
+        ? type.name
+        : `${type.name}<${type.typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
     case "target-named":
     case "opaque":
       return renderProviderTypeExpression(type.sourceShape!);
@@ -1685,19 +1692,11 @@ function renderProviderTypeExpression(type: ProviderTypeExpression): string {
   }
 }
 
-function renderProviderTypeArguments(typeArguments: readonly ProviderTypeExpression[]): string {
-  if (typeArguments.length === 0) {
-    return "";
-  }
-  return `<${typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
-}
-
 function renderSourcePrimitiveType(name: SourcePrimitiveKind): string {
   switch (name) {
     case "bool":
       return "boolean";
-    case "char16":
-    case "char32":
+    case "char":
       return "string";
     default:
       return "number";
@@ -1798,7 +1797,6 @@ function hasRequiredProviderExportShape(value: ProviderExportDeclaration): boole
 function isValidProviderMemberDeclaration(value: ProviderMemberDeclaration): boolean {
   return value.id.length > 0
     && (value.kind === "constructor" || isIdentifierText(value.name))
-    && (value.targetName === undefined || value.targetName.length > 0)
     && hasRequiredProviderMemberShape(value)
     && (value.type === undefined || isValidProviderTypeExpression(value.type))
     && (value.signatures ?? []).every(isValidProviderSignatureDeclaration);
@@ -1835,24 +1833,7 @@ function isValidProviderSignatureDeclaration(value: ProviderSignatureDeclaration
 }
 
 function isValidProviderParameterDeclaration(value: ProviderParameterDeclaration): boolean {
-  return isIdentifierText(value.name)
-    && isValidProviderTypeExpression(value.type)
-    && (value.passingMode === undefined || isValidArgumentPassingMode(value.passingMode));
-}
-
-function isValidArgumentPassingMode(value: unknown): value is ArgumentPassingMode {
-  switch (value) {
-    case "by-value":
-    case "byref-readonly":
-    case "byref-readwrite":
-    case "byref-writeonly-must-init":
-    case "borrow-shared":
-    case "borrow-mut":
-    case "move":
-      return true;
-    default:
-      return false;
-  }
+  return isIdentifierText(value.name) && isValidProviderTypeExpression(value.type);
 }
 
 function isValidProviderTypeParameterDeclaration(value: ProviderTypeParameterDeclaration): boolean {
@@ -1875,7 +1856,7 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
       return isKnownSourcePrimitive(value.name);
     case "type-parameter":
       return isIdentifierText(value.name);
-    case "reference":
+    case "provider-ref":
       return isIdentifierText(value.name) && (value.typeArguments ?? []).every(isValidProviderTypeExpression);
     case "target-named":
       return value.target.length > 0
@@ -1884,8 +1865,7 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
         && value.sourceShape !== undefined
         && isValidProviderTypeExpression(value.sourceShape);
     case "array":
-      return isValidProviderTypeExpression(value.elementType)
-        && (value.rank === undefined || isValidProviderArrayRank(value.rank));
+      return isValidProviderTypeExpression(value.elementType);
     case "tuple":
       return value.elementTypes.every(isValidProviderTypeExpression);
     case "union":
@@ -1902,10 +1882,6 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
         && value.sourceShape !== undefined
         && isValidProviderTypeExpression(value.sourceShape);
   }
-}
-
-function isValidProviderArrayRank(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 function isIdentifierText(text: string): boolean {
@@ -1930,9 +1906,8 @@ function isKnownSourcePrimitive(name: SourcePrimitiveKind): boolean {
     case "float16":
     case "float32":
     case "float64":
-    case "decimal128":
-    case "char16":
-    case "char32":
+    case "decimal":
+    case "char":
       return true;
     default:
       return false;

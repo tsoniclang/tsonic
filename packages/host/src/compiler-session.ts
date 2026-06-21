@@ -1,41 +1,11 @@
 import {
-  attachExtensionHost,
-  AsClassDeclaration,
-  AsConstructorDeclaration,
-  AsImportClause,
-  AsImportSpecifier,
-  Background,
+  createCompilerSession,
   createExtensionConsumerQueries,
-  createTypeCheckerQueries,
-  finalizeExtensionSemantics,
   formatDiagnostics,
-  getExtensionHost,
-  GetSourceFileOfNode,
-  IsTypeNode,
-  KindClassDeclaration,
-  KindConstructor,
-  KindElementAccessExpression,
-  KindEnumDeclaration,
-  KindEnumMember,
-  KindExportAssignment,
-  KindIdentifier,
-  KindImportClause,
-  KindInterfaceDeclaration,
-  KindImportDeclaration,
-  KindImportSpecifier,
-  KindPropertyAccessExpression,
-  NewProgram,
-  Node_ModuleSpecifier,
-  Node_Name,
-  Node_Text,
-  Program_BindSourceFiles,
-  Program_GetConfigFileParsingDiagnostics,
-  Program_GetProgramDiagnostics,
-  Program_GetSemanticDiagnostics,
-  Program_GetSourceFiles,
-  Program_GetSyntacticDiagnostics,
 } from "@tsonic/tsts";
 import type {
+  AstReader,
+  CompilerSession,
   ExtensionConsumerQueries,
   ExtensionFactSubject,
   ExtensionHost,
@@ -47,6 +17,7 @@ import type {
   TargetTypeRef,
   Type,
   TypeCheckerQueries,
+  TypeShapeQueries,
 } from "@tsonic/tsts";
 import type {
   TargetCompileInput,
@@ -60,7 +31,10 @@ import type {
 } from "@tsonic/target-api";
 
 export interface TsonicSemanticSession {
+  readonly compiler: CompilerSession;
   readonly program: Program;
+  readonly ast: AstReader;
+  readonly types: TypeShapeQueries;
   readonly sourceFiles: readonly SourceFile[];
   readonly extensionHost: ExtensionHost;
   readonly checker: TypeCheckerQueries;
@@ -79,23 +53,31 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
     project: options.project,
     target: options.target,
   });
-  const extended = attachExtensionHost(options.programOptions, {
-    activeTarget: options.target.id,
-    extensions,
+  const compiler = createCompilerSession({
+    programOptions: options.programOptions,
+    extensionHostOptions: {
+      activeTarget: options.target.id,
+      extensions,
+    },
   });
-  const program = NewProgram(options.programOptions);
-  if (program === undefined) {
-    throw new Error("TSTS NewProgram returned undefined.");
+  if (compiler.program === undefined) {
+    throw new Error("TSTS createCompilerSession returned no program.");
   }
-  const sourceFiles = Program_GetSourceFiles(program).filter((sourceFile): sourceFile is SourceFile => sourceFile !== undefined);
-  Program_BindSourceFiles(program);
-  forceDiagnostics(program, sourceFiles);
-  const extensionHost = finalizeExtensionSemantics(program) ?? getExtensionHost(program) ?? extended.extensionHost;
+  compiler.ensureBound();
+  forceDiagnostics(compiler);
+  const extensionHost = compiler.finalizeExtensions() ?? compiler.extensionHost;
+  if (extensionHost === undefined) {
+    throw new Error("TSTS extension finalization returned no extension host.");
+  }
+  const sourceFiles = compiler.getSourceFiles().filter((sourceFile): sourceFile is SourceFile => sourceFile !== undefined);
   return {
-    program,
+    compiler,
+    program: compiler.program,
+    ast: compiler.ast,
+    types: compiler.types,
     sourceFiles,
     extensionHost,
-    checker: createTypeCheckerQueries(program),
+    checker: compiler.checker,
     facts: createExtensionConsumerQueries(extensionHost, "tsonic-host"),
   };
 }
@@ -109,9 +91,11 @@ export function compileTargetFromSemanticSession(
 ): TargetCompileResult {
   const input: TargetCompileInput = {
     program: session.program,
+    ast: session.ast,
+    types: session.types,
     sourceFiles: session.sourceFiles,
     facts: session.facts,
-    semantics: createTargetSemanticQueries(session.checker, session.facts, session.sourceFiles),
+    semantics: createTargetSemanticQueries(session.ast, session.checker, session.types, session.facts, session.sourceFiles),
     project,
     target,
     paths,
@@ -120,7 +104,9 @@ export function compileTargetFromSemanticSession(
 }
 
 function createTargetSemanticQueries(
+  ast: AstReader,
   checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
   facts: ExtensionConsumerQueries,
   sourceFiles: readonly SourceFile[],
 ): TargetSemanticQueries {
@@ -133,25 +119,18 @@ function createTargetSemanticQueries(
       if (node === undefined) {
         return undefined;
       }
+      if (isTypeSyntaxNode(ast, node)) {
+        return getRuntimeCarrier(facts, node) ??
+          getRuntimeCarrierFromSourceSyntax(ast, checker, types, facts, node, options, sourceFiles) ??
+          getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
+      }
       return getRuntimeCarrier(facts, node) ??
-        getRuntimeCarrier(facts, getSymbolAtReferenceNode(checker, node, options)) ??
-        getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(checker, node, options)) ??
-        getRuntimeCarrierForSemanticType(checker, facts, node, options);
-    },
-    getObjectShape(subject) {
-      return facts.getObjectShapeFact(subject);
-    },
-    getObjectShapeForNode(subject, options) {
-      const node = asNode(subject);
-      if (node === undefined) {
-        return undefined;
-      }
-      const direct = facts.getObjectShapeFact(node);
-      if (direct !== undefined) {
-        return direct;
-      }
-      const type = getSemanticTypeForNode(checker, node, options);
-      return facts.getObjectShapeFact(type) ?? facts.getObjectShapeFact(type?.symbol);
+        getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)) ??
+        getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getSymbolAtReferenceNode(ast, checker, node, options), options)) ??
+        getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)) ??
+        getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getResolvedSymbolForReferenceNode(ast, checker, node, options), options)) ??
+        getRuntimeCarrierFromSourceSyntax(ast, checker, types, facts, node, options, sourceFiles) ??
+        getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
     },
     getTargetBinding(subject) {
       return facts.getTargetBindingFact(subject);
@@ -161,52 +140,84 @@ function createTargetSemanticQueries(
       if (node === undefined) {
         return undefined;
       }
+      const semanticType = getSemanticTypeForNode(ast, checker, node, options);
+      const typeBinding = facts.getTargetBindingFact(semanticType) ??
+        facts.getTargetBindingFact(semanticType?.symbol);
+      if (isTypeReferenceQuery(ast, node)) {
+        return facts.getTargetBindingFact(node) ?? typeBinding;
+      }
       return facts.getTargetBindingFact(node) ??
-        facts.getTargetBindingFact(getSymbolAtReferenceNode(checker, node, options)) ??
-        facts.getTargetBindingFact(getResolvedSymbolForReferenceNode(checker, node, options)) ??
-        facts.getTargetBindingFact(getSemanticTypeForNode(checker, node, options)?.symbol);
+        facts.getTargetBindingFact(getSymbolAtReferenceNode(ast, checker, node, options)) ??
+        facts.getTargetBindingFact(getAliasedSymbolIfAlias(checker, getSymbolAtReferenceNode(ast, checker, node, options), options)) ??
+        facts.getTargetBindingFact(getResolvedSymbolForReferenceNode(ast, checker, node, options)) ??
+        facts.getTargetBindingFact(getAliasedSymbolIfAlias(checker, getResolvedSymbolForReferenceNode(ast, checker, node, options), options)) ??
+        typeBinding;
     },
     getSymbolAtLocation(subject, options) {
       const node = asNode(subject);
-      return node === undefined ? undefined : getSymbolAtReferenceNode(checker, node, options);
+      return node === undefined ? undefined : getSymbolAtReferenceNode(ast, checker, node, options);
     },
     getResolvedSymbol(subject, options) {
       const node = asNode(subject);
-      return node === undefined ? undefined : getResolvedSymbolForReferenceNode(checker, node, options);
+      return node === undefined ? undefined : getResolvedSymbolForReferenceNode(ast, checker, node, options);
+    },
+    getTypeOfSymbol(subject, options) {
+      const symbol = asSymbol(subject);
+      return symbol === undefined ? undefined : checker.getTypeOfSymbol(symbol, options);
+    },
+    getTypeAtLocation(subject, options) {
+      const node = asNode(subject);
+      return node === undefined ? undefined : getSemanticTypeForNode(ast, checker, node, options);
+    },
+    getTypeFromTypeNode(subject, options) {
+      const node = asNode(subject);
+      return node === undefined ? undefined : checker.getTypeFromTypeNode(node, options);
     },
     getEnumMemberConstant(subject, options) {
       const node = asNode(subject);
-      return node === undefined ? undefined : checker.getEnumMemberValue(node, options);
+      let value: unknown;
+      try {
+        value = node === undefined ? undefined : checker.getConstantValue(node, options);
+      } catch {
+        value = undefined;
+      }
+      return typeof value === "number" || typeof value === "string" || value === undefined ? { value } : undefined;
     },
     getReturnTypeCarrierFromDeclaration(subject, options) {
       const node = asNode(subject);
       if (node === undefined) {
         return undefined;
       }
-      const signature = checker.getSignatureFromDeclaration(node, options);
-      const returnType = checker.getReturnTypeOfSignature(signature, options);
+      const declarationType = checker.getTypeAtLocation(node, options);
+      const signature = types.getCallSignatures(declarationType, options)[0];
+      const returnType = types.getReturnTypeOfSignature(signature, options);
       return getRuntimeCarrier(facts, returnType) ?? getRuntimeCarrier(facts, returnType?.symbol);
     },
     isProjectSourceShapeForNode(subject, options) {
-      const declaration = getProjectSourceDeclarationForNode(checker, asNode(subject), options, sourceFiles);
-      return declaration?.Kind === KindClassDeclaration ||
-        declaration?.Kind === KindInterfaceDeclaration ||
-        declaration?.Kind === KindEnumDeclaration ||
-        declaration?.Kind === KindEnumMember;
+      const declaration = getProjectSourceDeclarationForNode(ast, checker, types, asNode(subject), options, sourceFiles);
+      return declaration !== undefined && (
+        ast.is.IsClassDeclaration(declaration) ||
+        ast.is.IsInterfaceDeclaration(declaration) ||
+        ast.is.IsEnumDeclaration(declaration) ||
+        ast.is.IsEnumMember(declaration)
+      );
     },
     isProjectSourceConstructibleObjectForNode(subject, options) {
-      const declaration = getProjectSourceDeclarationForNode(checker, asNode(subject), options, sourceFiles);
-      return declaration?.Kind === KindClassDeclaration && hasParameterlessConstruction(declaration);
+      const declaration = getProjectSourceReferenceForNode(ast, checker, types, asNode(subject), options, sourceFiles)?.declaration ??
+        getProjectSourceDeclarationForNode(ast, checker, types, asNode(subject), options, sourceFiles);
+      return declaration !== undefined &&
+        ast.is.IsClassDeclaration(declaration) &&
+        hasParameterlessConstruction(ast, declaration);
     },
     getProjectSourceDeclarationForNode(subject, options) {
-      return getProjectSourceDeclarationForNode(checker, asNode(subject), options, sourceFiles);
+      return getProjectSourceDeclarationForNode(ast, checker, types, asNode(subject), options, sourceFiles);
     },
     getProjectSourceReferenceForNode(subject, options) {
-      return getProjectSourceReferenceForNode(checker, asNode(subject), options, sourceFiles);
+      return getProjectSourceReferenceForNode(ast, checker, types, asNode(subject), options, sourceFiles);
     },
     describeTypeAtLocation(subject, options) {
       const node = asNode(subject);
-      const type = node === undefined ? undefined : getSemanticTypeForNode(checker, node, options);
+      const type = node === undefined ? undefined : getSemanticTypeForNode(ast, checker, node, options);
       if (type === undefined) {
         return undefined;
       }
@@ -220,56 +231,302 @@ function createTargetSemanticQueries(
 }
 
 function getSymbolAtReferenceNode(
+  ast: AstReader,
   checker: TypeCheckerQueries,
   node: Node,
   options: { readonly sourceFile: SourceFile },
 ): Symbol | undefined {
-  return isSymbolQueryableNode(node) ? checker.getSymbolAtLocation(node, options) : undefined;
+  const reference = getReferenceQueryNode(ast, node);
+  return reference === undefined ? undefined : checker.getSymbolAtLocation(reference, options);
 }
 
 function getResolvedSymbolForReferenceNode(
+  ast: AstReader,
   checker: TypeCheckerQueries,
   node: Node,
   options: { readonly sourceFile: SourceFile },
 ): Symbol | undefined {
-  return isSymbolQueryableNode(node) ? checker.getResolvedSymbol(node, options) : undefined;
-}
-
-function isSymbolQueryableNode(node: Node): boolean {
-  return node.Kind === KindIdentifier ||
-    node.Kind === KindPropertyAccessExpression ||
-    node.Kind === KindElementAccessExpression;
+  const reference = getReferenceQueryNode(ast, node);
+  return reference === undefined ? undefined : checker.getResolvedSymbol(reference, options);
 }
 
 function getRuntimeCarrier(
   facts: ExtensionConsumerQueries,
   subject: ExtensionFactSubject | undefined,
 ): TargetTypeRef | undefined {
-  return facts.getRuntimeCarrierFact(subject)?.carrier;
+  const runtimeCarrier = facts.getRuntimeCarrierFact(subject)?.carrier;
+  if (runtimeCarrier !== undefined) {
+    return runtimeCarrier;
+  }
+  const primitive = facts.getSourcePrimitiveFact(subject);
+  return primitive === undefined ? undefined : { kind: "source-primitive", name: primitive.kind };
+}
+
+function getRuntimeCarrierFromSourceSyntax(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  facts: ExtensionConsumerQueries,
+  node: Node,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+  seen: ReadonlySet<Node> = new Set(),
+): TargetTypeRef | undefined {
+  if (seen.has(node)) {
+    return undefined;
+  }
+  const nextSeen = new Set(seen).add(node);
+  const direct = getRuntimeCarrier(facts, node) ??
+    (isTypeReferenceQuery(ast, node)
+      ? getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options))
+      : getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)) ??
+        getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)));
+  if (direct !== undefined && !(direct.kind === "target-named" && ast.is.IsTypeReferenceNode(node) && ast.typeArguments(node).length > 0)) {
+    return direct;
+  }
+  if (ast.is.IsTypeReferenceNode(node)) {
+    const aliasCarrier = getRuntimeCarrierFromTypeAliasDeclarations(
+      ast,
+      checker,
+      types,
+      facts,
+      getSymbolAtReferenceNode(ast, checker, node, options),
+      node,
+      options,
+      sourceFiles,
+      nextSeen,
+    );
+    if (aliasCarrier !== undefined) {
+      return aliasCarrier;
+    }
+    const type = getSemanticTypeForNode(ast, checker, node, options);
+    const binding = facts.getTargetBindingFact(type) ?? facts.getTargetBindingFact(type?.symbol);
+    if (binding !== undefined) {
+      const typeArguments = ast.typeArguments(node)
+        .map((argument) => argument === undefined
+          ? undefined
+          : getTargetTypeRefFromSourceTypeNode(ast, checker, types, facts, argument, options, sourceFiles, nextSeen));
+      if (typeArguments.some((argument) => argument === undefined)) {
+        return { kind: "target-named", id: binding.id };
+      }
+      return {
+        kind: "target-named",
+        id: binding.id,
+        ...(typeArguments.length > 0 ? { typeArguments: typeArguments as readonly TargetTypeRef[] } : {}),
+      };
+    }
+    return direct;
+  }
+  if (ast.is.IsNewExpression(node)) {
+    const expression = ast.as.AsNewExpression(node);
+    const targetExpression = expression?.Expression;
+    const targetBinding = targetExpression === undefined
+      ? undefined
+      : facts.getTargetBindingFact(getSymbolAtReferenceNode(ast, checker, targetExpression, options)) ??
+        facts.getTargetBindingFact(getResolvedSymbolForReferenceNode(ast, checker, targetExpression, options)) ??
+        facts.getTargetBindingFact(getSemanticTypeForNode(ast, checker, targetExpression, options)?.symbol);
+    if (targetBinding !== undefined) {
+      const typeArguments = ast.typeArguments(node)
+        .map((argument) => argument === undefined
+          ? undefined
+          : getTargetTypeRefFromSourceTypeNode(ast, checker, types, facts, argument, options, sourceFiles, nextSeen));
+      if (typeArguments.some((argument) => argument === undefined)) {
+        return { kind: "target-named", id: targetBinding.id };
+      }
+      return {
+        kind: "target-named",
+        id: targetBinding.id,
+        ...(typeArguments.length > 0 ? { typeArguments: typeArguments as readonly TargetTypeRef[] } : {}),
+      };
+    }
+  }
+  const reference = getProjectSourceReferenceForNode(ast, checker, types, node, options, sourceFiles);
+  const declaration = reference?.declaration as (Node & { readonly Type?: Node; readonly Initializer?: Node }) | undefined;
+  const declarationSubject = declaration?.Type ?? declaration?.Initializer;
+  return declarationSubject === undefined
+    ? direct
+    : getRuntimeCarrierFromSourceSyntax(ast, checker, types, facts, declarationSubject, options, sourceFiles, nextSeen) ?? direct;
+}
+
+function getRuntimeCarrierFromTypeAliasDeclarations(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  facts: ExtensionConsumerQueries,
+  symbol: Symbol | undefined,
+  currentNode: Node,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+  seen: ReadonlySet<Node>,
+): TargetTypeRef | undefined {
+  for (const declaration of symbol?.Declarations ?? []) {
+    const typeNode = getDeclarationTypeNode(declaration);
+    if (typeNode === undefined || typeNode === currentNode) {
+      continue;
+    }
+    const declarationSourceFile = ast.getSourceFile(typeNode) ?? options.sourceFile;
+    const declarationOptions = { sourceFile: declarationSourceFile };
+    const syntaxCarrier = getRuntimeCarrierFromSourceSyntax(
+      ast,
+      checker,
+      types,
+      facts,
+      typeNode,
+      declarationOptions,
+      sourceFiles,
+      seen,
+    );
+    if (syntaxCarrier !== undefined) {
+      return syntaxCarrier;
+    }
+    const semanticCarrier = getRuntimeCarrierForSemanticType(ast, checker, types, facts, typeNode, declarationOptions);
+    if (semanticCarrier !== undefined) {
+      return semanticCarrier;
+    }
+  }
+  return undefined;
+}
+
+function getDeclarationTypeNode(declaration: Node | undefined): Node | undefined {
+  return asNode((declaration as { readonly Type?: unknown; readonly type?: unknown } | undefined)?.Type) ??
+    asNode((declaration as { readonly Type?: unknown; readonly type?: unknown } | undefined)?.type);
+}
+
+function getTargetTypeRefFromSourceTypeNode(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  facts: ExtensionConsumerQueries,
+  node: Node,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+  seen: ReadonlySet<Node>,
+): TargetTypeRef | undefined {
+  return getRuntimeCarrierFromSourceSyntax(ast, checker, types, facts, node, options, sourceFiles, seen) ??
+    getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
 }
 
 function getRuntimeCarrierForSemanticType(
+  ast: AstReader,
   checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
   facts: ExtensionConsumerQueries,
   node: Node,
   options: { readonly sourceFile: SourceFile },
 ): TargetTypeRef | undefined {
-  const type = getSemanticTypeForNode(checker, node, options);
-  return getRuntimeCarrier(facts, type) ?? getRuntimeCarrier(facts, type?.symbol);
+  const type = getSemanticTypeForNode(ast, checker, node, options);
+  return getRuntimeCarrier(facts, type) ??
+    getRuntimeCarrier(facts, type?.symbol) ??
+    getTargetTypeRefForSemanticType(types, facts, type, options);
+}
+
+function getTargetTypeRefForSemanticType(
+  types: TypeShapeQueries,
+  facts: ExtensionConsumerQueries,
+  type: Type | undefined,
+  options: { readonly sourceFile: SourceFile },
+  seen: ReadonlySet<Type> = new Set(),
+): TargetTypeRef | undefined {
+  if (type === undefined || seen.has(type)) {
+    return undefined;
+  }
+  const directCarrier = getRuntimeCarrier(facts, type) ?? getRuntimeCarrier(facts, type.symbol);
+  if (directCarrier !== undefined) {
+    return directCarrier;
+  }
+  if (!types.isTypeReference(type)) {
+    return undefined;
+  }
+  const target = types.getTypeReferenceTarget(type);
+  const binding = facts.getTargetBindingFact(target?.symbol);
+  if (binding === undefined) {
+    return undefined;
+  }
+  const nextSeen = new Set(seen).add(type);
+  const typeArguments = types.getTypeArguments(type, options)
+    .map((argument) => getTargetTypeRefForSemanticType(types, facts, argument, options, nextSeen));
+  if (typeArguments.some((argument) => argument === undefined)) {
+    return { kind: "target-named", id: binding.id };
+  }
+  return {
+    kind: "target-named",
+    id: binding.id,
+    ...(typeArguments.length > 0 ? { typeArguments: typeArguments as readonly TargetTypeRef[] } : {}),
+  };
 }
 
 function getSemanticTypeForNode(
+  ast: AstReader,
   checker: TypeCheckerQueries,
   node: Node,
   options: { readonly sourceFile: SourceFile },
 ): Type | undefined {
-  return IsTypeNode(node)
+  return isTypeSyntaxNode(ast, node)
     ? checker.getTypeFromTypeNode(node, options)
     : checker.getTypeAtLocation(node, options);
 }
 
+function getReferenceQueryNode(ast: AstReader, node: Node | undefined): Node | undefined {
+  if (node === undefined) {
+    return undefined;
+  }
+  if (ast.is.IsIdentifier(node) ||
+    ast.is.IsPrivateIdentifier(node) ||
+    ast.is.IsPropertyAccessExpression(node) ||
+    ast.is.IsQualifiedName(node)) {
+    return node;
+  }
+  if (ast.is.IsTypeReferenceNode(node)) {
+    return ast.as.AsTypeReferenceNode(node)?.TypeName;
+  }
+  if (ast.is.IsExpressionWithTypeArguments(node)) {
+    return ast.as.AsExpressionWithTypeArguments(node)?.Expression;
+  }
+  return undefined;
+}
+
+function isTypeReferenceQuery(ast: AstReader, node: Node): boolean {
+  if (isTypeSyntaxNode(ast, node)) {
+    return true;
+  }
+  let parent = ast.parent(node);
+  let current: Node | undefined = node;
+  while (parent !== undefined && ast.is.IsQualifiedName(parent)) {
+    current = parent;
+    parent = ast.parent(parent);
+  }
+  if (parent === undefined || !ast.is.IsTypeReferenceNode(parent)) {
+    return false;
+  }
+  return ast.as.AsTypeReferenceNode(parent)?.TypeName === current;
+}
+
+function isTypeSyntaxNode(ast: AstReader, node: Node): boolean {
+  return ast.is.IsKeywordTypeNode(node) ||
+    ast.is.IsTypeReferenceNode(node) ||
+    ast.is.IsUnionTypeNode(node) ||
+    ast.is.IsIntersectionTypeNode(node) ||
+    ast.is.IsConditionalTypeNode(node) ||
+    ast.is.IsInferTypeNode(node) ||
+    ast.is.IsArrayTypeNode(node) ||
+    ast.is.IsIndexedAccessTypeNode(node) ||
+    ast.is.IsLiteralTypeNode(node) ||
+    ast.is.IsThisTypeNode(node) ||
+    ast.is.IsMappedTypeNode(node) ||
+    ast.is.IsTupleTypeNode(node) ||
+    ast.is.IsOptionalTypeNode(node) ||
+    ast.is.IsRestTypeNode(node) ||
+    ast.is.IsParenthesizedTypeNode(node) ||
+    ast.is.IsFunctionTypeNode(node) ||
+    ast.is.IsConstructorTypeNode(node) ||
+    ast.is.IsTemplateLiteralTypeNode(node) ||
+    ast.is.IsImportTypeNode(node);
+}
+
 function getProjectSourceDeclarationForNode(
+  ast: AstReader,
   checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
   node: Node | undefined,
   options: { readonly sourceFile: SourceFile },
   sourceFiles: readonly SourceFile[],
@@ -277,13 +534,14 @@ function getProjectSourceDeclarationForNode(
   if (node === undefined) {
     return undefined;
   }
-  const type = getSemanticTypeForNode(checker, node, options);
-  const declaration = getPrimaryDeclaration(type?.symbol);
-  return isProjectSourceDeclaration(declaration, sourceFiles) ? declaration : undefined;
+  const type = getSemanticTypeForNode(ast, checker, node, options);
+  return getProjectSourceDeclarationForType(ast, types, type, sourceFiles);
 }
 
 function getProjectSourceReferenceForNode(
+  ast: AstReader,
   checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
   node: Node | undefined,
   options: { readonly sourceFile: SourceFile },
   sourceFiles: readonly SourceFile[],
@@ -291,27 +549,35 @@ function getProjectSourceReferenceForNode(
   if (node === undefined) {
     return undefined;
   }
-  const directSymbol = getSymbolAtReferenceNode(checker, node, options);
-  const importedReference = getImportedProjectSourceReferenceForSymbol(checker, directSymbol, options, sourceFiles);
+  const directSymbol = getSymbolAtReferenceNode(ast, checker, node, options);
+  const importedReference = getImportedProjectSourceReferenceForSymbol(ast, checker, directSymbol, options, sourceFiles);
   if (importedReference !== undefined) {
     return importedReference;
   }
   const symbols = [
-    getResolvedSymbolForReferenceNode(checker, node, options),
+    getResolvedSymbolForReferenceNode(ast, checker, node, options),
     directSymbol,
   ].flatMap((symbol) => symbol === undefined
     ? []
-    : [checker.getAliasedSymbol(symbol, options), symbol]);
+    : [getAliasedSymbolIfAlias(checker, symbol, options), symbol]);
   for (const symbol of symbols) {
-    const reference = getProjectSourceReferenceForSymbol(symbol, sourceFiles);
+    const reference = getProjectSourceReferenceForSymbol(ast, symbol, sourceFiles);
     if (reference !== undefined) {
       return reference;
     }
+  }
+  const declaration = getProjectSourceDeclarationForType(ast, types, getSemanticTypeForNode(ast, checker, node, options), sourceFiles);
+  const symbol = asSymbol((declaration as { readonly Symbol?: ExtensionFactSubject; readonly symbol?: ExtensionFactSubject } | undefined)?.Symbol) ??
+    asSymbol((declaration as { readonly Symbol?: ExtensionFactSubject; readonly symbol?: ExtensionFactSubject } | undefined)?.symbol);
+  const sourceFile = ast.getSourceFile(declaration);
+  if (declaration !== undefined && symbol !== undefined && sourceFile !== undefined) {
+    return { symbol, declaration, sourceFile };
   }
   return undefined;
 }
 
 function getImportedProjectSourceReferenceForSymbol(
+  ast: AstReader,
   checker: TypeCheckerQueries,
   symbol: Symbol | undefined,
   options: { readonly sourceFile: SourceFile },
@@ -321,16 +587,16 @@ function getImportedProjectSourceReferenceForSymbol(
     return undefined;
   }
   for (const declaration of symbol.Declarations ?? []) {
-    const imported = getImportedModuleExport(checker, declaration, options);
+    const imported = getImportedModuleExport(ast, checker, declaration, options);
     if (imported === undefined) {
       continue;
     }
-    const alias = checker.getAliasedSymbol(imported.symbol, { sourceFile: imported.sourceFile });
-    const candidates = getPrimaryDeclaration(imported.symbol)?.Kind === KindExportAssignment
+    const alias = getAliasedSymbolIfAlias(checker, imported.symbol, { sourceFile: imported.sourceFile });
+    const candidates = ast.is.IsExportAssignment(getPrimaryDeclaration(imported.symbol))
       ? [imported.symbol, alias]
       : [alias, imported.symbol];
     for (const candidate of candidates) {
-      const reference = getProjectSourceReferenceForSymbol(candidate, sourceFiles);
+      const reference = getProjectSourceReferenceForSymbol(ast, candidate, sourceFiles);
       if (reference !== undefined) {
         return reference;
       }
@@ -340,65 +606,64 @@ function getImportedProjectSourceReferenceForSymbol(
 }
 
 function getImportedModuleExport(
+  ast: AstReader,
   checker: TypeCheckerQueries,
   declaration: Node | undefined,
   options: { readonly sourceFile: SourceFile },
 ): { readonly symbol: Symbol; readonly sourceFile: SourceFile } | undefined {
-  const importBinding = normalizeImportBindingDeclaration(declaration);
+  const importBinding = normalizeImportBindingDeclaration(ast, declaration);
   if (importBinding === undefined) {
     return undefined;
   }
-  const exportName = getImportedExportName(importBinding);
+  const exportName = getImportedExportName(ast, importBinding);
   if (exportName === undefined) {
     return undefined;
   }
-  const importDeclaration = findImportDeclaration(importBinding);
-  const moduleSpecifier = importDeclaration === undefined ? undefined : Node_ModuleSpecifier(importDeclaration);
-  const sourceFile = checker.getResolvedModuleSourceFile(options.sourceFile, moduleSpecifier);
-  if (sourceFile === undefined) {
-    return undefined;
-  }
-  const symbol = checker.getModuleExportSymbol(sourceFile, exportName, { sourceFile });
-  return symbol === undefined ? undefined : { symbol, sourceFile };
+  const importDeclaration = findImportDeclaration(ast, importBinding);
+  const moduleSpecifier = ast.as.AsImportDeclaration(importDeclaration)?.ModuleSpecifier;
+  const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier, options);
+  const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(moduleSymbol, false, options);
+  const exportSymbol = checker.getExportsOfModule(resolvedModuleSymbol, options)
+    .find((candidate) => candidate?.Name === exportName);
+  const sourceFile = ast.getSourceFile(exportSymbol?.ValueDeclaration ?? exportSymbol?.Declarations?.[0]);
+  return exportSymbol === undefined || sourceFile === undefined ? undefined : { symbol: exportSymbol, sourceFile };
 }
 
-function normalizeImportBindingDeclaration(declaration: Node | undefined): Node | undefined {
+function normalizeImportBindingDeclaration(ast: AstReader, declaration: Node | undefined): Node | undefined {
   if (declaration === undefined) {
     return undefined;
   }
-  if (declaration.Kind === KindImportClause || declaration.Kind === KindImportSpecifier) {
+  if (ast.is.IsImportClause(declaration) || ast.is.IsImportSpecifier(declaration)) {
     return declaration;
   }
-  const parent = declaration.Parent;
-  return parent?.Kind === KindImportClause || parent?.Kind === KindImportSpecifier
-    ? parent
-    : undefined;
+  const parent = ast.parent(declaration);
+  return ast.is.IsImportClause(parent) || ast.is.IsImportSpecifier(parent) ? parent : undefined;
 }
 
-function getImportedExportName(importBinding: Node): string | undefined {
-  if (importBinding.Kind === KindImportClause) {
-    return AsImportClause(importBinding)?.name === undefined ? undefined : "default";
+function getImportedExportName(ast: AstReader, importBinding: Node): string | undefined {
+  if (ast.is.IsImportClause(importBinding)) {
+    return ast.as.AsImportClause(importBinding)?.name === undefined ? undefined : "default";
   }
-  if (importBinding.Kind === KindImportSpecifier) {
-    const specifier = AsImportSpecifier(importBinding);
-    const exportNameNode = specifier?.PropertyName ?? Node_Name(importBinding);
-    return exportNameNode === undefined ? undefined : Node_Text(exportNameNode);
+  if (ast.is.IsImportSpecifier(importBinding)) {
+    const specifier = ast.as.AsImportSpecifier(importBinding);
+    return ast.text(specifier?.PropertyName ?? ast.name(importBinding));
   }
   return undefined;
 }
 
-function findImportDeclaration(node: Node): Node | undefined {
-  let current = node.Parent;
+function findImportDeclaration(ast: AstReader, node: Node): Node | undefined {
+  let current = ast.parent(node);
   while (current !== undefined) {
-    if (current.Kind === KindImportDeclaration) {
+    if (ast.is.IsImportDeclaration(current)) {
       return current;
     }
-    current = current.Parent;
+    current = ast.parent(current);
   }
   return undefined;
 }
 
 function getProjectSourceReferenceForSymbol(
+  ast: AstReader,
   symbol: Symbol | undefined,
   sourceFiles: readonly SourceFile[],
 ): ReturnType<TargetSemanticQueries["getProjectSourceReferenceForNode"]> {
@@ -406,42 +671,68 @@ function getProjectSourceReferenceForSymbol(
     return undefined;
   }
   const declaration = getPrimaryDeclaration(symbol);
-  if (declaration === undefined || !isProjectSourceDeclaration(declaration, sourceFiles)) {
+  if (declaration === undefined || !isProjectSourceDeclaration(ast, declaration, sourceFiles)) {
     return undefined;
   }
-  const declarationFile = GetSourceFileOfNode(declaration);
-  return declarationFile === undefined
-    ? undefined
-    : { symbol, declaration, sourceFile: declarationFile };
+  const declarationFile = ast.getSourceFile(declaration);
+  return declarationFile === undefined ? undefined : { symbol, declaration, sourceFile: declarationFile };
+}
+
+const symbolFlagsAlias = 1 << 21;
+
+function getAliasedSymbolIfAlias(
+  checker: TypeCheckerQueries,
+  symbol: Symbol | undefined,
+  options: { readonly sourceFile: SourceFile },
+): Symbol | undefined {
+  return symbol !== undefined && (symbol.Flags & symbolFlagsAlias) !== 0
+    ? checker.getAliasedSymbol(symbol, options)
+    : undefined;
 }
 
 function getPrimaryDeclaration(symbol: Symbol | undefined): Node | undefined {
   return symbol?.ValueDeclaration ?? symbol?.Declarations?.find((candidate): candidate is Node => candidate !== undefined);
 }
 
-function isProjectSourceDeclaration(declaration: Node | undefined, sourceFiles: readonly SourceFile[]): boolean {
+function getProjectSourceDeclarationForType(
+  ast: AstReader,
+  types: TypeShapeQueries,
+  type: Type | undefined,
+  sourceFiles: readonly SourceFile[],
+): Node | undefined {
+  const direct = getPrimaryDeclaration(type?.symbol);
+  if (isProjectSourceDeclaration(ast, direct, sourceFiles)) {
+    return direct;
+  }
+  if (type === undefined || !types.isUnion(type)) {
+    return undefined;
+  }
+  const nonNullish = types.getUnionOrIntersectionTypes(type)
+    .filter((candidate) => !types.isNullish(candidate));
+  return nonNullish.length === 1
+    ? getProjectSourceDeclarationForType(ast, types, nonNullish[0], sourceFiles)
+    : undefined;
+}
+
+function isProjectSourceDeclaration(ast: AstReader, declaration: Node | undefined, sourceFiles: readonly SourceFile[]): boolean {
   if (declaration === undefined) {
     return false;
   }
-  const declarationFile = GetSourceFileOfNode(declaration);
+  const declarationFile = ast.getSourceFile(declaration);
   return declarationFile !== undefined &&
     !declarationFile.IsDeclarationFile &&
     sourceFiles.some((sourceFile) => sourceFile === declarationFile);
 }
 
-function hasParameterlessConstruction(classDeclaration: Node): boolean {
-  const constructors = (AsClassDeclaration(classDeclaration)?.Members?.Nodes ?? [])
-    .filter((member): member is Node => member?.Kind === KindConstructor);
+function hasParameterlessConstruction(ast: AstReader, classDeclaration: Node): boolean {
+  const constructors = ast.members(classDeclaration).filter((member): member is Node => ast.is.IsConstructorDeclaration(member));
   if (constructors.length === 0) {
     return true;
   }
-  return constructors.some((constructor) => {
-    const parameters = AsConstructorDeclaration(constructor)?.Parameters?.Nodes ?? [];
-    return parameters.every((parameter) => parameter === undefined);
-  });
+  return constructors.some((constructor) => ast.parameters(constructor).every((parameter) => parameter === undefined));
 }
 
-function asNode(subject: ExtensionFactSubject | undefined): Node | undefined {
+function asNode(subject: unknown): Node | undefined {
   return typeof subject === "object" &&
     subject !== null &&
     typeof (subject as { readonly Kind?: unknown }).Kind === "number"
@@ -449,18 +740,18 @@ function asNode(subject: ExtensionFactSubject | undefined): Node | undefined {
     : undefined;
 }
 
-export function collectTstsDiagnostics(program: Program, sourceFiles: readonly SourceFile[], currentDirectory: string): readonly TargetDiagnostic[] {
-  const diagnostics = [
-    ...(Program_GetConfigFileParsingDiagnostics(program) ?? []),
-    ...(Program_GetProgramDiagnostics(program) ?? []),
-  ].filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined);
-  const context = Background();
-  for (const sourceFile of sourceFiles) {
-    diagnostics.push(...(Program_GetSyntacticDiagnostics(program, context, sourceFile) ?? [])
-      .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined));
-    diagnostics.push(...(Program_GetSemanticDiagnostics(program, context, sourceFile) ?? [])
-      .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined));
-  }
+function asSymbol(subject: ExtensionFactSubject | undefined): Symbol | undefined {
+  return typeof subject === "object" &&
+    subject !== null &&
+    typeof (subject as { readonly Name?: unknown }).Name === "string" &&
+    typeof (subject as { readonly Flags?: unknown }).Flags === "number"
+    ? subject as Symbol
+    : undefined;
+}
+
+export function collectTstsDiagnostics(session: TsonicSemanticSession, currentDirectory: string): readonly TargetDiagnostic[] {
+  const diagnostics = session.compiler.getDiagnostics("all")
+    .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined);
   const message = formatDiagnostics(diagnostics, currentDirectory);
   if (message.length === 0) {
     return [];
@@ -473,11 +764,10 @@ export function collectTstsDiagnostics(program: Program, sourceFiles: readonly S
   }];
 }
 
-function forceDiagnostics(program: Program, sourceFiles: readonly SourceFile[]): void {
-  Program_GetProgramDiagnostics(program);
-  const context = Background();
-  for (const sourceFile of sourceFiles) {
-    Program_GetSyntacticDiagnostics(program, context, sourceFile);
-    Program_GetSemanticDiagnostics(program, context, sourceFile);
+function forceDiagnostics(session: CompilerSession): void {
+  session.getDiagnostics("program");
+  for (const sourceFile of session.getSourceFiles()) {
+    session.getDiagnostics("syntactic", sourceFile);
+    session.getDiagnostics("semantic", sourceFile);
   }
 }
