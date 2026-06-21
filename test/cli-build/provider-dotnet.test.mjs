@@ -226,6 +226,49 @@ test("CLI emits provider-owned nested enum values from .NET virtual modules", as
 });
 
 
+test("CLI emits provider-owned byref-like System span operations from .NET virtual modules", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-system-span");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderSpan",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { MemoryExtensions, ReadOnlySpan } from \"@tsonic/dotnet/System.js\";",
+      "import type { char } from \"@tsonic/core/types.js\";",
+      "",
+      "export function tailLength(value: string): number {",
+      "  const span: ReadOnlySpan<char> = MemoryExtensions.asSpan(value, 1);",
+      "  return span.length;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static double tailLength\(string value\)/);
+  assert.match(generatedSource, /System\.ReadOnlySpan<char> span = System\.MemoryExtensions\.AsSpan\(value, 1\);/);
+  assert.match(generatedSource, /return span\.Length;/);
+  assert.doesNotMatch(generatedSource, /MemoryExtensions\.asSpan|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderSpan.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+
 test("CLI emits provider-owned System.IO calls from .NET virtual modules", async () => {
   const projectDirectory = resolve(tempRoot, "provider-system-io");
   await writeProject(projectDirectory, {
