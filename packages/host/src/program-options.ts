@@ -41,7 +41,6 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     "--moduleResolution",
     "nodenext",
     "--strict",
-    "--skipLibCheck",
     "--preserveSymlinks",
     "--allowArbitraryExtensions",
     "--rootDir",
