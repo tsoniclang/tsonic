@@ -21,6 +21,19 @@ function runNode(args) {
   return run(process.execPath, args);
 }
 
+function csharpProjectPath(projectDirectory, assemblyName) {
+  return resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
+}
+
+function runGeneratedProject(projectDirectory, assemblyName) {
+  const build = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const executed = run("dotnet", ["run", "--project", csharpProjectPath(projectDirectory, assemblyName), "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  return executed.stdout.replace(/\r\n/g, "\n");
+}
+
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: repoRoot,
@@ -35,12 +48,14 @@ function run(command, args) {
 
 export {
   assert,
+  csharpProjectPath,
   cliPath,
   existsSync,
   readFile,
   repoRoot,
   resolve,
   run,
+  runGeneratedProject,
   runNode,
   tempRoot,
   test,

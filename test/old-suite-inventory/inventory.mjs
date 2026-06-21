@@ -143,35 +143,39 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/module-constants/",
-    status: "deferred",
+    status: "ported",
     featureArea: "csharp-backend",
     owner: "C# backend planner + C# native provider",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
     reason:
-      "Source behavior is inferred module constants for number, string, integer, and boolean values printed through template strings; port after module const storage, interpolation formatting, and Console E2E coverage exist under current config.",
+      "Ported as a current-architecture executable E2E covering inferred module constants for number, string, integer, and boolean values, provider-owned Console.writeLine, template interpolation, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/variable-decls/",
-    status: "deferred",
+    status: "ported",
     featureArea: "csharp-backend",
     owner: "C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
     reason:
-      "Source behavior is primitive inference, explicit int/byte/short/long/float/number/string/boolean annotations, and mutable local assignment; port after neutral primitive aliases and assignment storage are covered under current config.",
+      "Ported as a current-architecture executable E2E covering primitive inference, explicit int32/uint8/int16/int64/float32/number/string/boolean annotations, mutable local assignment, typed numeric literal emission, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/function-basic/",
-    status: "deferred",
+    status: "ported",
     featureArea: "csharp-backend",
     owner: "C# backend planner + C# native provider",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
     reason:
-      "Source behavior is local function declarations for greeting, arithmetic, and boolean modulo checks with Console output; port after function lowering and Console E2E output are covered in the clean suite.",
+      "Ported as a current-architecture executable E2E covering source function declarations, string returns, numeric arithmetic, boolean modulo checks through provider-recorded operator facts, Console output, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/switch-statement/",
-    status: "deferred",
+    status: "ported",
     featureArea: "csharp-backend",
     owner: "C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
     reason:
-      "Source behavior is switch grouping for weekend/weekday/default return values; port after the clean control-flow suite asserts source switch semantics and runtime output under current target config.",
+      "Ported as a current-architecture executable E2E covering switch grouping for weekend/weekday/default return values, runtime output under current target config, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/return-in-control-flow/",
@@ -183,19 +187,21 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/nested-scopes/",
-    status: "deferred",
+    status: "ported",
     featureArea: "csharp-backend",
     owner: "C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
     reason:
-      "Source behavior is block-scoped locals a, b, and c added with a parameter across nested lexical scopes; port after local scope emission is asserted with runtime output instead of old generated C# text.",
+      "Ported as a current-architecture executable E2E covering block-scoped locals added with a parameter across nested lexical scopes, C# AST block emission, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/shadowing/",
-    status: "deferred",
+    status: "ported",
     featureArea: "csharp-backend",
     owner: "TSTS binding facts + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
     reason:
-      "Source behavior is block-local shadowing and arrow-function-local shadowing producing distinct values; port after clean tests prove binder identity and C# local naming preserve shadowed source bindings.",
+      "Ported as a current-architecture executable E2E covering block-local shadowing and arrow-function-local shadowing; C# local names are symbol-keyed from TSTS bindings, dotnet build/run succeeds, and stdout proves distinct source bindings.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/nullish-coalescing/",

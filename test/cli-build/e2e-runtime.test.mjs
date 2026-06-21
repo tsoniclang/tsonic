@@ -1,17 +1,4 @@
-import { assert, cliPath, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
-
-function csharpProjectPath(projectDirectory, assemblyName) {
-  return resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
-}
-
-function runGeneratedProject(projectDirectory, assemblyName) {
-  const build = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
-  assert.equal(build.status, 0, build.stdout + build.stderr);
-
-  const executed = run("dotnet", ["run", "--project", csharpProjectPath(projectDirectory, assemblyName), "--no-build", "--no-restore"]);
-  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
-  return executed.stdout.replace(/\r\n/g, "\n");
-}
+import { assert, cliPath, readFile, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI runs generated C# executable for provider Console hello world", async () => {
   const assemblyName = "SmokeGeneratedE2EHello";
