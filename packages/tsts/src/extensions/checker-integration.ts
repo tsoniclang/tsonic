@@ -9,6 +9,7 @@ import { KindElementAccessExpression, KindIdentifier, KindPrivateIdentifier, Kin
 import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
+import { Checker_GetPropertyOfType } from "../internal/checker/exports.js";
 import { GetSourceFileOfNode, NodeIsSynthesized } from "../internal/ast/utilities.js";
 import { ExtensionObservationPoint } from "./observations.js";
 import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityValidationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
@@ -127,9 +128,9 @@ export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<Check
     return;
   }
   const receiverSymbols = getReferenceSymbols(checker, receiver);
-  const selectedPropertySymbol = propertyNameNode === undefined
-    ? undefined
-    : Node_Symbol(propertyNameNode);
+  const selectedPropertySymbol = receiverType === undefined
+    ? propertyNameNode === undefined ? undefined : Node_Symbol(propertyNameNode)
+    : Checker_GetPropertyOfType(checker, receiverType, propertyName) ?? (propertyNameNode === undefined ? undefined : Node_Symbol(propertyNameNode));
   const sourceSelectedDeclaration = getPrimaryDeclaration(selectedPropertySymbol);
   const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
   const sourceSelectedContainerSymbol = sourceSelectedDeclarationContainer === undefined ? undefined : Node_Symbol(sourceSelectedDeclarationContainer);

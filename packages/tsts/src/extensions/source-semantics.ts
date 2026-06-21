@@ -26,6 +26,7 @@ import {
   KindExportDeclaration,
   KindImportDeclaration,
   KindIdentifier,
+  KindJSTypeAliasDeclaration,
   KindNamedImports,
   KindNamedExports,
   KindNamespaceImport,
@@ -35,6 +36,7 @@ import {
   KindPropertyDeclaration,
   KindQualifiedName,
   KindStringLiteral,
+  KindTypeAliasDeclaration,
   KindTypeKeyword,
   KindTypeReference,
   KindTupleType,
@@ -244,6 +246,7 @@ function recordSourceSemanticsFacts(
     }
   }
   const markerImportIndex = createSourceSemanticsMarkerImportIndex(sourceFile, modules);
+  recordSourceSemanticsTypeAliases(facts, sourceFile, modules, markerImportIndex);
   recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, modules, markerImportIndex);
   recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerImportIndex);
 }
@@ -930,7 +933,119 @@ function createSourceSemanticsMarkerImportIndex(
       }
     }
   }
+  recordPrimitiveTypeAliasBindings(sourceFile, primitivesByLocalName, namespacesByLocalName);
   return { primitivesByLocalName, callMarkersByLocalName, typeMarkersByLocalName, namespacesByLocalName };
+}
+
+interface PrimitiveTypeAliasBinding {
+  readonly aliasName: string;
+  readonly typeName: Node;
+}
+
+function recordPrimitiveTypeAliasBindings(
+  sourceFile: GoPtr<SourceFile>,
+  primitivesByLocalName: Map<string, SourcePrimitiveImportBinding>,
+  namespacesByLocalName: ReadonlyMap<string, SourceSemanticsModuleRuntime>,
+): void {
+  const aliases: PrimitiveTypeAliasBinding[] = [];
+  for (const statement of Node_Statements(sourceFile) ?? []) {
+    const aliasTypeName = getSourcePrimitiveTypeAliasTypeName(statement);
+    if (aliasTypeName === undefined) {
+      continue;
+    }
+    const aliasName = Node_Text(Node_Name(statement));
+    if (aliasName !== "") {
+      aliases.push({ aliasName, typeName: aliasTypeName });
+    }
+  }
+
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const alias of aliases) {
+      if (primitivesByLocalName.has(alias.aliasName)) {
+        continue;
+      }
+      const binding = resolvePrimitiveImportBinding(alias.typeName, primitivesByLocalName, namespacesByLocalName);
+      if (binding !== undefined) {
+        primitivesByLocalName.set(alias.aliasName, binding);
+        progressed = true;
+      }
+    }
+  }
+}
+
+function recordSourceSemanticsTypeAliases(
+  facts: ExtensionFactStore,
+  sourceFile: GoPtr<SourceFile>,
+  modules: readonly SourceSemanticsModuleRuntime[],
+  importIndex: SourceSemanticsMarkerImportIndex,
+): void {
+  for (const statement of Node_Statements(sourceFile) ?? []) {
+    if (statement === undefined) {
+      continue;
+    }
+    const aliasTypeName = getSourcePrimitiveTypeAliasTypeName(statement);
+    if (aliasTypeName === undefined) {
+      continue;
+    }
+    const primitive = resolvePrimitiveTypeReference(facts, aliasTypeName, modules, importIndex);
+    if (primitive === undefined) {
+      continue;
+    }
+    const evidence = createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName);
+    const primitiveFact = stripExportName(primitive.primitiveFact);
+    const aliasName = Node_Name(statement);
+    const aliasSymbol = Node_Symbol(aliasName);
+    const identity = createExportIdentity(
+      primitive.moduleIdentity,
+      primitive.exportName,
+      "type",
+      aliasSymbol === undefined ? primitive.identity.canonicalSymbolId ?? primitive.identity.id : getSymbolFactId(aliasSymbol),
+    );
+    facts.set(statement, canonicalIdentityFactKey, identity, evidence);
+    facts.set(statement, sourcePrimitiveFactKey, primitiveFact, evidence);
+    if (aliasName !== undefined) {
+      facts.set(aliasName, canonicalIdentityFactKey, identity, evidence);
+      facts.set(aliasName, sourcePrimitiveFactKey, primitiveFact, evidence);
+    }
+    if (aliasSymbol !== undefined) {
+      facts.set(aliasSymbol, canonicalIdentityFactKey, identity, evidence);
+      facts.set(aliasSymbol, sourcePrimitiveFactKey, primitiveFact, evidence);
+    }
+  }
+}
+
+function getSourcePrimitiveTypeAliasTypeName(statement: GoPtr<Node>): Node | undefined {
+  if (statement?.Kind !== KindTypeAliasDeclaration && statement?.Kind !== KindJSTypeAliasDeclaration) {
+    return undefined;
+  }
+  const aliasType = Node_Type(statement);
+  if (aliasType?.Kind !== KindTypeReference || (Node_TypeArguments(aliasType) ?? []).length > 0) {
+    return undefined;
+  }
+  return AsTypeReferenceNode(aliasType)?.TypeName;
+}
+
+function resolvePrimitiveImportBinding(
+  typeName: GoPtr<Node>,
+  primitivesByLocalName: ReadonlyMap<string, SourcePrimitiveImportBinding>,
+  namespacesByLocalName: ReadonlyMap<string, SourceSemanticsModuleRuntime>,
+): SourcePrimitiveImportBinding | undefined {
+  if (typeName === undefined) {
+    return undefined;
+  }
+  if (typeName.Kind !== KindQualifiedName) {
+    return primitivesByLocalName.get(Node_Text(typeName));
+  }
+  const qualifiedName = AsQualifiedName(typeName);
+  const moduleIdentity = namespacesByLocalName.get(Node_Text(qualifiedName?.Left));
+  if (moduleIdentity === undefined) {
+    return undefined;
+  }
+  const exportName = Node_Text(qualifiedName?.Right);
+  const primitiveFact = moduleIdentity.primitivesByExportName.get(exportName);
+  return primitiveFact === undefined ? undefined : { moduleIdentity, exportName, primitiveFact };
 }
 
 function resolvePrimitiveTypeReference(
