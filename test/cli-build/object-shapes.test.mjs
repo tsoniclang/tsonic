@@ -202,7 +202,7 @@ test("CLI emits generic interface object literals through specialized provider a
 });
 
 
-test("CLI emits source-owned object initializers with identifier-compatible string property names", async () => {
+test("CLI emits source-owned object initializers with identifier-valid string property names", async () => {
   const projectDirectory = resolve(tempRoot, "source-object-string-initializers");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -567,4 +567,3 @@ test("CLI rejects structural binary operators without selected target facts", as
   assert.match(build.stderr, /C# binary operator emission requires a selected provider operator fact/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-

@@ -867,8 +867,8 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
       "  return flag ? box : null;",
       "}",
       "",
-      "export function readBoolean(value: boolean | null, fallback: boolean): boolean {",
-      "  return value ?? fallback;",
+      "export function readBoolean(value: boolean | null, alternate: boolean): boolean {",
+      "  return value ?? alternate;",
       "}",
       "",
       "export function read(box: Box | null, defaultValue: number): number {",
@@ -887,8 +887,8 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
   assert.match(generatedSource, /public static bool\? maybeBoolean\(bool flag\)/);
   assert.match(generatedSource, /return flag \? true : null;/);
   assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);
-  assert.match(generatedSource, /public static bool readBoolean\(bool\? value, bool fallback\)/);
-  assert.match(generatedSource, /return value \?\? fallback;/);
+  assert.match(generatedSource, /public static bool readBoolean\(bool\? value, bool alternate\)/);
+  assert.match(generatedSource, /return value \?\? alternate;/);
   assert.match(generatedSource, /public static double read\(Box\? box, double defaultValue\)/);
   assert.match(generatedSource, /return box\?\.value \?\? defaultValue;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -994,4 +994,3 @@ test("CLI emits void-expression statement and return lowering as discard evaluat
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedVoidExpressionDiscard.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-

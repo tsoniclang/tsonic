@@ -80,7 +80,7 @@ export const oldSuitePortInventory = Object.freeze([
     featureArea: "js-surface",
     owner: "C# JS surface",
     reason:
-      "Array spread, Length, and index access need selected array/runtime carrier facts instead of backend spread-lowering fallback.",
+      "Array spread, Length, and index access need selected array/runtime carrier facts instead of backend spread-lowering inference.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/generic-method-standalone/",
@@ -200,7 +200,7 @@ export const oldSuitePortInventory = Object.freeze([
     featureArea: "js-surface",
     owner: "C# JS surface + C# backend planner",
     reason:
-      "Source behavior is ?? over string null/undefined, number null, and boolean constructor input; port after nullish carrier facts and undefined handling are finalized without preserving stale runtime fallbacks.",
+      "Source behavior is ?? over string null/undefined, number null, and boolean constructor input; port after nullish carrier facts and undefined handling are finalized without preserving stale runtime recovery paths.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/optional-chaining/",
@@ -208,7 +208,7 @@ export const oldSuitePortInventory = Object.freeze([
     featureArea: "js-surface",
     owner: "C# JS surface + C# backend planner",
     reason:
-      "Source behavior is optional property chaining over object-literal User/Address shapes and name.length with ?? fallback; port after structural object storage, undefined carrier choice, and optional-chain lowering are covered together.",
+      "Source behavior is optional property chaining over object-literal User/Address shapes and name.length with ?? alternate value; port after structural object storage, undefined carrier choice, and optional-chain lowering are covered together.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/ternary-int-branch/",
@@ -232,7 +232,7 @@ export const oldSuitePortInventory = Object.freeze([
     featureArea: "js-surface",
     owner: "C# JS surface + C# backend planner",
     reason:
-      "Source behavior is int[] literal creation, index reads, and length output; port with modern JS .length semantics under selected array carrier facts, not as a compatibility requirement for the old .Length spelling.",
+      "Source behavior is int[] literal creation, index reads, and length output; port with modern JS .length semantics under selected array carrier facts, not as support for the old .Length spelling.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/array-constructor/",
@@ -460,7 +460,7 @@ export const oldSuitePortInventory = Object.freeze([
     "pointer-types",
     "stackalloc-span",
     "type-assertions",
-  ], "native-provider", "source semantics + C# native provider + C# backend planner", "Valid behavior covers source intrinsics, primitive casts, pointers, stack allocation, and assertion erasure; port after source marker facts and provider target facts fully determine the C# AST without backend guessing."),
+  ], "native-provider", "source semantics + C# native provider + C# backend planner", "Valid behavior covers source intrinsics, primitive casts, pointers, stack allocation, and assertion erasure; port after source marker facts and provider target facts fully determine the C# AST without backend inference."),
   ...deferredFixtures([
     "char-invalid-tsn7418",
     "conditional-types",
