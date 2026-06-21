@@ -4545,14 +4545,22 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects object rest destructuring until rest binding object-shape facts are finalized", async () => {
+test("CLI emits object rest destructuring from finalized TSTS rest binding shape", async () => {
   const projectDirectory = resolve(tempRoot, "object-rest-destructuring");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
       outDir: "out",
-      targets: [{ id: "csharp" }],
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedObjectRestDestructuring",
+          },
+        },
+      ],
     }, null, 2),
     "src/index.ts": [
       "export function restLabel(input: { value: number; label: string; active: boolean }): string {",
@@ -4564,9 +4572,15 @@ test("CLI rejects object rest destructuring until rest binding object-shape fact
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Object rest destructuring requires finalized provider object-shape facts for the rest binding/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = __destructure\d+\.label,\s*active = __destructure\d+\.active,\s*\};/);
+  assert.match(generatedSource, /return rest\.label;/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectRestDestructuring.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI emits object-shape spread from finalized provider object-shape facts", async () => {

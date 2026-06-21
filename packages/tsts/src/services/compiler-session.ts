@@ -1,7 +1,7 @@
 import type { GoPtr, GoSlice } from "../go/compat.js";
 import { Background } from "../go/context.js";
 import type { Context } from "../go/context.js";
-import type { Node, SourceFile } from "../internal/ast/ast.js";
+import type { SourceFile } from "../internal/ast/ast.js";
 import type { Diagnostic } from "../internal/ast/diagnostic.js";
 import type { CompilerOptions } from "../internal/core/compileroptions.js";
 import type { CompilerHost } from "../internal/compiler/host.js";
@@ -18,7 +18,6 @@ import {
   Program_GetSourceFiles,
   Program_GetSuggestionDiagnostics,
   Program_GetSyntacticDiagnostics,
-  Program_GetTypeCheckerForFile,
   Program_getSourceFilesToEmit,
 } from "../internal/compiler/program.js";
 import type { Program, ProgramOptions } from "../internal/compiler/program.js";
@@ -35,9 +34,6 @@ import { createTypeShapeQueries } from "./type-shape.js";
 import type { TypeShapeQueries } from "./type-shape.js";
 import { createAstReader } from "./ast-reader.js";
 import type { AstReader } from "./ast-reader.js";
-import { AsForInOrOfStatement } from "../internal/ast/generated/casts.js";
-import { IsBinaryExpression, IsCallExpression, IsElementAccessExpression, IsForInStatement, IsForOfStatement, IsNewExpression, IsPropertyAccessExpression } from "../internal/ast/generated/predicates.js";
-import { recordExtensionCheckedIterationMapping } from "../extensions/checker-integration.js";
 
 export type CompilerDiagnosticKind =
   | "config"
@@ -120,7 +116,7 @@ export function createCompilerSessionFromProgram(program: GoPtr<Program>, host: 
     ensureChecked: (sourceFile) => Program_GetSemanticDiagnostics(program, context, sourceFile),
     getDiagnostics: (kind = "all", sourceFile) => getDiagnostics(program, context, kind, sourceFile),
     finalizeExtensions: () => {
-      ensureCheckedOperationFacts(ast, checker, program, context);
+      ensureCheckedOperationFacts(program, context);
       return finalizeExtensionSemantics(program!);
     },
     isFinalized: () => getExtensionHost(program!)?.finalized === true,
@@ -194,49 +190,12 @@ function getDiagnostics(program: GoPtr<Program>, context: Context, kind: Compile
   }
 }
 
-function ensureCheckedOperationFacts(ast: AstReader, checker: TypeCheckerQueries, program: GoPtr<Program>, context: Context): void {
+function ensureCheckedOperationFacts(program: GoPtr<Program>, context: Context): void {
   for (const sourceFile of Program_GetSourceFiles(program) ?? []) {
     if (sourceFile === undefined || sourceFile.IsDeclarationFile) {
       continue;
     }
-    walkSourceFileForPublicOperationFacts(ast, checker, sourceFile, sourceFile);
-    const [internalChecker, release] = Program_GetTypeCheckerForFile(program, context, sourceFile);
-    try {
-      walkSourceFileForIterationFacts(ast, internalChecker, sourceFile);
-    } finally {
-      release();
-    }
-  }
-}
-
-function walkSourceFileForPublicOperationFacts(ast: AstReader, checker: TypeCheckerQueries, sourceFile: GoPtr<SourceFile>, node: GoPtr<Node>): void {
-  if (node === undefined) {
-    return;
-  }
-  if (IsCallExpression(node) || IsNewExpression(node)) {
-    checker.getResolvedSignature(node, { sourceFile });
-  } else if (IsPropertyAccessExpression(node) || IsElementAccessExpression(node) || IsBinaryExpression(node)) {
-    checker.getTypeAtLocation(node, { sourceFile });
-  }
-  for (const child of ast.children(node)) {
-    walkSourceFileForPublicOperationFacts(ast, checker, sourceFile, child);
-  }
-}
-
-function walkSourceFileForIterationFacts(ast: AstReader, checker: Parameters<typeof recordExtensionCheckedIterationMapping>[0], node: GoPtr<Node>): void {
-  if (checker === undefined || node === undefined) {
-    return;
-  }
-  if (IsForInStatement(node) || IsForOfStatement(node)) {
-    const data = AsForInOrOfStatement(node);
-    recordExtensionCheckedIterationMapping(
-      checker,
-      node,
-      IsForInStatement(node) ? "for-in" : data?.AwaitModifier !== undefined ? "for-await-of" : "for-of",
-    );
-  }
-  for (const child of ast.children(node)) {
-    walkSourceFileForIterationFacts(ast, checker, child);
+    Program_GetSemanticDiagnostics(program, context, sourceFile);
   }
 }
 
