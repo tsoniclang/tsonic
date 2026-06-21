@@ -4984,6 +4984,78 @@ test("CLI does not emit target artifacts when TSTS rejects the source program", 
   assert.doesNotMatch(build.stdout, /Artifacts: [1-9]/);
 });
 
+test("CLI emits node:path join from selected NodeJS surface provider facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-path-join-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodePath",
+            references: {
+              projects: [
+                resolve(repoRoot, "../csharp-nodejs/src/Tsonic.CSharp.Node/Tsonic.CSharp.Node.csproj"),
+              ],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { join } from \"node:path\";",
+      "",
+      "export function tenantPath(tenantId: string): string {",
+      "  return join(\"uploads\", tenantId, \"events.json\");",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.join\("uploads", tenantId, "events\.json"\);/);
+  assert.doesNotMatch(generatedSource, /return join\(/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+});
+
+test("CLI rejects node:path imports when NodeJS surface is not selected", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-path-no-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { join } from \"node:path\";",
+      "",
+      "export function tenantPath(tenantId: string): string {",
+      "  return join(\"uploads\", tenantId, \"events.json\");",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Cannot find module 'node:path'|node:path/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 async function writeProject(projectDirectory, files) {
   for (const [relativePath, text] of Object.entries(files)) {
     const outputPath = resolve(projectDirectory, relativePath);
