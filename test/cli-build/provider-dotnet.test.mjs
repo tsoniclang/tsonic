@@ -485,6 +485,54 @@ test("CLI emits provider-owned generic collection constructors from virtual targ
 });
 
 
+test("CLI emits provider-owned generic byref collection calls from virtual target modules", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-generic-dictionary-out");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderGenericDictionaryOut",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { out } from \"@tsonic/core/lang.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import { Dictionary } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
+      "",
+      "export function lookup(values: Dictionary<string, int32>, key: string): int32 {",
+      "  let value: int32 = 0;",
+      "  if (values.tryGetValue(key, out(value))) {",
+      "    return value;",
+      "  }",
+      "  return -1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /System\.Collections\.Generic\.Dictionary<string, int> values/);
+  assert.match(generatedSource, /int value = 0;/);
+  assert.match(generatedSource, /if \(values\.TryGetValue\(key, out value\)\)/);
+  assert.match(generatedSource, /return value;/);
+  assert.doesNotMatch(generatedSource, /tryGetValue|out\(value\)|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderGenericDictionaryOut.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+
 test("CLI emits provider-owned delegate type annotations from .NET reflection", async () => {
   const projectDirectory = resolve(tempRoot, "provider-delegate-type-annotations");
   await writeProject(projectDirectory, {
