@@ -283,7 +283,7 @@ test("CLI emits provider-owned static C# calls from selected TSTS target facts",
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { Convert } from \"@tsonic/csharp/lang.js\";",
+      "import { Convert } from \"@tsonic/dotnet/System.js\";",
       "import type { uint8 } from \"@tsonic/core/types.js\";",
       "",
       "export function toByte(value: number): uint8 {",
@@ -324,7 +324,7 @@ test("CLI rejects provider-owned calls when argument carriers do not match the s
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { Convert } from \"@tsonic/csharp/lang.js\";",
+      "import { Convert } from \"@tsonic/dotnet/System.js\";",
       "import type { int32, uint8 } from \"@tsonic/core/types.js\";",
       "",
       "export function toByte(value: int32): uint8 {",
@@ -358,7 +358,7 @@ test("CLI emits provider-owned static C# properties from selected TSTS target fa
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { Environment } from \"@tsonic/csharp/lang.js\";",
+      "import { Environment } from \"@tsonic/dotnet/System.js\";",
       "",
       "export function newline(): string {",
       "  return Environment.newLine;",
@@ -390,7 +390,7 @@ test("CLI rejects provider-owned identifiers outside selected target operations"
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "import { Environment } from \"@tsonic/csharp/lang.js\";",
+      "import { Environment } from \"@tsonic/dotnet/System.js\";",
       "",
       "export const environment = Environment;",
       "",
@@ -421,7 +421,7 @@ test("CLI emits provider-owned instance C# members from receiver type facts", as
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { Exception } from \"@tsonic/csharp/lang.js\";",
+      "import { Exception } from \"@tsonic/dotnet/System.js\";",
       "",
       "export function message(): string {",
       "  const ex = new Exception(\"boom\");",
@@ -1040,7 +1040,7 @@ test("CLI emits C# attributes from provider target identity facts", async () => 
     }, null, 2),
     "src/index.ts": [
       "import { attribute as A } from \"@tsonic/core/lang.js\";",
-      "import { CLSCompliantAttribute } from \"@tsonic/csharp/lang.js\";",
+      "import { CLSCompliantAttribute } from \"@tsonic/dotnet/System.js\";",
       "",
       "export class Annotated {",
       "  value: number = 1;",
@@ -2498,7 +2498,7 @@ test("CLI emits provider-backed C# exception throws", async () => {
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { Exception } from \"@tsonic/csharp/lang.js\";",
+      "import { Exception } from \"@tsonic/dotnet/System.js\";",
       "",
       "export function fail(): never {",
       "  throw new Exception(\"failed\");",
@@ -3587,7 +3587,7 @@ test("CLI rejects provider-owned object literals until object-shape facts are fi
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { Exception } from \"@tsonic/csharp/lang.js\";",
+      "import { Exception } from \"@tsonic/dotnet/System.js\";",
       "",
       "export function create(): Exception {",
       "  return {",
