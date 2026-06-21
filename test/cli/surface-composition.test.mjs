@@ -58,9 +58,18 @@ test("host passes selected surfaces to the single target provider", () => {
 });
 
 test("host reports unknown requested surface as target diagnostic", async () => {
-  const targetPack = createFakeTargetPack([], {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerArtifacts: [
+      createFakeArtifact("asset", "runtime/provider.txt", "provider"),
+    ],
     surfaces: [
-      createFakeSurface("js"),
+      createFakeSurface("js", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/js.txt", "js"),
+        ],
+      }),
     ],
   });
 
@@ -70,6 +79,7 @@ test("host reports unknown requested surface as target diagnostic", async () => 
   });
 
   assert.equal(result.diagnostics.length, 1);
+  assert.deepEqual(events, []);
   assert.equal(result.diagnostics[0].code, "TARGET_SURFACE_SELECTION");
   assert.equal(result.diagnostics[0].category, "error");
   assert.equal(result.diagnostics[0].message, "target 'demo' does not implement requested surface 'not-real'");
@@ -119,6 +129,84 @@ test("host does not pass unselected surfaces to the target provider", () => {
   assert.deepEqual(events, ["provider:demo:surfaces=js"]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js"]);
   assert.deepEqual(composition.extensions, [targetExtension]);
+});
+
+test("host composes provider, selected surface, and backend artifacts for toolchain handoff", async () => {
+  const events = [];
+  let toolchainArtifacts = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerArtifacts: [
+      createFakeArtifact("asset", "runtime/provider.txt", "provider"),
+    ],
+    backendArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "backend"),
+    ],
+    onToolchain(input) {
+      toolchainArtifacts = input.compileResult.artifacts.map((artifact) => artifact.path);
+    },
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/js.txt", "js"),
+        ],
+      }),
+      createFakeSurface("nodejs", {
+        events,
+        requiredSurfaces: ["js"],
+        artifacts: [
+          createFakeArtifact("asset", "runtime/nodejs.txt", "nodejs"),
+        ],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("runtime-artifact-composition", targetPack, {
+    id: "demo",
+    surfaces: ["js"],
+  });
+  const artifactPaths = result.targets[0].compileResult.artifacts.map((artifact) => artifact.path);
+
+  assert.deepEqual(artifactPaths, [
+    "runtime/provider.txt",
+    "runtime/js.txt",
+    "src/App.demo",
+  ]);
+  assert.deepEqual(toolchainArtifacts, artifactPaths);
+  assert.equal(events.includes("surface-runtime:nodejs"), false);
+  assert.equal(events.includes("provider-runtime:demo"), true);
+  assert.equal(events.includes("surface-runtime:js"), true);
+  assert.equal(events.includes("backend:demo"), true);
+  assert.equal(events.includes("toolchain:demo:artifacts=runtime/provider.txt,runtime/js.txt,src/App.demo"), true);
+  assert.ok(events.indexOf("provider-runtime:demo") < events.indexOf("backend:demo"));
+  assert.ok(events.indexOf("surface-runtime:js") < events.indexOf("backend:demo"));
+  assert.ok(events.indexOf("backend:demo") < events.indexOf("toolchain:demo:artifacts=runtime/provider.txt,runtime/js.txt,src/App.demo"));
+});
+
+test("host omits surface runtime artifacts when no surface is selected", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerArtifacts: [
+      createFakeArtifact("asset", "runtime/provider.txt", "provider"),
+    ],
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/js.txt", "js"),
+        ],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("runtime-artifact-unselected-surface", targetPack, {
+    id: "demo",
+  });
+
+  assert.deepEqual(result.targets[0].compileResult.artifacts.map((artifact) => artifact.path), [
+    "runtime/provider.txt",
+  ]);
+  assert.equal(events.includes("surface-runtime:js"), false);
 });
 
 async function compileFakeProject(name, targetPack, targetSelection) {
@@ -171,13 +259,18 @@ function createFakeTargetPack(events, options = {}) {
         events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
         return options.targetExtension === undefined ? [] : [options.targetExtension];
       },
+      runtimeArtifacts(context) {
+        events.push(`provider-runtime:${context.target.id}`);
+        return options.providerArtifacts ?? [];
+      },
     },
     surfaces: options.surfaces ?? [],
     createBackend() {
       return {
-        compile() {
+        compile(input) {
+          events.push(`backend:${input.target.id}`);
           return {
-            artifacts: [],
+            artifacts: options.backendArtifacts ?? [],
             diagnostics: [],
           };
         },
@@ -185,7 +278,9 @@ function createFakeTargetPack(events, options = {}) {
     },
     createToolchain() {
       return {
-        prepare() {
+        prepare(input) {
+          options.onToolchain?.(input);
+          events.push(`toolchain:${input.target.id}:artifacts=${input.compileResult.artifacts.map((artifact) => artifact.path).join(",")}`);
           return {
             diagnostics: [],
             producedArtifacts: [],
@@ -196,13 +291,25 @@ function createFakeTargetPack(events, options = {}) {
   };
 }
 
-function createFakeSurface(id, requiredSurfaces = []) {
+function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {
+  const options = Array.isArray(optionsOrRequiredSurfaces)
+    ? { requiredSurfaces: optionsOrRequiredSurfaces }
+    : optionsOrRequiredSurfaces;
   return {
     id,
     displayName: `${id} Surface`,
-    ...(requiredSurfaces.length > 0 ? { requiredSurfaces } : {}),
+    ...((options.requiredSurfaces ?? []).length > 0 ? { requiredSurfaces: options.requiredSurfaces } : {}),
     runtimeArtifacts() {
-      return [];
+      options.events?.push(`surface-runtime:${id}`);
+      return options.artifacts ?? [];
     },
+  };
+}
+
+function createFakeArtifact(kind, path, text) {
+  return {
+    kind,
+    path,
+    text,
   };
 }

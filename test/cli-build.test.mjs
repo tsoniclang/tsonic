@@ -635,6 +635,7 @@ test("CLI resolves TypeScript aliases through TSTS semantics before C# type rend
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedTypeAliases",
@@ -686,6 +687,7 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedStandardMathCalls",
@@ -753,6 +755,7 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedTypeofNarrowing",
@@ -3859,6 +3862,7 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedArraySurfaceOperations",
@@ -4087,6 +4091,7 @@ test("CLI emits array callbacks with JS callback arities from provider facts", a
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedArrayCallbacks",
@@ -4186,6 +4191,7 @@ test("CLI emits RegExp literals through provider-backed JS runtime carriers", as
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedRegExpLiteralCarrier",
@@ -4231,6 +4237,7 @@ test("CLI emits string element access from selected provider index facts", async
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedStringElementAccess",
@@ -4305,6 +4312,7 @@ test("CLI emits string for-of from provider code-point iteration facts", async (
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedStringForOf",
@@ -4411,6 +4419,7 @@ test("CLI emits array for-in from provider enumeration facts", async () => {
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedArrayForIn",
@@ -4454,6 +4463,7 @@ test("CLI emits object-shape for-in from finalized provider enumeration facts", 
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedObjectShapeForIn",
@@ -4728,6 +4738,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
       targets: [
         {
           id: "csharp",
+          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedStringCalls",

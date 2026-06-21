@@ -45,6 +45,7 @@ export interface TargetCompilationPaths {
 export interface TargetRuntimeArtifactContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly paths: TargetCompilationPaths;
 }
 

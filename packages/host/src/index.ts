@@ -1,6 +1,7 @@
 export { compileProject } from "./build.js";
 export type { CompileProjectInput, ProjectBuildResult, TargetBuildResult } from "./build.js";
 export {
+  collectTargetRuntimeArtifacts,
   collectTstsDiagnostics,
   compileTargetFromSemanticSession,
   createTargetCompilerExtensions,
@@ -8,6 +9,7 @@ export {
   getSelectedSurfaceImplementations,
 } from "./compiler-session.js";
 export type {
+  CollectTargetRuntimeArtifactsOptions,
   CreateTargetCompilerExtensionsOptions,
   CreateTsonicSemanticSessionOptions,
   TargetCompilerExtensionComposition,

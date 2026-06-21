@@ -162,6 +162,7 @@ export type CheckedIterationKind = "for-in" | "for-of" | "for-await-of";
 export interface CheckedIterationMappingRequest {
   readonly statement: ExtensionFactSubject;
   readonly expression: ExtensionFactSubject;
+  readonly sourceExpressionType?: ExtensionFactSubject;
   readonly initializer?: ExtensionFactSubject;
   readonly kind: CheckedIterationKind;
   readonly sourceElementType?: ExtensionFactSubject;

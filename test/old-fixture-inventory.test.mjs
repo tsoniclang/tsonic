@@ -274,9 +274,9 @@ test("old suite inventory report counts are deterministic", () => {
     reused: 0,
     ported: 0,
     "replaced-by-stronger-test": 0,
-    "invalid-stale-architecture": 0,
-    deferred: 10,
-    unclassified: 188,
+    "invalid-stale-architecture": 3,
+    deferred: 31,
+    unclassified: 164,
   });
 
   assert.equal(formatOldSuiteInventoryCounts(report.counts), [
@@ -284,9 +284,9 @@ test("old suite inventory report counts are deterministic", () => {
     "reused: 0",
     "ported: 0",
     "replaced-by-stronger-test: 0",
-    "invalid-stale-architecture: 0",
-    "deferred: 10",
-    "unclassified: 188",
+    "invalid-stale-architecture: 3",
+    "deferred: 31",
+    "unclassified: 164",
   ].join("\n"));
   assert.deepEqual(report.classifiedUnknownOldPaths, []);
 });
@@ -297,4 +297,7 @@ test("old suite inventory reports unclassified entries", () => {
   assert.equal(report.unclassifiedOldPaths.length, report.counts.unclassified);
   assert.equal(report.unclassifiedOldPaths.includes("test/fixtures/action-func-callbacks/"), true);
   assert.equal(report.unclassifiedOldPaths.includes("test/fixtures/hello-world/"), false);
+  assert.equal(report.unclassifiedOldPaths.includes("test/fixtures/array-literal/"), false);
+  assert.equal(report.unclassifiedOldPaths.includes("test/fixtures/dotnet-test-command/"), false);
+  assert.equal(report.unclassifiedOldPaths.includes("test/fixtures/top-level-code/"), false);
 });
