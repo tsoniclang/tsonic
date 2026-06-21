@@ -608,6 +608,10 @@ function getProjectSourceReferenceForNode(
   if (node === undefined) {
     return undefined;
   }
+  const namespacePropertyReference = getProjectSourceReferenceForNamespacePropertyAccess(ast, checker, node, options, sourceFiles);
+  if (namespacePropertyReference !== undefined) {
+    return namespacePropertyReference;
+  }
   const directSymbol = getSymbolAtReferenceNode(ast, checker, node, options);
   const importedReference = getImportedProjectSourceReferenceForSymbol(ast, checker, directSymbol, options, sourceFiles);
   if (importedReference !== undefined) {
@@ -631,6 +635,37 @@ function getProjectSourceReferenceForNode(
   const sourceFile = ast.getSourceFile(declaration);
   if (declaration !== undefined && symbol !== undefined && sourceFile !== undefined) {
     return { symbol, declaration, sourceFile };
+  }
+  return undefined;
+}
+
+function getProjectSourceReferenceForNamespacePropertyAccess(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  node: Node,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+): ReturnType<TargetSemanticQueries["getProjectSourceReferenceForNode"]> {
+  if (!ast.is.IsPropertyAccessExpression(node)) {
+    return undefined;
+  }
+  const propertyAccess = ast.as.AsPropertyAccessExpression(node);
+  const receiver = propertyAccess?.Expression;
+  const propertyName = ast.text(propertyAccess?.name ?? ast.name(node));
+  if (receiver === undefined || propertyName.length === 0) {
+    return undefined;
+  }
+  const receiverType = getSemanticTypeForNode(ast, checker, receiver, options);
+  const propertySymbol = checker.getPropertyOfType(receiverType, propertyName, options);
+  const candidates = [
+    getAliasedSymbolIfAlias(checker, propertySymbol, options),
+    propertySymbol,
+  ];
+  for (const candidate of candidates) {
+    const reference = getProjectSourceReferenceForSymbol(ast, candidate, sourceFiles);
+    if (reference !== undefined) {
+      return reference;
+    }
   }
   return undefined;
 }
@@ -780,6 +815,7 @@ function isProjectSourceDeclaration(ast: AstReader, declaration: Node | undefine
   const declarationFile = ast.getSourceFile(declaration);
   return declarationFile !== undefined &&
     !declarationFile.IsDeclarationFile &&
+    !ast.getFileName(declarationFile).startsWith("tsts-provider://") &&
     sourceFiles.some((sourceFile) => sourceFile === declarationFile);
 }
 
