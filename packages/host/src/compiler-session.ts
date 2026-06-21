@@ -86,7 +86,7 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
   }
   compiler.ensureBound();
   forceDiagnostics(compiler);
-  const extensionHost = compiler.finalizeExtensions() ?? compiler.extensionHost;
+  const extensionHost = compiler.finalizeExtensions();
   if (extensionHost === undefined) {
     throw new Error("TSTS extension finalization returned no extension host.");
   }
@@ -257,12 +257,7 @@ function createTargetSemanticQueries(
     },
     getEnumMemberConstant(subject, options) {
       const node = asNode(subject);
-      let value: unknown;
-      try {
-        value = node === undefined ? undefined : checker.getConstantValue(node, options);
-      } catch {
-        value = undefined;
-      }
+      const value = node === undefined ? undefined : checker.getConstantValue(node, options);
       return typeof value === "number" || typeof value === "string" || value === undefined ? { value } : undefined;
     },
     getReturnTypeCarrierFromDeclaration(subject, options) {
@@ -303,11 +298,7 @@ function createTargetSemanticQueries(
       if (type === undefined) {
         return undefined;
       }
-      try {
-        return checker.typeToString(type, options);
-      } catch {
-        return undefined;
-      }
+      return checker.typeToString(type, options);
     },
   };
 }
@@ -389,7 +380,7 @@ function getRuntimeCarrierFromDeclaredFactGraph(
           ? undefined
           : getTargetTypeRefFromDeclaredTypeNode(ast, checker, types, facts, argument, options, sourceFiles, nextSeen));
       if (typeArguments.some((argument) => argument === undefined)) {
-        return { kind: "target-named", id: binding.id };
+        return undefined;
       }
       return {
         kind: "target-named",
@@ -447,8 +438,7 @@ function getRuntimeCarrierFromTypeAliasFactGraph(
 }
 
 function getDeclarationTypeNode(declaration: Node | undefined): Node | undefined {
-  return asNode((declaration as { readonly Type?: unknown; readonly type?: unknown } | undefined)?.Type) ??
-    asNode((declaration as { readonly Type?: unknown; readonly type?: unknown } | undefined)?.type);
+  return asNode((declaration as { readonly Type?: unknown } | undefined)?.Type);
 }
 
 function getTargetTypeRefFromDeclaredTypeNode(
@@ -505,7 +495,7 @@ function getTargetTypeRefForSemanticType(
   const typeArguments = types.getTypeArguments(type, options)
     .map((argument) => getTargetTypeRefForSemanticType(types, facts, argument, options, nextSeen));
   if (typeArguments.some((argument) => argument === undefined)) {
-    return { kind: "target-named", id: binding.id };
+    return undefined;
   }
   return {
     kind: "target-named",
@@ -630,8 +620,7 @@ function getProjectSourceReferenceForNode(
     }
   }
   const declaration = getProjectSourceDeclarationForType(ast, types, getSemanticTypeForNode(ast, checker, node, options), sourceFiles);
-  const symbol = asSymbol((declaration as { readonly Symbol?: ExtensionFactSubject; readonly symbol?: ExtensionFactSubject } | undefined)?.Symbol) ??
-    asSymbol((declaration as { readonly Symbol?: ExtensionFactSubject; readonly symbol?: ExtensionFactSubject } | undefined)?.symbol);
+  const symbol = asSymbol((declaration as { readonly Symbol?: ExtensionFactSubject } | undefined)?.Symbol);
   const sourceFile = ast.getSourceFile(declaration);
   if (declaration !== undefined && symbol !== undefined && sourceFile !== undefined) {
     return { symbol, declaration, sourceFile };

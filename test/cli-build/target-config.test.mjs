@@ -24,6 +24,23 @@ test("CLI rejects duplicate target ids before compiling", async () => {
   assert.match(build.stderr, /target 'csharp' is declared more than once/);
 });
 
+test("CLI rejects non-final entrypoint source extensions before compiling", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-entry-extension");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.cts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.cts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /entryPoint must use a final ESM TypeScript source extension: \.ts or \.mts/);
+});
+
 
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
   const projectDirectory = resolve(tempRoot, "wide-csharp");
@@ -367,4 +384,3 @@ test("CLI does not emit target artifacts when TSTS rejects the source program", 
   assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
   assert.doesNotMatch(build.stdout, /Artifacts: [1-9]/);
 });
-

@@ -4,8 +4,12 @@ export function parseTsonicProjectConfig(value: unknown): TsonicProjectConfig {
   if (!isRecord(value)) {
     throw new Error("Project config must be an object.");
   }
+  const entryPoint = readString(value, "entryPoint");
+  if (!isSupportedEntryPoint(entryPoint)) {
+    throw new Error("Project config entryPoint must use a final ESM TypeScript source extension: .ts or .mts.");
+  }
   return {
-    entryPoint: readString(value, "entryPoint"),
+    entryPoint,
     ...(readOptionalString(value, "rootDir") !== undefined ? { rootDir: readOptionalString(value, "rootDir") } : {}),
     ...(readOptionalString(value, "outDir") !== undefined ? { outDir: readOptionalString(value, "outDir") } : {}),
     targets: readTargets(value.targets),
@@ -81,4 +85,8 @@ function readOptionalSurfaces(value: Readonly<Record<string, unknown>>, targetId
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSupportedEntryPoint(value: string): boolean {
+  return /\.(?:mts|ts)$/.test(value);
 }
