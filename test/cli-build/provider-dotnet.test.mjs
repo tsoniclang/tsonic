@@ -1,4 +1,14 @@
 import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { readdir } from "node:fs/promises";
+
+async function readGeneratedModuleSource(projectDirectory) {
+  const moduleDirectory = resolve(projectDirectory, "out/csharp/src/modules");
+  const sourceFiles = (await readdir(moduleDirectory))
+    .filter((fileName) => fileName.endsWith(".cs"))
+    .sort();
+  assert.equal(sourceFiles.length, 1);
+  return readFile(resolve(moduleDirectory, sourceFiles[0]), "utf8");
+}
 
 test("CLI emits provider-owned static C# calls from selected TSTS target facts", async () => {
   const projectDirectory = resolve(tempRoot, "provider-static-calls");
@@ -31,7 +41,7 @@ test("CLI emits provider-owned static C# calls from selected TSTS target facts",
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static byte toByte\(double value\)/);
   assert.match(generatedSource, /return System\.Convert\.ToByte\(value\);/);
   assert.doesNotMatch(generatedSource, /return Convert\.ToByte\(value\);/);
@@ -42,8 +52,8 @@ test("CLI emits provider-owned static C# calls from selected TSTS target facts",
 });
 
 
-test("CLI rejects provider-owned calls when argument carriers do not match the selected target signature", async () => {
-  const projectDirectory = resolve(tempRoot, "provider-static-call-carrier-mismatch");
+test("CLI accepts provider-owned overloads discovered from .NET reflection", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-static-call-reflection-overload");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -54,7 +64,7 @@ test("CLI rejects provider-owned calls when argument carriers do not match the s
           id: "csharp",
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedProviderStaticCallCarrierMismatch",
+            assemblyName: "SmokeGeneratedProviderStaticCallReflectionOverload",
           },
         },
       ],
@@ -71,9 +81,15 @@ test("CLI rejects provider-owned calls when argument carriers do not match the s
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderStaticCallCarrierMismatch.csproj")), false);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static byte toByte\(int value\)/);
+  assert.match(generatedSource, /return System\.Convert\.ToByte\(value\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderStaticCallReflectionOverload.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 
@@ -107,7 +123,7 @@ test("CLI emits provider-owned static C# properties from selected TSTS target fa
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static string newline\(\)/);
   assert.match(generatedSource, /return System\.Environment\.NewLine;/);
   assert.doesNotMatch(generatedSource, /return Environment\.NewLine;/);
@@ -157,7 +173,7 @@ test("CLI emits provider-owned System.Console and System.Math calls from .NET vi
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static void show\(double value\)/);
   assert.match(generatedSource, /System\.Console\.WriteLine\(System\.Math\.Sqrt\(value\)\);/);
   assert.match(generatedSource, /System\.Console\.Write\(value\);/);
@@ -212,7 +228,7 @@ test("CLI emits provider-owned System.IO calls from .NET virtual modules", async
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /return System\.IO\.Path\.Combine\(root, name\);/);
   assert.match(generatedSource, /return System\.IO\.File\.Exists\(System\.IO\.Path\.Combine\(root, name\)\);/);
   assert.match(generatedSource, /return System\.IO\.File\.ReadAllText\(path\);/);
@@ -284,7 +300,7 @@ test("CLI emits provider-owned instance C# members from receiver type facts", as
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /System\.Exception ex = new System\.Exception\("boom"\);/);
   assert.match(generatedSource, /return ex\.Message;/);
   assert.match(generatedSource, /return ex\.ToString\(\);/);
@@ -364,7 +380,7 @@ test("CLI emits provider-owned generic collection constructors from virtual targ
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /System\.Collections\.Generic\.List<int> makeInts\(\)/);
   assert.match(generatedSource, /return new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
   assert.match(generatedSource, /System\.Collections\.Generic\.List<int> values = new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
@@ -479,7 +495,7 @@ test("CLI emits C# attributes from provider target identity facts", async () => 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(true\)\]\s+public class Annotated/);
   assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(false\)\]\s+public double value = 1;/);
   assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(true\)\]\s+public double run\(\[System\.CLSCompliantAttribute\(false\)\] double input\)/);
@@ -552,7 +568,7 @@ test("CLI emits provider-backed C# exception throws", async () => {
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /throw new System\.Exception\("failed"\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -593,11 +609,10 @@ test("CLI emits provider-backed C# catch variables", async () => {
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /catch \(System\.Exception error\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCatchVariable.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-

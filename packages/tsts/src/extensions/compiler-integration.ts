@@ -142,6 +142,13 @@ function recordProviderVirtualMemberFacts(
       continue;
     }
     if (member.signatures !== undefined && member.signatures.length > 0) {
+      const uniqueDeclarations = Array.from(new Set(matchingDeclarations));
+      if (uniqueDeclarations.length !== member.signatures.length) {
+        for (const memberNode of uniqueDeclarations) {
+          recordProviderVirtualMemberFact(extensionHost, virtualModule, exportDeclaration, member, undefined, memberNode, evidence);
+        }
+        continue;
+      }
       for (let index = 0; index < member.signatures.length; index++) {
         const signature = member.signatures[index];
         const memberNode = matchingDeclarations[index];
@@ -171,7 +178,7 @@ function recordProviderVirtualMemberFact(
   extensionHost.facts.set(declarationNode, providerVirtualDeclarationFactKey, fact, evidence);
   const symbol = Node_Symbol(declarationNode);
   if (symbol !== undefined) {
-    extensionHost.facts.set(symbol, providerVirtualDeclarationFactKey, fact, evidence);
+    extensionHost.facts.set(symbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, exportDeclaration, member), evidence);
   }
 }
 
