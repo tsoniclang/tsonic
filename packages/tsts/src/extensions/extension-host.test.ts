@@ -696,7 +696,7 @@ test("provider declaration models render the supported export member and type ma
   }
 
   const source = resolved.module.virtualSourceText;
-  assert.match(source, /export declare class Box<T extends number>/);
+  assert.match(source, /export declare class Box<T extends number> extends BaseBox/);
   assert.match(source, /constructor\(value: T\);/);
   assert.match(source, /value: T;/);
   assert.match(source, /static Count: number;/);
@@ -1467,6 +1467,10 @@ function matrixBindingProvider(
       moduleSpecifier: resolution.moduleSpecifier,
       providerModuleId: resolution.providerModuleId,
       exports: [{
+        id: "BaseBox",
+        name: "BaseBox",
+        kind: "class",
+      }, {
         id: "Box",
         name: "Box",
         kind: "class",
@@ -1475,6 +1479,7 @@ function matrixBindingProvider(
           name: "T",
           constraints: [{ kind: "source-primitive", name: "int32" }],
         }],
+        extends: [{ kind: "provider-ref", name: "BaseBox" }],
         members: options.members ?? [{
           id: "ctor",
           name: "constructor",

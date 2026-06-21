@@ -334,12 +334,13 @@ test("CLI emits provider-owned cross-namespace .NET constructor signatures", asy
       ],
     }, null, 2),
     "src/index.ts": [
-      "import type { int32 } from \"@tsonic/core/types.js\";",
-      "import { BinaryReader, Stream } from \"@tsonic/dotnet/System.IO.js\";",
+      "import type { int32, uint8 } from \"@tsonic/core/types.js\";",
+      "import { BinaryReader, MemoryStream } from \"@tsonic/dotnet/System.IO.js\";",
       "import { Encoding } from \"@tsonic/dotnet/System.Text.js\";",
       "",
-      "export function readFirst(): int32 {",
-      "  const reader = new BinaryReader(Stream.null, Encoding.uTF8);",
+      "export function readFirst(bytes: uint8[]): int32 {",
+      "  const stream: MemoryStream = new MemoryStream(bytes);",
+      "  const reader: BinaryReader = new BinaryReader(stream, Encoding.uTF8);",
       "  return reader.read();",
       "}",
       "",
@@ -350,10 +351,11 @@ test("CLI emits provider-owned cross-namespace .NET constructor signatures", asy
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /public static int readFirst\(\)/);
-  assert.match(generatedSource, /System\.IO\.BinaryReader reader = new System\.IO\.BinaryReader\(System\.IO\.Stream\.Null, System\.Text\.Encoding\.UTF8\);/);
+  assert.match(generatedSource, /public static int readFirst\(byte\[\] bytes\)/);
+  assert.match(generatedSource, /System\.IO\.MemoryStream stream = new System\.IO\.MemoryStream\(bytes\);/);
+  assert.match(generatedSource, /System\.IO\.BinaryReader reader = new System\.IO\.BinaryReader\(stream, System\.Text\.Encoding\.UTF8\);/);
   assert.match(generatedSource, /return reader\.Read\(\);/);
-  assert.doesNotMatch(generatedSource, /Encoding\.uTF8|Stream\.null|BinaryReader\(Stream|__unsupported/);
+  assert.doesNotMatch(generatedSource, /Encoding\.uTF8|BinaryReader\(stream, Encoding|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderSystemIOExternalSourceRef.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);

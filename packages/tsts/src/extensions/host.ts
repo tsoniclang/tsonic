@@ -270,6 +270,7 @@ export interface ProviderExportDeclaration {
   readonly targetIdentity?: TargetIdentity;
   readonly type?: ProviderTypeExpression;
   readonly typeParameters?: readonly ProviderTypeParameterDeclaration[];
+  readonly extends?: readonly ProviderTypeExpression[];
   readonly members?: readonly ProviderMemberDeclaration[];
   readonly signatures?: readonly ProviderSignatureDeclaration[];
   readonly documentation?: string;
@@ -1588,9 +1589,9 @@ function renderProviderExportDeclaration(declaration: ProviderExportDeclaration)
   const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? []);
   switch (declaration.kind) {
     case "class":
-      return `export declare class ${declaration.name}${typeParameters} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+      return `export declare class ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.extends ?? [])} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
     case "interface":
-      return `export interface ${declaration.name}${typeParameters} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+      return `export interface ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.extends ?? [])} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
     case "function":
       return renderProviderSignatures(declaration.name, declaration.signatures ?? [])
         .map((signature) => `export declare function ${signature}`)
@@ -1606,6 +1607,10 @@ function renderProviderExportDeclaration(declaration: ProviderExportDeclaration)
     case "opaque":
       return `export declare const ${declaration.name}: unique symbol;`;
   }
+}
+
+function renderProviderHeritage(types: readonly ProviderTypeExpression[]): string {
+  return types.length === 0 ? "" : ` extends ${types.map(renderProviderTypeExpression).join(", ")}`;
 }
 
 function renderProviderMembers(members: readonly ProviderMemberDeclaration[]): string {
@@ -1777,6 +1782,7 @@ function isValidProviderExportDeclaration(value: ProviderExportDeclaration): boo
     && hasRequiredProviderExportShape(value)
     && (value.type === undefined || isValidProviderTypeExpression(value.type))
     && (value.typeParameters ?? []).every(isValidProviderTypeParameterDeclaration)
+    && (value.extends ?? []).every(isValidProviderTypeExpression)
     && (value.signatures ?? []).every(isValidProviderSignatureDeclaration)
     && (value.kind === "enum"
       ? (value.members ?? []).every(isValidProviderEnumMemberDeclaration)
