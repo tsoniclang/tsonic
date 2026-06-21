@@ -1,7 +1,10 @@
 export type TargetId = string;
 
+export type TargetSurfaceId = string;
+
 export interface TargetSelection {
   readonly id: TargetId;
+  readonly surfaces?: readonly TargetSurfaceId[];
   readonly options?: Readonly<Record<string, unknown>>;
 }
 

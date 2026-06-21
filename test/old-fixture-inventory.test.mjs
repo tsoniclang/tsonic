@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+  buildOldSuiteInventoryReport,
+  formatOldSuiteInventoryCounts,
+  oldFixturePath,
+  oldSuitePortInventory,
+  oldSuiteRequiredSeedFixturePaths,
+  validateOldSuitePortEntry,
+} from "./old-suite-inventory/inventory.mjs";
 
 const oldFixtureSource = "/home/jeswin/temp/tsonic-20260618-210710/test/fixtures";
 
@@ -204,6 +212,8 @@ const oldTsonicFixtureNames = [
   "yield-switch-case-test-tsn6101",
 ];
 
+const oldTsonicFixturePaths = oldTsonicFixtureNames.map(oldFixturePath);
+
 const requiredRecoveryGroups = {
   "control-flow": ["switch-statement", "return-in-control-flow", "shadowing"],
   "arrays-tuples": ["array-destructuring", "array-spread", "tuple-int-elements"],
@@ -232,4 +242,59 @@ test("old Tsonic fixture inventory is fully tracked for clean-suite recovery", (
       );
     }
   }
+});
+
+test("old suite port inventory entries have required classification fields", () => {
+  for (const entry of oldSuitePortInventory) {
+    assert.deepEqual(validateOldSuitePortEntry(entry), [], entry.oldPath);
+  }
+
+  const oldPaths = oldSuitePortInventory.map((entry) => entry.oldPath);
+  assert.equal(new Set(oldPaths).size, oldPaths.length);
+
+  const oldFixturePathSet = new Set(oldTsonicFixturePaths);
+  for (const seedPath of oldSuiteRequiredSeedFixturePaths) {
+    assert.equal(oldFixturePathSet.has(seedPath), true, `seed source missing from historical fixture inventory: ${seedPath}`);
+  }
+});
+
+test("old suite seed fixtures are classified", () => {
+  const classifiedOldPathSet = new Set(oldSuitePortInventory.map((entry) => entry.oldPath));
+
+  for (const seedPath of oldSuiteRequiredSeedFixturePaths) {
+    assert.equal(classifiedOldPathSet.has(seedPath), true, `seed fixture is unclassified: ${seedPath}`);
+  }
+});
+
+test("old suite inventory report counts are deterministic", () => {
+  const report = buildOldSuiteInventoryReport(oldTsonicFixturePaths);
+
+  assert.deepEqual(report.counts, {
+    total: 198,
+    reused: 0,
+    ported: 0,
+    "replaced-by-stronger-test": 0,
+    "invalid-stale-architecture": 0,
+    deferred: 10,
+    unclassified: 188,
+  });
+
+  assert.equal(formatOldSuiteInventoryCounts(report.counts), [
+    "total: 198",
+    "reused: 0",
+    "ported: 0",
+    "replaced-by-stronger-test: 0",
+    "invalid-stale-architecture: 0",
+    "deferred: 10",
+    "unclassified: 188",
+  ].join("\n"));
+  assert.deepEqual(report.classifiedUnknownOldPaths, []);
+});
+
+test("old suite inventory reports unclassified entries", () => {
+  const report = buildOldSuiteInventoryReport(oldTsonicFixturePaths);
+
+  assert.equal(report.unclassifiedOldPaths.length, report.counts.unclassified);
+  assert.equal(report.unclassifiedOldPaths.includes("test/fixtures/action-func-callbacks/"), true);
+  assert.equal(report.unclassifiedOldPaths.includes("test/fixtures/hello-world/"), false);
 });

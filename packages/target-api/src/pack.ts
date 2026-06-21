@@ -12,15 +12,25 @@ import type {
   Type,
   TypeShapeQueries,
 } from "@tsonic/tsts";
-import type { TargetCompileResult } from "./artifacts.js";
-import type { TargetSelection, TsonicProjectConfig } from "./config.js";
+import type { TargetArtifact, TargetCompileResult } from "./artifacts.js";
+import type {
+  TargetSelection,
+  TargetSurfaceId,
+  TsonicProjectConfig,
+} from "./config.js";
 
-export interface TargetExtensionContext {
+export interface TargetProviderContext {
+  readonly project: TsonicProjectConfig;
+  readonly target: TargetSelection;
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+}
+
+export interface TargetBackendContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
 }
 
-export interface TargetBackendContext {
+export interface TargetToolchainContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
 }
@@ -30,6 +40,12 @@ export interface TargetCompilationPaths {
   readonly projectRoot: string;
   readonly outputRoot: string;
   readonly targetOutputRoot: string;
+}
+
+export interface TargetRuntimeArtifactContext {
+  readonly project: TsonicProjectConfig;
+  readonly target: TargetSelection;
+  readonly paths: TargetCompilationPaths;
 }
 
 export interface TargetSemanticNodeOptions {
@@ -93,10 +109,25 @@ export interface TargetToolchain {
   prepare(input: TargetToolchainInput): TargetToolchainResult;
 }
 
+export interface TargetProvider {
+  readonly id: string;
+  readonly displayName: string;
+  createExtensions(context: TargetProviderContext): readonly CompilerExtension[];
+  runtimeArtifacts?(context: TargetRuntimeArtifactContext): readonly TargetArtifact[];
+}
+
+export interface TargetSurfaceImplementation {
+  readonly id: TargetSurfaceId;
+  readonly displayName: string;
+  readonly requiredSurfaces?: readonly TargetSurfaceId[];
+  runtimeArtifacts(context: TargetRuntimeArtifactContext): readonly TargetArtifact[];
+}
+
 export interface TargetPack {
   readonly id: string;
   readonly displayName: string;
-  createExtensions(context: TargetExtensionContext): readonly CompilerExtension[];
+  readonly provider?: TargetProvider;
+  readonly surfaces?: readonly TargetSurfaceImplementation[];
   createBackend(context: TargetBackendContext): TargetBackend;
-  createToolchain(context: TargetBackendContext): TargetToolchain;
+  createToolchain(context: TargetToolchainContext): TargetToolchain;
 }

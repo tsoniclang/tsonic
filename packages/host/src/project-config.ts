@@ -30,8 +30,10 @@ function readTargets(value: unknown): readonly TargetSelection[] {
     if (options !== undefined && !isRecord(options)) {
       throw new Error(`Target '${id}' options must be an object.`);
     }
+    const surfaces = readOptionalSurfaces(target, id);
     return {
       id,
+      ...(surfaces !== undefined ? { surfaces } : {}),
       ...(options !== undefined ? { options } : {}),
     };
   });
@@ -54,6 +56,27 @@ function readOptionalString(value: Readonly<Record<string, unknown>>, key: strin
     throw new Error(`Project config field '${key}' must be a non-empty string.`);
   }
   return field;
+}
+
+function readOptionalSurfaces(value: Readonly<Record<string, unknown>>, targetId: string): readonly string[] | undefined {
+  const field = value.surfaces;
+  if (field === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(field)) {
+    throw new Error(`Target '${targetId}' surfaces must be an array of non-empty strings.`);
+  }
+  const seen = new Set<string>();
+  return field.map((surface, index) => {
+    if (typeof surface !== "string" || surface.length === 0) {
+      throw new Error(`Target '${targetId}' surface at index ${index} must be a non-empty string.`);
+    }
+    if (seen.has(surface)) {
+      throw new Error(`Target '${targetId}' surface '${surface}' is declared more than once.`);
+    }
+    seen.add(surface);
+    return surface;
+  });
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
