@@ -44,27 +44,30 @@ export const oldSuiteRequiredSeedFixturePaths = Object.freeze([
 export const oldSuitePortInventory = Object.freeze([
   Object.freeze({
     oldPath: "test/fixtures/hello-world/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime.test.mjs",
+    status: "ported",
     featureArea: "native-provider",
     owner: "C# native provider",
     reason:
-      "Old source imports Console.WriteLine from @tsonic/dotnet/System.js; port after final Console facts and target config E2E wiring exist.",
+      "Ported as a current-architecture executable E2E: provider-owned Console.writeLine is compiled through TSTS/provider facts, emitted as C# AST, built by dotnet, and run with exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/namespace-imports/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime.test.mjs",
+    status: "ported",
     featureArea: "native-provider",
     owner: "C# native provider + C# backend planner",
     reason:
-      "Valid behavior covers namespace imports, local module constants/functions, Console.WriteLine, and E2E output; port after native provider console facts and namespace import fixture wiring exist.",
+      "Ported as a current-architecture executable E2E covering namespace import access, source module constants/functions, provider-owned Console.writeLine, C# AST output, dotnet build, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/file-io/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime.test.mjs",
+    status: "ported",
     featureArea: "native-provider",
     owner: "C# native provider",
     reason:
-      "System.IO File and Path calls need provider-owned target member facts plus deterministic toolchain/runtime file-system E2E coverage.",
+      "Ported as a current-architecture executable E2E covering reflection-provider File/Path operations, ordered top-level execution, dotnet build/run, file-system behavior, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/nullable-narrowing/",
