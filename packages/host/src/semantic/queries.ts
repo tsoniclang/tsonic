@@ -61,18 +61,18 @@ export function createTargetSemanticQueries(
       if (node === undefined) {
         return undefined;
       }
+      const referenceBinding = facts.getTargetBindingFact(node) ??
+        facts.getTargetBindingFact(getSymbolAtReferenceNode(ast, checker, node, options)) ??
+        facts.getTargetBindingFact(getAliasedSymbolIfAlias(checker, getSymbolAtReferenceNode(ast, checker, node, options), options)) ??
+        facts.getTargetBindingFact(getResolvedSymbolForReferenceNode(ast, checker, node, options)) ??
+        facts.getTargetBindingFact(getAliasedSymbolIfAlias(checker, getResolvedSymbolForReferenceNode(ast, checker, node, options), options));
       const semanticType = getSemanticTypeForNode(ast, checker, node, options);
       const typeBinding = facts.getTargetBindingFact(semanticType) ??
         facts.getTargetBindingFact(semanticType?.symbol);
       if (isTypeReferenceQuery(ast, node)) {
-        return facts.getTargetBindingFact(node) ?? typeBinding;
+        return referenceBinding ?? typeBinding;
       }
-      return facts.getTargetBindingFact(node) ??
-        facts.getTargetBindingFact(getSymbolAtReferenceNode(ast, checker, node, options)) ??
-        facts.getTargetBindingFact(getAliasedSymbolIfAlias(checker, getSymbolAtReferenceNode(ast, checker, node, options), options)) ??
-        facts.getTargetBindingFact(getResolvedSymbolForReferenceNode(ast, checker, node, options)) ??
-        facts.getTargetBindingFact(getAliasedSymbolIfAlias(checker, getResolvedSymbolForReferenceNode(ast, checker, node, options), options)) ??
-        typeBinding;
+      return referenceBinding;
     },
     getSymbolAtLocation(subject, options) {
       const node = asNode(subject);

@@ -491,6 +491,48 @@ test("CLI emits provider-owned generic collection constructors from virtual targ
 });
 
 
+test("CLI emits provider-owned delegate type annotations from .NET reflection", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-delegate-type-annotations");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderDelegateTypes",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import type { Predicate } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export function identityPredicate(predicate: Predicate<int32>): Predicate<int32> {",
+      "  return predicate;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static System\.Predicate<int> identityPredicate\(System\.Predicate<int> predicate\)/);
+  assert.match(generatedSource, /return predicate;/);
+  assert.doesNotMatch(generatedSource, /bool identityPredicate\(bool predicate\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderDelegateTypes.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+
 test("CLI rejects attribute builder targets without provider target facts", async () => {
   const projectDirectory = resolve(tempRoot, "attribute-builder");
   await writeProject(projectDirectory, {
