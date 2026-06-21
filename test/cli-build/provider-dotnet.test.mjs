@@ -316,6 +316,49 @@ test("CLI emits provider-owned System.IO calls from .NET virtual modules", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits provider-owned cross-namespace .NET constructor signatures", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-system-io-external-source-ref");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderSystemIOExternalSourceRef",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import { BinaryReader, Stream } from \"@tsonic/dotnet/System.IO.js\";",
+      "import { Encoding } from \"@tsonic/dotnet/System.Text.js\";",
+      "",
+      "export function readFirst(): int32 {",
+      "  const reader = new BinaryReader(Stream.null, Encoding.uTF8);",
+      "  return reader.read();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static int readFirst\(\)/);
+  assert.match(generatedSource, /System\.IO\.BinaryReader reader = new System\.IO\.BinaryReader\(System\.IO\.Stream\.Null, System\.Text\.Encoding\.UTF8\);/);
+  assert.match(generatedSource, /return reader\.Read\(\);/);
+  assert.doesNotMatch(generatedSource, /Encoding\.uTF8|Stream\.null|BinaryReader\(Stream|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderSystemIOExternalSourceRef.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI rejects provider-owned identifiers outside selected target operations", async () => {
   const projectDirectory = resolve(tempRoot, "provider-identifier-value");

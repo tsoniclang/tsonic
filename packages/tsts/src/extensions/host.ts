@@ -226,7 +226,7 @@ export type ProviderTypeExpression =
   | { readonly kind: "object" }
   | { readonly kind: "source-primitive"; readonly name: SourcePrimitiveKind }
   | { readonly kind: "type-parameter"; readonly name: string }
-  | { readonly kind: "provider-ref"; readonly name: string; readonly typeArguments?: readonly ProviderTypeExpression[] }
+  | { readonly kind: "provider-ref"; readonly name: string; readonly moduleSpecifier?: string; readonly typeArguments?: readonly ProviderTypeExpression[] }
   | { readonly kind: "target-named"; readonly target: string; readonly id: string; readonly displayName?: string; readonly typeArguments?: readonly ProviderTypeExpression[]; readonly sourceShape?: ProviderTypeExpression }
   | { readonly kind: "array"; readonly elementType: ProviderTypeExpression }
   | { readonly kind: "tuple"; readonly elementTypes: readonly ProviderTypeExpression[] }
@@ -1673,10 +1673,14 @@ function renderProviderTypeExpression(type: ProviderTypeExpression): string {
       return renderSourcePrimitiveType(type.name);
     case "type-parameter":
       return type.name;
-    case "provider-ref":
-      return type.typeArguments === undefined || type.typeArguments.length === 0
+    case "provider-ref": {
+      const name = type.moduleSpecifier === undefined
         ? type.name
-        : `${type.name}<${type.typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
+        : `import(${JSON.stringify(type.moduleSpecifier)}).${type.name}`;
+      return type.typeArguments === undefined || type.typeArguments.length === 0
+        ? name
+        : `${name}<${type.typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
+    }
     case "target-named":
     case "opaque":
       return renderProviderTypeExpression(type.sourceShape!);
@@ -1872,7 +1876,9 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
     case "type-parameter":
       return isIdentifierText(value.name);
     case "provider-ref":
-      return isIdentifierText(value.name) && (value.typeArguments ?? []).every(isValidProviderTypeExpression);
+      return isIdentifierText(value.name)
+        && (value.moduleSpecifier === undefined || value.moduleSpecifier.length > 0)
+        && (value.typeArguments ?? []).every(isValidProviderTypeExpression);
     case "target-named":
       return value.target.length > 0
         && value.id.length > 0

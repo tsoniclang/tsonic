@@ -703,6 +703,7 @@ test("provider declaration models render the supported export member and type ma
   assert.match(source, /\[index: number\]: string;/);
   assert.match(source, /export interface Writer/);
   assert.match(source, /write\(text\?: string, \.\.\.chunks: string\[\]\): number;/);
+  assert.match(source, /readExternal\(reader: import\("@target\/io\.js"\)\.Reader\): void;/);
   assert.match(source, /export declare function tryParse<T extends number>\(text\?: string, \.\.\.values: number\[\]\): boolean;/);
   assert.match(source, /export type Pair = \[number, string\];/);
   assert.match(source, /export declare const DefaultSize: number;/);
@@ -1518,6 +1519,18 @@ function matrixBindingProvider(
               { name: "chunks", type: { kind: "array", elementType: { kind: "string" } }, rest: true },
             ],
             returnType: { kind: "number" },
+          }],
+        }, {
+          id: "readExternal",
+          name: "readExternal",
+          kind: "method",
+          signatures: [{
+            id: "readExternal",
+            parameters: [{
+              name: "reader",
+              type: { kind: "provider-ref", moduleSpecifier: "@target/io.js", name: "Reader" },
+            }],
+            returnType: { kind: "void" },
           }],
         }],
       }, {
