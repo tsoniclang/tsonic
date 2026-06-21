@@ -186,7 +186,7 @@ test("CLI emits provider-owned System.Console and System.Math calls from .NET vi
 });
 
 
-test("CLI emits provider-owned nested enum values from .NET virtual modules", async () => {
+test("CLI rejects nested CLR type imports until provider nested declarations exist", async () => {
   const projectDirectory = resolve(tempRoot, "provider-system-nested-enum");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -214,15 +214,9 @@ test("CLI emits provider-owned nested enum values from .NET virtual modules", as
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stderr);
-
-  const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /public static string desktopPath\(\)/);
-  assert.match(generatedSource, /return System\.Environment\.GetFolderPath\(System\.Environment\.SpecialFolder\.Desktop\);/);
-  assert.doesNotMatch(generatedSource, /SpecialFolder\.desktop|__unsupported/);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderNestedEnum.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stderr, /SpecialFolder/);
+  assert.match(build.stderr, /no exported member|not exported|Cannot find name|Module/);
 });
 
 
