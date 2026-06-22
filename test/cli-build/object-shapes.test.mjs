@@ -260,7 +260,7 @@ test("CLI rejects class object literals when parameterless construction is unava
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Object literal emission requires a source-owned expected type or finalized TSTS\/provider object-shape facts/);
+  assert.match(build.stderr, /Class object literal emission requires a finalized constructible source class fact with a parameterless constructor/);
 });
 
 

@@ -94,6 +94,13 @@ export function createTargetSemanticQueries(
       const node = asNode(subject);
       return node === undefined ? undefined : checker.getTypeFromTypeNode(node, options);
     },
+    getResolvedCallParameterTypes(subject, options) {
+      const node = asNode(subject);
+      const signature = node === undefined ? undefined : checker.getResolvedSignature(node, options);
+      return signature === undefined
+        ? undefined
+        : signature.parameters.map((parameter) => checker.getTypeOfSymbol(parameter, options));
+    },
     getEnumMemberConstant(subject, options) {
       const node = asNode(subject);
       const value = node === undefined ? undefined : checker.getConstantValue(node, options);

@@ -688,7 +688,7 @@ test("CLI emits provider-owned delegate type annotations from .NET reflection", 
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /public static System\.Predicate<int> identityPredicate\(System\.Predicate<int> predicate\)/);
+  assert.match(generatedSource, /public static Predicate<int> identityPredicate\(Predicate<int> predicate\)/);
   assert.match(generatedSource, /return predicate;/);
   assert.doesNotMatch(generatedSource, /bool identityPredicate\(bool predicate\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
