@@ -310,15 +310,30 @@ export const oldEmitterPortInventory = Object.freeze([
     "test/cli-build/e2e-runtime-language.test.mjs",
     "Ported through a current-architecture executable E2E covering declared int32 variable initializers, ternary initializers, arithmetic branch initializers, and assignment RHS expected-carrier propagation.",
   ),
-  ...deferredEmitterCases([
+  portedEmitterCase(
     "async/basic/AsyncFunction",
+    "async",
+    "test/async-cli-build.test.mjs",
+    "Ported through a current-architecture executable E2E covering TSTS Promise<string> to Task<string> facts, awaited source-owned async calls, Roslyn async method/await AST emission, dotnet build/run, and exact stdout.",
+  ),
+  portedEmitterCase(
     "functions/async-hof/AsyncReturningFunctions",
-  ], "async", "TSTS async facts + C# backend planner", "Async fixtures require awaited carrier facts, Promise/Task mapping, delegate return carriers, and C# async method/lambda AST emission with no runtime or backend guessing."),
-  ...deferredEmitterCases([
+    "async",
+    "test/async-cli-build.test.mjs",
+    "Ported through a current-architecture executable E2E covering async functions returning sync delegates, async functions returning async delegates, async callback parameters, explicit Task result metadata, Func/Task C# AST output, dotnet build/run, and exact stdout.",
+  ),
+  portedEmitterCase(
     "attributes/basic/Attributes",
+    "attributes",
+    "../tsonic-csharp/test/attributes.test.mjs",
+    "Ported as current-architecture attribute coverage for provider-backed attribute declarations, finalized TSTS attribute facts, multiple class attributes, positional constructor arguments, Roslyn attribute-list AST emission, and C# printer output with no raw-string emitter path.",
+  ),
+  ...deferredEmitterCases([
     "attributes/comprehensive/Attributes",
+  ], "attributes", "C# source semantics + C# native provider + C# backend planner", "Class/method/property/field/parameter attribute facts are covered by current C# target tests; this old fixture remains deferred for constructor attribute placement, which still needs an approved source-semantics surface and declaration planner support."),
+  ...deferredEmitterCases([
     "attributes/targets/Attributes",
-  ], "attributes", "C# source semantics + C# native provider + C# backend planner", "Attribute fixtures require provider-owned target attribute identities, source marker selector facts, parameter/property/method target facts, and Roslyn attribute AST emission."),
+  ], "attributes", "C# source semantics + C# native provider + C# backend planner", "Field placement through finalized attribute facts is covered by current C# target tests; this old fixture remains deferred for explicit C# attribute target specifiers such as return-target attributes, which are not yet part of the approved current source surface."),
   ...deferredEmitterCases([
     "classes/field-marker/FieldMarker",
   ], "classes", "source field marker semantics + C# declaration planner", "Field marker fixtures require finalized neutral field-marker source facts before property/field storage can be emitted without target-specific source syntax."),
@@ -394,10 +409,18 @@ export const oldEmitterPortInventory = Object.freeze([
     "test/cli-build/e2e-runtime-language.test.mjs",
     "Ported through a current-architecture executable E2E covering nested generic class substitution through Wrapper<T> inside a generic base, concrete int32 specialization, generated C# type arguments, dotnet build/run, and exact stdout.",
   ),
-  ...deferredEmitterCases([
+  portedEmitterCase(
     "collections/list-initializer/ListInitializer",
+    "collections",
+    "test/cli-build/provider-dotnet.test.mjs",
+    "Ported through a current-architecture CLI build test covering provider-owned List<T> constructors from array literals for int32, string, and source class elements, generated Roslyn collection-constructor AST, and exact dotnet build.",
+  ),
+  portedEmitterCase(
     "types/dictionaries/Dictionaries",
-  ], "collections", "C# native provider + C# JS surface + C# backend planner", "Collection fixtures require provider-owned collection constructors, dictionary/index-signature carrier facts, collection initializers, key conversion rules, and deterministic mutation semantics."),
+    "collections",
+    "test/cli-build/provider-dotnet.test.mjs",
+    "Ported through a current-architecture executable CLI test covering TSTS Record<K,V> declarations mapped by the selected JS surface to provider-owned Dictionary<K,V>, empty object literals emitted as Dictionary construction, provider indexer reads/writes, generated C# build, run, and exact stdout.",
+  ),
   ...deferredEmitterCases([
     "edge-cases/clickmeter-nullability-regressions/ClickmeterNullabilityRegressions",
     "edge-cases/generic-null-default/GenericNullDefault",

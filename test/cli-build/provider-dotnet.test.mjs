@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 async function readGeneratedModuleSource(projectDirectory) {
   return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
@@ -513,6 +513,68 @@ test("CLI emits provider-owned instance C# members from receiver type facts", as
 });
 
 
+test("CLI emits provider-owned List initializers for primitive, string, and source class elements", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-generic-list-initializer");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderGenericListInitializer",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
+      "",
+      "export class User {",
+      "  name: string;",
+      "",
+      "  constructor(name: string) {",
+      "    this.name = name;",
+      "  }",
+      "}",
+      "",
+      "export function makeInts(): List<int32> {",
+      "  return new List<int32>([1, 2, 3]);",
+      "}",
+      "",
+      "export function makeStrings(): List<string> {",
+      "  return new List<string>([\"a\", \"b\"]);",
+      "}",
+      "",
+      "export function makeUsers(): List<User> {",
+      "  const ada = new User(\"Ada\");",
+      "  const grace = new User(\"Grace\");",
+      "  return new List<User>([ada, grace]);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /System\.Collections\.Generic\.List<int> makeInts\(\)/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.List<string> makeStrings\(\)/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.List<string>\(new string\[\] \{ "a", "b" \}\);/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.List<User> makeUsers\(\)/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.List<User>\(new User\[\] \{ ada, grace \}\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderGenericListInitializer.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits provider-owned generic collection constructors from virtual target modules", async () => {
   const projectDirectory = resolve(tempRoot, "provider-generic-list-constructor");
   await writeProject(projectDirectory, {
@@ -605,6 +667,82 @@ test("CLI emits provider-owned generic collection constructors from virtual targ
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderGenericList.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits JS Record dictionaries through provider-owned Dictionary indexers", async () => {
+  const assemblyName = "SmokeGeneratedProviderRecordDictionary";
+  const projectDirectory = resolve(tempRoot, "provider-record-dictionary");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export function getStringDict(): Record<string, number> {",
+      "  return {};",
+      "}",
+      "",
+      "export function getNumberDict(): Record<number, string> {",
+      "  return {};",
+      "}",
+      "",
+      "export function mutateStringKey(key: string, value: int32): int32 {",
+      "  const values: Record<string, int32> = {};",
+      "  values[key] = value;",
+      "  return values[key];",
+      "}",
+      "",
+      "export function lookupByNumber(dict: Record<number, string>, key: number): string | undefined {",
+      "  return dict[key];",
+      "}",
+      "",
+      "export function mutateNumberKey(key: number, value: string): string {",
+      "  const values: Record<number, string> = {};",
+      "  values[key] = value;",
+      "  return values[key];",
+      "}",
+      "",
+      "Console.writeLine(mutateStringKey(\"one\", 7));",
+      "Console.writeLine(mutateNumberKey(2, \"two\"));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /System\.Collections\.Generic\.Dictionary<string, double> getStringDict\(\)/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.Dictionary<string, double>\(\);/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.Dictionary<double, string> getNumberDict\(\)/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.Dictionary<double, string>\(\);/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.Dictionary<string, int> values = new System\.Collections\.Generic\.Dictionary<string, int>\(\);/);
+  assert.match(generatedSource, /values\[key\] = value;/);
+  assert.match(generatedSource, /return values\[key\];/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.Dictionary<double, string> values = new System\.Collections\.Generic\.Dictionary<double, string>\(\);/);
+  assert.match(generatedSource, /return dict\[key\];/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
+    "7",
+    "two",
+    "",
+  ].join("\n"));
 });
 
 
