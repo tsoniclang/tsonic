@@ -2,6 +2,7 @@ import type {
   AstReader,
   ExtensionConsumerQueries,
   SourceFile,
+  TargetTypeRef,
   TypeCheckerQueries,
   TypeShapeQueries,
 } from "@tsonic/tsts";
@@ -41,16 +42,17 @@ export function createTargetSemanticQueries(
       if (node === undefined) {
         return undefined;
       }
+      const semanticCarrier = getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
       if (isTypeSyntaxNode(ast, node)) {
-        return getRuntimeCarrier(facts, node) ??
+        return refineTargetNamedCarrier(getRuntimeCarrier(facts, node), semanticCarrier) ??
           getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles);
       }
-      return getRuntimeCarrier(facts, node) ??
-        getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)) ??
-        getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getSymbolAtReferenceNode(ast, checker, node, options), options)) ??
-        getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)) ??
-        getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getResolvedSymbolForReferenceNode(ast, checker, node, options), options)) ??
-        getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options) ??
+      return refineTargetNamedCarrier(getRuntimeCarrier(facts, node), semanticCarrier) ??
+        refineTargetNamedCarrier(getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)), semanticCarrier) ??
+        refineTargetNamedCarrier(getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getSymbolAtReferenceNode(ast, checker, node, options), options)), semanticCarrier) ??
+        refineTargetNamedCarrier(getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)), semanticCarrier) ??
+        refineTargetNamedCarrier(getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getResolvedSymbolForReferenceNode(ast, checker, node, options), options)), semanticCarrier) ??
+        semanticCarrier ??
         getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles);
     },
     getTargetBinding(subject) {
@@ -144,4 +146,19 @@ export function createTargetSemanticQueries(
       return type === undefined ? undefined : checker.typeToString(type, options);
     },
   };
+}
+
+function refineTargetNamedCarrier(
+  direct: TargetTypeRef | undefined,
+  semantic: TargetTypeRef | undefined,
+): TargetTypeRef | undefined {
+  if (
+    direct?.kind === "target-named" &&
+    semantic?.kind === "target-named" &&
+    direct.id === semantic.id &&
+    (semantic.typeArguments?.length ?? 0) > 0
+  ) {
+    return semantic;
+  }
+  return direct;
 }

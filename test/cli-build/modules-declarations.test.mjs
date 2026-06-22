@@ -1396,6 +1396,62 @@ test("CLI emits arrays and interfaces containing callable target types", async (
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits optional callback parameters and nullable callable unions from finalized C# carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "optional-callback-delegates");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedOptionalCallbacks",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export type Callback = (result: int32) => void;",
+      "",
+      "export function compute(value: int32, callback?: Callback): int32 {",
+      "  const result = value * 2;",
+      "  if (callback !== undefined) {",
+      "    callback(result);",
+      "  }",
+      "  return result;",
+      "}",
+      "",
+      "export function maybeTransform(value: int32, transform: ((x: int32) => int32) | null): int32 {",
+      "  if (transform !== null) {",
+      "    return transform(value);",
+      "  }",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static int compute\(int value, Action<int>\? callback = null\)/);
+  assert.match(generatedSource, /if \(callback != null\)/);
+  assert.match(generatedSource, /callback\(result\);/);
+  assert.match(generatedSource, /public static int maybeTransform\(int value, Func<int, int>\? transform\)/);
+  assert.match(generatedSource, /if \(transform != null\)/);
+  assert.match(generatedSource, /return transform\(value\);/);
+  assert.doesNotMatch(generatedSource, /Func<double, double>|undefined|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOptionalCallbacks.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits standard JavaScript class static blocks as C# static constructors", async () => {
   const projectDirectory = resolve(tempRoot, "class-static-blocks");

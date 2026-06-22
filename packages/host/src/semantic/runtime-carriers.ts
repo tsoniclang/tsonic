@@ -53,7 +53,8 @@ export function getRuntimeCarrierFromDeclaredFactGraph(
       : getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)) ??
         getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)));
   if (direct !== undefined && !(direct.kind === "target-named" && ast.is.IsTypeReferenceNode(node) && ast.typeArguments(node).length > 0)) {
-    return direct;
+    const semanticCarrier = getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
+    return semanticCarrier ?? direct;
   }
   if (ast.is.IsTypeReferenceNode(node)) {
     const aliasCarrier = getRuntimeCarrierFromTypeAliasFactGraph(
@@ -86,6 +87,20 @@ export function getRuntimeCarrierFromDeclaredFactGraph(
         ...(typeArguments.length > 0 ? { typeArguments: typeArguments as readonly TargetTypeRef[] } : {}),
       };
     }
+    const syntaxInstantiatedDirect = instantiateDirectTypeReferenceCarrierFromSyntax(
+      ast,
+      checker,
+      types,
+      facts,
+      node,
+      direct,
+      options,
+      sourceFiles,
+      nextSeen,
+    );
+    if (syntaxInstantiatedDirect !== undefined) {
+      return syntaxInstantiatedDirect;
+    }
     return direct;
   }
   const reference = getProjectSourceReferenceForNode(ast, checker, types, node, options, sourceFiles);
@@ -106,8 +121,8 @@ export function getRuntimeCarrierForSemanticType(
 ): TargetTypeRef | undefined {
   const type = getSemanticTypeForNode(ast, checker, node, options);
   return discardSourcePrimitiveSemanticCarrier(getRuntimeCarrier(facts, type)) ??
-    discardSourcePrimitiveSemanticCarrier(getRuntimeCarrier(facts, type?.symbol)) ??
-    discardSourcePrimitiveSemanticCarrier(getTargetTypeRefForSemanticType(types, facts, type, options));
+    discardSourcePrimitiveSemanticCarrier(instantiateSemanticSymbolCarrier(ast, types, facts, type, getRuntimeCarrier(facts, type?.symbol), options)) ??
+    discardSourcePrimitiveSemanticCarrier(getTargetTypeRefForSemanticType(ast, types, facts, type, options));
 }
 
 function getRuntimeCarrierFromTypeAliasFactGraph(
@@ -163,6 +178,33 @@ function getTargetTypeRefFromDeclaredTypeNode(
     getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
 }
 
+function instantiateDirectTypeReferenceCarrierFromSyntax(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  facts: ExtensionConsumerQueries,
+  node: Node,
+  carrier: TargetTypeRef | undefined,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+  seen: ReadonlySet<Node>,
+): TargetTypeRef | undefined {
+  if (carrier?.kind !== "target-named") {
+    return undefined;
+  }
+  const typeArguments = ast.typeArguments(node)
+    .map((argument) => argument === undefined
+      ? undefined
+      : getTargetTypeRefFromDeclaredTypeNode(ast, checker, types, facts, argument, options, sourceFiles, seen));
+  if (typeArguments.length === 0 || typeArguments.some((argument) => argument === undefined)) {
+    return undefined;
+  }
+  return {
+    ...carrier,
+    typeArguments: typeArguments as readonly TargetTypeRef[],
+  };
+}
+
 function discardSourcePrimitiveSemanticCarrier(type: TargetTypeRef | undefined): TargetTypeRef | undefined {
   return type === undefined || targetTypeRefContainsSourcePrimitive(type) ? undefined : type;
 }
@@ -188,6 +230,7 @@ function targetTypeRefContainsSourcePrimitive(type: TargetTypeRef): boolean {
 }
 
 function getTargetTypeRefForSemanticType(
+  ast: AstReader,
   types: TypeShapeQueries,
   facts: ExtensionConsumerQueries,
   type: Type | undefined,
@@ -197,9 +240,17 @@ function getTargetTypeRefForSemanticType(
   if (type === undefined || seen.has(type)) {
     return undefined;
   }
-  const directCarrier = getRuntimeCarrier(facts, type) ?? getRuntimeCarrier(facts, type.symbol);
+  const typeParameterName = getTypeParameterName(ast, type);
+  if (typeParameterName !== undefined) {
+    return { kind: "type-parameter", name: typeParameterName };
+  }
+  const directCarrier = getRuntimeCarrier(facts, type);
   if (directCarrier !== undefined) {
     return directCarrier;
+  }
+  const symbolCarrier = getRuntimeCarrier(facts, type.symbol);
+  if (symbolCarrier !== undefined) {
+    return instantiateSemanticSymbolCarrier(ast, types, facts, type, symbolCarrier, options, seen);
   }
   if (!types.isTypeReference(type)) {
     return undefined;
@@ -211,7 +262,7 @@ function getTargetTypeRefForSemanticType(
   }
   const nextSeen = new Set(seen).add(type);
   const typeArguments = types.getTypeArguments(type, options)
-    .map((argument) => getTargetTypeRefForSemanticType(types, facts, argument, options, nextSeen));
+    .map((argument) => getTargetTypeRefForSemanticType(ast, types, facts, argument, options, nextSeen));
   if (typeArguments.some((argument) => argument === undefined)) {
     return undefined;
   }
@@ -220,4 +271,41 @@ function getTargetTypeRefForSemanticType(
     id: binding.id,
     ...(typeArguments.length > 0 ? { typeArguments: typeArguments as readonly TargetTypeRef[] } : {}),
   };
+}
+
+function instantiateSemanticSymbolCarrier(
+  ast: AstReader,
+  types: TypeShapeQueries,
+  facts: ExtensionConsumerQueries,
+  type: Type | undefined,
+  carrier: TargetTypeRef | undefined,
+  options: { readonly sourceFile: SourceFile },
+  seen: ReadonlySet<Type> = new Set(),
+): TargetTypeRef | undefined {
+  if (type === undefined || carrier === undefined || carrier.kind !== "target-named" || !types.isTypeReference(type)) {
+    return carrier;
+  }
+  const nextSeen = new Set(seen).add(type);
+  const typeArguments = types.getTypeArguments(type, options)
+    .map((argument) => getTargetTypeRefForSemanticType(ast, types, facts, argument, options, nextSeen));
+  if (typeArguments.some((argument) => argument === undefined)) {
+    return undefined;
+  }
+  return typeArguments.length === 0
+    ? carrier
+    : {
+        ...carrier,
+        typeArguments: typeArguments as readonly TargetTypeRef[],
+      };
+}
+
+function getTypeParameterName(ast: AstReader, type: Type): string | undefined {
+  for (const declaration of type.symbol?.Declarations ?? []) {
+    if (ast.kindName(declaration) !== "KindTypeParameter") {
+      continue;
+    }
+    const name = ast.text(ast.name(declaration));
+    return name.length === 0 ? undefined : name;
+  }
+  return undefined;
 }
