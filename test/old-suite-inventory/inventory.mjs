@@ -175,11 +175,12 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/top-level-code/",
-    status: "deferred",
+    status: "ported",
     featureArea: "csharp-backend",
     owner: "C# backend planner + C# native provider",
+    newPath: "test/cli-build/e2e-runtime.test.mjs",
     reason:
-      "Source behavior is a module const read by an exported function plus top-level Console.WriteLine statements; port after current target config, entrypoint Main wrapping, module field storage, and Console E2E facts are finalized.",
+      "Ported as a current-architecture executable E2E covering a module const read by an exported function plus top-level provider-owned Console.writeLine statements, current target config, entrypoint Main wrapping, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/dotnet-test-command/",
@@ -397,18 +398,50 @@ export const oldSuitePortInventory = Object.freeze([
     reason:
       "Source behavior is char literals in variables, ternaries, arrays, comparisons, assertions, Char.IsLetter/IsWhiteSpace calls, and Rune construction; port after closed native Char/Rune facts and char literal E2E coverage exist.",
   }),
+  Object.freeze({
+    oldPath: "test/fixtures/arrow-function/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS contextual signatures + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering arrow-function values with explicit number parameter and return annotations, finalized callable carrier facts, C# Func emission, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/arrow-inference/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS contextual signatures + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering contextual arrow parameters passed to a typed callable argument so TSTS supplies the source signature and C# emission consumes finalized delegate facts.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/closures/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS contextual signatures + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering returned lambdas that capture and mutate lexical locals, returned adder closures, C# Func emission, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/optional-function-params/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS contextual signatures + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering optional and nullable callback parameters with int32 source primitive aliases, finalized nullable delegate carriers, C# optional/default parameter emission, dotnet build/run, and exact stdout.",
+  }),
   ...deferredFixtures([
     "action-func-callbacks",
     "arrow-contextual-advanced",
-    "arrow-function",
-    "arrow-inference",
     "arrow-return-object-literal",
-    "closures",
     "delegate-types-comprehensive",
     "function-types-in-collections",
     "functions-returning-functions",
     "interface-with-functions",
-    "optional-function-params",
   ], "csharp-backend", "TSTS contextual signatures + C# backend planner", "Valid source behavior exercises callable values, contextual lambda typing, delegate/function carriers, closures, and optional parameters; port after every callable fixture uses TSTS signatures and finalized target delegate facts with no backend inference."),
   ...deferredFixtures([
     "advanced-generics-tsn7414",

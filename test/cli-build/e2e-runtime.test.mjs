@@ -27,6 +27,44 @@ test("CLI runs generated C# executable for provider Console hello world", async 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Hello from Tsonic E2E!\n");
 });
 
+test("CLI runs generated C# executable for top-level code and exported function references", async () => {
+  const assemblyName = "SmokeGeneratedE2ETopLevel";
+  const projectDirectory = resolve(tempRoot, "e2e-top-level-code");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp", options: { namespace: "Smoke.Generated", assemblyName, outputType: "Exe" } }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "const greeting = \"Hello from top-level!\";",
+      "",
+      "export function getGreeting(): string {",
+      "  return greeting;",
+      "}",
+      "",
+      "Console.writeLine(getGreeting());",
+      "Console.writeLine(\"Line 1\");",
+      "Console.writeLine(\"Line 2\");",
+      "Console.writeLine(\"Done!\");",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
+    "Hello from top-level!",
+    "Line 1",
+    "Line 2",
+    "Done!",
+    "",
+  ].join("\n"));
+});
+
 test("CLI runs generated C# executable with namespace imports and module constants", async () => {
   const assemblyName = "SmokeGeneratedE2ENamespaceImports";
   const projectDirectory = resolve(tempRoot, "e2e-namespace-imports");
