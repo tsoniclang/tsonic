@@ -349,7 +349,7 @@ function recordSourceSemanticsCallMarkers(
       recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, node, marker);
       return;
     }
-    recordAttributeBuilderCall(facts, node, createMarkerEvidence("attribute"));
+    recordAttributeBuilderCall(facts, diagnostics, extensionId, node, createMarkerEvidence("attribute"));
   });
 }
 
@@ -569,12 +569,15 @@ function recordAttributeMarker(
 
 interface AttributeBuilderContext {
   readonly applicationTarget: ExtensionFactSubject;
+  readonly applicationTargetSpecifier?: string;
   readonly applicationParameterName?: string;
   readonly applicationPlacement?: "constructor";
 }
 
 function recordAttributeBuilderCall(
   facts: ExtensionFactStore,
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
   callExpression: Node,
   evidence: readonly ExtensionEvidence[],
 ): void {
@@ -590,7 +593,7 @@ function recordAttributeBuilderCall(
   if (name === undefined || Node_Text(name) !== "add") {
     return;
   }
-  const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+  const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
   if (receiverContext === undefined) {
     return;
   }
@@ -602,6 +605,7 @@ function recordAttributeBuilderCall(
   const fact = {
     target,
     applicationTarget: receiverContext.applicationTarget,
+    ...(receiverContext.applicationTargetSpecifier !== undefined ? { applicationTargetSpecifier: receiverContext.applicationTargetSpecifier } : {}),
     ...(receiverContext.applicationParameterName !== undefined ? { applicationParameterName: receiverContext.applicationParameterName } : {}),
     ...(receiverContext.applicationPlacement !== undefined ? { applicationPlacement: receiverContext.applicationPlacement } : {}),
     attributeName: getExpressionNameText(target),
@@ -612,7 +616,10 @@ function recordAttributeBuilderCall(
 
 function getAttributeBuilderContext(
   facts: ExtensionFactStore,
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
   expression: GoPtr<Node>,
+  evidence: readonly ExtensionEvidence[],
 ): AttributeBuilderContext | undefined {
   if (expression?.Kind !== KindCallExpression) {
     return undefined;
@@ -638,7 +645,7 @@ function getAttributeBuilderContext(
   }
   const methodName = Node_Text(name);
   if (methodName === "property" || methodName === "method") {
-    const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+    const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
     const selectedTarget = getAttributeSelectorTarget((Node_Arguments(expression) ?? [])[0]);
     return receiverContext === undefined || selectedTarget === undefined
       ? undefined
@@ -647,7 +654,7 @@ function getAttributeBuilderContext(
       };
   }
   if (methodName === "constructor") {
-    const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+    const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
     return receiverContext === undefined
       ? undefined
       : {
@@ -656,7 +663,7 @@ function getAttributeBuilderContext(
       };
   }
   if (methodName === "parameter") {
-    const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+    const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
     const parameterName = getStringLiteralText((Node_Arguments(expression) ?? [])[0]);
     return receiverContext === undefined || parameterName === undefined
       ? undefined
@@ -665,6 +672,34 @@ function getAttributeBuilderContext(
         applicationParameterName: parameterName,
         ...(receiverContext.applicationPlacement !== undefined ? { applicationPlacement: receiverContext.applicationPlacement } : {}),
       };
+  }
+  if (methodName === "target") {
+    const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
+    if (receiverContext === undefined) {
+      return undefined;
+    }
+    const targetSpecifierArgument = (Node_Arguments(expression) ?? [])[0];
+    const targetSpecifier = getStringLiteralText(targetSpecifierArgument);
+    if (targetSpecifier === undefined) {
+      diagnostics.append({
+        extensionId,
+        extensionCode: "SOURCE_SEMANTICS_ATTRIBUTE_TARGET_SPECIFIER_NOT_PROVEN",
+        numericCode: 9901104,
+        publicCode: "TSTS_SOURCE_SEMANTICS_0004",
+        category: "error",
+        message: "attribute(...).target(specifier) requires a string-literal application target specifier so finalized attribute facts can record the explicit target.",
+        nodeOrSpan: targetSpecifierArgument ?? expression,
+        evidence,
+        identity: `source-semantics-attribute-target-specifier-not-proven:${String(expression.id ?? "unknown")}`,
+      });
+      return undefined;
+    }
+    return {
+      applicationTarget: receiverContext.applicationTarget,
+      applicationTargetSpecifier: targetSpecifier,
+      ...(receiverContext.applicationParameterName !== undefined ? { applicationParameterName: receiverContext.applicationParameterName } : {}),
+      ...(receiverContext.applicationPlacement !== undefined ? { applicationPlacement: receiverContext.applicationPlacement } : {}),
+    };
   }
   return undefined;
 }

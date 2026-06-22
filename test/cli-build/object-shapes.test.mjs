@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI emits source-owned typed object literals as C# object initializers", async () => {
   const projectDirectory = resolve(tempRoot, "typed-object-initializers");
@@ -284,6 +284,72 @@ test("CLI rejects non-nullish unions until runtime-carrier facts are finalized",
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /Union type annotations require finalized TSTS\/provider storage facts/);
+});
+
+
+test("CLI emits discriminated object-shape unions with identical finalized carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "discriminated-object-shape-union");
+  const assemblyName = "SmokeGeneratedDiscriminatedObjectShapeUnion";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "type Found = { kind: \"found\"; value: number };",
+      "type Missing = { kind: \"missing\"; value: number };",
+      "type Lookup = Found | Missing;",
+      "",
+      "function score(result: Lookup): number {",
+      "  if (result.kind === \"found\") {",
+      "    const found: Found = result;",
+      "    return found.value + 1;",
+      "  }",
+      "  const missing: Missing = result;",
+      "  return missing.value - 1;",
+      "}",
+      "",
+      "const found: Lookup = { kind: \"found\", value: 10 };",
+      "const missing: Lookup = { kind: \"missing\", value: 10 };",
+      "Console.writeLine(`found=${score(found)}`);",
+      "Console.writeLine(`missing=${score(missing)}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public class __TsonicShape_/);
+  assert.match(generatedSource, /public string kind;/);
+  assert.match(generatedSource, /public double value;/);
+  assert.match(generatedSource, /public static double score\(__TsonicShape_[A-Za-z0-9_]+ result\)/);
+  assert.match(generatedSource, /if \(result\.kind == "found"\)/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ found = result;/);
+  assert.match(generatedSource, /return found\.value \+ 1;/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ missing = result;/);
+  assert.match(generatedSource, /return missing\.value - 1;/);
+  assert.doesNotMatch(generatedSource, /__unsupported|invalid/i);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
+    "found=11",
+    "missing=9",
+    "",
+  ].join("\n"));
 });
 
 

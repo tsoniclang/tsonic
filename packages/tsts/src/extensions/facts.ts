@@ -93,6 +93,7 @@ export interface FieldFact {
 export interface AttributeFact {
   readonly target: ExtensionFactSubject;
   readonly applicationTarget?: ExtensionFactSubject;
+  readonly applicationTargetSpecifier?: string;
   readonly applicationParameterName?: string;
   readonly applicationPlacement?: "constructor";
   readonly attributeName: string;
@@ -297,6 +298,7 @@ export const attributeFactKey = defineExtensionFactKey<AttributeFact>({
   equals: (left, right) =>
     left.target === right.target
     && left.applicationTarget === right.applicationTarget
+    && left.applicationTargetSpecifier === right.applicationTargetSpecifier
     && left.applicationParameterName === right.applicationParameterName
     && left.applicationPlacement === right.applicationPlacement
     && left.attributeName === right.attributeName
