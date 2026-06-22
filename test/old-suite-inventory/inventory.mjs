@@ -89,11 +89,12 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/generic-method-standalone/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
     featureArea: "csharp-backend",
-    owner: "C# backend planner",
+    owner: "TSTS generic call facts + C# backend planner",
     reason:
-      "Source generic method calls are valid; port after the planner consumes TSTS generic call and return-shape facts for method type arguments.",
+      "Ported as a current-architecture executable E2E covering top-level generic method calls with explicit and inferred type arguments, source-call return carriers, generated C# generic methods, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/extension-methods-system/",
