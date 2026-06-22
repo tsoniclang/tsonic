@@ -214,13 +214,36 @@ export const oldEmitterPortInventory = Object.freeze([
     "test/cli-build/modules-declarations.test.mjs",
     "Ported as current-architecture C# AST coverage for optional callback parameters, nullish callback guards, nullable callable unions, source-primitive delegate signatures, and generated nullable Action/Func carriers, validated by dotnet build.",
   ),
-  ...deferredEmitterCases([
+  portedEmitterCase(
     "arrays/basic/ArrayLiteral",
+    "arrays",
+    "test/cli-build/e2e-runtime-language.test.mjs",
+    "Ported through a current-architecture executable E2E covering typed array literals, index reads, JS .length access, provider-owned Console output, dotnet build/run, and exact stdout.",
+  ),
+  portedEmitterCase(
     "arrays/destructuring/ArrayDestructure",
+    "arrays",
+    "test/cli-build/e2e-runtime-language.test.mjs",
+    "Ported through a current-architecture executable E2E covering array binding destructuring in function and top-level module scopes using finalized array carrier facts, dotnet build/run, and exact stdout.",
+  ),
+  portedEmitterCase(
     "arrays/double-array/DoubleArray",
+    "arrays",
+    "test/cli-build/e2e-runtime-language.test.mjs",
+    "Ported through a current-architecture executable E2E covering number[] literal and return carriers as C# double arrays, dotnet build/run, and exact stdout.",
+  ),
+  portedEmitterCase(
     "arrays/multidimensional/MultiDimensional",
+    "arrays",
+    "test/cli-build/e2e-runtime-language.test.mjs",
+    "Ported through a current-architecture executable E2E covering nested array carriers, nested indexing, primitive nested arrays, dotnet build/run, and exact stdout.",
+  ),
+  portedEmitterCase(
     "arrays/spread/ArraySpread",
-  ], "arrays", "C# JS surface + C# backend planner", "Array fixtures require finalized array carrier facts for literals, native arrays, multidimensional arrays, spread, destructuring, index access, and length semantics before they can be ported without reintroducing backend inference."),
+    "arrays",
+    "test/cli-build/e2e-runtime-language.test.mjs",
+    "Ported through a current-architecture executable E2E covering array spread composition from finalized source carrier facts, JS .length access, dotnet build/run, and exact stdout.",
+  ),
   ...deferredEmitterCases([
     "async/basic/AsyncFunction",
     "functions/async-hof/AsyncReturningFunctions",

@@ -79,11 +79,12 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/array-spread/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
     featureArea: "js-surface",
-    owner: "C# JS surface",
+    owner: "current TSTS/provider/C# AST pipeline",
     reason:
-      "Array spread, Length, and index access need selected array/runtime carrier facts instead of backend spread-lowering inference.",
+      "Ported as a current-architecture executable E2E covering array spread, index reads, JS .length access, finalized array carrier facts, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/generic-method-standalone/",
@@ -237,11 +238,12 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/array-literal/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
     featureArea: "js-surface",
-    owner: "C# JS surface + C# backend planner",
+    owner: "current TSTS/provider/C# AST pipeline",
     reason:
-      "Source behavior is int[] literal creation, index reads, and length output; port with modern JS .length semantics under selected array carrier facts, not as support for the old .Length spelling.",
+      "Ported as a current-architecture executable E2E covering int32[] literal creation, index reads, JS .length access, provider-owned Console output, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/array-constructor/",
@@ -253,27 +255,39 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/array-destructuring/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
     featureArea: "js-surface",
-    owner: "C# JS surface + C# backend planner",
+    owner: "current TSTS/provider/C# AST pipeline",
     reason:
-      "Source behavior is array binding destructuring from a parameter and from a literal, then summing or printing first, second, and third values; port after array destructuring uses finalized carrier facts with runtime output coverage.",
+      "Ported as a current-architecture executable E2E covering array binding destructuring from parameters and top-level module values using finalized carrier facts, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/array-double/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
     featureArea: "csharp-backend",
-    owner: "TSTS semantic facts + C# backend planner",
+    owner: "current TSTS/provider/C# AST pipeline",
     reason:
-      "Source behavior is number[] literals with integer-valued elements emitted as double storage and read by index; port after numeric literal-to-number array inference is locked against the current primitive contract.",
+      "Ported as a current-architecture executable E2E covering number[] literals and returns as C# double arrays with index reads, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/array-type-emission/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
     featureArea: "csharp-backend",
-    owner: "C# backend planner",
+    owner: "current TSTS/provider/C# AST pipeline",
     reason:
-      "Source behavior is typed arrays for int, long, byte, short, float, number, decimal, uint, ulong, and nested numeric arrays; port after neutral primitive array element carriers and literal suffix facts are covered.",
+      "Ported as a current-architecture executable E2E covering typed arrays for int32, int64, uint8, int16, float32, number, decimal, uint32, uint64, and nested numeric arrays with exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/array-multidimensional/",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
+    featureArea: "js-surface",
+    owner: "current TSTS/provider/C# AST pipeline",
+    reason:
+      "Ported as a current-architecture executable E2E covering nested array carriers, nested indexing, primitive nested arrays, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/tuple-int-elements/",
@@ -390,7 +404,6 @@ export const oldSuitePortInventory = Object.freeze([
   ], "csharp-backend", "TSTS structural type facts + C# object-shape planner", "Valid behavior covers structural type literals, object literals, methods/accessors, rest/spread-style shape materialization, recursive source shapes, and utility-type projections; port only through finalized object-shape facts and generated target carriers."),
   ...deferredFixtures([
     "array-index-dotnet",
-    "array-multidimensional",
     "clr-string-indexer-dotnet",
     "collections",
     "dictionaries",

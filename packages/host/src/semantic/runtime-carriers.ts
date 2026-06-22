@@ -52,6 +52,45 @@ export function getRuntimeCarrierFromDeclaredFactGraph(
       ? getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options))
       : getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)) ??
         getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)));
+  const projectSourceCallReturn = getProjectSourceCallReturnCarrier(
+    ast,
+    checker,
+    types,
+    facts,
+    node,
+    options,
+    sourceFiles,
+    nextSeen,
+  );
+  if (projectSourceCallReturn !== undefined) {
+    return projectSourceCallReturn;
+  }
+  const valueDeclarationCarrier = getValueDeclarationCarrier(
+    ast,
+    checker,
+    types,
+    facts,
+    node,
+    options,
+    sourceFiles,
+    nextSeen,
+  );
+  if (valueDeclarationCarrier !== undefined) {
+    return valueDeclarationCarrier;
+  }
+  const projectSourceReferenceCarrier = getProjectSourceReferenceDeclarationCarrier(
+    ast,
+    checker,
+    types,
+    facts,
+    node,
+    options,
+    sourceFiles,
+    nextSeen,
+  );
+  if (projectSourceReferenceCarrier !== undefined) {
+    return projectSourceReferenceCarrier;
+  }
   if (direct !== undefined && !(direct.kind === "target-named" && ast.is.IsTypeReferenceNode(node) && ast.typeArguments(node).length > 0)) {
     const semanticCarrier = getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
     return semanticCarrier ?? direct;
@@ -109,6 +148,85 @@ export function getRuntimeCarrierFromDeclaredFactGraph(
   return declarationSubject === undefined
     ? direct
     : getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, declarationSubject, options, sourceFiles, nextSeen) ?? direct;
+}
+
+function getProjectSourceReferenceDeclarationCarrier(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  facts: ExtensionConsumerQueries,
+  node: Node,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+  seen: ReadonlySet<Node>,
+): TargetTypeRef | undefined {
+  const reference = getProjectSourceReferenceForNode(ast, checker, types, node, options, sourceFiles);
+  const declaration = reference?.declaration as (Node & { readonly Type?: Node; readonly Initializer?: Node }) | undefined;
+  const subject = declaration?.Type ?? declaration?.Initializer;
+  if (reference === undefined || subject === undefined || subject === node) {
+    return undefined;
+  }
+  const referenceOptions = { sourceFile: reference.sourceFile };
+  return getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, subject, referenceOptions, sourceFiles, seen) ??
+    getRuntimeCarrierForSemanticType(ast, checker, types, facts, subject, referenceOptions);
+}
+
+function getValueDeclarationCarrier(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  facts: ExtensionConsumerQueries,
+  node: Node,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+  seen: ReadonlySet<Node>,
+): TargetTypeRef | undefined {
+  if (
+    !ast.is.IsVariableDeclaration(node) &&
+    !ast.is.IsParameterDeclaration(node) &&
+    !ast.is.IsPropertyDeclaration(node) &&
+    !ast.is.IsPropertySignatureDeclaration(node)
+  ) {
+    return undefined;
+  }
+  const declaration = node as Node & { readonly Type?: Node; readonly Initializer?: Node };
+  const subject = declaration.Type ?? declaration.Initializer;
+  return subject === undefined
+    ? undefined
+    : getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, subject, options, sourceFiles, seen) ??
+      getRuntimeCarrierForSemanticType(ast, checker, types, facts, subject, options);
+}
+
+function getProjectSourceCallReturnCarrier(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  facts: ExtensionConsumerQueries,
+  node: Node,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+  seen: ReadonlySet<Node>,
+): TargetTypeRef | undefined {
+  if (!ast.is.IsCallExpression(node)) {
+    return undefined;
+  }
+  const callee = ast.as.AsCallExpression(node)?.Expression;
+  const reference = getProjectSourceReferenceForNode(ast, checker, types, callee, options, sourceFiles);
+  const returnTypeNode = getDeclarationTypeNode(reference?.declaration);
+  if (returnTypeNode === undefined || reference === undefined) {
+    return undefined;
+  }
+  const referenceOptions = { sourceFile: reference.sourceFile };
+  return getRuntimeCarrierFromDeclaredFactGraph(
+    ast,
+    checker,
+    types,
+    facts,
+    returnTypeNode,
+    referenceOptions,
+    sourceFiles,
+    seen,
+  ) ?? getRuntimeCarrierForSemanticType(ast, checker, types, facts, returnTypeNode, referenceOptions);
 }
 
 export function getRuntimeCarrierForSemanticType(
