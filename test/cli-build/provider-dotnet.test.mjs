@@ -1,13 +1,7 @@
 import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
-import { readdir } from "node:fs/promises";
 
 async function readGeneratedModuleSource(projectDirectory) {
-  const moduleDirectory = resolve(projectDirectory, "out/csharp/src/modules");
-  const sourceFiles = (await readdir(moduleDirectory))
-    .filter((fileName) => fileName.endsWith(".cs"))
-    .sort();
-  assert.equal(sourceFiles.length, 1);
-  return readFile(resolve(moduleDirectory, sourceFiles[0]), "utf8");
+  return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
 }
 
 test("CLI emits provider-owned static C# calls from selected TSTS target facts", async () => {

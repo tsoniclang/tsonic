@@ -367,14 +367,14 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static int\[\] sliceRange\(int\[\] values, int start, int end\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\(values, start, end\);/);
   assert.match(generatedSource, /public static int destruct\(int\[\] values\)/);
-  assert.match(generatedSource, /int first = __destructure0\[0\];/);
-  assert.match(generatedSource, /int second = __destructure0\[1\];/);
+  assert.match(generatedSource, /int first = __tsonic_destructure\d+\[0\];/);
+  assert.match(generatedSource, /int second = __tsonic_destructure\d+\[1\];/);
   assert.match(generatedSource, /return first \+ second;/);
   assert.match(generatedSource, /public static int destructDefault\(int\[\] values\)/);
-  assert.match(generatedSource, /int first = (__destructure\d+)\.Length > 0 \? \1\[0\] : 1;/);
-  assert.match(generatedSource, /int second = (__destructure\d+)\.Length > 1 \? \1\[1\] : 2;/);
+  assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.Length > 0 \? \1\[0\] : 1;/);
+  assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.Length > 1 \? \1\[1\] : 2;/);
   assert.match(generatedSource, /public static int\[\] destructRest\(int\[\] values\)/);
-  assert.match(generatedSource, /int\[\] rest = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\((__destructure\d+), 1\);/);
+  assert.match(generatedSource, /int\[\] rest = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\((__tsonic_destructure\d+), 1\);/);
   assert.match(generatedSource, /return rest;/);
   assert.match(generatedSource, /public static int\[\] append\(int\[\] values, int value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(values, new int\[\] \{ value \}\);/);
@@ -627,12 +627,12 @@ test("CLI emits string for-of from provider code-point iteration facts", async (
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /string __forOfString0 = value;/);
-  assert.match(generatedSource, /for \(int __forOfIndex0 = 0; __forOfIndex0 < __forOfString0\.Length; \)/);
-  assert.match(generatedSource, /char\.IsHighSurrogate\(__forOfString0\[__forOfIndex0\]\)/);
-  assert.match(generatedSource, /char\.IsLowSurrogate\(__forOfString0\[__forOfIndex0 \+ 1\]\)/);
-  assert.match(generatedSource, /ch = __forOfString0\.Substring\(__forOfIndex0, 2\);/);
-  assert.match(generatedSource, /ch = __forOfString0\.Substring\(__forOfIndex0, 1\);/);
+  assert.match(generatedSource, /string __tsonic_forOfString\d+ = value;/);
+  assert.match(generatedSource, /for \(int __tsonic_forOfIndex\d+ = 0; __tsonic_forOfIndex\d+ < __tsonic_forOfString\d+\.Length; \)/);
+  assert.match(generatedSource, /char\.IsHighSurrogate\(__tsonic_forOfString\d+\[__tsonic_forOfIndex\d+\]\)/);
+  assert.match(generatedSource, /char\.IsLowSurrogate\(__tsonic_forOfString\d+\[__tsonic_forOfIndex\d+ \+ 1\]\)/);
+  assert.match(generatedSource, /ch = __tsonic_forOfString\d+\.Substring\(__tsonic_forOfIndex\d+, 2\);/);
+  assert.match(generatedSource, /ch = __tsonic_forOfString\d+\.Substring\(__tsonic_forOfIndex\d+, 1\);/);
   assert.match(generatedSource, /total = total \+ ch\.Length;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -737,9 +737,9 @@ test("CLI emits array for-in from provider enumeration facts", async () => {
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /double\[\] __forInTarget0 = values;/);
-  assert.match(generatedSource, /for \(int __forInIndex0 = 0; __forInIndex0 < __forInTarget0\.Length; __forInIndex0\+\+\)/);
-  assert.match(generatedSource, /string key = __forInIndex0\.ToString\(System\.Globalization\.CultureInfo\.InvariantCulture\);/);
+  assert.match(generatedSource, /double\[\] __tsonic_forInTarget\d+ = values;/);
+  assert.match(generatedSource, /for \(int __tsonic_forInIndex\d+ = 0; __tsonic_forInIndex\d+ < __tsonic_forInTarget\d+\.Length; __tsonic_forInIndex\d+\+\+\)/);
+  assert.match(generatedSource, /string key = __tsonic_forInIndex\d+\.ToString\(System\.Globalization\.CultureInfo\.InvariantCulture\);/);
   assert.match(generatedSource, /total = total \+ key\.Length;/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 
@@ -982,4 +982,3 @@ test("CLI rejects non-source-owned constructors without selected target signatur
   assert.match(build.stderr, /C# construction emission requires a source-owned constructor or a selected target constructor fact/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-

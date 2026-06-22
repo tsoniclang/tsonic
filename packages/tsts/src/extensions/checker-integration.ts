@@ -10,6 +10,7 @@ import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import { Checker_GetPropertyOfType } from "../internal/checker/exports.js";
+import { Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
 import { GetSourceFileOfNode, NodeIsSynthesized } from "../internal/ast/utilities.js";
 import { ExtensionObservationPoint } from "./observations.js";
 import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityValidationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
@@ -56,6 +57,7 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   const calleeSymbols = getReferenceSymbols(checker, callee);
   const calleeAccess = AsPropertyAccessExpression(callee);
   const calleeReceiver = calleeAccess?.Expression;
+  const calleeReceiverType = calleeReceiver === undefined ? undefined : Checker_GetTypeAtLocation(checker, calleeReceiver);
   const calleeReceiverSymbols = getReferenceSymbols(checker, calleeReceiver);
   const sourceSelectedDeclaration = sourceSelectedSignature?.declaration;
   const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
@@ -69,6 +71,8 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
     calleeReceiverSymbols.symbol,
     calleeReceiverSymbols.resolvedSymbol,
     calleeReceiverSymbols.aliasedSymbol,
+    calleeReceiverType,
+    calleeReceiverType?.symbol,
     sourceSelectedDeclaration,
     sourceSelectedDeclarationContainer,
     sourceSelectedContainerSymbol,
@@ -83,6 +87,8 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
       ...(calleeSymbols.resolvedSymbol !== undefined ? { calleeResolvedSymbol: calleeSymbols.resolvedSymbol } : {}),
       ...(calleeSymbols.aliasedSymbol !== undefined ? { calleeAliasedSymbol: calleeSymbols.aliasedSymbol } : {}),
       ...(calleeReceiver !== undefined ? { calleeReceiver } : {}),
+      ...(calleeReceiverType !== undefined ? { calleeReceiverType } : {}),
+      ...(calleeReceiverType?.symbol !== undefined ? { calleeReceiverTypeSymbol: calleeReceiverType.symbol } : {}),
       ...(calleeReceiverSymbols.symbol !== undefined ? { calleeReceiverSymbol: calleeReceiverSymbols.symbol } : {}),
       ...(calleeReceiverSymbols.resolvedSymbol !== undefined ? { calleeReceiverResolvedSymbol: calleeReceiverSymbols.resolvedSymbol } : {}),
       ...(calleeReceiverSymbols.aliasedSymbol !== undefined ? { calleeReceiverAliasedSymbol: calleeReceiverSymbols.aliasedSymbol } : {}),
