@@ -161,6 +161,12 @@ export const oldEmitterPortInventory = Object.freeze([
     "Ported as current-architecture C# AST coverage for Action, Action<T>, Func<T,R>, multi-argument Func<T1,T2,R>, generic callable parameters, and function-returning-function delegate signatures, validated by dotnet build.",
   ),
   portedEmitterCase(
+    "functions/closures/Closures",
+    "functions",
+    "test/cli-build/modules-declarations.test.mjs",
+    "Ported as current-architecture C# AST coverage for closure-capturing returned lambdas, mutable captured locals, block-bodied lambdas, and captured-parameter lambdas, validated by dotnet build.",
+  ),
+  portedEmitterCase(
     "functions/higher-order/ReturningFunctions",
     "functions",
     "test/cli-build/modules-declarations.test.mjs",
@@ -238,7 +244,6 @@ export const oldEmitterPortInventory = Object.freeze([
   ...deferredEmitterCases([
     "functions/arrow-inference/ArrowInference",
     "functions/arrow/ArrowFunction",
-    "functions/closures/Closures",
     "functions/optional-callbacks/OptionalParams",
     "types/function-collections/FunctionArrays",
   ], "functions", "TSTS callable signatures + C# backend planner", "Callable fixtures require module-level function value storage, contextual lambda typing, closures, delegate carriers, optional callback parameters, arrays/interfaces containing function types, and generic function alias facts."),

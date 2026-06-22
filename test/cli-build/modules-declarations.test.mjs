@@ -1251,6 +1251,56 @@ test("CLI emits higher-order callable returns and generic function type aliases"
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits closure-capturing returned lambdas from TSTS callable facts", async () => {
+  const projectDirectory = resolve(tempRoot, "closure-returned-lambdas");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedClosureReturnedLambdas",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function makeCounter(): () => number {",
+      "  let count = 0;",
+      "  return (): number => {",
+      "    count++;",
+      "    return count;",
+      "  };",
+      "}",
+      "",
+      "export function makeAdder(left: number): (right: number) => number {",
+      "  return (right: number): number => left + right;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static Func<double> makeCounter\(\)/);
+  assert.match(generatedSource, /double count = 0;/);
+  assert.match(generatedSource, /return \(\) =>\n\s*\{/);
+  assert.match(generatedSource, /count\+\+;/);
+  assert.match(generatedSource, /return count;/);
+  assert.match(generatedSource, /public static Func<double, double> makeAdder\(double left\)/);
+  assert.match(generatedSource, /return \(double right\) => left \+ right;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedClosureReturnedLambdas.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits standard JavaScript class static blocks as C# static constructors", async () => {
   const projectDirectory = resolve(tempRoot, "class-static-blocks");
