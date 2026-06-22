@@ -434,14 +434,38 @@ export const oldSuitePortInventory = Object.freeze([
     reason:
       "Ported as a current-architecture executable E2E covering optional and nullable callback parameters with int32 source primitive aliases, finalized nullable delegate carriers, C# optional/default parameter emission, dotnet build/run, and exact stdout.",
   }),
+  Object.freeze({
+    oldPath: "test/fixtures/function-types-in-collections/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS contextual signatures + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering an array of function-typed values, element-access callable invocation, finalized delegate carrier facts on the callee expression, C# Func array emission, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/functions-returning-functions/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS contextual signatures + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering returned function values, nested callable invocation, closure capture through nested lambdas, finalized delegate carrier facts for call-expression callees, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/interface-with-functions/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS object-shape facts + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering an interface property whose type is callable, object-literal delegate assignment, structural shape implementation as a C# property rather than a method, property-access callable invocation, dotnet build/run, and exact stdout.",
+  }),
   ...deferredFixtures([
     "action-func-callbacks",
     "arrow-contextual-advanced",
     "arrow-return-object-literal",
     "delegate-types-comprehensive",
-    "function-types-in-collections",
-    "functions-returning-functions",
-    "interface-with-functions",
   ], "csharp-backend", "TSTS contextual signatures + C# backend planner", "Valid source behavior exercises callable values, contextual lambda typing, delegate/function carriers, closures, and optional parameters; port after every callable fixture uses TSTS signatures and finalized target delegate facts with no backend inference."),
   ...deferredFixtures([
     "advanced-generics-tsn7414",

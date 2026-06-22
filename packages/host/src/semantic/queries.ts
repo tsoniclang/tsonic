@@ -58,8 +58,8 @@ export function createTargetSemanticQueries(
         refineTargetNamedCarrier(getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getSymbolAtReferenceNode(ast, checker, node, options), options)), semanticCarrier) ??
         refineTargetNamedCarrier(getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)), semanticCarrier) ??
         refineTargetNamedCarrier(getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getResolvedSymbolForReferenceNode(ast, checker, node, options), options)), semanticCarrier);
-      return declaredCarrier ??
-        directCarrier ??
+      return directCarrier ??
+        declaredCarrier ??
         semanticCarrier;
     },
     getTargetBinding(subject) {
