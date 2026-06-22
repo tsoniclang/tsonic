@@ -161,6 +161,12 @@ export const oldEmitterPortInventory = Object.freeze([
     "Ported as current-architecture C# AST coverage for Action, Action<T>, Func<T,R>, multi-argument Func<T1,T2,R>, generic callable parameters, and function-returning-function delegate signatures, validated by dotnet build.",
   ),
   portedEmitterCase(
+    "functions/higher-order/ReturningFunctions",
+    "functions",
+    "test/cli-build/modules-declarations.test.mjs",
+    "Ported as current-architecture C# AST coverage for functions returning delegates, nested delegates, explicit lambda parameter target types, and higher-order C# Func return carriers, validated by dotnet build.",
+  ),
+  portedEmitterCase(
     "types/constants/ModuleConstants",
     "types",
     "test/cli-build/e2e-runtime-language.test.mjs",
@@ -171,6 +177,12 @@ export const oldEmitterPortInventory = Object.freeze([
     "types",
     "test/cli-build/e2e-runtime-language.test.mjs",
     "Ported through a current-architecture executable E2E covering inferred and explicit primitive local declarations, numeric literal rendering, mutable locals, dotnet build/run, and exact stdout.",
+  ),
+  portedEmitterCase(
+    "types/function-type-aliases/GenericAliases",
+    "functions",
+    "test/cli-build/modules-declarations.test.mjs",
+    "Ported as current-architecture C# AST coverage for generic callable aliases resolved through TSTS callable signatures before target carrier rendering, validated by dotnet build.",
   ),
   ...deferredEmitterCases([
     "arrays/basic/ArrayLiteral",
@@ -227,10 +239,8 @@ export const oldEmitterPortInventory = Object.freeze([
     "functions/arrow-inference/ArrowInference",
     "functions/arrow/ArrowFunction",
     "functions/closures/Closures",
-    "functions/higher-order/ReturningFunctions",
     "functions/optional-callbacks/OptionalParams",
     "types/function-collections/FunctionArrays",
-    "types/function-type-aliases/GenericAliases",
   ], "functions", "TSTS callable signatures + C# backend planner", "Callable fixtures require module-level function value storage, contextual lambda typing, closures, delegate carriers, optional callback parameters, arrays/interfaces containing function types, and generic function alias facts."),
   ...deferredEmitterCases([
     "types/anonymous-objects/AnonymousObjects",

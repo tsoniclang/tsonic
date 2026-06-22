@@ -1181,6 +1181,76 @@ test("CLI emits generic Action and Func delegate signatures from TSTS callable t
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits higher-order callable returns and generic function type aliases", async () => {
+  const projectDirectory = resolve(tempRoot, "higher-order-callables");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedHigherOrderCallables",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "type Predicate<T> = (value: T) => boolean;",
+      "type Transform<T, U> = (value: T) => U;",
+      "type Comparer<T> = (left: T, right: T) => int32;",
+      "",
+      "export function add(left: int32): (right: int32) => int32 {",
+      "  return (right: int32): int32 => left + right;",
+      "}",
+      "",
+      "export function makeRepeater(value: string): () => string {",
+      "  return (): string => value;",
+      "}",
+      "",
+      "export function createNested(): () => () => string {",
+      "  return (): (() => string) => (): string => \"deeply nested\";",
+      "}",
+      "",
+      "export function test<T>(value: T, predicate: Predicate<T>): boolean {",
+      "  return predicate(value);",
+      "}",
+      "",
+      "export function transform<T, U>(value: T, fn: Transform<T, U>): U {",
+      "  return fn(value);",
+      "}",
+      "",
+      "export function compare<T>(left: T, right: T, comparer: Comparer<T>): int32 {",
+      "  return comparer(left, right);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static Func<int, int> add\(int left\)/);
+  assert.match(generatedSource, /return \(int right\) => left \+ right;/);
+  assert.match(generatedSource, /public static Func<string> makeRepeater\(string value\)/);
+  assert.match(generatedSource, /return \(\) => value;/);
+  assert.match(generatedSource, /public static Func<Func<string>> createNested\(\)/);
+  assert.match(generatedSource, /return \(\) => \(\) => "deeply nested";/);
+  assert.match(generatedSource, /public static bool test<T>\(T value, Func<T, bool> predicate\)/);
+  assert.match(generatedSource, /public static U transform<T, U>\(T value, Func<T, U> fn\)/);
+  assert.match(generatedSource, /public static int compare<T>\(T left, T right, Func<T, T, int> comparer\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedHigherOrderCallables.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits standard JavaScript class static blocks as C# static constructors", async () => {
   const projectDirectory = resolve(tempRoot, "class-static-blocks");
