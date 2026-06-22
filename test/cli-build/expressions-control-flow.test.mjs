@@ -1054,6 +1054,96 @@ test("CLI emits explicit tuple types and tuple literals as C# value tuples", asy
 });
 
 
+test("CLI runs utility-projected object shapes and Parameters tuple destructuring", async () => {
+  const assemblyName = "SmokeGeneratedUtilityProjectedTuples";
+  const projectDirectory = resolve(tempRoot, "utility-projected-tuples");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "type Point = { x: int32; y: int32; label: string; active: boolean };",
+      "type PointSummary = Pick<Point, \"x\" | \"label\">;",
+      "type PointHidden = Omit<Point, \"active\" | \"y\">;",
+      "type PointReadonly = Readonly<PointSummary>;",
+      "type PairFn = (name: string, value: number) => string;",
+      "type PairArgs = Parameters<PairFn>;",
+      "",
+      "function summarize(value: PointSummary): string {",
+      "  return `${value.label}:${value.x}`;",
+      "}",
+      "",
+      "function summarizeHidden(value: PointHidden): string {",
+      "  return `${value.label}:${value.x}`;",
+      "}",
+      "",
+      "function summarizeReadonly(value: PointReadonly): string {",
+      "  return `${value.label}:${value.x}`;",
+      "}",
+      "",
+      "function formatPair(args: PairArgs): string {",
+      "  const [name, value] = args;",
+      "  return `${name}:${value}`;",
+      "}",
+      "",
+      "const summary: PointSummary = { x: 7, label: \"p\" };",
+      "const hidden: PointHidden = { x: 5, label: \"q\" };",
+      "const readonlySummary: PointReadonly = { x: 9, label: \"r\" };",
+      "const args: PairArgs = [\"tuple\", 4];",
+      "Console.writeLine(summarize(summary));",
+      "Console.writeLine(summarizeHidden(hidden));",
+      "Console.writeLine(summarizeReadonly(readonlySummary));",
+      "Console.writeLine(formatPair(args));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public class __TsonicShape_/);
+  assert.match(generatedSource, /public int x;/);
+  assert.match(generatedSource, /public string label;/);
+  assert.doesNotMatch(generatedSource, /public int y;/);
+  assert.doesNotMatch(generatedSource, /public bool active;/);
+  assert.match(generatedSource, /public static string formatPair\(\(string, double\) args\)/);
+  assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1;/);
+  assert.match(generatedSource, /double value = __tsonic_destructure\d+\.Item2;/);
+  assert.doesNotMatch(generatedSource, /__tsonic_destructure\d+\[\d+\]/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const projectPath = resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
+  const dotnet = run("dotnet", ["build", projectPath, "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const executed = run("dotnet", ["run", "--project", projectPath, "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), [
+    "p:7",
+    "q:5",
+    "r:9",
+    "tuple:4",
+    "",
+  ].join("\n"));
+});
+
+
 test("CLI emits void-expression statement and return lowering as discard evaluation", async () => {
   const projectDirectory = resolve(tempRoot, "void-expression-discard");
   await writeProject(projectDirectory, {

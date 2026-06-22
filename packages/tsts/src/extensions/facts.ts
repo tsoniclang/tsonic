@@ -94,6 +94,7 @@ export interface AttributeFact {
   readonly target: ExtensionFactSubject;
   readonly applicationTarget?: ExtensionFactSubject;
   readonly applicationParameterName?: string;
+  readonly applicationPlacement?: "constructor";
   readonly attributeName: string;
   readonly arguments?: readonly ExtensionFactSubject[];
 }
@@ -297,6 +298,7 @@ export const attributeFactKey = defineExtensionFactKey<AttributeFact>({
     left.target === right.target
     && left.applicationTarget === right.applicationTarget
     && left.applicationParameterName === right.applicationParameterName
+    && left.applicationPlacement === right.applicationPlacement
     && left.attributeName === right.attributeName
     && factSubjectArrayEquals(left.arguments, right.arguments),
 });

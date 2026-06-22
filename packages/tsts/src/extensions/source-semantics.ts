@@ -397,7 +397,7 @@ function recordSourceSemanticsCallMarker(
       return;
     }
     case "field":
-      recordFieldMarker(facts, callExpression, evidence);
+      recordFieldMarker(facts, diagnostics, extensionId, callExpression, marker, evidence);
       return;
     case "struct":
       recordStructMarker(facts, callExpression, evidence);
@@ -454,27 +454,72 @@ function getArgumentPassingMode(kind: ArgumentPassingMarkerKind): ArgumentPassin
 
 function recordFieldMarker(
   facts: ExtensionFactStore,
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
   callExpression: Node,
+  marker: SourceCallMarkerDeclaration,
   evidence: readonly ExtensionEvidence[],
 ): void {
   const fieldType = (Node_TypeArguments(callExpression) ?? [])[0];
   if (fieldType === undefined) {
+    diagnostics.append({
+      extensionId,
+      extensionCode: "SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE",
+      numericCode: 9901102,
+      publicCode: "TSTS_SOURCE_SEMANTICS_0002",
+      category: "error",
+      message: `${marker.exportName}(...) is missing field type evidence; use ${marker.exportName}<T>() so finalized field facts can be recorded.`,
+      nodeOrSpan: callExpression,
+      evidence,
+      identity: `source-semantics-missing-field-type-evidence:${String(callExpression.id ?? "unknown")}`,
+    });
     return;
   }
-  const propertyAssignment = callExpression?.Parent?.Kind === KindPropertyAssignment ? callExpression.Parent : undefined;
-  const nameNode = propertyAssignment === undefined ? undefined : (Node_Name(propertyAssignment) ?? Node_PropertyName(propertyAssignment));
-  const name = Node_Text(nameNode);
+  const fieldTarget = getFieldMarkerTarget(callExpression);
+  if (fieldTarget === undefined) {
+    diagnostics.append({
+      extensionId,
+      extensionCode: "SOURCE_SEMANTICS_FIELD_TARGET_NOT_PROVEN",
+      numericCode: 9901103,
+      publicCode: "TSTS_SOURCE_SEMANTICS_0003",
+      category: "error",
+      message: `${marker.exportName}<T>() requires a class property initializer or object-literal property assignment so finalized field facts can prove the field name.`,
+      nodeOrSpan: callExpression,
+      evidence,
+      identity: `source-semantics-field-target-not-proven:${String(callExpression.id ?? "unknown")}`,
+    });
+    return;
+  }
+  const name = Node_Text(fieldTarget.nameNode);
   const fact = {
     name,
     type: fieldType,
   } satisfies FieldFact;
   facts.set(callExpression, fieldFactKey, fact, evidence);
-  if (propertyAssignment !== undefined) {
-    facts.set(propertyAssignment, fieldFactKey, fact, evidence);
-    if (nameNode !== undefined) {
-      facts.set(nameNode, fieldFactKey, fact, evidence);
-    }
+  facts.set(fieldTarget.declaration, fieldFactKey, fact, evidence);
+  facts.set(fieldTarget.nameNode, fieldFactKey, fact, evidence);
+}
+
+interface FieldMarkerTarget {
+  readonly declaration: Node;
+  readonly nameNode: Node;
+}
+
+function getFieldMarkerTarget(callExpression: Node): FieldMarkerTarget | undefined {
+  const parent = callExpression.Parent;
+  if (parent?.Kind === KindPropertyAssignment) {
+    const nameNode = Node_Name(parent) ?? Node_PropertyName(parent);
+    return nameNode === undefined
+      ? undefined
+      : { declaration: parent, nameNode };
   }
+  if (parent?.Kind === KindPropertyDeclaration && Node_Initializer(parent) === callExpression) {
+    const nameNode = Node_Name(parent);
+    return nameNode === undefined
+      ? undefined
+      : { declaration: parent, nameNode };
+  }
+  return undefined;
 }
 
 function recordStructMarker(
@@ -525,6 +570,7 @@ function recordAttributeMarker(
 interface AttributeBuilderContext {
   readonly applicationTarget: ExtensionFactSubject;
   readonly applicationParameterName?: string;
+  readonly applicationPlacement?: "constructor";
 }
 
 function recordAttributeBuilderCall(
@@ -557,6 +603,7 @@ function recordAttributeBuilderCall(
     target,
     applicationTarget: receiverContext.applicationTarget,
     ...(receiverContext.applicationParameterName !== undefined ? { applicationParameterName: receiverContext.applicationParameterName } : {}),
+    ...(receiverContext.applicationPlacement !== undefined ? { applicationPlacement: receiverContext.applicationPlacement } : {}),
     attributeName: getExpressionNameText(target),
     arguments: args.slice(1),
   } satisfies AttributeFact;
@@ -599,6 +646,15 @@ function getAttributeBuilderContext(
         applicationTarget: selectedTarget,
       };
   }
+  if (methodName === "constructor") {
+    const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+    return receiverContext === undefined
+      ? undefined
+      : {
+        applicationTarget: receiverContext.applicationTarget,
+        applicationPlacement: "constructor",
+      };
+  }
   if (methodName === "parameter") {
     const receiverContext = getAttributeBuilderContext(facts, access.Expression);
     const parameterName = getStringLiteralText((Node_Arguments(expression) ?? [])[0]);
@@ -607,6 +663,7 @@ function getAttributeBuilderContext(
       : {
         applicationTarget: receiverContext.applicationTarget,
         applicationParameterName: parameterName,
+        ...(receiverContext.applicationPlacement !== undefined ? { applicationPlacement: receiverContext.applicationPlacement } : {}),
       };
   }
   return undefined;

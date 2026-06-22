@@ -864,12 +864,16 @@ test("CLI rejects attribute builder targets without provider target facts", asyn
       "export class Annotated {",
       "  value: number = 1;",
       "",
+      "  constructor(seed: number) {}",
+      "",
       "  run(input: number): number {",
       "    return input;",
       "  }",
       "}",
       "",
       "A<Annotated>().add(CLSCompliantAttribute, true);",
+      "A<Annotated>().constructor().add(CLSCompliantAttribute, true);",
+      "A<Annotated>().constructor().parameter(\"seed\").add(CLSCompliantAttribute, false);",
       "A<Annotated>().property((target) => target.value).add(CLSCompliantAttribute, false);",
       "A<Annotated>().method((target) => target.run).add(CLSCompliantAttribute, true);",
       "A<Annotated>().method((target) => target.run).parameter(\"input\").add(CLSCompliantAttribute, false);",
@@ -907,12 +911,16 @@ test("CLI emits C# attributes from provider target identity facts", async () => 
       "export class Annotated {",
       "  value: number = 1;",
       "",
+      "  constructor(seed: number) {}",
+      "",
       "  run(input: number): number {",
       "    return input;",
       "  }",
       "}",
       "",
       "A<Annotated>().add(CLSCompliantAttribute, true);",
+      "A<Annotated>().constructor().add(CLSCompliantAttribute, true);",
+      "A<Annotated>().constructor().parameter(\"seed\").add(CLSCompliantAttribute, false);",
       "A<Annotated>().property((target) => target.value).add(CLSCompliantAttribute, false);",
       "A<Annotated>().method((target) => target.run).add(CLSCompliantAttribute, true);",
       "A<Annotated>().method((target) => target.run).parameter(\"input\").add(CLSCompliantAttribute, false);",
@@ -925,12 +933,52 @@ test("CLI emits C# attributes from provider target identity facts", async () => 
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(true\)\]\s+public class Annotated/);
+  assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(true\)\]\s+public Annotated\(\[System\.CLSCompliantAttribute\(false\)\] double seed\)/);
   assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(false\)\]\s+public double value = 1;/);
   assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(true\)\]\s+public double run\(\[System\.CLSCompliantAttribute\(false\)\] double input\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderAttributes.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+
+test("CLI rejects explicit attribute target specifiers outside the finalized marker model", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-attribute-target-specifier-blocked");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderAttributeTargetSpecifierBlocked",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { attribute as A } from \"@tsonic/core/lang.js\";",
+      "import { CLSCompliantAttribute } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export class Annotated {",
+      "  run(input: number): number {",
+      "    return input;",
+      "  }",
+      "}",
+      "",
+      "A<Annotated>().method((target) => target.run).return().add(CLSCompliantAttribute, true);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Property 'return' does not exist/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
 });
 
 

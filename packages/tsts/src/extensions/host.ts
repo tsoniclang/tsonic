@@ -1621,9 +1621,9 @@ function renderProviderMember(member: ProviderMemberDeclaration): string {
   const staticPrefix = member.static === true ? "static " : "";
   switch (member.kind) {
     case "constructor":
-      return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }]).join("\n  ");
+      return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], { constructSignature: true }).join("\n  ");
     case "method":
-      return renderProviderSignatures(member.name, member.signatures ?? []).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
+      return renderProviderSignatures(renderProviderMemberName(member.name), member.signatures ?? []).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
     case "property":
     case "field":
       return `${staticPrefix}${member.name}: ${renderProviderTypeExpression(member.type!)};`;
@@ -1635,13 +1635,21 @@ function renderProviderMember(member: ProviderMemberDeclaration): string {
   }
 }
 
-function renderProviderSignatures(name: string, signatures: readonly ProviderSignatureDeclaration[]): readonly string[] {
+function renderProviderSignatures(
+  name: string,
+  signatures: readonly ProviderSignatureDeclaration[],
+  options: { readonly constructSignature?: boolean } = {},
+): readonly string[] {
   return signatures.map((signature) => {
     const typeParameters = renderProviderTypeParameters(signature.typeParameters ?? []);
     const parameters = signature.parameters.map(renderProviderParameter).join(", ");
-    const returnType = name === "constructor" ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" })}`;
+    const returnType = options.constructSignature === true ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" })}`;
     return `${name}${typeParameters}(${parameters})${returnType};`;
   });
+}
+
+function renderProviderMemberName(name: string): string {
+  return name === "constructor" ? JSON.stringify(name) : name;
 }
 
 function renderProviderTypeParameters(typeParameters: readonly ProviderTypeParameterDeclaration[]): string {

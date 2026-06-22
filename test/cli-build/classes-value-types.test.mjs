@@ -145,6 +145,73 @@ test("CLI emits value-type structs only from finalized field facts", async () =>
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits class fields only from finalized field facts", async () => {
+  const projectDirectory = resolve(tempRoot, "class-field-finalized-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedClassFieldFacts",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { field } from \"@tsonic/core/lang.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export class C {",
+      "  raw = field<int32>();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public class C/);
+  assert.match(generatedSource, /public int raw;/);
+  assert.doesNotMatch(generatedSource, /raw\s*=/);
+  assert.doesNotMatch(generatedSource, /field\(/);
+  assert.doesNotMatch(generatedSource, /__tsonic_erased_source_marker/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedClassFieldFacts.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects class field markers without finalized field facts", async () => {
+  const projectDirectory = resolve(tempRoot, "class-field-missing-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { field } from \"@tsonic/core/lang.js\";",
+      "",
+      "export class C {",
+      "  raw = field();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /missing field type evidence/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI rejects value-type members without finalized field facts", async () => {
   const projectDirectory = resolve(tempRoot, "value-type-missing-field-facts");
   await writeProject(projectDirectory, {

@@ -330,10 +330,10 @@ export const oldEmitterPortInventory = Object.freeze([
   ),
   ...deferredEmitterCases([
     "attributes/comprehensive/Attributes",
-  ], "attributes", "C# source semantics + C# native provider + C# backend planner", "Class/method/property/field/parameter attribute facts are covered by current C# target tests; this old fixture remains deferred for constructor attribute placement, which still needs an approved source-semantics surface and declaration planner support."),
+  ], "attributes", "C# source semantics + C# native provider + C# backend planner", "Class/method/property/field/parameter/constructor attribute facts are covered by current C# target tests; this old fixture remains deferred for broader legacy fixture breadth that still requires finalized current source-surface facts instead of old emitter assumptions."),
   ...deferredEmitterCases([
     "attributes/targets/Attributes",
-  ], "attributes", "C# source semantics + C# native provider + C# backend planner", "Field placement through finalized attribute facts is covered by current C# target tests; this old fixture remains deferred for explicit C# attribute target specifiers such as return-target attributes, which are not yet part of the approved current source surface."),
+  ], "attributes", "C# source semantics + C# native provider + C# backend planner", "Field placement through finalized attribute facts is covered by current C# target tests; this old fixture remains deferred for explicit C# attribute target specifiers such as field/property/param/return targets because the finalized AttributeFact/source-marker surface does not yet carry a target-specifier slot."),
   ...deferredEmitterCases([
     "classes/field-marker/FieldMarker",
   ], "classes", "source field marker semantics + C# declaration planner", "Field marker fixtures require finalized neutral field-marker source facts before property/field storage can be emitted without target-specific source syntax."),
