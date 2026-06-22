@@ -120,7 +120,7 @@ test("CLI rejects provider-owned object literals until object-shape facts are fi
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Object literal emission requires a source-owned expected type or finalized TSTS\/provider object-shape facts/);
+  assert.match(build.stderr, /TS2740: Type '\{ message: string; toString\(\): string; \}' is missing/);
 });
 
 
@@ -163,7 +163,7 @@ test("CLI emits interface object literals through provider object-shape adapters
   assert.match(generated, /public class __TsonicShape_Named_[A-Za-z0-9_]+ : Named[\s\S]*public string name[\s\S]*get;[\s\S]*set;[\s\S]*public Func<double, double> __tsonic_shape_method_1_run;/);
   assert.match(generated, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_1_run\(arg0\);/);
   assert.match(generated, /public static Named create\(\)[\s\S]*return new __TsonicShape_Named_[A-Za-z0-9_]+[\s\S]*name = "one",[\s\S]*__tsonic_shape_method_1_run = \(double value\) =>[\s\S]*return value \+ 1;/);
-  assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __destructure\d+\.run;[\s\S]*return run\(2\);/);
+  assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __tsonic_destructure\d+\.run;[\s\S]*return run\(2\);/);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
@@ -324,10 +324,10 @@ test("CLI emits object-shape for-in from finalized provider enumeration facts", 
   assert.match(generatedSource, /public class __TsonicShape_/);
   assert.match(generatedSource, /public double value;/);
   assert.match(generatedSource, /public string label;/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __forInTarget0 = values;/);
-  assert.match(generatedSource, /string\[\] __forInKeys0 = new string\[\] \{ "value", "label" \};/);
-  assert.match(generatedSource, /for \(int __forInIndex0 = 0; __forInIndex0 < __forInKeys0\.Length; __forInIndex0\+\+\)/);
-  assert.match(generatedSource, /string key = __forInKeys0\[__forInIndex0\];/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_forInTarget0 = values;/);
+  assert.match(generatedSource, /string\[\] __tsonic_forInKeys0 = new string\[\] \{ "value", "label" \};/);
+  assert.match(generatedSource, /for \(int __tsonic_forInIndex0 = 0; __tsonic_forInIndex0 < __tsonic_forInKeys0\.Length; __tsonic_forInIndex0\+\+\)/);
+  assert.match(generatedSource, /string key = __tsonic_forInKeys0\[__tsonic_forInIndex0\];/);
   assert.match(generatedSource, /total = total \+ key\.Length;/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 
@@ -377,13 +377,13 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
   assert.match(generatedSource, /public class __TsonicShape_/);
   assert.match(generatedSource, /public double value;/);
   assert.match(generatedSource, /public string label;/);
-  assert.match(generatedSource, /public static double fromParameter\(__TsonicShape_[A-Za-z0-9_]+ __param0\)/);
-  assert.match(generatedSource, /double value = __param0\.value;/);
+  assert.match(generatedSource, /public static double fromParameter\(__TsonicShape_[A-Za-z0-9_]+ __tsonic_param0\)/);
+  assert.match(generatedSource, /double value = __tsonic_param0\.value;/);
   assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ create\(double value\)/);
   assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = "ok",\s*\};/);
   assert.match(generatedSource, /public static double fromLocal\(__TsonicShape_[A-Za-z0-9_]+ input\)/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __destructure\d+ = input;/);
-  assert.match(generatedSource, /double value = __destructure\d+\.value;/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = input;/);
+  assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapes.csproj"), "--nologo", "--v:minimal"]);
@@ -421,7 +421,7 @@ test("CLI emits object rest destructuring from finalized TSTS rest binding shape
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = __destructure\d+\.label,\s*active = __destructure\d+\.active,\s*\};/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = __tsonic_destructure\d+\.label,\s*active = __tsonic_destructure\d+\.active,\s*\};/);
   assert.match(generatedSource, /return rest\.label;/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 

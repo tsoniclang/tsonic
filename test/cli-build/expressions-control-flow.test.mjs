@@ -365,10 +365,10 @@ test("CLI lowers labeled break and continue into deterministic C# labels", async
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /goto __label\d+_outer_continue;/);
-  assert.match(generatedSource, /goto __label\d+_outer_break;/);
-  assert.match(generatedSource, /__label\d+_outer_continue:/);
-  assert.match(generatedSource, /__label\d+_outer_break:/);
+  assert.match(generatedSource, /goto __tsonic_label_outer_continue\d+;/);
+  assert.match(generatedSource, /goto __tsonic_label_outer_break\d+;/);
+  assert.match(generatedSource, /__tsonic_label_outer_continue\d+:/);
+  assert.match(generatedSource, /__tsonic_label_outer_break\d+:/);
   assert.doesNotMatch(generatedSource, /Labeled break requires/);
   assert.doesNotMatch(generatedSource, /Labeled continue requires/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -710,12 +710,12 @@ test("CLI emits source-owned local object destructuring", async () => {
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Point __destructure0 = point;/);
-  assert.match(generatedSource, /double x = __destructure0\.x;/);
-  assert.match(generatedSource, /double aliasX = __destructure\d+\.x;/);
-  assert.match(generatedSource, /double stringY = __destructure\d+\.y;/);
-  assert.match(generatedSource, /Point __destructure\d+ = __destructure\d+\.child;/);
-  assert.match(generatedSource, /double nestedX = __destructure\d+\.x;/);
+  assert.match(generatedSource, /Point __tsonic_destructure0 = point;/);
+  assert.match(generatedSource, /double x = __tsonic_destructure0\.x;/);
+  assert.match(generatedSource, /double aliasX = __tsonic_destructure\d+\.x;/);
+  assert.match(generatedSource, /double stringY = __tsonic_destructure\d+\.y;/);
+  assert.match(generatedSource, /Point __tsonic_destructure\d+ = __tsonic_destructure\d+\.child;/);
+  assert.match(generatedSource, /double nestedX = __tsonic_destructure\d+\.x;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDestructuring.csproj"), "--nologo", "--v:minimal"]);
@@ -764,10 +764,10 @@ test("CLI emits source-owned parameter and for-initializer object destructuring"
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double fromObjectParameter\(Point __param0\)/);
-  assert.match(generatedSource, /double x = __param0\.x;/);
-  assert.match(generatedSource, /Point __destructure0 = point;/);
-  assert.match(generatedSource, /double x = __destructure0\.x;/);
+  assert.match(generatedSource, /public static double fromObjectParameter\(Point __tsonic_param0\)/);
+  assert.match(generatedSource, /double x = __tsonic_param0\.x;/);
+  assert.match(generatedSource, /Point __tsonic_destructure0 = point;/);
+  assert.match(generatedSource, /double x = __tsonic_destructure0\.x;/);
   assert.match(generatedSource, /for \(; x < 2; \)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
