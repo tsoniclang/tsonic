@@ -1121,6 +1121,49 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits module-scope arrow function values as C# Func fields", async () => {
+  const projectDirectory = resolve(tempRoot, "module-arrow-function-values");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedModuleArrowValues",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "type NumberToNumber = (value: number) => number;",
+      "type BinaryNumber = (left: number, right: number) => number;",
+      "",
+      "export const add: BinaryNumber = (left, right) => left + right;",
+      "export const greet = (name: string): string => `Hello ${name}`;",
+      "export const double: NumberToNumber = (value) => value * 2;",
+      "export const triple = (value: number): number => value * 3;",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static readonly Func<double, double, double> add = \(left, right\) => left \+ right;/);
+  assert.match(generatedSource, /public static readonly Func<string, string> greet = \(string name\) => \$"Hello \{name\}";/);
+  assert.match(generatedSource, /public static readonly Func<double, double> @double = value => value \* 2;/);
+  assert.match(generatedSource, /public static readonly Func<double, double> triple = \(double value\) => value \* 3;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedModuleArrowValues.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits generic Action and Func delegate signatures from TSTS callable types", async () => {
   const projectDirectory = resolve(tempRoot, "action-func-delegates");
   await writeProject(projectDirectory, {

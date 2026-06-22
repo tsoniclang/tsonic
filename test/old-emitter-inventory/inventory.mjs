@@ -155,6 +155,18 @@ export const oldEmitterPortInventory = Object.freeze([
     "Ported as current-architecture C# AST coverage for literal default parameters rendered as C# optional parameters and validated by dotnet build.",
   ),
   portedEmitterCase(
+    "functions/arrow/ArrowFunction",
+    "functions",
+    "test/cli-build/modules-declarations.test.mjs",
+    "Ported as current-architecture C# AST coverage for module-scope arrow function values rendered as static Func fields and validated by dotnet build.",
+  ),
+  portedEmitterCase(
+    "functions/arrow-inference/ArrowInference",
+    "functions",
+    "test/cli-build/modules-declarations.test.mjs",
+    "Ported as current-architecture C# AST coverage for contextual arrow parameter inference through TSTS callable aliases and generated Func field rendering, validated by dotnet build.",
+  ),
+  portedEmitterCase(
     "functions/delegates/ActionFunc",
     "functions",
     "test/cli-build/modules-declarations.test.mjs",
@@ -242,8 +254,6 @@ export const oldEmitterPortInventory = Object.freeze([
     "extensions/system/Overlaps",
   ], "target-interop", "C# native provider + C# backend planner", "Extension-method fixtures require provider-owned extension member declarations, receiver mapping, selected overload facts, byref/out parameter facts, and target operation AST emission."),
   ...deferredEmitterCases([
-    "functions/arrow-inference/ArrowInference",
-    "functions/arrow/ArrowFunction",
     "functions/optional-callbacks/OptionalParams",
     "types/function-collections/FunctionArrays",
   ], "functions", "TSTS callable signatures + C# backend planner", "Callable fixtures require module-level function value storage, contextual lambda typing, closures, delegate carriers, optional callback parameters, arrays/interfaces containing function types, and generic function alias facts."),
