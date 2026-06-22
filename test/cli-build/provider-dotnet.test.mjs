@@ -1044,3 +1044,66 @@ test("CLI emits provider-backed C# catch variables", async () => {
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCatchVariable.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
+
+
+test("CLI runs provider-backed exception throw, catch, and finally semantics", async () => {
+  const assemblyName = "SmokeGeneratedProviderExceptionRuntime";
+  const projectDirectory = resolve(tempRoot, "provider-backed-exception-runtime");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console, Exception } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "let cleanup = 0;",
+      "",
+      "function guarded(shouldThrow: boolean): string {",
+      "  try {",
+      "    if (shouldThrow) {",
+      "      throw new Exception(\"boom\");",
+      "    }",
+      "    return \"ok\";",
+      "  } catch (error) {",
+      "    return \"boom\";",
+      "  } finally {",
+      "    cleanup++;",
+      "  }",
+      "}",
+      "",
+      "Console.writeLine(`throw: ${guarded(true)}`);",
+      "Console.writeLine(`pass: ${guarded(false)}`);",
+      "Console.writeLine(`cleanup: ${cleanup}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /throw new System\.Exception\("boom"\);/);
+  assert.match(generatedSource, /catch \(System\.Exception error\)/);
+  assert.match(generatedSource, /return "boom";/);
+  assert.match(generatedSource, /finally/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
+    "throw: boom",
+    "pass: ok",
+    "cleanup: 2",
+    "",
+  ].join("\n"));
+});

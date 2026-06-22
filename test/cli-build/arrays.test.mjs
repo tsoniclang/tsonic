@@ -69,6 +69,14 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
       "  return total;",
       "}",
       "",
+      "export function int32ForOf(values: int32[]): int32 {",
+      "  let total: int32 = 0;",
+      "  for (const value of values) {",
+      "    total += value;",
+      "  }",
+      "  return total;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -85,10 +93,44 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
   assert.match(generatedSource, /float\[\] values = new float\[\] \{ 1.5F, 2.5F \};/);
   assert.match(generatedSource, /double\[\] values = new double\[\] \{ 1, 2, 3 \};/);
   assert.match(generatedSource, /foreach \(double value in values\)/);
+  assert.match(generatedSource, /foreach \(int value in values\)/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysTypedLiterals.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects untyped empty array returns with a target diagnostic", async () => {
+  const projectDirectory = resolve(tempRoot, "arrays-empty-return-requires-element-evidence");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArraysEmptyReturnRequiresElementEvidence",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function f() {",
+      "  return [];",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /array element type evidence/);
+  assert.doesNotMatch(build.stderr, /resolvedTypeArguments|TypeError|Cannot read properties/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysEmptyReturnRequiresElementEvidence.csproj")), false);
 });
 
 test("CLI emits native .NET array element access and JS-selected length facts", async () => {
