@@ -494,6 +494,15 @@ export const oldSuitePortInventory = Object.freeze([
     "generic-null-default",
     "nested-generic-brands",
   ], "csharp-backend", "TSTS generic inference/substitution facts + C# declaration planner", "Valid behavior covers generic declarations, imported/exported generic function values, contextual generic calls, inheritance substitution, constraints, aliases, and nested substitutions; port after C# planning consumes TSTS generic symbols/type arguments and provider constraint facts end to end."),
+  Object.freeze({
+    oldPath: "test/fixtures/object-literal-method-shorthand/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS object-shape facts + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering object-literal method shorthand assigned to an interface method signature, contextual method parameters from TSTS, generated object-shape method wrappers, dotnet build/run, and exact stdout.",
+  }),
   ...deferredFixtures([
     "anonymous-object-type-literal",
     "nested-object-rest-destructuring",
@@ -504,7 +513,6 @@ export const oldSuitePortInventory = Object.freeze([
     "object-literal-method-arguments-index",
     "object-literal-method-arguments-index-reject",
     "object-literal-method-arguments-length",
-    "object-literal-method-shorthand",
     "object-literal-method-super-reject",
     "object-literal-method-this",
     "object-literal-object",
