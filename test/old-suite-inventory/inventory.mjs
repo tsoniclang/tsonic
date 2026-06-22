@@ -503,8 +503,34 @@ export const oldSuitePortInventory = Object.freeze([
     reason:
       "Ported as a current-architecture executable E2E covering object-literal method shorthand assigned to an interface method signature, contextual method parameters from TSTS, generated object-shape method wrappers, dotnet build/run, and exact stdout.",
   }),
+  Object.freeze({
+    oldPath: "test/fixtures/anonymous-object-type-literal/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS object-shape facts + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering an inline structural type-literal parameter, TSTS-resolved call parameter declaration facts, generated object-shape carriers, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/object-literal-object/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS object-shape facts + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering object literal assignment to a structural type alias, source-visible member annotations, generated object-shape carrier identity, property reads, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/object-prop-int-to-int/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS source primitive facts + C# object-shape planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    reason:
+      "Ported as a current-architecture executable E2E covering an int32 object-shape property preserved from explicit source annotation through finalized object-shape facts into an int field and int return, dotnet build/run, and exact stdout.",
+  }),
   ...deferredFixtures([
-    "anonymous-object-type-literal",
     "nested-object-rest-destructuring",
     "object-literal-accessors",
     "object-literal-computed-const-keys",
@@ -515,9 +541,7 @@ export const oldSuitePortInventory = Object.freeze([
     "object-literal-method-arguments-length",
     "object-literal-method-super-reject",
     "object-literal-method-this",
-    "object-literal-object",
     "object-prop-int-to-double",
-    "object-prop-int-to-int",
     "recursive-tree",
     "recursive-type-no-hang",
     "utility-types",

@@ -272,20 +272,20 @@ test("old suite inventory report counts are deterministic", () => {
   assert.deepEqual(report.counts, {
     total: 198,
     reused: 0,
-    ported: 36,
+    ported: 39,
     "replaced-by-stronger-test": 0,
     "invalid-stale-architecture": 3,
-    deferred: 159,
+    deferred: 156,
     unclassified: 0,
   });
 
   assert.equal(formatOldSuiteInventoryCounts(report.counts), [
     "total: 198",
     "reused: 0",
-    "ported: 36",
+    "ported: 39",
     "replaced-by-stronger-test: 0",
     "invalid-stale-architecture: 3",
-    "deferred: 159",
+    "deferred: 156",
     "unclassified: 0",
   ].join("\n"));
   assert.deepEqual(report.classifiedUnknownOldPaths, []);

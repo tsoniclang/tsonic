@@ -581,7 +581,7 @@ test("checker validates provider-owned flow use diagnostics from source-semantic
   assert.equal(extended.extensionHost.facts.get(movedUse, flowStateFactKey), undefined);
 });
 
-test("checker validates provider-owned assignability after normal TS compatibility", () => {
+test("checker observes provider-owned assignability after normal TS compatibility", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
       import { move } from "@example/native/lang.js";
@@ -1432,10 +1432,10 @@ function rustAssignabilityProvider(): TargetSemanticProvider {
       extensionContractVersion: TstsProviderContractVersion,
       providerKind: "semantic",
     },
-    validatePostCheckAssignability: (request, context) => {
+    observePostCheckAssignability: (request, context) => {
       const state = context.facts.get(request.expression, flowStateFactKey);
       if (state?.state !== "moved") {
-        return acceptObservation(true);
+        return acceptObservation(undefined);
       }
       return rejectObservation({
         extensionId: context.extensionId,

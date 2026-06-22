@@ -10,10 +10,12 @@ import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import { Checker_GetPropertyOfType } from "../internal/checker/exports.js";
+import { Checker_GetAliasedSymbol, Checker_getResolvedSymbolOrNil } from "../internal/checker/checker/symbols.js";
+import { Checker_getApplicableIndexInfo } from "../internal/checker/checker/signatures.js";
 import { Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
 import { GetSourceFileOfNode, NodeIsSynthesized } from "../internal/ast/utilities.js";
 import { ExtensionObservationPoint } from "./observations.js";
-import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityValidationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
+import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityObservationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
 import type { ExtensionEvidence, ExtensionFactKey, ExtensionFactSubject, ExtensionHost } from "./host.js";
 import { getExtensionHost } from "./host.js";
@@ -195,8 +197,20 @@ export function recordExtensionCheckedElementAccessMapping(checker: GoPtr<Checke
   if (receiver === undefined || argument === undefined) {
     return;
   }
+  const indexType = Checker_GetTypeAtLocation(checker, argument);
+  const selectedIndexInfo = receiverType === undefined || indexType === undefined
+    ? undefined
+    : Checker_getApplicableIndexInfo(checker, receiverType, indexType);
+  const sourceSelectedDeclaration = selectedIndexInfo?.declaration;
+  const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
+  const sourceSelectedContainerSymbol = sourceSelectedDeclarationContainer === undefined ? undefined : Node_Symbol(sourceSelectedDeclarationContainer);
   const requireOwner = hasAnyExtensionOwnedSubject(extensionHost, [
     receiver,
+    receiverType,
+    receiverType?.symbol,
+    sourceSelectedDeclaration,
+    sourceSelectedDeclarationContainer,
+    sourceSelectedContainerSymbol,
   ]);
 
   const result = extensionHost.runObservation(
@@ -206,6 +220,9 @@ export function recordExtensionCheckedElementAccessMapping(checker: GoPtr<Checke
       receiver,
       ...(receiverType !== undefined ? { receiverType } : {}),
       ...(receiverType?.symbol !== undefined ? { receiverTypeSymbol: receiverType.symbol } : {}),
+      ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
+      ...(sourceSelectedDeclarationContainer !== undefined ? { sourceSelectedDeclarationContainer } : {}),
+      ...(sourceSelectedContainerSymbol !== undefined ? { sourceSelectedContainerSymbol } : {}),
       argument,
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
@@ -431,14 +448,14 @@ export function recordExtensionContextualTargetTypeFact(checker: GoPtr<CheckerWi
   }, result.evidence ?? []);
 }
 
-export function recordExtensionPostCheckAssignabilityValidation(checker: GoPtr<CheckerWithProgram>, source: GoPtr<Type>, target: GoPtr<Type>, errorNode: GoPtr<Node>, expression: GoPtr<Node>, relation: PostCheckAssignabilityValidationRequest["relation"]): bool {
+export function recordExtensionPostCheckAssignabilityObservation(checker: GoPtr<CheckerWithProgram>, source: GoPtr<Type>, target: GoPtr<Type>, errorNode: GoPtr<Node>, expression: GoPtr<Node>, relation: PostCheckAssignabilityObservationRequest["relation"]): void {
   if (checker === undefined || source === undefined || target === undefined) {
-    return true as bool;
+    return;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.validatePostCheckAssignability) === undefined) {
-    return true as bool;
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.observePostCheckAssignability) === undefined) {
+    return;
   }
 
   if (
@@ -449,11 +466,11 @@ export function recordExtensionPostCheckAssignabilityValidation(checker: GoPtr<C
     && !hasExtensionOwnedSubject(extensionHost, errorNode)
     && !hasExtensionOwnedSubject(extensionHost, expression)
   ) {
-    return true as bool;
+    return;
   }
 
-  const result = extensionHost.runObservation(
-    ExtensionObservationPoint.validatePostCheckAssignability,
+  extensionHost.runObservation(
+    ExtensionObservationPoint.observePostCheckAssignability,
     {
       source,
       target,
@@ -462,13 +479,9 @@ export function recordExtensionPostCheckAssignabilityValidation(checker: GoPtr<C
       ...(expression !== undefined ? { expression } : {}),
       ...(extensionHost.activeTarget !== undefined ? { targetPlatform: extensionHost.activeTarget } : {}),
     },
-    () => true,
+    () => undefined,
     { requireOwner: true },
   );
-  if (result.kind !== "accept") {
-    return false as bool;
-  }
-  return result.value as bool;
 }
 
 export function recordExtensionFlowUseValidation(checker: GoPtr<CheckerWithProgram>, useSite: GoPtr<Node>, symbol: GoPtr<Symbol>): void {
@@ -629,9 +642,24 @@ function getReferenceSymbols(
     return {};
   }
   const symbol = Node_Symbol(node);
+  const resolvedSymbol = Checker_getResolvedSymbolOrNil(checker, node);
+  const aliasedSymbol = getAliasedSymbolIfAvailable(checker, resolvedSymbol ?? symbol);
   return {
     ...(symbol !== undefined ? { symbol } : {}),
+    ...(resolvedSymbol !== undefined && resolvedSymbol !== symbol ? { resolvedSymbol } : {}),
+    ...(aliasedSymbol !== undefined && aliasedSymbol !== symbol && aliasedSymbol !== resolvedSymbol ? { aliasedSymbol } : {}),
   };
+}
+
+function getAliasedSymbolIfAvailable(checker: GoPtr<CheckerWithProgram>, symbol: GoPtr<Symbol>): GoPtr<Symbol> {
+  if (checker === undefined || symbol === undefined) {
+    return undefined;
+  }
+  try {
+    return Checker_GetAliasedSymbol(checker, symbol);
+  } catch {
+    return undefined;
+  }
 }
 
 function isReferenceSymbolQueryNode(node: Node): boolean {

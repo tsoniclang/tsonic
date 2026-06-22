@@ -217,6 +217,7 @@ export interface ProviderVirtualDeclarationFact {
   readonly virtualFileName: string;
   readonly exportName?: string;
   readonly memberName?: string;
+  readonly memberId?: string;
   readonly signatureId?: string;
   readonly targetIdentity?: TargetTypeRef;
 }
@@ -372,6 +373,7 @@ export const providerVirtualDeclarationFactKey = defineExtensionFactKey<Provider
     && left.virtualFileName === right.virtualFileName
     && left.exportName === right.exportName
     && left.memberName === right.memberName
+    && left.memberId === right.memberId
     && left.signatureId === right.signatureId
     && optionalTargetTypeRefEquals(left.targetIdentity, right.targetIdentity),
 });

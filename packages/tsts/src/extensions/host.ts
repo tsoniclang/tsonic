@@ -360,7 +360,7 @@ export interface TargetBindingProvider {
 export interface TargetSemanticProvider {
   readonly identity: ProviderIdentity;
   validateTargetConstraint?: ExtensionObservationHook<typeof ExtensionObservationPoint.validateTargetConstraint>;
-  validatePostCheckAssignability?: ExtensionObservationHook<typeof ExtensionObservationPoint.validatePostCheckAssignability>;
+  observePostCheckAssignability?: ExtensionObservationHook<typeof ExtensionObservationPoint.observePostCheckAssignability>;
   mapCheckedCall?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedCall>;
   mapInferredSourceTypeArgumentsToTarget?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget>;
   mapCheckedPropertyAccess?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedPropertyAccess>;
@@ -1297,7 +1297,7 @@ export class ExtensionHost {
 
   #registerTargetSemanticProviderObservations(extensionId: string, provider: TargetSemanticProvider): void {
     registerProviderObservation(this, extensionId, ExtensionObservationPoint.validateTargetConstraint, provider.validateTargetConstraint);
-    registerProviderObservation(this, extensionId, ExtensionObservationPoint.validatePostCheckAssignability, provider.validatePostCheckAssignability);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.observePostCheckAssignability, provider.observePostCheckAssignability);
     registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedCall, provider.mapCheckedCall);
     registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget, provider.mapInferredSourceTypeArgumentsToTarget);
     registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedPropertyAccess, provider.mapCheckedPropertyAccess);

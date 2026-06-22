@@ -699,7 +699,7 @@ test("CLI rejects unsupported primitive generic constraints without provider fac
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Generic constraints require a named target type/);
+  assert.match(build.stderr, /Generic constraints require finalized target constraint facts/);
 });
 
 

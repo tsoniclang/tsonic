@@ -518,7 +518,7 @@ function discardSourcePrimitiveSemanticCarrier(type: TargetTypeRef | undefined):
   return type === undefined || targetTypeRefContainsSourcePrimitive(type) ? undefined : type;
 }
 
-function targetTypeRefContainsSourcePrimitive(type: TargetTypeRef): boolean {
+export function targetTypeRefContainsSourcePrimitive(type: TargetTypeRef): boolean {
   switch (type.kind) {
     case "source-primitive":
       return true;

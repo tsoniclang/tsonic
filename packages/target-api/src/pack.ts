@@ -76,6 +76,7 @@ export interface TargetSemanticQueries {
   getTypeFromTypeNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
   getResolvedCallReturnType(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
   getResolvedCallReturnRuntimeCarrier(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
+  getResolvedCallParameterDeclarations(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (Node | undefined)[] | undefined;
   getResolvedCallParameterTypes(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (Type | undefined)[] | undefined;
   getResolvedCallParameterRuntimeCarriers(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (TargetTypeRef | undefined)[] | undefined;
   getEnumMemberConstant(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): { readonly value: string | number | undefined } | undefined;

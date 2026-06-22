@@ -1,7 +1,7 @@
 import type { bool, byte, int, uint } from "../../go/scalars.js";
 import type { GoConstraint, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import { NewGoStructMap } from "../../go/compat.js";
-import { recordExtensionPostCheckAssignabilityValidation } from "../../extensions/checker-integration.js";
+import { recordExtensionPostCheckAssignabilityObservation } from "../../extensions/checker-integration.js";
 import type { Node } from "../ast/spine.js";
 import { Node_Name } from "../ast/spine.js";
 import { Node_ModifierFlags } from "../ast/ast.js";
@@ -1138,7 +1138,7 @@ export function Checker_reportDiagnostic(receiver: GoPtr<Checker>, diagnostic: G
 
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/relater.go::method::Checker.checkTypeAssignableToAndOptionallyElaborate","kind":"method","status":"implemented","sigHash":"4db0d4f43f485c39b2d35b65a4917cac04a7a21a814eb64d706729c064060d66","bodyHash":"3fb2c8d80a6974d273442b269e10c7b48eced38a44e1af479b3b9f4ad18c96c5"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After TS-Go confirms assignment compatibility, extension-enabled programs may impose stricter provider-owned target/surface assignability rules; no-extension programs and unowned assignments remain on the exact TS-Go path, and extensions cannot make a TS-Go-incompatible assignment valid."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After TS-Go computes assignment compatibility, extension-enabled programs may observe provider-owned target/surface assignability and record diagnostics/facts without redefining the TS-Go assignability relation; no-extension programs and unowned assignments remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkTypeAssignableToAndOptionallyElaborate(source *Type, target *Type, errorNode *ast.Node, expr *ast.Node, headMessage *diagnostics.Message, diagnosticOutput *[]*ast.Diagnostic) bool {
@@ -1147,7 +1147,10 @@ export function Checker_reportDiagnostic(receiver: GoPtr<Checker>, diagnostic: G
  */
 export function Checker_checkTypeAssignableToAndOptionallyElaborate(receiver: GoPtr<Checker>, source: GoPtr<Type>, target: GoPtr<Type>, errorNode: GoPtr<Node>, expr: GoPtr<Node>, headMessage: GoPtr<Message>, diagnosticOutput: GoPtr<GoSlice<GoPtr<Diagnostic>>>): bool {
   const coreAssignable = Checker_checkTypeRelatedToAndOptionallyElaborate(receiver, source, target, receiver!.assignableRelation, errorNode, expr, headMessage, diagnosticOutput);
-  return coreAssignable && recordExtensionPostCheckAssignabilityValidation(receiver, source, target, errorNode, expr, "assignment");
+  if (coreAssignable) {
+    recordExtensionPostCheckAssignabilityObservation(receiver, source, target, errorNode, expr, "assignment");
+  }
+  return coreAssignable;
 }
 
 /**

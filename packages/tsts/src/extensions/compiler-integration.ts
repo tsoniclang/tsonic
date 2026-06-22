@@ -2,7 +2,7 @@ import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import { Node_Members, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
 import { Node_Name } from "../internal/ast/spine.js";
-import { KindConstructor } from "../internal/ast/generated/kinds.js";
+import { KindConstructor, KindIndexSignature } from "../internal/ast/generated/kinds.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import {
   canonicalIdentityFactKey,
@@ -185,6 +185,9 @@ function recordProviderVirtualMemberFact(
 function isProviderMemberDeclaration(node: Node, member: ProviderMemberDeclaration): boolean {
   if (member.kind === "constructor") {
     return node.Kind === KindConstructor;
+  }
+  if (member.kind === "indexer") {
+    return node.Kind === KindIndexSignature;
   }
   const name = Node_Name(node);
   return name !== undefined && Node_Text(name) === member.name;
@@ -430,6 +433,7 @@ function getProviderVirtualDeclarationFact(
     virtualFileName: virtualModule.resolution.virtualFileName,
     ...(declaration !== undefined ? { exportName: declaration.name } : {}),
     ...(member !== undefined ? { memberName: member.name } : {}),
+    ...(member !== undefined ? { memberId: member.id } : {}),
     ...(signature !== undefined ? { signatureId: signature.id } : {}),
     ...(declaration?.targetIdentity !== undefined
       ? {

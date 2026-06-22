@@ -20,6 +20,7 @@ import {
   getRuntimeCarrierForType,
   getRuntimeCarrierForSemanticType,
   getRuntimeCarrierFromDeclaredFactGraph,
+  targetTypeRefContainsSourcePrimitive,
 } from "./runtime-carriers.js";
 import {
   getAliasedSymbolIfAlias,
@@ -58,6 +59,12 @@ export function createTargetSemanticQueries(
         refineTargetNamedCarrier(getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getSymbolAtReferenceNode(ast, checker, node, options), options)), semanticCarrier) ??
         refineTargetNamedCarrier(getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)), semanticCarrier) ??
         refineTargetNamedCarrier(getRuntimeCarrier(facts, getAliasedSymbolIfAlias(checker, getResolvedSymbolForReferenceNode(ast, checker, node, options), options)), semanticCarrier);
+      if (
+        declaredCarrier !== undefined &&
+        (directCarrier === undefined || targetTypeRefContainsSourcePrimitive(declaredCarrier))
+      ) {
+        return declaredCarrier;
+      }
       return directCarrier ??
         declaredCarrier ??
         semanticCarrier;
@@ -117,6 +124,13 @@ export function createTargetSemanticQueries(
         ? undefined
         : checker.getReturnTypeOfSignature(signature, options);
       return getRuntimeCarrierForType(ast, types, facts, returnType, options);
+    },
+    getResolvedCallParameterDeclarations(subject, options) {
+      const node = asNode(subject);
+      const signature = node === undefined ? undefined : checker.getResolvedSignature(node, options);
+      return signature === undefined
+        ? undefined
+        : signature.parameters.map(getPrimaryDeclaration);
     },
     getResolvedCallParameterTypes(subject, options) {
       const node = asNode(subject);
