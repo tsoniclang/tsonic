@@ -274,6 +274,24 @@ export const oldEmitterPortInventory = Object.freeze([
     "test/cli-build/e2e-runtime-language.test.mjs",
     "Ported through a current-architecture executable E2E covering ternary result typing for int32 and number returns using TSTS accepted source expressions plus provider target carrier facts.",
   ),
+  portedEmitterCase(
+    "types/expected-type-threading/NullishFull",
+    "operators",
+    "test/cli-build/e2e-runtime-language.test.mjs",
+    "Ported through a current-architecture executable E2E covering int32 nullish expected-carrier threading through basic fallback, nested chains, fallback parameters, typed variable initializers, and if-branch returns.",
+  ),
+  portedEmitterCase(
+    "types/expected-type-threading/ReturnInControlFlow",
+    "operators",
+    "test/cli-build/e2e-runtime-language.test.mjs",
+    "Ported through a current-architecture executable E2E covering expected int32 carriers through returns in if/else, while, for, switch, nested if, and nullish return expressions.",
+  ),
+  portedEmitterCase(
+    "types/expected-type-threading/VariableInit",
+    "operators",
+    "test/cli-build/e2e-runtime-language.test.mjs",
+    "Ported through a current-architecture executable E2E covering declared int32 variable initializers, ternary initializers, arithmetic branch initializers, and assignment RHS expected-carrier propagation.",
+  ),
   ...deferredEmitterCases([
     "async/basic/AsyncFunction",
     "functions/async-hof/AsyncReturningFunctions",
@@ -305,9 +323,6 @@ export const oldEmitterPortInventory = Object.freeze([
     "edge-cases/generic-null-default/GenericNullDefault",
     "edge-cases/inline-object-param/InlineObjectParam",
     "types/expected-type-threading/ArraySpread",
-    "types/expected-type-threading/NullishFull",
-    "types/expected-type-threading/ReturnInControlFlow",
-    "types/expected-type-threading/VariableInit",
   ], "operators", "TSTS flow/contextual facts + C# expression planner", "Operator and expected-type fixtures require TSTS flow/contextual types plus finalized nullable/nullish/optional-chain/ternary facts. They must not be implemented by old expected-type threading inside the backend."),
   ...deferredEmitterCases([
     "extensions/linq/ExtensionMethods",

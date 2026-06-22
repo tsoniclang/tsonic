@@ -181,11 +181,12 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/return-in-control-flow/",
-    status: "deferred",
+    status: "ported",
     featureArea: "csharp-backend",
     owner: "TSTS semantic facts + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
     reason:
-      "Source behavior is expected int typing threaded through returns in if/else, while, for, switch, nested if, and nullish return expressions so integer division truncates; port after TSTS expected-type facts drive every return site.",
+      "Ported as a current-architecture executable E2E covering expected int32 carriers through returns in if/else, while, for, switch, nested if, and nullish return expressions so integer division truncates under finalized provider facts.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/nested-scopes/",
@@ -215,6 +216,15 @@ export const oldSuitePortInventory = Object.freeze([
       "Ported as a current-architecture executable E2E covering ?? over nullable string, int32, number, optional property, optional call, and optional element results using finalized TSTS/provider carrier facts.",
   }),
   Object.freeze({
+    oldPath: "test/fixtures/nullish-coalescing-threading/",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS semantic facts + C# backend planner",
+    reason:
+      "Ported as a current-architecture executable E2E covering int32 nullish expected-carrier threading through basic fallback, nested chains, fallback parameters, typed variable initializers, and if-branch returns.",
+  }),
+  Object.freeze({
     oldPath: "test/fixtures/optional-chaining/",
     newPath: "test/cli-build/e2e-runtime-language.test.mjs",
     status: "ported",
@@ -233,11 +243,12 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/ternary-int-threading/",
-    status: "deferred",
+    status: "ported",
     featureArea: "csharp-backend",
     owner: "TSTS semantic facts + C# backend planner",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
     reason:
-      "Source behavior is int expected-type threading through ternary literals, int division in ternary branches, nested ternaries, return statements, arithmetic branches, and assignments; port after those facts are emitted from TSTS.",
+      "Ported as a current-architecture executable E2E covering int32 expected-carrier threading through ternary literals, int division in ternary branches, nested ternaries, return statements, arithmetic branches, and assignments.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/array-literal/",
@@ -503,7 +514,6 @@ export const oldSuitePortInventory = Object.freeze([
     "discriminant-equality",
     "first-next-ignored",
     "instanceof-narrowing",
-    "nullish-coalescing-threading",
     "optional-value-type-properties",
   ], "csharp-backend", "TSTS flow/contextual facts + C# expression planner", "Valid behavior covers narrowing, discriminants, cast erasure, nullish/optional threading, and precedence preservation; port after C# expression planning consumes TSTS flow and contextual target facts instead of recalculating them."),
   ...deferredFixtures([
