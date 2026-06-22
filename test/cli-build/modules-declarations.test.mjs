@@ -430,7 +430,7 @@ test("CLI emits standard JavaScript static class members", async () => {
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double count = 1;/);
+  assert.match(generatedSource, /public static double count\s*\{\s*get;\s*set;\s*\} = 1;/);
   assert.match(generatedSource, /public static double add\(double left, double right\)/);
   assert.match(generatedSource, /return MathBox\.add\(MathBox\.count, 2\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -533,7 +533,7 @@ test("CLI emits standard JavaScript private identifiers as private C# members", 
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /private double _value = 1;/);
+  assert.match(generatedSource, /private double _value\s*\{\s*get;\s*set;\s*\} = 1;/);
   assert.match(generatedSource, /public double value/);
   assert.match(generatedSource, /return this\._value;/);
   assert.match(generatedSource, /this\._value\+\+;/);
@@ -633,7 +633,7 @@ test("CLI emits C# generic declarations from TSTS generic AST", async () => {
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public class Box<T>/);
-  assert.match(generatedSource, /public T value;/);
+  assert.match(generatedSource, /public T value\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedSource, /public Box\(T value\)/);
   assert.match(generatedSource, /public T get\(\)/);
   assert.match(generatedSource, /public static T identity<T>\(T value\)/);
@@ -838,7 +838,7 @@ test("CLI emits sanitized C# names through source-owned provider facts", async (
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public double @default = 1;/);
+  assert.match(generatedSource, /public double @default\s*\{\s*get;\s*set;\s*\} = 1;/);
   assert.match(generatedSource, /return box\.@default;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -1009,7 +1009,7 @@ test("CLI emits interface index signatures as C# indexers", async () => {
 });
 
 
-test("CLI emits named generic constraints as C# where clauses", async () => {
+test("CLI emits finalized generic constraints as C# where clauses", async () => {
   const projectDirectory = resolve(tempRoot, "generic-constraints");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1031,8 +1031,16 @@ test("CLI emits named generic constraints as C# where clauses", async () => {
       "  name: string;",
       "}",
       "",
-      "export function constrained<T extends Named>(value: T): string {",
-      "  return value.name;",
+      "export interface Timestamped {",
+      "  createdAt: string;",
+      "}",
+      "",
+      "export function constrained<T extends Named & Timestamped>(value: T): string {",
+      "  return `${value.name}:${value.createdAt}`;",
+      "}",
+      "",
+      "export function referenceOnly<T extends object>(value: T): T {",
+      "  return value;",
       "}",
       "",
     ].join("\n"),
@@ -1043,7 +1051,10 @@ test("CLI emits named generic constraints as C# where clauses", async () => {
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string constrained<T>\(T value\)/);
-  assert.match(generatedSource, /where T : Named/);
+  assert.match(generatedSource, /where T : Named, Timestamped/);
+  assert.match(generatedSource, /return \$"\{value\.name\}:\{value\.createdAt\}";/);
+  assert.match(generatedSource, /public static T referenceOnly<T>\(T value\)/);
+  assert.match(generatedSource, /where T : class/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedGenericConstraints.csproj"), "--nologo", "--v:minimal"]);
@@ -1489,7 +1500,7 @@ test("CLI emits standard JavaScript class static blocks as C# static constructor
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double value = 0;/);
+  assert.match(generatedSource, /public static double value\s*\{\s*get;\s*set;\s*\} = 0;/);
   assert.match(generatedSource, /static Counter\(\)\n\s*\{\n\s*Counter\.value = 3;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

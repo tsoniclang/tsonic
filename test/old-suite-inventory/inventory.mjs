@@ -97,6 +97,51 @@ export const oldSuitePortInventory = Object.freeze([
       "Ported as a current-architecture executable E2E covering top-level generic method calls with explicit and inferred type arguments, source-call return carriers, generated C# generic methods, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
+    oldPath: "test/fixtures/generic-constraints-single/",
+    newPath: "test/cli-build/modules-declarations.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS generic constraint facts + C# backend planner",
+    reason:
+      "Ported as current-architecture C# AST coverage for named generic constraints rendered only from finalized target constraint facts and validated by dotnet build.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/generic-constraints-object-struct/",
+    newPath: "test/cli-build/modules-declarations.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS generic constraint facts + C# backend planner",
+    reason:
+      "Ported as current-architecture C# AST coverage for TypeScript object constraints mapped by source semantics to a C# class keyword constraint and validated by dotnet build.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/generic-multiple-constraints/",
+    newPath: "test/cli-build/modules-declarations.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS generic constraint facts + C# backend planner",
+    reason:
+      "Ported as current-architecture C# AST coverage for intersection generic constraints rendered only from finalized target constraint facts and validated by dotnet build.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/generic-interface-inheritance/",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS generic/interface facts + C# backend planner",
+    reason:
+      "Ported as a current-architecture executable E2E covering generic interface inheritance, concrete and generic implementations, C# auto-property interface satisfaction, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/generic-nested-substitution/",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS generic substitution facts + C# backend planner",
+    reason:
+      "Ported as a current-architecture executable E2E covering nested generic class substitution through Wrapper<T>, int32 specialization, generated C# type arguments, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
     oldPath: "test/fixtures/extension-methods-system/",
     status: "deferred",
     featureArea: "native-provider",
@@ -369,8 +414,6 @@ export const oldSuitePortInventory = Object.freeze([
     "advanced-generics-tsn7414",
     "generic-chains",
     "generic-complex-chain",
-    "generic-constraints-object-struct",
-    "generic-constraints-single",
     "generic-contextual",
     "generic-function-declaration-alias",
     "generic-function-declaration-tsn7432",
@@ -390,10 +433,7 @@ export const oldSuitePortInventory = Object.freeze([
     "generic-inheritance-concrete",
     "generic-inheritance-generic",
     "generic-int-substitution",
-    "generic-interface-inheritance",
     "generic-method-in-class",
-    "generic-multiple-constraints",
-    "generic-nested-substitution",
     "generic-null-default",
     "nested-generic-brands",
   ], "csharp-backend", "TSTS generic inference/substitution facts + C# declaration planner", "Valid behavior covers generic declarations, imported/exported generic function values, contextual generic calls, inheritance substitution, constraints, aliases, and nested substitutions; port after C# planning consumes TSTS generic symbols/type arguments and provider constraint facts end to end."),
