@@ -202,6 +202,12 @@ export const oldEmitterPortInventory = Object.freeze([
     "test/cli-build/modules-declarations.test.mjs",
     "Ported as current-architecture C# AST coverage for generic callable aliases resolved through TSTS callable signatures before target carrier rendering, validated by dotnet build.",
   ),
+  portedEmitterCase(
+    "types/function-collections/FunctionArrays",
+    "functions",
+    "test/cli-build/modules-declarations.test.mjs",
+    "Ported as current-architecture C# AST coverage for arrays of callable aliases and interface members with callable target types, validated by dotnet build.",
+  ),
   ...deferredEmitterCases([
     "arrays/basic/ArrayLiteral",
     "arrays/destructuring/ArrayDestructure",
@@ -255,7 +261,6 @@ export const oldEmitterPortInventory = Object.freeze([
   ], "target-interop", "C# native provider + C# backend planner", "Extension-method fixtures require provider-owned extension member declarations, receiver mapping, selected overload facts, byref/out parameter facts, and target operation AST emission."),
   ...deferredEmitterCases([
     "functions/optional-callbacks/OptionalParams",
-    "types/function-collections/FunctionArrays",
   ], "functions", "TSTS callable signatures + C# backend planner", "Callable fixtures require module-level function value storage, contextual lambda typing, closures, delegate carriers, optional callback parameters, arrays/interfaces containing function types, and generic function alias facts."),
   ...deferredEmitterCases([
     "types/anonymous-objects/AnonymousObjects",

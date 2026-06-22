@@ -1344,6 +1344,58 @@ test("CLI emits closure-capturing returned lambdas from TSTS callable facts", as
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits arrays and interfaces containing callable target types", async () => {
+  const projectDirectory = resolve(tempRoot, "callable-containers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedCallableContainers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export type Operation = (left: int32, right: int32) => int32;",
+      "",
+      "export const operations: Operation[] = [",
+      "  (left, right) => left + right,",
+      "  (left, right) => left - right,",
+      "  (left, right) => left * right,",
+      "];",
+      "",
+      "export interface OperationMap {",
+      "  add: Operation;",
+      "  subtract: Operation;",
+      "  multiply: Operation;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static readonly Func<int, int, int>\[\] operations = new Func<int, int, int>\[\] \{ \(left, right\) => left \+ right, \(left, right\) => left - right, \(left, right\) => left \* right \};/);
+  assert.match(generatedSource, /public interface OperationMap/);
+  assert.match(generatedSource, /Func<int, int, int> add \{ get; \}/);
+  assert.match(generatedSource, /Func<int, int, int> subtract \{ get; \}/);
+  assert.match(generatedSource, /Func<int, int, int> multiply \{ get; \}/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCallableContainers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits standard JavaScript class static blocks as C# static constructors", async () => {
   const projectDirectory = resolve(tempRoot, "class-static-blocks");
