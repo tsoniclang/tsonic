@@ -155,6 +155,12 @@ export const oldEmitterPortInventory = Object.freeze([
     "Ported as current-architecture C# AST coverage for literal default parameters rendered as C# optional parameters and validated by dotnet build.",
   ),
   portedEmitterCase(
+    "functions/delegates/ActionFunc",
+    "functions",
+    "test/cli-build/modules-declarations.test.mjs",
+    "Ported as current-architecture C# AST coverage for Action, Action<T>, Func<T,R>, multi-argument Func<T1,T2,R>, generic callable parameters, and function-returning-function delegate signatures, validated by dotnet build.",
+  ),
+  portedEmitterCase(
     "types/constants/ModuleConstants",
     "types",
     "test/cli-build/e2e-runtime-language.test.mjs",
@@ -221,7 +227,6 @@ export const oldEmitterPortInventory = Object.freeze([
     "functions/arrow-inference/ArrowInference",
     "functions/arrow/ArrowFunction",
     "functions/closures/Closures",
-    "functions/delegates/ActionFunc",
     "functions/higher-order/ReturningFunctions",
     "functions/optional-callbacks/OptionalParams",
     "types/function-collections/FunctionArrays",

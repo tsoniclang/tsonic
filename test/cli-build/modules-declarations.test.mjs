@@ -1121,6 +1121,66 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits generic Action and Func delegate signatures from TSTS callable types", async () => {
+  const projectDirectory = resolve(tempRoot, "action-func-delegates");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedActionFuncDelegates",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function runAction(action: () => void): void {",
+      "  action();",
+      "}",
+      "",
+      "export function runActionWithArg(action: (value: int32) => void, value: int32): void {",
+      "  action(value);",
+      "}",
+      "",
+      "export function applyFunc<T, R>(fn: (arg: T) => R, value: T): R {",
+      "  return fn(value);",
+      "}",
+      "",
+      "export function applyFunc2<T1, T2, R>(fn: (left: T1, right: T2) => R, left: T1, right: T2): R {",
+      "  return fn(left, right);",
+      "}",
+      "",
+      "export function compose<A, B, C>(f: (value: A) => B, g: (value: B) => C): (value: A) => C {",
+      "  return (value: A): C => g(f(value));",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static void runAction\(Action action\)/);
+  assert.match(generatedSource, /action\(\);/);
+  assert.match(generatedSource, /public static void runActionWithArg\(Action<int> action, int value\)/);
+  assert.match(generatedSource, /public static R applyFunc<T, R>\(Func<T, R> fn, T value\)/);
+  assert.match(generatedSource, /public static R applyFunc2<T1, T2, R>\(Func<T1, T2, R> fn, T1 left, T2 right\)/);
+  assert.match(generatedSource, /public static Func<A, C> compose<A, B, C>\(Func<A, B> f, Func<B, C> g\)/);
+  assert.match(generatedSource, /return \(A value\) => g\(f\(value\)\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedActionFuncDelegates.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits standard JavaScript class static blocks as C# static constructors", async () => {
   const projectDirectory = resolve(tempRoot, "class-static-blocks");
@@ -1165,4 +1225,3 @@ test("CLI emits standard JavaScript class static blocks as C# static constructor
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStaticBlocks.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-
