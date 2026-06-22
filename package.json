@@ -32,9 +32,8 @@
   "keywords": [
     "typescript",
     "source-to-source",
-    "csharp",
+    "target-neutral",
     "compiler",
-    "dotnet",
     "transpiler"
   ],
   "author": "Tsonic Project",

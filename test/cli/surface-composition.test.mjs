@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 
@@ -11,6 +11,25 @@ import {
 
 const repoRoot = process.cwd();
 const tempRoot = resolve(repoRoot, ".temp/test-runs/host-surface-composition", `${Date.now()}-${process.pid}`);
+
+test("checked-in TSTS config uses explicit target selection", async () => {
+  const rawConfig = JSON.parse(await readFile(resolve(repoRoot, "packages/tsts/tsonic.json"), "utf8"));
+  assert.equal(rawConfig.output, undefined);
+  assert.equal(rawConfig.rootNamespace, undefined);
+
+  const project = parseTsonicProjectConfig(rawConfig);
+
+  assert.equal(project.entryPoint, "index.ts");
+  assert.equal(project.rootDir, "src");
+  assert.equal(project.outDir, "generated");
+  assert.deepEqual(project.targets.map((target) => target.id), ["csharp"]);
+  assert.deepEqual(project.targets[0].options, {
+    namespace: "Tsts",
+    assemblyName: "tsts",
+    outputType: "Library",
+    publishAot: false,
+  });
+});
 
 test("host passes no selected surfaces to target provider when target requests none", () => {
   const events = [];
