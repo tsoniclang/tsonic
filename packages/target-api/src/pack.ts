@@ -59,6 +59,11 @@ export interface TargetProjectSourceReference {
   readonly sourceFile: SourceFile;
 }
 
+export interface TargetProjectSourceMethodDispatch {
+  readonly overridesBase: boolean;
+  readonly hasDerivedOverride: boolean;
+}
+
 export interface TargetSemanticQueries {
   getRuntimeCarrier(subject: ExtensionFactSubject | undefined): TargetTypeRef | undefined;
   getRuntimeCarrierForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
@@ -69,6 +74,8 @@ export interface TargetSemanticQueries {
   getTypeOfSymbol(symbol: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
   getTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
   getTypeFromTypeNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
+  getResolvedCallReturnType(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
+  getResolvedCallReturnRuntimeCarrier(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
   getResolvedCallParameterTypes(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (Type | undefined)[] | undefined;
   getResolvedCallParameterRuntimeCarriers(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (TargetTypeRef | undefined)[] | undefined;
   getEnumMemberConstant(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): { readonly value: string | number | undefined } | undefined;
@@ -77,6 +84,7 @@ export interface TargetSemanticQueries {
   isProjectSourceConstructibleObjectForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): boolean;
   getProjectSourceDeclarationForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Node | undefined;
   getProjectSourceReferenceForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetProjectSourceReference | undefined;
+  getProjectSourceMethodDispatch(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetProjectSourceMethodDispatch | undefined;
   describeTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): string | undefined;
 }
 

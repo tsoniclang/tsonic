@@ -11,11 +11,13 @@ import type { TargetSemanticQueries } from "@tsonic/target-api";
 import { asNode, asSymbol, isTypeSyntaxNode } from "./guards.js";
 import {
   getProjectSourceDeclarationForNode,
+  getProjectSourceMethodDispatch,
   getProjectSourceReferenceForNode,
   hasParameterlessConstruction,
 } from "./project-source.js";
 import {
   getRuntimeCarrier,
+  getRuntimeCarrierForType,
   getRuntimeCarrierForSemanticType,
   getRuntimeCarrierFromDeclaredFactGraph,
 } from "./runtime-carriers.js";
@@ -35,6 +37,7 @@ export function createTargetSemanticQueries(
   facts: ExtensionConsumerQueries,
   sourceFiles: readonly SourceFile[],
 ): TargetSemanticQueries {
+  const projectSourceMethodDispatchCache = new WeakMap<object, ReturnType<TargetSemanticQueries["getProjectSourceMethodDispatch"]> | null>();
   return {
     getRuntimeCarrier(subject) {
       return getRuntimeCarrier(facts, subject);
@@ -100,6 +103,21 @@ export function createTargetSemanticQueries(
       const node = asNode(subject);
       return node === undefined ? undefined : checker.getTypeFromTypeNode(node, options);
     },
+    getResolvedCallReturnType(subject, options) {
+      const node = asNode(subject);
+      const signature = node === undefined ? undefined : checker.getResolvedSignature(node, options);
+      return signature === undefined
+        ? undefined
+        : checker.getReturnTypeOfSignature(signature, options);
+    },
+    getResolvedCallReturnRuntimeCarrier(subject, options) {
+      const node = asNode(subject);
+      const signature = node === undefined ? undefined : checker.getResolvedSignature(node, options);
+      const returnType = signature === undefined
+        ? undefined
+        : checker.getReturnTypeOfSignature(signature, options);
+      return getRuntimeCarrierForType(ast, types, facts, returnType, options);
+    },
     getResolvedCallParameterTypes(subject, options) {
       const node = asNode(subject);
       const signature = node === undefined ? undefined : checker.getResolvedSignature(node, options);
@@ -150,6 +168,19 @@ export function createTargetSemanticQueries(
     },
     getProjectSourceReferenceForNode(subject, options) {
       return getProjectSourceReferenceForNode(ast, checker, types, asNode(subject), options, sourceFiles);
+    },
+    getProjectSourceMethodDispatch(subject, options) {
+      const node = asNode(subject);
+      if (node === undefined) {
+        return undefined;
+      }
+      const cached = projectSourceMethodDispatchCache.get(node);
+      if (cached !== undefined) {
+        return cached ?? undefined;
+      }
+      const dispatch = getProjectSourceMethodDispatch(ast, checker, types, node, options, sourceFiles);
+      projectSourceMethodDispatchCache.set(node, dispatch ?? null);
+      return dispatch;
     },
     describeTypeAtLocation(subject, options) {
       const node = asNode(subject);

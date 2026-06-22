@@ -128,6 +128,188 @@ export function hasParameterlessConstruction(ast: AstReader, classDeclaration: N
   return constructors.some((constructor) => ast.parameters(constructor).every((parameter) => parameter === undefined));
 }
 
+const modifierFlagsPrivate = 1 << 1;
+const modifierFlagsStatic = 1 << 8;
+
+export function getProjectSourceMethodDispatch(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  node: Node | undefined,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+): ReturnType<TargetSemanticQueries["getProjectSourceMethodDispatch"]> {
+  if (node === undefined || !ast.is.IsMethodDeclaration(node) || !isProjectSourceDispatchMethod(ast, node, sourceFiles)) {
+    return undefined;
+  }
+  const classDeclaration = ast.parent(node);
+  if (classDeclaration === undefined || !ast.is.IsClassDeclaration(classDeclaration)) {
+    return undefined;
+  }
+  const methodName = ast.text(ast.name(node));
+  if (methodName.length === 0) {
+    return { overridesBase: false, hasDerivedOverride: false };
+  }
+  return {
+    overridesBase: methodOverridesBaseProjectSourceMethod(ast, checker, types, classDeclaration, methodName, options, sourceFiles),
+    hasDerivedOverride: projectSourceMethodHasDerivedOverride(ast, checker, types, classDeclaration, methodName, options, sourceFiles),
+  };
+}
+
+function isProjectSourceDispatchMethod(ast: AstReader, node: Node, sourceFiles: readonly SourceFile[]): boolean {
+  if (!isProjectSourceDeclaration(ast, node, sourceFiles)) {
+    return false;
+  }
+  if ((ast.modifierFlags(node) & (modifierFlagsPrivate | modifierFlagsStatic)) !== 0) {
+    return false;
+  }
+  const name = ast.name(node);
+  return !ast.is.IsPrivateIdentifier(name);
+}
+
+function methodOverridesBaseProjectSourceMethod(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  classDeclaration: Node,
+  methodName: string,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+): boolean {
+  const baseType = getProjectSourceBaseClassType(ast, checker, types, classDeclaration, options, sourceFiles);
+  if (baseType === undefined) {
+    return false;
+  }
+  const baseSymbol = checker.getPropertyOfType(baseType, methodName, options);
+  const baseDeclaration = getPrimaryDeclaration(baseSymbol);
+  return baseDeclaration !== undefined &&
+    ast.is.IsMethodDeclaration(baseDeclaration) &&
+    isProjectSourceDispatchMethod(ast, baseDeclaration, sourceFiles);
+}
+
+function projectSourceMethodHasDerivedOverride(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  classDeclaration: Node,
+  methodName: string,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+): boolean {
+  for (const candidate of getProjectSourceClassDeclarations(ast, sourceFiles)) {
+    if (candidate === classDeclaration) {
+      continue;
+    }
+    const candidateMethod = ast.members(candidate).find((member) =>
+      member !== undefined &&
+      ast.is.IsMethodDeclaration(member) &&
+      ast.text(ast.name(member)) === methodName &&
+      isProjectSourceDispatchMethod(ast, member, sourceFiles));
+    if (candidateMethod === undefined) {
+      continue;
+    }
+    const candidateFile = ast.getSourceFile(candidate) ?? options.sourceFile;
+    if (projectSourceClassExtends(ast, checker, types, candidate, classDeclaration, { sourceFile: candidateFile }, sourceFiles) &&
+      methodOverridesBaseProjectSourceMethod(ast, checker, types, candidate, methodName, { sourceFile: candidateFile }, sourceFiles)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function projectSourceClassExtends(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  candidate: Node,
+  expectedBase: Node,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+): boolean {
+  const directBase = getProjectSourceBaseClassDeclaration(ast, checker, types, candidate, options, sourceFiles);
+  if (directBase === undefined) {
+    return false;
+  }
+  if (directBase === expectedBase) {
+    return true;
+  }
+  const directBaseFile = ast.getSourceFile(directBase) ?? options.sourceFile;
+  return projectSourceClassExtends(ast, checker, types, directBase, expectedBase, { sourceFile: directBaseFile }, sourceFiles);
+}
+
+function getProjectSourceBaseClassType(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  classDeclaration: Node,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+): Type | undefined {
+  const baseClassReferenceNode = getBaseClassReferenceNode(ast, classDeclaration);
+  const baseReference = getProjectSourceReferenceForNode(ast, checker, types, baseClassReferenceNode, options, sourceFiles);
+  if (baseReference === undefined || !ast.is.IsClassDeclaration(baseReference.declaration)) {
+    return undefined;
+  }
+  return checker.getDeclaredTypeOfSymbol(baseReference.symbol, {
+    sourceFile: baseReference.sourceFile,
+  });
+}
+
+function getProjectSourceBaseClassDeclaration(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  classDeclaration: Node,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+): Node | undefined {
+  const baseClassReferenceNode = getBaseClassReferenceNode(ast, classDeclaration);
+  const baseReference = getProjectSourceReferenceForNode(ast, checker, types, baseClassReferenceNode, options, sourceFiles);
+  return baseReference !== undefined && ast.is.IsClassDeclaration(baseReference.declaration)
+    ? baseReference.declaration
+    : undefined;
+}
+
+function getBaseClassReferenceNode(ast: AstReader, classDeclaration: Node): Node | undefined {
+  const heritageClauses = ((classDeclaration as { readonly HeritageClauses?: { readonly Nodes?: readonly (Node | undefined)[] } }).HeritageClauses?.Nodes ?? []);
+  for (const heritageClauseNode of heritageClauses) {
+    const heritageClause = ast.as.AsHeritageClause(heritageClauseNode);
+    if (heritageClause === undefined) {
+      continue;
+    }
+    if (ast.kindNameFromKind(heritageClause?.Token) !== "KindExtendsKeyword") {
+      continue;
+    }
+    for (const heritageType of heritageClause.Types?.Nodes ?? []) {
+      const expression = ast.as.AsExpressionWithTypeArguments(heritageType)?.Expression;
+      if (expression !== undefined) {
+        return expression;
+      }
+    }
+  }
+  return undefined;
+}
+
+function getProjectSourceClassDeclarations(ast: AstReader, sourceFiles: readonly SourceFile[]): readonly Node[] {
+  const declarations: Node[] = [];
+  for (const sourceFile of sourceFiles) {
+    collectProjectSourceClassDeclarations(ast, sourceFile, declarations);
+  }
+  return declarations;
+}
+
+function collectProjectSourceClassDeclarations(ast: AstReader, node: Node | undefined, declarations: Node[]): void {
+  if (node === undefined) {
+    return;
+  }
+  if (ast.is.IsClassDeclaration(node)) {
+    declarations.push(node);
+  }
+  ast.forEachChild(node, (child) => {
+    collectProjectSourceClassDeclarations(ast, child, declarations);
+  });
+}
+
 function getProjectSourceReferenceForNamespacePropertyAccess(
   ast: AstReader,
   checker: TypeCheckerQueries,
