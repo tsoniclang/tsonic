@@ -71,11 +71,12 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/nullable-narrowing/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
     featureArea: "csharp-backend",
-    owner: "C# backend planner",
+    owner: "TSTS flow facts + C# backend planner",
     reason:
-      "Valid TypeScript narrowing must port as TSTS flow facts plus finalized nullable carrier facts, not old nullable .Value rewrite assertions.",
+      "Ported as a current-architecture executable E2E covering typeof-based narrowing of string | null, nullable class/value carriers, optional access after narrowing, generated C# AST, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/array-spread/",
@@ -206,19 +207,21 @@ export const oldSuitePortInventory = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/nullish-coalescing/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
     featureArea: "js-surface",
     owner: "C# JS surface + C# backend planner",
     reason:
-      "Source behavior is ?? over string null/undefined, number null, and boolean constructor input; port after nullish carrier facts and undefined handling are finalized without preserving stale runtime recovery paths.",
+      "Ported as a current-architecture executable E2E covering ?? over nullable string, int32, number, optional property, optional call, and optional element results using finalized TSTS/provider carrier facts.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/optional-chaining/",
-    status: "deferred",
+    newPath: "test/cli-build/e2e-runtime-language.test.mjs",
+    status: "ported",
     featureArea: "js-surface",
     owner: "C# JS surface + C# backend planner",
     reason:
-      "Source behavior is optional property chaining over object-literal User/Address shapes and name.length with ?? alternate value; port after structural object storage, undefined carrier choice, and optional-chain lowering are covered together.",
+      "Ported as a current-architecture executable E2E covering optional property access, nested optional property access, optional method calls, optional element access, JS String.length provider facts on optional receivers, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/ternary-int-branch/",

@@ -2,6 +2,7 @@ import type {
   AstReader,
   ExtensionConsumerQueries,
   SourceFile,
+  Symbol,
   TargetTypeRef,
   TypeCheckerQueries,
   TypeShapeQueries,
@@ -20,6 +21,7 @@ import {
 } from "./runtime-carriers.js";
 import {
   getAliasedSymbolIfAlias,
+  getPrimaryDeclaration,
   getResolvedSymbolForReferenceNode,
   getSemanticTypeForNode,
   getSymbolAtReferenceNode,
@@ -105,6 +107,13 @@ export function createTargetSemanticQueries(
         ? undefined
         : signature.parameters.map((parameter) => checker.getTypeOfSymbol(parameter, options));
     },
+    getResolvedCallParameterRuntimeCarriers(subject, options) {
+      const node = asNode(subject);
+      const signature = node === undefined ? undefined : checker.getResolvedSignature(node, options);
+      return signature === undefined
+        ? undefined
+        : signature.parameters.map((parameter) => getRuntimeCarrierForParameter(parameter, options));
+    },
     getEnumMemberConstant(subject, options) {
       const node = asNode(subject);
       const value = node === undefined ? undefined : checker.getConstantValue(node, options);
@@ -148,6 +157,26 @@ export function createTargetSemanticQueries(
       return type === undefined ? undefined : checker.typeToString(type, options);
     },
   };
+
+  function getRuntimeCarrierForParameter(
+    parameter: Symbol | undefined,
+    options: { readonly sourceFile: SourceFile },
+  ): TargetTypeRef | undefined {
+    const direct = getRuntimeCarrier(facts, parameter);
+    if (direct !== undefined) {
+      return direct;
+    }
+    const declaration = getPrimaryDeclaration(parameter);
+    const declarationFile = ast.getSourceFile(declaration) ?? options.sourceFile;
+    const declarationCarrier = declaration === undefined
+      ? undefined
+      : getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, declaration, { sourceFile: declarationFile }, sourceFiles);
+    if (declarationCarrier !== undefined) {
+      return declarationCarrier;
+    }
+    const type = checker.getTypeOfSymbol(parameter, options);
+    return getRuntimeCarrier(facts, type) ?? getRuntimeCarrier(facts, type?.symbol);
+  }
 }
 
 function refineTargetNamedCarrier(

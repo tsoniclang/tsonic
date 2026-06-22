@@ -70,6 +70,7 @@ export interface TargetSemanticQueries {
   getTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
   getTypeFromTypeNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
   getResolvedCallParameterTypes(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (Type | undefined)[] | undefined;
+  getResolvedCallParameterRuntimeCarriers(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (TargetTypeRef | undefined)[] | undefined;
   getEnumMemberConstant(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): { readonly value: string | number | undefined } | undefined;
   getReturnTypeCarrierFromDeclaration(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
   isProjectSourceShapeForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): boolean;
