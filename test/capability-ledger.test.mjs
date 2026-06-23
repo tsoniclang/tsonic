@@ -254,6 +254,28 @@ test("capability ledger validator rejects missing blocker evidence", () => {
   );
 });
 
+test("capability ledger validator rejects complete capabilities without proof", () => {
+  const completeEntry = capabilityLedger.find((entry) => entry.status === "complete");
+  assert.notEqual(completeEntry, undefined);
+
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, positiveTests: [] })
+      .includes("complete capabilities must have positiveTests"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, negativeTests: [] })
+      .includes("complete capabilities must have negativeTests"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, evidenceReview: "seeded" })
+      .includes("complete capabilities must have reviewed evidence"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, oldEvidence: [] })
+      .includes("complete capabilities must have oldEvidence"),
+  );
+});
+
 test("complete parent capabilities require complete child capabilities", () => {
   for (const entry of capabilityLedger) {
     if (entry.status !== "complete") {

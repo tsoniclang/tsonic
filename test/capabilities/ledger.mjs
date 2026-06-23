@@ -1660,11 +1660,30 @@ export function validateCapabilityLedgerEntry(entry) {
   validateStringArrayField(errors, entry, "positiveTests");
   validateStringArrayField(errors, entry, "negativeTests");
   validateStringArrayField(errors, entry, "oldEvidence");
+  validateCompleteCapabilityProof(errors, entry);
   validateStringArrayField(errors, entry, "blockers");
   validateBlockerCompleteness(errors, entry);
   validateStringField(errors, entry, "notes");
   errors.push(...validateCapabilityLaneClassification(entry));
   return errors;
+}
+
+function validateCompleteCapabilityProof(errors, entry) {
+  if (entry.status !== "complete") {
+    return;
+  }
+  if (!Array.isArray(entry.positiveTests) || entry.positiveTests.length === 0) {
+    errors.push("complete capabilities must have positiveTests");
+  }
+  if (!Array.isArray(entry.negativeTests) || entry.negativeTests.length === 0) {
+    errors.push("complete capabilities must have negativeTests");
+  }
+  if (entry.evidenceReview !== "reviewed") {
+    errors.push("complete capabilities must have reviewed evidence");
+  }
+  if (!Array.isArray(entry.oldEvidence) || entry.oldEvidence.length === 0) {
+    errors.push("complete capabilities must have oldEvidence");
+  }
 }
 
 function validateBlockerCompleteness(errors, entry) {
