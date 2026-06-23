@@ -263,6 +263,12 @@ export const oldEmitterPortInventory = Object.freeze([
     "Ported through a current-architecture executable E2E covering array spread composition from finalized source carrier facts, JS .length access, dotnet build/run, and exact stdout.",
   ),
   portedEmitterCase(
+    "types/expected-type-threading/ArraySpread",
+    "operators",
+    "test/cli-build/arrays.test.mjs",
+    "Ported through current-architecture CLI coverage for module-scope int32 array spread constants, with every spread element rendered from finalized expected array facts and emitted as Roslyn array-helper call AST against explicit runtime references.",
+  ),
+  portedEmitterCase(
     "edge-cases/void-expression/VoidExpression",
     "operators",
     "test/cli-build/e2e-runtime-language.test.mjs",
@@ -427,6 +433,44 @@ export const oldEmitterPortInventory = Object.freeze([
     "test/cli-build/provider-dotnet.test.mjs",
     "Ported through a current-architecture executable CLI test covering TSTS Record<K,V> declarations mapped by the selected JS surface to provider-owned Dictionary<K,V>, empty object literals emitted as Dictionary construction, provider indexer reads/writes, generated C# build, run, and exact stdout.",
   ),
+  portedEmitterCase(
+    "extensions/linq/ExtensionMethods",
+    "target-interop",
+    "../tsonic-csharp/test/provider-selection.test.mjs",
+    "Ported as current-architecture provider/planner coverage for LINQ ExtensionMethods receiver calls: the selected TSTS provider signature identity maps to System.Linq.Enumerable.Average, the target binding proves first-argument receiver passing, the selected overload is refined from finalized receiver facts, and C# operation facts carry the closed Roslyn-call member.",
+  ),
+  portedEmitterCase(
+    "extensions/system/Overlaps",
+    "target-interop",
+    "../tsonic-csharp/test/call-operation-facts.test.mjs",
+    "Ported as current-architecture provider/planner coverage for overlap-style extension overloads with byref out parameters: provider target facts prove receiver passing and parameter passing, selected-signature mapping records the closed target member, and backend call emission now fails closed if finalized C# operation facts drop receiver or parameter-passing metadata.",
+  ),
+  portedEmitterCase(
+    "types/pointers/PointerTypes",
+    "source-semantics",
+    "test/cli-build/source-semantics.test.mjs",
+    "Ported through current-architecture CLI coverage for source `ptr<int32>` and `ptr<ptr<int32>>` signatures: neutral pointer marker facts are finalized before backend planning, the C# planner emits Roslyn pointer type nodes as `int*` and `int**`, the project enables unsafe blocks, and dotnet build validates the generated source.",
+  ),
+  Object.freeze({
+    oldPath: sourceCase("structs/basic/Point"),
+    oldExpectedPath: expectedCase("structs/basic/Point"),
+    newPath: "test/cli-build/source-semantics.test.mjs",
+    status: "replaced-by-stronger-test",
+    featureArea: "source-semantics",
+    owner: "current TSTS/provider/C# AST pipeline",
+    reason:
+      "Closed by replacing the stale old `interface Point extends struct { x: number; y: number }` marker with final source `export const Point = struct({ x: field<int32>(), y: field<int32>() })`; current CLI coverage proves neutral struct/field facts and Roslyn struct output without using TypeScript-only inheritance as a compiler signal.",
+  }),
+  Object.freeze({
+    oldPath: sourceCase("types/type-assertions/TypeAssertions"),
+    oldExpectedPath: expectedCase("types/type-assertions/TypeAssertions"),
+    newPath: "test/cli-build/source-semantics.test.mjs",
+    status: "replaced-by-stronger-test",
+    featureArea: "source-semantics",
+    owner: "current TSTS/provider/C# AST pipeline",
+    reason:
+      "Closed by stronger current-semantics coverage that separates accepted and rejected assertion flows: source primitives such as `255 as uint8`, `1000000 as int64`, and `value as decimal` emit finalized target-conversion facts and Roslyn/System.Convert output; source-owned `animal as Dog` emits a C# cast AST; stale broad `object` assertions such as `value: object; value as Animal` fail closed because TypeScript `object` has no finalized carrier.",
+  }),
   Object.freeze({
     oldPath: `${oldEmitterCaseRoot}/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs`,
     oldExpectedPath: `${oldEmitterCaseRoot}/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs`,
@@ -437,16 +481,31 @@ export const oldEmitterPortInventory = Object.freeze([
     reason:
       "Closed by current-architecture fail-closed coverage: an object literal contextualized as unknown now reports a deterministic diagnostic before C# carrier emission, because unknown/any object shapes must not lower to object, dynamic, dictionary, or anonymous fallback carriers.",
   }),
+  Object.freeze({
+    oldPath: `${oldEmitterCaseRoot}/expected/edge-cases/record-nested-object/RecordNestedObject.cs`,
+    oldExpectedPath: `${oldEmitterCaseRoot}/expected/edge-cases/record-nested-object/RecordNestedObject.cs`,
+    newPath: "test/cli-build/object-shapes.test.mjs",
+    status: "ported",
+    featureArea: "object-shapes",
+    owner: "current TSTS/provider/C# AST pipeline",
+    reason:
+      "Ported through current-architecture CLI coverage for Record<string, Record<string, boolean>> returning { authentication_methods: { password, dev, \"openid connect\" } }, where the backend consumes finalized nested Record carrier facts and emits Dictionary<string, Dictionary<string, bool>> indexer initializers without object/dynamic fallback.",
+  }),
+  Object.freeze({
+    oldPath: `${oldEmitterCaseRoot}/expected/operators/in-operator/InOperator.cs`,
+    oldExpectedPath: `${oldEmitterCaseRoot}/expected/operators/in-operator/InOperator.cs`,
+    newPath: "test/cli-build/object-shapes.test.mjs",
+    status: "invalid-stale-architecture",
+    featureArea: "operators",
+    owner: "current TSTS/provider/C# AST pipeline",
+    reason:
+      "Closed as stale architecture instead of ported: the old orphan golden has no source fixture and emits legacy runtime-union carrier calls such as Is1()/As1(), which are explicitly banned by the current architecture. Current non-nullish union emission fails closed unless finalized runtime-carrier facts exist.",
+  }),
   ...deferredEmitterCases([
     "edge-cases/clickmeter-nullability-regressions/ClickmeterNullabilityRegressions",
     "edge-cases/generic-null-default/GenericNullDefault",
     "edge-cases/inline-object-param/InlineObjectParam",
-    "types/expected-type-threading/ArraySpread",
   ], "operators", "TSTS flow/contextual facts + C# expression planner", "Operator and expected-type fixtures require TSTS flow/contextual types plus finalized nullable/nullish/optional-chain/ternary facts. They must not be implemented by old expected-type threading inside the backend."),
-  ...deferredEmitterCases([
-    "extensions/linq/ExtensionMethods",
-    "extensions/system/Overlaps",
-  ], "target-interop", "C# native provider + C# backend planner", "Extension-method fixtures require provider-owned extension member declarations, receiver mapping, selected overload facts, byref/out parameter facts, and target operation AST emission."),
   ...deferredEmitterCases([
     "types/anonymous-objects/AnonymousObjects",
     "types/conditional/ConditionalTypes",
@@ -459,17 +518,10 @@ export const oldEmitterPortInventory = Object.freeze([
   ], "generics", "TSTS structural/generic facts + C# declaration planner", "Generic and type-system fixtures require complete generic declarations, constraints, inheritance substitution, structural object shapes, mapped/utility type projection facts, tuple arity rendering, and generic class/interface emission."),
   ...deferredEmitterCases([
     "edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter",
-    "edge-cases/record-nested-object/RecordNestedObject",
-  ], "object-shapes", "TSTS structural facts + C# object-shape planner", "Object-shape fixtures require target object-shape carriers for inline object parameters, type parameters, broad unknown rejection, nested records, and generated carrier declarations."),
+  ], "object-shapes", "TSTS generic inference facts + C# object-shape planner", "Deferred because id<T>({ ok: true, nested: { x: 1 } }) currently reaches the backend without a finalized concrete object-shape carrier for inferred T; the backend must continue to diagnose instead of inferring a carrier from source spelling."),
   ...deferredEmitterCases([
     "lang/stackalloc/StackAlloc",
-    "structs/basic/Point",
-    "types/pointers/PointerTypes",
-    "types/type-assertions/TypeAssertions",
-  ], "source-semantics", "source semantics + C# backend planner", "Source-semantics fixtures require neutral/csharp marker facts for stackalloc, pointer types, struct/value-type shape, and assertion/cast emission against finalized target type facts."),
-  ...deferredEmitterCases([
-    "operators/in-operator/InOperator",
-  ], "operators", "TSTS operation facts + C# backend planner", "The orphan old golden for in-operator has no source fixture in the old tree; reconstruct the source behavior before porting it as a current-architecture operation test."),
+  ], "source-semantics", "source semantics + C# backend planner", "Stackalloc still requires a source-visible C# provider declaration, Span<T> target/source facts, stackalloc Roslyn AST support, and closed element/member facts before it can be emitted without a backend raw-code or heuristic path."),
 ]);
 
 const oldEmitterStatusSet = new Set(oldEmitterInventoryStatuses);

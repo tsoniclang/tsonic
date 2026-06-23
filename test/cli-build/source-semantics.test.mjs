@@ -219,6 +219,155 @@ test("CLI resolves TypeScript aliases through TSTS semantics before C# type rend
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits pointer signatures from finalized source pointer facts", async () => {
+  const projectDirectory = resolve(tempRoot, "pointer-source-semantics");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedPointerFacts",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { ptr } from \"@tsonic/core/lang.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function accept(value: ptr<int32>): void {}",
+      "",
+      "export function accept2(value: ptr<ptr<int32>>): void {}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public unsafe static class Index/);
+  assert.match(generatedSource, /public static void accept\(int\* value\)/);
+  assert.match(generatedSource, /public static void accept2\(int\*\* value\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedPointerFacts.csproj"), "utf8");
+  assert.match(generatedProject, /<AllowUnsafeBlocks>true<\/AllowUnsafeBlocks>/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedPointerFacts.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits reference type assertions through finalized C# conversion facts", async () => {
+  const projectDirectory = resolve(tempRoot, "type-assertion-conversions");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedTypeAssertions",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32, uint8, int16, int64, uint32, float32, decimal } from \"@tsonic/core/types.js\";",
+      "",
+      "class Animal {}",
+      "class Dog extends Animal {}",
+      "",
+      "export const intFromLiteral: int32 = 1000;",
+      "export const byteFromLiteral = 255 as uint8;",
+      "export const shortFromLiteral = 1000 as int16;",
+      "export const longFromLiteral = 1000000 as int64;",
+      "export const floatFromLiteral = 1.5 as float32;",
+      "export const doubleFromLiteral = 1.5 as number;",
+      "",
+      "export function downcast(animal: Animal): Dog {",
+      "  const dog = animal as Dog;",
+      "  return dog;",
+      "}",
+      "",
+      "export function byteValue(value: int32): uint8 {",
+      "  return value as uint8;",
+      "}",
+      "",
+      "export function shortValue(value: int32): int16 {",
+      "  return value as int16;",
+      "}",
+      "",
+      "export function uintValue(value: int32): uint32 {",
+      "  return value as uint32;",
+      "}",
+      "",
+      "export function singleValue(value: int32): float32 {",
+      "  return value as float32;",
+      "}",
+      "",
+      "export function decimalValue(value: int32): decimal {",
+      "  return value as decimal;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static readonly int intFromLiteral = 1000;/);
+  assert.match(generatedSource, /public static readonly byte byteFromLiteral = 255;/);
+  assert.match(generatedSource, /public static readonly short shortFromLiteral = 1000;/);
+  assert.match(generatedSource, /public static readonly long longFromLiteral = System\.Convert\.ToInt64\(1000000\);/);
+  assert.match(generatedSource, /public static readonly float floatFromLiteral = 1\.5F;/);
+  assert.match(generatedSource, /public static readonly double doubleFromLiteral = 1\.5;/);
+  assert.match(generatedSource, /Dog dog = \(Dog\)animal;/);
+  assert.match(generatedSource, /return System\.Convert\.ToByte\(value\);/);
+  assert.match(generatedSource, /return System\.Convert\.ToInt16\(value\);/);
+  assert.match(generatedSource, /return System\.Convert\.ToUInt32\(value\);/);
+  assert.match(generatedSource, /return System\.Convert\.ToSingle\(value\);/);
+  assert.match(generatedSource, /return System\.Convert\.ToDecimal\(value\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeAssertions.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects broad object assertions without finalized carrier facts", async () => {
+  const projectDirectory = resolve(tempRoot, "object-type-assertion-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "class Animal {}",
+      "",
+      "export function fromObject(value: object): Animal {",
+      "  return value as Animal;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TypeScript object is a broad structural carrier/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 
 test("CLI keeps neutral and C# source semantics in separate virtual modules", async () => {
   const projectDirectory = resolve(tempRoot, "source-semantics-split");
@@ -499,4 +648,3 @@ test("CLI rejects any and unknown before they trickle into C# output", async () 
   assert.equal(build.status, 1);
   assert.match(build.stderr, /any and unknown cannot trickle into generated C#/);
 });
-

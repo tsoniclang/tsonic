@@ -509,6 +509,54 @@ test("CLI emits nested structural object-shape literals through finalized nested
 });
 
 
+test("CLI emits nested Record object literals through explicit Dictionary carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "record-nested-object");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedRecordNestedObject",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function getSettings(): Record<string, Record<string, boolean>> {",
+      "  return {",
+      "    authentication_methods: {",
+      "      password: true,",
+      "      dev: true,",
+      "      \"openid connect\": false,",
+      "    },",
+      "  };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /System\.Collections\.Generic\.Dictionary<string, System\.Collections\.Generic\.Dictionary<string, bool>> getSettings\(\)/);
+  assert.match(generatedSource, /\["authentication_methods"\] = new System\.Collections\.Generic\.Dictionary<string, bool>/);
+  assert.match(generatedSource, /\["password"\] = true,/);
+  assert.match(generatedSource, /\["dev"\] = true,/);
+  assert.match(generatedSource, /\["openid connect"\] = false,/);
+  assert.doesNotMatch(generatedSource, /Dictionary<string, object|\bobject\b|\bdynamic\b|__unsupported|invalid/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRecordNestedObject.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+
 test("CLI rejects object literals contextualized as unknown before C# carrier emission", async () => {
   const projectDirectory = resolve(tempRoot, "unknown-object-shape");
   await writeProject(projectDirectory, {

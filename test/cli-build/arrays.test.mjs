@@ -100,6 +100,55 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits module-scope array spread constants from finalized expected array facts", async () => {
+  const projectDirectory = resolve(tempRoot, "arrays-module-spread-constants");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArraysModuleSpreadConstants",
+            references: {
+              projects: [
+                resolve(repoRoot, "../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"),
+              ],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "const source: int32[] = [1, 2, 3];",
+      "export const withSpread: int32[] = [...source, 4, 5];",
+      "",
+      "const more: int32[] = [10, 20];",
+      "export const multiSpread: int32[] = [...source, ...more, 100];",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static readonly int\[\] source = new int\[\] \{ 1, 2, 3 \};/);
+  assert.match(generatedSource, /public static readonly int\[\] withSpread = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(source, new int\[\] \{ 4, 5 \}\);/);
+  assert.match(generatedSource, /public static readonly int\[\] more = new int\[\] \{ 10, 20 \};/);
+  assert.match(generatedSource, /public static readonly int\[\] multiSpread = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(source, more, new int\[\] \{ 100 \}\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysModuleSpreadConstants.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI rejects untyped empty array returns with a target diagnostic", async () => {
   const projectDirectory = resolve(tempRoot, "arrays-empty-return-requires-element-evidence");
   await writeProject(projectDirectory, {
