@@ -248,10 +248,10 @@ const baseCapabilityDefinitions = Object.freeze([
   ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "partial", "csharp-runtime"],
 
   ["native.dotnet.assembly-model", ".NET provider models assemblies and namespaces", "partial", "target-provider"],
-  ["native.dotnet.type-model", ".NET provider models generic, nested, static, and instance types", "not-started", "target-provider"],
-  ["native.dotnet.member-methods", ".NET provider models methods, overloads, extension methods, and generic methods", "not-started", "target-provider"],
-  ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "not-started", "target-provider"],
-  ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "not-started", "target-provider"],
+  ["native.dotnet.type-model", ".NET provider models generic, nested, static, and instance types", "partial", "target-provider"],
+  ["native.dotnet.member-methods", ".NET provider models methods, overloads, extension methods, and generic methods", "partial", "target-provider"],
+  ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "partial", "target-provider"],
+  ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "partial", "target-provider"],
   ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "partial", "target-provider"],
   ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "partial", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "partial", "target-provider"],
@@ -425,6 +425,76 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: .NET provider target identity is assembly-qualified targetId while CLR metadataName remains display/provenance only; duplicate Shared.Widget across assemblies cannot resolve by metadata-name-only lookup and must either expose distinct assembly-qualified declarations or explicit unsupported collision evidence. Remains partial until all assembly/version selection, aliases, and target project references are modeled end to end.",
+  }),
+  "native.dotnet.type-model": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/InheritanceChain.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/generic-interface-inheritance/InterfaceInheritance.ts",
+      "test/fixtures/generic-nested-substitution/",
+    ]),
+    notes:
+      "Reviewed partial proof: .NET reflection exposes source-visible and target-only type models for classes, structs, interfaces, enums, delegates, generic type parameters, cross-namespace provider refs, unique nested CLR types, type families, base types, implemented contracts, and assembly-qualified target identities. Negative proof keeps ambiguous type families out of source declarations while retaining target-only bindings and unsupported-export evidence. Remains partial until same-source-name type-family source declarations, assembly alias/version selection, and every unsupported type-ref conversion path has an end-to-end diagnostic.",
+  }),
+  "native.dotnet.member-methods": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/generic-methods/MethodInGenericClass.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/generic-methods/MethodInNonGenericClass.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+      "test/fixtures/generic-method-standalone/",
+      "test/fixtures/extension-methods-system/",
+    ]),
+    notes:
+      "Reviewed partial proof: .NET provider records reflected methods, overload groups, generic method arity, extension receiver passing, receiver/out parameter metadata, and selected-signature identity; provider selection maps calls from exact selected provider declaration/signature identity, rejects missing identity, rejects ambiguous same-spelling selections, and does not search target members outside the selected overload group. Remains partial until all extension-method discovery inputs, inherited overload surfaces, optional generic method type-argument proofs, and unsupported method families have complete end-to-end diagnostics.",
+  }),
+  "native.dotnet.member-fields-properties-events": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/basic/Person.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/field-inference/Counter.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: .NET provider records reflected properties, fields, numeric indexers, generic Dictionary indexers, enum fields, static/instance target facts, and event target facts; source declaration conversion omits events and unsupported/non-source-shaped members, while target bindings retain deterministic event/property/field facts. Remains partial until event subscription semantics, property setter facts, field mutability facts, inherited member projection, and unsupported member diagnostics are end-to-end across emitted source.",
+  }),
+  "native.dotnet.constructors": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+      "test/fixtures/generic-nested-substitution/",
+    ]),
+    notes:
+      "Reviewed partial proof: .NET provider records reflected constructors as constructor members with exact signature ids, preserves constructor array-literal element metadata, cross-namespace parameter provider refs, optional/default/params facts, and selected constructor identity; source conversion omits constructor-named non-constructor members and records unsupported constructor signatures instead of dropping them. Remains partial until accessibility, all constructor overload groups, provider-owned new-expression facts, and unsupported constructor diagnostics are complete end to end.",
   }),
   "native.dotnet.constraints": Object.freeze({
     positiveTests: Object.freeze([
