@@ -9,9 +9,24 @@ import {
   requiredCapabilityIds,
   validateCapabilityLedgerEntry,
 } from "./capabilities/ledger.mjs";
-import { oldEmitterHistoricalCasePaths, oldEmitterPortInventory } from "./old-emitter-inventory/inventory.mjs";
-import { oldProductUnitHistoricalTestFiles, oldProductUnitPortInventory } from "./old-product-unit-inventory/inventory.mjs";
-import { oldSuitePortInventory } from "./old-suite-inventory/inventory.mjs";
+import {
+  buildOldEmitterInventoryReport,
+  oldEmitterHistoricalCasePaths,
+  oldEmitterPortInventory,
+  validateOldEmitterPortEntry,
+} from "./old-emitter-inventory/inventory.mjs";
+import {
+  buildOldProductUnitInventoryReport,
+  oldProductUnitHistoricalTestFiles,
+  oldProductUnitPortInventory,
+  validateOldProductUnitPortEntry,
+} from "./old-product-unit-inventory/inventory.mjs";
+import {
+  buildOldSuiteInventoryReport,
+  oldSuitePortInventory,
+  oldSuiteRequiredSeedFixturePaths,
+  validateOldSuitePortEntry,
+} from "./old-suite-inventory/inventory.mjs";
 
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
@@ -351,6 +366,60 @@ test("old inventories map only to known capability ids", () => {
         `${entry.oldPath} references unknown capability ${capabilityId}`,
       );
     }
+  }
+});
+
+test("focused capability gate validates old inventory classification completeness", () => {
+  for (const entry of oldEmitterPortInventory) {
+    assert.deepEqual(validateOldEmitterPortEntry(entry), [], entry.oldPath);
+  }
+  for (const entry of oldSuitePortInventory) {
+    assert.deepEqual(validateOldSuitePortEntry(entry), [], entry.oldPath);
+  }
+  for (const entry of oldProductUnitPortInventory) {
+    assert.deepEqual(validateOldProductUnitPortEntry(entry), [], entry.oldPath);
+  }
+
+  const oldEmitterReport = buildOldEmitterInventoryReport(oldEmitterHistoricalCasePaths);
+  const oldSuiteReport = buildOldSuiteInventoryReport(oldSuitePortInventory.map((entry) => entry.oldPath));
+  const oldProductUnitReport = buildOldProductUnitInventoryReport(oldProductUnitHistoricalTestFiles);
+
+  for (const report of [oldEmitterReport, oldSuiteReport, oldProductUnitReport]) {
+    assert.equal(report.rules.unclassifiedOldInventoryIsImpossible, true);
+    assert.equal(report.rules.classifiedInventoryPathsMustBeHistorical, true);
+    assert.equal(report.classificationStatus, "complete");
+    assert.deepEqual(report.unclassifiedOldPaths, []);
+    assert.deepEqual(report.classifiedUnknownOldPaths, []);
+    assert.deepEqual(report.proofHoles, []);
+  }
+
+  const oldSuitePathSet = new Set(oldSuitePortInventory.map((entry) => entry.oldPath));
+  for (const requiredSeedPath of oldSuiteRequiredSeedFixturePaths) {
+    assert.equal(oldSuitePathSet.has(requiredSeedPath), true, `old suite seed path is unclassified: ${requiredSeedPath}`);
+  }
+});
+
+test("reviewed old inventory entries are represented by ledger oldEvidence", () => {
+  const oldEvidenceByCapability = new Map(
+    capabilityLedger.map((entry) => [entry.capabilityId, new Set(entry.oldEvidence)]),
+  );
+  const reviewedOldInventoryEntries = [
+    ...oldEmitterPortInventory,
+    ...oldSuitePortInventory,
+    ...oldProductUnitPortInventory,
+  ].filter((entry) => entry.capabilityMappingStatus === "reviewed");
+
+  assert.ok(reviewedOldInventoryEntries.length > 0);
+
+  for (const entry of reviewedOldInventoryEntries) {
+    const representedByLedger = entry.capabilityIds.some((capabilityId) =>
+      oldEvidenceByCapability.get(capabilityId)?.has(entry.oldPath) === true,
+    );
+    assert.equal(
+      representedByLedger,
+      true,
+      `${entry.oldPath} has reviewed old inventory mapping but no matching ledger oldEvidence`,
+    );
   }
 });
 
