@@ -562,6 +562,9 @@ async function writeProject(projectDirectory, files) {
 function createRegistry(targetPack) {
   return {
     packs: [targetPack],
+    get(id) {
+      return id === targetPack.id ? targetPack : undefined;
+    },
     require(id) {
       if (id !== targetPack.id) {
         throw new Error(`Unknown target '${id}'.`);

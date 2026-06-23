@@ -168,16 +168,16 @@ function getRequiredTargetPack(
   registry: TargetRegistry,
   target: TargetSelection,
 ): TargetPack | TargetDiagnostic {
-  try {
-    return registry.require(target.id);
-  } catch (error: unknown) {
+  const targetPack = registry.get(target.id);
+  if (targetPack === undefined) {
     return {
       code: "TARGET_SELECTION",
       category: "error",
-      message: error instanceof Error ? error.message : String(error),
+      message: `Unknown target '${target.id}'.`,
       source: "tsonic-host",
     };
   }
+  return targetPack;
 }
 
 function getTargetSelectedSurfaces(
