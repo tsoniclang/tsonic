@@ -77,6 +77,36 @@ test("host passes selected surfaces to the single target provider", () => {
   assert.deepEqual(composition.extensions, [targetExtension]);
 });
 
+test("host composes target provider extensions before selected surface extensions", () => {
+  const events = [];
+  const targetExtension = { name: "target" };
+  const jsExtension = { name: "surface-js" };
+  const nodejsExtension = { name: "surface-nodejs" };
+  const targetPack = createFakeTargetPack(events, {
+    targetExtension,
+    surfaces: [
+      createFakeSurface("js", { events, extension: jsExtension }),
+      createFakeSurface("nodejs", { events, requiredSurfaces: ["js"], extension: nodejsExtension }),
+      createFakeSurface("webworker", { events, extension: { name: "unselected" } }),
+    ],
+  });
+  const project = parseTsonicProjectConfig({
+    entryPoint: "index.ts",
+    targets: [{ id: "demo", surfaces: ["js", "nodejs"] }],
+  });
+  const target = project.targets[0];
+
+  const composition = createTargetCompilerExtensions({ project, target, targetPack });
+
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=js,nodejs",
+    "surface-extension:js:target=demo:surfaces=js,nodejs",
+    "surface-extension:nodejs:target=demo:surfaces=js,nodejs",
+  ]);
+  assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js", "nodejs"]);
+  assert.deepEqual(composition.extensions, [targetExtension, jsExtension, nodejsExtension]);
+});
+
 test("host rejects stale or unowned supplied surface composition", () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
@@ -421,6 +451,15 @@ function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {
     id,
     displayName: `${id} Surface`,
     ...((options.requiredSurfaces ?? []).length > 0 ? { requiredSurfaces: options.requiredSurfaces } : {}),
+    ...(options.extension === undefined
+      ? {}
+      : {
+          createExtensions(context) {
+            options.events?.push(`surface-extension:${id}:target=${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
+            assert.equal(context.surface.id, id);
+            return [options.extension];
+          },
+        }),
     runtimeArtifacts() {
       options.events?.push(`surface-runtime:${id}`);
       return options.artifacts ?? [];

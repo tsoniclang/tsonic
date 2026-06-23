@@ -25,6 +25,14 @@ export interface TargetProviderContext {
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
 }
 
+export interface TargetSurfaceExtensionContext {
+  readonly project: TsonicProjectConfig;
+  readonly target: TargetSelection;
+  readonly targetPack: TargetPack;
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+  readonly surface: TargetSurfaceImplementation;
+}
+
 export interface TargetBackendContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
@@ -132,6 +140,7 @@ export interface TargetSurfaceImplementation {
   readonly id: TargetSurfaceId;
   readonly displayName: string;
   readonly requiredSurfaces?: readonly TargetSurfaceId[];
+  createExtensions?(context: TargetSurfaceExtensionContext): readonly CompilerExtension[];
   runtimeArtifacts(context: TargetRuntimeArtifactContext): readonly TargetArtifact[];
 }
 

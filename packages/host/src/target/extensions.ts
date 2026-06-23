@@ -24,11 +24,21 @@ export function createTargetCompilerExtensions(options: CreateTargetCompilerExte
     ? getSelectedSurfaceImplementations(options.targetPack, options.target)
     : validateSelectedSurfaceComposition(options.targetPack, options.target, options.selectedSurfaces);
   const provider = requireTargetProvider(options.targetPack, options.target);
-  const extensions = provider.createExtensions({
+  const providerContext = {
     project: options.project,
     target: options.target,
     selectedSurfaces,
-  });
+  };
+  const extensions = [
+    ...provider.createExtensions(providerContext),
+    ...selectedSurfaces.flatMap((surface) =>
+      surface.createExtensions?.({
+        ...providerContext,
+        targetPack: options.targetPack,
+        surface,
+      }) ?? []
+    ),
+  ];
   return {
     selectedSurfaces,
     extensions,

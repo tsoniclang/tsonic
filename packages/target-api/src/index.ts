@@ -22,6 +22,7 @@ export type {
   TargetRuntimeArtifactContext,
   TargetSemanticNodeOptions,
   TargetSemanticQueries,
+  TargetSurfaceExtensionContext,
   TargetSurfaceImplementation,
   TargetToolchain,
   TargetToolchainContext,

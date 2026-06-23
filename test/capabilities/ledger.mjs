@@ -30,6 +30,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["host.project.target-selection", "Select target by target id", "complete", "tsonic-host"],
   ["host.project.surface-selection", "Select surfaces by target capability", "complete", "tsonic-host"],
   ["host.project.provider-composition", "Compose provider set for a compile session", "complete", "tsonic-host"],
+  ["host.project.surface-extension-composition", "Compose selected surface extensions as first-class compiler contributors", "complete", "tsonic-host"],
 
   ["module.graph.source-files", "Resolve ordinary TypeScript source file graph", "partial", "tsts-api"],
   ["module.import.named", "Support named ESM imports", "partial", "tsts-api"],
@@ -320,6 +321,22 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: provider extensions and runtime artifacts are composed before backend/toolchain handoff; missing providers and stale supplied surface composition stop before backend emission.",
+  }),
+  "host.project.surface-extension-composition": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/surface/profiles.test.ts",
+      "packages/frontend/src/surface/profiles.test.ts",
+      "test/fixtures/js-surface-runtime-builtins/",
+      "test/fixtures/nodejs-surface-alias-coverage/",
+    ]),
+    notes:
+      "Reviewed proof: selected surfaces contribute their own compiler extensions after the target provider and in selected-surface order; unselected, stale, and dependency-missing surfaces cannot contribute semantic extensions or runtime artifacts.",
   }),
   "tsts.no-target-overrides": Object.freeze({
     positiveTests: Object.freeze([

@@ -799,15 +799,8 @@ test("CLI rejects structural binary operators without selected target facts", as
       outDir: "out",
       targets: [{ id: "csharp" }],
     }, null, 2),
-    "src/external.d.ts": [
-      "export declare const left: { value: number };",
-      "export declare const right: { value: number };",
-      "",
-    ].join("\n"),
     "src/index.ts": [
-      "import { left, right } from \"./external.js\";",
-      "",
-      "export function compare(): boolean {",
+      "export function compare<T>(left: T, right: T): boolean {",
       "  return left == right;",
       "}",
       "",
