@@ -5,17 +5,26 @@ export type {
   TargetDiagnostic,
   TargetSourceFile,
 } from "./artifacts.js";
-export type { TargetId, TargetSelection, TsonicProjectConfig } from "./config.js";
+export type {
+  TargetId,
+  TargetSelection,
+  TargetSurfaceId,
+  TsonicProjectConfig,
+} from "./config.js";
 export type {
   TargetBackend,
   TargetBackendContext,
   TargetCompilationPaths,
   TargetCompileInput,
-  TargetExtensionContext,
   TargetPack,
+  TargetProvider,
+  TargetProviderContext,
+  TargetRuntimeArtifactContext,
   TargetSemanticNodeOptions,
   TargetSemanticQueries,
+  TargetSurfaceImplementation,
   TargetToolchain,
+  TargetToolchainContext,
   TargetToolchainInput,
   TargetToolchainResult,
 } from "./pack.js";

@@ -6,9 +6,6 @@
   "bin": {
     "tsonic": "./dist/src/index.js"
   },
-  "exports": {
-    ".": "./src/index.ts"
-  },
   "scripts": {
     "build": "../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false"
   },

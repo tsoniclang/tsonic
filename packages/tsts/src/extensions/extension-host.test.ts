@@ -403,7 +403,7 @@ test("semantic provider methods own typed observations without hook boilerplate"
               providerKind: "semantic",
             },
             validateTargetConstraint: () => acceptObservation(true),
-            validatePostCheckAssignability: () => acceptObservation(true),
+            observePostCheckAssignability: () => acceptObservation(undefined),
             mapCheckedCall: () => acceptObservation({
               selectedSignature: selectedSignature("System.Console.WriteLine(System.Int32)"),
               returnType: voidType,
@@ -455,12 +455,13 @@ test("semantic provider methods own typed observations without hook boilerplate"
   }, () => false, { requireOwner: true });
   assert.equal(constraint.kind === "accept" ? constraint.value : false, true);
 
-  const assignable = host.runObservation(ExtensionObservationPoint.validatePostCheckAssignability, {
+  const assignabilityObservation = host.runObservation(ExtensionObservationPoint.observePostCheckAssignability, {
     source: int32Type,
     target: longType,
     relation: "assignment",
-  }, () => false, { requireOwner: true });
-  assert.equal(assignable.kind === "accept" ? assignable.value : false, true);
+  }, () => undefined, { requireOwner: true });
+  assert.equal(assignabilityObservation.kind, "accept");
+  assert.equal(assignabilityObservation.kind === "accept" ? assignabilityObservation.value : "not-accepted", undefined);
 
   const call = host.runObservation(ExtensionObservationPoint.mapCheckedCall, {
     call: expression,
@@ -696,13 +697,14 @@ test("provider declaration models render the supported export member and type ma
   }
 
   const source = resolved.module.virtualSourceText;
-  assert.match(source, /export declare class Box<T extends number>/);
+  assert.match(source, /export declare class Box<T extends number> extends BaseBox/);
   assert.match(source, /constructor\(value: T\);/);
   assert.match(source, /value: T;/);
   assert.match(source, /static Count: number;/);
   assert.match(source, /\[index: number\]: string;/);
   assert.match(source, /export interface Writer/);
   assert.match(source, /write\(text\?: string, \.\.\.chunks: string\[\]\): number;/);
+  assert.match(source, /readExternal\(reader: import\("@target\/io\.js"\)\.Reader\): void;/);
   assert.match(source, /export declare function tryParse<T extends number>\(text\?: string, \.\.\.values: number\[\]\): boolean;/);
   assert.match(source, /export type Pair = \[number, string\];/);
   assert.match(source, /export declare const DefaultSize: number;/);
@@ -1024,7 +1026,7 @@ test("target constraint and post-check assignability observations use owner hook
       }),
       extension("csharp", {
         dependsOn: ["source"],
-        observationOwners: [ExtensionObservationPoint.validateTargetConstraint, ExtensionObservationPoint.validatePostCheckAssignability],
+        observationOwners: [ExtensionObservationPoint.validateTargetConstraint, ExtensionObservationPoint.observePostCheckAssignability],
         initialize: (context) => {
           context.registerObservation(ExtensionObservationPoint.validateTargetConstraint, (request) => {
             if (request.source === intType && request.constraint === searchValuesConstraint) {
@@ -1032,11 +1034,11 @@ test("target constraint and post-check assignability observations use owner hook
             }
             return deferObservation;
           });
-          context.registerObservation(ExtensionObservationPoint.validatePostCheckAssignability, (request) => {
+          context.registerObservation(ExtensionObservationPoint.observePostCheckAssignability, (request) => {
             if (request.source === intType && request.target === longType) {
-              return acceptObservation(true);
+              return acceptObservation(undefined);
             }
-            return rejectObservation<boolean>(diagnostic("csharp", "ASSIGNABILITY_REJECTED", 9100001, "source type is not assignable to target type"));
+            return rejectObservation<undefined>(diagnostic("csharp", "ASSIGNABILITY_REJECTED", 9100001, "source type is not valid for the target after TS assignability"));
           });
         },
       }),
@@ -1056,11 +1058,11 @@ test("target constraint and post-check assignability observations use owner hook
   assert.equal(constraintResult.kind === "accept" ? constraintResult.value : false, true);
   assert.equal(coreCalled, false);
 
-  const assignabilityResult = host.runObservation(ExtensionObservationPoint.validatePostCheckAssignability, {
+  const assignabilityResult = host.runObservation(ExtensionObservationPoint.observePostCheckAssignability, {
     source: intType,
     target: stringType,
     relation: "assignment",
-  }, () => true, { requireOwner: true });
+  }, () => undefined, { requireOwner: true });
 
   assert.equal(assignabilityResult.kind, "reject");
   assert.equal(host.diagnostics.all().at(-1)?.extensionCode, "ASSIGNABILITY_REJECTED");
@@ -1466,6 +1468,10 @@ function matrixBindingProvider(
       moduleSpecifier: resolution.moduleSpecifier,
       providerModuleId: resolution.providerModuleId,
       exports: [{
+        id: "BaseBox",
+        name: "BaseBox",
+        kind: "class",
+      }, {
         id: "Box",
         name: "Box",
         kind: "class",
@@ -1474,6 +1480,7 @@ function matrixBindingProvider(
           name: "T",
           constraints: [{ kind: "source-primitive", name: "int32" }],
         }],
+        extends: [{ kind: "provider-ref", name: "BaseBox" }],
         members: options.members ?? [{
           id: "ctor",
           name: "constructor",
@@ -1518,6 +1525,18 @@ function matrixBindingProvider(
               { name: "chunks", type: { kind: "array", elementType: { kind: "string" } }, rest: true },
             ],
             returnType: { kind: "number" },
+          }],
+        }, {
+          id: "readExternal",
+          name: "readExternal",
+          kind: "method",
+          signatures: [{
+            id: "readExternal",
+            parameters: [{
+              name: "reader",
+              type: { kind: "provider-ref", moduleSpecifier: "@target/io.js", name: "Reader" },
+            }],
+            returnType: { kind: "void" },
           }],
         }],
       }, {

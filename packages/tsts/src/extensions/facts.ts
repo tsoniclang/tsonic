@@ -93,7 +93,9 @@ export interface FieldFact {
 export interface AttributeFact {
   readonly target: ExtensionFactSubject;
   readonly applicationTarget?: ExtensionFactSubject;
+  readonly applicationTargetSpecifier?: string;
   readonly applicationParameterName?: string;
+  readonly applicationPlacement?: "constructor";
   readonly attributeName: string;
   readonly arguments?: readonly ExtensionFactSubject[];
 }
@@ -217,6 +219,7 @@ export interface ProviderVirtualDeclarationFact {
   readonly virtualFileName: string;
   readonly exportName?: string;
   readonly memberName?: string;
+  readonly memberId?: string;
   readonly signatureId?: string;
   readonly targetIdentity?: TargetTypeRef;
 }
@@ -295,7 +298,9 @@ export const attributeFactKey = defineExtensionFactKey<AttributeFact>({
   equals: (left, right) =>
     left.target === right.target
     && left.applicationTarget === right.applicationTarget
+    && left.applicationTargetSpecifier === right.applicationTargetSpecifier
     && left.applicationParameterName === right.applicationParameterName
+    && left.applicationPlacement === right.applicationPlacement
     && left.attributeName === right.attributeName
     && factSubjectArrayEquals(left.arguments, right.arguments),
 });
@@ -372,6 +377,7 @@ export const providerVirtualDeclarationFactKey = defineExtensionFactKey<Provider
     && left.virtualFileName === right.virtualFileName
     && left.exportName === right.exportName
     && left.memberName === right.memberName
+    && left.memberId === right.memberId
     && left.signatureId === right.signatureId
     && optionalTargetTypeRefEquals(left.targetIdentity, right.targetIdentity),
 });

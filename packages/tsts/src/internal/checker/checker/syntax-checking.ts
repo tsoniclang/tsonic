@@ -685,7 +685,7 @@ export function Checker_checkForInStatement(receiver: GoPtr<Checker>, node: GoPt
   if (rightType === receiver!.neverType || !Checker_isTypeAssignableToKind(receiver, rightType, (TypeFlagsNonPrimitive | TypeFlagsInstantiableNonPrimitive) as int)) {
     Checker_error(receiver, data!.Expression, The_right_hand_side_of_a_for_in_statement_must_be_of_type_any_an_object_type_or_a_type_parameter_but_here_has_type_0, Checker_TypeToString(receiver, rightType));
   }
-  recordExtensionCheckedIterationMapping(receiver, node, "for-in", Checker_getIndexTypeOrString(receiver, rightType));
+  recordExtensionCheckedIterationMapping(receiver, node, "for-in", Checker_getIndexTypeOrString(receiver, rightType), rightType);
   Checker_checkSourceElement(receiver, data!.Statement);
   if ((Node_Locals(node)?.size ?? 0) !== 0) {
     Checker_registerForUnusedIdentifiersCheck(receiver, node);
@@ -759,12 +759,14 @@ export function Checker_checkForOfStatement(receiver: GoPtr<Checker>, node: GoPt
       }
     }
   }
+  const expressionType = Checker_checkNonNullExpression(receiver, data!.Expression);
   let iteratedType: GoPtr<Type> = undefined;
   if (IsVariableDeclarationList(data!.Initializer)) {
     Checker_checkVariableDeclarationList(receiver, data!.Initializer);
+    iteratedType = Checker_checkRightHandSideOfForOfFromExpressionType(receiver, node, expressionType);
   } else {
     const varExpr = data!.Initializer;
-    iteratedType = Checker_checkRightHandSideOfForOf(receiver, node);
+    iteratedType = Checker_checkRightHandSideOfForOfFromExpressionType(receiver, node, expressionType);
     if (IsArrayLiteralExpression(varExpr) || IsObjectLiteralExpression(varExpr)) {
       Checker_checkDestructuringAssignment(receiver, varExpr, OrElse(iteratedType, receiver!.errorType), CheckModeNormal, false as bool);
     } else {
@@ -775,7 +777,7 @@ export function Checker_checkForOfStatement(receiver: GoPtr<Checker>, node: GoPt
       }
     }
   }
-  recordExtensionCheckedIterationMapping(receiver, node, data!.AwaitModifier !== undefined ? "for-await-of" : "for-of", iteratedType);
+  recordExtensionCheckedIterationMapping(receiver, node, data!.AwaitModifier !== undefined ? "for-await-of" : "for-of", iteratedType, expressionType);
   Checker_checkSourceElement(receiver, data!.Statement);
   if ((Node_Locals(node)?.size ?? 0) !== 0) {
     Checker_registerForUnusedIdentifiersCheck(receiver, node);
@@ -3597,8 +3599,12 @@ export function keyBuilder_writeNode(receiver: GoPtr<keyBuilder>, node: GoPtr<No
  * }
  */
 export function Checker_checkRightHandSideOfForOf(receiver: GoPtr<Checker>, statement: GoPtr<Node>): GoPtr<Type> {
+  return Checker_checkRightHandSideOfForOfFromExpressionType(receiver, statement, Checker_checkNonNullExpression(receiver, Node_Expression(statement)));
+}
+
+function Checker_checkRightHandSideOfForOfFromExpressionType(receiver: GoPtr<Checker>, statement: GoPtr<Node>, expressionType: GoPtr<Type>): GoPtr<Type> {
   const use = IfElse(AsForInOrOfStatement(statement)!.AwaitModifier !== undefined, IterationUseForAwaitOf, IterationUseForOf);
-  return Checker_checkIteratedTypeOrElementType(receiver, use, Checker_checkNonNullExpression(receiver, Node_Expression(statement)), receiver!.undefinedType, Node_Expression(statement));
+  return Checker_checkIteratedTypeOrElementType(receiver, use, expressionType, receiver!.undefinedType, Node_Expression(statement));
 }
 
 /**

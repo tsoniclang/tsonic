@@ -2,7 +2,7 @@ import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import { Node_Members, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
 import { Node_Name } from "../internal/ast/spine.js";
-import { KindConstructor } from "../internal/ast/generated/kinds.js";
+import { KindConstructor, KindIndexSignature } from "../internal/ast/generated/kinds.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import {
   canonicalIdentityFactKey,
@@ -142,6 +142,13 @@ function recordProviderVirtualMemberFacts(
       continue;
     }
     if (member.signatures !== undefined && member.signatures.length > 0) {
+      const uniqueDeclarations = Array.from(new Set(matchingDeclarations));
+      if (uniqueDeclarations.length !== member.signatures.length) {
+        for (const memberNode of uniqueDeclarations) {
+          recordProviderVirtualMemberFact(extensionHost, virtualModule, exportDeclaration, member, undefined, memberNode, evidence);
+        }
+        continue;
+      }
       for (let index = 0; index < member.signatures.length; index++) {
         const signature = member.signatures[index];
         const memberNode = matchingDeclarations[index];
@@ -171,13 +178,16 @@ function recordProviderVirtualMemberFact(
   extensionHost.facts.set(declarationNode, providerVirtualDeclarationFactKey, fact, evidence);
   const symbol = Node_Symbol(declarationNode);
   if (symbol !== undefined) {
-    extensionHost.facts.set(symbol, providerVirtualDeclarationFactKey, fact, evidence);
+    extensionHost.facts.set(symbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, exportDeclaration, member), evidence);
   }
 }
 
 function isProviderMemberDeclaration(node: Node, member: ProviderMemberDeclaration): boolean {
   if (member.kind === "constructor") {
     return node.Kind === KindConstructor;
+  }
+  if (member.kind === "indexer") {
+    return node.Kind === KindIndexSignature;
   }
   const name = Node_Name(node);
   return name !== undefined && Node_Text(name) === member.name;
@@ -292,7 +302,7 @@ function getTargetParameter(parameter: ProviderParameterDeclaration): TargetPara
 }
 
 function getArgumentPassingMode(parameter: ProviderParameterDeclaration): ArgumentPassingMode {
-  return "by-value";
+  return parameter.passingMode ?? "by-value";
 }
 
 function getTargetConstraint(type: ProviderTypeExpression): readonly TargetConstraint[] {
@@ -423,6 +433,7 @@ function getProviderVirtualDeclarationFact(
     virtualFileName: virtualModule.resolution.virtualFileName,
     ...(declaration !== undefined ? { exportName: declaration.name } : {}),
     ...(member !== undefined ? { memberName: member.name } : {}),
+    ...(member !== undefined ? { memberId: member.id } : {}),
     ...(signature !== undefined ? { signatureId: signature.id } : {}),
     ...(declaration?.targetIdentity !== undefined
       ? {

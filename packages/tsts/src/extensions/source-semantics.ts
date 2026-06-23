@@ -26,6 +26,7 @@ import {
   KindExportDeclaration,
   KindImportDeclaration,
   KindIdentifier,
+  KindJSTypeAliasDeclaration,
   KindNamedImports,
   KindNamedExports,
   KindNamespaceImport,
@@ -35,6 +36,7 @@ import {
   KindPropertyDeclaration,
   KindQualifiedName,
   KindStringLiteral,
+  KindTypeAliasDeclaration,
   KindTypeKeyword,
   KindTypeReference,
   KindTupleType,
@@ -244,6 +246,7 @@ function recordSourceSemanticsFacts(
     }
   }
   const markerImportIndex = createSourceSemanticsMarkerImportIndex(sourceFile, modules);
+  recordSourceSemanticsTypeAliases(facts, sourceFile, modules, markerImportIndex);
   recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, modules, markerImportIndex);
   recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerImportIndex);
 }
@@ -346,7 +349,7 @@ function recordSourceSemanticsCallMarkers(
       recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, node, marker);
       return;
     }
-    recordAttributeBuilderCall(facts, node, createMarkerEvidence("attribute"));
+    recordAttributeBuilderCall(facts, diagnostics, extensionId, node, createMarkerEvidence("attribute"));
   });
 }
 
@@ -394,7 +397,7 @@ function recordSourceSemanticsCallMarker(
       return;
     }
     case "field":
-      recordFieldMarker(facts, callExpression, evidence);
+      recordFieldMarker(facts, diagnostics, extensionId, callExpression, marker, evidence);
       return;
     case "struct":
       recordStructMarker(facts, callExpression, evidence);
@@ -451,27 +454,72 @@ function getArgumentPassingMode(kind: ArgumentPassingMarkerKind): ArgumentPassin
 
 function recordFieldMarker(
   facts: ExtensionFactStore,
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
   callExpression: Node,
+  marker: SourceCallMarkerDeclaration,
   evidence: readonly ExtensionEvidence[],
 ): void {
   const fieldType = (Node_TypeArguments(callExpression) ?? [])[0];
   if (fieldType === undefined) {
+    diagnostics.append({
+      extensionId,
+      extensionCode: "SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE",
+      numericCode: 9901102,
+      publicCode: "TSTS_SOURCE_SEMANTICS_0002",
+      category: "error",
+      message: `${marker.exportName}(...) is missing field type evidence; use ${marker.exportName}<T>() so finalized field facts can be recorded.`,
+      nodeOrSpan: callExpression,
+      evidence,
+      identity: `source-semantics-missing-field-type-evidence:${String(callExpression.id ?? "unknown")}`,
+    });
     return;
   }
-  const propertyAssignment = callExpression?.Parent?.Kind === KindPropertyAssignment ? callExpression.Parent : undefined;
-  const nameNode = propertyAssignment === undefined ? undefined : (Node_Name(propertyAssignment) ?? Node_PropertyName(propertyAssignment));
-  const name = Node_Text(nameNode);
+  const fieldTarget = getFieldMarkerTarget(callExpression);
+  if (fieldTarget === undefined) {
+    diagnostics.append({
+      extensionId,
+      extensionCode: "SOURCE_SEMANTICS_FIELD_TARGET_NOT_PROVEN",
+      numericCode: 9901103,
+      publicCode: "TSTS_SOURCE_SEMANTICS_0003",
+      category: "error",
+      message: `${marker.exportName}<T>() requires a class property initializer or object-literal property assignment so finalized field facts can prove the field name.`,
+      nodeOrSpan: callExpression,
+      evidence,
+      identity: `source-semantics-field-target-not-proven:${String(callExpression.id ?? "unknown")}`,
+    });
+    return;
+  }
+  const name = Node_Text(fieldTarget.nameNode);
   const fact = {
     name,
     type: fieldType,
   } satisfies FieldFact;
   facts.set(callExpression, fieldFactKey, fact, evidence);
-  if (propertyAssignment !== undefined) {
-    facts.set(propertyAssignment, fieldFactKey, fact, evidence);
-    if (nameNode !== undefined) {
-      facts.set(nameNode, fieldFactKey, fact, evidence);
-    }
+  facts.set(fieldTarget.declaration, fieldFactKey, fact, evidence);
+  facts.set(fieldTarget.nameNode, fieldFactKey, fact, evidence);
+}
+
+interface FieldMarkerTarget {
+  readonly declaration: Node;
+  readonly nameNode: Node;
+}
+
+function getFieldMarkerTarget(callExpression: Node): FieldMarkerTarget | undefined {
+  const parent = callExpression.Parent;
+  if (parent?.Kind === KindPropertyAssignment) {
+    const nameNode = Node_Name(parent) ?? Node_PropertyName(parent);
+    return nameNode === undefined
+      ? undefined
+      : { declaration: parent, nameNode };
   }
+  if (parent?.Kind === KindPropertyDeclaration && Node_Initializer(parent) === callExpression) {
+    const nameNode = Node_Name(parent);
+    return nameNode === undefined
+      ? undefined
+      : { declaration: parent, nameNode };
+  }
+  return undefined;
 }
 
 function recordStructMarker(
@@ -521,11 +569,15 @@ function recordAttributeMarker(
 
 interface AttributeBuilderContext {
   readonly applicationTarget: ExtensionFactSubject;
+  readonly applicationTargetSpecifier?: string;
   readonly applicationParameterName?: string;
+  readonly applicationPlacement?: "constructor";
 }
 
 function recordAttributeBuilderCall(
   facts: ExtensionFactStore,
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
   callExpression: Node,
   evidence: readonly ExtensionEvidence[],
 ): void {
@@ -541,7 +593,7 @@ function recordAttributeBuilderCall(
   if (name === undefined || Node_Text(name) !== "add") {
     return;
   }
-  const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+  const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
   if (receiverContext === undefined) {
     return;
   }
@@ -553,7 +605,9 @@ function recordAttributeBuilderCall(
   const fact = {
     target,
     applicationTarget: receiverContext.applicationTarget,
+    ...(receiverContext.applicationTargetSpecifier !== undefined ? { applicationTargetSpecifier: receiverContext.applicationTargetSpecifier } : {}),
     ...(receiverContext.applicationParameterName !== undefined ? { applicationParameterName: receiverContext.applicationParameterName } : {}),
+    ...(receiverContext.applicationPlacement !== undefined ? { applicationPlacement: receiverContext.applicationPlacement } : {}),
     attributeName: getExpressionNameText(target),
     arguments: args.slice(1),
   } satisfies AttributeFact;
@@ -562,7 +616,10 @@ function recordAttributeBuilderCall(
 
 function getAttributeBuilderContext(
   facts: ExtensionFactStore,
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
   expression: GoPtr<Node>,
+  evidence: readonly ExtensionEvidence[],
 ): AttributeBuilderContext | undefined {
   if (expression?.Kind !== KindCallExpression) {
     return undefined;
@@ -588,7 +645,7 @@ function getAttributeBuilderContext(
   }
   const methodName = Node_Text(name);
   if (methodName === "property" || methodName === "method") {
-    const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+    const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
     const selectedTarget = getAttributeSelectorTarget((Node_Arguments(expression) ?? [])[0]);
     return receiverContext === undefined || selectedTarget === undefined
       ? undefined
@@ -596,15 +653,53 @@ function getAttributeBuilderContext(
         applicationTarget: selectedTarget,
       };
   }
+  if (methodName === "constructor") {
+    const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
+    return receiverContext === undefined
+      ? undefined
+      : {
+        applicationTarget: receiverContext.applicationTarget,
+        applicationPlacement: "constructor",
+      };
+  }
   if (methodName === "parameter") {
-    const receiverContext = getAttributeBuilderContext(facts, access.Expression);
+    const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
     const parameterName = getStringLiteralText((Node_Arguments(expression) ?? [])[0]);
     return receiverContext === undefined || parameterName === undefined
       ? undefined
       : {
         applicationTarget: receiverContext.applicationTarget,
         applicationParameterName: parameterName,
+        ...(receiverContext.applicationPlacement !== undefined ? { applicationPlacement: receiverContext.applicationPlacement } : {}),
       };
+  }
+  if (methodName === "target") {
+    const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
+    if (receiverContext === undefined) {
+      return undefined;
+    }
+    const targetSpecifierArgument = (Node_Arguments(expression) ?? [])[0];
+    const targetSpecifier = getStringLiteralText(targetSpecifierArgument);
+    if (targetSpecifier === undefined) {
+      diagnostics.append({
+        extensionId,
+        extensionCode: "SOURCE_SEMANTICS_ATTRIBUTE_TARGET_SPECIFIER_NOT_PROVEN",
+        numericCode: 9901104,
+        publicCode: "TSTS_SOURCE_SEMANTICS_0004",
+        category: "error",
+        message: "attribute(...).target(specifier) requires a string-literal application target specifier so finalized attribute facts can record the explicit target.",
+        nodeOrSpan: targetSpecifierArgument ?? expression,
+        evidence,
+        identity: `source-semantics-attribute-target-specifier-not-proven:${String(expression.id ?? "unknown")}`,
+      });
+      return undefined;
+    }
+    return {
+      applicationTarget: receiverContext.applicationTarget,
+      applicationTargetSpecifier: targetSpecifier,
+      ...(receiverContext.applicationParameterName !== undefined ? { applicationParameterName: receiverContext.applicationParameterName } : {}),
+      ...(receiverContext.applicationPlacement !== undefined ? { applicationPlacement: receiverContext.applicationPlacement } : {}),
+    };
   }
   return undefined;
 }
@@ -930,7 +1025,119 @@ function createSourceSemanticsMarkerImportIndex(
       }
     }
   }
+  recordPrimitiveTypeAliasBindings(sourceFile, primitivesByLocalName, namespacesByLocalName);
   return { primitivesByLocalName, callMarkersByLocalName, typeMarkersByLocalName, namespacesByLocalName };
+}
+
+interface PrimitiveTypeAliasBinding {
+  readonly aliasName: string;
+  readonly typeName: Node;
+}
+
+function recordPrimitiveTypeAliasBindings(
+  sourceFile: GoPtr<SourceFile>,
+  primitivesByLocalName: Map<string, SourcePrimitiveImportBinding>,
+  namespacesByLocalName: ReadonlyMap<string, SourceSemanticsModuleRuntime>,
+): void {
+  const aliases: PrimitiveTypeAliasBinding[] = [];
+  for (const statement of Node_Statements(sourceFile) ?? []) {
+    const aliasTypeName = getSourcePrimitiveTypeAliasTypeName(statement);
+    if (aliasTypeName === undefined) {
+      continue;
+    }
+    const aliasName = Node_Text(Node_Name(statement));
+    if (aliasName !== "") {
+      aliases.push({ aliasName, typeName: aliasTypeName });
+    }
+  }
+
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const alias of aliases) {
+      if (primitivesByLocalName.has(alias.aliasName)) {
+        continue;
+      }
+      const binding = resolvePrimitiveImportBinding(alias.typeName, primitivesByLocalName, namespacesByLocalName);
+      if (binding !== undefined) {
+        primitivesByLocalName.set(alias.aliasName, binding);
+        progressed = true;
+      }
+    }
+  }
+}
+
+function recordSourceSemanticsTypeAliases(
+  facts: ExtensionFactStore,
+  sourceFile: GoPtr<SourceFile>,
+  modules: readonly SourceSemanticsModuleRuntime[],
+  importIndex: SourceSemanticsMarkerImportIndex,
+): void {
+  for (const statement of Node_Statements(sourceFile) ?? []) {
+    if (statement === undefined) {
+      continue;
+    }
+    const aliasTypeName = getSourcePrimitiveTypeAliasTypeName(statement);
+    if (aliasTypeName === undefined) {
+      continue;
+    }
+    const primitive = resolvePrimitiveTypeReference(facts, aliasTypeName, modules, importIndex);
+    if (primitive === undefined) {
+      continue;
+    }
+    const evidence = createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName);
+    const primitiveFact = stripExportName(primitive.primitiveFact);
+    const aliasName = Node_Name(statement);
+    const aliasSymbol = Node_Symbol(aliasName);
+    const identity = createExportIdentity(
+      primitive.moduleIdentity,
+      primitive.exportName,
+      "type",
+      aliasSymbol === undefined ? primitive.identity.canonicalSymbolId ?? primitive.identity.id : getSymbolFactId(aliasSymbol),
+    );
+    facts.set(statement, canonicalIdentityFactKey, identity, evidence);
+    facts.set(statement, sourcePrimitiveFactKey, primitiveFact, evidence);
+    if (aliasName !== undefined) {
+      facts.set(aliasName, canonicalIdentityFactKey, identity, evidence);
+      facts.set(aliasName, sourcePrimitiveFactKey, primitiveFact, evidence);
+    }
+    if (aliasSymbol !== undefined) {
+      facts.set(aliasSymbol, canonicalIdentityFactKey, identity, evidence);
+      facts.set(aliasSymbol, sourcePrimitiveFactKey, primitiveFact, evidence);
+    }
+  }
+}
+
+function getSourcePrimitiveTypeAliasTypeName(statement: GoPtr<Node>): Node | undefined {
+  if (statement?.Kind !== KindTypeAliasDeclaration && statement?.Kind !== KindJSTypeAliasDeclaration) {
+    return undefined;
+  }
+  const aliasType = Node_Type(statement);
+  if (aliasType?.Kind !== KindTypeReference || (Node_TypeArguments(aliasType) ?? []).length > 0) {
+    return undefined;
+  }
+  return AsTypeReferenceNode(aliasType)?.TypeName;
+}
+
+function resolvePrimitiveImportBinding(
+  typeName: GoPtr<Node>,
+  primitivesByLocalName: ReadonlyMap<string, SourcePrimitiveImportBinding>,
+  namespacesByLocalName: ReadonlyMap<string, SourceSemanticsModuleRuntime>,
+): SourcePrimitiveImportBinding | undefined {
+  if (typeName === undefined) {
+    return undefined;
+  }
+  if (typeName.Kind !== KindQualifiedName) {
+    return primitivesByLocalName.get(Node_Text(typeName));
+  }
+  const qualifiedName = AsQualifiedName(typeName);
+  const moduleIdentity = namespacesByLocalName.get(Node_Text(qualifiedName?.Left));
+  if (moduleIdentity === undefined) {
+    return undefined;
+  }
+  const exportName = Node_Text(qualifiedName?.Right);
+  const primitiveFact = moduleIdentity.primitivesByExportName.get(exportName);
+  return primitiveFact === undefined ? undefined : { moduleIdentity, exportName, primitiveFact };
 }
 
 function resolvePrimitiveTypeReference(

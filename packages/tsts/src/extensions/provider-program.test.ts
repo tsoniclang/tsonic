@@ -581,7 +581,7 @@ test("checker validates provider-owned flow use diagnostics from source-semantic
   assert.equal(extended.extensionHost.facts.get(movedUse, flowStateFactKey), undefined);
 });
 
-test("checker validates provider-owned assignability after normal TS compatibility", () => {
+test("checker observes provider-owned assignability after normal TS compatibility", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
       import { move } from "@example/native/lang.js";
@@ -1020,7 +1020,7 @@ test("extension diagnostics can use explicit source spans through the standard s
   assert.match(Diagnostic_String(diagnostics[0]), /DOTNET0126/);
 });
 
-test("unsupported native surface operations are diagnostics, not fallback calls", () => {
+test("unsupported target-owned array operations are diagnostics, not fallback calls", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
       declare const values: { push(value: number): number };
@@ -1047,8 +1047,7 @@ test("unsupported native surface operations are diagnostics, not fallback calls"
   } satisfies ProgramOptions;
   const extended = attachExtensionHost(options, {
     activeTarget: "dotnet",
-    activeSurface: "native-array",
-    extensions: [providerExtension("@example/dotnet/System.Console.js", false, rejectingNativeArrayPushProvider())],
+    extensions: [providerExtension("@example/dotnet/System.Console.js", false, rejectingTargetArrayPushProvider())],
   });
 
   const program = NewProgram(options);
@@ -1062,12 +1061,12 @@ test("unsupported native surface operations are diagnostics, not fallback calls"
   assert.ok(Diagnostic_Pos(diagnostics[0]) >= Node_Pos(call));
   assert.ok(Diagnostic_End(diagnostics[0]) <= Node_End(call));
   assert.match(Diagnostic_String(diagnostics[0]), /DOTNET0301/);
-  assert.match(Diagnostic_String(diagnostics[0]), /native-array surface does not support push/);
+  assert.match(Diagnostic_String(diagnostics[0]), /target array provider does not support push/);
 
-  const nativeSurfaceDiagnostics = extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.extensionCode === "DOTNET_NATIVE_ARRAY_PUSH");
-  assert.equal(nativeSurfaceDiagnostics.length, 1);
-  assert.equal(nativeSurfaceDiagnostics[0]?.extensionId, "dotnet-native-array-surface-provider");
-  assert.match(nativeSurfaceDiagnostics[0]?.evidence?.[0]?.message ?? "", /Surface capability/);
+  const targetArrayDiagnostics = extended.extensionHost.diagnostics.all().filter((diagnostic) => diagnostic.extensionCode === "DOTNET_TARGET_ARRAY_PUSH");
+  assert.equal(targetArrayDiagnostics.length, 1);
+  assert.equal(targetArrayDiagnostics[0]?.extensionId, "dotnet-target-array-provider");
+  assert.match(targetArrayDiagnostics[0]?.evidence?.[0]?.message ?? "", /Target capability/);
   assert.equal(extended.extensionHost.facts.get(call, selectedTargetSignatureFactKey), undefined);
   assert.equal(extended.extensionHost.facts.get(call, targetOperationFactKey), undefined);
 });
@@ -1432,10 +1431,10 @@ function rustAssignabilityProvider(): TargetSemanticProvider {
       extensionContractVersion: TstsProviderContractVersion,
       providerKind: "semantic",
     },
-    validatePostCheckAssignability: (request, context) => {
+    observePostCheckAssignability: (request, context) => {
       const state = context.facts.get(request.expression, flowStateFactKey);
       if (state?.state !== "moved") {
-        return acceptObservation(true);
+        return acceptObservation(undefined);
       }
       return rejectObservation({
         extensionId: context.extensionId,
@@ -1523,19 +1522,19 @@ function sourceSpanRejectingCallProvider(): TargetSemanticProvider {
   };
 }
 
-function rejectingNativeArrayPushProvider(): TargetSemanticProvider {
+function rejectingTargetArrayPushProvider(): TargetSemanticProvider {
   return {
-    identity: semanticProviderIdentity("dotnet-native-array-surface-provider"),
+    identity: semanticProviderIdentity("dotnet-target-array-provider"),
     mapCheckedCall: (request: CheckedCallMappingRequest) => rejectObservation({
-      extensionId: "dotnet-native-array-surface-provider",
-      extensionCode: "DOTNET_NATIVE_ARRAY_PUSH",
+      extensionId: "dotnet-target-array-provider",
+      extensionCode: "DOTNET_TARGET_ARRAY_PUSH",
       numericCode: 9910301,
       publicCode: "DOTNET0301",
       category: "error",
-      message: "The active native-array surface does not support push; use a provider-supported collection surface.",
+      message: "The active target array provider does not support push; use a provider-supported collection capability.",
       nodeOrSpan: request.call,
-      evidence: [{ message: "Surface capability", details: "native arrays expose fixed-size element access, not mutable push." }],
-      identity: "dotnet-native-array-push:/src/index.ts",
+      evidence: [{ message: "Target capability", details: "target arrays expose fixed-size element access, not mutable push." }],
+      identity: "dotnet-target-array-push:/src/index.ts",
     }),
   };
 }

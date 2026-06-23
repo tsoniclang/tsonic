@@ -6,13 +6,16 @@ import type { Symbol } from "../internal/ast/symbol.js";
 import { Node_Name } from "../internal/ast/spine.js";
 import { AsElementAccessExpression, AsForInOrOfStatement, AsPropertyAccessExpression } from "../internal/ast/generated/casts.js";
 import { KindElementAccessExpression, KindIdentifier, KindPrivateIdentifier, KindPropertyAccessExpression, KindQualifiedName } from "../internal/ast/generated/kinds.js";
-import { SymbolFlagsAlias } from "../internal/ast/symbolflags.js";
 import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
-import { Checker_GetAliasedSymbol, Checker_GetSymbolAtLocation, Checker_getResolvedSymbol } from "../internal/checker/checker/symbols.js";
+import { Checker_GetPropertyOfType } from "../internal/checker/exports.js";
+import { Checker_GetAliasedSymbol, Checker_getResolvedSymbolOrNil } from "../internal/checker/checker/symbols.js";
+import { Checker_getApplicableIndexInfo } from "../internal/checker/checker/signatures.js";
+import { Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
+import { GetSourceFileOfNode, NodeIsSynthesized } from "../internal/ast/utilities.js";
 import { ExtensionObservationPoint } from "./observations.js";
-import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityValidationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
+import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityObservationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
 import type { ExtensionEvidence, ExtensionFactKey, ExtensionFactSubject, ExtensionHost } from "./host.js";
 import { getExtensionHost } from "./host.js";
@@ -40,7 +43,7 @@ const noCheckedOperationMapping: CheckedOperationMappingResult = {
 };
 
 export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProgram>, callExpression: GoPtr<Node>, sourceSelectedSignature?: GoPtr<Signature>): void {
-  if (checker === undefined || callExpression === undefined) {
+  if (checker === undefined || callExpression === undefined || !isUserSourceOperationNode(callExpression)) {
     return;
   }
 
@@ -56,6 +59,7 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   const calleeSymbols = getReferenceSymbols(checker, callee);
   const calleeAccess = AsPropertyAccessExpression(callee);
   const calleeReceiver = calleeAccess?.Expression;
+  const calleeReceiverType = calleeReceiver === undefined ? undefined : Checker_GetTypeAtLocation(checker, calleeReceiver);
   const calleeReceiverSymbols = getReferenceSymbols(checker, calleeReceiver);
   const sourceSelectedDeclaration = sourceSelectedSignature?.declaration;
   const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
@@ -69,6 +73,8 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
     calleeReceiverSymbols.symbol,
     calleeReceiverSymbols.resolvedSymbol,
     calleeReceiverSymbols.aliasedSymbol,
+    calleeReceiverType,
+    calleeReceiverType?.symbol,
     sourceSelectedDeclaration,
     sourceSelectedDeclarationContainer,
     sourceSelectedContainerSymbol,
@@ -83,6 +89,8 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
       ...(calleeSymbols.resolvedSymbol !== undefined ? { calleeResolvedSymbol: calleeSymbols.resolvedSymbol } : {}),
       ...(calleeSymbols.aliasedSymbol !== undefined ? { calleeAliasedSymbol: calleeSymbols.aliasedSymbol } : {}),
       ...(calleeReceiver !== undefined ? { calleeReceiver } : {}),
+      ...(calleeReceiverType !== undefined ? { calleeReceiverType } : {}),
+      ...(calleeReceiverType?.symbol !== undefined ? { calleeReceiverTypeSymbol: calleeReceiverType.symbol } : {}),
       ...(calleeReceiverSymbols.symbol !== undefined ? { calleeReceiverSymbol: calleeReceiverSymbols.symbol } : {}),
       ...(calleeReceiverSymbols.resolvedSymbol !== undefined ? { calleeReceiverResolvedSymbol: calleeReceiverSymbols.resolvedSymbol } : {}),
       ...(calleeReceiverSymbols.aliasedSymbol !== undefined ? { calleeReceiverAliasedSymbol: calleeReceiverSymbols.aliasedSymbol } : {}),
@@ -111,8 +119,8 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   recordExtensionCallArgumentConversions(extensionHost, { ...result.value, selectedSignature }, arguments_);
 }
 
-export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<CheckerWithProgram>, propertyAccessExpression: GoPtr<Node>): void {
-  if (checker === undefined || propertyAccessExpression === undefined) {
+export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<CheckerWithProgram>, propertyAccessExpression: GoPtr<Node>, receiverType?: GoPtr<Type>): void {
+  if (checker === undefined || propertyAccessExpression === undefined || !isUserSourceOperationNode(propertyAccessExpression)) {
     return;
   }
 
@@ -122,15 +130,15 @@ export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<Check
   }
 
   const receiver = Node_Expression(propertyAccessExpression);
-  const propertyName = Node_Text(Node_Name(propertyAccessExpression));
+  const propertyNameNode = Node_Name(propertyAccessExpression) ?? AsPropertyAccessExpression(propertyAccessExpression)?.name;
+  const propertyName = Node_Text(propertyNameNode);
   if (receiver === undefined || propertyName === "") {
     return;
   }
   const receiverSymbols = getReferenceSymbols(checker, receiver);
-  const propertyNameNode = Node_Name(propertyAccessExpression);
-  const selectedPropertySymbol = propertyNameNode === undefined
-    ? undefined
-    : Node_Symbol(propertyNameNode);
+  const selectedPropertySymbol = receiverType === undefined
+    ? propertyNameNode === undefined ? undefined : Node_Symbol(propertyNameNode)
+    : Checker_GetPropertyOfType(checker, receiverType, propertyName) ?? (propertyNameNode === undefined ? undefined : Node_Symbol(propertyNameNode));
   const sourceSelectedDeclaration = getPrimaryDeclaration(selectedPropertySymbol);
   const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
   const sourceSelectedContainerSymbol = sourceSelectedDeclarationContainer === undefined ? undefined : Node_Symbol(sourceSelectedDeclarationContainer);
@@ -150,9 +158,12 @@ export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<Check
     {
       expression: propertyAccessExpression,
       receiver,
+      ...(receiverType !== undefined ? { receiverType } : {}),
+      ...(receiverType?.symbol !== undefined ? { receiverTypeSymbol: receiverType.symbol } : {}),
       ...(receiverSymbols.symbol !== undefined ? { receiverSymbol: receiverSymbols.symbol } : {}),
       ...(receiverSymbols.resolvedSymbol !== undefined ? { receiverResolvedSymbol: receiverSymbols.resolvedSymbol } : {}),
       ...(receiverSymbols.aliasedSymbol !== undefined ? { receiverAliasedSymbol: receiverSymbols.aliasedSymbol } : {}),
+      ...(selectedPropertySymbol !== undefined ? { sourceSelectedPropertySymbol: selectedPropertySymbol } : {}),
       ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
       ...(sourceSelectedDeclarationContainer !== undefined ? { sourceSelectedDeclarationContainer } : {}),
       ...(sourceSelectedContainerSymbol !== undefined ? { sourceSelectedContainerSymbol } : {}),
@@ -172,8 +183,8 @@ export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<Check
   extensionHost.facts.set(propertyAccessExpression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
 }
 
-export function recordExtensionCheckedElementAccessMapping(checker: GoPtr<CheckerWithProgram>, elementAccessExpression: GoPtr<Node>): void {
-  if (checker === undefined || elementAccessExpression === undefined) {
+export function recordExtensionCheckedElementAccessMapping(checker: GoPtr<CheckerWithProgram>, elementAccessExpression: GoPtr<Node>, receiverType?: GoPtr<Type>): void {
+  if (checker === undefined || elementAccessExpression === undefined || !isUserSourceOperationNode(elementAccessExpression)) {
     return;
   }
 
@@ -187,8 +198,20 @@ export function recordExtensionCheckedElementAccessMapping(checker: GoPtr<Checke
   if (receiver === undefined || argument === undefined) {
     return;
   }
+  const indexType = Checker_GetTypeAtLocation(checker, argument);
+  const selectedIndexInfo = receiverType === undefined || indexType === undefined
+    ? undefined
+    : Checker_getApplicableIndexInfo(checker, receiverType, indexType);
+  const sourceSelectedDeclaration = selectedIndexInfo?.declaration;
+  const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
+  const sourceSelectedContainerSymbol = sourceSelectedDeclarationContainer === undefined ? undefined : Node_Symbol(sourceSelectedDeclarationContainer);
   const requireOwner = hasAnyExtensionOwnedSubject(extensionHost, [
     receiver,
+    receiverType,
+    receiverType?.symbol,
+    sourceSelectedDeclaration,
+    sourceSelectedDeclarationContainer,
+    sourceSelectedContainerSymbol,
   ]);
 
   const result = extensionHost.runObservation(
@@ -196,6 +219,11 @@ export function recordExtensionCheckedElementAccessMapping(checker: GoPtr<Checke
     {
       expression: elementAccessExpression,
       receiver,
+      ...(receiverType !== undefined ? { receiverType } : {}),
+      ...(receiverType?.symbol !== undefined ? { receiverTypeSymbol: receiverType.symbol } : {}),
+      ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
+      ...(sourceSelectedDeclarationContainer !== undefined ? { sourceSelectedDeclarationContainer } : {}),
+      ...(sourceSelectedContainerSymbol !== undefined ? { sourceSelectedContainerSymbol } : {}),
       argument,
       ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     },
@@ -213,7 +241,7 @@ export function recordExtensionCheckedElementAccessMapping(checker: GoPtr<Checke
 }
 
 export function recordExtensionCheckedOperatorMapping(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operatorToken: GoPtr<Node>, left: GoPtr<Node>, right: GoPtr<Node>): void {
-  if (checker === undefined || expression === undefined || operatorToken === undefined || left === undefined) {
+  if (checker === undefined || expression === undefined || operatorToken === undefined || left === undefined || !isUserSourceOperationNode(expression)) {
     return;
   }
 
@@ -221,7 +249,7 @@ export function recordExtensionCheckedOperatorMapping(checker: GoPtr<CheckerWith
 }
 
 export function recordExtensionCheckedUnaryOperatorMapping(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, operator: string, operand: GoPtr<Node>): void {
-  if (checker === undefined || expression === undefined || operand === undefined || operator === "") {
+  if (checker === undefined || expression === undefined || operand === undefined || operator === "" || !isUserSourceOperationNode(expression)) {
     return;
   }
 
@@ -264,7 +292,7 @@ function recordExtensionCheckedOperatorMappingCore(checker: CheckerWithProgram, 
   extensionHost.facts.set(expression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
 }
 
-export function recordExtensionCheckedIterationMapping(checker: GoPtr<CheckerWithProgram>, statement: GoPtr<Node>, kind: CheckedIterationKind, sourceElementType?: GoPtr<Type>): void {
+export function recordExtensionCheckedIterationMapping(checker: GoPtr<CheckerWithProgram>, statement: GoPtr<Node>, kind: CheckedIterationKind, sourceElementType?: GoPtr<Type>, sourceExpressionType?: GoPtr<Type>): void {
   if (checker === undefined || statement === undefined) {
     return;
   }
@@ -284,6 +312,7 @@ export function recordExtensionCheckedIterationMapping(checker: GoPtr<CheckerWit
     {
       statement,
       expression,
+      ...(sourceExpressionType !== undefined ? { sourceExpressionType } : {}),
       ...(data?.Initializer !== undefined ? { initializer: data.Initializer } : {}),
       kind,
       ...(sourceElementType !== undefined ? { sourceElementType } : {}),
@@ -420,14 +449,14 @@ export function recordExtensionContextualTargetTypeFact(checker: GoPtr<CheckerWi
   }, result.evidence ?? []);
 }
 
-export function recordExtensionPostCheckAssignabilityValidation(checker: GoPtr<CheckerWithProgram>, source: GoPtr<Type>, target: GoPtr<Type>, errorNode: GoPtr<Node>, expression: GoPtr<Node>, relation: PostCheckAssignabilityValidationRequest["relation"]): bool {
+export function recordExtensionPostCheckAssignabilityObservation(checker: GoPtr<CheckerWithProgram>, source: GoPtr<Type>, target: GoPtr<Type>, errorNode: GoPtr<Node>, expression: GoPtr<Node>, relation: PostCheckAssignabilityObservationRequest["relation"]): void {
   if (checker === undefined || source === undefined || target === undefined) {
-    return true as bool;
+    return;
   }
 
   const extensionHost = getExtensionHost(checker.program);
-  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.validatePostCheckAssignability) === undefined) {
-    return true as bool;
+  if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.observePostCheckAssignability) === undefined) {
+    return;
   }
 
   if (
@@ -438,11 +467,11 @@ export function recordExtensionPostCheckAssignabilityValidation(checker: GoPtr<C
     && !hasExtensionOwnedSubject(extensionHost, errorNode)
     && !hasExtensionOwnedSubject(extensionHost, expression)
   ) {
-    return true as bool;
+    return;
   }
 
-  const result = extensionHost.runObservation(
-    ExtensionObservationPoint.validatePostCheckAssignability,
+  extensionHost.runObservation(
+    ExtensionObservationPoint.observePostCheckAssignability,
     {
       source,
       target,
@@ -451,13 +480,9 @@ export function recordExtensionPostCheckAssignabilityValidation(checker: GoPtr<C
       ...(expression !== undefined ? { expression } : {}),
       ...(extensionHost.activeTarget !== undefined ? { targetPlatform: extensionHost.activeTarget } : {}),
     },
-    () => true,
+    () => undefined,
     { requireOwner: true },
   );
-  if (result.kind !== "accept") {
-    return false as bool;
-  }
-  return result.value as bool;
 }
 
 export function recordExtensionFlowUseValidation(checker: GoPtr<CheckerWithProgram>, useSite: GoPtr<Node>, symbol: GoPtr<Symbol>): void {
@@ -603,6 +628,13 @@ function hasAnyExtensionOwnedSubject(extensionHost: ExtensionHost, subjects: rea
   return subjects.some((subject) => hasExtensionOwnedSubject(extensionHost, subject));
 }
 
+function isUserSourceOperationNode(node: Node): boolean {
+  const sourceFile = GetSourceFileOfNode(node);
+  return sourceFile !== undefined &&
+    sourceFile.IsDeclarationFile !== true &&
+    !NodeIsSynthesized(node);
+}
+
 function getReferenceSymbols(
   checker: GoPtr<CheckerWithProgram>,
   node: GoPtr<Node>,
@@ -610,26 +642,31 @@ function getReferenceSymbols(
   if (checker === undefined || node === undefined || !isReferenceSymbolQueryNode(node)) {
     return {};
   }
-  const symbol = Checker_GetSymbolAtLocation(checker, node);
-  const resolvedSymbol = Checker_getResolvedSymbol(checker, node);
-  const aliasedSymbol = getAliasedSymbolIfAlias(checker, resolvedSymbol ?? symbol);
+  const symbol = Node_Symbol(node);
+  const resolvedSymbol = Checker_getResolvedSymbolOrNil(checker, node);
+  const aliasedSymbol = getAliasedSymbolIfAvailable(checker, resolvedSymbol ?? symbol);
   return {
     ...(symbol !== undefined ? { symbol } : {}),
-    ...(resolvedSymbol !== undefined ? { resolvedSymbol } : {}),
-    ...(aliasedSymbol !== undefined ? { aliasedSymbol } : {}),
+    ...(resolvedSymbol !== undefined && resolvedSymbol !== symbol ? { resolvedSymbol } : {}),
+    ...(aliasedSymbol !== undefined && aliasedSymbol !== symbol && aliasedSymbol !== resolvedSymbol ? { aliasedSymbol } : {}),
   };
+}
+
+function getAliasedSymbolIfAvailable(checker: GoPtr<CheckerWithProgram>, symbol: GoPtr<Symbol>): GoPtr<Symbol> {
+  if (checker === undefined || symbol === undefined) {
+    return undefined;
+  }
+  try {
+    return Checker_GetAliasedSymbol(checker, symbol);
+  } catch {
+    return undefined;
+  }
 }
 
 function isReferenceSymbolQueryNode(node: Node): boolean {
   return node.Kind === KindIdentifier ||
     node.Kind === KindPrivateIdentifier ||
     node.Kind === KindQualifiedName;
-}
-
-function getAliasedSymbolIfAlias(checker: GoPtr<CheckerWithProgram>, symbol: GoPtr<Symbol>): GoPtr<Symbol> {
-  return symbol !== undefined && (symbol.Flags & SymbolFlagsAlias) !== 0
-    ? Checker_GetAliasedSymbol(checker, symbol)
-    : undefined;
 }
 
 function getPrimaryDeclaration(symbol: GoPtr<Symbol>): GoPtr<Node> {

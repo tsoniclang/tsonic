@@ -12,15 +12,25 @@ import type {
   Type,
   TypeShapeQueries,
 } from "@tsonic/tsts";
-import type { TargetCompileResult } from "./artifacts.js";
-import type { TargetSelection, TsonicProjectConfig } from "./config.js";
+import type { TargetArtifact, TargetCompileResult } from "./artifacts.js";
+import type {
+  TargetSelection,
+  TargetSurfaceId,
+  TsonicProjectConfig,
+} from "./config.js";
 
-export interface TargetExtensionContext {
+export interface TargetProviderContext {
+  readonly project: TsonicProjectConfig;
+  readonly target: TargetSelection;
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+}
+
+export interface TargetBackendContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
 }
 
-export interface TargetBackendContext {
+export interface TargetToolchainContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
 }
@@ -30,6 +40,13 @@ export interface TargetCompilationPaths {
   readonly projectRoot: string;
   readonly outputRoot: string;
   readonly targetOutputRoot: string;
+}
+
+export interface TargetRuntimeArtifactContext {
+  readonly project: TsonicProjectConfig;
+  readonly target: TargetSelection;
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+  readonly paths: TargetCompilationPaths;
 }
 
 export interface TargetSemanticNodeOptions {
@@ -42,6 +59,11 @@ export interface TargetProjectSourceReference {
   readonly sourceFile: SourceFile;
 }
 
+export interface TargetProjectSourceMethodDispatch {
+  readonly overridesBase: boolean;
+  readonly hasDerivedOverride: boolean;
+}
+
 export interface TargetSemanticQueries {
   getRuntimeCarrier(subject: ExtensionFactSubject | undefined): TargetTypeRef | undefined;
   getRuntimeCarrierForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
@@ -52,12 +74,18 @@ export interface TargetSemanticQueries {
   getTypeOfSymbol(symbol: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
   getTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
   getTypeFromTypeNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
+  getResolvedCallReturnType(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
+  getResolvedCallReturnRuntimeCarrier(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
+  getResolvedCallParameterDeclarations(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (Node | undefined)[] | undefined;
+  getResolvedCallParameterTypes(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (Type | undefined)[] | undefined;
+  getResolvedCallParameterRuntimeCarriers(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (TargetTypeRef | undefined)[] | undefined;
   getEnumMemberConstant(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): { readonly value: string | number | undefined } | undefined;
   getReturnTypeCarrierFromDeclaration(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
   isProjectSourceShapeForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): boolean;
   isProjectSourceConstructibleObjectForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): boolean;
   getProjectSourceDeclarationForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Node | undefined;
   getProjectSourceReferenceForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetProjectSourceReference | undefined;
+  getProjectSourceMethodDispatch(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetProjectSourceMethodDispatch | undefined;
   describeTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): string | undefined;
 }
 
@@ -93,10 +121,25 @@ export interface TargetToolchain {
   prepare(input: TargetToolchainInput): TargetToolchainResult;
 }
 
+export interface TargetProvider {
+  readonly id: string;
+  readonly displayName: string;
+  createExtensions(context: TargetProviderContext): readonly CompilerExtension[];
+  runtimeArtifacts?(context: TargetRuntimeArtifactContext): readonly TargetArtifact[];
+}
+
+export interface TargetSurfaceImplementation {
+  readonly id: TargetSurfaceId;
+  readonly displayName: string;
+  readonly requiredSurfaces?: readonly TargetSurfaceId[];
+  runtimeArtifacts(context: TargetRuntimeArtifactContext): readonly TargetArtifact[];
+}
+
 export interface TargetPack {
   readonly id: string;
   readonly displayName: string;
-  createExtensions(context: TargetExtensionContext): readonly CompilerExtension[];
+  readonly provider?: TargetProvider;
+  readonly surfaces?: readonly TargetSurfaceImplementation[];
   createBackend(context: TargetBackendContext): TargetBackend;
-  createToolchain(context: TargetBackendContext): TargetToolchain;
+  createToolchain(context: TargetToolchainContext): TargetToolchain;
 }

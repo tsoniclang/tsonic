@@ -1,12 +1,17 @@
 {
   "$schema": "https://tsonic.org/schema/v1.json",
-  "rootNamespace": "Tsts",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "tsts",
-  "output": {
-    "type": "library",
-    "nativeAot": false
-  }
+  "entryPoint": "index.ts",
+  "rootDir": "src",
+  "outDir": "generated",
+  "targets": [
+    {
+      "id": "csharp",
+      "options": {
+        "namespace": "Tsts",
+        "assemblyName": "tsts",
+        "outputType": "Library",
+        "publishAot": false
+      }
+    }
+  ]
 }

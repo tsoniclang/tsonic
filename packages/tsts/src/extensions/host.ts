@@ -14,7 +14,7 @@ import type {
   ExtensionObservationRunOptions,
 } from "./observations.js";
 import { ExtensionObservationPoint } from "./observations.js";
-import type { SourcePrimitiveKind } from "./facts.js";
+import type { ArgumentPassingMode, SourcePrimitiveKind } from "./facts.js";
 
 export interface ExtensionEvidence {
   readonly message: string;
@@ -226,7 +226,7 @@ export type ProviderTypeExpression =
   | { readonly kind: "object" }
   | { readonly kind: "source-primitive"; readonly name: SourcePrimitiveKind }
   | { readonly kind: "type-parameter"; readonly name: string }
-  | { readonly kind: "provider-ref"; readonly name: string; readonly typeArguments?: readonly ProviderTypeExpression[] }
+  | { readonly kind: "provider-ref"; readonly name: string; readonly moduleSpecifier?: string; readonly typeArguments?: readonly ProviderTypeExpression[] }
   | { readonly kind: "target-named"; readonly target: string; readonly id: string; readonly displayName?: string; readonly typeArguments?: readonly ProviderTypeExpression[]; readonly sourceShape?: ProviderTypeExpression }
   | { readonly kind: "array"; readonly elementType: ProviderTypeExpression }
   | { readonly kind: "tuple"; readonly elementTypes: readonly ProviderTypeExpression[] }
@@ -239,6 +239,7 @@ export type ProviderTypeExpression =
 export interface ProviderParameterDeclaration {
   readonly name: string;
   readonly type: ProviderTypeExpression;
+  readonly passingMode?: ArgumentPassingMode;
   readonly optional?: boolean;
   readonly rest?: boolean;
 }
@@ -269,6 +270,7 @@ export interface ProviderExportDeclaration {
   readonly targetIdentity?: TargetIdentity;
   readonly type?: ProviderTypeExpression;
   readonly typeParameters?: readonly ProviderTypeParameterDeclaration[];
+  readonly extends?: readonly ProviderTypeExpression[];
   readonly members?: readonly ProviderMemberDeclaration[];
   readonly signatures?: readonly ProviderSignatureDeclaration[];
   readonly documentation?: string;
@@ -358,7 +360,7 @@ export interface TargetBindingProvider {
 export interface TargetSemanticProvider {
   readonly identity: ProviderIdentity;
   validateTargetConstraint?: ExtensionObservationHook<typeof ExtensionObservationPoint.validateTargetConstraint>;
-  validatePostCheckAssignability?: ExtensionObservationHook<typeof ExtensionObservationPoint.validatePostCheckAssignability>;
+  observePostCheckAssignability?: ExtensionObservationHook<typeof ExtensionObservationPoint.observePostCheckAssignability>;
   mapCheckedCall?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedCall>;
   mapInferredSourceTypeArgumentsToTarget?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget>;
   mapCheckedPropertyAccess?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedPropertyAccess>;
@@ -1295,7 +1297,7 @@ export class ExtensionHost {
 
   #registerTargetSemanticProviderObservations(extensionId: string, provider: TargetSemanticProvider): void {
     registerProviderObservation(this, extensionId, ExtensionObservationPoint.validateTargetConstraint, provider.validateTargetConstraint);
-    registerProviderObservation(this, extensionId, ExtensionObservationPoint.validatePostCheckAssignability, provider.validatePostCheckAssignability);
+    registerProviderObservation(this, extensionId, ExtensionObservationPoint.observePostCheckAssignability, provider.observePostCheckAssignability);
     registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedCall, provider.mapCheckedCall);
     registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget, provider.mapInferredSourceTypeArgumentsToTarget);
     registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedPropertyAccess, provider.mapCheckedPropertyAccess);
@@ -1587,9 +1589,9 @@ function renderProviderExportDeclaration(declaration: ProviderExportDeclaration)
   const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? []);
   switch (declaration.kind) {
     case "class":
-      return `export declare class ${declaration.name}${typeParameters} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+      return `export declare class ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.extends ?? [])} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
     case "interface":
-      return `export interface ${declaration.name}${typeParameters} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+      return `export interface ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.extends ?? [])} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
     case "function":
       return renderProviderSignatures(declaration.name, declaration.signatures ?? [])
         .map((signature) => `export declare function ${signature}`)
@@ -1607,6 +1609,10 @@ function renderProviderExportDeclaration(declaration: ProviderExportDeclaration)
   }
 }
 
+function renderProviderHeritage(types: readonly ProviderTypeExpression[]): string {
+  return types.length === 0 ? "" : ` extends ${types.map(renderProviderTypeExpression).join(", ")}`;
+}
+
 function renderProviderMembers(members: readonly ProviderMemberDeclaration[]): string {
   return members.map((member) => `  ${renderProviderMember(member)}`).join("\n");
 }
@@ -1615,9 +1621,9 @@ function renderProviderMember(member: ProviderMemberDeclaration): string {
   const staticPrefix = member.static === true ? "static " : "";
   switch (member.kind) {
     case "constructor":
-      return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }]).join("\n  ");
+      return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], { constructSignature: true }).join("\n  ");
     case "method":
-      return renderProviderSignatures(member.name, member.signatures ?? []).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
+      return renderProviderSignatures(renderProviderMemberName(member.name), member.signatures ?? []).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
     case "property":
     case "field":
       return `${staticPrefix}${member.name}: ${renderProviderTypeExpression(member.type!)};`;
@@ -1629,13 +1635,21 @@ function renderProviderMember(member: ProviderMemberDeclaration): string {
   }
 }
 
-function renderProviderSignatures(name: string, signatures: readonly ProviderSignatureDeclaration[]): readonly string[] {
+function renderProviderSignatures(
+  name: string,
+  signatures: readonly ProviderSignatureDeclaration[],
+  options: { readonly constructSignature?: boolean } = {},
+): readonly string[] {
   return signatures.map((signature) => {
     const typeParameters = renderProviderTypeParameters(signature.typeParameters ?? []);
     const parameters = signature.parameters.map(renderProviderParameter).join(", ");
-    const returnType = name === "constructor" ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" })}`;
+    const returnType = options.constructSignature === true ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" })}`;
     return `${name}${typeParameters}(${parameters})${returnType};`;
   });
+}
+
+function renderProviderMemberName(name: string): string {
+  return name === "constructor" ? JSON.stringify(name) : name;
 }
 
 function renderProviderTypeParameters(typeParameters: readonly ProviderTypeParameterDeclaration[]): string {
@@ -1672,10 +1686,14 @@ function renderProviderTypeExpression(type: ProviderTypeExpression): string {
       return renderSourcePrimitiveType(type.name);
     case "type-parameter":
       return type.name;
-    case "provider-ref":
-      return type.typeArguments === undefined || type.typeArguments.length === 0
+    case "provider-ref": {
+      const name = type.moduleSpecifier === undefined
         ? type.name
-        : `${type.name}<${type.typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
+        : `import(${JSON.stringify(type.moduleSpecifier)}).${type.name}`;
+      return type.typeArguments === undefined || type.typeArguments.length === 0
+        ? name
+        : `${name}<${type.typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
+    }
     case "target-named":
     case "opaque":
       return renderProviderTypeExpression(type.sourceShape!);
@@ -1772,6 +1790,7 @@ function isValidProviderExportDeclaration(value: ProviderExportDeclaration): boo
     && hasRequiredProviderExportShape(value)
     && (value.type === undefined || isValidProviderTypeExpression(value.type))
     && (value.typeParameters ?? []).every(isValidProviderTypeParameterDeclaration)
+    && (value.extends ?? []).every(isValidProviderTypeExpression)
     && (value.signatures ?? []).every(isValidProviderSignatureDeclaration)
     && (value.kind === "enum"
       ? (value.members ?? []).every(isValidProviderEnumMemberDeclaration)
@@ -1835,7 +1854,19 @@ function isValidProviderSignatureDeclaration(value: ProviderSignatureDeclaration
 }
 
 function isValidProviderParameterDeclaration(value: ProviderParameterDeclaration): boolean {
-  return isIdentifierText(value.name) && isValidProviderTypeExpression(value.type);
+  return isIdentifierText(value.name) &&
+    isValidProviderTypeExpression(value.type) &&
+    (value.passingMode === undefined || isValidArgumentPassingMode(value.passingMode));
+}
+
+function isValidArgumentPassingMode(value: ArgumentPassingMode): boolean {
+  return value === "by-value" ||
+    value === "byref-readonly" ||
+    value === "byref-readwrite" ||
+    value === "byref-writeonly-must-init" ||
+    value === "borrow-shared" ||
+    value === "borrow-mut" ||
+    value === "move";
 }
 
 function isValidProviderTypeParameterDeclaration(value: ProviderTypeParameterDeclaration): boolean {
@@ -1859,7 +1890,9 @@ function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {
     case "type-parameter":
       return isIdentifierText(value.name);
     case "provider-ref":
-      return isIdentifierText(value.name) && (value.typeArguments ?? []).every(isValidProviderTypeExpression);
+      return isIdentifierText(value.name)
+        && (value.moduleSpecifier === undefined || value.moduleSpecifier.length > 0)
+        && (value.typeArguments ?? []).every(isValidProviderTypeExpression);
     case "target-named":
       return value.target.length > 0
         && value.id.length > 0

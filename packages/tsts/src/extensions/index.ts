@@ -136,7 +136,7 @@ export type {
   ExtensionObservationRunOptions,
   ParameterPassingRequest,
   ParameterPassingResult,
-  PostCheckAssignabilityValidationRequest,
+  PostCheckAssignabilityObservationRequest,
   RuntimeCarrierFactRequest,
   RuntimeCarrierFactResult,
   TargetConstraintValidationRequest,

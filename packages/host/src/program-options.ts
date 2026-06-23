@@ -41,7 +41,6 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     "--moduleResolution",
     "nodenext",
     "--strict",
-    "--skipLibCheck",
     "--preserveSymlinks",
     "--allowArbitraryExtensions",
     "--rootDir",
@@ -100,5 +99,5 @@ function shouldSkipEntry(name: string): boolean {
 }
 
 function isCompilerInputFile(name: string): boolean {
-  return /\.(?:cts|mts|tsx?|jsx?|json)$/.test(name);
+  return /\.(?:mts|ts|json)$/.test(name);
 }
