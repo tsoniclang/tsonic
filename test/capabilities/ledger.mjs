@@ -254,7 +254,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "not-started", "target-provider"],
   ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "partial", "target-provider"],
   ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "not-started", "target-provider"],
-  ["native.dotnet.constraints", ".NET provider models target generic constraints", "not-started", "target-provider"],
+  ["native.dotnet.constraints", ".NET provider models target generic constraints", "partial", "target-provider"],
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "not-started", "target-provider"],
   ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "partial", "target-provider"],
 
@@ -400,6 +400,17 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: target packs without providers emit TARGET_PROVIDER before backend emission, and provider-owned imports missing from selected virtual modules surface diagnostics instead of falling back to generated package files.",
   }),
+  "provider.virtual-module.constraints": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    notes:
+      "Reviewed partial proof: provider virtual declarations keep target-only generic constraints out of source-visible TypeScript shapes while retaining reflected target constraint facts for backend/provider consumers. Old TypeScript constraint fixtures are not mapped here because they prove source generic declarations, not provider-owned virtual-module constraints.",
+  }),
   "native.dotnet.assembly-model": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-assembly-identity.test.mjs",
@@ -414,6 +425,17 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: .NET provider target identity is assembly-qualified targetId while CLR metadataName remains display/provenance only; duplicate Shared.Widget across assemblies cannot resolve by metadata-name-only lookup and must either expose distinct assembly-qualified declarations or explicit unsupported collision evidence. Remains partial until all assembly/version selection, aliases, and target project references are modeled end to end.",
+  }),
+  "native.dotnet.constraints": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    notes:
+      "Reviewed partial proof: .NET reflection records class, struct, new, unmanaged, interface, base-class, generic-method, and variance constraints as target facts with assembly-qualified target identities, and keeps those target-only constraints out of source declarations. Remains partial until notnull policy, base-vs-interface distinction, unsupported constraint evidence, and source-level provider constraint diagnostics are complete.",
   }),
   "native.dotnet.parameter-modes": Object.freeze({
     positiveTests: Object.freeze([
@@ -446,6 +468,48 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: provider-owned overload identity is selected from declaration/signature facts, including same-spelling overload groups, generic method arity, and byref parameter modes; remains partial until assembly-qualified identities and unsupported-member diagnostics cover collision/drop cases.",
+  }),
+  "type.generic.provider-target-constraints": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-generics.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/generic-constraints/SingleConstraint.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/generic-constraints/MultipleConstraints.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/generic-constraints/ObjectConstraint.ts",
+      "test/fixtures/generic-constraints-single/",
+      "test/fixtures/generic-multiple-constraints/",
+      "test/fixtures/generic-constraints-object-struct/",
+    ]),
+    notes:
+      "Reviewed partial proof: source and provider generic constraints render only from finalized target constraint facts, primitive constraint failures produce diagnostics, and old generic-constraint emitter/fixture coverage is mapped as evidence. Remains partial until provider-owned invalid type-argument validation and source-span evidence are complete.",
+  }),
+  "declaration.generic-parameters": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-generics.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-generics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/generic-constraints/SingleConstraint.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/generic-constraints/MultipleConstraints.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/generic-constraints/ObjectConstraint.ts",
+      "test/fixtures/generic-constraints-single/",
+      "test/fixtures/generic-multiple-constraints/",
+      "test/fixtures/generic-constraints-object-struct/",
+    ]),
+    notes:
+      "Reviewed partial proof: generic declarations and constraints emit from source AST plus finalized target facts and compile under dotnet. This evidence does not close provider constraint validation by itself; provider-specific constraint legality remains tracked under type.generic.provider-target-constraints and native.dotnet.constraints.",
   }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
