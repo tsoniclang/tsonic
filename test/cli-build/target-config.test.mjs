@@ -41,6 +41,71 @@ test("CLI rejects non-final entrypoint source extensions before compiling", asyn
   assert.match(build.stderr, /entryPoint must use a final ESM TypeScript source extension: \.ts or \.mts/);
 });
 
+test("CLI rejects unsupported top-level project config fields before compiling", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-project-config-field");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      output: {
+        type: "Library",
+      },
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Project config has unsupported field 'output'/);
+});
+
+test("CLI rejects TypeScript path-mapping config fields instead of ignoring them", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-path-mapping-config");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      compilerOptions: {
+        baseUrl: ".",
+        paths: {
+          "@app/*": ["app/*"],
+        },
+      },
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Project config field 'compilerOptions' is not supported/);
+  assert.doesNotMatch(build.stderr, /Cannot find module/);
+});
+
+test("CLI rejects unsupported target entry fields outside target options", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-target-config-field");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          namespace: "Bad.Legacy",
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Target at index 0 has unsupported field 'namespace'/);
+});
 
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
   const projectDirectory = resolve(tempRoot, "wide-csharp");
