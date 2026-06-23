@@ -5,6 +5,11 @@ export const oldEmitterInventoryStatuses = Object.freeze([
   "deferred",
 ]);
 
+export const oldEmitterCapabilityMappingStatuses = Object.freeze([
+  "reviewed",
+  "deferred-derived",
+]);
+
 export const oldEmitterFeatureAreas = Object.freeze([
   "arrays",
   "async",
@@ -524,11 +529,286 @@ const oldEmitterPortInventoryEntries = Object.freeze([
   ], "source-semantics", "source semantics + C# backend planner", "Stackalloc still requires a source-visible C# provider declaration, Span<T> target/source facts, stackalloc Roslyn AST support, and closed element/member facts before it can be emitted without a backend raw-code or heuristic path."),
 ]);
 
+const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("control-flow/switch/SwitchStatement"),
+    sourceCase("edge-cases/nested-scopes/NestedScopes"),
+    sourceCase("edge-cases/shadowing/Shadowing"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "statement.block-scope",
+    "statement.control-transfer",
+    "statement.if-else",
+    "statement.switch",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("functions/arrow-inference/ArrowInference"),
+    sourceCase("functions/arrow/ArrowFunction"),
+    sourceCase("functions/basic/Greet"),
+    sourceCase("functions/closures/Closures"),
+    sourceCase("functions/default-params/DefaultParams"),
+    sourceCase("functions/delegates/ActionFunc"),
+    sourceCase("functions/higher-order/ReturningFunctions"),
+    sourceCase("types/function-collections/FunctionArrays"),
+    sourceCase("types/function-type-aliases/GenericAliases"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.function-delegate",
+    "function.arrow",
+    "function.closure",
+    "function.declaration",
+    "function.higher-order",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/constants/ModuleConstants"),
+    sourceCase("types/variable-decls/VariableDecls"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.primitive",
+    "type.assertion",
+    "type.utility",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("functions/optional-callbacks/OptionalParams"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.function-delegate",
+    "carrier.null-undefined",
+    "function.arrow",
+    "function.closure",
+    "function.declaration",
+    "function.higher-order",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/generic-constraints/MultipleConstraints"),
+    sourceCase("types/generic-constraints/ObjectConstraint"),
+    sourceCase("types/generic-constraints/SingleConstraint"),
+    sourceCase("types/generic-interface-inheritance/InterfaceInheritance"),
+    sourceCase("types/generic-substitution/NestedSubstitution"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "declaration.generic-parameters",
+    "tsts.generic-inference",
+    "type.generic.provider-target-arguments",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("arrays/basic/ArrayLiteral"),
+    sourceCase("arrays/double-array/DoubleArray"),
+    sourceCase("arrays/multidimensional/MultiDimensional"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.array",
+    "operation.array.literal",
+    "operation.element.provider-indexer",
+    "operation.iteration.provider-target",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("arrays/destructuring/ArrayDestructure"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "binding.array.fixed-rest-default",
+    "carrier.array",
+    "operation.array.literal",
+    "operation.destructure.array-object",
+    "operation.element.provider-indexer",
+    "operation.iteration.provider-target",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("arrays/spread/ArraySpread"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.array",
+    "operation.array.literal",
+    "operation.element.provider-indexer",
+    "operation.iteration.provider-target",
+    "operation.spread.array",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/expected-type-threading/ArraySpread"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "expression.nullish-optional",
+    "operation.conversion.checked-target-conversion",
+    "operation.operator.checked-target-operation",
+    "operation.spread.array",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("edge-cases/void-expression/VoidExpression"),
+    sourceCase("types/expected-type-threading/ReturnInControlFlow"),
+    sourceCase("types/expected-type-threading/TernaryTyping"),
+    sourceCase("types/expected-type-threading/VariableInit"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "expression.nullish-optional",
+    "operation.conversion.checked-target-conversion",
+    "operation.operator.checked-target-operation",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("operators/nullish-coalescing/NullishCoalescing"),
+    sourceCase("operators/optional-chaining/OptionalChaining"),
+    sourceCase("types/expected-type-threading/NullishCoalescing"),
+    sourceCase("types/expected-type-threading/NullishFull"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.null-undefined",
+    "expression.nullish-optional",
+    "operation.conversion.checked-target-conversion",
+    "operation.operator.checked-target-operation",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("async/basic/AsyncFunction"),
+    sourceCase("functions/async-hof/AsyncReturningFunctions"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.function-delegate",
+    "function.async",
+    "operation.await.promise-task",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("attributes/basic/Attributes"),
+    sourceCase("attributes/targets/Attributes"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "declaration.attributes",
+    "source.marker.attribute",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("classes/basic/Person"),
+    sourceCase("classes/constructor/User"),
+    sourceCase("classes/field-inference/Counter"),
+    sourceCase("classes/field-marker/FieldMarker"),
+    sourceCase("classes/generic-inheritance/ConcreteExtends"),
+    sourceCase("classes/generic-inheritance/GenericExtends"),
+    sourceCase("classes/generic-inheritance/InheritanceChain"),
+    sourceCase("classes/generic-methods/MethodInGenericClass"),
+    sourceCase("classes/generic-methods/MethodInNonGenericClass"),
+    sourceCase("classes/inheritance/Inheritance"),
+    sourceCase("classes/static-members/MathHelper"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "declaration.class",
+    "declaration.class.fields",
+    "declaration.class.inheritance",
+    "declaration.class.methods",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("collections/list-initializer/ListInitializer"),
+    sourceCase("types/dictionaries/Dictionaries"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.dictionary-record",
+    "operation.construct.provider-selected-constructor",
+    "operation.element.provider-indexer",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("extensions/linq/ExtensionMethods"),
+    sourceCase("extensions/system/Overlaps"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "operation.call.provider-selected-method",
+    "operation.member.no-name-guess",
+    "provider.virtual-module.target-identity",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/pointers/PointerTypes"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "source.marker.field",
+    "source.marker.ptr-fnptr",
+    "source.marker.struct",
+    "source.primitive.numeric",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("structs/basic/Point"),
+    sourceCase("types/type-assertions/TypeAssertions"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "source.marker.field",
+    "source.marker.struct",
+    "source.primitive.numeric",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    expectedCase("edge-cases/object-literal-unknown/ObjectLiteralUnknown"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "backend.no-semantic-strings",
+    "carrier.object-shape",
+    "compat.unknown.no-dynamic-access",
+    "declaration.generated-structural",
+    "diagnostic.missing-target-fact",
+    "expression.object-literal",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    expectedCase("edge-cases/record-nested-object/RecordNestedObject"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.object-shape",
+    "declaration.generated-structural",
+    "expression.object-literal",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    expectedCase("operators/in-operator/InOperator"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "backend.no-semantic-strings",
+    "diagnostic.missing-target-fact",
+    "expression.nullish-optional",
+    "operation.conversion.checked-target-conversion",
+    "operation.operator.checked-target-operation",
+    "runtime.union.carrier",
+  ]),
+]);
+
+const oldEmitterReplacementProofByOldPath = new Map([
+  [expectedCase("edge-cases/object-literal-unknown/ObjectLiteralUnknown"), Object.freeze({
+    replacementCapabilityIds: freezeSortedStrings([
+      "backend.fail-closed-facts",
+      "compat.unknown.no-dynamic-access",
+      "diagnostic.missing-target-fact",
+    ]),
+    replacementCapabilityPath:
+      "Current object-shape diagnostics replace the old unknown-to-object-literal golden: unknown has no dynamic/object-shape carrier, so backend.fail-closed-facts plus compat.unknown.no-dynamic-access produce diagnostic.missing-target-fact instead of C# emission.",
+  })],
+  [expectedCase("operators/in-operator/InOperator"), Object.freeze({
+    replacementCapabilityIds: freezeSortedStrings([
+      "backend.fail-closed-facts",
+      "diagnostic.missing-target-fact",
+      "runtime.union.carrier",
+    ]),
+    replacementCapabilityPath:
+      "Current union/operator diagnostics replace the orphan in-operator golden: runtime union lowering requires explicit runtime.union.carrier facts, and missing finalized facts fail closed through backend.fail-closed-facts and diagnostic.missing-target-fact.",
+  })],
+]);
+
+const oldEmitterOldEvidenceRole = "regression-evidence-only";
+
 export const oldEmitterPortInventory = Object.freeze(
-  oldEmitterPortInventoryEntries.map(withOldEmitterCapabilityIds),
+  oldEmitterPortInventoryEntries.map(withOldEmitterCapabilityProof),
 );
 
 const oldEmitterStatusSet = new Set(oldEmitterInventoryStatuses);
+const oldEmitterCapabilityMappingStatusSet = new Set(oldEmitterCapabilityMappingStatuses);
 const oldEmitterFeatureAreaSet = new Set(oldEmitterFeatureAreas);
 
 function sourceCase(relativePath) {
@@ -547,15 +827,52 @@ function expectedOnlyCases(relativePaths) {
   return relativePaths.map(expectedCase);
 }
 
-function withOldEmitterCapabilityIds(entry) {
-  if (entry.capabilityIds !== undefined) {
-    return entry;
-  }
+function withOldEmitterCapabilityProof(entry) {
+  const capabilityMappingStatus = entry.status === "deferred" ? "deferred-derived" : "reviewed";
+  const capabilityIds = entry.status === "deferred"
+    ? defaultOldEmitterCapabilityIds(entry)
+    : oldEmitterReviewedCapabilityIdsFor(entry);
+  const replacementProof = entry.status === "invalid-stale-architecture"
+    ? oldEmitterReplacementProofFor(entry)
+    : undefined;
 
   return Object.freeze({
     ...entry,
-    capabilityIds: Object.freeze(defaultOldEmitterCapabilityIds(entry)),
+    oldEvidenceRole: oldEmitterOldEvidenceRole,
+    capabilityMappingStatus,
+    capabilityIds: freezeSortedStrings(capabilityIds),
+    ...(replacementProof === undefined ? {} : {
+      replacementCapabilityIds: replacementProof.replacementCapabilityIds,
+      replacementCapabilityPath: replacementProof.replacementCapabilityPath,
+    }),
   });
+}
+
+function freezeSortedStrings(values) {
+  return Object.freeze([...values].sort());
+}
+
+function reviewedOldEmitterCapabilityMapping(oldPaths, capabilityIds) {
+  const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
+  return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldEmitterReviewedCapabilityIdsFor(entry) {
+  const capabilityIds = oldEmitterReviewedCapabilityIdsByOldPath.get(entry.oldPath);
+  if (capabilityIds === undefined) {
+    throw new Error(`missing reviewed old C# emitter capability mapping for ${entry.oldPath}`);
+  }
+
+  return capabilityIds;
+}
+
+function oldEmitterReplacementProofFor(entry) {
+  const replacementProof = oldEmitterReplacementProofByOldPath.get(entry.oldPath);
+  if (replacementProof === undefined) {
+    throw new Error(`missing replacement capability path for stale old C# emitter entry ${entry.oldPath}`);
+  }
+
+  return replacementProof;
 }
 
 function defaultOldEmitterCapabilityIds(entry) {
@@ -681,11 +998,6 @@ function portedEmitterCase(relativePath, featureArea, newPath, reason) {
     status: "ported",
     featureArea,
     owner: "current TSTS/provider/C# AST pipeline",
-    capabilityIds: Object.freeze(defaultOldEmitterCapabilityIds({
-      oldPath: sourceCase(relativePath),
-      featureArea,
-      status: "ported",
-    })),
     reason,
   });
 }
@@ -699,13 +1011,6 @@ function deferredEmitterCases(relativePaths, featureArea, owner, reason) {
     status: "deferred",
     featureArea,
     owner,
-    capabilityIds: Object.freeze(defaultOldEmitterCapabilityIds({
-      oldPath: oldEmitterHistoricalCasePaths.includes(sourceCase(relativePath))
-        ? sourceCase(relativePath)
-        : expectedCase(relativePath),
-      featureArea,
-      status: "deferred",
-    })),
     reason,
   }));
 }
@@ -721,8 +1026,55 @@ function createOldEmitterCounts(total) {
   };
 }
 
+function createOldEmitterCapabilityMappingCounts() {
+  return {
+    reviewed: 0,
+    "deferred-derived": 0,
+    "complete-proof": 0,
+  };
+}
+
 function isRelativeOldEmitterPath(value) {
   return value.startsWith(`${oldEmitterCaseRoot}/`);
+}
+
+function validateOldEmitterStringArrayField(errors, entry, fieldName) {
+  const values = entry[fieldName];
+  if (!Array.isArray(values) || values.length === 0) {
+    errors.push(`${fieldName} must be a non-empty array`);
+    return false;
+  }
+
+  let valuesAreValid = true;
+  let previousValue = undefined;
+  const seenValues = new Set();
+  let isSorted = true;
+
+  for (const value of values) {
+    if (typeof value !== "string" || value.length === 0) {
+      errors.push(`${fieldName} must contain non-empty strings`);
+      valuesAreValid = false;
+      continue;
+    }
+
+    if (previousValue !== undefined && previousValue > value) {
+      isSorted = false;
+    }
+    previousValue = value;
+    seenValues.add(value);
+  }
+
+  if (seenValues.size !== values.length) {
+    errors.push(`${fieldName} must not contain duplicate strings`);
+    valuesAreValid = false;
+  }
+
+  if (!isSorted) {
+    errors.push(`${fieldName} must be sorted`);
+    valuesAreValid = false;
+  }
+
+  return valuesAreValid;
 }
 
 export function validateOldEmitterPortEntry(entry) {
@@ -754,6 +1106,13 @@ export function validateOldEmitterPortEntry(entry) {
     }
   }
 
+  if (
+    (entry.status === "ported" || entry.status === "replaced-by-stronger-test") &&
+    (typeof entry.newPath !== "string" || entry.newPath.length === 0)
+  ) {
+    errors.push("ported and replaced entries must name a current-architecture newPath");
+  }
+
   if (!oldEmitterStatusSet.has(entry.status)) {
     errors.push(`status must be one of ${oldEmitterInventoryStatuses.join(", ")}`);
   }
@@ -762,13 +1121,44 @@ export function validateOldEmitterPortEntry(entry) {
     errors.push(`featureArea must be one of ${oldEmitterFeatureAreas.join(", ")}`);
   }
 
-  if (!Array.isArray(entry.capabilityIds) || entry.capabilityIds.length === 0) {
-    errors.push("capabilityIds must be a non-empty array");
-  } else {
-    for (const capabilityId of entry.capabilityIds) {
-      if (typeof capabilityId !== "string" || capabilityId.length === 0) {
-        errors.push("capabilityIds must contain non-empty strings");
+  if (entry.oldEvidenceRole !== oldEmitterOldEvidenceRole) {
+    errors.push(`oldEvidenceRole must be ${oldEmitterOldEvidenceRole}`);
+  }
+
+  if (!oldEmitterCapabilityMappingStatusSet.has(entry.capabilityMappingStatus)) {
+    errors.push(`capabilityMappingStatus must be one of ${oldEmitterCapabilityMappingStatuses.join(", ")}`);
+  }
+
+  if (entry.status === "deferred" && entry.capabilityMappingStatus !== "deferred-derived") {
+    errors.push("deferred entries must use deferred-derived capability mappings");
+  }
+
+  if (entry.status !== "deferred" && entry.capabilityMappingStatus !== "reviewed") {
+    errors.push("ported, replaced, and stale entries must use reviewed capability mappings");
+  }
+
+  const capabilityIdsAreValid = validateOldEmitterStringArrayField(errors, entry, "capabilityIds");
+
+  if (entry.status === "invalid-stale-architecture") {
+    const replacementCapabilityIdsAreValid = validateOldEmitterStringArrayField(errors, entry, "replacementCapabilityIds");
+    if (typeof entry.replacementCapabilityPath !== "string" || entry.replacementCapabilityPath.length === 0) {
+      errors.push("replacementCapabilityPath must be a non-empty string for stale entries");
+    }
+
+    if (capabilityIdsAreValid && replacementCapabilityIdsAreValid) {
+      for (const capabilityId of entry.replacementCapabilityIds) {
+        if (!entry.capabilityIds.includes(capabilityId)) {
+          errors.push("replacementCapabilityIds must be included in capabilityIds");
+          break;
+        }
       }
+    }
+  } else {
+    if (entry.replacementCapabilityIds !== undefined) {
+      errors.push("replacementCapabilityIds is only valid for stale entries");
+    }
+    if (entry.replacementCapabilityPath !== undefined) {
+      errors.push("replacementCapabilityPath is only valid for stale entries");
     }
   }
 
@@ -789,6 +1179,7 @@ export function buildOldEmitterInventoryReport(historicalOldPaths, inventoryEntr
   const classifiedOldPathSet = new Set();
   const classifiedUnknownOldPathSet = new Set();
   const counts = createOldEmitterCounts(historicalPaths.length);
+  const capabilityMappingCounts = createOldEmitterCapabilityMappingCounts();
 
   for (const entry of inventoryEntries) {
     if (!historicalPathSet.has(entry.oldPath)) {
@@ -801,6 +1192,9 @@ export function buildOldEmitterInventoryReport(historicalOldPaths, inventoryEntr
     }
 
     counts[entry.status] += 1;
+    if (Object.hasOwn(capabilityMappingCounts, entry.capabilityMappingStatus)) {
+      capabilityMappingCounts[entry.capabilityMappingStatus] += 1;
+    }
     classifiedOldPathSet.add(entry.oldPath);
   }
 
@@ -809,6 +1203,7 @@ export function buildOldEmitterInventoryReport(historicalOldPaths, inventoryEntr
 
   return Object.freeze({
     counts: Object.freeze(counts),
+    capabilityMappingCounts: Object.freeze(capabilityMappingCounts),
     classifiedOldPaths: Object.freeze([...classifiedOldPathSet].sort()),
     classifiedUnknownOldPaths: Object.freeze([...classifiedUnknownOldPathSet].sort()),
     unclassifiedOldPaths: Object.freeze(unclassifiedOldPaths),

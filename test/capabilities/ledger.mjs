@@ -51,7 +51,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["tsts.generic-inference", "TSTS owns source generic inference", "partial", "tsts-api"],
   ["tsts.overload-resolution", "TSTS owns source overload resolution", "partial", "tsts-api"],
   ["tsts.consumer-queries", "Backends consume stable public TSTS queries", "partial", "tsts-api"],
-  ["tsts.no-target-overrides", "Extensions cannot rescue invalid TypeScript", "partial", "tsts-api"],
+  ["tsts.no-target-overrides", "Extensions cannot rescue invalid TypeScript", "complete", "tsts-api"],
   ["tsts.program.create-with-extensions", "Create TSTS compiler session with extensions", "partial", "tsts-api"],
   ["tsts.type-query.flow-narrowed-type", "Query flow-narrowed type at a source node", "partial", "tsts-api"],
   ["tsts.diagnostic.provider-sourced", "Surface provider diagnostics through TSTS diagnostics", "partial", "tsts-api"],
@@ -63,7 +63,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["provider.virtual-module.constraints", "Provider supplies target constraints outside TS source shape", "partial", "target-provider"],
   ["provider.virtual-module.overload-identity", "Provider supplies exact overload/member identity", "partial", "target-provider"],
   ["provider.module.virtual-import", "Provider-backed virtual imports become compiler state", "partial", "target-provider"],
-  ["provider.module.no-file-backed-fallback", "Provider module resolution has no declaration-file fallback", "partial", "target-provider"],
+  ["provider.module.no-file-backed-fallback", "Provider module resolution has no declaration-file fallback", "complete", "target-provider"],
   ["provider.module.missing-provider-diagnostic", "Missing provider-owned modules produce diagnostics", "partial", "target-provider"],
 
   ["source.primitive.numeric", "Neutral source numeric primitives attach facts", "partial", "source-core-provider"],
@@ -102,7 +102,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.property.provider-selected-member", "Provider-owned property access emits from selected member facts", "partial", "target-provider"],
   ["operation.member.provider-property", "Member properties map through selected provider declarations", "partial", "target-provider"],
   ["operation.member.provider-indexer", "Member indexers map through selected provider declarations", "partial", "target-provider"],
-  ["operation.member.no-name-guess", "Target member mapping cannot guess from source spelling", "partial", "target-provider"],
+  ["operation.member.no-name-guess", "Target member mapping cannot guess from source spelling", "complete", "target-provider"],
   ["operation.element.provider-indexer", "Element access emits from selected indexer or carrier facts", "partial", "target-provider"],
   ["operation.operator.checked-target-operation", "Operators emit from checked target operation facts", "partial", "target-provider"],
   ["operation.conversion.checked-target-conversion", "Target conversions are explicit facts", "partial", "target-provider"],
@@ -223,7 +223,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["backend.csharp.ast-expression", "C# expressions are Roslyn-compatible AST", "partial", "csharp-backend"],
   ["backend.csharp.ast-statement", "C# statements are Roslyn-compatible AST", "partial", "csharp-backend"],
   ["backend.csharp.printer", "C# printer renders AST only", "partial", "csharp-backend"],
-  ["backend.csharp.no-direct-semantic-string-output", "C# backend never emits semantic strings directly", "partial", "csharp-backend"],
+  ["backend.csharp.no-direct-semantic-string-output", "C# backend never emits semantic strings directly", "complete", "csharp-backend"],
   ["backend.csharp.project-sdk-emit", "C# backend emits SDK-style project files", "partial", "csharp-backend"],
   ["backend.csharp.runtime-artifacts", "C# backend includes selected runtime artifacts only", "partial", "csharp-backend"],
 
@@ -252,7 +252,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.unsupported-target-operation", "Unsupported target operations produce diagnostics", "partial", "target-provider"],
   ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "partial", "target-provider"],
   ["diagnostic.target-constraint", "Target constraint failure points to source", "partial", "target-provider"],
-  ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "partial", "tsts-api"],
+  ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "complete", "tsts-api"],
   ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "not-started", "target-provider"],
   ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "not-started", "target-provider"],
   ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
@@ -275,6 +275,91 @@ const baseCapabilityDefinitions = Object.freeze([
 ]);
 
 export const requiredCapabilityIds = Object.freeze(baseCapabilityDefinitions.map(([capabilityId]) => capabilityId));
+
+const reviewedCapabilityEvidence = Object.freeze({
+  "tsts.no-target-overrides": Object.freeze({
+    positiveTests: Object.freeze([
+      "packages/tsts/src/services/embedding-api.test.ts",
+      "packages/tsts/src/extensions/provider-program.test.ts",
+    ]),
+    negativeTests: Object.freeze([
+      "packages/tsts/src/services/embedding-api.test.ts",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "packages/frontend/src/validator.test.ts",
+    ]),
+    notes:
+      "Reviewed proof: provider/extension observations can add facts after TS-Go accepts source, and TSTS diagnostics stop artifact emission when source TypeScript is invalid.",
+  }),
+  "provider.module.no-file-backed-fallback": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/package-manifests/bindings.test.ts",
+      "packages/cli/src/commands/restore.test.ts",
+    ]),
+    notes:
+      "Reviewed proof: selected providers create compiler-visible modules; unselected provider-owned modules fail closed instead of reading generated declaration or metadata files.",
+  }),
+  "operation.member.no-name-guess": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
+    ]),
+    notes:
+      "Reviewed proof: provider-owned calls/properties map from selected provider declaration or signature identity; same-spelling target members outside that identity are rejected.",
+  }),
+  "backend.csharp.no-direct-semantic-string-output": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
+    ]),
+    notes:
+      "Reviewed proof: C# backend exposes Roslyn-compatible syntax as the only output AST boundary; printer/planner tests reject legacy semantic string/custom AST paths.",
+  }),
+  "diagnostic.ts-invalid-not-rescued": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+      "packages/tsts/src/services/embedding-api.test.ts",
+    ]),
+    negativeTests: Object.freeze([
+      "packages/tsts/src/services/embedding-api.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator.test.ts",
+      "packages/frontend/src/validator-cases/generic-validation.test.ts",
+    ]),
+    notes:
+      "Reviewed proof: invalid TypeScript remains invalid even when extensions/providers are present; target emission stops before artifact creation.",
+  }),
+});
 
 function capabilityDefaults(capabilityId, owner) {
   if (capabilityId.startsWith("host.") || capabilityId.startsWith("module.")) {
@@ -403,6 +488,7 @@ function capabilityDefaults(capabilityId, owner) {
 
 function capability([capabilityId, title, status, owner]) {
   const defaults = capabilityDefaults(capabilityId, owner);
+  const reviewedEvidence = reviewedCapabilityEvidence[capabilityId];
 
   return Object.freeze({
     capabilityId,
@@ -414,11 +500,12 @@ function capability([capabilityId, title, status, owner]) {
     providerFacts: Object.freeze(defaults.providerFacts),
     backendContract: defaults.backendContract,
     runtimeContract: defaults.runtimeContract,
-    positiveTests: Object.freeze([]),
-    negativeTests: Object.freeze([]),
-    oldEvidence: Object.freeze([]),
+    evidenceReview: reviewedEvidence === undefined ? "seeded" : "reviewed",
+    positiveTests: Object.freeze(reviewedEvidence?.positiveTests ?? []),
+    negativeTests: Object.freeze(reviewedEvidence?.negativeTests ?? []),
+    oldEvidence: Object.freeze(reviewedEvidence?.oldEvidence ?? []),
     blockers: Object.freeze(status === "blocked" ? ["Requires provider/runtime implementation before completion."] : []),
-    notes:
+    notes: reviewedEvidence?.notes ??
       "Machine-readable entry seeded from .analysis/test-plan-20260623-075726; old tests are evidence, capability coverage is the source of truth.",
   });
 }

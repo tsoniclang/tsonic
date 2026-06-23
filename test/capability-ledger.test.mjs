@@ -32,6 +32,8 @@ test("capability ledger has valid machine-readable entries", () => {
     assert.equal(Array.isArray(entry.providerFacts), true, entry.capabilityId);
     assert.equal(typeof entry.backendContract, "string", entry.capabilityId);
     assert.notEqual(entry.backendContract.length, 0, entry.capabilityId);
+    assert.equal(typeof entry.evidenceReview, "string", entry.capabilityId);
+    assert.match(entry.evidenceReview, /^(reviewed|seeded)$/u, entry.capabilityId);
     assert.equal(Array.isArray(entry.positiveTests), true, entry.capabilityId);
     assert.equal(Array.isArray(entry.negativeTests), true, entry.capabilityId);
     assert.equal(Array.isArray(entry.oldEvidence), true, entry.capabilityId);
@@ -116,6 +118,54 @@ test("complete capabilities require positive and negative proof", () => {
 
     assert.ok(entry.positiveTests.length > 0, `${entry.capabilityId} is complete without positive tests`);
     assert.ok(entry.negativeTests.length > 0, `${entry.capabilityId} is complete without negative tests`);
+    assert.equal(entry.evidenceReview, "reviewed", `${entry.capabilityId} is complete without reviewed evidence`);
+    assert.ok(entry.oldEvidence.length > 0, `${entry.capabilityId} is complete without old inventory evidence`);
+  }
+});
+
+test("complete parent capabilities require complete child capabilities", () => {
+  for (const entry of capabilityLedger) {
+    if (entry.status !== "complete") {
+      continue;
+    }
+
+    const childCapabilities = capabilityLedger.filter((candidate) =>
+      candidate.capabilityId.startsWith(`${entry.capabilityId}.`),
+    );
+    for (const child of childCapabilities) {
+      assert.equal(
+        child.status,
+        "complete",
+        `${entry.capabilityId} is complete but child ${child.capabilityId} is ${child.status}`,
+      );
+    }
+  }
+});
+
+test("complete capability proof references current positive and negative tests", () => {
+  const oldPathSet = new Set([
+    ...oldEmitterPortInventory.map((entry) => entry.oldPath),
+    ...oldEmitterHistoricalCasePaths,
+    ...oldSuitePortInventory.map((entry) => entry.oldPath),
+    ...oldProductUnitHistoricalTestFiles,
+  ]);
+
+  for (const entry of capabilityLedger) {
+    if (entry.status !== "complete") {
+      continue;
+    }
+
+    for (const positiveTest of entry.positiveTests) {
+      assert.equal(typeof positiveTest, "string", `${entry.capabilityId} has a non-string positive test`);
+      assert.notEqual(positiveTest.length, 0, `${entry.capabilityId} has an empty positive test`);
+      assert.equal(oldPathSet.has(positiveTest), false, `${entry.capabilityId} uses old evidence as positive proof: ${positiveTest}`);
+    }
+
+    for (const negativeTest of entry.negativeTests) {
+      assert.equal(typeof negativeTest, "string", `${entry.capabilityId} has a non-string negative test`);
+      assert.notEqual(negativeTest.length, 0, `${entry.capabilityId} has an empty negative test`);
+      assert.equal(oldPathSet.has(negativeTest), false, `${entry.capabilityId} uses old evidence as negative proof: ${negativeTest}`);
+    }
   }
 });
 
