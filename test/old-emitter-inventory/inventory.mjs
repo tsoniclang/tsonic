@@ -328,15 +328,21 @@ export const oldEmitterPortInventory = Object.freeze([
     "../tsonic-csharp/test/attributes.test.mjs",
     "Ported as current-architecture attribute coverage for provider-backed attribute declarations, finalized TSTS attribute facts, multiple class attributes, positional constructor arguments, Roslyn attribute-list AST emission, and C# printer output with no raw-string emitter path.",
   ),
+  portedEmitterCase(
+    "attributes/targets/Attributes",
+    "attributes",
+    "test/cli-build/provider-dotnet.test.mjs",
+    "Ported through finalized AttributeFact applicationTargetSpecifier coverage for field/property/param/return target specifiers, C# target validation, Roslyn attribute AST target specifiers, generated C# assertions, and dotnet build.",
+  ),
   ...deferredEmitterCases([
     "attributes/comprehensive/Attributes",
   ], "attributes", "C# source semantics + C# native provider + C# backend planner", "Class/method/property/field/parameter/constructor attribute facts are covered by current C# target tests; this old fixture remains deferred for broader legacy fixture breadth that still requires finalized current source-surface facts instead of old emitter assumptions."),
-  ...deferredEmitterCases([
-    "attributes/targets/Attributes",
-  ], "attributes", "C# source semantics + C# native provider + C# backend planner", "Field placement through finalized attribute facts is covered by current C# target tests; this old fixture remains deferred for explicit C# attribute target specifiers such as field/property/param/return targets because the finalized AttributeFact/source-marker surface does not yet carry a target-specifier slot."),
-  ...deferredEmitterCases([
+  portedEmitterCase(
     "classes/field-marker/FieldMarker",
-  ], "classes", "source field marker semantics + C# declaration planner", "Field marker fixtures require finalized neutral field-marker source facts before property/field storage can be emitted without target-specific source syntax."),
+    "classes",
+    "test/cli-build/classes-value-types.test.mjs",
+    "Ported through finalized neutral FieldFact coverage for class field markers, source primitive field type evidence, C# field declaration AST emission, fail-closed marker diagnostics, dotnet build/run, and exact stdout.",
+  ),
   portedEmitterCase(
     "classes/basic/Person",
     "classes",

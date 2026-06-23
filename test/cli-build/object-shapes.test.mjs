@@ -534,6 +534,68 @@ test("CLI emits object-shape spread from finalized provider object-shape facts",
 });
 
 
+test("CLI emits object-shape spread from finalized subset facts plus explicit members", async () => {
+  const projectDirectory = resolve(tempRoot, "object-shape-partial-spread");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedObjectShapePartialSpread",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function expand(input: { label: string }, value: number): { value: number; label: string; active: boolean } {",
+      "  return { ...input, value, active: true };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ expand\(__TsonicShape_[A-Za-z0-9_]+ input, double value\)/);
+  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = input\.label,\s*value = value,\s*active = true,\s*\};/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapePartialSpread.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+
+test("CLI rejects object-shape spread members without finalized target carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "object-shape-spread-extra-member");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function shrink(input: { value: number; label: string }): { value: number } {",
+      "  return { ...input };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Object literal spread source member 'label' requires a finalized target object-shape member carrier/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+
 test("CLI rejects non-identifier object spread until single-evaluation provider lowering exists", async () => {
   const projectDirectory = resolve(tempRoot, "object-spread-single-evaluation");
   await writeProject(projectDirectory, {

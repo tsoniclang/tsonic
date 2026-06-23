@@ -229,6 +229,89 @@ test("CLI rejects TypeScript truthiness in C# control-flow conditions without bo
 });
 
 
+test("CLI emits C# switch defaults and literal fallthrough labels", async () => {
+  const projectDirectory = resolve(tempRoot, "literal-switch-fallthrough");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedLiteralSwitchFallthrough",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function classify(value: string): string {",
+      "  switch (value) {",
+      "    case \"alpha\":",
+      "    case \"beta\":",
+      "      return \"known\";",
+      "    default:",
+      "      return \"other\";",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /switch \(value\)/);
+  assert.match(generatedSource, /case "alpha":\s+goto case "beta";/);
+  assert.match(generatedSource, /case "beta":\s+return "known";/);
+  assert.match(generatedSource, /default:\s+return "other";/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedLiteralSwitchFallthrough.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+
+test("CLI rejects dynamic TypeScript switch case expressions before C# emission", async () => {
+  const projectDirectory = resolve(tempRoot, "dynamic-switch-case-expression");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedDynamicSwitchCase",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function classify(value: string, dynamicCase: string): string {",
+      "  switch (value) {",
+      "    case dynamicCase:",
+      "      return \"dynamic\";",
+      "    default:",
+      "      return \"other\";",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Switch case labels must be C# compile-time constants/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedDynamicSwitchCase.csproj")), false);
+});
+
+
 test("CLI rejects logical-not on plain number without provider truthiness lowering", async () => {
   const projectDirectory = resolve(tempRoot, "logical-not-number");
   await writeProject(projectDirectory, {
