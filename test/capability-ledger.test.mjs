@@ -107,6 +107,34 @@ test("capability ledger validator rejects missing or malformed lane classificati
       ...sample,
       laneClassification: {
         ...sample.laneClassification,
+        hardReject: {
+          ...sample.laneClassification.hardReject,
+          lane: "static-native",
+        },
+      },
+    }),
+    ["laneClassification.hardReject.lane must be hard-reject"],
+  );
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({
+      ...sample,
+      laneClassification: {
+        ...sample.laneClassification,
+        compat: {
+          ...sample.laneClassification.compat,
+          lane: "static-native",
+        },
+      },
+    }),
+    ["laneClassification.compat.lane must be compat-runtime"],
+  );
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({
+      ...sample,
+      laneClassification: {
+        ...sample.laneClassification,
         compat: {
           ...sample.laneClassification.compat,
           runtimeCarrier: "",
@@ -283,6 +311,30 @@ test("capability oldEvidence references classified old inventory paths", () => {
   }
 });
 
+test("complete capability oldEvidence is bidirectionally mapped by old inventories", () => {
+  const oldEntriesByPath = new Map([
+    ...oldEmitterPortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldSuitePortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldProductUnitPortInventory.map((entry) => [entry.oldPath, entry]),
+  ]);
+
+  for (const entry of capabilityLedger) {
+    if (entry.status !== "complete") {
+      continue;
+    }
+
+    for (const oldEvidencePath of entry.oldEvidence) {
+      const oldEntry = oldEntriesByPath.get(oldEvidencePath);
+      assert.notEqual(oldEntry, undefined, `${entry.capabilityId} references old evidence without an inventory entry: ${oldEvidencePath}`);
+      assert.equal(
+        oldEntry.capabilityIds.includes(entry.capabilityId),
+        true,
+        `${entry.capabilityId} old evidence is not bidirectionally mapped by ${oldEvidencePath}`,
+      );
+    }
+  }
+});
+
 function assertValidLaneClassification(entry) {
   const classification = entry.laneClassification;
   assert.equal(typeof classification, "object", `${entry.capabilityId} missing laneClassification`);
@@ -305,6 +357,7 @@ function assertValidLaneClassification(entry) {
     assertValidLaneBehavior(entry, "compat", classification.compat);
   }
   assertValidLaneBehavior(entry, "hardReject", classification.hardReject);
+  assert.equal(classification.hardReject.lane, "hard-reject", `${entry.capabilityId} hardReject.lane must be hard-reject`);
   assert.ok(
     Array.isArray(classification.hardReject.reasons) && classification.hardReject.reasons.length > 0,
     `${entry.capabilityId} hard-reject lane must name reasons`,

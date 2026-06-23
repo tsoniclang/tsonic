@@ -771,6 +771,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "backend.fail-closed-facts",
+    "backend.csharp.no-direct-semantic-string-output",
     "backend.no-semantic-strings",
     "diagnostic.missing-target-fact",
     "expression.nullish-optional",
@@ -1030,7 +1031,6 @@ function createOldEmitterCapabilityMappingCounts() {
   return {
     reviewed: 0,
     "deferred-derived": 0,
-    "complete-proof": 0,
   };
 }
 

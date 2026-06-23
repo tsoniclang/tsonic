@@ -1091,11 +1091,11 @@ function validateLaneClassification(errors, entry) {
   }
   validateLaneBehavior(errors, classification.strictNative, "laneClassification.strictNative");
   if (possibleLanes?.includes?.("static-native")) {
-    validateLaneBehavior(errors, classification.staticNative, "laneClassification.staticNative");
+    validateLaneBehavior(errors, classification.staticNative, "laneClassification.staticNative", "static-native");
     validateRequiredFacts(errors, classification.staticNative, "laneClassification.staticNative.requiredFacts");
   }
   if (possibleLanes?.includes?.("compat-runtime")) {
-    validateLaneBehavior(errors, classification.compat, "laneClassification.compat");
+    validateLaneBehavior(errors, classification.compat, "laneClassification.compat", "compat-runtime");
     validateRequiredFacts(errors, classification.compat, "laneClassification.compat.requiredFacts");
     if (!isPlainObject(classification.compat) || typeof classification.compat.runtimeCarrier !== "string" || classification.compat.runtimeCarrier.length === 0) {
       errors.push("laneClassification.compat.runtimeCarrier must be a non-empty string when lane is compat-runtime");
@@ -1108,21 +1108,25 @@ function validateLaneClassification(errors, entry) {
   }
   if (!isPlainObject(classification.hardReject)) {
     errors.push("laneClassification.hardReject must be an object");
-  } else if (classification.hardReject.lane !== undefined && !capabilityLaneSet.has(classification.hardReject.lane)) {
-    errors.push(`laneClassification.hardReject.lane must be one of ${capabilityLaneNames.join(", ")}`);
+  } else {
+    validateLaneBehavior(errors, classification.hardReject, "laneClassification.hardReject", "hard-reject");
   }
   if (!isPlainObject(classification.hardReject) || !Array.isArray(classification.hardReject.reasons) || classification.hardReject.reasons.length === 0) {
     errors.push("laneClassification.hardReject.reasons must be a non-empty array");
   }
 }
 
-function validateLaneBehavior(errors, behavior, path) {
+function validateLaneBehavior(errors, behavior, path, expectedLane) {
   if (!isPlainObject(behavior)) {
     errors.push(`${path} must be an object`);
     return;
   }
   if (typeof behavior.lane !== "string" || !capabilityLaneSet.has(behavior.lane)) {
     errors.push(`${path}.lane must be one of ${capabilityLaneNames.join(", ")}`);
+    return;
+  }
+  if (expectedLane !== undefined && behavior.lane !== expectedLane) {
+    errors.push(`${path}.lane must be ${expectedLane}`);
   }
 }
 

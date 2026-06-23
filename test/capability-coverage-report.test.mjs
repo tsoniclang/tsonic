@@ -151,6 +151,7 @@ test("capability coverage report mirrors lane classifications and reports proof 
       requiredFacts: ["selected-source-or-provider-shape", "selected-target-member"],
     },
     hardReject: {
+      lane: "hard-reject",
       reasons: ["strict-native-selected", "missing-runtime-carrier-fact"],
     },
   };

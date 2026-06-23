@@ -161,6 +161,7 @@ const oldProductUnitStaleProofByOldPath = new Map([
     "host.package.composition",
     "host.project.package-discovery",
     "provider.module.missing-provider-diagnostic",
+    "provider.module.no-file-backed-fallback",
     "provider.module.virtual-import",
     "provider.virtual-module.no-fallback",
     "provider.virtual-module.ownership",
@@ -212,6 +213,7 @@ const oldProductUnitStaleProofByOldPath = new Map([
     "packages/frontend/src/validator-maximus-cases/generic-function-values.test.ts",
   ], [
     "backend.fail-closed-facts",
+    "diagnostic.ts-invalid-not-rescued",
     "tsts.consumer-queries",
     "tsts.generic-inference",
     "tsts.parse-bind-check",
@@ -413,6 +415,8 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
       ids.add("host.config.project-load");
       ids.add("host.config.target-selection");
       ids.add("host.config.surface-selection");
+      ids.add("host.project.target-selection");
+      ids.add("host.project.surface-selection");
       break;
     case "package-model":
       ids.add("host.package.composition");
@@ -425,12 +429,15 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
       ids.add("backend.fail-closed-facts");
       break;
     case "source-semantics":
+      ids.add("tsts.no-target-overrides");
       ids.add("source.primitive.numeric");
       ids.add("source.marker.out-ref-inref");
       ids.add("source.marker.attribute");
       break;
     case "surface-provider":
       ids.add("host.config.surface-selection");
+      ids.add("host.project.surface-selection");
+      ids.add("host.project.surface-extension-composition");
       ids.add("surface.js.console");
       ids.add("surface.node.fs-path-process");
       break;
@@ -441,6 +448,7 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
     case "csharp-backend":
       ids.add("backend.ast.only");
       ids.add("backend.no-semantic-strings");
+      ids.add("backend.csharp.no-direct-semantic-string-output");
       ids.add("backend.csharp.ast-expression");
       break;
     case "toolchain":
@@ -457,6 +465,7 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
   }
 
   if (oldPath.includes("build")) {
+    ids.add("host.project.provider-composition");
     ids.add("toolchain.csharp.build-run");
     ids.add("backend.csharp.project-sdk-emit");
   }
@@ -476,6 +485,7 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
     ids.add("carrier.object-shape");
   }
   if (oldPath.includes("generic")) {
+    ids.add("diagnostic.ts-invalid-not-rescued");
     ids.add("tsts.generic-inference");
     ids.add("type.generic.provider-target-arguments");
   }
@@ -513,7 +523,6 @@ function createOldProductUnitCapabilityMappingCounts() {
   return {
     reviewed: 0,
     "deferred-derived": 0,
-    "complete-proof": 0,
   };
 }
 

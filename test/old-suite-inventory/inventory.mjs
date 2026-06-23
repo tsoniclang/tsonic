@@ -685,6 +685,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("namespace-imports"),
   ], [
     "backend.ast.only",
+    "host.project.provider-composition",
     "host.package.composition",
     "operation.call.provider-selected-method",
     "provider.virtual-module.target-identity",
@@ -779,6 +780,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "host.config.no-legacy-config",
     "host.config.project-load",
     "host.config.target-selection",
+    "host.project.target-selection",
     "host.package.composition",
     "toolchain.csharp.build-run",
   ]),
@@ -931,7 +933,6 @@ function createOldSuiteCapabilityMappingCounts() {
   return {
     reviewed: 0,
     "deferred-derived": 0,
-    "complete-proof": 0,
   };
 }
 
@@ -1015,11 +1016,13 @@ function defaultOldSuiteCapabilityIds(entry) {
       ids.add("operation.call.provider-selected-method");
       break;
     case "js-surface":
+      ids.add("host.project.surface-extension-composition");
       ids.add("surface.js.array-methods");
       ids.add("surface.js.string-methods");
       ids.add("runtime.csharp.js");
       break;
     case "nodejs-surface":
+      ids.add("host.project.surface-extension-composition");
       ids.add("surface.node.fs-path-process");
       ids.add("runtime.csharp.nodejs");
       break;
