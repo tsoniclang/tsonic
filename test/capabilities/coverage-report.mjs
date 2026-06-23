@@ -165,8 +165,10 @@ function completeCapabilityEvidence(entry, classifiedOldEvidencePathSet) {
   const externalCurrentTests = currentProofTests.filter(externalCurrentPath);
   const repoScopedCurrentTests = currentProofTests.filter((testPath) => !externalCurrentPath(testPath));
   const proofHoles = completeProofHoles({
+    evidenceReview: entry.evidenceReview,
     currentPositiveTests,
     currentNegativeTests,
+    oldEvidence,
     oldPositiveEvidence,
     oldNegativeEvidence,
   });
@@ -193,8 +195,10 @@ function completeCapabilityEvidence(entry, classifiedOldEvidencePathSet) {
 }
 
 function completeProofHoles({
+  evidenceReview,
   currentPositiveTests,
   currentNegativeTests,
+  oldEvidence,
   oldPositiveEvidence,
   oldNegativeEvidence,
 }) {
@@ -204,6 +208,12 @@ function completeProofHoles({
   }
   if (currentNegativeTests.length === 0) {
     holes.push("missing-current-negative-proof");
+  }
+  if (evidenceReview !== "reviewed") {
+    holes.push("missing-reviewed-evidence");
+  }
+  if (oldEvidence.length === 0) {
+    holes.push("missing-old-evidence");
   }
   if (oldPositiveEvidence.length > 0) {
     holes.push("positive-proof-uses-old-evidence");
@@ -497,8 +507,14 @@ function oldEvidenceCoverage(
     .filter((oldEvidencePath) => !classifiedOldEvidencePathSet.has(oldEvidencePath));
   const unreferencedClassifiedOldEvidencePaths = uniqueSorted([...classifiedOldEvidencePathSet])
     .filter((oldEvidencePath) => !ledgerOldEvidencePathSet.has(oldEvidencePath));
+  const byCapability = oldEvidenceCoverageByCapability(ledgerEntries, oldInventoryEvidenceByCapability);
+  const proofHoles = oldEvidenceCoverageProofHoles(byCapability);
 
   return {
+    rules: {
+      oldEvidencePathsMustBeClassified: true,
+      completeOldEvidenceMustBeBidirectionallyMapped: true,
+    },
     classifiedOldPathCount: classifiedOldEvidencePathSet.size,
     ledgerOldEvidenceReferenceCount: ledgerOldEvidencePaths.length,
     ledgerOldEvidencePathCount: uniqueLedgerOldEvidencePaths.length,
@@ -508,9 +524,46 @@ function oldEvidenceCoverage(
     capabilityCountWithInventoryOldEvidence: [...oldInventoryEvidenceByCapability.keys()].length,
     unknownOldEvidencePaths,
     unreferencedClassifiedOldEvidencePaths,
+    summary: summarizeOldEvidenceCoverage(byCapability, unknownOldEvidencePaths),
     bySource: oldEvidenceSourceGroups.map((group) => oldEvidenceSourceCoverage(group, ledgerOldEvidencePathSet)),
-    byCapability: oldEvidenceCoverageByCapability(ledgerEntries, oldInventoryEvidenceByCapability),
+    byCapability,
+    proofHoles,
   };
+}
+
+function summarizeOldEvidenceCoverage(byCapability, unknownOldEvidencePaths) {
+  const completeCapabilities = byCapability.filter((entry) => entry.status === "complete");
+  const completeCapabilitiesWithBidirectionalHoles = completeCapabilities
+    .filter((entry) => entry.ledgerOldEvidenceNotInInventoryPaths.length > 0);
+
+  return {
+    capabilitiesWithLedgerOrInventoryEvidence: byCapability.length,
+    completeCapabilitiesWithLedgerOrInventoryEvidence: completeCapabilities.length,
+    unknownOldEvidencePaths: unknownOldEvidencePaths.length,
+    completeCapabilitiesWithBidirectionalHoles: completeCapabilitiesWithBidirectionalHoles.length,
+  };
+}
+
+function oldEvidenceCoverageProofHoles(byCapability) {
+  return byCapability
+    .filter((entry) => entry.status === "complete")
+    .map((entry) => {
+      const proofHoles = [];
+      if (entry.ledgerOldEvidenceNotInInventoryPaths.length > 0) {
+        proofHoles.push("ledger-old-evidence-not-in-inventory");
+      }
+
+      return {
+        capabilityId: entry.capabilityId,
+        title: entry.title,
+        status: entry.status,
+        owner: entry.owner,
+        proofHoles,
+        missingLedgerOldEvidencePaths: entry.missingLedgerOldEvidencePaths,
+        ledgerOldEvidenceNotInInventoryPaths: entry.ledgerOldEvidenceNotInInventoryPaths,
+      };
+    })
+    .filter((entry) => entry.proofHoles.length > 0);
 }
 
 function oldEvidenceSourceCoverage(group, ledgerOldEvidencePathSet) {

@@ -149,6 +149,18 @@ test("capability ledger validator rejects missing or malformed lane classificati
   );
 });
 
+test("capability ledger validator rejects incomplete and blocked entries without lane metadata", () => {
+  for (const status of ["partial", "not-started", "blocked"]) {
+    const entry = capabilityLedger.find((candidate) => candidate.status === status);
+    assert.notEqual(entry, undefined, `missing sample ${status} capability`);
+    assert.ok(
+      validateCapabilityLedgerEntry({ ...entry, laneClassification: undefined })
+        .includes("laneClassification must be an object"),
+      `${entry.capabilityId} must fail without laneClassification`,
+    );
+  }
+});
+
 test("capability ledger includes active plan minimum and rereview expansion ids", () => {
   const requiredIds = [
     "host.project.package-discovery",
@@ -376,6 +388,36 @@ test("complete capability oldEvidence is bidirectionally mapped by old inventori
         oldEntry.capabilityIds.includes(entry.capabilityId),
         true,
         `${entry.capabilityId} old evidence is not bidirectionally mapped by ${oldEvidencePath}`,
+      );
+    }
+  }
+});
+
+test("stale old inventory replacement capabilities reference known ledger ids", () => {
+  const staleOldInventoryEntries = [
+    ...oldEmitterPortInventory,
+    ...oldSuitePortInventory,
+    ...oldProductUnitPortInventory,
+  ].filter((entry) => entry.status === "invalid-stale-architecture");
+
+  assert.ok(staleOldInventoryEntries.length > 0);
+
+  for (const entry of staleOldInventoryEntries) {
+    assert.ok(
+      entry.replacementCapabilityIds.length > 0,
+      `${entry.oldPath} must name replacement capabilities`,
+    );
+
+    for (const capabilityId of entry.replacementCapabilityIds) {
+      assert.equal(
+        capabilityIdSet.has(capabilityId),
+        true,
+        `${entry.oldPath} references unknown replacement capability ${capabilityId}`,
+      );
+      assert.equal(
+        entry.capabilityIds.includes(capabilityId),
+        true,
+        `${entry.oldPath} replacement capability ${capabilityId} must also be mapped as old evidence`,
       );
     }
   }

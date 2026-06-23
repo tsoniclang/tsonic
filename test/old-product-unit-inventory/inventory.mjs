@@ -684,14 +684,34 @@ export function buildOldProductUnitInventoryReport(historicalOldPaths, inventory
 
   const unclassifiedOldPaths = historicalPaths.filter((oldPath) => !classifiedOldPathSet.has(oldPath));
   counts.unclassified = unclassifiedOldPaths.length;
+  const proofHoles = oldProductUnitInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet);
 
   return Object.freeze({
+    rules: Object.freeze({
+      unclassifiedOldInventoryIsImpossible: true,
+      classifiedInventoryPathsMustBeHistorical: true,
+    }),
+    classificationStatus: proofHoles.length === 0 ? "complete" : "hole",
     counts: Object.freeze(counts),
     capabilityMappingCounts: Object.freeze(capabilityMappingCounts),
     classifiedOldPaths: Object.freeze([...classifiedOldPathSet].sort()),
     classifiedUnknownOldPaths: Object.freeze([...classifiedUnknownOldPathSet].sort()),
     unclassifiedOldPaths: Object.freeze(unclassifiedOldPaths),
+    proofHoles: Object.freeze(proofHoles),
   });
+}
+
+function oldProductUnitInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet) {
+  return [
+    ...unclassifiedOldPaths.map((oldPath) => Object.freeze({
+      oldPath,
+      proofHole: "unclassified-old-inventory",
+    })),
+    ...[...classifiedUnknownOldPathSet].sort().map((oldPath) => Object.freeze({
+      oldPath,
+      proofHole: "classified-unknown-old-inventory",
+    })),
+  ];
 }
 
 export function countOldProductUnitDeclarations(inventoryEntries = oldProductUnitPortInventory) {

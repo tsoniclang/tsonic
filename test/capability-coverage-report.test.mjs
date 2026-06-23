@@ -66,6 +66,32 @@ test("capability coverage report lists complete capabilities with proof holes", 
   );
 });
 
+test("capability coverage report flags complete proof holes for missing reviewed and old evidence", () => {
+  const report = buildCapabilityCoverageReport({
+    ledgerEntries: [
+      capabilityEntry({
+        capabilityId: "host.project.target-selection",
+        status: "complete",
+        evidenceReview: "seeded",
+        positiveTests: ["test/current-positive.test.mjs"],
+        negativeTests: ["test/current-negative.test.mjs"],
+        oldEvidence: [],
+      }),
+    ],
+    oldEvidenceSourceGroups: [],
+    oldInventoryEntries: [],
+  });
+
+  assert.deepEqual(report.completeCapabilities[0].proofHoles, [
+    "missing-reviewed-evidence",
+    "missing-old-evidence",
+  ]);
+  assert.deepEqual(report.completeCapabilityProofHoles[0].proofHoles, [
+    "missing-reviewed-evidence",
+    "missing-old-evidence",
+  ]);
+});
+
 test("capability coverage report exposes partial and not-started blockers", () => {
   const report = buildCapabilityCoverageReport();
   const blockerLedgerEntries = capabilityLedger
@@ -120,8 +146,13 @@ test("capability coverage report exposes oldEvidence coverage", () => {
   );
 
   assert.equal(report.oldEvidenceCoverage.unknownOldEvidencePaths.length, 0);
+  assert.equal(report.oldEvidenceCoverage.rules.oldEvidencePathsMustBeClassified, true);
+  assert.equal(report.oldEvidenceCoverage.rules.completeOldEvidenceMustBeBidirectionallyMapped, true);
   assert.equal(report.oldEvidenceCoverage.ledgerOldEvidenceReferenceCount, ledgerOldEvidencePaths.length);
   assert.equal(report.oldEvidenceCoverage.ledgerOldEvidencePathCount, ledgerOldEvidencePathSet.size);
+  assert.equal(report.oldEvidenceCoverage.summary.unknownOldEvidencePaths, 0);
+  assert.equal(report.oldEvidenceCoverage.summary.completeCapabilitiesWithBidirectionalHoles, 0);
+  assert.deepEqual(report.oldEvidenceCoverage.proofHoles, []);
 
   for (const ledgerEntry of capabilityLedger.filter((entry) => entry.oldEvidence.length > 0)) {
     assert.deepEqual(
@@ -130,6 +161,52 @@ test("capability coverage report exposes oldEvidence coverage", () => {
       ledgerEntry.capabilityId,
     );
   }
+});
+
+test("capability coverage report exposes complete oldEvidence bidirectional mapping holes", () => {
+  const report = buildCapabilityCoverageReport({
+    ledgerEntries: [
+      capabilityEntry({
+        capabilityId: "host.project.target-selection",
+        status: "complete",
+        evidenceReview: "reviewed",
+        positiveTests: ["test/current-positive.test.mjs"],
+        negativeTests: ["test/current-negative.test.mjs"],
+        oldEvidence: ["old/a.test.ts"],
+      }),
+    ],
+    oldEvidenceSourceGroups: [
+      {
+        source: "test-old-source",
+        paths: ["old/a.test.ts", "old/b.test.ts"],
+      },
+    ],
+    oldInventoryEntries: [
+      {
+        inventory: "test-old-inventory",
+        oldPath: "old/b.test.ts",
+        status: "ported",
+        capabilityIds: ["host.project.target-selection"],
+      },
+    ],
+  });
+
+  assert.equal(report.oldEvidenceCoverage.summary.completeCapabilitiesWithBidirectionalHoles, 1);
+  assert.deepEqual(report.oldEvidenceCoverage.byCapability[0].missingLedgerOldEvidencePaths, ["old/b.test.ts"]);
+  assert.deepEqual(report.oldEvidenceCoverage.byCapability[0].ledgerOldEvidenceNotInInventoryPaths, ["old/a.test.ts"]);
+  assert.deepEqual(report.oldEvidenceCoverage.proofHoles, [
+    {
+      capabilityId: "host.project.target-selection",
+      title: "Capability host.project.target-selection",
+      status: "complete",
+      owner: "target-provider",
+      proofHoles: [
+        "ledger-old-evidence-not-in-inventory",
+      ],
+      missingLedgerOldEvidencePaths: ["old/b.test.ts"],
+      ledgerOldEvidenceNotInInventoryPaths: ["old/a.test.ts"],
+    },
+  ]);
 });
 
 test("capability coverage report summarizes lane classification coverage", () => {
@@ -264,6 +341,12 @@ function expectedProofHoles(completeEntry) {
   if (completeEntry.currentNegativeTests.length === 0) {
     holes.push("missing-current-negative-proof");
   }
+  if (completeEntry.evidenceReview !== "reviewed") {
+    holes.push("missing-reviewed-evidence");
+  }
+  if (completeEntry.oldEvidence.length === 0) {
+    holes.push("missing-old-evidence");
+  }
   if (completeEntry.oldPositiveEvidence.length > 0) {
     holes.push("positive-proof-uses-old-evidence");
   }
@@ -279,6 +362,10 @@ function capabilityEntry({
   owner = "target-provider",
   laneClassification,
   blockers = [],
+  evidenceReview = "seeded",
+  positiveTests = [],
+  negativeTests = [],
+  oldEvidence = [],
 }) {
   return {
     capabilityId,
@@ -289,10 +376,10 @@ function capabilityEntry({
     tstsDecision: "TSTS decision",
     providerFacts: [],
     backendContract: "Backend contract",
-    evidenceReview: "seeded",
-    positiveTests: [],
-    negativeTests: [],
-    oldEvidence: [],
+    evidenceReview,
+    positiveTests,
+    negativeTests,
+    oldEvidence,
     blockers,
     notes: "Test entry",
     ...(laneClassification === undefined ? {} : { laneClassification }),

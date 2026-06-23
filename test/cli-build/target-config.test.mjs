@@ -107,6 +107,30 @@ test("CLI rejects unsupported target entry fields outside target options", async
   assert.match(build.stderr, /Target at index 0 has unsupported field 'namespace'/);
 });
 
+test("CLI rejects unsupported C# target options instead of ignoring them", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-csharp-target-option");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            rootNamespace: "Legacy.Generated",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# target option 'options\.rootNamespace' is not supported/);
+});
+
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
   const projectDirectory = resolve(tempRoot, "wide-csharp");
   await writeProject(projectDirectory, {

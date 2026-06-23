@@ -258,6 +258,24 @@ test("old suite port inventory entries have required classification fields", () 
   }
 });
 
+test("old suite stale entries require replacement capability evidence", () => {
+  const staleEntry = oldSuitePortInventory.find((entry) => entry.status === "invalid-stale-architecture");
+  assert.notEqual(staleEntry, undefined);
+
+  assert.ok(
+    validateOldSuitePortEntry({ ...staleEntry, replacementCapabilityIds: [] })
+      .includes("replacementCapabilityIds must be a non-empty array"),
+  );
+  assert.ok(
+    validateOldSuitePortEntry({ ...staleEntry, replacementCapabilityPath: "" })
+      .includes("replacementCapabilityPath must be a non-empty string for stale entries"),
+  );
+  assert.ok(
+    validateOldSuitePortEntry({ ...staleEntry, replacementCapabilityIds: ["unknown.capability"] })
+      .includes("replacementCapabilityIds must be included in capabilityIds"),
+  );
+});
+
 test("old suite seed fixtures are classified", () => {
   const classifiedOldPathSet = new Set(oldSuitePortInventory.map((entry) => entry.oldPath));
 
@@ -288,7 +306,10 @@ test("old suite inventory report counts are deterministic", () => {
     "deferred: 156",
     "unclassified: 0",
   ].join("\n"));
+  assert.equal(report.rules.unclassifiedOldInventoryIsImpossible, true);
+  assert.equal(report.classificationStatus, "complete");
   assert.deepEqual(report.classifiedUnknownOldPaths, []);
+  assert.deepEqual(report.proofHoles, []);
 });
 
 test("old suite inventory reports unclassified entries", () => {
@@ -301,4 +322,17 @@ test("old suite inventory reports unclassified entries", () => {
   assert.equal(report.unclassifiedOldPaths.includes("test/fixtures/array-literal/"), false);
   assert.equal(report.unclassifiedOldPaths.includes("test/fixtures/dotnet-test-command/"), false);
   assert.equal(report.unclassifiedOldPaths.includes("test/fixtures/top-level-code/"), false);
+});
+
+test("old suite inventory report exposes unclassified proof holes", () => {
+  const report = buildOldSuiteInventoryReport([oldTsonicFixturePaths[0]], []);
+
+  assert.equal(report.classificationStatus, "hole");
+  assert.deepEqual(report.unclassifiedOldPaths, [oldTsonicFixturePaths[0]]);
+  assert.deepEqual(report.proofHoles, [
+    {
+      oldPath: oldTsonicFixturePaths[0],
+      proofHole: "unclassified-old-inventory",
+    },
+  ]);
 });
