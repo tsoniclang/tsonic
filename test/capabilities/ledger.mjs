@@ -27,9 +27,9 @@ const baseCapabilityDefinitions = Object.freeze([
   ["host.graph.source-files", "Use TSTS source graph as project file graph", "partial", "tsonic-host"],
   ["host.package.composition", "Compose target, providers, surfaces, backend, runtime, and toolchain", "partial", "tsonic-host"],
   ["host.project.package-discovery", "Discover project packages without legacy package-root shims", "partial", "tsonic-host"],
-  ["host.project.target-selection", "Select target by target id", "partial", "tsonic-host"],
-  ["host.project.surface-selection", "Select surfaces by target capability", "partial", "tsonic-host"],
-  ["host.project.provider-composition", "Compose provider set for a compile session", "partial", "tsonic-host"],
+  ["host.project.target-selection", "Select target by target id", "complete", "tsonic-host"],
+  ["host.project.surface-selection", "Select surfaces by target capability", "complete", "tsonic-host"],
+  ["host.project.provider-composition", "Compose provider set for a compile session", "complete", "tsonic-host"],
 
   ["module.graph.source-files", "Resolve ordinary TypeScript source file graph", "partial", "tsts-api"],
   ["module.import.named", "Support named ESM imports", "partial", "tsts-api"],
@@ -64,7 +64,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["provider.virtual-module.overload-identity", "Provider supplies exact overload/member identity", "partial", "target-provider"],
   ["provider.module.virtual-import", "Provider-backed virtual imports become compiler state", "partial", "target-provider"],
   ["provider.module.no-file-backed-fallback", "Provider module resolution has no declaration-file fallback", "complete", "target-provider"],
-  ["provider.module.missing-provider-diagnostic", "Missing provider-owned modules produce diagnostics", "partial", "target-provider"],
+  ["provider.module.missing-provider-diagnostic", "Missing provider-owned modules produce diagnostics", "complete", "target-provider"],
 
   ["source.primitive.numeric", "Neutral source numeric primitives attach facts", "partial", "source-core-provider"],
   ["source.primitive.char-bool", "Neutral char and bool primitives attach facts", "partial", "source-core-provider"],
@@ -94,7 +94,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["type.generic.provider-target-arguments", "Map TSTS-inferred type arguments to target type arguments", "partial", "target-provider"],
   ["type.generic.provider-target-constraints", "Validate provider target generic constraints", "partial", "target-provider"],
 
-  ["operation.call.provider-selected-method", "Provider-owned calls emit from selected signature facts", "partial", "target-provider"],
+  ["operation.call.provider-selected-method", "Provider-owned calls emit from selected signature facts", "complete", "target-provider"],
   ["operation.call.provider-argument-conversion", "Provider-owned calls record target argument conversion facts", "partial", "target-provider"],
   ["operation.call.provider-parameter-mode", "Provider-owned calls record parameter mode facts", "partial", "target-provider"],
   ["operation.construct.provider-selected-constructor", "Provider-owned constructors emit from selected constructor facts", "partial", "target-provider"],
@@ -240,7 +240,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.member-methods", ".NET provider models methods, overloads, extension methods, and generic methods", "not-started", "target-provider"],
   ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "not-started", "target-provider"],
   ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "not-started", "target-provider"],
-  ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "not-started", "target-provider"],
+  ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "partial", "target-provider"],
   ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "not-started", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "not-started", "target-provider"],
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "not-started", "target-provider"],
@@ -277,6 +277,50 @@ const baseCapabilityDefinitions = Object.freeze([
 export const requiredCapabilityIds = Object.freeze(baseCapabilityDefinitions.map(([capabilityId]) => capabilityId));
 
 const reviewedCapabilityEvidence = Object.freeze({
+  "host.project.target-selection": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/config-cases/resolve-basics.test.ts",
+      "packages/cli/src/config.test.ts",
+      "test/fixtures/dotnet-test-command/",
+    ]),
+    notes:
+      "Reviewed proof: project target ids come from the current targets[] config shape; unknown target ids emit TARGET_SELECTION before provider/backend artifact creation.",
+  }),
+  "host.project.surface-selection": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/config-cases/resolve-surfaces.test.ts",
+      "packages/cli/src/surface/profiles.test.ts",
+      "packages/frontend/src/surface/profiles.test.ts",
+    ]),
+    notes:
+      "Reviewed proof: selected surface ids are passed to the target provider as owned surface instances; unknown, dependency-missing, stale, and unselected surfaces fail closed.",
+  }),
+  "host.project.provider-composition": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/commands/build.test.ts",
+      "test/fixtures/hello-world/",
+    ]),
+    notes:
+      "Reviewed proof: provider extensions and runtime artifacts are composed before backend/toolchain handoff; missing providers and stale supplied surface composition stop before backend emission.",
+  }),
   "tsts.no-target-overrides": Object.freeze({
     positiveTests: Object.freeze([
       "packages/tsts/src/services/embedding-api.test.ts",
@@ -295,10 +339,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "provider.module.no-file-backed-fallback": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
@@ -307,7 +353,77 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/cli/src/commands/restore.test.ts",
     ]),
     notes:
-      "Reviewed proof: selected providers create compiler-visible modules; unselected provider-owned modules fail closed instead of reading generated declaration or metadata files.",
+      "Reviewed proof: selected providers create compiler-visible modules; .d.ts and provider metadata files are excluded from semantic input, so unselected or missing provider modules fail closed without file-backed fallback.",
+  }),
+  "provider.module.missing-provider-diagnostic": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/commands/add-deps.test.ts",
+      "packages/cli/src/commands/restore.test.ts",
+    ]),
+    notes:
+      "Reviewed proof: target packs without providers emit TARGET_PROVIDER before backend emission, and provider-owned imports missing from selected virtual modules surface diagnostics instead of falling back to generated package files.",
+  }),
+  "native.dotnet.parameter-modes": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/lang/stackalloc/StackAlloc.ts",
+      "test/fixtures/param-modifiers/",
+    ]),
+    notes:
+      "Reviewed partial proof: external-current C# tests preserve out, optional, and params-array facts and reject wrong optional/params arities; remains partial until ref, in, and reflected default-value facts have positive and negative coverage.",
+  }),
+  "operation.call.provider-selected-method": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+    ]),
+    notes:
+      "Reviewed proof: provider-owned calls select exact signature identity from provider facts, including overload groups, extension receivers, byref parameters, and optional/params arity; backend rejects mutated call facts.",
+  }),
+  "function.default-rest-optional-params": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/functions/default-params/DefaultParams.ts",
+      "packages/targets/csharp/emitter/testcases/common/functions/optional-callbacks/OptionalParams.ts",
+      "test/fixtures/optional-function-params/",
+    ]),
+    notes:
+      "Reviewed partial proof: current CLI emits TypeScript rest, default, and optional callable parameters from finalized C# carriers, while external-current C# provider tests enforce optional/params arity; remains partial until source-function negative coverage proves missing parameter facts fail closed.",
   }),
   "operation.member.no-name-guess": Object.freeze({
     positiveTests: Object.freeze([
