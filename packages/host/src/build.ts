@@ -16,6 +16,7 @@ import {
 } from "./compiler-session.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
+import { getMissingTargetProviderMessage } from "./target/extensions.js";
 
 export interface CompileProjectInput {
   readonly project: TsonicProjectConfig;
@@ -36,9 +37,9 @@ export interface ProjectBuildResult {
 
 interface TargetBuildPlan {
   readonly target: TargetSelection;
-  readonly targetPack: TargetPack;
+  readonly targetPack?: TargetPack;
   readonly selectedSurfaces?: readonly TargetSurfaceImplementation[];
-  readonly surfaceDiagnostic?: TargetDiagnostic;
+  readonly diagnostics: readonly TargetDiagnostic[];
 }
 
 export function compileProject(input: CompileProjectInput): ProjectBuildResult {
@@ -47,50 +48,38 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
   const diagnostics: TargetDiagnostic[] = [];
   const buildPlans: TargetBuildPlan[] = [];
   for (const target of input.project.targets) {
-    const targetPack = input.registry.require(target.id);
-    const selectedSurfaces = getTargetSelectedSurfaces(targetPack, target);
-    if (isTargetDiagnostic(selectedSurfaces)) {
-      buildPlans.push({ target, targetPack, surfaceDiagnostic: selectedSurfaces });
+    const targetPack = getRequiredTargetPack(input.registry, target);
+    if (isTargetDiagnostic(targetPack)) {
+      buildPlans.push({ target, diagnostics: [targetPack] });
       continue;
     }
-    buildPlans.push({ target, targetPack, selectedSurfaces });
-  }
-  if (buildPlans.every((plan) => plan.selectedSurfaces === undefined)) {
-    for (const plan of buildPlans) {
-      if (plan.surfaceDiagnostic === undefined) {
-        continue;
-      }
-      diagnostics.push(plan.surfaceDiagnostic);
-      targets.push({
-        target: plan.target,
-        compileResult: {
-          artifacts: [],
-          diagnostics: [],
-        },
-        diagnostics: [plan.surfaceDiagnostic],
-      });
+    const selectedSurfaces = getTargetSelectedSurfaces(targetPack, target);
+    if (isTargetDiagnostic(selectedSurfaces)) {
+      buildPlans.push({ target, targetPack, diagnostics: [selectedSurfaces] });
+      continue;
     }
+    const providerDiagnostic = getTargetProviderDiagnostic(targetPack, target);
+    if (providerDiagnostic !== undefined) {
+      buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [providerDiagnostic] });
+      continue;
+    }
+    buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [] });
+  }
+  if (buildPlans.every((plan) => hasBlockingDiagnostics(plan.diagnostics))) {
+    pushDiagnosticOnlyTargets(buildPlans, targets, diagnostics);
     return {
       targets,
       diagnostics,
     };
   }
   const created = createProgramOptionsForProject(input);
-  for (const { target, targetPack, selectedSurfaces, surfaceDiagnostic } of buildPlans) {
-    if (surfaceDiagnostic !== undefined) {
-      diagnostics.push(surfaceDiagnostic);
-      targets.push({
-        target,
-        compileResult: {
-          artifacts: [],
-          diagnostics: [],
-        },
-        diagnostics: [surfaceDiagnostic],
-      });
+  for (const { target, targetPack, selectedSurfaces, diagnostics: planDiagnostics } of buildPlans) {
+    if (hasBlockingDiagnostics(planDiagnostics)) {
+      pushDiagnosticOnlyTarget(targets, diagnostics, target, planDiagnostics);
       continue;
     }
-    if (selectedSurfaces === undefined) {
-      throw new Error(`Target '${target.id}' selected surface validation produced no result.`);
+    if (targetPack === undefined || selectedSurfaces === undefined) {
+      throw new Error(`Target '${target.id}' build planning produced no provider-backed target pack.`);
     }
     const session = createTsonicSemanticSession({
       programOptions: created.programOptions,
@@ -159,6 +148,22 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
   };
 }
 
+function getRequiredTargetPack(
+  registry: TargetRegistry,
+  target: TargetSelection,
+): TargetPack | TargetDiagnostic {
+  try {
+    return registry.require(target.id);
+  } catch (error: unknown) {
+    return {
+      code: "TARGET_SELECTION",
+      category: "error",
+      message: error instanceof Error ? error.message : String(error),
+      source: "tsonic-host",
+    };
+  }
+}
+
 function getTargetSelectedSurfaces(
   targetPack: TargetPack,
   target: TargetSelection,
@@ -175,8 +180,56 @@ function getTargetSelectedSurfaces(
   }
 }
 
+function getTargetProviderDiagnostic(
+  targetPack: TargetPack,
+  target: TargetSelection,
+): TargetDiagnostic | undefined {
+  if (targetPack.provider !== undefined) {
+    return undefined;
+  }
+  return {
+    code: "TARGET_PROVIDER",
+    category: "error",
+    message: getMissingTargetProviderMessage(target),
+    source: targetPack.id,
+  };
+}
+
 function isTargetDiagnostic(
-  value: readonly TargetSurfaceImplementation[] | TargetDiagnostic,
+  value: unknown,
 ): value is TargetDiagnostic {
-  return typeof (value as TargetDiagnostic).code === "string";
+  return typeof value === "object" &&
+    value !== null &&
+    typeof (value as Readonly<Record<string, unknown>>).code === "string";
+}
+
+function hasBlockingDiagnostics(diagnostics: readonly TargetDiagnostic[]): boolean {
+  return diagnostics.some((diagnostic) => diagnostic.category === "error");
+}
+
+function pushDiagnosticOnlyTargets(
+  buildPlans: readonly TargetBuildPlan[],
+  targets: TargetBuildResult[],
+  diagnostics: TargetDiagnostic[],
+): void {
+  for (const plan of buildPlans) {
+    pushDiagnosticOnlyTarget(targets, diagnostics, plan.target, plan.diagnostics);
+  }
+}
+
+function pushDiagnosticOnlyTarget(
+  targets: TargetBuildResult[],
+  diagnostics: TargetDiagnostic[],
+  target: TargetSelection,
+  targetDiagnostics: readonly TargetDiagnostic[],
+): void {
+  diagnostics.push(...targetDiagnostics);
+  targets.push({
+    target,
+    compileResult: {
+      artifacts: [],
+      diagnostics: [],
+    },
+    diagnostics: targetDiagnostics,
+  });
 }

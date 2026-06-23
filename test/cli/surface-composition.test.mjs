@@ -5,6 +5,7 @@ import test from "node:test";
 
 import {
   compileProject,
+  createProgramOptionsForProject,
   createTargetCompilerExtensions,
   parseTsonicProjectConfig,
 } from "../../packages/host/dist/index.js";
@@ -76,6 +77,74 @@ test("host passes selected surfaces to the single target provider", () => {
   assert.deepEqual(composition.extensions, [targetExtension]);
 });
 
+test("host composes target provider extensions before selected surface extensions", () => {
+  const events = [];
+  const targetExtension = { name: "target" };
+  const jsExtension = { name: "surface-js" };
+  const nodejsExtension = { name: "surface-nodejs" };
+  const targetPack = createFakeTargetPack(events, {
+    targetExtension,
+    surfaces: [
+      createFakeSurface("js", { events, extension: jsExtension }),
+      createFakeSurface("nodejs", { events, requiredSurfaces: ["js"], extension: nodejsExtension }),
+      createFakeSurface("webworker", { events, extension: { name: "unselected" } }),
+    ],
+  });
+  const project = parseTsonicProjectConfig({
+    entryPoint: "index.ts",
+    targets: [{ id: "demo", surfaces: ["js", "nodejs"] }],
+  });
+  const target = project.targets[0];
+
+  const composition = createTargetCompilerExtensions({ project, target, targetPack });
+
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=js,nodejs",
+    "surface-extension:js:target=demo:surfaces=js,nodejs",
+    "surface-extension:nodejs:target=demo:surfaces=js,nodejs",
+  ]);
+  assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js", "nodejs"]);
+  assert.deepEqual(composition.extensions, [targetExtension, jsExtension, nodejsExtension]);
+});
+
+test("host rejects stale or unowned supplied surface composition", () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    targetExtension: { name: "target" },
+    surfaces: [
+      createFakeSurface("js"),
+    ],
+  });
+  const project = parseTsonicProjectConfig({
+    entryPoint: "index.ts",
+    targets: [{ id: "demo", surfaces: ["js"] }],
+  });
+  const target = project.targets[0];
+  const copiedSurface = createFakeSurface("js");
+
+  assert.throws(
+    () => createTargetCompilerExtensions({ project, target, targetPack, selectedSurfaces: [copiedSurface] }),
+    /selected surface composition is stale or unowned/,
+  );
+  assert.deepEqual(events, []);
+});
+
+test("host reports unknown selected target as target diagnostic", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events);
+
+  const result = await compileFakeProject("unknown-target", targetPack, {
+    id: "not-real",
+  });
+
+  assert.equal(result.diagnostics.length, 1);
+  assert.deepEqual(events, []);
+  assert.equal(result.diagnostics[0].code, "TARGET_SELECTION");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "Unknown target 'not-real'.");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
 test("host reports unknown requested surface as target diagnostic", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
@@ -102,6 +171,30 @@ test("host reports unknown requested surface as target diagnostic", async () => 
   assert.equal(result.diagnostics[0].code, "TARGET_SURFACE_SELECTION");
   assert.equal(result.diagnostics[0].category, "error");
   assert.equal(result.diagnostics[0].message, "target 'demo' does not implement requested surface 'not-real'");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
+test("host reports missing target provider as target diagnostic", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    includeProvider: false,
+    backendArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "backend"),
+    ],
+  });
+
+  const result = await compileFakeProject("missing-provider", targetPack, {
+    id: "demo",
+  });
+
+  assert.equal(result.diagnostics.length, 1);
+  assert.deepEqual(events, []);
+  assert.equal(result.diagnostics[0].code, "TARGET_PROVIDER");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(
+    result.diagnostics[0].message,
+    "target 'demo' does not declare a provider; Tsonic requires provider-composed TSTS facts before backend emission",
+  );
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
 });
 
@@ -228,6 +321,42 @@ test("host omits surface runtime artifacts when no surface is selected", async (
   assert.equal(events.includes("surface-runtime:js"), false);
 });
 
+test("host excludes generated declarations and metadata JSON from semantic input", async () => {
+  const projectDirectory = resolve(tempRoot, "semantic-input-filter");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": "export const value = 1;\n",
+    "src/generated.d.ts": "declare global { const generatedAmbientLeak: string; }\n",
+    "src/provider.metadata.json": JSON.stringify({ target: "demo" }),
+  });
+
+  const created = createProgramOptionsForProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+  });
+  const fs = created.programOptions.Host.FS();
+
+  assert.equal(fs.FileExists(resolve(projectDirectory, "src/index.ts")), true);
+  assert.equal(fs.FileExists(resolve(projectDirectory, "src/generated.d.ts")), false);
+  assert.equal(fs.FileExists(resolve(projectDirectory, "src/provider.metadata.json")), false);
+});
+
+test("host rejects declaration entrypoints before semantic input creation", () => {
+  assert.throws(
+    () => parseTsonicProjectConfig({
+      entryPoint: "generated.d.ts",
+      targets: [{ id: "demo" }],
+    }),
+    /entryPoint must use a final ESM TypeScript source extension: \.ts or \.mts/,
+  );
+});
+
 async function compileFakeProject(name, targetPack, targetSelection) {
   const projectDirectory = resolve(tempRoot, name);
   const projectConfig = {
@@ -271,18 +400,22 @@ function createFakeTargetPack(events, options = {}) {
   return {
     id: "demo",
     displayName: "Demo Target",
-    provider: {
-      id: "demo-provider",
-      displayName: "Demo Provider",
-      createExtensions(context) {
-        events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
-        return options.targetExtension === undefined ? [] : [options.targetExtension];
-      },
-      runtimeArtifacts(context) {
-        events.push(`provider-runtime:${context.target.id}`);
-        return options.providerArtifacts ?? [];
-      },
-    },
+    ...(options.includeProvider === false
+      ? {}
+      : {
+          provider: {
+            id: "demo-provider",
+            displayName: "Demo Provider",
+            createExtensions(context) {
+              events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
+              return options.targetExtension === undefined ? [] : [options.targetExtension];
+            },
+            runtimeArtifacts(context) {
+              events.push(`provider-runtime:${context.target.id}`);
+              return options.providerArtifacts ?? [];
+            },
+          },
+        }),
     surfaces: options.surfaces ?? [],
     createBackend() {
       return {
@@ -318,6 +451,15 @@ function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {
     id,
     displayName: `${id} Surface`,
     ...((options.requiredSurfaces ?? []).length > 0 ? { requiredSurfaces: options.requiredSurfaces } : {}),
+    ...(options.extension === undefined
+      ? {}
+      : {
+          createExtensions(context) {
+            options.events?.push(`surface-extension:${id}:target=${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
+            assert.equal(context.surface.id, id);
+            return [options.extension];
+          },
+        }),
     runtimeArtifacts() {
       options.events?.push(`surface-runtime:${id}`);
       return options.artifacts ?? [];

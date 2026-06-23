@@ -747,6 +747,49 @@ test("CLI emits array for-in from provider enumeration facts", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits Record for-in from provider Dictionary key facts", async () => {
+  const projectDirectory = resolve(tempRoot, "record-for-in");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedRecordForIn",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function countKeys(values: Record<string, number>): number {",
+      "  let total = 0;",
+      "  for (const key in values) {",
+      "    total = total + key.length;",
+      "  }",
+      "  return total;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /System\.Collections\.Generic\.Dictionary<string, double> __tsonic_forInTarget\d+ = values;/);
+  assert.match(generatedSource, /foreach \(string key in __tsonic_forInTarget\d+\.Keys\)/);
+  assert.match(generatedSource, /total = total \+ key\.Length;/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRecordForIn.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits string instance calls from selected target signature facts", async () => {
   const projectDirectory = resolve(tempRoot, "string-call-target-facts");

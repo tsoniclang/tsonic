@@ -5,6 +5,11 @@ export const oldProductUnitStatuses = Object.freeze([
   "deferred",
 ]);
 
+export const oldProductUnitCapabilityMappingStatuses = Object.freeze([
+  "reviewed",
+  "deferred-derived",
+]);
+
 export const oldProductUnitFeatureAreas = Object.freeze([
   "cli",
   "host-config",
@@ -143,20 +148,191 @@ export const oldProductUnitHistoricalTestFiles = Object.freeze(
   oldProductUnitHistoricalTestFileTuples.map(([oldPath]) => oldPath),
 );
 
+const oldProductUnitStaleProofByOldPath = new Map([
+  ...reviewedOldProductUnitStaleMappings([
+    "packages/cli/src/commands/add-deps.test.ts",
+    "packages/cli/src/commands/add-npm-cases/package-manifest-transitive.test.ts",
+    "packages/cli/src/commands/add-npm-cases/package-manifest.test.ts",
+    "packages/cli/src/commands/add-npm.test.ts",
+    "packages/cli/src/commands/restore-cases/external-types.test.ts",
+    "packages/cli/src/commands/restore-cases/runtime-dlls.test.ts",
+    "packages/cli/src/commands/restore.test.ts",
+  ], [
+    "host.package.composition",
+    "host.project.package-discovery",
+    "provider.module.missing-provider-diagnostic",
+    "provider.module.no-file-backed-fallback",
+    "provider.module.virtual-import",
+    "provider.virtual-module.no-fallback",
+    "provider.virtual-module.ownership",
+  ],
+  "Old add/restore package tests targeted generated package manifests and dependency install side effects. Current proof is host.package.composition plus host.project.package-discovery selecting provider-owned virtual imports; provider.module.missing-provider-diagnostic and provider.virtual-module.no-fallback fail closed instead of falling back to legacy package-root or generated declaration files."),
+  ...reviewedOldProductUnitStaleMappings([
+    "packages/cli/src/commands/restore-cases/nuget-bindings.test.ts",
+    "packages/cli/src/package-manifests/bindings-cases/discovery-and-overlay.test.ts",
+    "packages/cli/src/package-manifests/bindings-cases/manifest-resolution.test.ts",
+    "packages/cli/src/package-manifests/bindings-cases/runtime-overrides-and-validation.test.ts",
+    "packages/cli/src/package-manifests/bindings.test.ts",
+  ], [
+    "host.package.composition",
+    "host.project.package-discovery",
+    "provider.module.no-file-backed-fallback",
+    "provider.module.virtual-import",
+    "provider.virtual-module.no-fallback",
+    "provider.virtual-module.ownership",
+    "provider.virtual-module.target-identity",
+  ],
+  "Old binding-file manifest tests treated generated bindings and overlay metadata as semantic input. Current proof is provider-owned virtual imports with explicit target identity, host.package.composition, provider.module.no-file-backed-fallback, and provider.virtual-module.no-fallback so missing provider facts are diagnostics rather than file-backed fallback semantics."),
+  ...reviewedOldProductUnitStaleMappings([
+    "packages/frontend/src/lowering/plan-builders.test.ts",
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.csharp.project-sdk-emit",
+    "backend.fail-closed-facts",
+    "tsts.consumer-queries",
+    "tsts.parse-bind-check",
+  ],
+  "Old frontend lowering plan-builder tests targeted a pre-provider lowering layer. Current proof is TSTS parse/bind/check plus stable consumer queries feeding finalized facts to the C# AST/project emitters; backend.fail-closed-facts rejects missing facts instead of re-inferring semantics in the backend."),
+  ...reviewedOldProductUnitStaleMappings([
+    "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    "packages/frontend/src/validator-maximus-cases/dictionary-and-object-literal.test.ts",
+  ], [
+    "backend.fail-closed-facts",
+    "carrier.object-shape",
+    "compat.any.dynamic-get",
+    "compat.object.no-dynamic-access",
+    "expression.object-literal",
+    "tsts.consumer-queries",
+    "tsts.parse-bind-check",
+  ],
+  "Old validator object/any tests encoded frontend-era dynamic compatibility assumptions. Current proof is TSTS-owned checking plus explicit object-shape and compat carrier capabilities; backend.fail-closed-facts and compat.object.no-dynamic-access prevent object/any fallback unless compat.any.dynamic-get is an explicit capability."),
+  ...reviewedOldProductUnitStaleMappings([
+    "packages/frontend/src/validator-cases/generic-validation.test.ts",
+    "packages/frontend/src/validator-maximus-cases/generic-function-values.test.ts",
+  ], [
+    "backend.fail-closed-facts",
+    "diagnostic.ts-invalid-not-rescued",
+    "tsts.consumer-queries",
+    "tsts.generic-inference",
+    "tsts.parse-bind-check",
+    "type.generic.provider-target-arguments",
+  ],
+  "Old generic validator tests relied on a frontend validator deciding target generic behavior. Current proof is TSTS generic inference exposed through consumer queries, then provider target type-argument facts; backend.fail-closed-facts rejects calls without finalized type.generic.provider-target-arguments."),
+  ...reviewedOldProductUnitStaleMappings([
+    "packages/frontend/src/validator-cases/parameters-and-dict-keys.test.ts",
+    "packages/frontend/src/validator-maximus-cases/deterministic-typing.test.ts",
+    "packages/frontend/src/validator-maximus-cases/feature-gating.test.ts",
+    "packages/frontend/src/validator.maximus.test.ts",
+    "packages/frontend/src/validator.test.ts",
+  ], [
+    "backend.fail-closed-facts",
+    "diagnostic.ts-invalid-not-rescued",
+    "tsts.consumer-queries",
+    "tsts.no-target-overrides",
+    "tsts.parse-bind-check",
+  ],
+  "Old validator aggregate tests are stale as architecture because they made the frontend validator the source of target legality. Current proof is TSTS parse/bind/check, no target override rescue for invalid TypeScript, stable consumer queries for facts, and backend.fail-closed-facts for target-specific blockers."),
+  ...reviewedOldProductUnitStaleMappings([
+    "packages/frontend/src/validator-cases/utility-types.test.ts",
+  ], [
+    "backend.fail-closed-facts",
+    "tsts.consumer-queries",
+    "tsts.parse-bind-check",
+    "type.utility",
+  ],
+  "Old utility-type validator tests targeted frontend-owned target lowering of TypeScript utility types. Current proof treats utility types as TSTS-owned erased type facts exposed through consumer queries; backend.fail-closed-facts prevents backend reconstruction of utility semantics."),
+  ...reviewedOldProductUnitStaleMappings([
+    "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
+  ], [
+    "backend.fail-closed-facts",
+    "carrier.array",
+    "expression.literal.string-number-boolean",
+    "operation.array.literal",
+    "tsts.consumer-queries",
+    "tsts.parse-bind-check",
+  ],
+  "Old array/literal validator tests mixed source inference with target carrier decisions in frontend validation. Current proof keeps TSTS parse/check and literal facts separate from provider-selected array carriers; operation.array.literal and backend.fail-closed-facts control target emission."),
+  ...reviewedOldProductUnitStaleMappings([
+    "packages/frontend/src/validator-maximus-cases/json-static-safety.test.ts",
+  ], [
+    "backend.fail-closed-facts",
+    "runtime.no-reflection-semantics",
+    "surface.js.math-json-regexp",
+    "tsts.consumer-queries",
+    "tsts.parse-bind-check",
+  ],
+  "Old JSON static-safety validator tests predated the no-reflection runtime contract. Current proof is TSTS-owned source checking plus selected JS surface JSON facts and runtime.no-reflection-semantics; backend.fail-closed-facts prevents generated reflection or metadata fallback."),
+  ...reviewedOldProductUnitStaleMappings([
+    "packages/frontend/src/validator-maximus-cases/type-syntax.test.ts",
+  ], [
+    "backend.fail-closed-facts",
+    "diagnostic.ts-invalid-not-rescued",
+    "tsts.no-target-overrides",
+    "tsts.parse-bind-check",
+  ],
+  "Old type-syntax validator tests made extension validation part of TypeScript legality. Current proof is TSTS parse/bind/check plus tsts.no-target-overrides and diagnostic.ts-invalid-not-rescued, so target extensions cannot rescue or reinterpret invalid TypeScript syntax."),
+]);
+
+const oldProductUnitOldEvidenceRole = "regression-evidence-only";
+
 export const oldProductUnitPortInventory = Object.freeze(
-  oldProductUnitHistoricalTestFileTuples.map(([oldPath, testDeclarations]) => Object.freeze({
-    oldPath,
-    testDeclarations,
-    status: oldProductUnitStatusFor(oldPath),
-    featureArea: oldProductUnitFeatureAreaFor(oldPath),
-    owner: oldProductUnitOwnerFor(oldPath),
-    capabilityIds: Object.freeze(oldProductUnitCapabilityIdsFor(oldPath)),
-    reason: oldProductUnitReasonFor(oldPath),
-  })),
+  oldProductUnitHistoricalTestFileTuples.map(([oldPath, testDeclarations]) => withOldProductUnitCapabilityProof(oldPath, testDeclarations)),
 );
 
 const oldProductUnitStatusSet = new Set(oldProductUnitStatuses);
+const oldProductUnitCapabilityMappingStatusSet = new Set(oldProductUnitCapabilityMappingStatuses);
 const oldProductUnitFeatureAreaSet = new Set(oldProductUnitFeatureAreas);
+
+function freezeSortedStrings(values) {
+  return Object.freeze([...values].sort());
+}
+
+function reviewedOldProductUnitStaleMappings(oldPaths, replacementCapabilityIds, replacementCapabilityPath) {
+  const frozenReplacementCapabilityIds = freezeSortedStrings(replacementCapabilityIds);
+  const proof = Object.freeze({
+    capabilityIds: frozenReplacementCapabilityIds,
+    replacementCapabilityIds: frozenReplacementCapabilityIds,
+    replacementCapabilityPath,
+  });
+
+  return oldPaths.map((oldPath) => [oldPath, proof]);
+}
+
+function withOldProductUnitCapabilityProof(oldPath, testDeclarations) {
+  const status = oldProductUnitStatusFor(oldPath);
+  const staleProof = status === "invalid-stale-architecture"
+    ? oldProductUnitStaleProofFor(oldPath)
+    : undefined;
+
+  return Object.freeze({
+    oldPath,
+    testDeclarations,
+    status,
+    featureArea: oldProductUnitFeatureAreaFor(oldPath),
+    owner: oldProductUnitOwnerFor(oldPath),
+    oldEvidenceRole: oldProductUnitOldEvidenceRole,
+    capabilityMappingStatus: status === "deferred" ? "deferred-derived" : "reviewed",
+    capabilityIds: staleProof === undefined
+      ? freezeSortedStrings(oldProductUnitCapabilityIdsFor(oldPath))
+      : staleProof.capabilityIds,
+    reason: oldProductUnitReasonFor(oldPath),
+    ...(staleProof === undefined ? {} : {
+      replacementCapabilityIds: staleProof.replacementCapabilityIds,
+      replacementCapabilityPath: staleProof.replacementCapabilityPath,
+    }),
+  });
+}
+
+function oldProductUnitStaleProofFor(oldPath) {
+  const staleProof = oldProductUnitStaleProofByOldPath.get(oldPath);
+  if (staleProof === undefined) {
+    throw new Error(`missing replacement capability path for stale old product unit entry ${oldPath}`);
+  }
+
+  return staleProof;
+}
 
 function oldProductUnitStatusFor(oldPath) {
   if (
@@ -239,6 +415,8 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
       ids.add("host.config.project-load");
       ids.add("host.config.target-selection");
       ids.add("host.config.surface-selection");
+      ids.add("host.project.target-selection");
+      ids.add("host.project.surface-selection");
       break;
     case "package-model":
       ids.add("host.package.composition");
@@ -251,12 +429,15 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
       ids.add("backend.fail-closed-facts");
       break;
     case "source-semantics":
+      ids.add("tsts.no-target-overrides");
       ids.add("source.primitive.numeric");
       ids.add("source.marker.out-ref-inref");
       ids.add("source.marker.attribute");
       break;
     case "surface-provider":
       ids.add("host.config.surface-selection");
+      ids.add("host.project.surface-selection");
+      ids.add("host.project.surface-extension-composition");
       ids.add("surface.js.console");
       ids.add("surface.node.fs-path-process");
       break;
@@ -267,6 +448,7 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
     case "csharp-backend":
       ids.add("backend.ast.only");
       ids.add("backend.no-semantic-strings");
+      ids.add("backend.csharp.no-direct-semantic-string-output");
       ids.add("backend.csharp.ast-expression");
       break;
     case "toolchain":
@@ -283,6 +465,7 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
   }
 
   if (oldPath.includes("build")) {
+    ids.add("host.project.provider-composition");
     ids.add("toolchain.csharp.build-run");
     ids.add("backend.csharp.project-sdk-emit");
   }
@@ -302,6 +485,7 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
     ids.add("carrier.object-shape");
   }
   if (oldPath.includes("generic")) {
+    ids.add("diagnostic.ts-invalid-not-rescued");
     ids.add("tsts.generic-inference");
     ids.add("type.generic.provider-target-arguments");
   }
@@ -335,6 +519,52 @@ function createOldProductUnitCounts(total) {
   };
 }
 
+function createOldProductUnitCapabilityMappingCounts() {
+  return {
+    reviewed: 0,
+    "deferred-derived": 0,
+  };
+}
+
+function validateOldProductUnitStringArrayField(errors, entry, fieldName) {
+  const values = entry[fieldName];
+  if (!Array.isArray(values) || values.length === 0) {
+    errors.push(`${fieldName} must be a non-empty array`);
+    return false;
+  }
+
+  let valuesAreValid = true;
+  let previousValue = undefined;
+  const seenValues = new Set();
+  let isSorted = true;
+
+  for (const value of values) {
+    if (typeof value !== "string" || value.length === 0) {
+      errors.push(`${fieldName} must contain non-empty strings`);
+      valuesAreValid = false;
+      continue;
+    }
+
+    if (previousValue !== undefined && previousValue > value) {
+      isSorted = false;
+    }
+    previousValue = value;
+    seenValues.add(value);
+  }
+
+  if (seenValues.size !== values.length) {
+    errors.push(`${fieldName} must not contain duplicate strings`);
+    valuesAreValid = false;
+  }
+
+  if (!isSorted) {
+    errors.push(`${fieldName} must be sorted`);
+    valuesAreValid = false;
+  }
+
+  return valuesAreValid;
+}
+
 export function validateOldProductUnitPortEntry(entry) {
   if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
     return ["entry must be an object"];
@@ -360,6 +590,13 @@ export function validateOldProductUnitPortEntry(entry) {
     }
   }
 
+  if (
+    (entry.status === "ported" || entry.status === "replaced-by-stronger-test") &&
+    (typeof entry.newPath !== "string" || entry.newPath.length === 0)
+  ) {
+    errors.push("ported and replaced entries must name a current-architecture newPath");
+  }
+
   if (!oldProductUnitStatusSet.has(entry.status)) {
     errors.push(`status must be one of ${oldProductUnitStatuses.join(", ")}`);
   }
@@ -368,13 +605,44 @@ export function validateOldProductUnitPortEntry(entry) {
     errors.push(`featureArea must be one of ${oldProductUnitFeatureAreas.join(", ")}`);
   }
 
-  if (!Array.isArray(entry.capabilityIds) || entry.capabilityIds.length === 0) {
-    errors.push("capabilityIds must be a non-empty array");
-  } else {
-    for (const capabilityId of entry.capabilityIds) {
-      if (typeof capabilityId !== "string" || capabilityId.length === 0) {
-        errors.push("capabilityIds must contain non-empty strings");
+  if (entry.oldEvidenceRole !== oldProductUnitOldEvidenceRole) {
+    errors.push(`oldEvidenceRole must be ${oldProductUnitOldEvidenceRole}`);
+  }
+
+  if (!oldProductUnitCapabilityMappingStatusSet.has(entry.capabilityMappingStatus)) {
+    errors.push(`capabilityMappingStatus must be one of ${oldProductUnitCapabilityMappingStatuses.join(", ")}`);
+  }
+
+  if (entry.status === "deferred" && entry.capabilityMappingStatus !== "deferred-derived") {
+    errors.push("deferred entries must use deferred-derived capability mappings");
+  }
+
+  if (entry.status !== "deferred" && entry.capabilityMappingStatus !== "reviewed") {
+    errors.push("ported, replaced, and stale entries must use reviewed capability mappings");
+  }
+
+  const capabilityIdsAreValid = validateOldProductUnitStringArrayField(errors, entry, "capabilityIds");
+
+  if (entry.status === "invalid-stale-architecture") {
+    const replacementCapabilityIdsAreValid = validateOldProductUnitStringArrayField(errors, entry, "replacementCapabilityIds");
+    if (typeof entry.replacementCapabilityPath !== "string" || entry.replacementCapabilityPath.length === 0) {
+      errors.push("replacementCapabilityPath must be a non-empty string for stale entries");
+    }
+
+    if (capabilityIdsAreValid && replacementCapabilityIdsAreValid) {
+      for (const capabilityId of entry.replacementCapabilityIds) {
+        if (!entry.capabilityIds.includes(capabilityId)) {
+          errors.push("replacementCapabilityIds must be included in capabilityIds");
+          break;
+        }
       }
+    }
+  } else {
+    if (entry.replacementCapabilityIds !== undefined) {
+      errors.push("replacementCapabilityIds is only valid for stale entries");
+    }
+    if (entry.replacementCapabilityPath !== undefined) {
+      errors.push("replacementCapabilityPath is only valid for stale entries");
     }
   }
 
@@ -395,6 +663,7 @@ export function buildOldProductUnitInventoryReport(historicalOldPaths, inventory
   const classifiedOldPathSet = new Set();
   const classifiedUnknownOldPathSet = new Set();
   const counts = createOldProductUnitCounts(historicalPaths.length);
+  const capabilityMappingCounts = createOldProductUnitCapabilityMappingCounts();
 
   for (const entry of inventoryEntries) {
     if (!historicalPathSet.has(entry.oldPath)) {
@@ -407,6 +676,9 @@ export function buildOldProductUnitInventoryReport(historicalOldPaths, inventory
     }
 
     counts[entry.status] += 1;
+    if (Object.hasOwn(capabilityMappingCounts, entry.capabilityMappingStatus)) {
+      capabilityMappingCounts[entry.capabilityMappingStatus] += 1;
+    }
     classifiedOldPathSet.add(entry.oldPath);
   }
 
@@ -415,6 +687,7 @@ export function buildOldProductUnitInventoryReport(historicalOldPaths, inventory
 
   return Object.freeze({
     counts: Object.freeze(counts),
+    capabilityMappingCounts: Object.freeze(capabilityMappingCounts),
     classifiedOldPaths: Object.freeze([...classifiedOldPathSet].sort()),
     classifiedUnknownOldPaths: Object.freeze([...classifiedUnknownOldPathSet].sort()),
     unclassifiedOldPaths: Object.freeze(unclassifiedOldPaths),

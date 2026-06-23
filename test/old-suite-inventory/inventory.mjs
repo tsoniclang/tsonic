@@ -6,6 +6,11 @@ export const oldSuiteStatuses = Object.freeze([
   "deferred",
 ]);
 
+export const oldSuiteCapabilityMappingStatuses = Object.freeze([
+  "reviewed",
+  "deferred-derived",
+]);
+
 export const oldSuiteFeatureAreas = Object.freeze([
   "config",
   "native-provider",
@@ -673,11 +678,243 @@ const oldSuitePortInventoryEntries = Object.freeze([
   ], "nodejs-surface", "C# NodeJS surface provider + C# NodeJS runtime", "Valid behavior covers NodeJS module ownership, negative imports without selected surface, path variants, and module graph aliases; port after nodejs surface virtual declarations and runtime artifacts cover the fixture APIs."),
 ]);
 
+const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("file-io"),
+    oldFixturePath("hello-world"),
+    oldFixturePath("namespace-imports"),
+  ], [
+    "backend.ast.only",
+    "host.project.provider-composition",
+    "host.package.composition",
+    "operation.call.provider-selected-method",
+    "provider.virtual-module.target-identity",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("nullable-narrowing"),
+    oldFixturePath("nullish-coalescing-threading"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "carrier.null-undefined",
+    "host.package.composition",
+    "toolchain.csharp.build-run",
+    "tsts.flow-narrowing",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("array-spread"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "host.package.composition",
+    "operation.array.literal",
+    "operation.spread.array",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("generic-constraints-single"),
+    oldFixturePath("generic-interface-inheritance"),
+    oldFixturePath("generic-method-standalone"),
+    oldFixturePath("generic-multiple-constraints"),
+    oldFixturePath("generic-nested-substitution"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "declaration.generic-parameters",
+    "host.package.composition",
+    "toolchain.csharp.build-run",
+    "tsts.generic-inference",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("generic-constraints-object-struct"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "declaration.generic-parameters",
+    "host.package.composition",
+    "source.marker.field",
+    "source.marker.struct",
+    "toolchain.csharp.build-run",
+    "tsts.generic-inference",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("arrow-function"),
+    oldFixturePath("arrow-inference"),
+    oldFixturePath("closures"),
+    oldFixturePath("function-basic"),
+    oldFixturePath("function-types-in-collections"),
+    oldFixturePath("functions-returning-functions"),
+    oldFixturePath("interface-with-functions"),
+    oldFixturePath("module-constants"),
+    oldFixturePath("nested-scopes"),
+    oldFixturePath("optional-function-params"),
+    oldFixturePath("return-in-control-flow"),
+    oldFixturePath("shadowing"),
+    oldFixturePath("switch-statement"),
+    oldFixturePath("ternary-int-threading"),
+    oldFixturePath("top-level-code"),
+    oldFixturePath("variable-decls"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "host.package.composition",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("dotnet-test-command"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.config.target-selection",
+    "host.project.target-selection",
+    "host.package.composition",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("nullish-coalescing"),
+  ], [
+    "backend.ast.only",
+    "carrier.null-undefined",
+    "host.package.composition",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+    "tsts.flow-narrowing",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("optional-chaining"),
+  ], [
+    "backend.ast.only",
+    "carrier.null-undefined",
+    "expression.nullish-optional",
+    "host.package.composition",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("array-literal"),
+    oldFixturePath("array-multidimensional"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "host.package.composition",
+    "operation.array.literal",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("array-destructuring"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "host.package.composition",
+    "operation.array.literal",
+    "operation.destructure.array-object",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("array-double"),
+    oldFixturePath("array-type-emission"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "carrier.array",
+    "host.package.composition",
+    "operation.array.literal",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("default-param-int-to-double"),
+    oldFixturePath("implicit-int-to-double"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "expression.literal.string-number-boolean",
+    "host.package.composition",
+    "operation.conversion.checked-target-conversion",
+    "source.primitive.numeric",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("anonymous-object-type-literal"),
+    oldFixturePath("object-literal-method-shorthand"),
+    oldFixturePath("object-literal-object"),
+    oldFixturePath("object-prop-int-to-int"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "carrier.object-shape",
+    "expression.object-literal",
+    "host.package.composition",
+    "toolchain.csharp.build-run",
+  ]),
+]);
+
+const oldSuiteReplacementProofByOldPath = new Map([
+  [oldFixturePath("dotnet-test-command"), Object.freeze({
+    replacementCapabilityIds: freezeSortedStrings([
+      "backend.fail-closed-facts",
+      "host.config.no-legacy-config",
+      "host.config.project-load",
+      "host.config.target-selection",
+    ]),
+    replacementCapabilityPath:
+      "Current host config replaces the old dotnet test command fixture: project-load and target-selection accept only entryPoint/rootDir/outDir/targets, while host.config.no-legacy-config and backend.fail-closed-facts reject output.type/nativeAot/tests.entryPoint rather than preserving a legacy test-command path.",
+  })],
+  [oldFixturePath("implicit-int-to-double"), Object.freeze({
+    replacementCapabilityIds: freezeSortedStrings([
+      "expression.literal.string-number-boolean",
+      "operation.conversion.checked-target-conversion",
+      "source.primitive.numeric",
+    ]),
+    replacementCapabilityPath:
+      "Current numeric source semantics replace the old negative fixture: TSTS accepts integer literals flowing to number, source.primitive.numeric records the source numeric fact, and operation.conversion.checked-target-conversion emits the finalized target conversion instead of treating the call as a diagnostic.",
+  })],
+  [oldFixturePath("default-param-int-to-double"), Object.freeze({
+    replacementCapabilityIds: freezeSortedStrings([
+      "expression.literal.string-number-boolean",
+      "operation.conversion.checked-target-conversion",
+      "source.primitive.numeric",
+    ]),
+    replacementCapabilityPath:
+      "Current default-parameter numeric semantics replace the old negative fixture: TSTS accepts the numeric default, source.primitive.numeric and literal facts preserve the value, and operation.conversion.checked-target-conversion supplies the finalized double optional-parameter carrier.",
+  })],
+]);
+
+const oldSuiteOldEvidenceRole = "regression-evidence-only";
+
 export const oldSuitePortInventory = Object.freeze(
-  oldSuitePortInventoryEntries.map(withOldSuiteCapabilityIds),
+  oldSuitePortInventoryEntries.map(withOldSuiteCapabilityProof),
 );
 
 const oldSuiteStatusSet = new Set(oldSuiteStatuses);
+const oldSuiteCapabilityMappingStatusSet = new Set(oldSuiteCapabilityMappingStatuses);
 const oldSuiteFeatureAreaSet = new Set(oldSuiteFeatureAreas);
 
 function createOldSuiteCounts(total) {
@@ -689,6 +926,13 @@ function createOldSuiteCounts(total) {
     "invalid-stale-architecture": 0,
     deferred: 0,
     unclassified: 0,
+  };
+}
+
+function createOldSuiteCapabilityMappingCounts() {
+  return {
+    reviewed: 0,
+    "deferred-derived": 0,
   };
 }
 
@@ -706,24 +950,56 @@ function deferredFixtures(names, featureArea, owner, reason) {
     status: "deferred",
     featureArea,
     owner,
-    capabilityIds: Object.freeze(defaultOldSuiteCapabilityIds({
-      oldPath: oldFixturePath(name),
-      featureArea,
-      status: "deferred",
-    })),
     reason,
   }));
 }
 
-function withOldSuiteCapabilityIds(entry) {
-  if (entry.capabilityIds !== undefined) {
-    return entry;
-  }
+function withOldSuiteCapabilityProof(entry) {
+  const capabilityMappingStatus = entry.status === "deferred" ? "deferred-derived" : "reviewed";
+  const capabilityIds = entry.status === "deferred"
+    ? defaultOldSuiteCapabilityIds(entry)
+    : oldSuiteReviewedCapabilityIdsFor(entry);
+  const replacementProof = entry.status === "invalid-stale-architecture"
+    ? oldSuiteReplacementProofFor(entry)
+    : undefined;
 
   return Object.freeze({
     ...entry,
-    capabilityIds: Object.freeze(defaultOldSuiteCapabilityIds(entry)),
+    oldEvidenceRole: oldSuiteOldEvidenceRole,
+    capabilityMappingStatus,
+    capabilityIds: freezeSortedStrings(capabilityIds),
+    ...(replacementProof === undefined ? {} : {
+      replacementCapabilityIds: replacementProof.replacementCapabilityIds,
+      replacementCapabilityPath: replacementProof.replacementCapabilityPath,
+    }),
   });
+}
+
+function freezeSortedStrings(values) {
+  return Object.freeze([...values].sort());
+}
+
+function reviewedOldSuiteCapabilityMapping(oldPaths, capabilityIds) {
+  const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
+  return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldSuiteReviewedCapabilityIdsFor(entry) {
+  const capabilityIds = oldSuiteReviewedCapabilityIdsByOldPath.get(entry.oldPath);
+  if (capabilityIds === undefined) {
+    throw new Error(`missing reviewed old suite capability mapping for ${entry.oldPath}`);
+  }
+
+  return capabilityIds;
+}
+
+function oldSuiteReplacementProofFor(entry) {
+  const replacementProof = oldSuiteReplacementProofByOldPath.get(entry.oldPath);
+  if (replacementProof === undefined) {
+    throw new Error(`missing replacement capability path for stale old suite entry ${entry.oldPath}`);
+  }
+
+  return replacementProof;
 }
 
 function defaultOldSuiteCapabilityIds(entry) {
@@ -740,11 +1016,13 @@ function defaultOldSuiteCapabilityIds(entry) {
       ids.add("operation.call.provider-selected-method");
       break;
     case "js-surface":
+      ids.add("host.project.surface-extension-composition");
       ids.add("surface.js.array-methods");
       ids.add("surface.js.string-methods");
       ids.add("runtime.csharp.js");
       break;
     case "nodejs-surface":
+      ids.add("host.project.surface-extension-composition");
       ids.add("surface.node.fs-path-process");
       ids.add("runtime.csharp.nodejs");
       break;
@@ -825,6 +1103,45 @@ function defaultOldSuiteCapabilityIds(entry) {
   return [...ids].sort();
 }
 
+function validateOldSuiteStringArrayField(errors, entry, fieldName) {
+  const values = entry[fieldName];
+  if (!Array.isArray(values) || values.length === 0) {
+    errors.push(`${fieldName} must be a non-empty array`);
+    return false;
+  }
+
+  let valuesAreValid = true;
+  let previousValue = undefined;
+  const seenValues = new Set();
+  let isSorted = true;
+
+  for (const value of values) {
+    if (typeof value !== "string" || value.length === 0) {
+      errors.push(`${fieldName} must contain non-empty strings`);
+      valuesAreValid = false;
+      continue;
+    }
+
+    if (previousValue !== undefined && previousValue > value) {
+      isSorted = false;
+    }
+    previousValue = value;
+    seenValues.add(value);
+  }
+
+  if (seenValues.size !== values.length) {
+    errors.push(`${fieldName} must not contain duplicate strings`);
+    valuesAreValid = false;
+  }
+
+  if (!isSorted) {
+    errors.push(`${fieldName} must be sorted`);
+    valuesAreValid = false;
+  }
+
+  return valuesAreValid;
+}
+
 export function validateOldSuitePortEntry(entry) {
   if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
     return ["entry must be an object"];
@@ -846,6 +1163,13 @@ export function validateOldSuitePortEntry(entry) {
     }
   }
 
+  if (
+    (entry.status === "ported" || entry.status === "replaced-by-stronger-test" || entry.status === "reused") &&
+    (typeof entry.newPath !== "string" || entry.newPath.length === 0)
+  ) {
+    errors.push("reused, ported, and replaced entries must name a current-architecture newPath");
+  }
+
   if (!oldSuiteStatusSet.has(entry.status)) {
     errors.push(`status must be one of ${oldSuiteStatuses.join(", ")}`);
   }
@@ -854,13 +1178,44 @@ export function validateOldSuitePortEntry(entry) {
     errors.push(`featureArea must be one of ${oldSuiteFeatureAreas.join(", ")}`);
   }
 
-  if (!Array.isArray(entry.capabilityIds) || entry.capabilityIds.length === 0) {
-    errors.push("capabilityIds must be a non-empty array");
-  } else {
-    for (const capabilityId of entry.capabilityIds) {
-      if (typeof capabilityId !== "string" || capabilityId.length === 0) {
-        errors.push("capabilityIds must contain non-empty strings");
+  if (entry.oldEvidenceRole !== oldSuiteOldEvidenceRole) {
+    errors.push(`oldEvidenceRole must be ${oldSuiteOldEvidenceRole}`);
+  }
+
+  if (!oldSuiteCapabilityMappingStatusSet.has(entry.capabilityMappingStatus)) {
+    errors.push(`capabilityMappingStatus must be one of ${oldSuiteCapabilityMappingStatuses.join(", ")}`);
+  }
+
+  if (entry.status === "deferred" && entry.capabilityMappingStatus !== "deferred-derived") {
+    errors.push("deferred entries must use deferred-derived capability mappings");
+  }
+
+  if (entry.status !== "deferred" && entry.capabilityMappingStatus !== "reviewed") {
+    errors.push("reused, ported, replaced, and stale entries must use reviewed capability mappings");
+  }
+
+  const capabilityIdsAreValid = validateOldSuiteStringArrayField(errors, entry, "capabilityIds");
+
+  if (entry.status === "invalid-stale-architecture") {
+    const replacementCapabilityIdsAreValid = validateOldSuiteStringArrayField(errors, entry, "replacementCapabilityIds");
+    if (typeof entry.replacementCapabilityPath !== "string" || entry.replacementCapabilityPath.length === 0) {
+      errors.push("replacementCapabilityPath must be a non-empty string for stale entries");
+    }
+
+    if (capabilityIdsAreValid && replacementCapabilityIdsAreValid) {
+      for (const capabilityId of entry.replacementCapabilityIds) {
+        if (!entry.capabilityIds.includes(capabilityId)) {
+          errors.push("replacementCapabilityIds must be included in capabilityIds");
+          break;
+        }
       }
+    }
+  } else {
+    if (entry.replacementCapabilityIds !== undefined) {
+      errors.push("replacementCapabilityIds is only valid for stale entries");
+    }
+    if (entry.replacementCapabilityPath !== undefined) {
+      errors.push("replacementCapabilityPath is only valid for stale entries");
     }
   }
 
@@ -881,6 +1236,7 @@ export function buildOldSuiteInventoryReport(historicalOldPaths, inventoryEntrie
   const classifiedOldPathSet = new Set();
   const classifiedUnknownOldPathSet = new Set();
   const counts = createOldSuiteCounts(historicalPaths.length);
+  const capabilityMappingCounts = createOldSuiteCapabilityMappingCounts();
 
   for (const entry of inventoryEntries) {
     if (!historicalPathSet.has(entry.oldPath)) {
@@ -893,6 +1249,9 @@ export function buildOldSuiteInventoryReport(historicalOldPaths, inventoryEntrie
     }
 
     counts[entry.status] += 1;
+    if (Object.hasOwn(capabilityMappingCounts, entry.capabilityMappingStatus)) {
+      capabilityMappingCounts[entry.capabilityMappingStatus] += 1;
+    }
     classifiedOldPathSet.add(entry.oldPath);
   }
 
@@ -901,6 +1260,7 @@ export function buildOldSuiteInventoryReport(historicalOldPaths, inventoryEntrie
 
   return Object.freeze({
     counts: Object.freeze(counts),
+    capabilityMappingCounts: Object.freeze(capabilityMappingCounts),
     classifiedOldPaths: Object.freeze([...classifiedOldPathSet].sort()),
     classifiedUnknownOldPaths: Object.freeze([...classifiedUnknownOldPathSet].sort()),
     unclassifiedOldPaths: Object.freeze(unclassifiedOldPaths),

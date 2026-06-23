@@ -186,6 +186,7 @@ export interface CheckedConversionMappingRequest {
 }
 
 export interface CheckedConversionMappingResult {
+  readonly sourceType?: TargetTypeRef;
   readonly convertedType?: TargetTypeRef;
   readonly operation?: TargetOperationFact;
 }

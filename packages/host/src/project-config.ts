@@ -88,5 +88,5 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 function isSupportedEntryPoint(value: string): boolean {
-  return /\.(?:mts|ts)$/.test(value);
+  return /\.(?:mts|ts)$/.test(value) && !/\.d\.(?:mts|ts)$/.test(value);
 }

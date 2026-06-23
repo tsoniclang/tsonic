@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  capabilityLaneNames,
   capabilityIdSet,
   capabilityLedger,
   capabilityOwners,
   capabilityStatuses,
   requiredCapabilityIds,
+  validateCapabilityLedgerEntry,
 } from "./capabilities/ledger.mjs";
 import { oldEmitterHistoricalCasePaths, oldEmitterPortInventory } from "./old-emitter-inventory/inventory.mjs";
 import { oldProductUnitHistoricalTestFiles, oldProductUnitPortInventory } from "./old-product-unit-inventory/inventory.mjs";
@@ -13,6 +15,7 @@ import { oldSuitePortInventory } from "./old-suite-inventory/inventory.mjs";
 
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
+const capabilityLaneSet = new Set(capabilityLaneNames);
 
 test("capability ledger has valid machine-readable entries", () => {
   assert.equal(capabilityLedger.length, requiredCapabilityIds.length);
@@ -32,12 +35,118 @@ test("capability ledger has valid machine-readable entries", () => {
     assert.equal(Array.isArray(entry.providerFacts), true, entry.capabilityId);
     assert.equal(typeof entry.backendContract, "string", entry.capabilityId);
     assert.notEqual(entry.backendContract.length, 0, entry.capabilityId);
+    assert.equal(typeof entry.evidenceReview, "string", entry.capabilityId);
+    assert.match(entry.evidenceReview, /^(reviewed|seeded)$/u, entry.capabilityId);
     assert.equal(Array.isArray(entry.positiveTests), true, entry.capabilityId);
     assert.equal(Array.isArray(entry.negativeTests), true, entry.capabilityId);
     assert.equal(Array.isArray(entry.oldEvidence), true, entry.capabilityId);
+    assertValidLaneClassification(entry);
     assert.equal(Array.isArray(entry.blockers), true, entry.capabilityId);
     assert.equal(typeof entry.notes, "string", entry.capabilityId);
   }
+});
+
+test("incomplete and blocked capabilities have ledger-enforced lane classification", () => {
+  for (const entry of capabilityLedger) {
+    if (entry.status === "complete" || entry.status === "invalid") {
+      continue;
+    }
+
+    assertValidLaneClassification(entry);
+    assert.ok(
+      entry.laneClassification.possibleLanes.includes("hard-reject"),
+      `${entry.capabilityId} must define a fail-closed lane`,
+    );
+    assert.equal(
+      typeof entry.laneClassification.strictNative,
+      "object",
+      `${entry.capabilityId} must define strict-native behavior`,
+    );
+  }
+});
+
+test("compat-runtime lane classifications name closed carriers and required facts", () => {
+  for (const entry of capabilityLedger) {
+    const classification = entry.laneClassification;
+    if (!classification.possibleLanes.includes("compat-runtime")) {
+      continue;
+    }
+
+    assert.equal(typeof classification.compat, "object", `${entry.capabilityId} has compat-runtime without compat behavior`);
+    assert.equal(classification.compat.lane, "compat-runtime", `${entry.capabilityId} compat behavior must use compat-runtime lane`);
+    assert.equal(typeof classification.compat.runtimeCarrier, "string", `${entry.capabilityId} compat behavior must name a runtime carrier`);
+    assert.notEqual(classification.compat.runtimeCarrier.length, 0, `${entry.capabilityId} compat runtime carrier must be non-empty`);
+    assert.ok(Array.isArray(classification.compat.requiredFacts), `${entry.capabilityId} compat behavior must name required facts`);
+    assert.ok(classification.compat.requiredFacts.length > 0, `${entry.capabilityId} compat behavior must require facts`);
+    assert.doesNotMatch(classification.compat.runtimeCarrier, /QuickJS|Reflection|dynamic/u, `${entry.capabilityId} names a banned compat mechanism`);
+  }
+});
+
+test("capability ledger validator rejects missing or malformed lane classification", () => {
+  const sample = capabilityLedger.find((entry) => entry.laneClassification.possibleLanes.includes("compat-runtime"));
+  assert.notEqual(sample, undefined);
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({ ...sample, laneClassification: undefined }),
+    ["laneClassification must be an object"],
+  );
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({
+      ...sample,
+      laneClassification: {
+        ...sample.laneClassification,
+        possibleLanes: [],
+      },
+    }),
+    ["laneClassification.possibleLanes must be a non-empty array"],
+  );
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({
+      ...sample,
+      laneClassification: {
+        ...sample.laneClassification,
+        hardReject: {
+          ...sample.laneClassification.hardReject,
+          lane: "static-native",
+        },
+      },
+    }),
+    ["laneClassification.hardReject.lane must be hard-reject"],
+  );
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({
+      ...sample,
+      laneClassification: {
+        ...sample.laneClassification,
+        compat: {
+          ...sample.laneClassification.compat,
+          lane: "static-native",
+        },
+      },
+    }),
+    ["laneClassification.compat.lane must be compat-runtime"],
+  );
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({
+      ...sample,
+      laneClassification: {
+        ...sample.laneClassification,
+        compat: {
+          ...sample.laneClassification.compat,
+          runtimeCarrier: "",
+          requiredFacts: [],
+        },
+      },
+    }),
+    [
+      "laneClassification.compat.requiredFacts must be a non-empty array",
+      "laneClassification.compat.runtimeCarrier must be a non-empty string when lane is compat-runtime",
+    ],
+  );
 });
 
 test("capability ledger includes active plan minimum and rereview expansion ids", () => {
@@ -116,6 +225,78 @@ test("complete capabilities require positive and negative proof", () => {
 
     assert.ok(entry.positiveTests.length > 0, `${entry.capabilityId} is complete without positive tests`);
     assert.ok(entry.negativeTests.length > 0, `${entry.capabilityId} is complete without negative tests`);
+    assert.equal(entry.evidenceReview, "reviewed", `${entry.capabilityId} is complete without reviewed evidence`);
+    assert.ok(entry.oldEvidence.length > 0, `${entry.capabilityId} is complete without old inventory evidence`);
+  }
+});
+
+test("incomplete capabilities require explicit blocker evidence", () => {
+  for (const entry of capabilityLedger) {
+    if (entry.status === "partial" || entry.status === "not-started" || entry.status === "blocked") {
+      assert.ok(entry.blockers.length > 0, `${entry.capabilityId} is ${entry.status} without blockers`);
+      continue;
+    }
+    assert.deepEqual(entry.blockers, [], `${entry.capabilityId} is ${entry.status} and must not carry blockers`);
+  }
+});
+
+test("capability ledger validator rejects missing blocker evidence", () => {
+  const partialEntry = capabilityLedger.find((entry) => entry.status === "partial");
+  const completeEntry = capabilityLedger.find((entry) => entry.status === "complete");
+  assert.notEqual(partialEntry, undefined);
+  assert.notEqual(completeEntry, undefined);
+
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...partialEntry, blockers: [] }).includes("partial capabilities must have blockers"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, blockers: ["not allowed"] }).includes("complete capabilities must not have blockers"),
+  );
+});
+
+test("complete parent capabilities require complete child capabilities", () => {
+  for (const entry of capabilityLedger) {
+    if (entry.status !== "complete") {
+      continue;
+    }
+
+    const childCapabilities = capabilityLedger.filter((candidate) =>
+      candidate.capabilityId.startsWith(`${entry.capabilityId}.`),
+    );
+    for (const child of childCapabilities) {
+      assert.equal(
+        child.status,
+        "complete",
+        `${entry.capabilityId} is complete but child ${child.capabilityId} is ${child.status}`,
+      );
+    }
+  }
+});
+
+test("complete capability proof references current positive and negative tests", () => {
+  const oldPathSet = new Set([
+    ...oldEmitterPortInventory.map((entry) => entry.oldPath),
+    ...oldEmitterHistoricalCasePaths,
+    ...oldSuitePortInventory.map((entry) => entry.oldPath),
+    ...oldProductUnitHistoricalTestFiles,
+  ]);
+
+  for (const entry of capabilityLedger) {
+    if (entry.status !== "complete") {
+      continue;
+    }
+
+    for (const positiveTest of entry.positiveTests) {
+      assert.equal(typeof positiveTest, "string", `${entry.capabilityId} has a non-string positive test`);
+      assert.notEqual(positiveTest.length, 0, `${entry.capabilityId} has an empty positive test`);
+      assert.equal(oldPathSet.has(positiveTest), false, `${entry.capabilityId} uses old evidence as positive proof: ${positiveTest}`);
+    }
+
+    for (const negativeTest of entry.negativeTests) {
+      assert.equal(typeof negativeTest, "string", `${entry.capabilityId} has a non-string negative test`);
+      assert.notEqual(negativeTest.length, 0, `${entry.capabilityId} has an empty negative test`);
+      assert.equal(oldPathSet.has(negativeTest), false, `${entry.capabilityId} uses old evidence as negative proof: ${negativeTest}`);
+    }
   }
 });
 
@@ -153,3 +334,62 @@ test("capability oldEvidence references classified old inventory paths", () => {
     }
   }
 });
+
+test("complete capability oldEvidence is bidirectionally mapped by old inventories", () => {
+  const oldEntriesByPath = new Map([
+    ...oldEmitterPortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldSuitePortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldProductUnitPortInventory.map((entry) => [entry.oldPath, entry]),
+  ]);
+
+  for (const entry of capabilityLedger) {
+    if (entry.status !== "complete") {
+      continue;
+    }
+
+    for (const oldEvidencePath of entry.oldEvidence) {
+      const oldEntry = oldEntriesByPath.get(oldEvidencePath);
+      assert.notEqual(oldEntry, undefined, `${entry.capabilityId} references old evidence without an inventory entry: ${oldEvidencePath}`);
+      assert.equal(
+        oldEntry.capabilityIds.includes(entry.capabilityId),
+        true,
+        `${entry.capabilityId} old evidence is not bidirectionally mapped by ${oldEvidencePath}`,
+      );
+    }
+  }
+});
+
+function assertValidLaneClassification(entry) {
+  const classification = entry.laneClassification;
+  assert.equal(typeof classification, "object", `${entry.capabilityId} missing laneClassification`);
+  assert.equal(typeof classification.patternKind, "string", `${entry.capabilityId} missing patternKind`);
+  assert.notEqual(classification.patternKind.length, 0, `${entry.capabilityId} has empty patternKind`);
+  assert.ok(Array.isArray(classification.possibleLanes), `${entry.capabilityId} possibleLanes must be an array`);
+  assert.ok(classification.possibleLanes.length > 0, `${entry.capabilityId} possibleLanes must be non-empty`);
+  for (const lane of classification.possibleLanes) {
+    assert.equal(capabilityLaneSet.has(lane), true, `${entry.capabilityId} has unknown lane ${lane}`);
+  }
+  assertValidLaneBehavior(entry, "strictNative", classification.strictNative);
+  if (classification.possibleLanes.includes("static-native")) {
+    assertValidLaneBehavior(entry, "staticNative", classification.staticNative);
+    assert.ok(
+      Array.isArray(classification.staticNative.requiredFacts) && classification.staticNative.requiredFacts.length > 0,
+      `${entry.capabilityId} static-native lane must require facts`,
+    );
+  }
+  if (classification.possibleLanes.includes("compat-runtime")) {
+    assertValidLaneBehavior(entry, "compat", classification.compat);
+  }
+  assertValidLaneBehavior(entry, "hardReject", classification.hardReject);
+  assert.equal(classification.hardReject.lane, "hard-reject", `${entry.capabilityId} hardReject.lane must be hard-reject`);
+  assert.ok(
+    Array.isArray(classification.hardReject.reasons) && classification.hardReject.reasons.length > 0,
+    `${entry.capabilityId} hard-reject lane must name reasons`,
+  );
+}
+
+function assertValidLaneBehavior(entry, fieldName, behavior) {
+  assert.equal(typeof behavior, "object", `${entry.capabilityId} missing ${fieldName} lane behavior`);
+  assert.equal(typeof behavior.lane, "string", `${entry.capabilityId} ${fieldName}.lane must be a string`);
+  assert.equal(capabilityLaneSet.has(behavior.lane), true, `${entry.capabilityId} ${fieldName}.lane is invalid: ${behavior.lane}`);
+}

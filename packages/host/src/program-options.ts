@@ -99,5 +99,5 @@ function shouldSkipEntry(name: string): boolean {
 }
 
 function isCompilerInputFile(name: string): boolean {
-  return /\.(?:mts|ts|json)$/.test(name);
+  return /\.(?:mts|ts)$/.test(name) && !/\.d\.(?:mts|ts)$/.test(name);
 }
