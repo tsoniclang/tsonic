@@ -1,8 +1,10 @@
 import { pathToFileURL } from "node:url";
 import {
+  capabilityLaneNames,
   capabilityLedger,
   capabilityOwners,
   capabilityStatuses,
+  validateCapabilityLaneClassification,
 } from "./ledger.mjs";
 import {
   oldEmitterHistoricalCasePaths,
@@ -15,6 +17,7 @@ import {
 import { oldSuitePortInventory } from "../old-suite-inventory/inventory.mjs";
 
 const incompleteBlockerStatuses = Object.freeze(["partial", "not-started"]);
+const laneClassificationTrackedStatuses = Object.freeze(["partial", "not-started", "blocked"]);
 
 export function buildCapabilityCoverageReport({
   ledgerEntries = capabilityLedger,
@@ -54,6 +57,7 @@ export function buildCapabilityCoverageReport({
       oldTestsAreEvidenceOnly: true,
       completeRequiresCurrentPositiveAndNegativeProof: true,
       completeParentOnlyProofIsHole: true,
+      laneClassificationIsLedgerEnforced: true,
     },
     counts: {
       total: ledgerEntries.length,
@@ -70,6 +74,7 @@ export function buildCapabilityCoverageReport({
       classifiedOldEvidencePathSet,
       oldInventoryEvidenceByCapability,
     ),
+    laneClassificationCoverage: laneClassificationCoverage(ledgerEntries, statuses, owners),
     completeCapabilityProofHoles,
   };
 }
@@ -256,6 +261,150 @@ function summarizePartialNotStartedBlockers(entries) {
     missingBlockers: entries.filter((entry) => entry.blockerStatus === "missing").length,
     byStatus,
   };
+}
+
+function laneClassificationCoverage(ledgerEntries, statuses, owners) {
+  const byCapability = ledgerEntries
+    .filter(laneClassificationTrackedEntry)
+    .map(laneClassificationCapabilityCoverage);
+
+  return {
+    rules: {
+      trackedStatuses: [...laneClassificationTrackedStatuses],
+      allLedgerEntriesWithLaneClassificationAreTracked: true,
+      allowedLanes: [...capabilityLaneNames],
+    },
+    summary: summarizeLaneClassificationCoverage(byCapability, statuses, owners),
+    byCapability,
+    proofHoles: byCapability
+      .filter((entry) => entry.proofHoles.length > 0)
+      .map((entry) => ({
+        capabilityId: entry.capabilityId,
+        title: entry.title,
+        status: entry.status,
+        owner: entry.owner,
+        classificationStatus: entry.classificationStatus,
+        proofHoles: entry.proofHoles,
+      })),
+  };
+}
+
+function laneClassificationTrackedEntry(entry) {
+  return laneClassificationTrackedStatuses.includes(entry.status) ||
+    entry.laneClassification !== undefined;
+}
+
+function laneClassificationCapabilityCoverage(entry) {
+  const laneClassification = entry.laneClassification;
+  const proofHoles = laneClassificationProofHoles(entry);
+
+  return {
+    capabilityId: entry.capabilityId,
+    title: entry.title,
+    status: entry.status,
+    owner: entry.owner,
+    classificationStatus: laneClassificationStatus(laneClassification, proofHoles),
+    laneClassification: laneClassification ?? null,
+    patternKind: laneClassificationPatternKind(laneClassification),
+    possibleLanes: laneClassificationPossibleLanes(laneClassification),
+    invalidPossibleLanes: laneClassificationInvalidPossibleLanes(laneClassification),
+    proofHoles,
+  };
+}
+
+function laneClassificationStatus(laneClassification, proofHoles) {
+  if (laneClassification === undefined) {
+    return "missing";
+  }
+  if (proofHoles.length > 0) {
+    return "invalid";
+  }
+  return "covered";
+}
+
+function laneClassificationPatternKind(laneClassification) {
+  if (!isObjectRecord(laneClassification) || !nonEmptyString(laneClassification.patternKind)) {
+    return null;
+  }
+  return laneClassification.patternKind;
+}
+
+function laneClassificationPossibleLanes(laneClassification) {
+  if (!isObjectRecord(laneClassification) || !Array.isArray(laneClassification.possibleLanes)) {
+    return [];
+  }
+  return [...laneClassification.possibleLanes];
+}
+
+function laneClassificationInvalidPossibleLanes(laneClassification) {
+  return laneClassificationPossibleLanes(laneClassification)
+    .filter((lane) => !capabilityLaneNames.includes(lane));
+}
+
+function laneClassificationProofHoles(entry) {
+  return validateCapabilityLaneClassification(entry);
+}
+
+function summarizeLaneClassificationCoverage(entries, statuses, owners) {
+  const byClassificationStatus = zeroCountRecord(["covered", "missing", "invalid"]);
+  const byStatus = Object.fromEntries(statuses.map((status) => [status, laneClassificationSummaryBucket()]));
+  const byOwner = Object.fromEntries(owners.map((owner) => [owner, laneClassificationSummaryBucket()]));
+  const byPossibleLane = zeroCountRecord(capabilityLaneNames);
+
+  for (const entry of entries) {
+    increment(byClassificationStatus, entry.classificationStatus);
+    if (byStatus[entry.status] === undefined) {
+      byStatus[entry.status] = laneClassificationSummaryBucket();
+    }
+    if (byOwner[entry.owner] === undefined) {
+      byOwner[entry.owner] = laneClassificationSummaryBucket();
+    }
+    incrementLaneClassificationSummaryBucket(byStatus[entry.status], entry);
+    incrementLaneClassificationSummaryBucket(byOwner[entry.owner], entry);
+
+    for (const lane of uniqueSorted(entry.possibleLanes.filter((possibleLane) => capabilityLaneNames.includes(possibleLane)))) {
+      byPossibleLane[lane] += 1;
+    }
+  }
+
+  return {
+    total: entries.length,
+    withLaneClassification: entries.filter((entry) => entry.classificationStatus !== "missing").length,
+    coveredLaneClassification: byClassificationStatus.covered,
+    missingLaneClassification: byClassificationStatus.missing,
+    invalidLaneClassification: byClassificationStatus.invalid,
+    withProofHoles: entries.filter((entry) => entry.proofHoles.length > 0).length,
+    byClassificationStatus,
+    byStatus,
+    byOwner,
+    byPossibleLane,
+  };
+}
+
+function laneClassificationSummaryBucket() {
+  return {
+    total: 0,
+    covered: 0,
+    missing: 0,
+    invalid: 0,
+    withProofHoles: 0,
+  };
+}
+
+function incrementLaneClassificationSummaryBucket(bucket, entry) {
+  bucket.total += 1;
+  bucket[entry.classificationStatus] += 1;
+  if (entry.proofHoles.length > 0) {
+    bucket.withProofHoles += 1;
+  }
+}
+
+function nonEmptyString(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function isObjectRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function oldEvidenceCoverage(

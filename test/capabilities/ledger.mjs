@@ -19,6 +19,17 @@ export const capabilityOwners = Object.freeze([
   "tests",
 ]);
 
+export const capabilityLaneNames = Object.freeze([
+  "static-native",
+  "compat-runtime",
+  "hard-reject",
+]);
+
+const capabilityStatusSet = new Set(capabilityStatuses);
+const capabilityOwnerSet = new Set(capabilityOwners);
+const capabilityLaneSet = new Set(capabilityLaneNames);
+const bannedCompatMechanismPattern = /QuickJS|Reflection|dynamic|GetProperty|GetProperties|GetMethod|GetMethods|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load/u;
+
 const baseCapabilityDefinitions = Object.freeze([
   ["host.config.project-load", "Load current tsonic project config", "partial", "tsonic-host"],
   ["host.config.target-selection", "Select configured target pack", "partial", "tsonic-host"],
@@ -619,11 +630,389 @@ function capabilityDefaults(capabilityId, owner) {
   };
 }
 
+function laneClassificationDefaults(capabilityId, owner) {
+  const patternKind = lanePatternKind(capabilityId);
+  const staticRequiredFacts = laneStaticRequiredFacts(capabilityId, owner);
+  const hardRejectReasons = laneHardRejectReasons(capabilityId);
+  const compat = laneCompatBehavior(capabilityId);
+  const strictNative = laneStrictNativeBehavior(capabilityId, staticRequiredFacts, hardRejectReasons);
+  const hasStaticNativeLane = strictNative.lane === "static-native" || !isCompatOnlyCapability(capabilityId);
+  const possibleLanes = Object.freeze([
+    ...(hasStaticNativeLane ? ["static-native"] : []),
+    ...(compat === undefined ? [] : ["compat-runtime"]),
+    "hard-reject",
+  ]);
+
+  return freezeLaneClassification({
+    patternKind,
+    possibleLanes,
+    strictNative,
+    ...(hasStaticNativeLane
+      ? {
+          staticNative: {
+            lane: "static-native",
+            requiredFacts: staticRequiredFacts,
+            operation: laneStaticOperation(capabilityId),
+          },
+        }
+      : {}),
+    ...(compat === undefined ? {} : { compat }),
+    hardReject: {
+      lane: "hard-reject",
+      reasons: hardRejectReasons,
+    },
+  });
+}
+
+function laneStrictNativeBehavior(capabilityId, staticRequiredFacts, hardRejectReasons) {
+  if (isCompatOnlyCapability(capabilityId)) {
+    return {
+      lane: "hard-reject",
+      reasons: Object.freeze(["strict-native-selected", ...hardRejectReasons]),
+    };
+  }
+  return {
+    lane: "static-native",
+    requiredFacts: staticRequiredFacts,
+    hardRejectIfMissing: hardRejectReasons,
+  };
+}
+
+function isCompatOnlyCapability(capabilityId) {
+  return capabilityId.startsWith("compat.") ||
+    capabilityId.startsWith("runtime.dynamic") ||
+    capabilityId.startsWith("carrier.any");
+}
+
+function lanePatternKind(capabilityId) {
+  if (capabilityId.startsWith("compat.any.dynamic-call") || capabilityId.startsWith("compat.any.call-construct")) {
+    return "dynamic-call-or-construct";
+  }
+  if (capabilityId.startsWith("compat.any.dynamic-get") || capabilityId.startsWith("compat.any.property")) {
+    return "dynamic-property-read";
+  }
+  if (capabilityId.startsWith("compat.any.dynamic-set")) {
+    return "dynamic-property-write";
+  }
+  if (capabilityId.startsWith("compat.any.operators")) {
+    return "dynamic-operator";
+  }
+  if (capabilityId.startsWith("compat.any.typed-boundary-cast")) {
+    return "dynamic-typed-boundary";
+  }
+  if (capabilityId.startsWith("compat.object") || capabilityId.startsWith("compat.unknown")) {
+    return "broad-carrier-access";
+  }
+  if (capabilityId.startsWith("compat.prototype") || capabilityId.startsWith("compat.proxy")) {
+    return "dynamic-language-feature";
+  }
+  if (capabilityId.startsWith("runtime.dynamic") || capabilityId.startsWith("carrier.any")) {
+    return "dynamic-runtime-carrier";
+  }
+  if (capabilityId.startsWith("runtime.union") || capabilityId.startsWith("carrier.union")) {
+    return "union-runtime-carrier";
+  }
+  if (capabilityId.startsWith("runtime.undefined") || capabilityId.startsWith("carrier.null")) {
+    return "null-undefined-carrier";
+  }
+  if (capabilityId.startsWith("operation.call")) {
+    return "provider-call";
+  }
+  if (capabilityId.startsWith("operation.construct") || capabilityId.startsWith("operation.constructor") || capabilityId.startsWith("expression.new")) {
+    return "provider-constructor";
+  }
+  if (capabilityId.startsWith("operation.property") || capabilityId.startsWith("operation.member") || capabilityId.startsWith("expression.property")) {
+    return "member-access";
+  }
+  if (capabilityId.startsWith("operation.element") || capabilityId.startsWith("expression.element")) {
+    return "element-access";
+  }
+  if (capabilityId.startsWith("operation.operator") || capabilityId.startsWith("expression.operator")) {
+    return "operator";
+  }
+  if (capabilityId.startsWith("operation.conversion") || capabilityId.startsWith("type.assertion")) {
+    return "target-conversion";
+  }
+  if (capabilityId.startsWith("operation.iteration") || capabilityId.startsWith("statement.loop")) {
+    return "iteration";
+  }
+  if (capabilityId.startsWith("operation.spread")) {
+    return "spread";
+  }
+  if (capabilityId.startsWith("operation.destructure") || capabilityId.startsWith("binding.")) {
+    return "binding-pattern";
+  }
+  if (capabilityId.startsWith("operation.await") || capabilityId.startsWith("function.async")) {
+    return "async-await";
+  }
+  if (capabilityId.startsWith("operation.throw") || capabilityId.startsWith("statement.throw")) {
+    return "throw-catch";
+  }
+  if (capabilityId.startsWith("expression.literal.bigint-regex-template")) {
+    return "bigint-regexp-template-literal";
+  }
+  if (capabilityId.startsWith("expression.object") || capabilityId.startsWith("carrier.object")) {
+    return "object-shape";
+  }
+  if (capabilityId.startsWith("expression.array") || capabilityId.startsWith("operation.array") || capabilityId.startsWith("carrier.array")) {
+    return "array-carrier";
+  }
+  if (capabilityId.startsWith("carrier.tuple") || capabilityId.startsWith("type.variadic-tuple")) {
+    return "tuple-carrier";
+  }
+  if (capabilityId.startsWith("type.template-literal")) {
+    return "template-literal-type-result";
+  }
+  if (capabilityId.startsWith("type.satisfies")) {
+    return "satisfies-source-validation";
+  }
+  if (capabilityId.startsWith("type.as-const")) {
+    return "literal-readonly-type-result";
+  }
+  if (capabilityId.startsWith("surface.js")) {
+    return "js-surface-operation";
+  }
+  if (capabilityId.startsWith("surface.node")) {
+    return "nodejs-surface-operation";
+  }
+  if (capabilityId.startsWith("native.dotnet")) {
+    return "dotnet-provider-model";
+  }
+  if (capabilityId.startsWith("toolchain.")) {
+    return "target-toolchain";
+  }
+  if (capabilityId.startsWith("module.")) {
+    return "module-graph";
+  }
+  if (capabilityId.startsWith("host.")) {
+    return "host-composition";
+  }
+  if (capabilityId.startsWith("backend.")) {
+    return "backend-target-ast";
+  }
+  if (capabilityId.startsWith("declaration.")) {
+    return "declaration-emission";
+  }
+  if (capabilityId.startsWith("source." ) || capabilityId.startsWith("source-core.")) {
+    return "source-marker-or-primitive";
+  }
+  if (capabilityId.startsWith("diagnostic.")) {
+    return "diagnostic-evidence";
+  }
+  if (capabilityId.startsWith("downstream.")) {
+    return "downstream-proof";
+  }
+  if (capabilityId.startsWith("rust.") || capabilityId.startsWith("target.rust") || capabilityId.startsWith("target.shared")) {
+    return "future-target-contract";
+  }
+  return "compiler-capability";
+}
+
+function laneStaticRequiredFacts(capabilityId, owner) {
+  if (capabilityId.startsWith("host.") || capabilityId.startsWith("module.")) {
+    return Object.freeze(["resolved-project-config", "resolved-source-graph"]);
+  }
+  if (capabilityId.startsWith("tsts.") || capabilityId.startsWith("type.")) {
+    return Object.freeze(["tsts-source-decision", "public-tsts-query-result"]);
+  }
+  if (capabilityId.startsWith("provider.") || capabilityId.startsWith("native.")) {
+    return Object.freeze(["provider-ownership", "provider-virtual-declaration", "target-identity"]);
+  }
+  if (capabilityId.startsWith("source.") || capabilityId.startsWith("source-core.")) {
+    return Object.freeze(["source-marker-identity", "source-fact", "target-carrier-fact"]);
+  }
+  if (capabilityId.startsWith("surface.")) {
+    return Object.freeze(["selected-surface", "selected-source-declaration", "surface-target-operation"]);
+  }
+  if (capabilityId.startsWith("operation.") || capabilityId.startsWith("expression.") || capabilityId.startsWith("statement.") || capabilityId.startsWith("binding.") || capabilityId.startsWith("function.")) {
+    return Object.freeze(["tsts-checked-source-operation", "target-operation-fact", "renderable-target-ast"]);
+  }
+  if (capabilityId.startsWith("declaration.") || capabilityId.startsWith("carrier.")) {
+    return Object.freeze(["tsts-declaration-fact", "target-carrier-fact", "renderable-target-declaration"]);
+  }
+  if (capabilityId.startsWith("compat.") || capabilityId.startsWith("runtime.")) {
+    return Object.freeze(["explicit-runtime-carrier-fact", "selected-target-mode"]);
+  }
+  if (capabilityId.startsWith("backend.")) {
+    return Object.freeze(["finalized-target-facts", "roslyn-compatible-target-ast"]);
+  }
+  if (capabilityId.startsWith("toolchain.")) {
+    return Object.freeze(["target-project-artifact", "toolchain-option-fact"]);
+  }
+  if (capabilityId.startsWith("diagnostic.")) {
+    return Object.freeze(["diagnostic-source-span", "missing-fact-evidence"]);
+  }
+  if (capabilityId.startsWith("downstream.")) {
+    return Object.freeze(["representative-project", "capability-coverage-proof"]);
+  }
+  if (owner === "rust-future") {
+    return Object.freeze(["shared-target-contract", "target-owned-facts"]);
+  }
+  return Object.freeze(["finalized-capability-facts"]);
+}
+
+function laneStaticOperation(capabilityId) {
+  if (capabilityId.startsWith("operation.") || capabilityId.startsWith("expression.")) {
+    return "emit-target-operation-ast";
+  }
+  if (capabilityId.startsWith("statement.")) {
+    return "emit-target-statement-ast";
+  }
+  if (capabilityId.startsWith("declaration.")) {
+    return "emit-target-declaration-ast";
+  }
+  if (capabilityId.startsWith("host.") || capabilityId.startsWith("module.")) {
+    return "compose-compiler-input";
+  }
+  if (capabilityId.startsWith("provider.") || capabilityId.startsWith("native.")) {
+    return "provide-target-facts";
+  }
+  if (capabilityId.startsWith("surface.")) {
+    return "provide-surface-target-facts";
+  }
+  if (capabilityId.startsWith("backend.")) {
+    return "render-target-ast";
+  }
+  return "finalize-capability";
+}
+
+function laneHardRejectReasons(capabilityId) {
+  const reasons = ["missing-required-facts"];
+  if (capabilityId.startsWith("compat.") || capabilityId.startsWith("runtime.dynamic") || capabilityId.startsWith("carrier.any")) {
+    reasons.push("strict-native-selected");
+  }
+  if (capabilityId.includes("no-name-guess") || capabilityId.startsWith("operation.member") || capabilityId.startsWith("operation.property") || capabilityId.startsWith("operation.call")) {
+    reasons.push("source-spelling-only");
+  }
+  if (capabilityId.startsWith("compat.proxy") || capabilityId.startsWith("compat.prototype")) {
+    reasons.push("unsupported-dynamic-language-semantics");
+  }
+  if (capabilityId.startsWith("toolchain.csharp.nativeaot") || capabilityId.startsWith("runtime.")) {
+    reasons.push("nativeaot-incompatible-runtime");
+  }
+  if (capabilityId.startsWith("module.path")) {
+    reasons.push("unresolved-module-specifier");
+  }
+  return Object.freeze(reasons);
+}
+
+function laneCompatBehavior(capabilityId) {
+  const carrier = compatRuntimeCarrier(capabilityId);
+  if (carrier === undefined) {
+    return undefined;
+  }
+  return {
+    lane: "compat-runtime",
+    requiredFacts: Object.freeze([
+      "selected-compat-mode",
+      `${capabilityId}-fact`,
+      `${carrier}-carrier-fact`,
+    ]),
+    runtimeCarrier: carrier,
+    operation: compatRuntimeOperation(capabilityId),
+  };
+}
+
+function compatRuntimeCarrier(capabilityId) {
+  if (capabilityId.startsWith("compat.any.dynamic-call") || capabilityId.startsWith("compat.any.call-construct")) {
+    return "TsFunction";
+  }
+  if (capabilityId.startsWith("compat.any.dynamic-get") || capabilityId.startsWith("compat.any.dynamic-set") || capabilityId.startsWith("compat.any.property") || capabilityId.startsWith("compat.any.operators") || capabilityId.startsWith("compat.any.typed-boundary-cast") || capabilityId.startsWith("carrier.any") || capabilityId.startsWith("runtime.dynamic")) {
+    return "TsValue";
+  }
+  if (capabilityId.startsWith("compat.object") || capabilityId.startsWith("surface.js.object-runtime")) {
+    return "TsObject";
+  }
+  if (capabilityId.startsWith("carrier.array") || capabilityId.startsWith("operation.spread.array") || capabilityId.startsWith("binding.array") || capabilityId.startsWith("type.variadic-tuple")) {
+    return "TsArray";
+  }
+  if (capabilityId.startsWith("carrier.union") || capabilityId.startsWith("runtime.union")) {
+    return "TsUnion";
+  }
+  if (capabilityId.startsWith("expression.literal.bigint")) {
+    return "TsValue";
+  }
+  if (capabilityId.startsWith("surface.js") || capabilityId.startsWith("surface.node")) {
+    return "SelectedSurfaceRuntime";
+  }
+  if (capabilityId.startsWith("operation.call.provider") || capabilityId.startsWith("operation.property.provider") || capabilityId.startsWith("operation.member.provider") || capabilityId.startsWith("operation.construct.provider") || capabilityId.startsWith("operation.constructor.provider") || capabilityId.startsWith("native.dotnet")) {
+    return "GeneratedProviderAdapter";
+  }
+  if (capabilityId.startsWith("operation.iteration.for-in") || capabilityId.startsWith("operation.iteration.for-of")) {
+    return "TsIterator";
+  }
+  if (capabilityId.startsWith("operation.throw") || capabilityId.startsWith("statement.throw")) {
+    return "TsThrownValueException";
+  }
+  if (capabilityId.startsWith("operation.spread.object") || capabilityId.startsWith("binding.object")) {
+    return "TsObject";
+  }
+  return undefined;
+}
+
+function compatRuntimeOperation(capabilityId) {
+  if (capabilityId.startsWith("compat.any.dynamic-call")) {
+    return "CallProperty";
+  }
+  if (capabilityId.startsWith("compat.any.dynamic-get") || capabilityId.startsWith("compat.any.property")) {
+    return "GetProperty";
+  }
+  if (capabilityId.startsWith("compat.any.dynamic-set")) {
+    return "SetProperty";
+  }
+  if (capabilityId.startsWith("compat.any.call-construct")) {
+    return "Construct";
+  }
+  if (capabilityId.startsWith("compat.any.operators")) {
+    return "ApplyOperator";
+  }
+  if (capabilityId.startsWith("compat.any.typed-boundary-cast")) {
+    return "CheckedCarrierConversion";
+  }
+  if (capabilityId.startsWith("carrier.union") || capabilityId.startsWith("runtime.union")) {
+    return "SelectUnionArm";
+  }
+  if (capabilityId.startsWith("operation.iteration")) {
+    return "Iterate";
+  }
+  if (capabilityId.startsWith("operation.spread.object") || capabilityId.startsWith("binding.object")) {
+    return "ObjectExtractOrSpread";
+  }
+  if (capabilityId.startsWith("operation.spread.array") || capabilityId.startsWith("binding.array")) {
+    return "ArrayExtractOrSpread";
+  }
+  if (capabilityId.startsWith("native.dotnet") || capabilityId.startsWith("operation.call.provider") || capabilityId.startsWith("operation.property.provider") || capabilityId.startsWith("operation.member.provider")) {
+    return "GeneratedProviderAdapterCall";
+  }
+  return "ClosedRuntimeCarrierOperation";
+}
+
+function freezeLaneClassification(classification) {
+  return Object.freeze({
+    patternKind: classification.patternKind,
+    possibleLanes: Object.freeze([...classification.possibleLanes]),
+    strictNative: freezeLaneBehavior(classification.strictNative),
+    ...(classification.staticNative === undefined ? {} : { staticNative: freezeLaneBehavior(classification.staticNative) }),
+    ...(classification.compat === undefined ? {} : { compat: freezeLaneBehavior(classification.compat) }),
+    hardReject: freezeLaneBehavior(classification.hardReject),
+  });
+}
+
+function freezeLaneBehavior(behavior) {
+  return Object.freeze({
+    ...behavior,
+    ...(behavior.requiredFacts === undefined ? {} : { requiredFacts: Object.freeze([...behavior.requiredFacts]) }),
+    ...(behavior.hardRejectIfMissing === undefined ? {} : { hardRejectIfMissing: Object.freeze([...behavior.hardRejectIfMissing]) }),
+    ...(behavior.reasons === undefined ? {} : { reasons: Object.freeze([...behavior.reasons]) }),
+  });
+}
+
 function capability([capabilityId, title, status, owner]) {
   const defaults = capabilityDefaults(capabilityId, owner);
   const reviewedEvidence = reviewedCapabilityEvidence[capabilityId];
+  const laneClassification = reviewedEvidence?.laneClassification ?? laneClassificationDefaults(capabilityId, owner);
 
-  return Object.freeze({
+  const entry = Object.freeze({
     capabilityId,
     title,
     status,
@@ -637,12 +1026,154 @@ function capability([capabilityId, title, status, owner]) {
     positiveTests: Object.freeze(reviewedEvidence?.positiveTests ?? []),
     negativeTests: Object.freeze(reviewedEvidence?.negativeTests ?? []),
     oldEvidence: Object.freeze(reviewedEvidence?.oldEvidence ?? []),
+    laneClassification,
     blockers: Object.freeze(status === "blocked" ? ["Requires provider/runtime implementation before completion."] : []),
     notes: reviewedEvidence?.notes ??
       "Machine-readable entry seeded from .analysis/test-plan-20260623-075726; old tests are evidence, capability coverage is the source of truth.",
   });
+  const validationErrors = validateCapabilityLedgerEntry(entry);
+  if (validationErrors.length > 0) {
+    throw new Error(`invalid capability ledger entry ${capabilityId}: ${validationErrors.join("; ")}`);
+  }
+  return entry;
 }
 
 export const capabilityLedger = Object.freeze(baseCapabilityDefinitions.map(capability));
 
 export const capabilityIdSet = Object.freeze(new Set(capabilityLedger.map((entry) => entry.capabilityId)));
+
+export function validateCapabilityLedgerEntry(entry) {
+  const errors = [];
+  if (!isPlainObject(entry)) {
+    return ["entry must be an object"];
+  }
+  validateStringField(errors, entry, "capabilityId");
+  validateStringField(errors, entry, "title");
+  validateEnumField(errors, entry, "status", capabilityStatusSet, capabilityStatuses);
+  validateEnumField(errors, entry, "owner", capabilityOwnerSet, capabilityOwners);
+  validateStringArrayField(errors, entry, "sourceExamples", { nonEmpty: true });
+  validateStringField(errors, entry, "tstsDecision");
+  validateStringArrayField(errors, entry, "providerFacts");
+  validateStringField(errors, entry, "backendContract");
+  validateStringField(errors, entry, "evidenceReview");
+  validateStringArrayField(errors, entry, "positiveTests");
+  validateStringArrayField(errors, entry, "negativeTests");
+  validateStringArrayField(errors, entry, "oldEvidence");
+  validateStringArrayField(errors, entry, "blockers");
+  validateStringField(errors, entry, "notes");
+  errors.push(...validateCapabilityLaneClassification(entry));
+  return errors;
+}
+
+export function validateCapabilityLaneClassification(entry) {
+  const errors = [];
+  validateLaneClassification(errors, entry);
+  return errors;
+}
+
+function validateLaneClassification(errors, entry) {
+  const classification = entry.laneClassification;
+  if (!isPlainObject(classification)) {
+    errors.push("laneClassification must be an object");
+    return;
+  }
+  validateNestedStringField(errors, classification, "laneClassification.patternKind");
+  const possibleLanes = classification.possibleLanes;
+  if (!Array.isArray(possibleLanes) || possibleLanes.length === 0) {
+    errors.push("laneClassification.possibleLanes must be a non-empty array");
+  } else {
+    for (const lane of possibleLanes) {
+      if (!capabilityLaneSet.has(lane)) {
+        errors.push(`laneClassification.possibleLanes must contain only ${capabilityLaneNames.join(", ")}`);
+        break;
+      }
+    }
+  }
+  validateLaneBehavior(errors, classification.strictNative, "laneClassification.strictNative");
+  if (possibleLanes?.includes?.("static-native")) {
+    validateLaneBehavior(errors, classification.staticNative, "laneClassification.staticNative");
+    validateRequiredFacts(errors, classification.staticNative, "laneClassification.staticNative.requiredFacts");
+  }
+  if (possibleLanes?.includes?.("compat-runtime")) {
+    validateLaneBehavior(errors, classification.compat, "laneClassification.compat");
+    validateRequiredFacts(errors, classification.compat, "laneClassification.compat.requiredFacts");
+    if (!isPlainObject(classification.compat) || typeof classification.compat.runtimeCarrier !== "string" || classification.compat.runtimeCarrier.length === 0) {
+      errors.push("laneClassification.compat.runtimeCarrier must be a non-empty string when lane is compat-runtime");
+    } else if (bannedCompatMechanismPattern.test(classification.compat.runtimeCarrier)) {
+      errors.push("laneClassification.compat.runtimeCarrier must not name a banned runtime mechanism");
+    }
+    if (!isPlainObject(classification.compat) || typeof classification.compat.operation !== "string" || classification.compat.operation.length === 0) {
+      errors.push("laneClassification.compat.operation must be a non-empty string when lane is compat-runtime");
+    }
+  }
+  if (!isPlainObject(classification.hardReject)) {
+    errors.push("laneClassification.hardReject must be an object");
+  } else if (classification.hardReject.lane !== undefined && !capabilityLaneSet.has(classification.hardReject.lane)) {
+    errors.push(`laneClassification.hardReject.lane must be one of ${capabilityLaneNames.join(", ")}`);
+  }
+  if (!isPlainObject(classification.hardReject) || !Array.isArray(classification.hardReject.reasons) || classification.hardReject.reasons.length === 0) {
+    errors.push("laneClassification.hardReject.reasons must be a non-empty array");
+  }
+}
+
+function validateLaneBehavior(errors, behavior, path) {
+  if (!isPlainObject(behavior)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  if (typeof behavior.lane !== "string" || !capabilityLaneSet.has(behavior.lane)) {
+    errors.push(`${path}.lane must be one of ${capabilityLaneNames.join(", ")}`);
+  }
+}
+
+function validateRequiredFacts(errors, behavior, path) {
+  if (!isPlainObject(behavior) || !Array.isArray(behavior.requiredFacts) || behavior.requiredFacts.length === 0) {
+    errors.push(`${path} must be a non-empty array`);
+    return;
+  }
+  for (const fact of behavior.requiredFacts) {
+    if (typeof fact !== "string" || fact.length === 0) {
+      errors.push(`${path} must contain only non-empty strings`);
+      return;
+    }
+  }
+}
+
+function validateStringField(errors, entry, field) {
+  if (typeof entry[field] !== "string" || entry[field].length === 0) {
+    errors.push(`${field} must be a non-empty string`);
+  }
+}
+
+function validateNestedStringField(errors, entry, path) {
+  const field = path.split(".").at(-1);
+  if (typeof entry[field] !== "string" || entry[field].length === 0) {
+    errors.push(`${path} must be a non-empty string`);
+  }
+}
+
+function validateEnumField(errors, entry, field, values, valueList) {
+  if (!values.has(entry[field])) {
+    errors.push(`${field} must be one of ${valueList.join(", ")}`);
+  }
+}
+
+function validateStringArrayField(errors, entry, field, options = {}) {
+  if (!Array.isArray(entry[field])) {
+    errors.push(`${field} must be an array`);
+    return;
+  }
+  if (options.nonEmpty === true && entry[field].length === 0) {
+    errors.push(`${field} must be a non-empty array`);
+  }
+  for (const value of entry[field]) {
+    if (typeof value !== "string" || value.length === 0) {
+      errors.push(`${field} must contain only non-empty strings`);
+      return;
+    }
+  }
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}

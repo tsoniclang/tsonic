@@ -109,6 +109,118 @@ test("capability coverage report exposes oldEvidence coverage", () => {
   }
 });
 
+test("capability coverage report summarizes lane classification coverage", () => {
+  const report = buildCapabilityCoverageReport();
+  const trackedLedgerEntries = capabilityLedger.filter((entry) =>
+    report.laneClassificationCoverage.rules.trackedStatuses.includes(entry.status) ||
+    entry.laneClassification !== undefined
+  );
+  const laneCoverageById = new Map(
+    report.laneClassificationCoverage.byCapability.map((entry) => [entry.capabilityId, entry]),
+  );
+
+  assert.equal(report.rules.laneClassificationIsLedgerEnforced, true);
+  assert.equal(report.laneClassificationCoverage.rules.allLedgerEntriesWithLaneClassificationAreTracked, true);
+  assert.equal(report.laneClassificationCoverage.summary.total, trackedLedgerEntries.length);
+  assert.equal(report.laneClassificationCoverage.proofHoles.length, report.laneClassificationCoverage.summary.withProofHoles);
+
+  for (const ledgerEntry of trackedLedgerEntries) {
+    const coverageEntry = laneCoverageById.get(ledgerEntry.capabilityId);
+    assert.equal(coverageEntry.status, ledgerEntry.status, ledgerEntry.capabilityId);
+    assert.equal(coverageEntry.owner, ledgerEntry.owner, ledgerEntry.capabilityId);
+    assert.deepEqual(coverageEntry.laneClassification, ledgerEntry.laneClassification ?? null, ledgerEntry.capabilityId);
+  }
+});
+
+test("capability coverage report mirrors lane classifications and reports proof holes", () => {
+  const validLaneClassification = {
+    patternKind: "dynamic-get",
+    possibleLanes: ["static-native", "compat-runtime", "hard-reject"],
+    strictNative: {
+      lane: "hard-reject",
+      reason: "Dynamic get requires compatibility mode.",
+    },
+    compat: {
+      lane: "compat-runtime",
+      requiredFacts: ["runtime.dynamic.carrier", "compat.any.dynamic-get"],
+      runtimeCarrier: "TsValue",
+      operation: "GetProperty",
+    },
+    staticNative: {
+      lane: "static-native",
+      requiredFacts: ["selected-source-or-provider-shape", "selected-target-member"],
+    },
+    hardReject: {
+      reasons: ["strict-native-selected", "missing-runtime-carrier-fact"],
+    },
+  };
+  const invalidLaneClassification = {
+    patternKind: "",
+    possibleLanes: ["compat-runtime", "runtime-reflection"],
+    compat: {
+      lane: "compat-runtime",
+      operation: "CallProperty",
+    },
+    hardReject: {
+      reasons: [],
+    },
+  };
+  const report = buildCapabilityCoverageReport({
+    ledgerEntries: [
+      capabilityEntry({
+        capabilityId: "compat.any.dynamic-get",
+        status: "not-started",
+        laneClassification: validLaneClassification,
+      }),
+      capabilityEntry({
+        capabilityId: "operation.iteration.for-in.keys",
+        status: "partial",
+      }),
+      capabilityEntry({
+        capabilityId: "compat.any.dynamic-call",
+        status: "blocked",
+        laneClassification: invalidLaneClassification,
+        blockers: ["Requires dynamic carrier operation metadata."],
+      }),
+    ],
+    oldEvidenceSourceGroups: [],
+    oldInventoryEntries: [],
+  });
+  const laneCoverageById = new Map(
+    report.laneClassificationCoverage.byCapability.map((entry) => [entry.capabilityId, entry]),
+  );
+
+  assert.equal(report.laneClassificationCoverage.summary.total, 3);
+  assert.equal(report.laneClassificationCoverage.summary.coveredLaneClassification, 1);
+  assert.equal(report.laneClassificationCoverage.summary.missingLaneClassification, 1);
+  assert.equal(report.laneClassificationCoverage.summary.invalidLaneClassification, 1);
+
+  const validCoverage = laneCoverageById.get("compat.any.dynamic-get");
+  assert.equal(validCoverage.classificationStatus, "covered");
+  assert.deepEqual(validCoverage.laneClassification, validLaneClassification);
+  assert.deepEqual(validCoverage.possibleLanes, validLaneClassification.possibleLanes);
+  assert.deepEqual(validCoverage.proofHoles, []);
+
+  const missingCoverage = laneCoverageById.get("operation.iteration.for-in.keys");
+  assert.equal(missingCoverage.classificationStatus, "missing");
+  assert.deepEqual(missingCoverage.proofHoles, ["laneClassification must be an object"]);
+
+  const invalidCoverage = laneCoverageById.get("compat.any.dynamic-call");
+  assert.equal(invalidCoverage.classificationStatus, "invalid");
+  assert.deepEqual(invalidCoverage.invalidPossibleLanes, ["runtime-reflection"]);
+  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.patternKind must be a non-empty string"));
+  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.possibleLanes must contain only static-native, compat-runtime, hard-reject"));
+  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.strictNative must be an object"));
+  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.compat.requiredFacts must be a non-empty array"));
+  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.compat.runtimeCarrier must be a non-empty string when lane is compat-runtime"));
+  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.hardReject.reasons must be a non-empty array"));
+
+  assert.deepEqual(
+    report.laneClassificationCoverage.proofHoles.map((entry) => entry.capabilityId),
+    ["operation.iteration.for-in.keys", "compat.any.dynamic-call"],
+  );
+});
+
 test("capability coverage report CLI emits machine-readable JSON", () => {
   const result = spawnSync(process.execPath, ["test/capabilities/coverage-report.mjs"], {
     encoding: "utf8",
@@ -135,4 +247,30 @@ function expectedProofHoles(completeEntry) {
     holes.push("negative-proof-uses-old-evidence");
   }
   return holes;
+}
+
+function capabilityEntry({
+  capabilityId,
+  status,
+  owner = "target-provider",
+  laneClassification,
+  blockers = [],
+}) {
+  return {
+    capabilityId,
+    title: `Capability ${capabilityId}`,
+    status,
+    owner,
+    sourceExamples: [],
+    tstsDecision: "TSTS decision",
+    providerFacts: [],
+    backendContract: "Backend contract",
+    evidenceReview: "seeded",
+    positiveTests: [],
+    negativeTests: [],
+    oldEvidence: [],
+    blockers,
+    notes: "Test entry",
+    ...(laneClassification === undefined ? {} : { laneClassification }),
+  };
 }
