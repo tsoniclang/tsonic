@@ -131,6 +131,71 @@ test("CLI rejects unsupported C# target options instead of ignoring them", async
   assert.match(build.stderr, /C# target option 'options\.rootNamespace' is not supported/);
 });
 
+test("CLI rejects duplicate configured surfaces before target composition", async () => {
+  const projectDirectory = resolve(tempRoot, "duplicate-configured-surfaces");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "js"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Target 'csharp' surface 'js' is declared more than once/);
+});
+
+test("CLI does not use tsconfig path mapping as a hidden module-resolution fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "tsconfig-path-mapping-no-fallback");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "tsconfig.json": JSON.stringify({
+      compilerOptions: {
+        baseUrl: ".",
+        paths: {
+          "@app/*": ["src/app/*"],
+        },
+      },
+    }, null, 2),
+    "src/index.ts": "import { value } from \"@app/value.js\";\nexport const result = value;\n",
+    "src/app/value.ts": "export const value = 1;\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /@app\/value\.js/);
+});
+
+test("CLI rejects package-root imports instead of applying package-root shims", async () => {
+  const projectDirectory = resolve(tempRoot, "package-root-shim-no-fallback");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "import \"@tsonic/js\";\nexport const value = 1;\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /@tsonic\/js/);
+});
+
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
   const projectDirectory = resolve(tempRoot, "wide-csharp");
   await writeProject(projectDirectory, {

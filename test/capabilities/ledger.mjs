@@ -53,7 +53,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["module.export.default", "Support default ESM exports", "partial", "tsts-api"],
   ["module.export.reexport", "Support re-exports and export-star", "partial", "tsts-api"],
   ["module.package.exports-subpath", "Resolve package exports and subpaths", "partial", "tsonic-host"],
-  ["module.path-mapping", "Support or diagnose tsconfig path mapping", "not-started", "tsonic-host"],
+  ["module.path-mapping", "Support or diagnose tsconfig path mapping", "partial", "tsonic-host"],
   ["module.emit.multi-file", "Emit deterministic target files for multi-file source projects", "partial", "csharp-backend"],
   ["module.emit.top-level-order", "Emit deterministic module top-level initialization order", "partial", "csharp-backend"],
 
@@ -197,13 +197,13 @@ const baseCapabilityDefinitions = Object.freeze([
   ["carrier.function-delegate", "Function values and callbacks use fact-backed delegate carriers", "partial", "target-provider"],
   ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "not-started", "target-provider"],
 
-  ["surface.js.console", "JS console operations use selected JS surface facts", "partial", "surface-provider"],
-  ["surface.js.console-log", "console.log uses selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.console", "JS console operations use selected JS surface facts", "blocked", "surface-provider"],
+  ["surface.js.console-log", "console.log uses selected JS surface facts", "blocked", "surface-provider"],
   ["surface.js.array-methods", "JS array methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "partial", "surface-provider"],
-  ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "not-started", "surface-provider"],
+  ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "blocked", "surface-provider"],
   ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
@@ -214,7 +214,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["compat.any.property", "any property operations use dynamic carrier facts", "partial", "target-provider"],
   ["compat.any.dynamic-get", "any dynamic get uses explicit carrier facts", "partial", "target-provider"],
   ["compat.any.dynamic-set", "any dynamic set uses explicit carrier facts", "partial", "target-provider"],
-  ["compat.any.call-construct", "any call/new use dynamic carrier facts", "not-started", "target-provider"],
+  ["compat.any.call-construct", "any call/new use dynamic carrier facts", "partial", "target-provider"],
   ["compat.any.dynamic-call", "any dynamic call uses explicit carrier facts", "partial", "target-provider"],
   ["compat.any.operators", "any operators use dynamic carrier facts", "partial", "target-provider"],
   ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "partial", "target-provider"],
@@ -289,6 +289,174 @@ const baseCapabilityDefinitions = Object.freeze([
 export const requiredCapabilityIds = Object.freeze(baseCapabilityDefinitions.map(([capabilityId]) => capabilityId));
 
 const reviewedCapabilityEvidence = Object.freeze({
+  "host.config.project-load": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/cli/parser.test.ts",
+      "packages/cli/src/config.test.ts",
+      "test/fixtures/dotnet-test-command/",
+    ]),
+    blockers: Object.freeze([
+      "host.config.project-load has current strict-shape proof, but remains partial until every old CLI config/build inventory entry is explicitly reviewed against the new tsonic.json contract.",
+    ]),
+    notes:
+      "Reviewed partial proof: project loading accepts only the current entryPoint/rootDir/outDir/targets shape, rejects declaration entrypoints and unsupported top-level fields, and creates semantic input from the selected tsonic.json without reading legacy output/test-command config.",
+  }),
+  "host.config.target-selection": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/config-cases/resolve-basics.test.ts",
+      "packages/cli/src/config.test.ts",
+      "test/fixtures/dotnet-test-command/",
+    ]),
+    blockers: Object.freeze([
+      "host.config.target-selection has current parse/build proof, but remains partial until the old config inventory is fully mapped to current target-selection behavior.",
+    ]),
+    notes:
+      "Reviewed partial proof: targets[] is mandatory and non-empty, duplicate target ids are rejected before compilation, unknown selected target ids become TARGET_SELECTION diagnostics, and target-specific options are delegated to the selected target pack rather than host-level guessing.",
+  }),
+  "host.config.surface-selection": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/config-cases/resolve-surfaces.test.ts",
+      "packages/cli/src/surface/profiles.test.ts",
+      "packages/frontend/src/surface/profiles.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "host.config.surface-selection has current selected-surface proof, but remains partial until every old surface profile/config case is explicitly reviewed against target-owned surfaces.",
+    ]),
+    notes:
+      "Reviewed partial proof: configured surfaces are explicit target-owned ids, duplicate requested surfaces are rejected, unknown target surfaces and missing required surfaces become TARGET_SURFACE_SELECTION diagnostics, and unselected surfaces cannot contribute compiler extensions or runtime artifacts.",
+  }),
+  "host.config.no-legacy-config": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/dotnet-test-command/",
+      "test/fixtures/source-package-basic/",
+      "test/fixtures/source-package-subpath/",
+    ]),
+    blockers: Object.freeze([
+      "host.config.no-legacy-config remains partial until all old invalid-stale config, package, and fixture paths are reviewed and mapped to current replacements.",
+    ]),
+    notes:
+      "Reviewed partial proof: stale output/nativeAOT/rootNamespace/namespace-at-target-level and TypeScript compilerOptions/baseUrl/paths/tsconfig-style fields are rejected instead of being normalized through compatibility readers.",
+  }),
+  "host.graph.source-files": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/multi-file/",
+      "test/fixtures/multi-file-imports/",
+      "test/fixtures/multi-file-types/",
+    ]),
+    blockers: Object.freeze([
+      "host.graph.source-files has current source-graph proof, but remains partial until the full old multi-file/module fixture inventory is mapped to TSTS source graph expectations.",
+    ]),
+    notes:
+      "Reviewed partial proof: host loads source files into TSTS, excludes generated .d.ts and metadata JSON from semantic input, and passes the backend the TSTS graph files rather than the raw project filesystem crawl.",
+  }),
+  "host.package.composition": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/hello-world/",
+      "test/fixtures/js-surface-runtime-builtins/",
+      "test/fixtures/nodejs-surface-alias-coverage/",
+    ]),
+    blockers: Object.freeze([
+      "host.package.composition remains partial until provider/surface/runtime/toolchain composition is proven across the full old package and fixture inventory.",
+    ]),
+    notes:
+      "Reviewed partial proof: provider runtime contributions, selected-surface runtime contributions, backend artifacts, and toolchain handoff are ordered through one host path; duplicate runtime artifacts or references become TARGET_RUNTIME diagnostics before backend emission.",
+  }),
+  "host.project.package-discovery": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/commands/add-deps.test.ts",
+      "packages/cli/src/commands/restore.test.ts",
+      "packages/cli/src/package-manifests/bindings.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "host.project.package-discovery remains partial until every old add/restore/package-manifest path is explicitly classified as provider-owned virtual module input or invalid stale package discovery.",
+    ]),
+    notes:
+      "Reviewed partial proof: current host does not discover package roots, generated declaration files, or metadata JSON as semantic input; provider-owned modules must enter through selected target/surface extensions, and package-root shim imports fail closed instead of being rescued by legacy package discovery.",
+  }),
+  "module.package.exports-subpath": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/source-package-basic/",
+      "test/fixtures/source-package-subpath/",
+      "test/fixtures/source-package-surface-mismatch/",
+    ]),
+    blockers: Object.freeze([
+      "module.package.exports-subpath remains partial until package exports/subpath behavior is proven for ordinary project packages and provider-owned virtual modules without a file-backed fallback lane.",
+    ]),
+    notes:
+      "Reviewed partial proof: current provider and surface imports use explicit ESM subpaths, while package-root imports are not treated as bootstrap shims. Full completion requires an explicit package-exports ledger slice rather than relying on TSTS unresolved-module diagnostics alone.",
+  }),
+  "module.path-mapping": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "module.path-mapping is intentionally unsupported in current host config, but remains partial until old path-alias evidence is inventoried and every alias form has focused current diagnostics.",
+    ]),
+    notes:
+      "Reviewed partial proof: tsonic.json compilerOptions/baseUrl/paths are rejected, and a colocated tsconfig paths mapping is not used as a hidden fallback for module resolution.",
+  }),
   "host.project.target-selection": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
@@ -645,11 +813,35 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, and selected string instance calls, while unsupported string methods fail without exact provider-backed JS semantics. Remains partial until all JS String methods and Boolean/String object surface conversions have positive and negative runtime coverage.",
   }),
+  "surface.js.console": Object.freeze({
+    positiveTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    notes:
+      "Reviewed blocker: selected JS Console declarations are recognized, but the available C# console runtime takes broad object[] inputs rather than closed TsValue/TsObject/TsFunction carrier facts. The JS surface hard-rejects Console operations from bundled declarations and defers foreign same-spelling declarations; implementation remains blocked until closed console argument carriers and runtime AST emission exist.",
+  }),
+  "surface.js.console-log": Object.freeze({
+    positiveTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    notes:
+      "Reviewed blocker: console.log is not mapped to Tsonic.CSharp.Js.console.log because that runtime signature is params object[] and would introduce broad CLR object semantics. It remains hard-rejected until selected JS surface facts can prove closed console argument carrier conversion.",
+  }),
   "surface.js.math-json-regexp": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -660,20 +852,35 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-typed-stringify/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover Math operations and RegExp literal/constructor carriers with C# build coverage; old JSON static-safety inventory is mapped to this capability as evidence only. Remains partial until JSON parse/stringify, Date, Map, Set, and every RegExp operation have selected-surface facts and runtime/toolchain tests.",
+      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations and RegExp literal/constructor carriers with C# build coverage; JSON operations are hard-rejected until closed JSON carrier facts exist. Remains partial until JSON parse/stringify, Date, Map, Set, and every RegExp operation have selected-surface facts and runtime/toolchain tests.",
   }),
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts map standard Math calls to deterministic target operations and reject unselected/unsupported forms without spelling-based fallback. Remains partial until every Math static member in the JS surface ledger has current positive and negative coverage.",
+      "Reviewed partial proof: selected JS surface facts map standard Math calls and constants to Tsonic.CSharp.Js.Math runtime operations, reject unselected/unsupported forms without spelling-based fallback, and reject Math.max without provider-proven runtime-compatible arguments. Remains partial until every Math static member has current runtime/toolchain coverage.",
+  }),
+  "surface.js.object-runtime": Object.freeze({
+    positiveTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/js-surface-json-typed-parse/",
+      "test/fixtures/json-native-inline-stringify/",
+      "test/fixtures/json-native-typed-stringify/",
+    ]),
+    notes:
+      "Reviewed blocker: Object and JSON selected standard-library declarations are recognized and fail closed because current runtime entrypoints accept broad object? instead of a closed TsObject/TsArray/TsValue carrier. Object.keys/values/entries and JSON.parse/stringify remain blocked until selected-surface facts can prove the closed carrier and backend AST operation.",
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
@@ -715,6 +922,21 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: selected NodeJS surface facts cover node:process cwd() and platform target mappings through namespace import facts, and unselected Node modules fail during provider-aware resolution. Remains partial until process environment, argv, exit, and platform-specific behavior are covered through closed runtime facts.",
+  }),
+  "surface.node.buffer-crypto-os": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-surface-module-graph/",
+    ]),
+    notes:
+      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls, Buffer instance length, crypto.randomUUID, os.homedir, and os.platform by selected provider declaration/member/signature identity. Remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
   }),
   "backend.csharp.runtime-artifacts": Object.freeze({
     positiveTests: Object.freeze([
@@ -896,6 +1118,19 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: opaque any property and element operations are not source-owned dynamic fallbacks; strict-native rejects them, compat rejects missing operation facts, and only explicit operation facts suppress the compat diagnostic. Remains partial until real carrier get/set operations are implemented and emitted.",
+  }),
+  "compat.any.call-construct": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: calls and new expressions through opaque any are diagnosed in strict-native and in compat mode without closed target operation facts; a test-injected closed operation fact can suppress the compat diagnostic for construction only in compat mode. Remains partial until real TsFunction/TsValue construct carriers and backend AST emission exist.",
   }),
   "compat.any.dynamic-get": Object.freeze({
     positiveTests: Object.freeze([

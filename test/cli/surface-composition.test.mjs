@@ -174,6 +174,28 @@ test("host reports unknown requested surface as target diagnostic", async () => 
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
 });
 
+test("host reports duplicate target surface implementations before provider composition", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    surfaces: [
+      createFakeSurface("js"),
+      createFakeSurface("js"),
+    ],
+  });
+
+  const result = await compileFakeProject("duplicate-target-surfaces", targetPack, {
+    id: "demo",
+    surfaces: ["js"],
+  });
+
+  assert.equal(result.diagnostics.length, 1);
+  assert.deepEqual(events, []);
+  assert.equal(result.diagnostics[0].code, "TARGET_SURFACE_SELECTION");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "target 'demo' declares surface 'js' more than once");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
 test("host reports missing target provider as target diagnostic", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
@@ -321,6 +343,82 @@ test("host omits surface runtime artifacts when no surface is selected", async (
   assert.equal(events.includes("surface-runtime:js"), false);
 });
 
+test("host reports duplicate runtime artifacts as target diagnostics before backend emission", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerArtifacts: [
+      createFakeArtifact("asset", "runtime/shared.txt", "provider"),
+    ],
+    backendArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "backend"),
+    ],
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/shared.txt", "js"),
+        ],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("duplicate-runtime-artifacts", targetPack, {
+    id: "demo",
+    surfaces: ["js"],
+  });
+
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=js",
+    "provider-runtime:demo",
+    "surface-runtime:js",
+  ]);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "TARGET_RUNTIME");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "duplicate target runtime artifact 'runtime/shared.txt'");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(events.includes("backend:demo"), false);
+  assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
+});
+
+test("host reports duplicate runtime references as target diagnostics before backend emission", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerReferences: [
+      createFakeReference("project", "../runtime/Runtime.csproj"),
+    ],
+    backendArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "backend"),
+    ],
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        references: [
+          createFakeReference("project", "../runtime/Runtime.csproj"),
+        ],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("duplicate-runtime-references", targetPack, {
+    id: "demo",
+    surfaces: ["js"],
+  });
+
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=js",
+    "provider-runtime:demo",
+    "surface-runtime:js",
+  ]);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "TARGET_RUNTIME");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "duplicate target runtime reference 'project:../runtime/Runtime.csproj'");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(events.includes("backend:demo"), false);
+  assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
+});
+
 test("host excludes generated declarations and metadata JSON from semantic input", async () => {
   const projectDirectory = resolve(tempRoot, "semantic-input-filter");
   const projectConfig = {
@@ -345,6 +443,47 @@ test("host excludes generated declarations and metadata JSON from semantic input
   assert.equal(fs.FileExists(resolve(projectDirectory, "src/index.ts")), true);
   assert.equal(fs.FileExists(resolve(projectDirectory, "src/generated.d.ts")), false);
   assert.equal(fs.FileExists(resolve(projectDirectory, "src/provider.metadata.json")), false);
+});
+
+test("host gives backends the TSTS source graph instead of the raw project file crawl", async () => {
+  const events = [];
+  let backendProjectSourceFiles = [];
+  const projectDirectory = resolve(tempRoot, "tsts-source-graph");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      backendProjectSourceFiles = input.sourceFiles
+        .map((sourceFile) => input.ast.getFileName(sourceFile))
+        .filter((fileName) => fileName.startsWith(projectDirectory))
+        .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
+        .sort();
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": "import { value } from \"./dep.js\";\nexport const result = value + 1;\n",
+    "src/dep.ts": "export const value = 41;\n",
+    "src/orphan.ts": "export const orphan = 0;\n",
+    "src/generated.d.ts": "declare global { const generatedAmbientLeak: string; }\n",
+    "src/provider.metadata.json": JSON.stringify({ target: "demo" }),
+  });
+
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(backendProjectSourceFiles, [
+    "src/dep.ts",
+    "src/index.ts",
+  ]);
 });
 
 test("host rejects declaration entrypoints before semantic input creation", () => {
@@ -412,7 +551,10 @@ function createFakeTargetPack(events, options = {}) {
             },
             runtimeContributions(context) {
               events.push(`provider-runtime:${context.target.id}`);
-              return { artifacts: options.providerArtifacts ?? [] };
+              return {
+                artifacts: options.providerArtifacts ?? [],
+                references: options.providerReferences ?? [],
+              };
             },
           },
         }),
@@ -420,6 +562,7 @@ function createFakeTargetPack(events, options = {}) {
     createBackend() {
       return {
         compile(input) {
+          options.onBackend?.(input);
           events.push(`backend:${input.target.id}`);
           return {
             artifacts: options.backendArtifacts ?? [],
@@ -462,7 +605,10 @@ function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {
         }),
     runtimeContributions() {
       options.events?.push(`surface-runtime:${id}`);
-      return { artifacts: options.artifacts ?? [] };
+      return {
+        artifacts: options.artifacts ?? [],
+        references: options.references ?? [],
+      };
     },
   };
 }
@@ -472,5 +618,12 @@ function createFakeArtifact(kind, path, text) {
     kind,
     path,
     text,
+  };
+}
+
+function createFakeReference(kind, include) {
+  return {
+    kind,
+    include,
   };
 }

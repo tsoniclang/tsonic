@@ -109,6 +109,10 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       selectedSurfaces,
       paths: targetPaths,
     });
+    if (hasBlockingDiagnostics(runtimeContributions.diagnostics)) {
+      pushDiagnosticOnlyTarget(targets, diagnostics, target, runtimeContributions.diagnostics);
+      continue;
+    }
     const backendCompileResult = compileTargetFromSemanticSession(
       session,
       input.project,
