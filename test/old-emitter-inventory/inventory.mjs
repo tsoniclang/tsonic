@@ -427,6 +427,16 @@ export const oldEmitterPortInventory = Object.freeze([
     "test/cli-build/provider-dotnet.test.mjs",
     "Ported through a current-architecture executable CLI test covering TSTS Record<K,V> declarations mapped by the selected JS surface to provider-owned Dictionary<K,V>, empty object literals emitted as Dictionary construction, provider indexer reads/writes, generated C# build, run, and exact stdout.",
   ),
+  Object.freeze({
+    oldPath: `${oldEmitterCaseRoot}/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs`,
+    oldExpectedPath: `${oldEmitterCaseRoot}/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs`,
+    newPath: "test/cli-build/object-shapes.test.mjs",
+    status: "invalid-stale-architecture",
+    featureArea: "object-shapes",
+    owner: "current TSTS/provider/C# AST pipeline",
+    reason:
+      "Closed by current-architecture fail-closed coverage: an object literal contextualized as unknown now reports a deterministic diagnostic before C# carrier emission, because unknown/any object shapes must not lower to object, dynamic, dictionary, or anonymous fallback carriers.",
+  }),
   ...deferredEmitterCases([
     "edge-cases/clickmeter-nullability-regressions/ClickmeterNullabilityRegressions",
     "edge-cases/generic-null-default/GenericNullDefault",
@@ -449,7 +459,6 @@ export const oldEmitterPortInventory = Object.freeze([
   ], "generics", "TSTS structural/generic facts + C# declaration planner", "Generic and type-system fixtures require complete generic declarations, constraints, inheritance substitution, structural object shapes, mapped/utility type projection facts, tuple arity rendering, and generic class/interface emission."),
   ...deferredEmitterCases([
     "edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter",
-    "edge-cases/object-literal-unknown/ObjectLiteralUnknown",
     "edge-cases/record-nested-object/RecordNestedObject",
   ], "object-shapes", "TSTS structural facts + C# object-shape planner", "Object-shape fixtures require target object-shape carriers for inline object parameters, type parameters, broad unknown rejection, nested records, and generated carrier declarations."),
   ...deferredEmitterCases([

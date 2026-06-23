@@ -1091,6 +1091,79 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits nullish coalescing fallback literals from finalized operator result target type", async () => {
+  const projectDirectory = resolve(tempRoot, "nullish-char-expected-type");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNullishCharExpectedType",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { char } from \"@tsonic/core/types.js\";",
+      "",
+      "export function fallback(value: char | null): char {",
+      "  return value ?? \"x\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static char fallback\(char\? value\)/);
+  assert.match(generatedSource, /return value \?\? 'x';/);
+  assert.doesNotMatch(generatedSource, /return value \?\? "x";/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNullishCharExpectedType.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects invalid nullish coalescing fallback literals before C# emission", async () => {
+  const projectDirectory = resolve(tempRoot, "nullish-char-invalid-expected-type");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNullishCharInvalidExpectedType",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { char } from \"@tsonic/core/types.js\";",
+      "",
+      "export function fallback(value: char | null): char {",
+      "  return value ?? \"xy\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /char literals require exactly one UTF-16 code unit/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNullishCharInvalidExpectedType.csproj")), false);
+});
+
 
 test("CLI emits explicit tuple types and tuple literals as C# value tuples", async () => {
   const projectDirectory = resolve(tempRoot, "value-tuples");

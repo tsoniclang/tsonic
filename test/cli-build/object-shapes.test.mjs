@@ -457,6 +457,82 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
 });
 
 
+test("CLI emits nested structural object-shape literals through finalized nested carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "nested-structural-object-shapes");
+  const assemblyName = "SmokeGeneratedNestedObjectShapes";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "type Child = { value: number; label: string };",
+      "type Parent = { child: Child; count: number };",
+      "",
+      "function create(value: number): Parent {",
+      "  return { child: { value, label: \"ok\" }, count: 2 };",
+      "}",
+      "",
+      "const parent = create(5);",
+      "Console.writeLine(`${parent.child.label}:${parent.child.value + parent.count}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public __TsonicShape_[A-Za-z0-9_]+ child;/);
+  assert.match(generatedSource, /public double count;/);
+  assert.match(generatedSource, /public double value;/);
+  assert.match(generatedSource, /public string label;/);
+  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*child = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = "ok",\s*\},\s*count = 2,\s*\};/);
+  assert.match(generatedSource, /parent\.child\.label/);
+  assert.match(generatedSource, /parent\.child\.value \+ parent\.count/);
+  assert.doesNotMatch(generatedSource, /Dictionary<|\bobject\b|\bdynamic\b|__unsupported|invalid/i);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "ok:7\n");
+});
+
+
+test("CLI rejects object literals contextualized as unknown before C# carrier emission", async () => {
+  const projectDirectory = resolve(tempRoot, "unknown-object-shape");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function leak(): unknown {",
+      "  return { value: 1 };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /any and unknown cannot trickle into generated C#/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+
 test("CLI emits object rest destructuring from finalized TSTS rest binding shape", async () => {
   const projectDirectory = resolve(tempRoot, "object-rest-destructuring");
   await writeProject(projectDirectory, {
