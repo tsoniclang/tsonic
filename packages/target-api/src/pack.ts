@@ -12,7 +12,7 @@ import type {
   Type,
   TypeShapeQueries,
 } from "@tsonic/tsts";
-import type { TargetArtifact, TargetCompileResult } from "./artifacts.js";
+import type { TargetCompileResult, TargetRuntimeContributions, TargetRuntimeReference } from "./artifacts.js";
 import type {
   TargetSelection,
   TargetSurfaceId,
@@ -50,7 +50,7 @@ export interface TargetCompilationPaths {
   readonly targetOutputRoot: string;
 }
 
-export interface TargetRuntimeArtifactContext {
+export interface TargetRuntimeContributionContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
@@ -106,6 +106,7 @@ export interface TargetCompileInput {
   readonly semantics: TargetSemanticQueries;
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
+  readonly runtimeReferences: readonly TargetRuntimeReference[];
   readonly paths: TargetCompilationPaths;
 }
 
@@ -133,7 +134,7 @@ export interface TargetProvider {
   readonly id: string;
   readonly displayName: string;
   createExtensions(context: TargetProviderContext): readonly CompilerExtension[];
-  runtimeArtifacts?(context: TargetRuntimeArtifactContext): readonly TargetArtifact[];
+  runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
 }
 
 export interface TargetSurfaceImplementation {
@@ -141,7 +142,7 @@ export interface TargetSurfaceImplementation {
   readonly displayName: string;
   readonly requiredSurfaces?: readonly TargetSurfaceId[];
   createExtensions?(context: TargetSurfaceExtensionContext): readonly CompilerExtension[];
-  runtimeArtifacts(context: TargetRuntimeArtifactContext): readonly TargetArtifact[];
+  runtimeContributions(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
 }
 
 export interface TargetPack {

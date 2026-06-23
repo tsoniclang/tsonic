@@ -258,6 +258,7 @@ function getTargetMembers(member: ProviderMemberDeclaration, declaringType: Targ
     ...(declaringType !== undefined ? { declaringType } : {}),
     parameters: [],
     ...(member.static !== undefined ? { static: member.static } : {}),
+    ...(member.readonly !== undefined ? { readonly: member.readonly } : {}),
     ...(member.type !== undefined ? { returnType: getTargetTypeRef(member.type) } : {}),
   }];
 }
@@ -285,6 +286,7 @@ function getTargetMemberFromSignature(
     ...(declaringType !== undefined ? { declaringType } : {}),
     parameters: signature.parameters.map(getTargetParameter),
     ...(member?.static !== undefined ? { static: member.static } : {}),
+    ...(member?.readonly !== undefined ? { readonly: member.readonly } : {}),
     ...(signature.returnType !== undefined ? { returnType: getTargetTypeRef(signature.returnType) } : {}),
     ...(typeParameters.length > 0 ? { typeParameters } : {}),
     overloadGroup: member?.id ?? sourceName,

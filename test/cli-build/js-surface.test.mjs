@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI emits standard Math calls from selected TSTS provider facts", async () => {
   const projectDirectory = resolve(tempRoot, "standard-math-calls");
@@ -48,6 +48,11 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardMathCalls.csproj"), "utf8");
+  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assert.doesNotMatch(generatedProject, /Tsonic\.CSharp\.Node\.csproj/);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double normalize\(double value\)/);
@@ -203,11 +208,6 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedArraySurfaceOperations",
-            references: {
-              projects: [
-                resolve(repoRoot, "../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"),
-              ],
-            },
           },
         },
       ],
@@ -434,11 +434,6 @@ test("CLI emits array callbacks with JS callback arities from provider facts", a
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedArrayCallbacks",
-            references: {
-              projects: [
-                resolve(repoRoot, "../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"),
-              ],
-            },
           },
         },
       ],
@@ -483,11 +478,6 @@ test("CLI emits RegExp literals through provider-backed JS runtime carriers", as
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedRegExpLiteralCarrier",
-            references: {
-              projects: [
-                resolve(repoRoot, "../csharp-js/src/Tsonic.CSharp.Js/Tsonic.CSharp.Js.csproj"),
-              ],
-            },
           },
         },
       ],
@@ -805,11 +795,6 @@ test("CLI emits string instance calls from selected target signature facts", asy
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedStringCalls",
-            references: {
-              projects: [
-                resolve(repoRoot, "../csharp-js/src/Tsonic.CSharp.Js/Tsonic.CSharp.Js.csproj"),
-              ],
-            },
           },
         },
       ],

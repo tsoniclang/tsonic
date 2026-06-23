@@ -8,7 +8,7 @@ import type {
   TsonicProjectConfig,
 } from "@tsonic/target-api";
 import {
-  collectTargetRuntimeArtifacts,
+  collectTargetRuntimeContributions,
   compileTargetFromSemanticSession,
   createTsonicSemanticSession,
   collectTstsDiagnostics,
@@ -102,7 +102,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       continue;
     }
     const targetPaths = getTargetCompilationPaths(paths, target);
-    const runtimeArtifacts = collectTargetRuntimeArtifacts({
+    const runtimeContributions = collectTargetRuntimeContributions({
       project: input.project,
       target,
       targetPack,
@@ -115,10 +115,11 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       target,
       targetPack,
       targetPaths,
+      runtimeContributions.references,
     );
     const compileResult = {
       artifacts: [
-        ...runtimeArtifacts,
+        ...runtimeContributions.artifacts,
         ...backendCompileResult.artifacts,
       ],
       diagnostics: backendCompileResult.diagnostics,

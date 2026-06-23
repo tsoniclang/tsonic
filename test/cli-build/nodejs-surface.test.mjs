@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI emits node:path join from selected NodeJS surface provider facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-path-join-surface");
@@ -14,11 +14,6 @@ test("CLI emits node:path join from selected NodeJS surface provider facts", asy
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodePath",
-            references: {
-              projects: [
-                resolve(repoRoot, "../csharp-nodejs/src/Tsonic.CSharp.Node/Tsonic.CSharp.Node.csproj"),
-              ],
-            },
           },
         },
       ],
@@ -36,10 +31,18 @@ test("CLI emits node:path join from selected NodeJS surface provider facts", asy
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedNodePath.csproj"), "utf8");
+  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Node\.csproj/);
+
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.join\("uploads", tenantId, "events\.json"\);/);
   assert.doesNotMatch(generatedSource, /return join\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodePath.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 
@@ -88,11 +91,6 @@ test("CLI emits NodeJS namespace imports from selected surface provider facts", 
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeModules",
-            references: {
-              projects: [
-                resolve(repoRoot, "../csharp-nodejs/src/Tsonic.CSharp.Node/Tsonic.CSharp.Node.csproj"),
-              ],
-            },
           },
         },
       ],

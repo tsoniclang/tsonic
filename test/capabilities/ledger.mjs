@@ -613,6 +613,164 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: generic declarations and constraints emit from source AST plus finalized target facts and compile under dotnet. This evidence does not close provider constraint validation by itself; provider-specific constraint legality remains tracked under type.generic.provider-target-constraints and native.dotnet.constraints.",
   }),
+  "surface.js.array-methods": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/array-spread/",
+      "test/fixtures/js-surface-array-from-map-keys/",
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    notes:
+      "Reviewed partial proof: selected JS surface facts cover fixed array length/index access, selected array methods, array callback arities, array for-in, and fail-closed rejection for CLR array mutators without JSArray carrier facts. Remains partial until every Array constructor/from/of/map/set carrier operation and runtime artifact is covered end to end.",
+  }),
+  "surface.js.string-methods": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/clr-string-indexer-dotnet/",
+      "test/fixtures/js-string-array-returns/",
+      "test/fixtures/js-surface-boolean-tostring/",
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    notes:
+      "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, and selected string instance calls, while unsupported string methods fail without exact provider-backed JS semantics. Remains partial until all JS String methods and Boolean/String object surface conversions have positive and negative runtime coverage.",
+  }),
+  "surface.js.math-json-regexp": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-maximus-cases/json-static-safety.test.ts",
+      "test/fixtures/js-surface-json-typed-parse/",
+      "test/fixtures/js-surface-runtime-builtins/",
+      "test/fixtures/json-native-inline-stringify/",
+      "test/fixtures/json-native-typed-stringify/",
+    ]),
+    notes:
+      "Reviewed partial proof: selected JS surface facts cover Math operations and RegExp literal/constructor carriers with C# build coverage; old JSON static-safety inventory is mapped to this capability as evidence only. Remains partial until JSON parse/stringify, Date, Map, Set, and every RegExp operation have selected-surface facts and runtime/toolchain tests.",
+  }),
+  "surface.js.math": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    notes:
+      "Reviewed partial proof: selected JS surface facts map standard Math calls to deterministic target operations and reject unselected/unsupported forms without spelling-based fallback. Remains partial until every Math static member in the JS surface ledger has current positive and negative coverage.",
+  }),
+  "surface.node.fs-path-process": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-path-posix-join/",
+      "test/fixtures/nodejs-surface-imports-negative/",
+      "test/fixtures/nodejs-surface-module-graph/",
+    ]),
+    notes:
+      "Reviewed partial proof: selected NodeJS surface facts cover node:path join, namespace imports for node:fs/node:crypto/node:os/node:process, process property access, and rejection of node:path without the NodeJS surface. Remains partial until fs/path/process behavior is runtime-verified across the full old Node fixture matrix and all unsupported module members fail closed.",
+  }),
+  "surface.node.fs": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-surface-module-graph/",
+    ]),
+    notes:
+      "Reviewed partial proof: selected NodeJS surface facts cover node:fs namespace import and existsSync target mapping, and the no-surface negative path blocks Node-owned modules before artifact emission. Remains partial until the complete node:fs API surface has provider facts and runtime coverage.",
+  }),
+  "surface.node.process": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-surface-module-graph/",
+    ]),
+    notes:
+      "Reviewed partial proof: selected NodeJS surface facts cover node:process cwd() and platform target mappings through namespace import facts, and unselected Node modules fail during provider-aware resolution. Remains partial until process environment, argv, exit, and platform-specific behavior are covered through closed runtime facts.",
+  }),
+  "backend.csharp.runtime-artifacts": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/commands/restore-cases/runtime-dlls.test.ts",
+      "packages/cli/src/package-manifests/bindings-cases/runtime-overrides-and-validation.test.ts",
+      "test/fixtures/js-surface-runtime-builtins/",
+      "test/fixtures/nodejs-surface-alias-coverage/",
+    ]),
+    notes:
+      "Reviewed partial proof: host composition includes provider and selected-surface runtime contributions before backend/toolchain handoff, omits unselected surface runtime contributions, emits no target artifacts when TSTS rejects the source program, and selected C# JS/Node surfaces now add real runtime project references without test-local reference configuration. Remains partial until runtime contribution coverage spans every selected first-party surface and unsupported target/toolchain combinations fail with focused diagnostics.",
+  }),
+  "runtime.csharp.js": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/js-surface-array-from-map-keys/",
+      "test/fixtures/js-surface-boolean-tostring/",
+      "test/fixtures/js-surface-json-typed-parse/",
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    notes:
+      "Reviewed partial proof: selected JS surface runtime contributions are represented in host composition, current JS surface tests require closed C# JS runtime carriers for array and RegExp behavior, and generated C# projects include the real csharp-runtime/csharp-js project references automatically. Remains partial until every JS runtime carrier operation has executable runtime coverage and strict unsupported-operation diagnostics.",
+  }),
+  "runtime.csharp.nodejs": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-path-posix-join/",
+      "test/fixtures/nodejs-surface-alias-coverage/",
+      "test/fixtures/nodejs-surface-imports-negative/",
+      "test/fixtures/nodejs-surface-module-graph/",
+    ]),
+    notes:
+      "Reviewed partial proof: selected NodeJS surface runtime contributions are represented in host composition, generated C# projects include the real csharp-nodejs project reference automatically, and current NodeJS surface tests build node:path/fs/crypto/os/process mappings through that reference. Remains partial until executable tests cover the old Node fixture matrix and all unsupported Node module members fail closed.",
+  }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",

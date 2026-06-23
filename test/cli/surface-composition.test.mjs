@@ -410,9 +410,9 @@ function createFakeTargetPack(events, options = {}) {
               events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
               return options.targetExtension === undefined ? [] : [options.targetExtension];
             },
-            runtimeArtifacts(context) {
+            runtimeContributions(context) {
               events.push(`provider-runtime:${context.target.id}`);
-              return options.providerArtifacts ?? [];
+              return { artifacts: options.providerArtifacts ?? [] };
             },
           },
         }),
@@ -460,9 +460,9 @@ function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {
             return [options.extension];
           },
         }),
-    runtimeArtifacts() {
+    runtimeContributions() {
       options.events?.push(`surface-runtime:${id}`);
-      return options.artifacts ?? [];
+      return { artifacts: options.artifacts ?? [] };
     },
   };
 }
