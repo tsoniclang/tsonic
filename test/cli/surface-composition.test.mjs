@@ -419,6 +419,42 @@ test("host reports duplicate runtime references as target diagnostics before bac
   assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
 });
 
+test("host suppresses backend artifacts and toolchain when backend reports errors", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerArtifacts: [
+      createFakeArtifact("asset", "runtime/provider.txt", "provider"),
+    ],
+    backendArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "backend"),
+    ],
+    backendDiagnostics: [
+      {
+        code: "MISSING_FACT",
+        category: "error",
+        message: "backend requires finalized target facts before emission",
+        source: "demo-backend",
+      },
+    ],
+  });
+
+  const result = await compileFakeProject("backend-error-no-artifacts", targetPack, {
+    id: "demo",
+  });
+
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=",
+    "provider-runtime:demo",
+    "backend:demo",
+  ]);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "MISSING_FACT");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(result.targets[0].compileResult.diagnostics.length, 1);
+  assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
+});
+
 test("host excludes generated declarations and metadata JSON from semantic input", async () => {
   const projectDirectory = resolve(tempRoot, "semantic-input-filter");
   const projectConfig = {
@@ -566,7 +602,7 @@ function createFakeTargetPack(events, options = {}) {
           events.push(`backend:${input.target.id}`);
           return {
             artifacts: options.backendArtifacts ?? [],
-            diagnostics: [],
+            diagnostics: options.backendDiagnostics ?? [],
           };
         },
       };

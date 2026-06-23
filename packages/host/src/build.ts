@@ -121,6 +121,18 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       targetPaths,
       runtimeContributions.references,
     );
+    diagnostics.push(...backendCompileResult.diagnostics);
+    if (hasBlockingDiagnostics(backendCompileResult.diagnostics)) {
+      targets.push({
+        target,
+        compileResult: {
+          artifacts: [],
+          diagnostics: backendCompileResult.diagnostics,
+        },
+        diagnostics: [...tstsDiagnostics, ...backendCompileResult.diagnostics],
+      });
+      continue;
+    }
     const compileResult = {
       artifacts: [
         ...runtimeContributions.artifacts,
@@ -134,7 +146,6 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       target,
       compileResult,
     });
-    diagnostics.push(...compileResult.diagnostics);
     diagnostics.push(...toolchainResult.diagnostics.map((message): TargetDiagnostic => ({
       code: "TARGET_TOOLCHAIN",
       category: "suggestion",
