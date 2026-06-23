@@ -230,6 +230,30 @@ test("complete capabilities require positive and negative proof", () => {
   }
 });
 
+test("incomplete capabilities require explicit blocker evidence", () => {
+  for (const entry of capabilityLedger) {
+    if (entry.status === "partial" || entry.status === "not-started" || entry.status === "blocked") {
+      assert.ok(entry.blockers.length > 0, `${entry.capabilityId} is ${entry.status} without blockers`);
+      continue;
+    }
+    assert.deepEqual(entry.blockers, [], `${entry.capabilityId} is ${entry.status} and must not carry blockers`);
+  }
+});
+
+test("capability ledger validator rejects missing blocker evidence", () => {
+  const partialEntry = capabilityLedger.find((entry) => entry.status === "partial");
+  const completeEntry = capabilityLedger.find((entry) => entry.status === "complete");
+  assert.notEqual(partialEntry, undefined);
+  assert.notEqual(completeEntry, undefined);
+
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...partialEntry, blockers: [] }).includes("partial capabilities must have blockers"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, blockers: ["not allowed"] }).includes("complete capabilities must not have blockers"),
+  );
+});
+
 test("complete parent capabilities require complete child capabilities", () => {
   for (const entry of capabilityLedger) {
     if (entry.status !== "complete") {

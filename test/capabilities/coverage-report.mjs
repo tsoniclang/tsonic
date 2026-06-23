@@ -68,6 +68,7 @@ export function buildCapabilityCoverageReport({
     completeCapabilities,
     partialNotStartedBlockers,
     partialNotStartedBlockerSummary: summarizePartialNotStartedBlockers(partialNotStartedBlockers),
+    blockerCoverage: blockerCoverage(ledgerEntries, statuses, owners),
     oldEvidenceCoverage: oldEvidenceCoverage(
       ledgerEntries,
       oldEvidenceSourceGroups,
@@ -261,6 +262,82 @@ function summarizePartialNotStartedBlockers(entries) {
     missingBlockers: entries.filter((entry) => entry.blockerStatus === "missing").length,
     byStatus,
   };
+}
+
+function blockerCoverage(ledgerEntries, statuses, owners) {
+  const trackedStatuses = ["partial", "not-started", "blocked"];
+  const entries = ledgerEntries
+    .filter((entry) => trackedStatuses.includes(entry.status))
+    .map((entry) => ({
+      capabilityId: entry.capabilityId,
+      title: entry.title,
+      status: entry.status,
+      owner: entry.owner,
+      blockers: [...entry.blockers],
+      blockerStatus: entry.blockers.length === 0 ? "missing" : "present",
+    }));
+
+  return {
+    rules: {
+      trackedStatuses,
+      incompleteCapabilitiesRequireBlockers: true,
+    },
+    summary: summarizeBlockerCoverage(entries, statuses, owners),
+    byCapability: entries,
+    proofHoles: entries
+      .filter((entry) => entry.blockerStatus === "missing")
+      .map((entry) => ({
+        capabilityId: entry.capabilityId,
+        title: entry.title,
+        status: entry.status,
+        owner: entry.owner,
+        proofHoles: ["missing-blockers"],
+      })),
+  };
+}
+
+function summarizeBlockerCoverage(entries, statuses, owners) {
+  const byBlockerStatus = zeroCountRecord(["present", "missing"]);
+  const byStatus = Object.fromEntries(statuses.map((status) => [status, blockerSummaryBucket()]));
+  const byOwner = Object.fromEntries(owners.map((owner) => [owner, blockerSummaryBucket()]));
+
+  for (const entry of entries) {
+    increment(byBlockerStatus, entry.blockerStatus);
+    if (byStatus[entry.status] === undefined) {
+      byStatus[entry.status] = blockerSummaryBucket();
+    }
+    if (byOwner[entry.owner] === undefined) {
+      byOwner[entry.owner] = blockerSummaryBucket();
+    }
+    incrementBlockerSummaryBucket(byStatus[entry.status], entry);
+    incrementBlockerSummaryBucket(byOwner[entry.owner], entry);
+  }
+
+  return {
+    total: entries.length,
+    withBlockers: byBlockerStatus.present,
+    missingBlockers: byBlockerStatus.missing,
+    byBlockerStatus,
+    byStatus,
+    byOwner,
+  };
+}
+
+function blockerSummaryBucket() {
+  return {
+    total: 0,
+    withBlockers: 0,
+    missingBlockers: 0,
+  };
+}
+
+function incrementBlockerSummaryBucket(bucket, entry) {
+  bucket.total += 1;
+  if (entry.blockerStatus === "present") {
+    bucket.withBlockers += 1;
+  } else {
+    bucket.missingBlockers += 1;
+  }
 }
 
 function laneClassificationCoverage(ledgerEntries, statuses, owners) {

@@ -166,6 +166,10 @@ export type {
   SourcePrimitiveFact,
   SourcePrimitiveKind,
   StructFact,
+  TargetAttributeArgument,
+  TargetAttributeFact,
+  TargetAttributePlacement,
+  TargetAttributeValue,
   TargetBindingFact,
   TargetConstraint,
   TargetConversionFact,
@@ -175,4 +179,5 @@ export type {
   TargetParameter,
   TargetTypeParameter,
   TargetTypeRef,
+  TargetUnsupportedAttributeFact,
 } from "./facts.js";

@@ -142,6 +142,8 @@ export interface TargetParameter {
   readonly passingMode: ArgumentPassingMode;
   readonly optional?: boolean;
   readonly paramsArray?: boolean;
+  readonly attributes?: readonly TargetAttributeFact[];
+  readonly unsupportedAttributes?: readonly TargetUnsupportedAttributeFact[];
 }
 
 export interface TargetMember {
@@ -154,6 +156,10 @@ export interface TargetMember {
   readonly receiverPassing?: "instance" | "first-argument";
   readonly parameters: readonly TargetParameter[];
   readonly returnType?: TargetTypeRef;
+  readonly attributes?: readonly TargetAttributeFact[];
+  readonly unsupportedAttributes?: readonly TargetUnsupportedAttributeFact[];
+  readonly returnAttributes?: readonly TargetAttributeFact[];
+  readonly unsupportedReturnAttributes?: readonly TargetUnsupportedAttributeFact[];
   readonly typeParameters?: readonly TargetTypeParameter[];
   readonly overloadGroup?: string;
 }
@@ -166,12 +172,54 @@ export interface TargetConversionOperatorFact {
   readonly targetType: TargetTypeRef;
 }
 
+export type TargetAttributePlacement =
+  | "type"
+  | "constructor"
+  | "method"
+  | "property"
+  | "field"
+  | "event"
+  | "parameter"
+  | "return";
+
+export type TargetAttributeValue =
+  | { readonly kind: "null" }
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "source-primitive"; readonly name: SourcePrimitiveKind; readonly value: string | boolean }
+  | { readonly kind: "type"; readonly type: TargetTypeRef }
+  | { readonly kind: "enum"; readonly type: TargetTypeRef; readonly value: string; readonly fieldName?: string }
+  | { readonly kind: "array"; readonly elements: readonly TargetAttributeValue[] };
+
+export type TargetAttributeArgument =
+  | { readonly kind: "constructor"; readonly value: TargetAttributeValue }
+  | { readonly kind: "named"; readonly name: string; readonly memberKind: "field" | "property"; readonly value: TargetAttributeValue };
+
+export interface TargetAttributeFact {
+  readonly id: string;
+  readonly target: TargetAttributePlacement;
+  readonly attributeType: TargetTypeRef;
+  readonly constructorId: string;
+  readonly arguments?: readonly TargetAttributeArgument[];
+  readonly evidence?: readonly ExtensionEvidence[];
+}
+
+export interface TargetUnsupportedAttributeFact {
+  readonly id: string;
+  readonly target: TargetAttributePlacement;
+  readonly attributeType?: TargetTypeRef;
+  readonly constructorId?: string;
+  readonly reason: string;
+  readonly evidence?: readonly ExtensionEvidence[];
+}
+
 export interface TargetBindingFact {
   readonly id: string;
   readonly sourceName: string;
   readonly targetName: string;
   readonly target: string;
   readonly kind: "class" | "struct" | "interface" | "trait" | "enum" | "delegate" | "function" | "opaque";
+  readonly attributes?: readonly TargetAttributeFact[];
+  readonly unsupportedAttributes?: readonly TargetUnsupportedAttributeFact[];
   readonly typeParameters?: readonly TargetTypeParameter[];
   readonly members?: readonly TargetMember[];
   readonly conversionOperators?: readonly TargetConversionOperatorFact[];
@@ -445,8 +493,11 @@ function targetBindingFactEquals(left: TargetBindingFact, right: TargetBindingFa
     && left.targetName === right.targetName
     && left.target === right.target
     && left.kind === right.kind
+    && targetAttributeArrayEquals(left.attributes, right.attributes)
+    && targetUnsupportedAttributeArrayEquals(left.unsupportedAttributes, right.unsupportedAttributes)
     && targetTypeParameterArrayEquals(left.typeParameters, right.typeParameters)
     && targetMemberArrayEquals(left.members, right.members)
+    && targetConversionOperatorArrayEquals(left.conversionOperators, right.conversionOperators)
     && targetConstraintArrayEquals(left.implementedContracts, right.implementedContracts);
 }
 
@@ -466,6 +517,10 @@ function targetMemberEquals(left: TargetMember, right: TargetMember): boolean {
     && left.static === right.static
     && targetParameterArrayEquals(left.parameters, right.parameters)
     && optionalTargetTypeRefEquals(left.returnType, right.returnType)
+    && targetAttributeArrayEquals(left.attributes, right.attributes)
+    && targetUnsupportedAttributeArrayEquals(left.unsupportedAttributes, right.unsupportedAttributes)
+    && targetAttributeArrayEquals(left.returnAttributes, right.returnAttributes)
+    && targetUnsupportedAttributeArrayEquals(left.unsupportedReturnAttributes, right.unsupportedReturnAttributes)
     && targetTypeParameterArrayEquals(left.typeParameters, right.typeParameters)
     && left.overloadGroup === right.overloadGroup;
 }
@@ -479,7 +534,101 @@ function targetParameterEquals(left: TargetParameter, right: TargetParameter): b
     && targetTypeRefEquals(left.type, right.type)
     && left.passingMode === right.passingMode
     && left.optional === right.optional
-    && left.paramsArray === right.paramsArray;
+    && left.paramsArray === right.paramsArray
+    && targetAttributeArrayEquals(left.attributes, right.attributes)
+    && targetUnsupportedAttributeArrayEquals(left.unsupportedAttributes, right.unsupportedAttributes);
+}
+
+function targetConversionOperatorArrayEquals(left: readonly TargetConversionOperatorFact[] | undefined, right: readonly TargetConversionOperatorFact[] | undefined): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.length === right.length && left.every((value, index) => targetConversionOperatorEquals(value, right[index]!));
+}
+
+function targetConversionOperatorEquals(left: TargetConversionOperatorFact, right: TargetConversionOperatorFact): boolean {
+  return left.id === right.id
+    && left.conversionKind === right.conversionKind
+    && targetTypeRefEquals(left.declaringType, right.declaringType)
+    && targetTypeRefEquals(left.sourceType, right.sourceType)
+    && targetTypeRefEquals(left.targetType, right.targetType);
+}
+
+function targetAttributeArrayEquals(left: readonly TargetAttributeFact[] | undefined, right: readonly TargetAttributeFact[] | undefined): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.length === right.length && left.every((value, index) => targetAttributeEquals(value, right[index]!));
+}
+
+function targetAttributeEquals(left: TargetAttributeFact, right: TargetAttributeFact): boolean {
+  return left.id === right.id
+    && left.target === right.target
+    && targetTypeRefEquals(left.attributeType, right.attributeType)
+    && left.constructorId === right.constructorId
+    && targetAttributeArgumentArrayEquals(left.arguments, right.arguments);
+}
+
+function targetUnsupportedAttributeArrayEquals(left: readonly TargetUnsupportedAttributeFact[] | undefined, right: readonly TargetUnsupportedAttributeFact[] | undefined): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.length === right.length && left.every((value, index) => targetUnsupportedAttributeEquals(value, right[index]!));
+}
+
+function targetUnsupportedAttributeEquals(left: TargetUnsupportedAttributeFact, right: TargetUnsupportedAttributeFact): boolean {
+  return left.id === right.id
+    && left.target === right.target
+    && optionalTargetTypeRefEquals(left.attributeType, right.attributeType)
+    && left.constructorId === right.constructorId
+    && left.reason === right.reason;
+}
+
+function targetAttributeArgumentArrayEquals(left: readonly TargetAttributeArgument[] | undefined, right: readonly TargetAttributeArgument[] | undefined): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.length === right.length && left.every((value, index) => targetAttributeArgumentEquals(value, right[index]!));
+}
+
+function targetAttributeArgumentEquals(left: TargetAttributeArgument, right: TargetAttributeArgument): boolean {
+  if (left.kind !== right.kind) {
+    return false;
+  }
+  switch (left.kind) {
+    case "constructor":
+      return right.kind === "constructor" && targetAttributeValueEquals(left.value, right.value);
+    case "named":
+      return right.kind === "named"
+        && left.name === right.name
+        && left.memberKind === right.memberKind
+        && targetAttributeValueEquals(left.value, right.value);
+  }
+}
+
+function targetAttributeValueEquals(left: TargetAttributeValue, right: TargetAttributeValue): boolean {
+  if (left.kind !== right.kind) {
+    return false;
+  }
+  switch (left.kind) {
+    case "null":
+      return true;
+    case "string":
+      return right.kind === "string" && left.value === right.value;
+    case "source-primitive":
+      return right.kind === "source-primitive" && left.name === right.name && Object.is(left.value, right.value);
+    case "type":
+      return right.kind === "type" && targetTypeRefEquals(left.type, right.type);
+    case "enum":
+      return right.kind === "enum"
+        && targetTypeRefEquals(left.type, right.type)
+        && left.value === right.value
+        && left.fieldName === right.fieldName;
+    case "array":
+      return right.kind === "array"
+        && left.elements.length === right.elements.length
+        && left.elements.every((value, index) => targetAttributeValueEquals(value, right.elements[index]!));
+  }
 }
 
 function targetTypeParameterArrayEquals(left: readonly TargetTypeParameter[] | undefined, right: readonly TargetTypeParameter[] | undefined): boolean {

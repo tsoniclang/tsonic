@@ -88,6 +88,29 @@ test("capability coverage report exposes partial and not-started blockers", () =
   }
 });
 
+test("capability coverage report exposes blocker coverage for all incomplete work", () => {
+  const report = buildCapabilityCoverageReport();
+  const trackedLedgerEntries = capabilityLedger
+    .filter((entry) => report.blockerCoverage.rules.trackedStatuses.includes(entry.status));
+  const blockerCoverageById = new Map(
+    report.blockerCoverage.byCapability.map((entry) => [entry.capabilityId, entry]),
+  );
+
+  assert.equal(report.blockerCoverage.rules.incompleteCapabilitiesRequireBlockers, true);
+  assert.equal(report.blockerCoverage.summary.total, trackedLedgerEntries.length);
+  assert.equal(report.blockerCoverage.summary.withBlockers, trackedLedgerEntries.length);
+  assert.equal(report.blockerCoverage.summary.missingBlockers, 0);
+  assert.deepEqual(report.blockerCoverage.proofHoles, []);
+
+  for (const ledgerEntry of trackedLedgerEntries) {
+    const coverageEntry = blockerCoverageById.get(ledgerEntry.capabilityId);
+    assert.equal(coverageEntry.status, ledgerEntry.status, ledgerEntry.capabilityId);
+    assert.equal(coverageEntry.owner, ledgerEntry.owner, ledgerEntry.capabilityId);
+    assert.deepEqual(coverageEntry.blockers, [...ledgerEntry.blockers], ledgerEntry.capabilityId);
+    assert.equal(coverageEntry.blockerStatus, "present", ledgerEntry.capabilityId);
+  }
+});
+
 test("capability coverage report exposes oldEvidence coverage", () => {
   const report = buildCapabilityCoverageReport();
   const ledgerOldEvidencePaths = capabilityLedger.flatMap((entry) => entry.oldEvidence);

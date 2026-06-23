@@ -119,7 +119,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.operator.checked-target-operation", "Operators emit from checked target operation facts", "partial", "target-provider"],
   ["operation.conversion.checked-target-conversion", "Target conversions are explicit facts", "partial", "target-provider"],
   ["operation.iteration.for-of.sync", "for-of emits only with sync iteration facts", "partial", "target-provider"],
-  ["operation.iteration.for-in.keys", "for-in emits only with key enumeration facts", "not-started", "target-provider"],
+  ["operation.iteration.for-in.keys", "for-in emits only with key enumeration facts", "partial", "target-provider"],
   ["operation.iteration.provider-target", "Iteration maps to provider target iteration facts", "partial", "target-provider"],
   ["operation.array.literal", "Array literals choose target carrier from facts", "partial", "target-provider"],
   ["operation.spread.array", "Array spread emits from iterable/spread facts", "partial", "target-provider"],
@@ -210,21 +210,21 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.process", "node:process uses selected Node surface facts", "partial", "surface-provider"],
 
   ["compat.mode.strict-native", "Strict-native mode rejects unsupported dynamic behavior", "partial", "target-provider"],
-  ["compat.mode.compat", "Compatibility mode enables explicit dynamic carriers", "not-started", "target-provider"],
-  ["compat.any.property", "any property operations use dynamic carrier facts", "not-started", "target-provider"],
-  ["compat.any.dynamic-get", "any dynamic get uses explicit carrier facts", "not-started", "target-provider"],
-  ["compat.any.dynamic-set", "any dynamic set uses explicit carrier facts", "not-started", "target-provider"],
+  ["compat.mode.compat", "Compatibility mode enables explicit dynamic carriers", "partial", "target-provider"],
+  ["compat.any.property", "any property operations use dynamic carrier facts", "partial", "target-provider"],
+  ["compat.any.dynamic-get", "any dynamic get uses explicit carrier facts", "partial", "target-provider"],
+  ["compat.any.dynamic-set", "any dynamic set uses explicit carrier facts", "partial", "target-provider"],
   ["compat.any.call-construct", "any call/new use dynamic carrier facts", "not-started", "target-provider"],
-  ["compat.any.dynamic-call", "any dynamic call uses explicit carrier facts", "not-started", "target-provider"],
-  ["compat.any.operators", "any operators use dynamic carrier facts", "not-started", "target-provider"],
-  ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "not-started", "target-provider"],
-  ["compat.object.no-dynamic-access", "object is not treated like any", "not-started", "target-provider"],
-  ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "not-started", "target-provider"],
+  ["compat.any.dynamic-call", "any dynamic call uses explicit carrier facts", "partial", "target-provider"],
+  ["compat.any.operators", "any operators use dynamic carrier facts", "partial", "target-provider"],
+  ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "partial", "target-provider"],
+  ["compat.object.no-dynamic-access", "object is not treated like any", "partial", "target-provider"],
+  ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "partial", "target-provider"],
   ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "not-started", "target-provider"],
   ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "not-started", "target-provider"],
   ["runtime.union.carrier", "Union carrier is explicit runtime capability", "not-started", "target-provider"],
   ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "partial", "target-provider"],
-  ["runtime.dynamic.carrier", "Dynamic carrier is explicit runtime capability", "not-started", "target-provider"],
+  ["runtime.dynamic.carrier", "Dynamic carrier is explicit runtime capability", "partial", "target-provider"],
 
   ["backend.ast.only", "Backend constructs target AST only", "partial", "csharp-backend"],
   ["backend.no-semantic-strings", "Semantic output is never direct strings", "partial", "csharp-backend"],
@@ -253,7 +253,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "not-started", "target-provider"],
   ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "not-started", "target-provider"],
   ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "partial", "target-provider"],
-  ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "not-started", "target-provider"],
+  ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "partial", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "partial", "target-provider"],
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
   ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "partial", "target-provider"],
@@ -265,7 +265,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "partial", "target-provider"],
   ["diagnostic.target-constraint", "Target constraint failure points to source", "partial", "target-provider"],
   ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "complete", "tsts-api"],
-  ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "not-started", "target-provider"],
+  ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "partial", "target-provider"],
   ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "not-started", "target-provider"],
   ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
   ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "partial", "tests"],
@@ -470,6 +470,22 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, and params-array facts with exact reflected signature identity, and reject wrong optional/params arities; remains partial until reflected default-value facts and mutated/missing parameter-mode facts have full negative coverage.",
   }),
+  "native.dotnet.attributes": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-attributes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/attributes/basic/Attributes.ts",
+      "packages/targets/csharp/emitter/testcases/common/attributes/comprehensive/Attributes.ts",
+      "packages/targets/csharp/emitter/testcases/common/attributes/targets/Attributes.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: .NET reflection records target/provider attributes on types, constructors, methods, properties, fields, parameters, and returns; target binding facts preserve constructor identity, constructor/named arguments, enum/type/array/source-primitive values, placement, and evidence; unsupported attribute values are recorded as unsupported attribute facts instead of being dropped. Remains partial until source-authored attribute markers are wired end to end into C# declaration emission.",
+  }),
   "provider.virtual-module.overload-identity": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
@@ -594,6 +610,190 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: target conversions are finalized as TSTS targetConversion facts, C# emission requires a matching C# target conversion operation fact, provider conversion operators carry source and target type evidence, and mismatched/missing/ambiguous conversion facts fail closed. Remains partial until provider-owned conversions have full CLI/runtime coverage across calls, returns, assignments, assertions, and generic substitutions.",
+  }),
+  "operation.iteration.for-in.keys": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/double-array/DoubleArray.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: for-in emission is driven by finalized C# targetIteration facts recorded only after TSTS accepts for-in. JS surface array/string for-in uses index-key facts, object-shape for-in uses object-shape key facts, and Record<string, T> for-in uses provider-owned Dictionary.Keys facts. Missing/non-string key facts fail closed instead of falling back to syntax or source-name inference.",
+  }),
+  "compat.mode.strict-native": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: C# target options default to strict-native, strict-native hard-rejects opaque TypeScript any operations before emission, and a test-injected target operation fact cannot rescue strict-native dynamic any behavior. Remains partial until all dynamic operation families and runtime/toolchain diagnostics are covered end to end.",
+  }),
+  "compat.mode.compat": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: explicit typescriptCompatibility=compat is parsed, compat mode still rejects opaque any operations when closed operation facts are missing, and a test-injected closed operation fact permits the operation only in compat mode. Remains partial until real TsValue/TsObject/TsFunction carriers and runtime artifacts exist.",
+  }),
+  "compat.any.property": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/semantic-guards.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: opaque any property and element operations are not source-owned dynamic fallbacks; strict-native rejects them, compat rejects missing operation facts, and only explicit operation facts suppress the compat diagnostic. Remains partial until real carrier get/set operations are implemented and emitted.",
+  }),
+  "compat.any.dynamic-get": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/semantic-guards.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: any property/element reads require closed dynamic get facts; strict-native fails even if a fact is present, while compat mode requires the finalized operation fact before suppressing diagnostics. Remains partial until TsValue.GetProperty/TsObject key semantics are real runtime facts and backend AST output.",
+  }),
+  "compat.any.dynamic-set": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: property writes through any are caught at the opaque any property node and require compat carrier operation facts rather than backend assignment guessing. Remains partial until explicit set/delete/update operation facts and runtime AST emission exist.",
+  }),
+  "compat.any.dynamic-call": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/semantic-guards.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    notes:
+      "Reviewed partial proof: calls through opaque any record no selected signature and emit deterministic missing-operation diagnostics in strict-native and compat-without-facts. Remains partial until TsFunction/TsValue call operation facts and target AST emission exist.",
+  }),
+  "compat.any.operators": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    notes:
+      "Reviewed partial proof: operators with opaque any operands do not synthesize C# operator facts and produce deterministic diagnostics without compat operation facts. Remains partial until every JS operator policy has a closed carrier operation or hard-reject classification.",
+  }),
+  "compat.any.typed-boundary-cast": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/assignability-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/assignability-boundary.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: assignment/return/initializer boundaries between opaque any and typed target carriers produce target diagnostics unless an explicit target conversion fact exists. Remains partial until compat typed-boundary cast helpers are implemented as closed runtime facts.",
+  }),
+  "compat.object.no-dynamic-access": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: TypeScript object is not promoted to opaque any, receives no dynamic runtime carrier, and property access remains a TSTS source diagnostic rather than target/provider recovery. Remains partial until all object surface operations are separately classified as object-shape, provider adapter, compat carrier, or hard reject.",
+  }),
+  "compat.unknown.no-dynamic-access": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
+    ]),
+    notes:
+      "Reviewed partial proof: unknown is not promoted to opaque any, receives no dynamic runtime carrier, and property access remains a TSTS source diagnostic. Old object-literal-unknown coverage is mapped as fail-closed evidence, not as a legacy lowering pattern.",
+  }),
+  "runtime.dynamic.carrier": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/semantic-guards.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: the current runtime carrier fact for TypeScript any is opaque and non-renderable by itself; dynamic behavior requires separate operation facts and mode checks. Remains partial until concrete TsValue/TsObject/TsFunction carriers, backend AST emission, and runtime artifacts exist.",
+  }),
+  "diagnostic.dynamic-strict-mode": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: strict-native dynamic any diagnostics explicitly say strict-native and continue to fire even when a compatibility fact exists. Remains partial until source spans and all dynamic operation families have current CLI/runtime tests.",
   }),
   "function.default-rest-optional-params": Object.freeze({
     positiveTests: Object.freeze([
@@ -1079,7 +1279,7 @@ function compatRuntimeCarrier(capabilityId) {
   if (capabilityId.startsWith("compat.any.dynamic-get") || capabilityId.startsWith("compat.any.dynamic-set") || capabilityId.startsWith("compat.any.property") || capabilityId.startsWith("compat.any.operators") || capabilityId.startsWith("compat.any.typed-boundary-cast") || capabilityId.startsWith("carrier.any") || capabilityId.startsWith("runtime.dynamic")) {
     return "TsValue";
   }
-  if (capabilityId.startsWith("compat.object") || capabilityId.startsWith("surface.js.object-runtime")) {
+  if (capabilityId.startsWith("surface.js.object-runtime")) {
     return "TsObject";
   }
   if (capabilityId.startsWith("carrier.array") || capabilityId.startsWith("operation.spread.array") || capabilityId.startsWith("binding.array") || capabilityId.startsWith("type.variadic-tuple")) {
@@ -1170,6 +1370,7 @@ function capability([capabilityId, title, status, owner]) {
   const defaults = capabilityDefaults(capabilityId, owner);
   const reviewedEvidence = reviewedCapabilityEvidence[capabilityId];
   const laneClassification = reviewedEvidence?.laneClassification ?? laneClassificationDefaults(capabilityId, owner);
+  const blockers = reviewedEvidence?.blockers ?? defaultCapabilityBlockers(capabilityId, status);
 
   const entry = Object.freeze({
     capabilityId,
@@ -1186,7 +1387,7 @@ function capability([capabilityId, title, status, owner]) {
     negativeTests: Object.freeze(reviewedEvidence?.negativeTests ?? []),
     oldEvidence: Object.freeze(reviewedEvidence?.oldEvidence ?? []),
     laneClassification,
-    blockers: Object.freeze(status === "blocked" ? ["Requires provider/runtime implementation before completion."] : []),
+    blockers: Object.freeze(blockers),
     notes: reviewedEvidence?.notes ??
       "Machine-readable entry seeded from .analysis/test-plan-20260623-075726; old tests are evidence, capability coverage is the source of truth.",
   });
@@ -1195,6 +1396,19 @@ function capability([capabilityId, title, status, owner]) {
     throw new Error(`invalid capability ledger entry ${capabilityId}: ${validationErrors.join("; ")}`);
   }
   return entry;
+}
+
+function defaultCapabilityBlockers(capabilityId, status) {
+  if (status === "complete" || status === "invalid") {
+    return [];
+  }
+  if (status === "blocked") {
+    return [`${capabilityId} requires an upstream provider, runtime, or target contract before implementation can be completed.`];
+  }
+  if (status === "not-started") {
+    return [`${capabilityId} has no current implementation batch or current positive/negative proof yet.`];
+  }
+  return [`${capabilityId} still requires remaining implementation and current positive/negative proof before it can be marked complete.`];
 }
 
 export const capabilityLedger = Object.freeze(baseCapabilityDefinitions.map(capability));
@@ -1219,9 +1433,22 @@ export function validateCapabilityLedgerEntry(entry) {
   validateStringArrayField(errors, entry, "negativeTests");
   validateStringArrayField(errors, entry, "oldEvidence");
   validateStringArrayField(errors, entry, "blockers");
+  validateBlockerCompleteness(errors, entry);
   validateStringField(errors, entry, "notes");
   errors.push(...validateCapabilityLaneClassification(entry));
   return errors;
+}
+
+function validateBlockerCompleteness(errors, entry) {
+  if (entry.status === "partial" || entry.status === "not-started" || entry.status === "blocked") {
+    if (!Array.isArray(entry.blockers) || entry.blockers.length === 0) {
+      errors.push(`${entry.status} capabilities must have blockers`);
+    }
+    return;
+  }
+  if ((entry.status === "complete" || entry.status === "invalid") && Array.isArray(entry.blockers) && entry.blockers.length > 0) {
+    errors.push(`${entry.status} capabilities must not have blockers`);
+  }
 }
 
 export function validateCapabilityLaneClassification(entry) {

@@ -8,7 +8,9 @@ export type {
 export type {
   TargetId,
   TargetSelection,
+  TargetSelectionOptions,
   TargetSurfaceId,
+  TargetTypescriptCompatibilityMode,
   TsonicProjectConfig,
 } from "./config.js";
 export type {
