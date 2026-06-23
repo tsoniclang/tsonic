@@ -12,11 +12,10 @@ import {
   compileTargetFromSemanticSession,
   createTsonicSemanticSession,
   collectTstsDiagnostics,
-  getSelectedSurfaceImplementations,
 } from "./compiler-session.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
-import { getMissingTargetProviderMessage } from "./target/extensions.js";
+import { getMissingTargetProviderMessage, selectTargetSurfaceImplementations } from "./target/extensions.js";
 
 export interface CompileProjectInput {
   readonly project: TsonicProjectConfig;
@@ -184,16 +183,16 @@ function getTargetSelectedSurfaces(
   targetPack: TargetPack,
   target: TargetSelection,
 ): readonly TargetSurfaceImplementation[] | TargetDiagnostic {
-  try {
-    return getSelectedSurfaceImplementations(targetPack, target);
-  } catch (error: unknown) {
+  const result = selectTargetSurfaceImplementations(targetPack, target);
+  if ("error" in result) {
     return {
       code: "TARGET_SURFACE_SELECTION",
       category: "error",
-      message: error instanceof Error ? error.message : String(error),
+      message: result.error,
       source: targetPack.id,
     };
   }
+  return result.selectedSurfaces;
 }
 
 function getTargetProviderDiagnostic(

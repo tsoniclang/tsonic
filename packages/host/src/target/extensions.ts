@@ -19,6 +19,14 @@ export interface TargetCompilerExtensionComposition {
   readonly extensions: readonly CompilerExtension[];
 }
 
+export type TargetSurfaceSelectionResult =
+  | {
+      readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+    }
+  | {
+      readonly error: string;
+    };
+
 export function createTargetCompilerExtensions(options: CreateTargetCompilerExtensionsOptions): TargetCompilerExtensionComposition {
   const selectedSurfaces = options.selectedSurfaces === undefined
     ? getSelectedSurfaceImplementations(options.targetPack, options.target)
@@ -61,11 +69,22 @@ export function getSelectedSurfaceImplementations(
   targetPack: TargetPack,
   target: TargetSelection,
 ): readonly TargetSurfaceImplementation[] {
+  const result = selectTargetSurfaceImplementations(targetPack, target);
+  if ("error" in result) {
+    throw new Error(result.error);
+  }
+  return result.selectedSurfaces;
+}
+
+export function selectTargetSurfaceImplementations(
+  targetPack: TargetPack,
+  target: TargetSelection,
+): TargetSurfaceSelectionResult {
   const requestedSurfaces = target.surfaces ?? [];
   const surfaceById = new Map<string, TargetSurfaceImplementation>();
   for (const surface of targetPack.surfaces ?? []) {
     if (surfaceById.has(surface.id)) {
-      throw new Error(`target '${target.id}' declares surface '${surface.id}' more than once`);
+      return { error: `target '${target.id}' declares surface '${surface.id}' more than once` };
     }
     surfaceById.set(surface.id, surface);
   }
@@ -73,11 +92,11 @@ export function getSelectedSurfaceImplementations(
   const selectedSurfaces: TargetSurfaceImplementation[] = [];
   for (const surfaceId of requestedSurfaces) {
     if (selectedIds.has(surfaceId)) {
-      throw new Error(`target '${target.id}' requests surface '${surfaceId}' more than once`);
+      return { error: `target '${target.id}' requests surface '${surfaceId}' more than once` };
     }
     const surface = surfaceById.get(surfaceId);
     if (surface === undefined) {
-      throw new Error(`target '${target.id}' does not implement requested surface '${surfaceId}'`);
+      return { error: `target '${target.id}' does not implement requested surface '${surfaceId}'` };
     }
     selectedIds.add(surfaceId);
     selectedSurfaces.push(surface);
@@ -85,11 +104,11 @@ export function getSelectedSurfaceImplementations(
   for (const surface of selectedSurfaces) {
     for (const requiredSurfaceId of surface.requiredSurfaces ?? []) {
       if (!selectedIds.has(requiredSurfaceId)) {
-        throw new Error(`target '${target.id}' surface '${surface.id}' requires surface '${requiredSurfaceId}'`);
+        return { error: `target '${target.id}' surface '${surface.id}' requires surface '${requiredSurfaceId}'` };
       }
     }
   }
-  return selectedSurfaces;
+  return { selectedSurfaces };
 }
 
 function validateSelectedSurfaceComposition(
