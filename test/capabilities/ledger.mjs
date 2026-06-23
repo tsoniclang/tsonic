@@ -247,7 +247,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs surface", "partial", "csharp-runtime"],
   ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "partial", "csharp-runtime"],
 
-  ["native.dotnet.assembly-model", ".NET provider models assemblies and namespaces", "not-started", "target-provider"],
+  ["native.dotnet.assembly-model", ".NET provider models assemblies and namespaces", "partial", "target-provider"],
   ["native.dotnet.type-model", ".NET provider models generic, nested, static, and instance types", "not-started", "target-provider"],
   ["native.dotnet.member-methods", ".NET provider models methods, overloads, extension methods, and generic methods", "not-started", "target-provider"],
   ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "not-started", "target-provider"],
@@ -399,6 +399,21 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: target packs without providers emit TARGET_PROVIDER before backend emission, and provider-owned imports missing from selected virtual modules surface diagnostics instead of falling back to generated package files.",
+  }),
+  "native.dotnet.assembly-model": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-assembly-identity.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-assembly-identity.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: .NET provider target identity is assembly-qualified targetId while CLR metadataName remains display/provenance only; duplicate Shared.Widget across assemblies cannot resolve by metadata-name-only lookup and must either expose distinct assembly-qualified declarations or explicit unsupported collision evidence. Remains partial until all assembly/version selection, aliases, and target project references are modeled end to end.",
   }),
   "native.dotnet.parameter-modes": Object.freeze({
     positiveTests: Object.freeze([
