@@ -158,6 +158,14 @@ export interface TargetMember {
   readonly overloadGroup?: string;
 }
 
+export interface TargetConversionOperatorFact {
+  readonly id: string;
+  readonly conversionKind: "implicit" | "explicit";
+  readonly declaringType: TargetTypeRef;
+  readonly sourceType: TargetTypeRef;
+  readonly targetType: TargetTypeRef;
+}
+
 export interface TargetBindingFact {
   readonly id: string;
   readonly sourceName: string;
@@ -166,6 +174,7 @@ export interface TargetBindingFact {
   readonly kind: "class" | "struct" | "interface" | "trait" | "enum" | "delegate" | "function" | "opaque";
   readonly typeParameters?: readonly TargetTypeParameter[];
   readonly members?: readonly TargetMember[];
+  readonly conversionOperators?: readonly TargetConversionOperatorFact[];
   readonly implementedContracts?: readonly TargetConstraint[];
 }
 
@@ -207,6 +216,7 @@ export interface RuntimeCarrierFact {
 }
 
 export interface TargetConversionFact {
+  readonly sourceType?: TargetTypeRef;
   readonly convertedType?: TargetTypeRef;
   readonly operation?: TargetOperationFact;
 }
@@ -363,7 +373,10 @@ export const runtimeCarrierFactKey = defineExtensionFactKey<RuntimeCarrierFact>(
 export const targetConversionFactKey = defineExtensionFactKey<TargetConversionFact>({
   extensionId: "tsts.target-bindings",
   name: "targetConversion",
-  equals: (left, right) => optionalTargetTypeRefEquals(left.convertedType, right.convertedType) && optionalTargetOperationFactEquals(left.operation, right.operation),
+  equals: (left, right) =>
+    optionalTargetTypeRefEquals(left.sourceType, right.sourceType) &&
+    optionalTargetTypeRefEquals(left.convertedType, right.convertedType) &&
+    optionalTargetOperationFactEquals(left.operation, right.operation),
 });
 
 export const providerVirtualDeclarationFactKey = defineExtensionFactKey<ProviderVirtualDeclarationFact>({

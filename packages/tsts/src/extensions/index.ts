@@ -169,6 +169,7 @@ export type {
   TargetBindingFact,
   TargetConstraint,
   TargetConversionFact,
+  TargetConversionOperatorFact,
   TargetMember,
   TargetOperationFact,
   TargetParameter,

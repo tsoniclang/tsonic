@@ -255,7 +255,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "partial", "target-provider"],
   ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "not-started", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "partial", "target-provider"],
-  ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "not-started", "target-provider"],
+  ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
   ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "partial", "target-provider"],
 
   ["diagnostic.missing-target-fact", "Missing target facts produce deterministic diagnostics", "partial", "target-provider"],
@@ -437,6 +437,22 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: .NET reflection records class, struct, new, unmanaged, interface, base-class, generic-method, and variance constraints as target facts with assembly-qualified target identities, and keeps those target-only constraints out of source declarations. Remains partial until notnull policy, base-vs-interface distinction, unsupported constraint evidence, and source-level provider constraint diagnostics are complete.",
   }),
+  "native.dotnet.conversions": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-conversion-operators.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/provider-conversion-operators.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/implicit-int-to-double/",
+      "test/fixtures/default-param-int-to-double/",
+      "packages/targets/csharp/emitter/testcases/common/types/type-assertions/TypeAssertions.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: .NET reflection records op_Implicit and op_Explicit as target-only conversion operator facts, keeps them out of source-visible provider members, selects conversion operators by reflected source/target type identity, and reports ambiguity rather than choosing by order. Remains partial until provider-owned conversions are proven through end-to-end source calls/assertions and unsupported conversion diagnostics cover all unsupported operator shapes.",
+  }),
   "native.dotnet.parameter-modes": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
@@ -558,6 +574,26 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; remains partial until every parameter-mode consumer has missing/mutated fact rejection coverage.",
+  }),
+  "operation.conversion.checked-target-conversion": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/provider-conversion-operators.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/provider-conversion-operators.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/type-assertions/TypeAssertions.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/VariableInit.ts",
+      "test/fixtures/implicit-int-to-double/",
+      "test/fixtures/default-param-int-to-double/",
+    ]),
+    notes:
+      "Reviewed partial proof: target conversions are finalized as TSTS targetConversion facts, C# emission requires a matching C# target conversion operation fact, provider conversion operators carry source and target type evidence, and mismatched/missing/ambiguous conversion facts fail closed. Remains partial until provider-owned conversions have full CLI/runtime coverage across calls, returns, assignments, assertions, and generic substitutions.",
   }),
   "function.default-rest-optional-params": Object.freeze({
     positiveTests: Object.freeze([

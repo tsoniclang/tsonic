@@ -614,6 +614,7 @@ function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, ca
       continue;
     }
     extensionHost.facts.set(argument, targetConversionFactKey, {
+      ...(result.value.sourceType !== undefined ? { sourceType: result.value.sourceType } : {}),
       ...(result.value.convertedType !== undefined ? { convertedType: result.value.convertedType } : {}),
       ...(result.value.operation !== undefined ? { operation: result.value.operation } : {}),
     }, result.evidence ?? []);
