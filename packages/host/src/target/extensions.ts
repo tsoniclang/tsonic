@@ -1,5 +1,6 @@
 import type { CompilerExtension } from "@tsonic/tsts";
 import type {
+  TargetProvider,
   TargetPack,
   TargetSelection,
   TargetSurfaceImplementation,
@@ -19,16 +20,31 @@ export interface TargetCompilerExtensionComposition {
 }
 
 export function createTargetCompilerExtensions(options: CreateTargetCompilerExtensionsOptions): TargetCompilerExtensionComposition {
-  const selectedSurfaces = options.selectedSurfaces ?? getSelectedSurfaceImplementations(options.targetPack, options.target);
-  const extensions = options.targetPack.provider?.createExtensions({
+  const selectedSurfaces = options.selectedSurfaces === undefined
+    ? getSelectedSurfaceImplementations(options.targetPack, options.target)
+    : validateSelectedSurfaceComposition(options.targetPack, options.target, options.selectedSurfaces);
+  const provider = requireTargetProvider(options.targetPack, options.target);
+  const extensions = provider.createExtensions({
     project: options.project,
     target: options.target,
     selectedSurfaces,
-  }) ?? [];
+  });
   return {
     selectedSurfaces,
     extensions,
   };
+}
+
+export function requireTargetProvider(targetPack: TargetPack, target: TargetSelection): TargetProvider {
+  const provider = targetPack.provider;
+  if (provider === undefined) {
+    throw new Error(getMissingTargetProviderMessage(target));
+  }
+  return provider;
+}
+
+export function getMissingTargetProviderMessage(target: TargetSelection): string {
+  return `target '${target.id}' does not declare a provider; Tsonic requires provider-composed TSTS facts before backend emission`;
 }
 
 export function getSelectedSurfaceImplementations(
@@ -64,4 +80,25 @@ export function getSelectedSurfaceImplementations(
     }
   }
   return selectedSurfaces;
+}
+
+function validateSelectedSurfaceComposition(
+  targetPack: TargetPack,
+  target: TargetSelection,
+  selectedSurfaces: readonly TargetSurfaceImplementation[],
+): readonly TargetSurfaceImplementation[] {
+  const expectedSurfaces = getSelectedSurfaceImplementations(targetPack, target);
+  const hasExactComposition = selectedSurfaces.length === expectedSurfaces.length &&
+    selectedSurfaces.every((surface, index) => surface === expectedSurfaces[index]);
+  if (!hasExactComposition) {
+    throw new Error(
+      `target '${target.id}' selected surface composition is stale or unowned; expected selected target pack surfaces ` +
+        `[${formatSurfaceIds(expectedSurfaces)}], received [${formatSurfaceIds(selectedSurfaces)}]`,
+    );
+  }
+  return selectedSurfaces;
+}
+
+function formatSurfaceIds(surfaces: readonly TargetSurfaceImplementation[]): string {
+  return surfaces.map((surface) => surface.id).join(",");
 }

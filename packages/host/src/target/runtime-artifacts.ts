@@ -6,6 +6,7 @@ import type {
   TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
+import { requireTargetProvider } from "./extensions.js";
 
 export interface CollectTargetRuntimeArtifactsOptions {
   readonly project: TsonicProjectConfig;
@@ -16,6 +17,7 @@ export interface CollectTargetRuntimeArtifactsOptions {
 }
 
 export function collectTargetRuntimeArtifacts(options: CollectTargetRuntimeArtifactsOptions): readonly TargetArtifact[] {
+  const provider = requireTargetProvider(options.targetPack, options.target);
   const context = {
     project: options.project,
     target: options.target,
@@ -23,7 +25,7 @@ export function collectTargetRuntimeArtifacts(options: CollectTargetRuntimeArtif
     paths: options.paths,
   };
   return [
-    ...(options.targetPack.provider?.runtimeArtifacts?.(context) ?? []),
+    ...(provider.runtimeArtifacts?.(context) ?? []),
     ...options.selectedSurfaces.flatMap((surface) => surface.runtimeArtifacts(context)),
   ];
 }
