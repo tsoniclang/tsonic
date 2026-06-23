@@ -123,7 +123,7 @@ export const oldEmitterSeedCapabilities = Object.freeze([
   "types/utility-types/UtilityTypes",
 ]);
 
-export const oldEmitterPortInventory = Object.freeze([
+const oldEmitterPortInventoryEntries = Object.freeze([
   portedEmitterCase(
     "control-flow/switch/SwitchStatement",
     "control-flow",
@@ -524,6 +524,10 @@ export const oldEmitterPortInventory = Object.freeze([
   ], "source-semantics", "source semantics + C# backend planner", "Stackalloc still requires a source-visible C# provider declaration, Span<T> target/source facts, stackalloc Roslyn AST support, and closed element/member facts before it can be emitted without a backend raw-code or heuristic path."),
 ]);
 
+export const oldEmitterPortInventory = Object.freeze(
+  oldEmitterPortInventoryEntries.map(withOldEmitterCapabilityIds),
+);
+
 const oldEmitterStatusSet = new Set(oldEmitterInventoryStatuses);
 const oldEmitterFeatureAreaSet = new Set(oldEmitterFeatureAreas);
 
@@ -543,6 +547,132 @@ function expectedOnlyCases(relativePaths) {
   return relativePaths.map(expectedCase);
 }
 
+function withOldEmitterCapabilityIds(entry) {
+  if (entry.capabilityIds !== undefined) {
+    return entry;
+  }
+
+  return Object.freeze({
+    ...entry,
+    capabilityIds: Object.freeze(defaultOldEmitterCapabilityIds(entry)),
+  });
+}
+
+function defaultOldEmitterCapabilityIds(entry) {
+  const ids = new Set(["backend.ast.only", "backend.fail-closed-facts"]);
+  const oldPath = entry.oldPath;
+
+  switch (entry.featureArea) {
+    case "arrays":
+      ids.add("carrier.array");
+      ids.add("operation.array.literal");
+      ids.add("operation.element.provider-indexer");
+      ids.add("operation.iteration.provider-target");
+      break;
+    case "async":
+      ids.add("operation.await.promise-task");
+      ids.add("function.async");
+      ids.add("carrier.function-delegate");
+      break;
+    case "attributes":
+      ids.add("source.marker.attribute");
+      ids.add("declaration.attributes");
+      break;
+    case "classes":
+      ids.add("declaration.class");
+      ids.add("declaration.class.fields");
+      ids.add("declaration.class.methods");
+      ids.add("declaration.class.inheritance");
+      break;
+    case "collections":
+      ids.add("carrier.dictionary-record");
+      ids.add("operation.construct.provider-selected-constructor");
+      ids.add("operation.element.provider-indexer");
+      break;
+    case "control-flow":
+      ids.add("statement.block-scope");
+      ids.add("statement.if-else");
+      ids.add("statement.switch");
+      ids.add("statement.control-transfer");
+      break;
+    case "functions":
+      ids.add("function.declaration");
+      ids.add("function.arrow");
+      ids.add("function.closure");
+      ids.add("function.higher-order");
+      ids.add("carrier.function-delegate");
+      break;
+    case "generics":
+      ids.add("declaration.generic-parameters");
+      ids.add("type.generic.provider-target-arguments");
+      ids.add("tsts.generic-inference");
+      break;
+    case "object-shapes":
+      ids.add("carrier.object-shape");
+      ids.add("declaration.generated-structural");
+      ids.add("expression.object-literal");
+      break;
+    case "operators":
+      ids.add("operation.operator.checked-target-operation");
+      ids.add("operation.conversion.checked-target-conversion");
+      ids.add("expression.nullish-optional");
+      break;
+    case "source-semantics":
+      ids.add("source.primitive.numeric");
+      ids.add("source.marker.struct");
+      ids.add("source.marker.field");
+      break;
+    case "target-interop":
+      ids.add("provider.virtual-module.target-identity");
+      ids.add("operation.call.provider-selected-method");
+      ids.add("operation.member.no-name-guess");
+      break;
+    case "types":
+      ids.add("carrier.primitive");
+      ids.add("type.utility");
+      ids.add("type.assertion");
+      break;
+    default:
+      ids.add("diagnostic.missing-target-fact");
+  }
+
+  if (oldPath.includes("/destructuring/") || oldPath.includes("Destructure")) {
+    ids.add("operation.destructure.array-object");
+    ids.add("binding.array.fixed-rest-default");
+  }
+  if (oldPath.includes("/spread/") || oldPath.includes("ArraySpread")) {
+    ids.add("operation.spread.array");
+  }
+  if (oldPath.includes("Nullish") || oldPath.includes("Optional")) {
+    ids.add("carrier.null-undefined");
+  }
+  if (oldPath.includes("MappedTypes")) {
+    ids.add("type.mapped");
+  }
+  if (oldPath.includes("ConditionalTypes")) {
+    ids.add("type.conditional");
+  }
+  if (oldPath.includes("UtilityTypes")) {
+    ids.add("type.utility");
+  }
+  if (oldPath.includes("TuplesArity")) {
+    ids.add("carrier.tuple");
+    ids.add("type.variadic-tuple");
+  }
+  if (oldPath.includes("PointerTypes")) {
+    ids.add("source.marker.ptr-fnptr");
+  }
+  if (oldPath.includes("StackAlloc")) {
+    ids.add("native.dotnet.parameter-modes");
+  }
+  if (entry.status === "invalid-stale-architecture") {
+    ids.add("backend.no-semantic-strings");
+    ids.add("diagnostic.missing-target-fact");
+  }
+
+  return [...ids].sort();
+}
+
 function portedEmitterCase(relativePath, featureArea, newPath, reason) {
   return Object.freeze({
     oldPath: sourceCase(relativePath),
@@ -551,6 +681,11 @@ function portedEmitterCase(relativePath, featureArea, newPath, reason) {
     status: "ported",
     featureArea,
     owner: "current TSTS/provider/C# AST pipeline",
+    capabilityIds: Object.freeze(defaultOldEmitterCapabilityIds({
+      oldPath: sourceCase(relativePath),
+      featureArea,
+      status: "ported",
+    })),
     reason,
   });
 }
@@ -564,6 +699,13 @@ function deferredEmitterCases(relativePaths, featureArea, owner, reason) {
     status: "deferred",
     featureArea,
     owner,
+    capabilityIds: Object.freeze(defaultOldEmitterCapabilityIds({
+      oldPath: oldEmitterHistoricalCasePaths.includes(sourceCase(relativePath))
+        ? sourceCase(relativePath)
+        : expectedCase(relativePath),
+      featureArea,
+      status: "deferred",
+    })),
     reason,
   }));
 }
@@ -618,6 +760,16 @@ export function validateOldEmitterPortEntry(entry) {
 
   if (!oldEmitterFeatureAreaSet.has(entry.featureArea)) {
     errors.push(`featureArea must be one of ${oldEmitterFeatureAreas.join(", ")}`);
+  }
+
+  if (!Array.isArray(entry.capabilityIds) || entry.capabilityIds.length === 0) {
+    errors.push("capabilityIds must be a non-empty array");
+  } else {
+    for (const capabilityId of entry.capabilityIds) {
+      if (typeof capabilityId !== "string" || capabilityId.length === 0) {
+        errors.push("capabilityIds must contain non-empty strings");
+      }
+    }
   }
 
   if (typeof entry.owner !== "string" || entry.owner.length === 0) {

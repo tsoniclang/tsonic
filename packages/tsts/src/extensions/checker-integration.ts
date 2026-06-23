@@ -163,6 +163,7 @@ export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<Check
       ...(receiverSymbols.symbol !== undefined ? { receiverSymbol: receiverSymbols.symbol } : {}),
       ...(receiverSymbols.resolvedSymbol !== undefined ? { receiverResolvedSymbol: receiverSymbols.resolvedSymbol } : {}),
       ...(receiverSymbols.aliasedSymbol !== undefined ? { receiverAliasedSymbol: receiverSymbols.aliasedSymbol } : {}),
+      ...(selectedPropertySymbol !== undefined ? { sourceSelectedPropertySymbol: selectedPropertySymbol } : {}),
       ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
       ...(sourceSelectedDeclarationContainer !== undefined ? { sourceSelectedDeclarationContainer } : {}),
       ...(sourceSelectedContainerSymbol !== undefined ? { sourceSelectedContainerSymbol } : {}),

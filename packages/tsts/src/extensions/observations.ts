@@ -125,6 +125,7 @@ export interface CheckedPropertyAccessMappingRequest {
   readonly receiverSymbol?: ExtensionFactSubject;
   readonly receiverResolvedSymbol?: ExtensionFactSubject;
   readonly receiverAliasedSymbol?: ExtensionFactSubject;
+  readonly sourceSelectedPropertySymbol?: ExtensionFactSubject;
   readonly sourceSelectedDeclaration?: ExtensionFactSubject;
   readonly sourceSelectedDeclarationContainer?: ExtensionFactSubject;
   readonly sourceSelectedContainerSymbol?: ExtensionFactSubject;

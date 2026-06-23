@@ -41,7 +41,7 @@ export const oldSuiteRequiredSeedFixturePaths = Object.freeze([
   "test/fixtures/nodejs-surface-alias-coverage/",
 ]);
 
-export const oldSuitePortInventory = Object.freeze([
+const oldSuitePortInventoryEntries = Object.freeze([
   Object.freeze({
     oldPath: "test/fixtures/hello-world/",
     newPath: "test/cli-build/e2e-runtime.test.mjs",
@@ -673,6 +673,10 @@ export const oldSuitePortInventory = Object.freeze([
   ], "nodejs-surface", "C# NodeJS surface provider + C# NodeJS runtime", "Valid behavior covers NodeJS module ownership, negative imports without selected surface, path variants, and module graph aliases; port after nodejs surface virtual declarations and runtime artifacts cover the fixture APIs."),
 ]);
 
+export const oldSuitePortInventory = Object.freeze(
+  oldSuitePortInventoryEntries.map(withOldSuiteCapabilityIds),
+);
+
 const oldSuiteStatusSet = new Set(oldSuiteStatuses);
 const oldSuiteFeatureAreaSet = new Set(oldSuiteFeatureAreas);
 
@@ -702,8 +706,123 @@ function deferredFixtures(names, featureArea, owner, reason) {
     status: "deferred",
     featureArea,
     owner,
+    capabilityIds: Object.freeze(defaultOldSuiteCapabilityIds({
+      oldPath: oldFixturePath(name),
+      featureArea,
+      status: "deferred",
+    })),
     reason,
   }));
+}
+
+function withOldSuiteCapabilityIds(entry) {
+  if (entry.capabilityIds !== undefined) {
+    return entry;
+  }
+
+  return Object.freeze({
+    ...entry,
+    capabilityIds: Object.freeze(defaultOldSuiteCapabilityIds(entry)),
+  });
+}
+
+function defaultOldSuiteCapabilityIds(entry) {
+  const ids = new Set(["host.package.composition", "backend.ast.only", "toolchain.csharp.build-run"]);
+  const oldPath = entry.oldPath;
+
+  switch (entry.featureArea) {
+    case "config":
+      ids.add("host.config.project-load");
+      ids.add("host.config.no-legacy-config");
+      break;
+    case "native-provider":
+      ids.add("provider.virtual-module.target-identity");
+      ids.add("operation.call.provider-selected-method");
+      break;
+    case "js-surface":
+      ids.add("surface.js.array-methods");
+      ids.add("surface.js.string-methods");
+      ids.add("runtime.csharp.js");
+      break;
+    case "nodejs-surface":
+      ids.add("surface.node.fs-path-process");
+      ids.add("runtime.csharp.nodejs");
+      break;
+    case "csharp-backend":
+      ids.add("backend.project-source-declarations");
+      ids.add("backend.csharp.ast-expression");
+      ids.add("backend.csharp.ast-statement");
+      break;
+    case "runtime":
+      ids.add("runtime.csharp.js");
+      ids.add("runtime.no-reflection-semantics");
+      break;
+    case "toolchain":
+      ids.add("toolchain.csharp.project");
+      ids.add("toolchain.csharp.library");
+      break;
+    case "diagnostic":
+      ids.add("diagnostic.missing-target-fact");
+      ids.add("diagnostic.ts-invalid-not-rescued");
+      break;
+    case "downstream":
+      ids.add("downstream.smoke.simple-apps");
+      break;
+    default:
+      ids.add("diagnostic.missing-target-fact");
+  }
+
+  if (oldPath.includes("nullable") || oldPath.includes("nullish") || oldPath.includes("instanceof") || oldPath.includes("discriminant")) {
+    ids.add("tsts.flow-narrowing");
+    ids.add("carrier.null-undefined");
+  }
+  if (oldPath.includes("array") || oldPath.includes("tuple")) {
+    ids.add("carrier.array");
+    ids.add("operation.array.literal");
+  }
+  if (oldPath.includes("spread")) {
+    ids.add("operation.spread.array");
+  }
+  if (oldPath.includes("destructuring")) {
+    ids.add("operation.destructure.array-object");
+  }
+  if (oldPath.includes("generic")) {
+    ids.add("tsts.generic-inference");
+    ids.add("declaration.generic-parameters");
+  }
+  if (oldPath.includes("attribute")) {
+    ids.add("source.marker.attribute");
+    ids.add("declaration.attributes");
+  }
+  if (oldPath.includes("struct") || oldPath.includes("field")) {
+    ids.add("source.marker.struct");
+    ids.add("source.marker.field");
+  }
+  if (oldPath.includes("async") || oldPath.includes("promise") || oldPath.includes("task")) {
+    ids.add("operation.await.promise-task");
+    ids.add("function.async");
+  }
+  if (oldPath.includes("generator") || oldPath.includes("yield")) {
+    ids.add("statement.loop");
+    ids.add("carrier.function-delegate");
+  }
+  if (oldPath.includes("object-literal") || oldPath.includes("anonymous-object") || oldPath.includes("object-prop")) {
+    ids.add("carrier.object-shape");
+    ids.add("expression.object-literal");
+  }
+  if (oldPath.includes("dictionary") || oldPath.includes("record")) {
+    ids.add("carrier.dictionary-record");
+  }
+  if (oldPath.includes("method-overload") || oldPath.includes("extension-methods") || oldPath.includes("linq")) {
+    ids.add("operation.call.provider-selected-method");
+    ids.add("operation.member.no-name-guess");
+  }
+  if (entry.status === "invalid-stale-architecture") {
+    ids.add("host.config.no-legacy-config");
+    ids.add("backend.fail-closed-facts");
+  }
+
+  return [...ids].sort();
 }
 
 export function validateOldSuitePortEntry(entry) {
@@ -733,6 +852,16 @@ export function validateOldSuitePortEntry(entry) {
 
   if (!oldSuiteFeatureAreaSet.has(entry.featureArea)) {
     errors.push(`featureArea must be one of ${oldSuiteFeatureAreas.join(", ")}`);
+  }
+
+  if (!Array.isArray(entry.capabilityIds) || entry.capabilityIds.length === 0) {
+    errors.push("capabilityIds must be a non-empty array");
+  } else {
+    for (const capabilityId of entry.capabilityIds) {
+      if (typeof capabilityId !== "string" || capabilityId.length === 0) {
+        errors.push("capabilityIds must contain non-empty strings");
+      }
+    }
   }
 
   if (typeof entry.owner !== "string" || entry.owner.length === 0) {
