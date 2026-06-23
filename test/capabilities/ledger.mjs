@@ -415,7 +415,22 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: external-current C# tests preserve out, optional, and params-array facts and reject wrong optional/params arities; remains partial until ref, in, and reflected default-value facts have positive and negative coverage.",
+      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, and params-array facts with exact reflected signature identity, and reject wrong optional/params arities; remains partial until reflected default-value facts and mutated/missing parameter-mode facts have full negative coverage.",
+  }),
+  "provider.virtual-module.overload-identity": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: provider-owned overload identity is selected from declaration/signature facts, including same-spelling overload groups, generic method arity, and byref parameter modes; remains partial until assembly-qualified identities and unsupported-member diagnostics cover collision/drop cases.",
   }),
   "operation.call.provider-selected-method": Object.freeze({
     positiveTests: Object.freeze([
@@ -435,6 +450,21 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: provider-owned calls select exact signature identity from provider facts, including overload groups, extension receivers, byref parameters, and optional/params arity; backend rejects mutated call facts.",
+  }),
+  "operation.call.provider-parameter-mode": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/param-modifiers/",
+    ]),
+    notes:
+      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; remains partial until every parameter-mode consumer has missing/mutated fact rejection coverage.",
   }),
   "function.default-rest-optional-params": Object.freeze({
     positiveTests: Object.freeze([
