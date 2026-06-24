@@ -784,6 +784,62 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: as const is consumed as a TSTS literal/readonly decision, valid readonly tuple literals emit from resolved tuple facts without target-specific as-const syntax, and readonly mutation is rejected by TSTS before backend artifacts are produced.",
   }),
+  "provider.module.virtual-import": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/provider-dotnet.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/package-manifests/bindings.test.ts",
+      "packages/cli/src/commands/restore.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "provider.module.virtual-import remains partial until provider virtual imports cover every reflected namespace, explicit assembly reference, provider-owned module alias, selected surface module, and missing-provider diagnostic path through CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: .NET provider imports such as @tsonic/dotnet/System.js and @tsonic/dotnet/System.Reflection.js become TSTS compiler virtual modules, including cross-module inherited member refs whose provider-ref module ownership is preserved instead of rewritten to the inheriting base module.",
+  }),
+  "provider.virtual-module.source-shape": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/package-manifests/bindings.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "provider.virtual-module.source-shape remains partial until all source-visible shape families, inherited declarations, target-only omissions, unsupported exports, and selected surface modules are proven end to end.",
+    ]),
+    notes:
+      "Reviewed partial proof: reflected .NET declarations produce source-visible provider shapes for classes, delegates, properties, methods, constructors, overloads, inherited members, and explicit unsupported omissions; unsupported by-ref delegate returns remain target-only instead of leaking fake source declarations.",
+  }),
+  "provider.virtual-module.target-identity": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/package-manifests/bindings.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+    ]),
+    blockers: Object.freeze([
+      "provider.virtual-module.target-identity remains partial until target identity proof covers all assembly-qualified collisions, inherited member origins, explicit references, unsupported exports, and selected surface modules.",
+    ]),
+    notes:
+      "Reviewed partial proof: provider virtual declarations carry assembly-qualified target identities into TSTS facts and C# emission, including inherited .NET members and reflected overloads; selected operations emit from these identities rather than source spelling.",
+  }),
   "provider.module.no-file-backed-fallback": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
