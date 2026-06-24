@@ -97,10 +97,10 @@ const baseCapabilityDefinitions = Object.freeze([
   ["type.indexed-access", "Indexed access types are consumed from TSTS results", "partial", "tsts-api"],
   ["type.keyof", "keyof types are consumed from TSTS results", "partial", "tsts-api"],
   ["type.infer", "infer in conditional types is consumed from TSTS results", "partial", "tsts-api"],
-  ["type.template-literal", "Template literal types are consumed from TSTS results", "not-started", "tsts-api"],
-  ["type.variadic-tuple", "Variadic tuple types are consumed from TSTS results", "not-started", "tsts-api"],
-  ["type.satisfies", "satisfies checks source without target emission", "not-started", "tsts-api"],
-  ["type.as-const", "as const preserves literal and readonly facts", "not-started", "tsts-api"],
+  ["type.template-literal", "Template literal types are consumed from TSTS results", "partial", "tsts-api"],
+  ["type.variadic-tuple", "Variadic tuple types are consumed from TSTS results", "partial", "tsts-api"],
+  ["type.satisfies", "satisfies checks source without target emission", "partial", "tsts-api"],
+  ["type.as-const", "as const preserves literal and readonly facts", "partial", "tsts-api"],
   ["type.assertion", "Type assertions consume TSTS type facts and target casts", "partial", "tsts-api"],
   ["type.non-null-assertion", "Non-null assertions consume TSTS nullable facts", "partial", "tsts-api"],
   ["type.generic.provider-target-arguments", "Map TSTS-inferred type arguments to target type arguments", "partial", "target-provider"],
@@ -721,6 +721,66 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: provider/extension observations can add facts after TS-Go accepts source, and TSTS diagnostics stop artifact emission when source TypeScript is invalid.",
+  }),
+  "type.template-literal": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "type.template-literal remains partial until template literal type evidence covers generic substitution, unions, intrinsic string manipulation types, property keys, mapped types, and old/current emitter parity through full CLI/toolchain gates.",
+    ]),
+    notes:
+      "Reviewed partial proof: a template literal type alias is accepted by TSTS, emitted as ordinary target string source after TSTS resolves it, and an incompatible literal is rejected by TSTS before backend artifacts are produced. The backend does not reimplement template literal type compatibility or preserve template type syntax in C# emission.",
+  }),
+  "type.variadic-tuple": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/tuples-arity/TuplesArity.ts",
+    ]),
+    blockers: Object.freeze([
+      "type.variadic-tuple remains partial until variadic tuple evidence covers readonly tuples, labels, optional/rest elements, generic inference across calls, spreads, destructuring, and every old tuple arity fixture through current CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: a variadic tuple type alias is resolved by TSTS into a concrete tuple consumed by the C# backend as a value tuple, tuple element access emits from finalized element facts, and incompatible tuple arity is rejected by TSTS before backend artifacts are produced.",
+  }),
+  "type.satisfies": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "type.satisfies remains partial until object-literal freshness, generic contextual typing, source primitive facts, provider virtual declarations, and all expression-position erasure cases are covered by current CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: satisfies is checked by TSTS as a source-only validation construct, valid satisfies expressions erase to the underlying expression in target emission, and invalid satisfies constraints stop before backend artifacts are produced. Tsonic does not attach target semantics to satisfies.",
+  }),
+  "type.as-const": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "type.as-const remains partial until literal narrowing and readonly evidence covers object literals, arrays, nested objects, provider calls, source primitives, mutation diagnostics, and target carrier selection across current CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: as const is consumed as a TSTS literal/readonly decision, valid readonly tuple literals emit from resolved tuple facts without target-specific as-const syntax, and readonly mutation is rejected by TSTS before backend artifacts are produced.",
   }),
   "provider.module.no-file-backed-fallback": Object.freeze({
     positiveTests: Object.freeze([
