@@ -209,14 +209,14 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.process", "node:process uses selected Node surface facts", "partial", "surface-provider"],
 
-  ["compat.mode.strict-native", "Strict-native mode rejects unsupported dynamic behavior", "partial", "target-provider"],
-  ["compat.mode.compat", "Compatibility mode enables explicit dynamic carriers", "partial", "target-provider"],
-  ["compat.any.property", "any property operations use dynamic carrier facts", "partial", "target-provider"],
-  ["compat.any.dynamic-get", "any dynamic get uses explicit carrier facts", "partial", "target-provider"],
-  ["compat.any.dynamic-set", "any dynamic set uses explicit carrier facts", "partial", "target-provider"],
-  ["compat.any.call-construct", "any call/new use dynamic carrier facts", "partial", "target-provider"],
-  ["compat.any.dynamic-call", "any dynamic call uses explicit carrier facts", "partial", "target-provider"],
-  ["compat.any.operators", "any operators use dynamic carrier facts", "partial", "target-provider"],
+  ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "partial", "target-provider"],
+  ["compat.mode.compat", "Compatibility mode enables explicit compat-runtime carriers", "partial", "target-provider"],
+  ["compat.any.property", "any property operations use compat-runtime carrier facts", "partial", "target-provider"],
+  ["compat.any.dynamic-get", "any property reads use explicit compat-runtime carrier facts", "partial", "target-provider"],
+  ["compat.any.dynamic-set", "any property writes use explicit compat-runtime carrier facts", "partial", "target-provider"],
+  ["compat.any.call-construct", "any call/new use compat-runtime carrier facts", "partial", "target-provider"],
+  ["compat.any.dynamic-call", "any calls use explicit compat-runtime carrier facts", "partial", "target-provider"],
+  ["compat.any.operators", "any operators use compat-runtime carrier facts", "partial", "target-provider"],
   ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "partial", "target-provider"],
   ["compat.object.no-dynamic-access", "object is not treated like any", "partial", "target-provider"],
   ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "partial", "target-provider"],
@@ -224,7 +224,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "partial", "target-provider"],
   ["runtime.union.carrier", "Union carrier is explicit runtime capability", "partial", "target-provider"],
   ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "partial", "target-provider"],
-  ["runtime.dynamic.carrier", "Dynamic carrier is explicit runtime capability", "partial", "target-provider"],
+  ["runtime.dynamic.carrier", "TypeScript any compat-runtime carrier is explicit runtime capability", "partial", "target-provider"],
 
   ["backend.ast.only", "Backend constructs target AST only", "partial", "csharp-backend"],
   ["backend.no-semantic-strings", "Semantic output is never direct strings", "partial", "csharp-backend"],
@@ -1634,7 +1634,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed partial proof: reflection provider records unsupported constructor/property/field/method/operator/event members instead of silently dropping static interface members, generic static members, multi-parameter indexers, pointer signatures, ranked CLR arrays, by-reference returns, and generic operators; selected unsupported member identities now become fail-closed target diagnostics instead of generic not-found errors. Remains partial until type-ref conversion drops, constraint drops, default-value omissions, and attribute omissions are explicit diagnostics.",
+      "Reviewed partial proof: reflection provider records unsupported constructor/property/indexer/field/method/operator/event members instead of silently dropping static interface members, generic static members, multi-parameter indexers, pointer signatures, ranked CLR arrays, by-reference returns, and generic operators; unsupported target-only type refs now fail closed during source-shape conversion for pointers, function pointers, ranked arrays, nested provider refs, and opaque source shapes; selected unsupported member identities become fail-closed target diagnostics instead of generic not-found errors. Remains partial until constraint drops, default-value omissions, and attribute omissions are explicit diagnostics.",
   }),
   "operation.call.provider-selected-method": Object.freeze({
     positiveTests: Object.freeze([
@@ -1787,10 +1787,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-destructuring/",
     ]),
     blockers: Object.freeze([
-      "operation.destructure.array-object remains partial until assignment destructuring has finalized target storage/extraction facts and old destructuring fixtures are ported through current CLI/toolchain tests.",
+      "operation.destructure.array-object remains partial until assignment destructuring has finalized target storage/extraction facts, expression/statement assignment positives, and old destructuring fixtures are ported through current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: parameter and variable binding patterns now consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; assignment destructuring fails closed instead of emitting from stale lowering. This is not complete until target storage-write facts and end-to-end old fixture parity exist.",
+      "Reviewed partial proof: parameter and variable binding patterns now consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; expression and statement assignment destructuring both fail closed instead of ordinary assignment fallback or stale lowering. This is not complete until target storage-write facts and end-to-end old fixture parity exist.",
   }),
   "expression.literal.bigint-regex-template": Object.freeze({
     positiveTests: Object.freeze([
@@ -1912,6 +1912,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/array-destructuring/",
@@ -1920,7 +1921,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.assignment remains partial because assignment destructuring currently fails closed; implementation requires finalized target storage and extraction facts before positive emission can be added.",
     ]),
     notes:
-      "Reviewed partial proof: destructuring assignment is recognized as a binding-storage capability, not lowered through ordinary assignment; until storage/extraction facts exist, the backend emits a diagnostic instead of guessing.",
+      "Reviewed partial proof: destructuring assignment is recognized as a binding-storage capability in expression and statement planning, not lowered through ordinary assignment; until storage/extraction facts exist, the backend emits diagnostics instead of guessing.",
   }),
   "carrier.any-tsvalue": Object.freeze({
     positiveTests: Object.freeze([
@@ -2016,23 +2017,27 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "compat.mode.compat": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: explicit typescriptCompatibility=compat is parsed, compat mode still rejects opaque any property read/write, element get, call, construction, and operator operations when closed operation facts are missing, permits those operations only with finalized closed compat carrier facts, and rejects closed compat facts attached to non-any object operations. Remains partial until real TsValue/TsObject/TsFunction carriers and runtime artifacts exist.",
+      "Reviewed partial proof: explicit typescriptCompatibility=compat is parsed, compat mode still rejects opaque any property read/write, element get, call, construction, and operator operations when closed operation facts are missing, emits property get/set/call/new only from finalized closed compat-runtime operation facts, and rejects closed compat facts attached to non-any object operations. Remains partial until real TsValue/TsObject/TsFunction runtime artifacts and provider-produced facts exist.",
   }),
   "compat.any.property": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/semantic-guards.test.mjs",
     ]),
@@ -2040,27 +2045,31 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: opaque any property and element operations are not source-owned dynamic fallbacks; strict-native rejects them, compat rejects missing operation facts, and only explicit operation facts suppress the compat diagnostic. Remains partial until real carrier get/set operations are implemented and emitted.",
+      "Reviewed partial proof: opaque any property and element operations are not source-owned fallbacks; strict-native rejects them, compat rejects missing operation facts, and the backend emits property get/set only from explicit closed operation facts with explicit argument projection. Remains partial until real carrier get/set provider facts and runtime artifacts exist.",
   }),
   "compat.any.call-construct": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: calls and new expressions through opaque any are diagnosed in strict-native and in compat mode without closed target operation facts; test-injected closed operation facts suppress call and construction diagnostics only in compat mode. Remains partial until real TsFunction/TsValue call/construct carriers and backend AST emission exist.",
+      "Reviewed partial proof: calls and new expressions through opaque any are diagnosed in strict-native and in compat mode without closed target operation facts; backend AST emission for call and construction now requires finalized closed operation facts with explicit argument projection. Remains partial until real TsFunction/TsValue call/construct provider facts and runtime artifacts exist.",
   }),
   "compat.any.dynamic-get": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/semantic-guards.test.mjs",
     ]),
@@ -2068,33 +2077,37 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: any property/element reads require closed dynamic get facts; strict-native fails even if a fact is present, while compat mode requires the finalized operation fact before suppressing diagnostics. Remains partial until TsValue.GetProperty/TsObject key semantics are real runtime facts and backend AST output.",
+      "Reviewed partial proof: any property/element reads require closed compat-runtime get facts; strict-native fails even if a fact is present, while compat mode requires the finalized operation fact before backend AST output. Remains partial until TsValue/TsObject key semantics are real provider facts and runtime artifacts.",
   }),
   "compat.any.dynamic-set": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: property writes through any are caught at the opaque any property node and require compat carrier operation facts rather than backend assignment guessing. Remains partial until explicit set/delete/update operation facts and runtime AST emission exist.",
+      "Reviewed partial proof: property writes through any are caught at the opaque any property node and require closed compat-runtime operation facts with explicit source-argument projection rather than backend assignment guessing. Remains partial until explicit set/delete/update provider facts and runtime artifacts exist.",
   }),
   "compat.any.dynamic-call": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/semantic-guards.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     notes:
-      "Reviewed partial proof: calls through opaque any record no selected signature and emit deterministic missing-operation diagnostics in strict-native and compat-without-facts; compat mode accepts a call only when a finalized closed carrier operation fact exists. Remains partial until TsFunction/TsValue call operation facts and target AST emission exist.",
+      "Reviewed partial proof: calls through opaque any record no selected signature and emit deterministic missing-operation diagnostics in strict-native and compat-without-facts; compat mode emits a call only when a finalized closed carrier operation fact exists. Remains partial until TsFunction/TsValue call provider facts and runtime artifacts exist.",
   }),
   "compat.any.operators": Object.freeze({
     positiveTests: Object.freeze([
@@ -2159,10 +2172,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "runtime.dynamic.carrier": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/semantic-guards.test.mjs",
     ]),
@@ -2170,7 +2185,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: the current runtime carrier fact for TypeScript any is opaque and non-renderable by itself; dynamic behavior requires separate operation facts and mode checks. Remains partial until concrete TsValue/TsObject/TsFunction carriers, backend AST emission, and runtime artifacts exist.",
+      "Reviewed partial proof: the current runtime carrier fact for TypeScript any is opaque and non-renderable by itself; compat-runtime behavior requires separate closed operation facts and mode checks. Property get/set, call, and construct backend AST paths now consume those facts. Remains partial until concrete TsValue/TsObject/TsFunction runtime artifacts and provider-produced facts exist.",
   }),
   "diagnostic.dynamic-strict-mode": Object.freeze({
     positiveTests: Object.freeze([
