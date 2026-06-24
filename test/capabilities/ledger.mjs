@@ -830,6 +830,201 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: provider virtual declarations keep target-only generic constraints out of source-visible TypeScript shapes while retaining reflected target constraint facts for backend/provider consumers. Old TypeScript constraint fixtures are not mapped here because they prove source generic declarations, not provider-owned virtual-module constraints.",
   }),
+  "source.primitive.numeric": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "source.primitive.numeric remains partial until every neutral numeric width, decimal/native alias, numeric literal flow, assertion/conversion boundary, and backend carrier emission has positive and negative proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: @tsonic/core/types.js exposes neutral int8 through uint128, nativeInt/nativeUint, float16/32/64, and decimal without C# alias names; imported int32/float64 facts carry width, sign, and runtimeBase; configured @tsonic/csharp int/long/byte aliases map to canonical source primitives; local number/int spellings do not create source-primitive facts.",
+  }),
+  "source.primitive.char-bool": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/char-primitive/",
+    ]),
+    blockers: Object.freeze([
+      "source.primitive.char-bool remains partial until char literal/Rune interop, bool flow through operators/calls, backend carrier emission, and invalid char/bool source forms have positive and negative proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: neutral bool and char imports attach source-primitive facts with boolean and string runtime bases, char width/sign data is preserved, and bool field facts flow through struct field collection. Old char-primitive coverage is broader than the current fact proof and remains regression evidence only.",
+  }),
+  "source.primitive.configured-type": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "source.primitive.configured-type remains partial until all target-configured primitive aliases, invalid alias declarations, namespace imports, re-exports, and no-guessing shadow cases are covered.",
+    ]),
+    notes:
+      "Reviewed partial proof: configured @tsonic/csharp primitive aliases are source-visible only through selected provider modules and map to canonical facts such as int32, int64, and uint8; neutral @tsonic/core exports intentionally omit C# alias spellings; local aliases named like primitives do not attach configured-type facts.",
+  }),
+  "source.marker.out-ref-inref": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "source.marker.out-ref-inref remains partial until every assignable storage form, non-storage diagnostic, call/constructor propagation path, mutation flow, and emitted parameter-mode AST path is proven.",
+    ]),
+    notes:
+      "Reviewed partial proof: imported out/ref/inref markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts; unproven storage like out(value + 1) produces SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT; local functions named out do not create marker facts.",
+  }),
+  "source.marker.field": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
+    ]),
+    blockers: Object.freeze([
+      "source.marker.field remains partial until field markers cover all valid containing declarations, invalid orphan/duplicate/member-name forms, target accessibility/mutability facts, and emitted field AST output.",
+    ]),
+    notes:
+      "Reviewed partial proof: field<int32>() and field<bool>() inside struct() attach finalized field facts with names and source-primitive type facts; orphan field<int32>() fails closed with SOURCE_SEMANTICS_FIELD_TARGET_NOT_PROVEN instead of inferring a declaration from spelling.",
+  }),
+  "source.marker.struct": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
+      "test/fixtures/struct-basic/",
+    ]),
+    blockers: Object.freeze([
+      "source.marker.struct remains partial until struct value-shape facts cover methods, constructors, generics, nested structs, invalid non-field members, and C# struct declaration/build output.",
+    ]),
+    notes:
+      "Reviewed partial proof: struct({ x: field<int32>(), ok: field<bool>() }) records a valueType struct fact whose fields are the finalized field facts; old interface-extends-struct evidence is treated only as regression history for the final struct()/field() source shape.",
+  }),
+  "source.marker.attribute": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/attributes/basic/Attributes.ts",
+      "packages/targets/csharp/emitter/testcases/common/attributes/comprehensive/Attributes.ts",
+      "packages/targets/csharp/emitter/testcases/common/attributes/targets/Attributes.ts",
+    ]),
+    blockers: Object.freeze([
+      "source.marker.attribute remains partial until invalid selector chains, unsupported constructor/named argument values, every placement target, and generated declaration attribute AST output are proven.",
+    ]),
+    notes:
+      "Reviewed partial proof: provider-backed attribute<User>() selectors attach attribute facts for type, constructor, constructor parameter, method, return, method parameter, property, and field-target placements with exact application targets and arguments. Negative source-authored selector diagnostics and end-to-end emission breadth remain open.",
+  }),
+  "source.marker.defaultof": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/defaultof-intrinsic/",
+    ]),
+    blockers: Object.freeze([
+      "source.marker.defaultof remains partial until default facts cover primitive, struct, nullable, reference, provider generic, invalid missing-type, and emitted target-default expression cases.",
+    ]),
+    notes:
+      "Reviewed partial proof: defaultof<char>() attaches a default-value fact whose type is the finalized source type node. Old defaultof-intrinsic coverage remains regression evidence for future backend emission, not proof that every target default lane is complete.",
+  }),
+  "source.marker.ptr-fnptr": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
+      "test/fixtures/pointer-types/",
+    ]),
+    blockers: Object.freeze([
+      "source.marker.ptr-fnptr remains partial until pointer/function-pointer facts cover mutability, unsafe requirements, ABI/calling conventions, invalid type-argument forms, target diagnostics, and backend unsafe AST output.",
+    ]),
+    notes:
+      "Reviewed partial proof: neutral ptr<int32> and fnptr<[int32, bool], char> aliases attach pointer and function-pointer facts with target-defined mutability, unsafe requirements, parameter/result type nodes, and target-default ABI; .NET provider tests prove unsupported pointer signatures are recorded as target diagnostics instead of silently becoming source declarations.",
+  }),
+  "source-core.out.storage-binding": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "source-core.out.storage-binding remains partial until identifier, property, element, destructured, provider-owned, and readonly/non-assignable storage cases have closed positive and negative proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: out(value) records a write-only byref fact tied to an identifier storage node, while out(value + 1) records the same marker shape but emits SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT because the argument is not assignable storage.",
+  }),
+  "source-core.ref.parameter-mode": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "source-core.ref.parameter-mode remains partial until ref/inref facts are consumed by every call, constructor, delegate, provider overload, invalid readonly, and emitted target parameter path.",
+    ]),
+    notes:
+      "Reviewed partial proof: ref(value) and inref(value) attach readwrite and readonly parameter-mode facts to proven storage, and local functions named like markers do not receive source-core parameter facts. Remaining proof must connect those facts through provider selection and C# AST emission.",
+  }),
+  "source-core.struct.field-facts": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
+      "test/fixtures/struct-basic/",
+    ]),
+    blockers: Object.freeze([
+      "source-core.struct.field-facts remains partial until struct/field facts cover duplicate fields, non-field expressions, member ordering, target mutability/accessibility, nested value shapes, and generated C# struct output.",
+    ]),
+    notes:
+      "Reviewed partial proof: struct facts collect only finalized field facts from the struct object literal, preserve field names x/ok and source-primitive type facts, and reject orphan field markers without a proven target field context.",
+  }),
   "native.dotnet.assembly-model": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-assembly-identity.test.mjs",
@@ -952,13 +1147,14 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/lang/stackalloc/StackAlloc.ts",
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, and params-array facts with exact reflected signature identity, and reject wrong optional/params arities; remains partial until reflected default-value facts and mutated/missing parameter-mode facts have full negative coverage.",
+      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities, and reject unsupported pointer parameter source shapes plus wrong optional/params arities; remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path.",
   }),
   "native.dotnet.attributes": Object.freeze({
     positiveTests: Object.freeze([
@@ -1685,7 +1881,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "compat.prototype-mutation remains partial until every prototype-affecting pattern is classified per resolved pattern instance with provider facts; source spelling alone is banned.",
     ]),
     notes:
-      "Reviewed partial proof: object-literal __proto__ prototype mutation is hard-rejected as syntax-level JS semantics, while shadowable property/member names are not classified by spelling. Future prototype support requires explicit closed compat-runtime facts.",
+      "Reviewed partial proof: object-literal __proto__ prototype mutation and resolved standard-library Object.setPrototypeOf/getPrototypeOf/create prototype APIs are hard-rejected with closed-carrier evidence, while shadowable property/member names are not classified by spelling. Future prototype support requires explicit closed compat-runtime facts.",
   }),
   "compat.proxy-eval-function-with": Object.freeze({
     positiveTests: Object.freeze([
@@ -1698,10 +1894,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     blockers: Object.freeze([
-      "compat.proxy-eval-function-with remains partial: with is deterministically hard-rejected, but eval/Function/Proxy must be classified only from resolved provider/global identity facts, never raw source names.",
+      "compat.proxy-eval-function-with remains partial until resolved global eval/Function/Proxy identity coverage spans every selected JS surface/lib source and any supported compat-runtime replacement has closed carrier facts.",
     ]),
     notes:
-      "Reviewed partial proof: with statements are hard-rejected because dynamic scope cannot be represented by closed target facts; source-name checks for eval, Function, Proxy, and Object.setPrototypeOf were removed to prevent source-name guessing.",
+      "Reviewed partial proof: resolved standard-library eval, Function, Proxy, and with statements are hard-rejected because dynamic code/dynamic scope cannot be represented by closed target facts; shadowable local Function, Proxy, and Object names produce no diagnostics, preventing source-name guessing.",
   }),
   "compat.mode.strict-native": Object.freeze({
     positiveTests: Object.freeze([
@@ -1715,7 +1911,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: C# target options default to strict-native, strict-native hard-rejects opaque TypeScript any operations before emission, and a test-injected target operation fact cannot rescue strict-native dynamic any behavior. Remains partial until all dynamic operation families and runtime/toolchain diagnostics are covered end to end.",
+      "Reviewed partial proof: C# target options default to strict-native, strict-native hard-rejects opaque TypeScript any property read/write, element get, call, construction, and operator operations before emission, and a test-injected closed compat operation fact cannot rescue strict-native dynamic any behavior. Remains partial until runtime/toolchain diagnostics and all non-any compat-runtime lanes are covered end to end.",
   }),
   "compat.mode.compat": Object.freeze({
     positiveTests: Object.freeze([
@@ -1728,7 +1924,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: explicit typescriptCompatibility=compat is parsed, compat mode still rejects opaque any operations when closed operation facts are missing, and a test-injected closed operation fact permits the operation only in compat mode. Remains partial until real TsValue/TsObject/TsFunction carriers and runtime artifacts exist.",
+      "Reviewed partial proof: explicit typescriptCompatibility=compat is parsed, compat mode still rejects opaque any property read/write, element get, call, construction, and operator operations when closed operation facts are missing, permits those operations only with finalized closed compat carrier facts, and rejects closed compat facts attached to non-any object operations. Remains partial until real TsValue/TsObject/TsFunction carriers and runtime artifacts exist.",
   }),
   "compat.any.property": Object.freeze({
     positiveTests: Object.freeze([
@@ -1756,7 +1952,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: calls and new expressions through opaque any are diagnosed in strict-native and in compat mode without closed target operation facts; a test-injected closed operation fact can suppress the compat diagnostic for construction only in compat mode. Remains partial until real TsFunction/TsValue construct carriers and backend AST emission exist.",
+      "Reviewed partial proof: calls and new expressions through opaque any are diagnosed in strict-native and in compat mode without closed target operation facts; test-injected closed operation facts suppress call and construction diagnostics only in compat mode. Remains partial until real TsFunction/TsValue call/construct carriers and backend AST emission exist.",
   }),
   "compat.any.dynamic-get": Object.freeze({
     positiveTests: Object.freeze([
@@ -1797,7 +1993,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     notes:
-      "Reviewed partial proof: calls through opaque any record no selected signature and emit deterministic missing-operation diagnostics in strict-native and compat-without-facts. Remains partial until TsFunction/TsValue call operation facts and target AST emission exist.",
+      "Reviewed partial proof: calls through opaque any record no selected signature and emit deterministic missing-operation diagnostics in strict-native and compat-without-facts; compat mode accepts a call only when a finalized closed carrier operation fact exists. Remains partial until TsFunction/TsValue call operation facts and target AST emission exist.",
   }),
   "compat.any.operators": Object.freeze({
     positiveTests: Object.freeze([
@@ -2157,10 +2353,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "diagnostic.unsupported-target-operation": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
@@ -2172,7 +2370,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "diagnostic.unsupported-target-operation remains partial until every unsupported provider/surface/runtime lane has precise source spans, provider evidence, and current CLI/runtime/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: selected provider calls, properties, indexers, and JS surface operations diagnose unsupported target operations from finalized provider/surface facts; the backend does not guess from source spelling or silently fall through to not-found behavior when explicit unsupported evidence exists.",
+      "Reviewed partial proof: selected provider calls, properties, indexers, reflected constructors, unsupported type families, pointer/unsupported member signatures, attributes, and JS surface operations diagnose unsupported target operations from finalized provider/surface facts; the backend does not guess from source spelling or silently fall through to not-found behavior when explicit unsupported evidence exists.",
   }),
   "diagnostic.strict-mode-slow-op": Object.freeze({
     positiveTests: Object.freeze([
