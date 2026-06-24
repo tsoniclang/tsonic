@@ -864,9 +864,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "source.primitive.configured-type": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
@@ -876,7 +878,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source.primitive.configured-type remains partial until all target-configured primitive aliases, invalid alias declarations, namespace imports, re-exports, and no-guessing shadow cases are covered.",
     ]),
     notes:
-      "Reviewed partial proof: configured @tsonic/csharp primitive aliases are source-visible only through selected provider modules and map to canonical facts such as int32, int64, and uint8; neutral @tsonic/core exports intentionally omit C# alias spellings; local aliases named like primitives do not attach configured-type facts.",
+      "Reviewed partial proof: configured @tsonic/csharp primitive aliases are source-visible only through selected provider modules and map to canonical facts such as int32, int64, and uint8; neutral @tsonic/core exports intentionally omit C# alias spellings; public CLI proof shows local TypeScript aliases to number emit as number/double instead of guessed configured primitive facts.",
   }),
   "source.marker.out-ref-inref": Object.freeze({
     positiveTests: Object.freeze([
@@ -2026,31 +2028,35 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: TypeScript object is not promoted to opaque any, receives no dynamic runtime carrier, and property access remains a TSTS source diagnostic rather than target/provider recovery. Remains partial until all object surface operations are separately classified as object-shape, provider adapter, compat carrier, or hard reject.",
+      "Reviewed partial proof: TypeScript object is not promoted to opaque any, receives no dynamic runtime carrier, and property access remains a TSTS source diagnostic rather than target/provider recovery; public CLI proof blocks object.foo before C# planning artifacts are emitted. Remains partial until all object surface operations are separately classified as object-shape, provider adapter, compat carrier, or hard reject.",
   }),
   "compat.unknown.no-dynamic-access": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
     ]),
     notes:
-      "Reviewed partial proof: unknown is not promoted to opaque any, receives no dynamic runtime carrier, and property access remains a TSTS source diagnostic. Old object-literal-unknown coverage is mapped as fail-closed evidence, not as a legacy lowering pattern.",
+      "Reviewed partial proof: unknown is not promoted to opaque any, receives no dynamic runtime carrier, and public CLI proof shows unknown.foo remains a TSTS source diagnostic before backend emission. Old object-literal-unknown coverage is mapped as fail-closed evidence, not as a legacy lowering pattern.",
   }),
   "runtime.dynamic.carrier": Object.freeze({
     positiveTests: Object.freeze([

@@ -405,6 +405,58 @@ test("CLI keeps neutral and C# source semantics in separate virtual modules", as
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
+test("CLI maps configured primitive aliases only from their provider modules", async () => {
+  const projectDirectory = resolve(tempRoot, "configured-primitive-aliases");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedConfiguredPrimitiveAliases",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import type { int } from \"@tsonic/csharp/types.js\";",
+      "",
+      "type LocalInt = number;",
+      "",
+      "export function neutral(value: int32): int32 {",
+      "  return value;",
+      "}",
+      "",
+      "export function csharpAlias(value: int): int {",
+      "  return value;",
+      "}",
+      "",
+      "export function localAlias(value: LocalInt): LocalInt {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static int neutral\(int value\)/);
+  assert.match(generatedSource, /public static int csharpAlias\(int value\)/);
+  assert.match(generatedSource, /public static double localAlias\(double value\)/);
+  assert.doesNotMatch(generatedSource, /\bLocalInt\b/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedConfiguredPrimitiveAliases.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI rejects C# source aliases imported from neutral core modules", async () => {
   const projectDirectory = resolve(tempRoot, "source-semantics-wrong-module");
