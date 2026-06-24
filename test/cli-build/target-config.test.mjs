@@ -281,6 +281,8 @@ test("CLI does not use tsconfig path mapping as a hidden module-resolution fallb
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /@app\/value\.js/);
+  assert.doesNotMatch(build.stderr, /src\/app\/value\.ts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects package-root imports instead of applying package-root shims", async () => {
@@ -298,6 +300,7 @@ test("CLI rejects package-root imports instead of applying package-root shims", 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /@tsonic\/js/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects generated declaration files as hidden module fallbacks", async () => {
@@ -316,6 +319,7 @@ test("CLI rejects generated declaration files as hidden module fallbacks", async
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /generated\.js/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects provider metadata JSON as hidden module fallbacks", async () => {
@@ -334,6 +338,7 @@ test("CLI rejects provider metadata JSON as hidden module fallbacks", async () =
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /provider\.metadata\.json/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects package exports subpaths as hidden package-discovery fallbacks", async () => {
@@ -359,6 +364,7 @@ test("CLI rejects package exports subpaths as hidden package-discovery fallbacks
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /@demo\/pkg\/subpath\.js/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {

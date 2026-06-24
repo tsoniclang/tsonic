@@ -400,6 +400,7 @@ function laneClassificationCoverage(ledgerEntries, statuses, owners) {
       trackedStatuses: [...laneClassificationTrackedStatuses],
       allLedgerEntriesWithLaneClassificationAreTracked: true,
       allowedLanes: [...capabilityLaneNames],
+      failClosedLaneRequired: true,
       compatRuntimeCarriersMustBeClosed: true,
       allowedCompatRuntimeCarriers: [...capabilityCompatRuntimeCarriers],
     },

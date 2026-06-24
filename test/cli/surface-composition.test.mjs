@@ -52,7 +52,8 @@ test("host passes no selected surfaces to target provider when target requests n
 
   assert.deepEqual(events, ["provider:demo:surfaces="]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), []);
-  assert.deepEqual(composition.extensions, [targetExtension]);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target"]);
+  assert.equal(composition.extensions[1], targetExtension);
 });
 
 test("host passes selected surfaces to the single target provider", () => {
@@ -75,7 +76,8 @@ test("host passes selected surfaces to the single target provider", () => {
   assert.deepEqual(target.surfaces, ["js"]);
   assert.deepEqual(events, ["provider:demo:surfaces=js"]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js"]);
-  assert.deepEqual(composition.extensions, [targetExtension]);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target"]);
+  assert.equal(composition.extensions[1], targetExtension);
 });
 
 test("host composes target provider extensions before selected surface extensions", () => {
@@ -105,7 +107,10 @@ test("host composes target provider extensions before selected surface extension
     "surface-extension:nodejs:target=demo:surfaces=js,nodejs",
   ]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js", "nodejs"]);
-  assert.deepEqual(composition.extensions, [targetExtension, jsExtension, nodejsExtension]);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target", "surface-js", "surface-nodejs"]);
+  assert.equal(composition.extensions[1], targetExtension);
+  assert.equal(composition.extensions[2], jsExtension);
+  assert.equal(composition.extensions[3], nodejsExtension);
 });
 
 test("host rejects stale or unowned supplied surface composition", () => {
@@ -144,6 +149,40 @@ test("host reports unknown selected target as target diagnostic", async () => {
   assert.equal(result.diagnostics[0].category, "error");
   assert.equal(result.diagnostics[0].message, "Unknown target 'not-real'.");
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
+test("host resolves target and surface selection before creating semantic input", () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    surfaces: [
+      createFakeSurface("js"),
+    ],
+  });
+  const projectDirectory = resolve(tempRoot, "selection-before-source-graph");
+  const project = parseTsonicProjectConfig({
+    entryPoint: "missing-entry.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [
+      { id: "not-real" },
+      { id: "demo", surfaces: ["not-real"] },
+    ],
+  });
+
+  const result = compileProject({
+    project,
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(events, []);
+  assert.deepEqual(result.diagnostics.map((diagnostic) => diagnostic.code), [
+    "TARGET_SELECTION",
+    "TARGET_SURFACE_SELECTION",
+  ]);
+  assert.match(result.diagnostics[0].message, /Unknown target 'not-real'/);
+  assert.match(result.diagnostics[1].message, /target 'demo' does not implement requested surface 'not-real'/);
+  assert.deepEqual(result.targets.map((target) => target.compileResult.artifacts.length), [0, 0]);
 });
 
 test("host reports unknown requested surface as target diagnostic", async () => {
@@ -263,12 +302,16 @@ test("host does not pass unselected surfaces to the target provider", () => {
 
   assert.deepEqual(events, ["provider:demo:surfaces=js"]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js"]);
-  assert.deepEqual(composition.extensions, [targetExtension]);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target"]);
+  assert.equal(composition.extensions[1], targetExtension);
 });
 
 test("host composes provider, selected surface, and backend artifacts for toolchain handoff", async () => {
   const events = [];
   let toolchainArtifacts = [];
+  let toolchainArtifactsRoot = "";
+  let toolchainTargetId = "";
+  let toolchainProjectTargetIds = [];
   const targetPack = createFakeTargetPack(events, {
     providerArtifacts: [
       createFakeArtifact("asset", "runtime/provider.txt", "provider"),
@@ -278,6 +321,9 @@ test("host composes provider, selected surface, and backend artifacts for toolch
     ],
     onToolchain(input) {
       toolchainArtifacts = input.compileResult.artifacts.map((artifact) => artifact.path);
+      toolchainArtifactsRoot = input.artifactsRoot;
+      toolchainTargetId = input.target.id;
+      toolchainProjectTargetIds = input.project.targets.map((target) => target.id);
     },
     surfaces: [
       createFakeSurface("js", {
@@ -296,7 +342,9 @@ test("host composes provider, selected surface, and backend artifacts for toolch
     ],
   });
 
-  const result = await compileFakeProject("runtime-artifact-composition", targetPack, {
+  const projectName = "runtime-artifact-composition";
+  const projectDirectory = resolve(tempRoot, projectName);
+  const result = await compileFakeProject(projectName, targetPack, {
     id: "demo",
     surfaces: ["js"],
   });
@@ -308,6 +356,9 @@ test("host composes provider, selected surface, and backend artifacts for toolch
     "src/App.demo",
   ]);
   assert.deepEqual(toolchainArtifacts, artifactPaths);
+  assert.equal(toolchainArtifactsRoot, resolve(projectDirectory, "out/demo"));
+  assert.equal(toolchainTargetId, "demo");
+  assert.deepEqual(toolchainProjectTargetIds, ["demo"]);
   assert.equal(events.includes("surface-runtime:nodejs"), false);
   assert.equal(events.includes("provider-runtime:demo"), true);
   assert.equal(events.includes("surface-runtime:js"), true);
@@ -727,6 +778,10 @@ function createRegistry(targetPack) {
       return targetPack;
     },
   };
+}
+
+function extensionIds(extensions) {
+  return extensions.map((extension) => extension.identity?.id ?? extension.name);
 }
 
 function createFakeTargetPack(events, options = {}) {

@@ -45,6 +45,60 @@ test("CLI emits provider-owned static C# calls from selected TSTS target facts",
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI does not fall back to file-backed packages for provider-owned .NET modules", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-file-backed-shadow");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderFileBackedShadow",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Convert } from \"@tsonic/dotnet/System.js\";",
+      "import type { uint8 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function toByte(value: number): uint8 {",
+      "  return Convert.toByte(value);",
+      "}",
+      "",
+    ].join("\n"),
+    "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+      name: "@tsonic/dotnet",
+      type: "module",
+      exports: {
+        "./System.js": "./System.ts",
+      },
+    }, null, 2),
+    "node_modules/@tsonic/dotnet/System.ts": [
+      "export const Convert = {",
+      "  toByte(value: number): number {",
+      "    return 255;",
+      "  },",
+      "};",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /return System\.Convert\.ToByte\(value\);/);
+  assert.doesNotMatch(generatedSource, /255|node_modules|Convert\.toByte|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderFileBackedShadow.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits explicit provider-owned native .NET arrays without JS array surface semantics", async () => {
   const projectDirectory = resolve(tempRoot, "provider-native-dotnet-array");
   await writeProject(projectDirectory, {

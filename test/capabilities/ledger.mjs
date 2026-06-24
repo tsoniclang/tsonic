@@ -906,7 +906,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "provider.virtual-module.no-fallback remains partial until every provider-owned module failure mode has current CLI/toolchain coverage and precise diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; missing provider facts remain diagnostics/blockers.",
+      "Reviewed partial proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; selected .NET modules win over shadow package files, and missing provider facts remain diagnostics/blockers.",
   }),
   "provider.virtual-module.source-shape": Object.freeze({
     positiveTests: Object.freeze([
@@ -961,7 +961,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/cli/src/commands/restore.test.ts",
     ]),
     notes:
-      "Reviewed proof: selected providers create compiler-visible modules; .d.ts and provider metadata files are excluded from semantic input, so unselected or missing provider modules fail closed without file-backed fallback.",
+      "Reviewed proof: selected providers create compiler-visible modules; .d.ts, provider metadata files, package-root shims, and shadow package source files cannot replace provider-owned virtual modules, so unselected or missing provider modules fail closed without file-backed fallback.",
   }),
   "provider.module.missing-provider-diagnostic": Object.freeze({
     positiveTests: Object.freeze([
@@ -994,9 +994,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "source.primitive.numeric": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
@@ -1006,7 +1008,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source.primitive.numeric remains partial until every neutral numeric width, decimal/native alias, numeric literal flow, assertion/conversion boundary, and backend carrier emission has positive and negative proof.",
     ]),
     notes:
-      "Reviewed partial proof: @tsonic/core/types.js exposes neutral int8 through uint128, nativeInt/nativeUint, float16/32/64, and decimal without C# alias names; imported int32/float64 facts carry width, sign, and runtimeBase; configured @tsonic/csharp int/long/byte aliases map to canonical source primitives; local number/int spellings do not create source-primitive facts.",
+      "Reviewed partial proof: @tsonic/core/types.js exposes neutral int8 through uint128, nativeInt/nativeUint, float16/32/64, and decimal without C# alias names; source-core package tests prove aliased int32/float64 and namespace uint64/float32 imports carry width, sign, runtimeBase, and module identity, while same-spelling local imports and aliases do not create source-primitive facts.",
   }),
   "source.primitive.char-bool": Object.freeze({
     positiveTests: Object.freeze([
@@ -1047,9 +1049,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "source.marker.out-ref-inref": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
@@ -1058,7 +1062,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source.marker.out-ref-inref remains partial until every assignable storage form, non-storage diagnostic, call/constructor propagation path, mutation flow, and emitted parameter-mode AST path is proven.",
     ]),
     notes:
-      "Reviewed partial proof: imported out/ref/inref markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts; unproven storage like out(value + 1) produces SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT; local functions named out do not create marker facts.",
+      "Reviewed partial proof: imported and namespace out/ref/inref markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts for identifier, property, and element storage; unproven storage like out(value + 1) produces SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT; local and shadowed same-spelling functions do not create marker facts.",
   }),
   "source.marker.field": Object.freeze({
     positiveTests: Object.freeze([
@@ -1134,65 +1138,73 @@ const reviewedCapabilityEvidence = Object.freeze({
   "source.marker.ptr-fnptr": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
       "test/fixtures/pointer-types/",
     ]),
     blockers: Object.freeze([
-      "source.marker.ptr-fnptr remains partial until pointer/function-pointer facts cover mutability, unsafe requirements, ABI/calling conventions, invalid type-argument forms, target diagnostics, and backend unsafe AST output.",
+      "source.marker.ptr-fnptr remains partial until pointer/function-pointer facts cover explicit mutability variants, non-arity invalid type-argument forms, target diagnostics, and backend unsafe AST output across selected targets.",
     ]),
     notes:
-      "Reviewed partial proof: neutral ptr<int32> and fnptr<[int32, bool], char> aliases attach pointer and function-pointer facts with target-defined mutability, unsafe requirements, parameter/result type nodes, and target-default ABI; .NET provider tests prove unsupported pointer signatures are recorded as target diagnostics instead of silently becoming source declarations.",
+      "Reviewed partial proof: neutral ptr<int32> and fnptr<[int32, bool], char> aliases plus core namespace marker imports attach pointer and function-pointer facts with target-defined mutability, unsafe requirements, parameter/result type nodes, and target-default ABI; local same-spelling markers do not attach facts, invalid arity is rejected by TSTS checking, and .NET provider tests prove unsupported pointer signatures are target diagnostics instead of source declarations.",
   }),
   "source.marker.borrow-move": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "source.marker.borrow-move remains partial until borrow, borrowMut, and move have complete per-target behavior evidence for C#, future Rust, alias imports, namespace imports, invalid arity, and post-move/borrow flow-use diagnostics.",
+      "source.marker.borrow-move remains partial until borrow, borrowMut, and move have complete per-target behavior evidence for C#, future Rust, and post-move/borrow flow-use diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: neutral @tsonic/core/lang.js borrow, borrowMut, and move calls attach finalized TSTS flow facts. The C# target now rejects those facts explicitly with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of silently erasing the marker calls.",
+      "Reviewed partial proof: neutral @tsonic/core/lang.js borrow, borrowMut, and move calls attach finalized TSTS flow facts from alias and namespace imports, local/shadowed same-spelling calls do not attach facts, and invalid arity is rejected by TSTS checking. The C# target now rejects those facts explicitly with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of silently erasing the marker calls.",
   }),
   "source-core.out.storage-binding": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
     ]),
     blockers: Object.freeze([
-      "source-core.out.storage-binding remains partial until identifier, property, element, destructured, provider-owned, and readonly/non-assignable storage cases have closed positive and negative proof.",
+      "source-core.out.storage-binding remains partial until destructured, provider-owned, readonly/non-assignable, source-span, and every selected-target byref write path have closed positive and negative proof.",
     ]),
     notes:
-      "Reviewed partial proof: out(value) records a write-only byref fact tied to an identifier storage node, while out(value + 1) records the same marker shape but emits SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT because the argument is not assignable storage.",
+      "Reviewed partial proof: out(value), namespace out(box.field), and property storage record write-only byref facts, while out(value + 1) records the same marker shape but emits SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT because the argument is not assignable storage.",
   }),
   "source-core.ref.parameter-mode": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
     ]),
     blockers: Object.freeze([
-      "source-core.ref.parameter-mode remains partial until ref/inref facts are consumed by every call, constructor, delegate, provider overload, invalid readonly, and emitted target parameter path.",
+      "source-core.ref.parameter-mode remains partial until ref/inref facts are consumed by every call, constructor, delegate, provider overload, invalid readonly, source-span, and emitted target parameter path.",
     ]),
     notes:
-      "Reviewed partial proof: ref(value) and inref(value) attach readwrite and readonly parameter-mode facts to proven storage, and local functions named like markers do not receive source-core parameter facts. Remaining proof must connect those facts through provider selection and C# AST emission.",
+      "Reviewed partial proof: ref(value), inref(value), namespace ref(value), and element/property storage attach readwrite and readonly parameter-mode facts to proven storage; local and shadowed functions named like markers do not receive source-core parameter facts. Remaining proof must connect those facts through provider selection and C# AST emission.",
   }),
   "source-core.struct.field-facts": Object.freeze({
     positiveTests: Object.freeze([
@@ -1214,16 +1226,18 @@ const reviewedCapabilityEvidence = Object.freeze({
   "source-core.flow.borrow-move-facts": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "source-core.flow.borrow-move-facts remains partial until shared source-flow facts prove all valid/invalid source forms and every selected target either implements or rejects them with capability-scoped diagnostics.",
+      "source-core.flow.borrow-move-facts remains partial until post-borrow/post-move source-flow checks and every selected target either implements or rejects the finalized facts with capability-scoped diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: TSTS records borrowed-shared, borrowed-mut, and moved flow facts for imported neutral markers. C# consumes those finalized facts only to emit explicit unsupported-target diagnostics; it does not erase them as identity calls.",
+      "Reviewed partial proof: TSTS records borrowed-shared, borrowed-mut, and moved flow facts for aliased and namespaced neutral markers, rejects invalid arity during TypeScript checking, and avoids facts for local/shadowed same-spelling calls. C# consumes those finalized facts only to emit explicit unsupported-target diagnostics; it does not erase them as identity calls.",
   }),
   "source-core.lang.portable-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
@@ -1246,10 +1260,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Backends may consume portable source-core facts only after the selected target implements or explicitly rejects the intrinsic; name-spelling fallback is forbidden.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1258,7 +1274,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/defaultof-intrinsic/",
     ]),
     blockers: Object.freeze([
-      "source-core.lang.portable-intrinsics remains partial until out/ref/inref/struct/field/attribute/defaultof/ptr/fnptr/borrow/borrowMut/move have complete alias, namespace import, invalid arity, missing type-evidence, per-target implementation/rejection, and emitted target AST proof.",
+      "source-core.lang.portable-intrinsics remains partial until struct/field/attribute/defaultof alias and namespace forms, missing type-evidence breadth, per-target implementation/rejection, and emitted target AST proof are complete.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "portable-source-core-intrinsic",
@@ -1295,7 +1311,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Current source-semantics tests prove facts for storage markers, struct/field/defaultof/attribute/ptr/fnptr, reject missing type evidence and shadowed local names, and prove C# rejects borrow/borrowMut/move rather than erasing them. Completion requires every child intrinsic to have full per-target implementation or explicit rejection evidence.",
+      "Reviewed partial proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove alias and namespace import facts for storage, flow, ptr, and fnptr markers, invalid arity rejection through TSTS checking, and no-name-guessing for local/shadowed markers; CLI and C# tests prove selected target implementation/rejection for current paths. Completion requires every child intrinsic to have full per-target implementation or explicit rejection evidence.",
   }),
   "source-core.lang.portable-intrinsics.out": coreLangIntrinsicEvidence({
     exportName: "out",
@@ -1324,11 +1340,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "target-missing-out-argument-contract",
     ],
     positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ],
     negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
     ],
     oldEvidence: [
@@ -1336,10 +1354,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ],
     blockers: [
-      "source-core.lang.portable-intrinsics.out remains partial until property, element, destructuring, provider-owned, readonly, non-storage, source-span, and every selected-target byref write path have closed positive and negative proof.",
+      "source-core.lang.portable-intrinsics.out remains partial until destructuring, provider-owned, readonly, source-span, and every selected-target byref write path have closed positive and negative proof.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records byref-writeonly-must-init only for the imported core out marker and proven storage; out(value + 1) reports SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT, and C# provider calls consume the finalized fact as out value rather than by name.",
+      "Reviewed partial proof: TSTS/source-core records byref-writeonly-must-init only for aliased or namespaced imported core out markers and proven identifier/property storage; out(value + 1) reports SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT, invalid arity is rejected by TSTS checking, local/shadowed out calls do not attach facts, and C# provider calls consume the finalized fact as out value rather than by name.",
   }),
   "source-core.lang.portable-intrinsics.ref": coreLangIntrinsicEvidence({
     exportName: "ref",
@@ -1369,10 +1387,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "target-missing-ref-argument-contract",
     ],
     positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
     ],
     oldEvidence: [
@@ -1383,7 +1403,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.ref remains partial until every mutable storage family, readonly rejection, provider overload, delegate, constructor, source-span, and target emission path has direct proof.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records byref-readwrite for imported ref aliases such as ref as refArg, while same-spelling local functions do not receive marker facts. Remaining proof must cover all storage forms and target-owned legality.",
+      "Reviewed partial proof: TSTS/source-core records byref-readwrite for imported ref aliases such as ref as refArg and namespace ref(value), while same-spelling local and shadowed functions do not receive marker facts. Non-storage arguments diagnose, invalid arity is rejected by TSTS checking, and remaining proof must cover target-owned legality.",
   }),
   "source-core.lang.portable-intrinsics.inref": coreLangIntrinsicEvidence({
     exportName: "inref",
@@ -1412,10 +1432,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "target-missing-inref-argument-contract",
     ],
     positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
     ],
     oldEvidence: [
@@ -1426,7 +1448,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.inref remains partial until readonly storage, temporary expression rejection, provider overloads, delegates, constructors, source spans, and every selected target's immutable byref operation are proven.",
     ],
     notes:
-      "Reviewed partial proof: imported inref records byref-readonly on the call marker, does not place argument-passing facts on the storage expression itself, and C# CLI emission uses in value only from finalized facts.",
+      "Reviewed partial proof: imported and namespace inref records byref-readonly on the call marker, does not place argument-passing facts on the storage expression itself, diagnoses non-storage expressions, rejects invalid arity through TSTS checking, and C# CLI emission uses in value only from finalized facts.",
   }),
   "source-core.lang.portable-intrinsics.borrow": coreLangIntrinsicEvidence({
     exportName: "borrow",
@@ -1455,18 +1477,20 @@ const reviewedCapabilityEvidence = Object.freeze({
       "target-rejects-shared-borrow",
     ],
     positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
     ],
     negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ],
     oldEvidence: [],
     blockers: [
-      "source-core.lang.portable-intrinsics.borrow remains partial until alias imports, namespace imports, invalid arity, post-borrow source-flow checks, C# unsupported diagnostics, and future Rust implementation/rejection proof are complete.",
+      "source-core.lang.portable-intrinsics.borrow remains partial until post-borrow source-flow checks, C# unsupported diagnostic breadth, and future Rust implementation/rejection proof are complete.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records borrowed-shared flow for imported borrow calls. C# is target-owned and currently rejects finalized borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call.",
+      "Reviewed partial proof: TSTS/source-core records borrowed-shared flow for aliased and namespace borrow calls, rejects invalid arity through TSTS checking, and avoids facts for local/shadowed same-spelling calls. C# is target-owned and currently rejects finalized borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call.",
   }),
   "source-core.lang.portable-intrinsics.borrow-mut": coreLangIntrinsicEvidence({
     exportName: "borrowMut",
@@ -1495,18 +1519,20 @@ const reviewedCapabilityEvidence = Object.freeze({
       "target-rejects-mutable-borrow",
     ],
     positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
     ],
     negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ],
     oldEvidence: [],
     blockers: [
-      "source-core.lang.portable-intrinsics.borrow-mut remains partial until mutable aliasing, nested borrows, invalid arity, namespace imports, C# unsupported diagnostics, and future Rust implementation/rejection proof are complete.",
+      "source-core.lang.portable-intrinsics.borrow-mut remains partial until mutable aliasing, nested borrows, C# unsupported diagnostic breadth, and future Rust implementation/rejection proof are complete.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records borrowed-mut flow for imported borrowMut calls. Selected targets own exclusivity; unsupported targets must diagnose rather than lower the marker away.",
+      "Reviewed partial proof: TSTS/source-core records borrowed-mut flow for aliased and namespace borrowMut calls, rejects invalid arity through TSTS checking, and avoids facts for local/shadowed same-spelling calls. Selected targets own exclusivity; unsupported targets must diagnose rather than lower the marker away.",
   }),
   "source-core.lang.portable-intrinsics.move": coreLangIntrinsicEvidence({
     exportName: "move",
@@ -1535,20 +1561,22 @@ const reviewedCapabilityEvidence = Object.freeze({
       "post-move-use-rejected",
     ],
     positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "packages/tsts/src/extensions/provider-program.test.ts",
     ],
     negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "packages/tsts/src/extensions/provider-program.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ],
     oldEvidence: [],
     blockers: [
-      "source-core.lang.portable-intrinsics.move remains partial until move assignment, post-move reads/writes, namespace imports, invalid arity, selected-target unsupported diagnostics, and future Rust ownership proof are complete.",
+      "source-core.lang.portable-intrinsics.move remains partial until move assignment, post-move reads/writes, selected-target unsupported diagnostic breadth, and future Rust ownership proof are complete.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records moved flow on the move call and moved argument, and provider-program tests show target validation can reject post-move use. C# remains explicit unsupported-target diagnostics, not silent marker erasure.",
+      "Reviewed partial proof: TSTS/source-core records moved flow on aliased and namespace move calls plus the moved argument, rejects invalid arity through TSTS checking, and provider-program tests show target validation can reject post-move use. C# remains explicit unsupported-target diagnostics, not silent marker erasure.",
   }),
   "source-core.lang.portable-intrinsics.struct": coreLangIntrinsicEvidence({
     exportName: "struct",
@@ -1763,10 +1791,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "unsafe-target-mode-unavailable",
     ],
     positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
     ],
@@ -1775,10 +1805,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/pointer-types/",
     ],
     blockers: [
-      "source-core.lang.portable-intrinsics.ptr remains partial until mutability, nested pointers, invalid type-argument forms, unsafe project settings, provider pointer boundaries, source spans, and all target diagnostics are proven.",
+      "source-core.lang.portable-intrinsics.ptr remains partial until explicit mutability variants, non-arity invalid type forms, unsafe project settings, provider pointer boundaries, source spans, and all target diagnostics are proven.",
     ],
     notes:
-      "Reviewed partial proof: ptr<int32> attaches pointer facts with target-defined mutability and unsafe-required evidence, and C# CLI emits int* with AllowUnsafeBlocks only from finalized facts. Unsupported pointer shapes remain target diagnostics.",
+      "Reviewed partial proof: aliased ptr<int32>, namespace lang.ptr<int32>, and nested ptr facts attach target-defined mutability plus unsafe-required evidence; local same-spelling ptr aliases do not attach pointer facts; invalid arity is rejected by TSTS checking; and C# CLI emits int* with AllowUnsafeBlocks only from finalized facts. Unsupported pointer shapes remain target diagnostics.",
   }),
   "source-core.lang.portable-intrinsics.fnptr": coreLangIntrinsicEvidence({
     exportName: "fnptr",
@@ -1811,9 +1841,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "target-missing-function-pointer-contract",
     ],
     positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
     ],
     negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
     ],
@@ -1822,10 +1854,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/pointer-types/",
     ],
     blockers: [
-      "source-core.lang.portable-intrinsics.fnptr remains partial until @tsonic/core/lang.js fnptr has direct CLI proof, invalid Args/Result forms, ABI/calling convention facts, unsafe project settings, provider boundaries, source spans, and all selected-target diagnostics are proven.",
+      "source-core.lang.portable-intrinsics.fnptr remains partial until direct CLI proof, non-arity invalid Args/Result forms, ABI/calling convention facts, unsafe project settings, provider boundaries, source spans, and all selected-target diagnostics are proven.",
     ],
     notes:
-      "Reviewed partial proof: source-semantics records fnptr parameter/result type facts from canonical type marker imports and rejects local same-spelling aliases. Direct core-module CLI proof and complete target ABI diagnostics remain open.",
+      "Reviewed partial proof: source-semantics records fnptr parameter/result type facts from aliased and namespace core type marker imports, rejects local same-spelling aliases, and relies on TSTS checking for invalid arity. Direct core-module CLI proof and complete target ABI diagnostics remain open.",
   }),
   "native.dotnet.assembly-model": Object.freeze({
     positiveTests: Object.freeze([
@@ -4795,8 +4827,12 @@ function validateLaneClassification(errors, entry) {
         break;
       }
     }
+    if (!possibleLanes.includes("hard-reject")) {
+      errors.push("laneClassification.possibleLanes must include hard-reject");
+    }
   }
   validateLaneBehavior(errors, classification.strictNative, "laneClassification.strictNative");
+  validateStrictNativeBehavior(errors, classification.strictNative, possibleLanes);
   if (possibleLanes?.includes?.("static-native")) {
     validateLaneBehavior(errors, classification.staticNative, "laneClassification.staticNative", "static-native");
     validateRequiredFacts(errors, classification.staticNative, "laneClassification.staticNative.requiredFacts");
@@ -4822,6 +4858,18 @@ function validateLaneClassification(errors, entry) {
   }
   if (!isPlainObject(classification.hardReject) || !Array.isArray(classification.hardReject.reasons) || classification.hardReject.reasons.length === 0) {
     errors.push("laneClassification.hardReject.reasons must be a non-empty array");
+  }
+}
+
+function validateStrictNativeBehavior(errors, behavior, possibleLanes) {
+  if (!isPlainObject(behavior) || typeof behavior.lane !== "string" || !capabilityLaneSet.has(behavior.lane)) {
+    return;
+  }
+  if (behavior.lane === "compat-runtime") {
+    errors.push("laneClassification.strictNative.lane must be static-native or hard-reject");
+  }
+  if (Array.isArray(possibleLanes) && possibleLanes.length > 0 && !possibleLanes.includes(behavior.lane)) {
+    errors.push("laneClassification.strictNative.lane must be listed in laneClassification.possibleLanes");
   }
 }
 
