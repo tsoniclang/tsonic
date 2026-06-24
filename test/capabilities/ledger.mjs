@@ -1323,16 +1323,18 @@ const reviewedCapabilityEvidence = Object.freeze({
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed partial proof: reflection provider records unsupported constructor/property/field/method/operator/event members instead of silently dropping static interface members, generic static members, multi-parameter indexers, pointer signatures, and generic operators; remains partial until type-ref conversion drops, constraint drops, default-value omissions, and attribute omissions are explicit diagnostics.",
+      "Reviewed partial proof: reflection provider records unsupported constructor/property/field/method/operator/event members instead of silently dropping static interface members, generic static members, multi-parameter indexers, pointer signatures, and generic operators; selected unsupported member identities now become fail-closed target diagnostics instead of generic not-found errors. Remains partial until type-ref conversion drops, constraint drops, default-value omissions, and attribute omissions are explicit diagnostics.",
   }),
   "operation.call.provider-selected-method": Object.freeze({
     positiveTests: Object.freeze([
@@ -1387,6 +1389,59 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: target conversions are finalized as TSTS targetConversion facts, C# emission requires a matching C# target conversion operation fact, provider conversion operators carry source and target type evidence, and mismatched/missing/ambiguous conversion facts fail closed. Remains partial until provider-owned conversions have full CLI/runtime coverage across calls, returns, assignments, assertions, and generic substitutions.",
+  }),
+  "operation.property.provider-selected-member": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+    ]),
+    blockers: Object.freeze([
+      "operation.property.provider-selected-member remains partial until fields, properties, events, indexers, inherited members, and unsupported-member diagnostics are proven through full CLI/runtime/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: provider-owned property and field access maps only from selected provider declaration identity, same-spelling target members without selected identity reject, selected unsupported properties diagnose with provider reasons, and selected events reject until explicit source event semantics exist.",
+  }),
+  "operation.member.provider-property": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+    ]),
+    blockers: Object.freeze([
+      "operation.member.provider-property remains partial until provider-owned instance/static property and field reads/writes have source-span diagnostics, runtime/toolchain coverage, and old fixture parity.",
+    ]),
+    notes:
+      "Reviewed partial proof: selected provider member identity, not property source spelling, owns property/field operation mapping; unsupported provider members fail closed with the recorded provider reason.",
+  }),
+  "operation.member.provider-indexer": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/collections/list-initializer/ListInitializer.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/dictionaries/Dictionaries.ts",
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    blockers: Object.freeze([
+      "operation.member.provider-indexer remains partial until provider-owned indexer overloads, unsupported indexers, dictionary surface indexers, and mutable index assignments are proven through current CLI/runtime/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: selected provider indexer identity and provider-owned Dictionary indexer facts map element access without target-name guessing; missing or unsupported indexer facts reject.",
   }),
   "operation.iteration.for-in.keys": Object.freeze({
     positiveTests: Object.freeze([
@@ -1761,8 +1816,14 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed proof: provider-owned calls/properties map from selected provider declaration or signature identity; same-spelling target members outside that identity are rejected.",
   }),
   "backend.ast.only": Object.freeze({
-    positiveTests: Object.freeze([]),
-    negativeTests: Object.freeze([]),
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
       "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
@@ -1828,7 +1889,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "backend.ast.only remains partial until the full C# backend emits every supported capability through Roslyn-compatible target AST nodes and no semantic string/custom AST paths remain.",
     ]),
     notes:
-      "Reviewed partial proof: every reviewed old C# emitter inventory case is now represented as backend.ast.only ledger evidence; old cases remain regression evidence only, and completion still requires current positive/negative Roslyn AST tests for each capability batch.",
+      "Reviewed partial proof: every reviewed old C# emitter inventory case is represented as backend.ast.only ledger evidence, Roslyn-boundary tests enforce no custom/raw syntax node kinds, and printer tests fail closed for invalid or foreign raw syntax nodes. Completion still requires every supported capability batch to prove Roslyn-compatible AST output end-to-end.",
   }),
   "backend.fail-closed-facts": Object.freeze({
     positiveTests: Object.freeze([]),
@@ -1870,7 +1931,60 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
     ]),
     notes:
-      "Reviewed proof: C# backend exposes Roslyn-compatible syntax as the only output AST boundary; printer/planner tests reject legacy semantic string/custom AST paths.",
+      "Reviewed proof: C# backend exposes Roslyn-compatible syntax as the only output AST boundary, backend text materialization is limited to the output-plan printer boundary, and printer/planner tests reject legacy semantic string/custom AST paths plus malformed raw syntax nodes.",
+  }),
+  "backend.csharp.ast-expression": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "backend.csharp.ast-expression remains partial until every supported expression capability is proven to produce Roslyn-compatible expression nodes from finalized facts.",
+    ]),
+    notes:
+      "Reviewed partial proof: expression printing accepts Roslyn-compatible expression nodes, rejects InvalidExpression, and fails closed for foreign RawExpression-like syntax instead of rendering semantic text.",
+  }),
+  "backend.csharp.ast-statement": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "backend.csharp.ast-statement remains partial until every supported statement capability is proven to produce Roslyn-compatible statement nodes from finalized facts.",
+    ]),
+    notes:
+      "Reviewed partial proof: statement printing accepts Roslyn-compatible statement nodes, fails closed for foreign RawStatement-like syntax, and boundary tests reject legacy custom statement kind names.",
+  }),
+  "backend.csharp.printer": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "backend.csharp.printer remains partial until all generated C# source and project artifacts are validated through full backend/toolchain gates.",
+    ]),
+    notes:
+      "Reviewed partial proof: the printer renders only Roslyn-compatible AST nodes, throws for invalid or unknown syntax nodes, and is reachable from backend planning only through the single output-plan materialization boundary.",
   }),
   "backend.csharp.project-sdk-emit": Object.freeze({
     positiveTests: Object.freeze([
@@ -1935,6 +2049,25 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: NativeAOT is an explicit C# target project property, not generic compiler architecture; invalid PublishAot option shapes are rejected and source-to-source artifact reporting remains deterministic.",
+  }),
+  "diagnostic.unsupported-target-operation": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+    ]),
+    blockers: Object.freeze([
+      "diagnostic.unsupported-target-operation remains partial until every unsupported provider/surface/runtime lane has precise source spans, provider evidence, and current CLI/runtime/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: selected provider calls, properties, indexers, and JS surface operations diagnose unsupported target operations from finalized provider/surface facts; the backend does not guess from source spelling or silently fall through to not-found behavior when explicit unsupported evidence exists.",
   }),
   "diagnostic.strict-mode-slow-op": Object.freeze({
     positiveTests: Object.freeze([
