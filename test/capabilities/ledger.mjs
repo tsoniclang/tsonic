@@ -87,9 +87,11 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source.marker.attribute", "attribute marker attaches target attribute facts", "partial", "source-core-provider"],
   ["source.marker.defaultof", "defaultof marker attaches target default facts", "partial", "source-core-provider"],
   ["source.marker.ptr-fnptr", "pointer and function-pointer markers attach target-validated facts", "partial", "source-core-provider"],
+  ["source.marker.borrow-move", "borrow, borrowMut, and move markers attach target-validated flow facts", "partial", "source-core-provider"],
   ["source-core.out.storage-binding", "out marker resolves to assignable storage", "partial", "source-core-provider"],
   ["source-core.ref.parameter-mode", "ref and inref markers resolve to parameter passing facts", "partial", "source-core-provider"],
   ["source-core.struct.field-facts", "struct and field markers combine into value-shape facts", "partial", "source-core-provider"],
+  ["source-core.flow.borrow-move-facts", "borrow and move source facts require explicit target behavior", "partial", "source-core-provider"],
 
   ["type.utility", "Utility types are consumed from TSTS results", "partial", "tsts-api"],
   ["type.conditional", "Conditional types are consumed from TSTS results", "partial", "tsts-api"],
@@ -276,6 +278,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "partial", "tests"],
 
   ["target.shared.operation-contract", "Targets share operation/fact contracts without C# shortcuts", "partial", "tests"],
+  ["target.csharp.source-flow-marker-contract", "C# explicitly implements or rejects portable source flow markers", "partial", "target-provider"],
   ["target.shared.ownership-placeholder", "Shared contracts preserve future ownership facts", "not-started", "rust-future"],
   ["target.rust.future-borrow-checker-boundary", "Rust borrow/move remains provider diagnostic plus rustc authority", "not-started", "rust-future"],
   ["rust.boundary.target-pack", "Rust target pack can implement shared interfaces", "not-started", "rust-future"],
@@ -1077,6 +1080,20 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: neutral ptr<int32> and fnptr<[int32, bool], char> aliases attach pointer and function-pointer facts with target-defined mutability, unsafe requirements, parameter/result type nodes, and target-default ABI; .NET provider tests prove unsupported pointer signatures are recorded as target diagnostics instead of silently becoming source declarations.",
   }),
+  "source.marker.borrow-move": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "source.marker.borrow-move remains partial until borrow, borrowMut, and move have complete per-target behavior evidence for C#, future Rust, alias imports, namespace imports, invalid arity, and post-move/borrow flow-use diagnostics.",
+    ]),
+    notes:
+      "Reviewed partial proof: neutral @tsonic/core/lang.js borrow, borrowMut, and move calls attach finalized TSTS flow facts. The C# target now rejects those facts explicitly with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of silently erasing the marker calls.",
+  }),
   "source-core.out.storage-binding": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
@@ -1125,6 +1142,20 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: struct facts collect only finalized field facts from the struct object literal, preserve field names x/ok and source-primitive type facts, and reject orphan field markers without a proven target field context.",
+  }),
+  "source-core.flow.borrow-move-facts": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "source-core.flow.borrow-move-facts remains partial until shared source-flow facts prove all valid/invalid source forms and every selected target either implements or rejects them with capability-scoped diagnostics.",
+    ]),
+    notes:
+      "Reviewed partial proof: TSTS records borrowed-shared, borrowed-mut, and moved flow facts for imported neutral markers. C# consumes those finalized facts only to emit explicit unsupported-target diagnostics; it does not erase them as identity calls.",
   }),
   "native.dotnet.assembly-model": Object.freeze({
     positiveTests: Object.freeze([
@@ -2647,6 +2678,20 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: invalid TypeScript remains invalid even when extensions/providers are present; target emission stops before artifact creation.",
+  }),
+  "target.csharp.source-flow-marker-contract": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "target.csharp.source-flow-marker-contract remains partial until C# explicitly covers every portable source-flow marker with implemented or unsupported diagnostics through unit, CLI, and toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# currently rejects borrow, borrowMut, and move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED from finalized TSTS flow facts. This is the explicit target contract until C# has a defined non-erased implementation.",
   }),
 });
 
