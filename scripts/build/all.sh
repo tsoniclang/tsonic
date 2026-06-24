@@ -11,6 +11,7 @@ fi
 
 PACKAGES=(
   "packages/tsts"
+  "packages/source-core"
   "packages/target-api"
   "packages/host"
   "packages/cli"
@@ -18,7 +19,7 @@ PACKAGES=(
 
 for pkg in "${PACKAGES[@]}"; do
   if [[ "$pkg" == "packages/cli" && -d "../tsonic-csharp" ]]; then
-    if [[ ! -e "../tsonic-csharp/node_modules/@tsonic/tsts" || ! -e "../tsonic-csharp/node_modules/@tsonic/target-api" ]]; then
+    if [[ ! -e "../tsonic-csharp/node_modules/@tsonic/tsts" || ! -e "../tsonic-csharp/node_modules/@tsonic/target-api" || ! -e "../tsonic-csharp/node_modules/@tsonic/source-core" ]]; then
       echo "Installing ../tsonic-csharp dependencies..."
       (cd "../tsonic-csharp" && npm install)
     fi

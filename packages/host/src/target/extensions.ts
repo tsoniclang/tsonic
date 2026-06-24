@@ -1,4 +1,5 @@
 import type { CompilerExtension } from "@tsonic/tsts";
+import { createTsonicCoreSourceExtension } from "@tsonic/source-core";
 import type {
   TargetProvider,
   TargetPack,
@@ -38,6 +39,7 @@ export function createTargetCompilerExtensions(options: CreateTargetCompilerExte
     selectedSurfaces,
   };
   const extensions = [
+    createTsonicCoreSourceExtension(),
     ...provider.createExtensions(providerContext),
     ...selectedSurfaces.flatMap((surface) =>
       surface.createExtensions?.({

@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/tsts" },
+    { "path": "./packages/source-core" },
     { "path": "./packages/target-api" },
     { "path": "./packages/host" },
     { "path": "./packages/cli" }

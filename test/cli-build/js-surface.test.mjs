@@ -27,6 +27,14 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
       "  return Math.max(low, Math.min(high, value));",
       "}",
       "",
+      "export function emptyMax(): number {",
+      "  return Math.max();",
+      "}",
+      "",
+      "export function emptyMin(): number {",
+      "  return Math.min();",
+      "}",
+      "",
       "export function curve(value: number): number {",
       "  return Math.sin(value) + Math.cos(value) + Math.sqrt(Math.pow(value, 2));",
       "}",
@@ -59,6 +67,10 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.trunc\(Tsonic\.CSharp\.Js\.Math\.abs\(value\)\);/);
   assert.match(generatedSource, /public static double clamp\(double value, double low, double high\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.max\(low, Tsonic\.CSharp\.Js\.Math\.min\(high, value\)\);/);
+  assert.match(generatedSource, /public static double emptyMax\(\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.max\(\);/);
+  assert.match(generatedSource, /public static double emptyMin\(\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.min\(\);/);
   assert.match(generatedSource, /public static double curve\(double value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.sin\(value\) \+ Tsonic\.CSharp\.Js\.Math\.cos\(value\) \+ Tsonic\.CSharp\.Js\.Math\.sqrt\(Tsonic\.CSharp\.Js\.Math\.pow\(value, 2\)\)/);
   assert.match(generatedSource, /public static double inverse\(double value\)/);
@@ -319,6 +331,22 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return [value, ...values];",
       "}",
       "",
+      "export function copy(values: int32[]): int32[] {",
+      "  return Array.from(values);",
+      "}",
+      "",
+      "export function chars(value: string): string[] {",
+      "  return Array.from(value);",
+      "}",
+      "",
+      "export function make(left: int32, right: int32): int32[] {",
+      "  return Array.of(left, right);",
+      "}",
+      "",
+      "export function isActuallyArray(values: int32[]): boolean {",
+      "  return Array.isArray(values);",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -326,60 +354,69 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static int first\(int\[\] values\)/);
+  assert.match(generatedSource, /public static int first\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
   assert.match(generatedSource, /return values\[0\];/);
-  assert.match(generatedSource, /public static int pick\(int\[\] values, int index\)/);
+  assert.match(generatedSource, /public static int pick\(System\.Collections\.Generic\.IReadOnlyList<int> values, int index\)/);
   assert.match(generatedSource, /return values\[index\];/);
-  assert.match(generatedSource, /public static int assign\(int\[\] values, int index, int value\)/);
+  assert.match(generatedSource, /public static int assign\(System\.Collections\.Generic\.List<int> values, int index, int value\)/);
   assert.match(generatedSource, /values\[index\] = value;/);
   assert.match(generatedSource, /return values\[index\];/);
-  assert.match(generatedSource, /public static int count\(int\[\] values\)/);
-  assert.match(generatedSource, /return values\.Length;/);
-  assert.match(generatedSource, /public static string join\(int\[\] values\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Join\(values, "\|"\);/);
-  assert.match(generatedSource, /public static bool has\(int\[\] values, int value\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Includes\(values, value\);/);
-  assert.match(generatedSource, /public static bool hasFrom\(int\[\] values, int value, int start\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Includes\(values, value, start\);/);
-  assert.match(generatedSource, /public static int positionOf\(int\[\] values, int value\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.IndexOf\(values, value\);/);
-  assert.match(generatedSource, /public static int positionOfFrom\(int\[\] values, int value, int start\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.IndexOf\(values, value, start\);/);
-  assert.match(generatedSource, /public static int lastPositionOf\(int\[\] values, int value\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.LastIndexOf\(values, value\);/);
-  assert.match(generatedSource, /public static int lastPositionOfFrom\(int\[\] values, int value, int start\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.LastIndexOf\(values, value, start\);/);
-  assert.match(generatedSource, /public static int sumEach\(int\[\] values\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.ArrayHelpers\.ForEach\(values, \(int value, int index, int\[\] source\) =>/);
-  assert.match(generatedSource, /total \+= value \+ index \+ source\.Length;/);
-  assert.match(generatedSource, /public static bool hasPositive\(int\[\] values\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Some\(values, \(int value, int index\) => value > 0 && index > 0\);/);
-  assert.match(generatedSource, /public static bool allPositive\(int\[\] values\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Every\(values, \(int value, int index, int\[\] source\) => source\.Length > index && value > 0\);/);
-  assert.match(generatedSource, /public static int firstPositiveIndex\(int\[\] values\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.FindIndex\(values, \(int value, int index\) => value > 0 && index > 0\);/);
-  assert.match(generatedSource, /public static int lastPositiveIndex\(int\[\] values\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.FindLastIndex\(values, \(int value, int index, int\[\] source\) => source\.Length > index && value > 0\);/);
-  assert.match(generatedSource, /public static int\[\] sliceAll\(int\[\] values\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\(values\);/);
-  assert.match(generatedSource, /public static int\[\] sliceFrom\(int\[\] values, int start\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\(values, start\);/);
-  assert.match(generatedSource, /public static int\[\] sliceRange\(int\[\] values, int start, int end\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\(values, start, end\);/);
-  assert.match(generatedSource, /public static int destruct\(int\[\] values\)/);
+  assert.match(generatedSource, /public static int count\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return values\.Count;/);
+  assert.match(generatedSource, /public static string join\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.join\(values, "\|"\);/);
+  assert.match(generatedSource, /public static bool has\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.includes\(values, value\);/);
+  assert.match(generatedSource, /public static bool hasFrom\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value, int start\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.includes\(values, value, start\);/);
+  assert.match(generatedSource, /public static int positionOf\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.indexOf\(values, value\);/);
+  assert.match(generatedSource, /public static int positionOfFrom\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value, int start\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.indexOf\(values, value, start\);/);
+  assert.match(generatedSource, /public static int lastPositionOf\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.lastIndexOf\(values, value\);/);
+  assert.match(generatedSource, /public static int lastPositionOfFrom\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value, int start\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.lastIndexOf\(values, value, start\);/);
+  assert.match(generatedSource, /public static int sumEach\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.forEach\(values, \(int value, int index, System\.Collections\.Generic\.IReadOnlyList<int> source\) =>/);
+  assert.match(generatedSource, /total \+= value \+ index \+ source\.Count;/);
+  assert.match(generatedSource, /public static bool hasPositive\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.some\(values, \(int value, int index\) => value > 0 && index > 0\);/);
+  assert.match(generatedSource, /public static bool allPositive\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.every\(values, \(int value, int index, System\.Collections\.Generic\.IReadOnlyList<int> source\) => source\.Count > index && value > 0\);/);
+  assert.match(generatedSource, /public static int firstPositiveIndex\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.findIndex\(values, \(int value, int index\) => value > 0 && index > 0\);/);
+  assert.match(generatedSource, /public static int lastPositiveIndex\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.findLastIndex\(values, \(int value, int index, System\.Collections\.Generic\.IReadOnlyList<int> source\) => source\.Count > index && value > 0\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> sliceAll\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.slice\(values\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> sliceFrom\(System\.Collections\.Generic\.IReadOnlyList<int> values, int start\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.slice\(values, start\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> sliceRange\(System\.Collections\.Generic\.IReadOnlyList<int> values, int start, int end\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.slice\(values, start, end\);/);
+  assert.match(generatedSource, /public static int destruct\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
   assert.match(generatedSource, /int first = __tsonic_destructure\d+\[0\];/);
   assert.match(generatedSource, /int second = __tsonic_destructure\d+\[1\];/);
   assert.match(generatedSource, /return first \+ second;/);
-  assert.match(generatedSource, /public static int destructDefault\(int\[\] values\)/);
-  assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.Length > 0 \? \1\[0\] : 1;/);
-  assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.Length > 1 \? \1\[1\] : 2;/);
-  assert.match(generatedSource, /public static int\[\] destructRest\(int\[\] values\)/);
-  assert.match(generatedSource, /int\[\] rest = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Slice\((__tsonic_destructure\d+), 1\);/);
+  assert.match(generatedSource, /public static int destructDefault\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.Count > 0 \? \1\[0\] : 1;/);
+  assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.Count > 1 \? \1\[1\] : 2;/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> destructRest\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.List<int> rest = Tsonic\.CSharp\.Js\.Array\.slice\((__tsonic_destructure\d+), 1\);/);
   assert.match(generatedSource, /return rest;/);
-  assert.match(generatedSource, /public static int\[\] append\(int\[\] values, int value\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(values, new int\[\] \{ value \}\);/);
-  assert.match(generatedSource, /public static int\[\] prepend\(int\[\] values, int value\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(new int\[\] \{ value \}, values\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> append\(System\.Collections\.Generic\.IEnumerable<int> values, int value\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.concat\(values, new int\[\] \{ value \}\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> prepend\(System\.Collections\.Generic\.IEnumerable<int> values, int value\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.concat\(new int\[\] \{ value \}, values\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> copy\(System\.Collections\.Generic\.IEnumerable<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.from\(values\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> chars\(string value\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.from\(value\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> make\(int left, int right\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.of\(left, right\);/);
+  assert.match(generatedSource, /public static bool isActuallyArray\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.isArray\(values\);/);
+  assert.doesNotMatch(generatedSource, /ArrayHelpers/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySurfaceOperations.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
@@ -456,8 +493,10 @@ test("CLI emits array callbacks with JS callback arities from provider facts", a
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Some\(values, \(int value, int index\) => value > 0 && index > 0\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Every\(values, \(int value, int index, int\[\] source\) => source\[index\] == value\);/);
+  assert.match(generatedSource, /public static bool hasIndexedPositive\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.some\(values, \(int value, int index\) => value > 0 && index > 0\);/);
+  assert.match(generatedSource, /public static bool allFromSource\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.every\(values, \(int value, int index, System\.Collections\.Generic\.IReadOnlyList<int> source\) => source\[index\] == value\);/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayCallbacks.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
@@ -727,8 +766,8 @@ test("CLI emits array for-in from provider enumeration facts", async () => {
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /double\[\] __tsonic_forInTarget\d+ = values;/);
-  assert.match(generatedSource, /for \(int __tsonic_forInIndex\d+ = 0; __tsonic_forInIndex\d+ < __tsonic_forInTarget\d+\.Length; __tsonic_forInIndex\d+\+\+\)/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.IReadOnlyList<double> __tsonic_forInTarget\d+ = values;/);
+  assert.match(generatedSource, /for \(int __tsonic_forInIndex\d+ = 0; __tsonic_forInIndex\d+ < __tsonic_forInTarget\d+\.Count; __tsonic_forInIndex\d+\+\+\)/);
   assert.match(generatedSource, /string key = __tsonic_forInIndex\d+\.ToString\(System\.Globalization\.CultureInfo\.InvariantCulture\);/);
   assert.match(generatedSource, /total = total \+ key\.Length;/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
@@ -943,7 +982,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.fromCharCode\(a, b, c\);/);
   assert.match(generatedSource, /public static string fromCodePoints\(int a, int b\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.fromCodePoint\(a, b\);/);
-  assert.match(generatedSource, /public static string\[\] splitParts\(string value, string separator, int limit\)/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> splitParts\(string value, string separator, int limit\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.split\(value, separator, limit\);/);
   assert.match(generatedSource, /public static string primitive\(string value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.valueOf\(value\);/);

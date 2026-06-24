@@ -78,6 +78,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["provider.module.no-file-backed-fallback", "Provider module resolution has no declaration-file fallback", "complete", "target-provider"],
   ["provider.module.missing-provider-diagnostic", "Missing provider-owned modules produce diagnostics", "complete", "target-provider"],
 
+  ["source-core.module.single-owner", "@tsonic/core source modules are owned once by the source-core provider, not replicated by target packs", "partial", "source-core-provider"],
+  ["source-core.target-alias-consumption", "Target packs consume source-core facts and add target-specific aliases without redefining portable core contracts", "partial", "target-provider"],
   ["source.primitive.numeric", "Neutral source numeric primitives attach facts", "partial", "source-core-provider"],
   ["source.primitive.char-bool", "Neutral char and bool primitives attach facts", "partial", "source-core-provider"],
   ["source.primitive.configured-type", "Configured source primitive aliases map to canonical facts", "partial", "source-core-provider"],
@@ -191,6 +193,7 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["carrier.primitive", "Primitive carriers come from source/target facts", "partial", "target-provider"],
   ["carrier.array", "Array carriers provide length, index, iteration, and conversion facts", "partial", "target-provider"],
+  ["carrier.array.public-abi-policy", "Source T[] remains TS Array<T>; public target ABI uses fact-backed IEnumerable/IReadOnlyList/List/native-array/compat lanes without leaking JSArray by default", "partial", "target-provider"],
   ["carrier.tuple", "Tuple carriers provide arity and element facts", "partial", "target-provider"],
   ["carrier.object-shape", "Object-shape carriers are deterministic and fact-backed", "partial", "target-provider"],
   ["carrier.dictionary-record", "Record and index-signature carriers are fact-backed", "partial", "target-provider"],
@@ -258,6 +261,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "partial", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "partial", "target-provider"],
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
+  ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "not-started", "target-provider"],
   ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "partial", "target-provider"],
 
   ["diagnostic.missing-target-fact", "Missing target facts produce deterministic diagnostics", "partial", "target-provider"],
@@ -1448,7 +1452,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover fixed array length/index access, concat/includes/index/search/slice/join helpers, selected callback method arities, array for-in, and fail-closed rejection when selected declarations lack closed receiver/argument carrier facts. Remains partial until every Array constructor/from/of/map/set carrier operation and runtime artifact is covered end to end.",
+      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JS carriers only for full JS behavior. Covered length/index access, concat/includes/index/search/slice/join helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, and array for-in. No-surface array mutators fail closed without selected surface facts. Remains partial until length-growth/sparse/delete/full-JS cases, every Array constructor/map/set operation, explicit native .NET Array<T>, and runtime artifacts are covered end to end.",
   }),
   "surface.js.string-methods": Object.freeze({
     positiveTests: Object.freeze([
@@ -1464,7 +1468,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, selected string instance/helper calls including normalize/at/locale/search/well-formed helpers, and fail-closed rejection without closed string receiver facts. Remains partial until all JS String methods and Boolean/String object surface conversions have positive and negative runtime coverage.",
+      "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, selected string instance/helper calls including normalize/at/locale/search/well-formed helpers, split returning the selected JS surface List<string> array-return ABI, and fail-closed rejection without closed string receiver facts. Remains partial until all JS String methods and Boolean/String object surface conversions have positive and negative runtime coverage.",
   }),
   "surface.js.console": Object.freeze({
     positiveTests: Object.freeze([
@@ -1515,7 +1519,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-typed-stringify/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations, RegExp literal/constructor/test/property carriers with C# build coverage, and hard-reject JSON parse/stringify until closed JSON value carriers exist. Remains partial until JSON value carriers, Date, Map, Set, and every RegExp operation have selected-surface facts and runtime/toolchain tests.",
+      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations including zero-argument max/min JS semantics, RegExp literal/constructor/test/property carriers with C# build coverage, and hard-reject JSON parse/stringify until closed JSON value carriers exist. Remains partial until JSON value carriers, Date, Map, Set, and every RegExp operation have selected-surface facts and runtime/toolchain tests.",
   }),
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
@@ -1530,7 +1534,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts map standard Math calls and constants to Tsonic.CSharp.Js.Math runtime operations, reject unselected/unsupported forms without spelling-based fallback, and reject Math.max without provider-proven runtime-compatible arguments. Remains partial until every Math static member has current runtime/toolchain coverage.",
+      "Reviewed partial proof: selected JS surface facts map standard Math calls and constants to Tsonic.CSharp.Js.Math runtime operations, preserve JavaScript zero-argument max/min behavior through the selected JS surface runtime, and reject unselected/unsupported forms without spelling-based fallback. Remains partial until every Math static member has current runtime/toolchain coverage.",
   }),
   "surface.js.object-runtime": Object.freeze({
     positiveTests: Object.freeze([
@@ -1548,7 +1552,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.js.object-runtime remains partial until JSON parse/stringify, object carrier writes, prototype/static helpers, runtime execution, and toolchain coverage are complete.",
     ]),
     notes:
-      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject carrier; missing carrier facts reject, foreign same-spelling declarations defer, and JSON remains fail-closed until closed JSON carrier facts exist.",
+      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject carrier and return selected JS surface array-return carriers; missing carrier facts reject, foreign same-spelling declarations defer, and JSON remains fail-closed until closed JSON carrier facts exist.",
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
@@ -1563,7 +1567,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover node:path join, namespace imports for node:fs/node:crypto/node:os/node:process, process property access, and rejection of node:path without the NodeJS surface. Remains partial until fs/path/process behavior is runtime-verified across the full old Node fixture matrix and all unsupported module members fail closed.",
+      "Reviewed partial proof: selected NodeJS surface facts cover canonical node:path imports, bare path imports, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property access, and rejection of node:path without the NodeJS surface. Remains partial until fs/path/process behavior is runtime-verified across the full old Node fixture matrix and all unsupported module members fail closed.",
   }),
   "surface.node.fs": Object.freeze({
     positiveTests: Object.freeze([
@@ -1576,7 +1580,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover node:fs namespace import and existsSync target mapping, and the no-surface negative path blocks Node-owned modules before artifact emission. Remains partial until the complete node:fs API surface has provider facts and runtime coverage.",
+      "Reviewed partial proof: selected NodeJS surface facts cover bare fs and node:fs namespace imports, existsSync target mapping, and the no-surface negative path blocks Node-owned modules before artifact emission. Remains partial until the complete node:fs API surface has provider facts and runtime coverage.",
   }),
   "surface.node.process": Object.freeze({
     positiveTests: Object.freeze([
@@ -1589,7 +1593,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover node:process cwd() and platform target mappings through namespace import facts, and unselected Node modules fail during provider-aware resolution. Remains partial until process environment, argv, exit, and platform-specific behavior are covered through closed runtime facts.",
+      "Reviewed partial proof: selected NodeJS surface facts cover bare process and node:process cwd() and platform target mappings through namespace import facts, and unselected Node modules fail during provider-aware resolution. Remains partial until process environment, argv, exit, and platform-specific behavior are covered through closed runtime facts.",
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([
@@ -1604,7 +1608,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls, Buffer instance length, crypto.randomUUID, os.homedir, and os.platform by selected provider declaration/member/signature identity. Remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
+      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls, Buffer instance length, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID, os.homedir, and os.platform by selected provider declaration/member/signature identity. Remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
   }),
   "backend.csharp.runtime-artifacts": Object.freeze({
     positiveTests: Object.freeze([
