@@ -1229,6 +1229,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/provider-conversion-operators.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-conversion-operators.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1237,7 +1238,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/type-assertions/TypeAssertions.ts",
     ]),
     notes:
-      "Reviewed partial proof: .NET reflection records op_Implicit and op_Explicit as target-only conversion operator facts, keeps them out of source-visible provider members, selects conversion operators by reflected source/target type identity, and reports ambiguity rather than choosing by order. Remains partial until provider-owned conversions are proven through end-to-end source calls/assertions and unsupported conversion diagnostics cover all unsupported operator shapes.",
+      "Reviewed partial proof: .NET reflection records op_Implicit and op_Explicit as target-only conversion operator facts, keeps them out of source-visible provider members, selects conversion operators by reflected source/target type identity, reports ambiguity rather than choosing by order, and records pointer-source conversion operators as unsupported provider evidence instead of exposing them. Remains partial until provider-owned conversions are proven through end-to-end source calls/assertions and unsupported conversion diagnostics cover every unsupported operator shape.",
   }),
   "native.dotnet.parameter-modes": Object.freeze({
     positiveTests: Object.freeze([
@@ -1255,7 +1256,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities, and reject unsupported pointer parameter source shapes plus wrong optional/params arities; remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path.",
+      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities; unsupported default values now carry deterministic parameter identity/evidence; unsupported pointer parameter source shapes and wrong optional/params arities reject. Remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path.",
   }),
   "native.dotnet.attributes": Object.freeze({
     positiveTests: Object.freeze([
@@ -1634,7 +1635,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed partial proof: reflection provider records unsupported constructor/property/indexer/field/method/operator/event members instead of silently dropping static interface members, generic static members, multi-parameter indexers, pointer signatures, ranked CLR arrays, by-reference returns, and generic operators; unsupported target-only type refs now fail closed during source-shape conversion for pointers, function pointers, ranked arrays, nested provider refs, and opaque source shapes; selected unsupported member identities become fail-closed target diagnostics instead of generic not-found errors. Remains partial until constraint drops, default-value omissions, and attribute omissions are explicit diagnostics.",
+      "Reviewed partial proof: reflection provider records unsupported constructor/property/indexer/field/method/operator/event members instead of silently dropping static interface members, generic static members, multi-parameter indexers, pointer signatures, ranked CLR arrays, by-reference returns, generic operators, pointer-source conversion operators, and unsupported default parameter values; unsupported target-only type refs now fail closed during source-shape conversion for pointers, function pointers, ranked arrays, nested provider refs, and opaque source shapes; selected unsupported member identities become fail-closed target diagnostics instead of generic not-found errors. Remains partial until unsupported constraint evidence and every attribute/default-value omission path have explicit provider diagnostics.",
   }),
   "operation.call.provider-selected-method": Object.freeze({
     positiveTests: Object.freeze([
@@ -1758,6 +1759,24 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: selected provider indexer identity and provider-owned Dictionary indexer facts map element access without target-name guessing; missing or unsupported indexer facts reject.",
+  }),
+  "operation.throw.catch": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "operation.throw.catch remains partial until throw/catch/finally coverage spans provider exceptions, source-owned exception carriers, catch filters if supported, invalid destructured catch variables, and old fixture parity.",
+    ]),
+    notes:
+      "Reviewed partial proof: statement planner requires finalized throwable/catch carrier facts, provider-dotnet CLI rejects throw statements until provider exception facts are finalized, and provider-backed throw/catch/finally execution builds and runs through the generated C# toolchain.",
   }),
   "operation.iteration.for-in.keys": Object.freeze({
     positiveTests: Object.freeze([
@@ -2438,6 +2457,27 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: C# target options own project OutputType/PublishAot/target-framework related artifacts, generic custom properties cannot override target-owned properties, and invalid option shapes fail before artifact emission.",
+  }),
+  "toolchain.csharp.build-run": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/dotnet-test-command/",
+      "test/fixtures/js-surface-runtime-builtins/",
+      "test/fixtures/nodejs-path-posix-join/",
+    ]),
+    blockers: Object.freeze([
+      "toolchain.csharp.build-run remains partial until all complete language capabilities have generated C# project build/run proof and downstream projects execute against the current architecture.",
+    ]),
+    notes:
+      "Reviewed partial proof: provider-dotnet CLI suite now builds generated C# projects for provider-owned static/instance/nested/byref/generic/delegate/attribute/exception operations and runs provider-backed exception semantics; JS and Node surface suites provide separate selected-runtime build proof.",
   }),
   "toolchain.csharp.library": Object.freeze({
     positiveTests: Object.freeze([
