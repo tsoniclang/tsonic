@@ -1110,7 +1110,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover fixed array length/index access, selected array methods, array callback arities, array for-in, and fail-closed rejection for CLR array mutators without JSArray carrier facts. Remains partial until every Array constructor/from/of/map/set carrier operation and runtime artifact is covered end to end.",
+      "Reviewed partial proof: selected JS surface facts cover fixed array length/index access, concat/includes/index/search/slice/join helpers, selected callback method arities, array for-in, and fail-closed rejection when selected declarations lack closed receiver/argument carrier facts. Remains partial until every Array constructor/from/of/map/set carrier operation and runtime artifact is covered end to end.",
   }),
   "surface.js.string-methods": Object.freeze({
     positiveTests: Object.freeze([
@@ -1126,7 +1126,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, and selected string instance calls, while unsupported string methods fail without exact provider-backed JS semantics. Remains partial until all JS String methods and Boolean/String object surface conversions have positive and negative runtime coverage.",
+      "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, selected string instance/helper calls including normalize/at/locale/search/well-formed helpers, and fail-closed rejection without closed string receiver facts. Remains partial until all JS String methods and Boolean/String object surface conversions have positive and negative runtime coverage.",
   }),
   "surface.js.console": Object.freeze({
     positiveTests: Object.freeze([
@@ -1142,7 +1142,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.js.console remains partial until every Console member has selected-declaration proof, closed argument carrier/conversion facts, runtime/toolchain coverage, and diagnostics for unsupported members.",
     ]),
     notes:
-      "Reviewed partial proof: selected JS Console declarations map only through the checked standard-library declaration identity; console property access defers to the selected call, foreign same-spelling declarations do not map, and console calls reject without finalized closed target facts for every argument.",
+      "Reviewed partial proof: selected JS Console declarations map only through the checked standard-library declaration identity; console property access defers to the selected call, foreign same-spelling declarations do not map, and console calls reject without finalized closed target facts and runtime-member-compatible argument shapes.",
   }),
   "surface.js.console-log": Object.freeze({
     positiveTests: Object.freeze([
@@ -1158,7 +1158,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.js.console-log remains partial until console.log argument conversion facts and runtime/toolchain coverage prove every supported source argument family.",
     ]),
     notes:
-      "Reviewed partial proof: console.log maps to Tsonic.CSharp.Js.console.log only from the selected bundled Console.log declaration and only when every argument has a finalized closed target fact; missing argument facts reject instead of boxing unknown values.",
+      "Reviewed partial proof: console.log maps to Tsonic.CSharp.Js.console.log only from the selected bundled Console.log declaration and only when every argument has a finalized closed target fact; missing argument facts reject instead of boxing unknown values. Console shape validation is shared with assert/dirxml/timeLog-style members.",
   }),
   "surface.js.math-json-regexp": Object.freeze({
     positiveTests: Object.freeze([
@@ -1177,7 +1177,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-typed-stringify/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations and RegExp literal/constructor carriers with C# build coverage; JSON operations are hard-rejected until closed JSON carrier facts exist. Remains partial until JSON parse/stringify, Date, Map, Set, and every RegExp operation have selected-surface facts and runtime/toolchain tests.",
+      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations, RegExp literal/constructor/test/property carriers with C# build coverage, and hard-reject JSON parse/stringify until closed JSON value carriers exist. Remains partial until JSON value carriers, Date, Map, Set, and every RegExp operation have selected-surface facts and runtime/toolchain tests.",
   }),
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
@@ -1393,6 +1393,22 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: target conversions are finalized as TSTS targetConversion facts, C# emission requires a matching C# target conversion operation fact, provider conversion operators carry source and target type evidence, and mismatched/missing/ambiguous conversion facts fail closed. Remains partial until provider-owned conversions have full CLI/runtime coverage across calls, returns, assignments, assertions, and generic substitutions.",
   }),
+  "operation.iteration.for-of.sync": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
+    ]),
+    blockers: Object.freeze([
+      "operation.iteration.for-of.sync remains partial until provider-owned foreach, string code-point iteration, destructuring iteration, CLI execution, and old fixture parity are proven.",
+    ]),
+    notes:
+      "Reviewed partial proof: for-of emits a Roslyn ForEachStatement only from a finalized provider targetIteration fact, and missing iteration facts fail closed before emission. This proof does not complete string, destructuring, async, or runtime/toolchain iteration coverage.",
+  }),
   "operation.property.provider-selected-member": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/provider-selection.test.mjs",
@@ -1494,6 +1510,90 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: bigint literals require BigInteger carrier facts, RegExp literals require literal pattern/flags plus matching runtime carrier and constructor operation facts, and template literals require finalized System.String carrier facts before Roslyn AST emission. Missing facts fail closed.",
+  }),
+  "statement.switch": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/control-flow/switch/SwitchStatement.ts",
+    ]),
+    blockers: Object.freeze([
+      "statement.switch remains partial until switch expression carrier rules, all fallthrough/termination variants, CLI execution, and old switch fixture parity are proven.",
+    ]),
+    notes:
+      "Reviewed partial proof: switch planning emits Roslyn SwitchStatement sections, deterministic goto fallthrough/break termination, and rejects non-constant case labels instead of inventing target lowering.",
+  }),
+  "statement.loop": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
+      "packages/targets/csharp/emitter/testcases/common/edge-cases/nested-scopes/NestedScopes.ts",
+    ]),
+    blockers: Object.freeze([
+      "statement.loop remains partial until for/while/do/for-in/for-of, destructuring iteration, top-level loop ordering, runtime/toolchain coverage, and old fixture parity are complete.",
+    ]),
+    notes:
+      "Reviewed partial proof: while conditions require finalized bool carriers, for-of requires finalized provider iteration facts, and selected for-in provider/surface facts are tested separately. Missing facts fail closed.",
+  }),
+  "statement.control-transfer": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/control-flow/switch/SwitchStatement.ts",
+      "packages/targets/csharp/emitter/testcases/common/edge-cases/nested-scopes/NestedScopes.ts",
+    ]),
+    blockers: Object.freeze([
+      "statement.control-transfer remains partial until unlabeled/labeled break and continue across every supported loop/switch nesting shape are covered by current CLI/runtime tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: labeled break/continue lower to deterministic target labels held in planner state, not source-name target guessing, and missing labels already diagnose through the statement planner.",
+  }),
+  "statement.throw-catch-finally": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "statement.throw-catch-finally remains partial until catch variable carriers, catch destructuring rejection, finally behavior, provider exception mappings, CLI execution, and old fixture parity are complete.",
+    ]),
+    notes:
+      "Reviewed partial proof: throw emission requires finalized throwable target carriers and rejects missing exception-carrier facts before C# emission.",
+  }),
+  "statement.top-level": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/entrypoint-planner.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/entrypoint-planner.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+    ]),
+    blockers: Object.freeze([
+      "statement.top-level remains partial until multi-file source graph order, import side-effect order, export initialization, CLI execution, and old module fixture parity are complete.",
+    ]),
+    notes:
+      "Reviewed partial proof: executable output creates a separate Roslyn AST entrypoint that calls source module initializers; library output does not synthesize an entrypoint.",
   }),
   "binding.parameter": Object.freeze({
     positiveTests: Object.freeze([
@@ -1957,10 +2057,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/csharp-printer.test.mjs",
       "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/csharp-printer.test.mjs",
       "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
