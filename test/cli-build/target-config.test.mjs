@@ -85,6 +85,51 @@ test("CLI rejects TypeScript path-mapping config fields instead of ignoring them
   assert.doesNotMatch(build.stderr, /Cannot find module/);
 });
 
+test("CLI rejects top-level path-mapping aliases before module resolution", async () => {
+  const cases = [
+    {
+      name: "unsupported-base-url",
+      config: { baseUrl: "." },
+      expected: /Project config field 'baseUrl' is not supported/,
+    },
+    {
+      name: "unsupported-paths",
+      config: { paths: { "@app/*": ["src/app/*"] } },
+      expected: /Project config field 'paths' is not supported/,
+    },
+    {
+      name: "unsupported-tsconfig-link",
+      config: { tsconfig: "tsconfig.json" },
+      expected: /Project config field 'tsconfig' is not supported/,
+    },
+    {
+      name: "unsupported-project-references",
+      config: { references: [{ path: "../shared" }] },
+      expected: /Project config field 'references' is not supported/,
+    },
+  ];
+
+  for (const { name, config, expected } of cases) {
+    const projectDirectory = resolve(tempRoot, name);
+    await writeProject(projectDirectory, {
+      "tsonic.json": JSON.stringify({
+        entryPoint: "index.ts",
+        rootDir: "src",
+        outDir: "out",
+        ...config,
+        targets: [{ id: "csharp" }],
+      }, null, 2),
+      "src/index.ts": "import { value } from \"@app/value.js\";\nexport const result = value;\n",
+      "src/app/value.ts": "export const value = 1;\n",
+    });
+
+    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+    assert.equal(build.status, 1, name);
+    assert.match(build.stderr, expected, name);
+    assert.doesNotMatch(build.stderr, /Cannot find module/, name);
+  }
+});
+
 test("CLI rejects unsupported target entry fields outside target options", async () => {
   const projectDirectory = resolve(tempRoot, "unsupported-target-config-field");
   await writeProject(projectDirectory, {

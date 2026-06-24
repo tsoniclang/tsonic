@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   compileProject,
   createProgramOptionsForProject,
+  createTsonicSemanticSession,
   createTargetCompilerExtensions,
   parseTsonicProjectConfig,
 } from "../../packages/host/dist/index.js";
@@ -582,6 +583,97 @@ test("host source graph follows relative ESM import and export edges through TST
     "src/side-effect.ts",
     "src/star.ts",
     "src/types.ts",
+  ]);
+});
+
+test("host source graph follows package exports and subpaths through TSTS", async () => {
+  const events = [];
+  let backendProjectSourceFiles = [];
+  const projectDirectory = resolve(tempRoot, "tsts-package-exports-graph");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      backendProjectSourceFiles = input.sourceFiles
+        .map((sourceFile) => input.ast.getFileName(sourceFile))
+        .filter((fileName) => fileName.startsWith(projectDirectory))
+        .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
+        .sort();
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "import { subpathValue } from \"@demo/source-pkg/subpath.js\";",
+      "export const result = subpathValue;",
+      "",
+    ].join("\n"),
+    "node_modules/@demo/source-pkg/package.json": JSON.stringify({
+      name: "@demo/source-pkg",
+      type: "module",
+      exports: {
+        "./subpath.js": {
+          types: "./src/subpath.ts",
+          default: "./src/subpath.ts",
+        },
+      },
+    }, null, 2),
+    "node_modules/@demo/source-pkg/src/subpath.ts": [
+      "import { internalValue } from \"./internal.js\";",
+      "export const subpathValue = internalValue + 1;",
+      "",
+    ].join("\n"),
+    "node_modules/@demo/source-pkg/src/internal.ts": "export const internalValue = 41;\n",
+    "node_modules/@demo/source-pkg/src/generated.d.ts": "export declare const generatedAmbientLeak: string;\n",
+    "node_modules/@demo/source-pkg/src/provider.metadata.json": JSON.stringify({ target: "demo" }),
+    "node_modules/@demo/source-pkg/src/orphan.ts": "export const orphan = 0;\n",
+  });
+
+  const project = parseTsonicProjectConfig(projectConfig);
+  const programOptions = createProgramOptionsForProject({
+    project,
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+  }).programOptions;
+  const session = createTsonicSemanticSession({
+    programOptions,
+    project,
+    target: project.targets[0],
+    targetPack,
+    selectedSurfaces: [],
+  });
+  const allTstsProjectFiles = session.compiler.getSourceFiles()
+    .map((sourceFile) => sourceFile === undefined ? undefined : session.ast.getFileName(sourceFile))
+    .filter((fileName) => fileName?.startsWith(projectDirectory))
+    .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
+    .sort();
+  const emitTstsProjectFiles = session.compiler.getSourceFilesToEmit()
+    .map((sourceFile) => sourceFile === undefined ? undefined : session.ast.getFileName(sourceFile))
+    .filter((fileName) => fileName?.startsWith(projectDirectory))
+    .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
+    .sort();
+
+  assert.deepEqual(allTstsProjectFiles, [
+    "node_modules/@demo/source-pkg/src/internal.ts",
+    "node_modules/@demo/source-pkg/src/subpath.ts",
+    "src/index.ts",
+  ]);
+  assert.deepEqual(emitTstsProjectFiles, [
+    "src/index.ts",
+  ]);
+
+  const result = compileProject({
+    project,
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(backendProjectSourceFiles, [
+    "src/index.ts",
   ]);
 });
 

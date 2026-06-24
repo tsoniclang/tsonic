@@ -383,7 +383,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "host.graph.source-files has current source-graph proof, but remains partial until the full old multi-file/module fixture inventory is mapped to TSTS source graph expectations.",
     ]),
     notes:
-      "Reviewed partial proof: host loads source files into TSTS, excludes generated .d.ts and metadata JSON from semantic input, and passes the backend the TSTS graph files rather than the raw project filesystem crawl.",
+      "Reviewed partial proof: host loads resolver-visible source files into TSTS, excludes generated .d.ts and metadata JSON from semantic input, follows relative and package exports/subpath edges through the TSTS graph, omits orphan files, and passes the backend the TSTS emit graph rather than the raw project filesystem crawl.",
   }),
   "host.package.composition": Object.freeze({
     positiveTests: Object.freeze([
@@ -474,7 +474,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "host.project.package-discovery remains partial until every old add/restore/package-manifest path is explicitly classified as provider-owned virtual module input or invalid stale package discovery.",
     ]),
     notes:
-      "Reviewed partial proof: current host does not discover package roots, generated declaration files, or metadata JSON as semantic input; provider-owned modules must enter through selected target/surface extensions, and package-root shim imports fail closed instead of being rescued by legacy package discovery.",
+      "Reviewed partial proof: current host includes package.json only as TSTS resolver input, follows package exports/subpaths to source .ts/.mts files, and excludes package declarations/metadata from backend semantic input; provider-owned modules must enter through selected target/surface extensions, and package-root shim imports fail closed instead of being rescued by legacy package discovery.",
   }),
   "module.graph.source-files": Object.freeze({
     positiveTests: Object.freeze([
@@ -614,10 +614,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "module.package.exports-subpath": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
       "test/cli-build/target-config.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
@@ -630,7 +632,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "module.package.exports-subpath remains partial until package exports/subpath behavior is proven for ordinary project packages and provider-owned virtual modules without a file-backed fallback lane.",
     ]),
     notes:
-      "Reviewed partial proof: current provider and surface imports use explicit ESM subpaths, while package-root imports and node_modules package exports are not treated as bootstrap shims or hidden generated-declaration fallbacks. Full completion requires provider-owned package subpath declarations and ordinary project package semantics to be proven without a file-backed fallback lane.",
+      "Reviewed partial proof: ordinary package exports/subpaths that resolve to source files enter through the TSTS graph, provider and surface imports use explicit ESM subpaths, and package-root imports plus declaration-only package exports are not treated as bootstrap shims or hidden generated-declaration fallbacks.",
   }),
   "module.path-mapping": Object.freeze({
     positiveTests: Object.freeze([
