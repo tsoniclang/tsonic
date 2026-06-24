@@ -1205,10 +1205,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-typed-stringify/",
     ]),
     blockers: Object.freeze([
-      "surface.js.object-runtime remains partial until Object.keys, Object.values, Object.entries, JSON parse/stringify, and object carrier operations have complete selected-declaration, carrier, runtime, and toolchain coverage.",
+      "surface.js.object-runtime remains partial until JSON parse/stringify, object carrier writes, prototype/static helpers, runtime execution, and toolchain coverage are complete.",
     ]),
     notes:
-      "Reviewed partial proof: Object.keys maps from the selected standard-library Object declaration only when finalized argument facts prove a closed JSObject carrier; missing carrier facts reject, foreign same-spelling declarations defer, and JSON remains fail-closed until closed JSON carrier facts exist.",
+      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject carrier; missing carrier facts reject, foreign same-spelling declarations defer, and JSON remains fail-closed until closed JSON carrier facts exist.",
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
