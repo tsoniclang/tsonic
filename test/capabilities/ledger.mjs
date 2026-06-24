@@ -174,11 +174,11 @@ const baseCapabilityDefinitions = Object.freeze([
   ["declaration.class.fields", "Class fields emit from TSTS/property facts", "partial", "target-provider"],
   ["declaration.class.methods", "Class methods emit target methods", "partial", "csharp-backend"],
   ["declaration.class.properties", "Accessors and property markers emit target properties", "partial", "target-provider"],
-  ["declaration.class.visibility", "Visibility emits only from source and target-legal facts", "not-started", "target-provider"],
-  ["declaration.class.private-fields", "#private fields get a target representation or diagnostic", "not-started", "target-provider"],
-  ["declaration.class.static-blocks", "Static blocks get target support or diagnostic", "not-started", "target-provider"],
+  ["declaration.class.visibility", "Visibility emits only from source and target-legal facts", "partial", "target-provider"],
+  ["declaration.class.private-fields", "#private fields get a target representation or diagnostic", "partial", "target-provider"],
+  ["declaration.class.static-blocks", "Static blocks get target support or diagnostic", "partial", "target-provider"],
   ["declaration.class.inheritance", "Class inheritance emits from TSTS heritage facts", "partial", "tsts-api"],
-  ["declaration.class.abstract", "Abstract classes and members emit target abstract declarations", "not-started", "target-provider"],
+  ["declaration.class.abstract", "Abstract classes and members emit target abstract declarations", "partial", "target-provider"],
   ["declaration.interface", "Interfaces render from TSTS and target facts", "partial", "csharp-backend"],
   ["declaration.enum", "Enums and enum constants render from TSTS facts", "partial", "csharp-backend"],
   ["declaration.type-alias", "Type aliases erase or emit by target facts", "partial", "target-provider"],
@@ -912,6 +912,69 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: .NET reflection records target/provider attributes on types, constructors, methods, properties, fields, parameters, and returns; target binding facts preserve constructor identity, constructor/named arguments, enum/type/array/source-primitive values, placement, and evidence; unsupported attribute values are recorded as unsupported attribute facts instead of being dropped. Remains partial until source-authored attribute markers are wired end to end into C# declaration emission.",
+  }),
+  "declaration.class.visibility": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/basic/Person.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+    ]),
+    blockers: Object.freeze([
+      "declaration.class.visibility remains partial until every visibility-relevant old class fixture is mapped and target/provider visibility facts cover all supported source declaration placements.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# class member emission treats omitted TypeScript accessibility as public, emits static members from source AST, and rejects explicit TypeScript-only visibility modifiers as diagnostics instead of inferring C# visibility from stale modifier spelling.",
+  }),
+  "declaration.class.private-fields": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
+    ]),
+    blockers: Object.freeze([
+      "declaration.class.private-fields remains partial until private identifiers are proven end-to-end through TSTS facts, target-name facts, backend emission, and runtime behavior across all field/method/access forms.",
+    ]),
+    notes:
+      "Reviewed partial proof: #private field emission requires a finalized C# target-name fact and fails closed without it; backend does not derive private field names from source spelling.",
+  }),
+  "declaration.class.static-blocks": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+    ]),
+    blockers: Object.freeze([
+      "declaration.class.static-blocks remains partial until static blocks with statements, captured class static state, ordering, and runtime execution are proven end to end.",
+    ]),
+    notes:
+      "Reviewed partial proof: class static block AST plans to a Roslyn-compatible static constructor and prints as static C# constructor syntax.",
+  }),
+  "declaration.class.abstract": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "declaration.class.abstract remains partial until an approved source syntax or provider fact model owns abstract target shape; current source-syntax discipline treats TypeScript abstract modifiers as non-ECMAScript runtime-shape syntax.",
+    ]),
+    notes:
+      "Reviewed partial proof: abstract class/member modifier spelling currently produces deterministic diagnostics and does not cause the backend to synthesize C# abstract semantics from TypeScript-only runtime-shape syntax.",
   }),
   "provider.virtual-module.overload-identity": Object.freeze({
     positiveTests: Object.freeze([
