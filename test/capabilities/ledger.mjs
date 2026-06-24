@@ -25,10 +25,46 @@ export const capabilityLaneNames = Object.freeze([
   "hard-reject",
 ]);
 
+export const capabilityCompatRuntimeCarriers = Object.freeze([
+  "GeneratedProviderAdapter",
+  "SelectedSurfaceRuntime",
+  "TsArray",
+  "TsFunction",
+  "TsIterator",
+  "TsObject",
+  "TsThrownValueException",
+  "TsUnion",
+  "TsValue",
+]);
+
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
+const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
 const bannedCompatMechanismPattern = /QuickJS|Reflection|dynamic|GetProperty|GetProperties|GetMethod|GetMethods|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load/u;
+
+export const coreLangIntrinsicModuleSpecifier = "@tsonic/core/lang.js";
+
+export const coreLangIntrinsicCoverage = Object.freeze([
+  { exportName: "out", factSlug: "out", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.out" },
+  { exportName: "ref", factSlug: "ref", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.ref" },
+  { exportName: "inref", factSlug: "inref", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.inref" },
+  { exportName: "borrow", factSlug: "borrow", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.borrow" },
+  { exportName: "borrowMut", factSlug: "borrow-mut", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.borrow-mut" },
+  { exportName: "move", factSlug: "move", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.move" },
+  { exportName: "struct", factSlug: "struct", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.struct" },
+  { exportName: "field", factSlug: "field", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.field" },
+  { exportName: "attribute", factSlug: "attribute", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.attribute" },
+  { exportName: "defaultof", factSlug: "defaultof", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.defaultof" },
+  { exportName: "ptr", factSlug: "ptr", sourceKind: "type-marker", capabilityId: "source-core.lang.portable-intrinsics.ptr" },
+  { exportName: "fnptr", factSlug: "fnptr", sourceKind: "type-marker", capabilityId: "source-core.lang.portable-intrinsics.fnptr" },
+].map(freezeCoreLangIntrinsicCoverageEntry));
+
+const coreLangIntrinsicCoverageByCapabilityId = new Map(
+  coreLangIntrinsicCoverage.map((entry) => [entry.capabilityId, entry]),
+);
+const coreLangIntrinsicSourceKindSet = new Set(["call-marker", "type-marker"]);
+const coreLangUnsupportedTargetBehaviorSet = new Set(["deterministic-diagnostic"]);
 
 const baseCapabilityDefinitions = Object.freeze([
   ["host.config.project-load", "Load current tsonic project config", "partial", "tsonic-host"],
@@ -94,6 +130,19 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source-core.ref.parameter-mode", "ref and inref markers resolve to parameter passing facts", "partial", "source-core-provider"],
   ["source-core.struct.field-facts", "struct and field markers combine into value-shape facts", "partial", "source-core-provider"],
   ["source-core.flow.borrow-move-facts", "borrow and move source facts require explicit target behavior", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics", "@tsonic/core/lang.js intrinsics require portable facts and per-target implementation or rejection", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.out", "out intrinsic attaches neutral write-only byref storage facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.ref", "ref intrinsic attaches neutral read-write byref storage facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.inref", "inref intrinsic attaches neutral read-only byref storage facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.borrow", "borrow intrinsic attaches neutral shared-borrow flow facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.borrow-mut", "borrowMut intrinsic attaches neutral mutable-borrow flow facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.move", "move intrinsic attaches neutral moved-value flow facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.struct", "struct intrinsic attaches neutral value-type shape facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.field", "field intrinsic attaches neutral field facts from explicit type evidence", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.attribute", "attribute intrinsic attaches neutral attribute application facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.defaultof", "defaultof intrinsic attaches neutral target-default value facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.ptr", "ptr intrinsic attaches neutral pointer type facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.fnptr", "fnptr intrinsic attaches neutral function-pointer type facts", "partial", "source-core-provider"],
 
   ["type.utility", "Utility types are consumed from TSTS results", "partial", "tsts-api"],
   ["type.conditional", "Conditional types are consumed from TSTS results", "partial", "tsts-api"],
@@ -205,6 +254,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.console", "JS console operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.console-log", "console.log uses selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.array-methods", "JS array methods use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
+  ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "partial", "surface-provider"],
@@ -213,6 +264,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.process", "node:process uses selected Node surface facts", "partial", "surface-provider"],
+  ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
+  ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "partial", "surface-provider"],
 
   ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "partial", "target-provider"],
   ["compat.mode.compat", "Compatibility mode enables explicit compat-runtime carriers", "partial", "target-provider"],
@@ -261,12 +314,13 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "partial", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "partial", "target-provider"],
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
-  ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "not-started", "target-provider"],
+  ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "partial", "target-provider"],
   ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "partial", "target-provider"],
 
   ["diagnostic.missing-target-fact", "Missing target facts produce deterministic diagnostics", "partial", "target-provider"],
   ["diagnostic.missing-provider-fact", "Missing provider facts produce deterministic diagnostics", "partial", "target-provider"],
   ["diagnostic.unsupported-surface", "Unsupported selected surfaces produce diagnostics", "partial", "surface-provider"],
+  ["diagnostic.unsupported-selected-surface-operation", "Unsupported selected surface operations fail closed with provider diagnostics", "partial", "surface-provider"],
   ["diagnostic.unsupported-target-operation", "Unsupported target operations produce diagnostics", "partial", "target-provider"],
   ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "partial", "target-provider"],
   ["diagnostic.target-constraint", "Target constraint failure points to source", "partial", "target-provider"],
@@ -283,6 +337,7 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["target.shared.operation-contract", "Targets share operation/fact contracts without C# shortcuts", "partial", "tests"],
   ["target.csharp.source-flow-marker-contract", "C# explicitly implements or rejects portable source flow markers", "partial", "target-provider"],
+  ["target.csharp.core-lang-intrinsics", "C# implements or rejects every portable @tsonic/core/lang.js intrinsic from finalized facts", "partial", "target-provider"],
   ["target.shared.ownership-placeholder", "Shared contracts preserve future ownership facts", "not-started", "rust-future"],
   ["target.rust.future-borrow-checker-boundary", "Rust borrow/move remains provider diagnostic plus rustc authority", "not-started", "rust-future"],
   ["rust.boundary.target-pack", "Rust target pack can implement shared interfaces", "not-started", "rust-future"],
@@ -1170,6 +1225,608 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: TSTS records borrowed-shared, borrowed-mut, and moved flow facts for imported neutral markers. C# consumes those finalized facts only to emit explicit unsupported-target diagnostics; it does not erase them as identity calls.",
   }),
+  "source-core.lang.portable-intrinsics": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { out, ref as refArg, inref, borrow, borrowMut, move, struct, field, attribute, defaultof } from \"@tsonic/core/lang.js\";",
+      "import type { ptr, fnptr } from \"@tsonic/core/lang.js\";",
+      "out(value); refArg(value); inref(value); borrow(value); borrowMut(value); move(value);",
+      "const Point = struct({ x: field<int32>() }); const zero = defaultof<int32>(); type Raw = ptr<int32>; type Callback = fnptr<[int32], int32>; attribute<Point>().add(RouteAttribute);",
+    ]),
+    tstsDecision:
+      "TSTS checks ordinary imports/calls/types from @tsonic/core/lang.js; source-core attaches marker facts only from the provider-owned module identity.",
+    providerFacts: Object.freeze([
+      "sourceCoreModuleIdentityFact",
+      "sourceCallMarkerFact",
+      "sourceTypeMarkerFact",
+      "sourceMarkerEvidenceFact",
+      "portableIntrinsicCoverageFact",
+      "perTargetIntrinsicContractFact",
+    ]),
+    backendContract:
+      "Backends may consume portable source-core facts only after the selected target implements or explicitly rejects the intrinsic; name-spelling fallback is forbidden.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "test/fixtures/core-intrinsics-provenance/",
+      "test/fixtures/defaultof-intrinsic/",
+    ]),
+    blockers: Object.freeze([
+      "source-core.lang.portable-intrinsics remains partial until out/ref/inref/struct/field/attribute/defaultof/ptr/fnptr/borrow/borrowMut/move have complete alias, namespace import, invalid arity, missing type-evidence, per-target implementation/rejection, and emitted target AST proof.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "portable-source-core-intrinsic",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "source-core-module-identity",
+          "source-marker-fact",
+          "selected-target-intrinsic-contract",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-source-core-module-identity",
+          "missing-target-intrinsic-contract",
+          "source-spelling-only",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "source-core-module-identity",
+          "source-marker-fact",
+          "selected-target-intrinsic-contract",
+        ]),
+        operation: "attach-portable-intrinsic-fact",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "missing-target-intrinsic-contract",
+          "source-spelling-only",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Current source-semantics tests prove facts for storage markers, struct/field/defaultof/attribute/ptr/fnptr, reject missing type evidence and shadowed local names, and prove C# rejects borrow/borrowMut/move rather than erasing them. Completion requires every child intrinsic to have full per-target implementation or explicit rejection evidence.",
+  }),
+  "source-core.lang.portable-intrinsics.out": coreLangIntrinsicEvidence({
+    exportName: "out",
+    factSlug: "out",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { out } from \"@tsonic/core/lang.js\";",
+      "let value: int32 = 0; if (values.tryGetValue(key, out(value))) return value;",
+    ],
+    sourceContract:
+      "Core owns out(value) as a portable write-only byref marker over proven assignable storage; it does not declare a C# out parameter by spelling.",
+    providerFacts: [
+      "sourceCoreOutMarkerFact",
+      "argumentStorageFact",
+      "byrefWriteonlyMustInitFact",
+    ],
+    targetContract:
+      "Targets map finalized out storage facts to their own byref/write initialization operation or emit a deterministic unsupported-target diagnostic; backends must not erase out(value) as an identity call.",
+    targetRequiredFacts: [
+      "argument-storage",
+      "byref-writeonly-must-init",
+    ],
+    staticOperation: "emit-target-out-argument",
+    hardRejectReasons: [
+      "non-assignable-storage",
+      "target-missing-out-argument-contract",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+    ],
+    oldEvidence: [
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "test/fixtures/param-modifiers/",
+    ],
+    blockers: [
+      "source-core.lang.portable-intrinsics.out remains partial until property, element, destructuring, provider-owned, readonly, non-storage, source-span, and every selected-target byref write path have closed positive and negative proof.",
+    ],
+    notes:
+      "Reviewed partial proof: TSTS/source-core records byref-writeonly-must-init only for the imported core out marker and proven storage; out(value + 1) reports SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT, and C# provider calls consume the finalized fact as out value rather than by name.",
+  }),
+  "source-core.lang.portable-intrinsics.ref": coreLangIntrinsicEvidence({
+    exportName: "ref",
+    factSlug: "ref",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { ref as refArg } from \"@tsonic/core/lang.js\";",
+      "let value: int32 = 1; mutate(refArg(value));",
+    ],
+    sourceContract:
+      "Core owns ref(value) as a portable read-write byref marker over proven assignable storage; targets decide whether that storage can be passed by mutable reference.",
+    providerFacts: [
+      "sourceCoreRefMarkerFact",
+      "argumentStorageFact",
+      "byrefReadwriteFact",
+    ],
+    targetContract:
+      "Targets map finalized ref storage facts to their own read-write byref operation or emit a deterministic unsupported-target diagnostic; backends must not infer ref from export spelling.",
+    targetRequiredFacts: [
+      "argument-storage",
+      "byref-readwrite",
+    ],
+    staticOperation: "emit-target-ref-argument",
+    hardRejectReasons: [
+      "non-assignable-storage",
+      "readonly-storage",
+      "target-missing-ref-argument-contract",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+    ],
+    oldEvidence: [
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "test/fixtures/param-modifiers/",
+    ],
+    blockers: [
+      "source-core.lang.portable-intrinsics.ref remains partial until every mutable storage family, readonly rejection, provider overload, delegate, constructor, source-span, and target emission path has direct proof.",
+    ],
+    notes:
+      "Reviewed partial proof: TSTS/source-core records byref-readwrite for imported ref aliases such as ref as refArg, while same-spelling local functions do not receive marker facts. Remaining proof must cover all storage forms and target-owned legality.",
+  }),
+  "source-core.lang.portable-intrinsics.inref": coreLangIntrinsicEvidence({
+    exportName: "inref",
+    factSlug: "inref",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { inref } from \"@tsonic/core/lang.js\";",
+      "let value: int32 = 1; inspect(inref(value));",
+    ],
+    sourceContract:
+      "Core owns inref(value) as a portable read-only byref marker over proven storage; targets decide their immutable byref mapping or rejection.",
+    providerFacts: [
+      "sourceCoreInrefMarkerFact",
+      "argumentStorageFact",
+      "byrefReadonlyFact",
+    ],
+    targetContract:
+      "Targets map finalized inref facts to their own read-only byref operation or emit a deterministic unsupported-target diagnostic; backends must not treat inref(value) as an ordinary value call.",
+    targetRequiredFacts: [
+      "argument-storage",
+      "byref-readonly",
+    ],
+    staticOperation: "emit-target-inref-argument",
+    hardRejectReasons: [
+      "non-storage-expression",
+      "target-missing-inref-argument-contract",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+    ],
+    oldEvidence: [
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "test/fixtures/param-modifiers/",
+    ],
+    blockers: [
+      "source-core.lang.portable-intrinsics.inref remains partial until readonly storage, temporary expression rejection, provider overloads, delegates, constructors, source spans, and every selected target's immutable byref operation are proven.",
+    ],
+    notes:
+      "Reviewed partial proof: imported inref records byref-readonly on the call marker, does not place argument-passing facts on the storage expression itself, and C# CLI emission uses in value only from finalized facts.",
+  }),
+  "source-core.lang.portable-intrinsics.borrow": coreLangIntrinsicEvidence({
+    exportName: "borrow",
+    factSlug: "borrow",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { borrow } from \"@tsonic/core/lang.js\";",
+      "const view = borrow(value);",
+    ],
+    sourceContract:
+      "Core owns borrow(value) as a portable shared-borrow flow marker; it records neutral source-flow state and leaves aliasing rules to the selected target.",
+    providerFacts: [
+      "sourceCoreBorrowMarkerFact",
+      "borrowedSharedFlowFact",
+      "targetFlowValidationRequiredFact",
+    ],
+    targetContract:
+      "Targets either validate shared-borrow flow with target-owned rules or emit a deterministic unsupported-target diagnostic; backends must not silently erase borrow(value).",
+    targetRequiredFacts: [
+      "borrowed-shared-flow",
+      "target-flow-validation-contract",
+    ],
+    staticOperation: "validate-target-shared-borrow",
+    hardRejectReasons: [
+      "target-missing-borrow-flow-contract",
+      "target-rejects-shared-borrow",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ],
+    oldEvidence: [],
+    blockers: [
+      "source-core.lang.portable-intrinsics.borrow remains partial until alias imports, namespace imports, invalid arity, post-borrow source-flow checks, C# unsupported diagnostics, and future Rust implementation/rejection proof are complete.",
+    ],
+    notes:
+      "Reviewed partial proof: TSTS/source-core records borrowed-shared flow for imported borrow calls. C# is target-owned and currently rejects finalized borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call.",
+  }),
+  "source-core.lang.portable-intrinsics.borrow-mut": coreLangIntrinsicEvidence({
+    exportName: "borrowMut",
+    factSlug: "borrow-mut",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { borrowMut } from \"@tsonic/core/lang.js\";",
+      "const writable = borrowMut(value);",
+    ],
+    sourceContract:
+      "Core owns borrowMut(value) as a portable mutable-borrow flow marker; target packs own mutation exclusivity and aliasing diagnostics.",
+    providerFacts: [
+      "sourceCoreBorrowMutMarkerFact",
+      "borrowedMutFlowFact",
+      "targetFlowValidationRequiredFact",
+    ],
+    targetContract:
+      "Targets either validate mutable-borrow flow with target-owned rules or emit a deterministic unsupported-target diagnostic; backends must not compile borrowMut as an identity value.",
+    targetRequiredFacts: [
+      "borrowed-mut-flow",
+      "target-flow-validation-contract",
+    ],
+    staticOperation: "validate-target-mutable-borrow",
+    hardRejectReasons: [
+      "target-missing-borrow-mut-flow-contract",
+      "target-rejects-mutable-borrow",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ],
+    oldEvidence: [],
+    blockers: [
+      "source-core.lang.portable-intrinsics.borrow-mut remains partial until mutable aliasing, nested borrows, invalid arity, namespace imports, C# unsupported diagnostics, and future Rust implementation/rejection proof are complete.",
+    ],
+    notes:
+      "Reviewed partial proof: TSTS/source-core records borrowed-mut flow for imported borrowMut calls. Selected targets own exclusivity; unsupported targets must diagnose rather than lower the marker away.",
+  }),
+  "source-core.lang.portable-intrinsics.move": coreLangIntrinsicEvidence({
+    exportName: "move",
+    factSlug: "move",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { move } from \"@tsonic/core/lang.js\";",
+      "const owned = move(value);",
+    ],
+    sourceContract:
+      "Core owns move(value) as a portable moved-value flow marker; it records neutral moved state without deciding target ownership transfer legality.",
+    providerFacts: [
+      "sourceCoreMoveMarkerFact",
+      "movedFlowFact",
+      "targetFlowValidationRequiredFact",
+    ],
+    targetContract:
+      "Targets either validate move flow and post-move use with target-owned rules or emit a deterministic unsupported-target diagnostic; backends must not erase move(value).",
+    targetRequiredFacts: [
+      "moved-flow",
+      "target-flow-validation-contract",
+    ],
+    staticOperation: "validate-target-move-flow",
+    hardRejectReasons: [
+      "target-missing-move-flow-contract",
+      "post-move-use-rejected",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "packages/tsts/src/extensions/provider-program.test.ts",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "packages/tsts/src/extensions/provider-program.test.ts",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ],
+    oldEvidence: [],
+    blockers: [
+      "source-core.lang.portable-intrinsics.move remains partial until move assignment, post-move reads/writes, namespace imports, invalid arity, selected-target unsupported diagnostics, and future Rust ownership proof are complete.",
+    ],
+    notes:
+      "Reviewed partial proof: TSTS/source-core records moved flow on the move call and moved argument, and provider-program tests show target validation can reject post-move use. C# remains explicit unsupported-target diagnostics, not silent marker erasure.",
+  }),
+  "source-core.lang.portable-intrinsics.struct": coreLangIntrinsicEvidence({
+    exportName: "struct",
+    factSlug: "struct",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { struct, field } from \"@tsonic/core/lang.js\";",
+      "export const Point = struct({ x: field<int32>(), y: field<int32>() });",
+    ],
+    sourceContract:
+      "Core owns struct(shape) as a portable value-type shape marker that collects finalized field facts; target layout, declaration syntax, and unsupported members are target-owned.",
+    providerFacts: [
+      "sourceCoreStructMarkerFact",
+      "structValueTypeFact",
+      "finalizedFieldFact",
+    ],
+    targetContract:
+      "Targets map finalized struct facts to target value declarations or emit deterministic diagnostics for unsupported shape members; backends must not infer structs from object-literal spelling.",
+    targetRequiredFacts: [
+      "struct-value-type",
+      "finalized-field-facts",
+      "target-value-type-contract",
+    ],
+    staticOperation: "emit-target-value-type",
+    hardRejectReasons: [
+      "struct-member-without-field-fact",
+      "target-missing-value-type-contract",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
+      "test/cli-build/classes-value-types.test.mjs",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/classes-value-types.test.mjs",
+    ],
+    oldEvidence: [
+      "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
+      "test/fixtures/struct-basic/",
+    ],
+    blockers: [
+      "source-core.lang.portable-intrinsics.struct remains partial until duplicate fields, non-field members, methods, constructors, generics, nested structs, target layout diagnostics, and all emitted target AST paths are proven.",
+    ],
+    notes:
+      "Reviewed partial proof: struct({ x: field<int32>() }) records a valueType struct fact from finalized field facts, and C# CLI tests emit public struct only from those facts. Invalid value-type members without field facts fail closed.",
+  }),
+  "source-core.lang.portable-intrinsics.field": coreLangIntrinsicEvidence({
+    exportName: "field",
+    factSlug: "field",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { field } from \"@tsonic/core/lang.js\";",
+      "export class Counter { value = field<int32>(); }",
+    ],
+    sourceContract:
+      "Core owns field<T>() as a portable field marker requiring explicit type evidence and a proven field-containing context; target accessibility and storage layout are target-owned.",
+    providerFacts: [
+      "sourceCoreFieldMarkerFact",
+      "fieldTypeEvidenceFact",
+      "fieldContainingContextFact",
+    ],
+    targetContract:
+      "Targets map finalized field facts to target fields/properties or emit deterministic diagnostics when the field context, type, or target storage contract is missing.",
+    targetRequiredFacts: [
+      "field-type-evidence",
+      "field-containing-context",
+      "target-field-contract",
+    ],
+    staticOperation: "emit-target-field",
+    hardRejectReasons: [
+      "missing-field-type-evidence",
+      "missing-field-containing-context",
+      "target-missing-field-contract",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
+      "test/cli-build/classes-value-types.test.mjs",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/classes-value-types.test.mjs",
+    ],
+    oldEvidence: [
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
+      "test/fixtures/struct-basic/",
+    ],
+    blockers: [
+      "source-core.lang.portable-intrinsics.field remains partial until orphan fields, duplicate fields, class-vs-struct context, target mutability/accessibility, source spans, and every emitted field AST path are proven.",
+    ],
+    notes:
+      "Reviewed partial proof: field<int32>() attaches field facts only from explicit type evidence and proven containing context; field() without type evidence and non-field struct members produce deterministic diagnostics instead of inferred target fields.",
+  }),
+  "source-core.lang.portable-intrinsics.attribute": coreLangIntrinsicEvidence({
+    exportName: "attribute",
+    factSlug: "attribute",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { attribute } from \"@tsonic/core/lang.js\";",
+      "attribute<Annotated>().method((target) => target.run).parameter(\"input\").target(\"param\").add(CLSCompliantAttribute, false);",
+    ],
+    sourceContract:
+      "Core owns attribute<T>() as a portable attribute-application builder that records exact source declaration targets and arguments; provider/target facts own target attribute identity and legal placements.",
+    providerFacts: [
+      "sourceCoreAttributeMarkerFact",
+      "attributeTargetEvidenceFact",
+      "providerTargetAttributeFact",
+    ],
+    targetContract:
+      "Targets map finalized attribute facts to legal target attributes or emit deterministic diagnostics for unsupported targets, arguments, placements, or missing provider identity.",
+    targetRequiredFacts: [
+      "attribute-target-evidence",
+      "provider-target-attribute",
+      "target-attribute-placement-contract",
+    ],
+    staticOperation: "emit-target-attribute",
+    hardRejectReasons: [
+      "missing-attribute-target-evidence",
+      "unsupported-attribute-target-specifier",
+      "target-missing-attribute-contract",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ],
+    oldEvidence: [
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/attributes/basic/Attributes.ts",
+      "packages/targets/csharp/emitter/testcases/common/attributes/comprehensive/Attributes.ts",
+      "packages/targets/csharp/emitter/testcases/common/attributes/targets/Attributes.ts",
+    ],
+    blockers: [
+      "source-core.lang.portable-intrinsics.attribute remains partial until every constructor/named argument value, every placement target, unsupported value diagnostic, source span, and generated declaration attribute AST path is proven.",
+    ],
+    notes:
+      "Reviewed partial proof: attribute<T>() records target, parameter, and specifier facts only when selectors and strings prove exact declarations. Provider-backed C# attributes emit from target identity facts, while unproven builder chains and unsupported target specifiers fail closed.",
+  }),
+  "source-core.lang.portable-intrinsics.defaultof": coreLangIntrinsicEvidence({
+    exportName: "defaultof",
+    factSlug: "defaultof",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { defaultof } from \"@tsonic/core/lang.js\";",
+      "export function zero(): int32 { return defaultof<int32>(); }",
+    ],
+    sourceContract:
+      "Core owns defaultof<T>() as a portable default-value marker requiring explicit type evidence; targets own the target default expression or diagnostic.",
+    providerFacts: [
+      "sourceCoreDefaultofMarkerFact",
+      "defaultValueTypeEvidenceFact",
+      "targetDefaultValueContractFact",
+    ],
+    targetContract:
+      "Targets map finalized default-value facts to target default expressions or emit deterministic diagnostics when the type or selected target default contract is missing.",
+    targetRequiredFacts: [
+      "default-value-type-evidence",
+      "target-default-value-contract",
+    ],
+    staticOperation: "emit-target-default-value",
+    hardRejectReasons: [
+      "missing-default-type-evidence",
+      "target-missing-default-value-contract",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+    ],
+    oldEvidence: [
+      "test/fixtures/defaultof-intrinsic/",
+    ],
+    blockers: [
+      "source-core.lang.portable-intrinsics.defaultof remains partial until primitives, structs, nullable/reference types, provider generics, invalid type evidence, source spans, and every selected target default-expression path are proven.",
+    ],
+    notes:
+      "Reviewed partial proof: defaultof<char>() and defaultof<int32>() attach a default-value fact from explicit type evidence and C# emits default(int). defaultof() fails with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE.",
+  }),
+  "source-core.lang.portable-intrinsics.ptr": coreLangIntrinsicEvidence({
+    exportName: "ptr",
+    factSlug: "ptr",
+    sourceKind: "type-marker",
+    sourceExamples: [
+      "import type { ptr } from \"@tsonic/core/lang.js\";",
+      "export function accept(value: ptr<int32>): void {}",
+    ],
+    sourceContract:
+      "Core owns ptr<T> as a portable pointer type marker carrying pointee type evidence; targets own unsafe requirements, mutability, ABI, and unsupported diagnostics.",
+    providerFacts: [
+      "sourceCorePointerTypeMarkerFact",
+      "pointerPointeeTypeFact",
+      "targetPointerContractFact",
+    ],
+    targetContract:
+      "Targets map finalized pointer facts to target pointer types or emit deterministic diagnostics; backends must not infer pointer types from type alias names.",
+    targetRequiredFacts: [
+      "pointer-pointee-type",
+      "target-pointer-contract",
+      "unsafe-requirement-contract",
+    ],
+    staticOperation: "emit-target-pointer-type",
+    hardRejectReasons: [
+      "missing-pointer-pointee-type",
+      "target-missing-pointer-contract",
+      "unsafe-target-mode-unavailable",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ],
+    oldEvidence: [
+      "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
+      "test/fixtures/pointer-types/",
+    ],
+    blockers: [
+      "source-core.lang.portable-intrinsics.ptr remains partial until mutability, nested pointers, invalid type-argument forms, unsafe project settings, provider pointer boundaries, source spans, and all target diagnostics are proven.",
+    ],
+    notes:
+      "Reviewed partial proof: ptr<int32> attaches pointer facts with target-defined mutability and unsafe-required evidence, and C# CLI emits int* with AllowUnsafeBlocks only from finalized facts. Unsupported pointer shapes remain target diagnostics.",
+  }),
+  "source-core.lang.portable-intrinsics.fnptr": coreLangIntrinsicEvidence({
+    exportName: "fnptr",
+    factSlug: "fnptr",
+    sourceKind: "type-marker",
+    sourceExamples: [
+      "import type { fnptr } from \"@tsonic/core/lang.js\";",
+      "type Callback = fnptr<[int32, bool], int32>;",
+    ],
+    sourceContract:
+      "Core owns fnptr<Args, Result> as a portable function-pointer type marker carrying parameter/result type evidence; targets own ABI, calling convention, unsafe requirements, and diagnostics.",
+    providerFacts: [
+      "sourceCoreFunctionPointerTypeMarkerFact",
+      "functionPointerParameterTypeFacts",
+      "functionPointerResultTypeFact",
+      "targetFunctionPointerContractFact",
+    ],
+    targetContract:
+      "Targets map finalized function-pointer facts to target function-pointer types or emit deterministic diagnostics; backends must not synthesize delegates or erased functions without target facts.",
+    targetRequiredFacts: [
+      "function-pointer-parameter-types",
+      "function-pointer-result-type",
+      "target-function-pointer-contract",
+      "unsafe-requirement-contract",
+    ],
+    staticOperation: "emit-target-function-pointer-type",
+    hardRejectReasons: [
+      "missing-function-pointer-parameter-types",
+      "missing-function-pointer-result-type",
+      "target-missing-function-pointer-contract",
+    ],
+    positiveTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+    ],
+    negativeTests: [
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ],
+    oldEvidence: [
+      "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
+      "test/fixtures/pointer-types/",
+    ],
+    blockers: [
+      "source-core.lang.portable-intrinsics.fnptr remains partial until @tsonic/core/lang.js fnptr has direct CLI proof, invalid Args/Result forms, ABI/calling convention facts, unsafe project settings, provider boundaries, source spans, and all selected-target diagnostics are proven.",
+    ],
+    notes:
+      "Reviewed partial proof: source-semantics records fnptr parameter/result type facts from canonical type marker imports and rejects local same-spelling aliases. Direct core-module CLI proof and complete target ABI diagnostics remain open.",
+  }),
   "native.dotnet.assembly-model": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-assembly-identity.test.mjs",
@@ -1301,6 +1958,78 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities; unsupported default values now carry deterministic parameter identity/evidence; unsupported pointer parameter source shapes and wrong optional/params arities reject. Remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path.",
+  }),
+  "native.dotnet.array.explicit": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
+      "const values: DotNetArray<int32> = DotNetArray.create<int32>(size); values[0] = 7; return values.length;",
+    ]),
+    tstsDecision:
+      "TSTS checks the provider-owned .NET declarations and ordinary TypeScript array syntax; native CLR array identity is supplied only by provider facts.",
+    providerFacts: Object.freeze([
+      "dotnetArrayTypeRef",
+      "nativeClrArrayCarrierFact",
+      "providerSelectedMemberFact",
+      "selectedArrayLengthOrIndexerFact",
+    ]),
+    backendContract:
+      "C# emission may use T[] element access and Length only from finalized provider/native-array facts; normal source T[] stays TypeScript Array<T> semantics and does not become explicit CLR Array<T> by spelling.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/array-index-dotnet/",
+      "test/fixtures/native-array-push-mutation/",
+      "test/fixtures/readonly-array-property-mutation/",
+    ]),
+    blockers: Object.freeze([
+      "native.dotnet.array.explicit remains partial until @tsonic/dotnet exposes an explicit canonical Array<T> source shape, distinguishes CLR T[] from normal TypeScript Array<T> in public ABI, and proves construction, covariance, element assignment, length, mutation rejection, ranked-array rejection, and runtime/toolchain behavior end to end.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "dotnet-native-array-carrier",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "dotnet-array-type-ref",
+          "provider-selected-array-member",
+          "native-clr-array-carrier",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-dotnet-array-type-ref",
+          "missing-provider-selected-array-member",
+          "source-array-spelling-only",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "dotnet-array-type-ref",
+          "provider-selected-array-member",
+          "native-clr-array-carrier",
+        ]),
+        operation: "emit-clr-array-operation",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "ranked-clr-array-without-approved-source-shape",
+          "source-array-spelling-only",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, and selected member/indexer facts; CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, and rejects JS mutators such as push on explicit native arrays. Completion still requires covariance, returned CLR arrays from broad BCL APIs, native-array ABI boundaries, and ranked-array rejection coverage across the full provider matrix.",
   }),
   "native.dotnet.attributes": Object.freeze({
     positiveTests: Object.freeze([
@@ -1440,19 +2169,171 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.js.array-methods": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "test/fixtures/array-constructor/",
       "test/fixtures/array-spread/",
       "test/fixtures/js-surface-array-from-map-keys/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
+    blockers: Object.freeze([
+      "surface.js.array-methods remains partial until every Array constructor, length read/write, sparse slot, delete, hole-presence, mutation, callback, iterator, native-array-boundary, runtime artifact, and fail-closed unsupported lane is covered by sub-capability evidence.",
+    ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JS carriers only for full JS behavior. Covered length/index access, concat/includes/index/search/slice/join helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, and array for-in. No-surface array mutators fail closed without selected surface facts. Remains partial until length-growth/sparse/delete/full-JS cases, every Array constructor/map/set operation, explicit native .NET Array<T>, and runtime artifacts are covered end to end.",
+      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JS carriers only for full JS behavior. Covered length/index access, concat/includes/index/search/slice/join helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, and array for-in. No-surface array mutators fail closed without selected surface facts. Length/index reads are tracked under surface.js.array.length-index; sparse/delete/hole/length-mutation semantics remain not-started under surface.js.array.sparse-delete-holes; explicit CLR arrays remain partial under native.dotnet.array.explicit.",
+  }),
+  "surface.js.array.length-index": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export function count(values: int32[]): int32 { return values.length; }",
+      "export function pick(values: int32[], index: int32): int32 { return values[index]; }",
+    ]),
+    tstsDecision:
+      "TSTS validates Array<T> property and element access against selected JS declarations; the surface provider must prove the receiver carrier and integral index.",
+    providerFacts: Object.freeze([
+      "selectedJsArrayDeclaration",
+      "arrayReceiverCarrierFact",
+      "arrayLengthOperationFact",
+      "arrayElementOperationFact",
+      "integralIndexFact",
+    ]),
+    backendContract:
+      "C# length/index emission uses Count, Length, or indexer only from selected array operation facts; missing receiver, declaration, or index facts fail before emission.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/array-literal/",
+      "test/fixtures/array-index-dotnet/",
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    blockers: Object.freeze([
+      "surface.js.array.length-index remains partial until length assignment/truncation/growth, readonly vs mutable receiver policies, native-array length bridges, every integer conversion lane, and runtime behavior are proven or rejected with exact diagnostics.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "js-array-length-index-operation",
+      possibleLanes: Object.freeze(["static-native", "compat-runtime", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-array-declaration",
+          "array-receiver-carrier",
+          "array-length-or-index-operation",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-selected-js-array-declaration",
+          "missing-array-receiver-carrier",
+          "non-integral-index",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-array-declaration",
+          "array-receiver-carrier",
+          "array-length-or-index-operation",
+        ]),
+        operation: "emit-array-length-or-index",
+      },
+      compat: {
+        lane: "compat-runtime",
+        requiredFacts: Object.freeze([
+          "selected-compat-mode",
+          "closed-jsarray-carrier",
+          "array-length-or-index-operation",
+        ]),
+        runtimeCarrier: "TsArray",
+        operation: "ArrayLengthOrIndex",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "missing-selected-js-array-declaration",
+          "non-integral-index",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: selected JS surface Array.length maps only from the standard-library declaration and a finalized array receiver fact; provider tests defer when the declaration or carrier is absent and reject non-integral indexes. CLI tests emit IReadOnlyList<T>.Count/List indexer and native byte[].Length only when selected facts exist, and reject native array length or element access without those facts.",
+  }),
+  "surface.js.array.sparse-delete-holes": Object.freeze({
+    sourceExamples: Object.freeze([
+      "delete values[1];",
+      "values.length = 10; const hole = !(1 in values);",
+    ]),
+    tstsDecision:
+      "TSTS accepts JavaScript array syntax, but the selected surface must prove sparse slot, hole-presence, delete, and length-mutation semantics before target emission.",
+    providerFacts: Object.freeze([
+      "closedJsArrayCarrierFact",
+      "arrayHolePresenceFact",
+      "arrayDeleteOperationFact",
+      "arrayLengthMutationFact",
+    ]),
+    backendContract:
+      "Backends must reject sparse/delete/hole/length-mutation operations unless a closed JSArray carrier supplies deterministic operations; dense List<T> or CLR T[] carriers cannot silently approximate them.",
+    positiveTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/array-constructor/",
+    ]),
+    blockers: Object.freeze([
+      "surface.js.array.sparse-delete-holes remains partial until sparse array construction syntax, hole-presence operators, iteration over holes, JSON/stringification interactions, assignment-value-position length mutation, and complete fail-closed diagnostics across native CLR and dense List carriers are proven.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "js-array-sparse-hole-semantics",
+      possibleLanes: Object.freeze(["compat-runtime", "hard-reject"]),
+      strictNative: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "sparse-js-array-semantics-require-closed-jsarray-carrier",
+          "missing-required-facts",
+        ]),
+      },
+      compat: {
+        lane: "compat-runtime",
+        requiredFacts: Object.freeze([
+          "selected-compat-mode",
+          "closed-jsarray-carrier",
+          "array-hole-presence-fact",
+          "array-delete-operation-fact",
+          "array-length-mutation-fact",
+        ]),
+        runtimeCarrier: "TsArray",
+        operation: "SparseArrayDeleteLengthHoleOperation",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "dense-carrier-cannot-model-holes",
+          "native-clr-array-cannot-model-js-delete",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: selected JS surface delete and Array.length mutation on TypeScript arrays now require a closed JSArray carrier and emit JSArray.deleteAt/setLength through finalized operation facts, while runtime JSArray tests prove hole preservation across callbacks, search, copying, concat, flat, and flatMap. Remaining sparse/hole syntax and runtime lanes stay blocked rather than approximated with List<T>, IReadOnlyList<T>, or CLR T[].",
   }),
   "surface.js.string-methods": Object.freeze({
     positiveTests: Object.freeze([
@@ -1473,6 +2354,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "surface.js.console": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
@@ -1552,7 +2434,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.js.object-runtime remains partial until JSON parse/stringify, object carrier writes, prototype/static helpers, runtime execution, and toolchain coverage are complete.",
     ]),
     notes:
-      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject carrier and return selected JS surface array-return carriers; missing carrier facts reject, foreign same-spelling declarations defer, and JSON remains fail-closed until closed JSON carrier facts exist.",
+      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject, JSArray, string, or Record<string, T>/Dictionary<string, T> carrier; Record helper output is verified through CLI emission and C# toolchain build; missing carrier facts reject, foreign same-spelling declarations defer, and JSON remains fail-closed until closed JSON facts are complete.",
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
@@ -1580,7 +2462,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover bare fs and node:fs namespace imports, existsSync target mapping, and the no-surface negative path blocks Node-owned modules before artifact emission. Remains partial until the complete node:fs API surface has provider facts and runtime coverage.",
+      "Reviewed partial proof: selected NodeJS surface facts cover bare fs and node:fs namespace imports, existsSync/readFileSync/write-style target mappings, no-surface negative paths block Node-owned modules before artifact emission, and unsupported selected fs.watchFile fails closed without runtime fallback. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
   }),
   "surface.node.process": Object.freeze({
     positiveTests: Object.freeze([
@@ -1608,7 +2490,39 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls, Buffer instance length, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID, os.homedir, and os.platform by selected provider declaration/member/signature identity. Remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
+      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls, Buffer instance length/toString, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt overload-family mapping, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. Remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
+  }),
+  "surface.node.util": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "surface.node.util remains partial until format, formatWithOptions, inspect, debuglog, deprecate, isDeepStrictEqual, and other open-object helpers have closed TsValue/provider-adapter semantics or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: selected node:util and bare util provider modules expose source-visible declarations, closed stripVTControlCharacters/toUSVString operations map by selected provider signature identity to Tsonic.CSharp.Node.util calls, and open-carrier format/inspect declarations fail closed without routing to reflection, dynamic dispatch, JsonSerializer object inspection, or generic runtime fallback.",
+  }),
+  "surface.node.url": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "surface.node.url remains partial until live URLSearchParams semantics, URLPattern, url.format, urlToHttpOptions, open-object option carriers, runtime execution, and complete selected-surface diagnostics have closed carrier implementations or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: selected node:url and bare url provider modules expose URL and module function declarations; closed URL constructor/properties/static methods and domain/file-path helpers map by selected provider declaration/signature identity to Tsonic.CSharp.Node.URL/url calls; open-object url.format, urlToHttpOptions, URL.searchParams live-mutation semantics, URLSearchParams operations, and URLPattern fail closed without reflection, dynamic dispatch, object dictionary projection, or generic runtime fallback.",
   }),
   "backend.csharp.runtime-artifacts": Object.freeze({
     positiveTests: Object.freeze([
@@ -2639,6 +3553,225 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: NativeAOT is an explicit C# target project property, not generic compiler architecture; invalid PublishAot option shapes are rejected and source-to-source artifact reporting remains deterministic.",
   }),
+  "diagnostic.missing-target-fact": Object.freeze({
+    sourceExamples: Object.freeze([
+      "return typeof value;",
+      "return bytes.length;",
+    ]),
+    tstsDecision:
+      "TSTS may accept the source operation, but emission requires selected target facts from providers or surfaces.",
+    providerFacts: Object.freeze([
+      "diagnosticSourceSpan",
+      "missingTargetFactEvidence",
+      "selectedOperationRequirement",
+    ]),
+    backendContract:
+      "Backends and host gates emit diagnostics and suppress artifacts/toolchain work when required target facts are absent; they must not synthesize operations from syntax or names.",
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/lowering/plan-builders.test.ts",
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+      "packages/frontend/src/validator-maximus-cases/feature-gating.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
+      "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
+    ]),
+    blockers: Object.freeze([
+      "diagnostic.missing-target-fact remains partial until every backend, provider, surface, carrier, conversion, iteration, and runtime-required fact has a current negative test with precise source spans and no artifact emission.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "fail-closed-missing-target-fact",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-target-fact",
+          "source-spelling-only",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-target-operation",
+          "diagnostic-source-span",
+          "target-fact-evidence",
+        ]),
+        operation: "emit-target-operation-after-facts",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "missing-target-fact-evidence",
+          "source-spelling-only",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: current tests reject standalone typeof without a selected typeof operator fact, native array length without JS/provider length facts, structural operators without selected target facts, backend missing-fact diagnostics before artifact/toolchain handoff, and old unknown/object/in-operator assumptions as missing-fact replacements. This proves fail-closed behavior for selected holes, not exhaustive missing-fact coverage.",
+  }),
+  "diagnostic.missing-provider-fact": Object.freeze({
+    sourceExamples: Object.freeze([
+      "targets: [{ id: \"demo\" }]",
+      "import { File } from \"@tsonic/dotnet/System.IO.js\";",
+    ]),
+    tstsDecision:
+      "TSTS can only bind provider-owned modules after the selected target contributes a provider; no generated declaration or metadata file can stand in for a missing provider.",
+    providerFacts: Object.freeze([
+      "selectedTargetProviderFact",
+      "providerOwnershipFact",
+      "providerVirtualModuleFact",
+      "missingProviderDiagnosticFact",
+    ]),
+    backendContract:
+      "The host must diagnose missing providers before backend execution; backends must never synthesize provider facts from package names, declaration files, or metadata JSON.",
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/commands/restore.test.ts",
+      "packages/cli/src/package-manifests/bindings.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "diagnostic.missing-provider-fact remains partial until every selected target/provider/surface-owned virtual module path has missing-provider and unowned-provider diagnostics with exact source spans and no backend artifact emission.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "fail-closed-missing-provider-fact",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-selected-provider",
+          "provider-owned-module-without-owner",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-target-provider",
+          "provider-ownership",
+          "provider-virtual-module",
+        ]),
+        operation: "bind-provider-owned-module",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "missing-provider-fact-evidence",
+          "file-backed-provider-fallback-banned",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: host surface-composition tests diagnose target packs without providers before backend emission, and target-config tests reject generated .d.ts plus provider metadata JSON as hidden module fallbacks. This proves the provider path fails closed for selected missing-provider cases, not exhaustive provider ownership diagnostics.",
+  }),
+  "diagnostic.unsupported-surface": Object.freeze({
+    sourceExamples: Object.freeze([
+      "targets: [{ id: \"csharp\", surfaces: [\"nodejs\"] }]",
+      "import path from \"node:path\";",
+    ]),
+    tstsDecision:
+      "TSTS source acceptance does not select target surfaces; the host and surface provider own selected-surface validation.",
+    providerFacts: Object.freeze([
+      "selectedSurfaceFact",
+      "surfaceDependencyFact",
+      "surfaceOwnershipFact",
+      "unsupportedSurfaceDiagnosticFact",
+    ]),
+    backendContract:
+      "Unsupported, unknown, stale, missing-dependency, or unselected surfaces must diagnose before backend artifacts are emitted.",
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-surface-imports-negative/",
+      "test/fixtures/source-package-surface-mismatch/",
+    ]),
+    blockers: Object.freeze([
+      "diagnostic.unsupported-surface remains partial until every first-party surface selection, dependency, target compatibility, stale ownership, and unselected module path is covered with current diagnostics and source spans.",
+    ]),
+    notes:
+      "Reviewed partial proof: host composition rejects stale/unowned selected surfaces, unknown surfaces, missing surface dependencies, and unselected Node-owned imports before backend artifacts. Operation-level selected-surface rejection is tracked separately by diagnostic.unsupported-selected-surface-operation.",
+  }),
+  "diagnostic.unsupported-selected-surface-operation": Object.freeze({
+    sourceExamples: Object.freeze([
+      "Object.assign({}, value);",
+      "const assign = Object.assign;",
+    ]),
+    tstsDecision:
+      "TSTS checks the selected JS declaration; the selected surface provider decides whether that declaration has target/runtime facts.",
+    providerFacts: Object.freeze([
+      "selectedSurfaceOperationFact",
+      "unsupportedSurfaceOperationFact",
+      "surfaceDiagnosticEvidenceFact",
+    ]),
+    backendContract:
+      "Selected but unsupported surface operations must reject with the owning surface diagnostic and must not defer to backend name lookup or emit placeholder calls.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/dotnet-disallowed-js-builtins/",
+      "test/fixtures/map-set-not-in-globals/",
+    ]),
+    blockers: Object.freeze([
+      "diagnostic.unsupported-selected-surface-operation remains partial until every selected JS/Node surface member without implementation has CLI/toolchain diagnostics, exact source spans, and no placeholder/runtime fallback.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "fail-closed-unsupported-selected-surface-operation",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "selected-surface-operation-unsupported",
+          "missing-surface-target-operation",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-surface-operation",
+          "surface-target-operation",
+          "surface-runtime-artifact",
+        ]),
+        operation: "emit-selected-surface-operation",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "selected-surface-operation-unsupported",
+          "property-valued-surface-member-unsupported",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: C# JS surface tests hard-reject selected Object.assign calls and property-valued access with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED instead of deferring to spelling, backend lookup, or placeholder runtime code. Completion requires the same fail-closed lane for all unsupported selected JS and Node surface operations.",
+  }),
   "diagnostic.unsupported-target-operation": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
@@ -2705,6 +3838,76 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: C# currently rejects borrow, borrowMut, and move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED from finalized TSTS flow facts. This is the explicit target contract until C# has a defined non-erased implementation.",
+  }),
+  "target.csharp.core-lang-intrinsics": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { defaultof, out, struct, field, borrow } from \"@tsonic/core/lang.js\";",
+      "consume(out(value)); const zero = defaultof<int32>(); borrow(value);",
+    ]),
+    tstsDecision:
+      "TSTS/source-core attach portable @tsonic/core/lang.js facts first; the C# target extension must then implement or reject each fact explicitly.",
+    providerFacts: Object.freeze([
+      "sourceCoreIntrinsicFact",
+      "csharpIntrinsicImplementationFact",
+      "csharpIntrinsicUnsupportedDiagnosticFact",
+    ]),
+    backendContract:
+      "C# backend may emit intrinsic behavior only from finalized C# target facts; unsupported portable intrinsics must stop with capability-scoped diagnostics.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "test/fixtures/core-intrinsics-provenance/",
+      "test/fixtures/defaultof-intrinsic/",
+      "test/fixtures/param-modifiers/",
+    ]),
+    blockers: Object.freeze([
+      "target.csharp.core-lang-intrinsics remains partial until every portable @tsonic/core/lang.js intrinsic has C# implementation or explicit rejection proof through unit, CLI, build, runtime, invalid-source, source-span, and missing-fact gates.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "csharp-core-lang-intrinsic-contract",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "source-core-intrinsic-fact",
+          "csharp-target-intrinsic-contract",
+          "renderable-csharp-operation",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-csharp-target-intrinsic-contract",
+          "unsupported-portable-intrinsic",
+          "source-spelling-only",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "source-core-intrinsic-fact",
+          "csharp-target-intrinsic-contract",
+          "renderable-csharp-operation",
+        ]),
+        operation: "emit-or-diagnose-csharp-core-intrinsic",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "unsupported-portable-intrinsic",
+          "source-spelling-only",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: C# currently implements storage passing markers as out/ref/in, emits neutral struct/field/defaultof facts in CLI paths, uses source-core out with provider .NET calls, records ptr/fnptr facts, and explicitly rejects borrow/borrowMut/move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED. It is not complete until every source-core intrinsic has implementation or rejection evidence across all C# emission and diagnostic paths.",
   }),
 });
 
@@ -3190,6 +4393,107 @@ function compatRuntimeOperation(capabilityId) {
   return "ClosedRuntimeCarrierOperation";
 }
 
+function coreLangIntrinsicEvidence({
+  exportName,
+  factSlug,
+  sourceKind,
+  sourceExamples,
+  sourceContract,
+  providerFacts,
+  targetContract,
+  targetRequiredFacts,
+  staticOperation,
+  hardRejectReasons,
+  positiveTests,
+  negativeTests,
+  oldEvidence,
+  blockers,
+  notes,
+}) {
+  const requiredFacts = Object.freeze([
+    "source-core-module-identity",
+    `source-core-lang.${factSlug}`,
+    ...targetRequiredFacts,
+    "selected-target-intrinsic-contract",
+  ]);
+  const rejectReasons = Object.freeze([...new Set([
+    "missing-required-facts",
+    "missing-source-core-module-identity",
+    "missing-selected-target-intrinsic-contract",
+    "source-spelling-only",
+    "unsupported-target-intrinsic",
+    ...hardRejectReasons,
+  ])]);
+
+  return Object.freeze({
+    sourceExamples: Object.freeze([...sourceExamples]),
+    tstsDecision:
+      `TSTS checks ${exportName} as ordinary TypeScript ${sourceKind === "type-marker" ? "type syntax" : "call syntax"}; source-core attaches the portable intrinsic fact only from ${coreLangIntrinsicModuleSpecifier} module identity.`,
+    providerFacts: Object.freeze([
+      "sourceCoreModuleIdentityFact",
+      "sourceCoreIntrinsicExportFact",
+      ...providerFacts,
+      "selectedTargetIntrinsicContractFact",
+    ]),
+    backendContract: targetContract,
+    positiveTests: Object.freeze([...positiveTests]),
+    negativeTests: Object.freeze([...negativeTests]),
+    oldEvidence: Object.freeze([...oldEvidence]),
+    blockers: Object.freeze([...blockers]),
+    coreIntrinsic: freezeCoreIntrinsicContract({
+      moduleSpecifier: coreLangIntrinsicModuleSpecifier,
+      exportName,
+      factSlug,
+      sourceKind,
+      sourceContract,
+      targetContract,
+      unsupportedTargetBehavior: "deterministic-diagnostic",
+      requiredFacts,
+    }),
+    laneClassification: freezeLaneClassification({
+      patternKind: "portable-source-core-intrinsic",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts,
+        hardRejectIfMissing: rejectReasons,
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts,
+        operation: staticOperation,
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: rejectReasons,
+      },
+    }),
+    notes,
+  });
+}
+
+function freezeCoreLangIntrinsicCoverageEntry(entry) {
+  return Object.freeze({
+    exportName: entry.exportName,
+    factSlug: entry.factSlug,
+    sourceKind: entry.sourceKind,
+    capabilityId: entry.capabilityId,
+  });
+}
+
+function freezeCoreIntrinsicContract(contract) {
+  return Object.freeze({
+    moduleSpecifier: contract.moduleSpecifier,
+    exportName: contract.exportName,
+    factSlug: contract.factSlug,
+    sourceKind: contract.sourceKind,
+    sourceContract: contract.sourceContract,
+    targetContract: contract.targetContract,
+    unsupportedTargetBehavior: contract.unsupportedTargetBehavior,
+    requiredFacts: Object.freeze([...contract.requiredFacts]),
+  });
+}
+
 function freezeLaneClassification(classification) {
   return Object.freeze({
     patternKind: classification.patternKind,
@@ -3221,16 +4525,19 @@ function capability([capabilityId, title, status, owner]) {
     title,
     status,
     owner,
-    sourceExamples: Object.freeze(defaults.sourceExamples),
-    tstsDecision: defaults.tstsDecision,
-    providerFacts: Object.freeze(defaults.providerFacts),
-    backendContract: defaults.backendContract,
-    runtimeContract: defaults.runtimeContract,
+    sourceExamples: Object.freeze(reviewedEvidence?.sourceExamples ?? defaults.sourceExamples),
+    tstsDecision: reviewedEvidence?.tstsDecision ?? defaults.tstsDecision,
+    providerFacts: Object.freeze(reviewedEvidence?.providerFacts ?? defaults.providerFacts),
+    backendContract: reviewedEvidence?.backendContract ?? defaults.backendContract,
+    runtimeContract: reviewedEvidence?.runtimeContract ?? defaults.runtimeContract,
     evidenceReview: reviewedEvidence === undefined ? "seeded" : "reviewed",
     positiveTests: Object.freeze(reviewedEvidence?.positiveTests ?? []),
     negativeTests: Object.freeze(reviewedEvidence?.negativeTests ?? []),
     oldEvidence: Object.freeze(reviewedEvidence?.oldEvidence ?? []),
     laneClassification,
+    ...(reviewedEvidence?.coreIntrinsic === undefined ? {} : {
+      coreIntrinsic: freezeCoreIntrinsicContract(reviewedEvidence.coreIntrinsic),
+    }),
     blockers: Object.freeze(blockers),
     notes: reviewedEvidence?.notes ??
       "Machine-readable entry seeded from .analysis/test-plan-20260623-075726; old tests are evidence, capability coverage is the source of truth.",
@@ -3259,6 +4566,76 @@ export const capabilityLedger = Object.freeze(baseCapabilityDefinitions.map(capa
 
 export const capabilityIdSet = Object.freeze(new Set(capabilityLedger.map((entry) => entry.capabilityId)));
 
+export function validateCapabilityLedger(entries, { requiredIds = requiredCapabilityIds } = {}) {
+  if (!Array.isArray(entries)) {
+    return ["capability ledger must be an array"];
+  }
+
+  return [
+    ...validateCapabilityLedgerEntrySet(entries, requiredIds),
+    ...entries.flatMap((entry) =>
+      validateCapabilityLedgerEntry(entry).map((error) => `${capabilityIdForValidationError(entry)}: ${error}`)
+    ),
+    ...validateCompleteBroadCapabilityEvidence(entries),
+  ];
+}
+
+function capabilityIdForValidationError(entry) {
+  if (isPlainObject(entry) && typeof entry.capabilityId === "string" && entry.capabilityId.length > 0) {
+    return entry.capabilityId;
+  }
+  return "<unknown>";
+}
+
+function validateCapabilityLedgerEntrySet(entries, requiredIds) {
+  const errors = [];
+  const seenCapabilityIds = new Set();
+
+  for (const entry of entries) {
+    if (!isPlainObject(entry) || typeof entry.capabilityId !== "string") {
+      continue;
+    }
+
+    if (seenCapabilityIds.has(entry.capabilityId)) {
+      errors.push(`duplicate capabilityId: ${entry.capabilityId}`);
+    }
+    seenCapabilityIds.add(entry.capabilityId);
+  }
+
+  for (const capabilityId of requiredIds) {
+    if (!seenCapabilityIds.has(capabilityId)) {
+      errors.push(`missing required capabilityId: ${capabilityId}`);
+    }
+  }
+
+  return errors;
+}
+
+function validateCompleteBroadCapabilityEvidence(entries) {
+  const errors = [];
+  const entriesByCapabilityId = new Map(entries
+    .filter((entry) => isPlainObject(entry) && typeof entry.capabilityId === "string")
+    .map((entry) => [entry.capabilityId, entry]));
+
+  for (const entry of entriesByCapabilityId.values()) {
+    if (entry.status !== "complete") {
+      continue;
+    }
+
+    const subCapabilities = [...entriesByCapabilityId.values()]
+      .filter((candidate) => candidate.capabilityId.startsWith(`${entry.capabilityId}.`));
+    for (const subCapability of subCapabilities) {
+      if (subCapability.status !== "complete") {
+        errors.push(
+          `${entry.capabilityId}: complete broad capabilities require complete sub-capability evidence; ${subCapability.capabilityId} is ${subCapability.status}`,
+        );
+      }
+    }
+  }
+
+  return errors;
+}
+
 export function validateCapabilityLedgerEntry(entry) {
   const errors = [];
   if (!isPlainObject(entry)) {
@@ -3276,10 +4653,12 @@ export function validateCapabilityLedgerEntry(entry) {
   validateStringArrayField(errors, entry, "positiveTests");
   validateStringArrayField(errors, entry, "negativeTests");
   validateStringArrayField(errors, entry, "oldEvidence");
+  validateEvidenceArrays(errors, entry);
   validateCompleteCapabilityProof(errors, entry);
   validateStringArrayField(errors, entry, "blockers");
   validateBlockerCompleteness(errors, entry);
   validateStringField(errors, entry, "notes");
+  validateCoreIntrinsicContract(errors, entry);
   errors.push(...validateCapabilityLaneClassification(entry));
   return errors;
 }
@@ -3302,6 +4681,51 @@ function validateCompleteCapabilityProof(errors, entry) {
   }
 }
 
+function validateEvidenceArrays(errors, entry) {
+  validateUniqueStringArray(errors, entry.positiveTests, "positiveTests");
+  validateUniqueStringArray(errors, entry.negativeTests, "negativeTests");
+  validateUniqueStringArray(errors, entry.oldEvidence, "oldEvidence");
+
+  if (!Array.isArray(entry.oldEvidence)) {
+    return;
+  }
+
+  const oldEvidenceSet = new Set(entry.oldEvidence);
+  if (Array.isArray(entry.positiveTests)) {
+    for (const positiveTest of entry.positiveTests) {
+      if (oldEvidenceSet.has(positiveTest)) {
+        errors.push("positiveTests must not reuse oldEvidence paths");
+        break;
+      }
+    }
+  }
+  if (Array.isArray(entry.negativeTests)) {
+    for (const negativeTest of entry.negativeTests) {
+      if (oldEvidenceSet.has(negativeTest)) {
+        errors.push("negativeTests must not reuse oldEvidence paths");
+        break;
+      }
+    }
+  }
+}
+
+function validateUniqueStringArray(errors, value, field) {
+  if (!Array.isArray(value)) {
+    return;
+  }
+  const seen = new Set();
+  for (const item of value) {
+    if (typeof item !== "string") {
+      continue;
+    }
+    if (seen.has(item)) {
+      errors.push(`${field} must not contain duplicate entries`);
+      return;
+    }
+    seen.add(item);
+  }
+}
+
 function validateBlockerCompleteness(errors, entry) {
   if (entry.status === "partial" || entry.status === "not-started" || entry.status === "blocked") {
     if (!Array.isArray(entry.blockers) || entry.blockers.length === 0) {
@@ -3312,6 +4736,40 @@ function validateBlockerCompleteness(errors, entry) {
   if ((entry.status === "complete" || entry.status === "invalid") && Array.isArray(entry.blockers) && entry.blockers.length > 0) {
     errors.push(`${entry.status} capabilities must not have blockers`);
   }
+}
+
+function validateCoreIntrinsicContract(errors, entry) {
+  const expectedIntrinsic = coreLangIntrinsicCoverageByCapabilityId.get(entry.capabilityId);
+  if (expectedIntrinsic === undefined) {
+    return;
+  }
+
+  const contract = entry.coreIntrinsic;
+  if (!isPlainObject(contract)) {
+    errors.push("coreIntrinsic must be an object");
+    return;
+  }
+
+  if (contract.moduleSpecifier !== coreLangIntrinsicModuleSpecifier) {
+    errors.push(`coreIntrinsic.moduleSpecifier must be ${coreLangIntrinsicModuleSpecifier}`);
+  }
+  if (contract.exportName !== expectedIntrinsic.exportName) {
+    errors.push(`coreIntrinsic.exportName must be ${expectedIntrinsic.exportName}`);
+  }
+  if (contract.factSlug !== expectedIntrinsic.factSlug) {
+    errors.push(`coreIntrinsic.factSlug must be ${expectedIntrinsic.factSlug}`);
+  }
+  if (contract.sourceKind !== expectedIntrinsic.sourceKind) {
+    errors.push(`coreIntrinsic.sourceKind must be ${expectedIntrinsic.sourceKind}`);
+  } else if (!coreLangIntrinsicSourceKindSet.has(contract.sourceKind)) {
+    errors.push("coreIntrinsic.sourceKind must be call-marker or type-marker");
+  }
+  validateNestedStringField(errors, contract, "coreIntrinsic.sourceContract");
+  validateNestedStringField(errors, contract, "coreIntrinsic.targetContract");
+  if (!coreLangUnsupportedTargetBehaviorSet.has(contract.unsupportedTargetBehavior)) {
+    errors.push("coreIntrinsic.unsupportedTargetBehavior must be deterministic-diagnostic");
+  }
+  validateRequiredFacts(errors, contract, "coreIntrinsic.requiredFacts");
 }
 
 export function validateCapabilityLaneClassification(entry) {
@@ -3350,6 +4808,8 @@ function validateLaneClassification(errors, entry) {
       errors.push("laneClassification.compat.runtimeCarrier must be a non-empty string when lane is compat-runtime");
     } else if (bannedCompatMechanismPattern.test(classification.compat.runtimeCarrier)) {
       errors.push("laneClassification.compat.runtimeCarrier must not name a banned runtime mechanism");
+    } else if (!capabilityCompatRuntimeCarrierSet.has(classification.compat.runtimeCarrier)) {
+      errors.push(`laneClassification.compat.runtimeCarrier must be one of ${capabilityCompatRuntimeCarriers.join(", ")}`);
     }
     if (!isPlainObject(classification.compat) || typeof classification.compat.operation !== "string" || classification.compat.operation.length === 0) {
       errors.push("laneClassification.compat.operation must be a non-empty string when lane is compat-runtime");

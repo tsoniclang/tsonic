@@ -45,6 +45,95 @@ test("CLI emits provider-owned static C# calls from selected TSTS target facts",
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits explicit provider-owned native .NET arrays without JS array surface semantics", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-native-dotnet-array");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderNativeDotnetArray",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function makeNativeArray(size: int32): DotNetArray<int32> {",
+      "  const values = DotNetArray.create<int32>(size);",
+      "  values[0] = 7;",
+      "  return values;",
+      "}",
+      "",
+      "export function nativeArrayLength(values: DotNetArray<int32>): int32 {",
+      "  return values.length;",
+      "}",
+      "",
+      "export function nativeArrayAt(values: DotNetArray<int32>, index: int32): int32 {",
+      "  return values[index];",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static int\[\] makeNativeArray\(int size\)/);
+  assert.match(generatedSource, /int\[\] values = new int\[size\];/);
+  assert.match(generatedSource, /values\[0\] = 7;/);
+  assert.match(generatedSource, /public static int nativeArrayLength\(int\[\] values\)/);
+  assert.match(generatedSource, /return values\.Length;/);
+  assert.match(generatedSource, /public static int nativeArrayAt\(int\[\] values, int index\)/);
+  assert.match(generatedSource, /return values\[index\];/);
+  assert.doesNotMatch(generatedSource, /JSArray/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderNativeDotnetArray.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects JS array mutators on explicit provider-owned native .NET arrays", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-native-dotnet-array-reject-mutator");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderNativeDotnetArrayRejectMutator",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function invalid(values: DotNetArray<int32>): void {",
+      "  values.push(1);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /push|does not exist|CSHARP_TARGET_MEMBER_NOT_FOUND/u);
+});
+
 
 test("CLI accepts provider-owned overloads discovered from .NET reflection", async () => {
   const projectDirectory = resolve(tempRoot, "provider-static-call-reflection-overload");
@@ -1165,4 +1254,121 @@ test("CLI runs provider-backed exception throw, catch, and finally semantics", a
     "cleanup: 2",
     "",
   ].join("\n"));
+});
+
+test("CLI enforces provider-backed generic interface constraints through TSTS declarations", async () => {
+  const libraryDirectory = resolve(tempRoot, "provider-generic-constraint-library");
+  await writeProject(libraryDirectory, {
+    "Acme.Constraints.csproj": [
+      "<Project Sdk=\"Microsoft.NET.Sdk\">",
+      "  <PropertyGroup>",
+      "    <TargetFramework>net10.0</TargetFramework>",
+      "    <ImplicitUsings>disable</ImplicitUsings>",
+      "    <Nullable>enable</Nullable>",
+      "  </PropertyGroup>",
+      "</Project>",
+      "",
+    ].join("\n"),
+    "Constraints.cs": [
+      "namespace Acme.Constraints;",
+      "",
+      "public interface IMarker",
+      "{",
+      "    int Marker { get; }",
+      "}",
+      "",
+      "public sealed class Marked : IMarker",
+      "{",
+      "    public Marked(int marker) => Marker = marker;",
+      "    public int Marker { get; }",
+      "}",
+      "",
+      "public sealed class Plain",
+      "{",
+      "    public Plain(int value) => Value = value;",
+      "    public int Value { get; }",
+      "}",
+      "",
+      "public sealed class Box<T> where T : IMarker",
+      "{",
+      "    public Box(T value) => Value = value;",
+      "    public T Value { get; }",
+      "    public int ReadMarker() => Value.Marker;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const libraryBuild = run("dotnet", ["build", resolve(libraryDirectory, "Acme.Constraints.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(libraryBuild.status, 0, libraryBuild.stdout + libraryBuild.stderr);
+  const libraryAssembly = resolve(libraryDirectory, "bin/Debug/net10.0/Acme.Constraints.dll");
+  assert.equal(existsSync(libraryAssembly), true);
+
+  const validProjectDirectory = resolve(tempRoot, "provider-generic-constraint-valid");
+  await writeProject(validProjectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderGenericConstraintValid",
+            references: {
+              assemblies: [{ include: "Acme.Constraints", hintPath: libraryAssembly }],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Box, Marked } from \"@tsonic/dotnet/Acme.Constraints.js\";",
+      "",
+      "export function passBox(box: Box<Marked>): Box<Marked> {",
+      "  return box;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const validBuild = runNode([cliPath, "build", "--project", resolve(validProjectDirectory, "tsonic.json")]);
+  assert.equal(validBuild.status, 0, validBuild.stdout + validBuild.stderr);
+  const validGeneratedSource = await readGeneratedModuleSource(validProjectDirectory);
+  assert.match(validGeneratedSource, /public static Acme\.Constraints\.Box<Acme\.Constraints\.Marked> passBox\(Acme\.Constraints\.Box<Acme\.Constraints\.Marked> box\)/);
+  assert.match(validGeneratedSource, /return box;/);
+  assert.doesNotMatch(validGeneratedSource, /__unsupported/);
+
+  const invalidProjectDirectory = resolve(tempRoot, "provider-generic-constraint-invalid");
+  await writeProject(invalidProjectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderGenericConstraintInvalid",
+            references: {
+              assemblies: [{ include: "Acme.Constraints", hintPath: libraryAssembly }],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Box, Plain } from \"@tsonic/dotnet/Acme.Constraints.js\";",
+      "",
+      "export function invalid(value: Plain): void {",
+      "  const box: Box<Plain> = new Box(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const invalidBuild = runNode([cliPath, "build", "--project", resolve(invalidProjectDirectory, "tsonic.json")]);
+  assert.notEqual(invalidBuild.status, 0);
+  assert.match(invalidBuild.stdout + invalidBuild.stderr, /Plain|IMarker|constraint/u);
 });

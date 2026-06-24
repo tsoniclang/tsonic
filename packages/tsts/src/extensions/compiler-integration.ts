@@ -1,8 +1,8 @@
 import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
-import { Node_Members, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
+import { Node_Body, Node_Members, Node_Statements, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
 import { Node_Name } from "../internal/ast/spine.js";
-import { KindConstructor, KindIndexSignature } from "../internal/ast/generated/kinds.js";
+import { KindConstructor, KindIndexSignature, KindModuleDeclaration } from "../internal/ast/generated/kinds.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import {
   canonicalIdentityFactKey,
@@ -106,22 +106,64 @@ function recordProviderVirtualModuleFacts(extensionHost: ExtensionHost, file: So
     if (targetBinding !== undefined) {
       extensionHost.facts.set(symbol, targetBindingFactKey, targetBinding, evidence);
     }
-    const declarationNode = symbol.Declarations?.find((candidate): candidate is Node => candidate !== undefined);
-    if (declarationNode !== undefined) {
-      extensionHost.facts.set(declarationNode, providerVirtualDeclarationFactKey, declarationFact, evidence);
-      if (targetBinding !== undefined) {
-        extensionHost.facts.set(declarationNode, targetBindingFactKey, targetBinding, evidence);
-      }
-      const declarationSymbol = Node_Symbol(declarationNode);
-      if (declarationSymbol !== undefined) {
-        extensionHost.facts.set(declarationSymbol, providerVirtualDeclarationFactKey, declarationFact, evidence);
-        if (targetBinding !== undefined) {
-          extensionHost.facts.set(declarationSymbol, targetBindingFactKey, targetBinding, evidence);
+    recordProviderVirtualExportDeclarationFacts(extensionHost, virtualModule, declaration, symbol, targetBinding, declarationFact, evidence);
+    recordProviderVirtualMemberFacts(extensionHost, virtualModule, declaration, symbol, evidence);
+  }
+}
+
+function recordProviderVirtualExportDeclarationFacts(
+  extensionHost: ExtensionHost,
+  virtualModule: ProviderResolvedModule,
+  declaration: ProviderExportDeclaration,
+  symbol: Symbol,
+  targetBinding: TargetBindingFact | undefined,
+  declarationFact: ProviderVirtualDeclarationFact,
+  evidence: readonly ExtensionEvidence[],
+): void {
+  if (declaration.kind === "function" && declaration.signatures !== undefined && declaration.signatures.length > 0) {
+    const declarationNodes = getProviderVirtualExportDeclarationNodes(symbol, declaration);
+    if (declarationNodes.length === declaration.signatures.length) {
+      for (let index = 0; index < declaration.signatures.length; index++) {
+        const signature = declaration.signatures[index];
+        const declarationNode = declarationNodes[index];
+        if (signature !== undefined && declarationNode !== undefined) {
+          extensionHost.facts.set(declarationNode, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration, undefined, signature), evidence);
+          if (targetBinding !== undefined) {
+            extensionHost.facts.set(declarationNode, targetBindingFactKey, targetBinding, evidence);
+          }
         }
       }
     }
-    recordProviderVirtualMemberFacts(extensionHost, virtualModule, declaration, symbol, evidence);
+    return;
   }
+
+  const declarationNode = symbol.Declarations?.find((candidate): candidate is Node => candidate !== undefined);
+  if (declarationNode !== undefined) {
+    extensionHost.facts.set(declarationNode, providerVirtualDeclarationFactKey, declarationFact, evidence);
+    if (targetBinding !== undefined) {
+      extensionHost.facts.set(declarationNode, targetBindingFactKey, targetBinding, evidence);
+    }
+    const declarationSymbol = Node_Symbol(declarationNode);
+    if (declarationSymbol !== undefined) {
+      extensionHost.facts.set(declarationSymbol, providerVirtualDeclarationFactKey, declarationFact, evidence);
+      if (targetBinding !== undefined) {
+        extensionHost.facts.set(declarationSymbol, targetBindingFactKey, targetBinding, evidence);
+      }
+    }
+  }
+}
+
+function getProviderVirtualExportDeclarationNodes(
+  symbol: Symbol,
+  declaration: ProviderExportDeclaration,
+): readonly Node[] {
+  return symbol.Declarations?.filter((candidate): candidate is Node => {
+    if (candidate === undefined) {
+      return false;
+    }
+    const name = Node_Name(candidate);
+    return name !== undefined && Node_Text(name) === declaration.name;
+  }) ?? [];
 }
 
 function recordProviderVirtualMemberFacts(
@@ -135,7 +177,7 @@ function recordProviderVirtualMemberFacts(
   if (declarationNode === undefined || exportDeclaration.members === undefined) {
     return;
   }
-  const memberNodes = Node_Members(declarationNode) ?? [];
+  const memberNodes = getProviderVirtualMemberNodes(declarationNode);
   for (const member of exportDeclaration.members) {
     const matchingDeclarations = memberNodes.filter((candidate): candidate is Node => candidate !== undefined && isProviderMemberDeclaration(candidate, member));
     if (matchingDeclarations.length === 0) {
@@ -163,6 +205,13 @@ function recordProviderVirtualMemberFacts(
       recordProviderVirtualMemberFact(extensionHost, virtualModule, exportDeclaration, member, undefined, memberNode, evidence);
     }
   }
+}
+
+function getProviderVirtualMemberNodes(declarationNode: Node): readonly GoPtr<Node>[] {
+  if (declarationNode.Kind === KindModuleDeclaration) {
+    return Node_Statements(Node_Body(declarationNode)) ?? [];
+  }
+  return Node_Members(declarationNode) ?? [];
 }
 
 function recordProviderVirtualMemberFact(

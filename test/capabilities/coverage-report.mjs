@@ -1,20 +1,31 @@
 import { pathToFileURL } from "node:url";
 import {
+  capabilityCompatRuntimeCarriers,
   capabilityLaneNames,
   capabilityLedger,
   capabilityOwners,
   capabilityStatuses,
+  requiredCapabilityIds,
+  validateCapabilityLedger,
   validateCapabilityLaneClassification,
 } from "./ledger.mjs";
 import {
   oldEmitterHistoricalCasePaths,
+  oldEmitterInventoryStatuses,
   oldEmitterPortInventory,
+  validateOldEmitterPortEntry,
 } from "../old-emitter-inventory/inventory.mjs";
 import {
   oldProductUnitHistoricalTestFiles,
+  oldProductUnitStatuses,
   oldProductUnitPortInventory,
+  validateOldProductUnitPortEntry,
 } from "../old-product-unit-inventory/inventory.mjs";
-import { oldSuitePortInventory } from "../old-suite-inventory/inventory.mjs";
+import {
+  oldSuitePortInventory,
+  oldSuiteStatuses,
+  validateOldSuitePortEntry,
+} from "../old-suite-inventory/inventory.mjs";
 
 const incompleteBlockerStatuses = Object.freeze(["partial", "not-started"]);
 const laneClassificationTrackedStatuses = Object.freeze(["partial", "not-started", "blocked"]);
@@ -25,6 +36,8 @@ export function buildCapabilityCoverageReport({
   owners = capabilityOwners,
   oldEvidenceSourceGroups = defaultOldEvidenceSourceGroups(),
   oldInventoryEntries = defaultOldInventoryEntries(),
+  oldInventoryCoverageSources = defaultOldInventoryCoverageSources(),
+  ledgerRequiredCapabilityIds = ledgerEntries === capabilityLedger ? requiredCapabilityIds : [],
 } = {}) {
   const classifiedOldEvidencePathSet = pathSetFromGroups(oldEvidenceSourceGroups);
   const oldInventoryEvidenceByCapability = groupOldInventoryEvidenceByCapability(oldInventoryEntries);
@@ -58,6 +71,8 @@ export function buildCapabilityCoverageReport({
       completeRequiresCurrentPositiveAndNegativeProof: true,
       completeParentOnlyProofIsHole: true,
       laneClassificationIsLedgerEnforced: true,
+      oldInventoryCoverageIsSeparatedByInventory: true,
+      capabilityLedgerValidationIsEnforced: true,
     },
     counts: {
       total: ledgerEntries.length,
@@ -75,6 +90,8 @@ export function buildCapabilityCoverageReport({
       classifiedOldEvidencePathSet,
       oldInventoryEvidenceByCapability,
     ),
+    oldInventoryCoverage: oldInventoryCoverage(ledgerEntries, oldInventoryCoverageSources),
+    ledgerValidation: ledgerValidationCoverage(ledgerEntries, ledgerRequiredCapabilityIds),
     laneClassificationCoverage: laneClassificationCoverage(ledgerEntries, statuses, owners),
     completeCapabilityProofHoles,
   };
@@ -106,6 +123,29 @@ function defaultOldInventoryEntries() {
     ...oldEmitterPortInventory.map((entry) => oldInventoryEvidence("old-emitter", entry)),
     ...oldSuitePortInventory.map((entry) => oldInventoryEvidence("old-suite", entry)),
     ...oldProductUnitPortInventory.map((entry) => oldInventoryEvidence("old-product-unit", entry)),
+  ];
+}
+
+function defaultOldInventoryCoverageSources() {
+  return [
+    {
+      inventory: "old-fixture",
+      entries: oldSuitePortInventory,
+      statuses: oldSuiteStatuses,
+      validate: validateOldSuitePortEntry,
+    },
+    {
+      inventory: "old-csharp-emitter",
+      entries: oldEmitterPortInventory,
+      statuses: oldEmitterInventoryStatuses,
+      validate: validateOldEmitterPortEntry,
+    },
+    {
+      inventory: "old-product-unit",
+      entries: oldProductUnitPortInventory,
+      statuses: oldProductUnitStatuses,
+      validate: validateOldProductUnitPortEntry,
+    },
   ];
 }
 
@@ -360,6 +400,8 @@ function laneClassificationCoverage(ledgerEntries, statuses, owners) {
       trackedStatuses: [...laneClassificationTrackedStatuses],
       allLedgerEntriesWithLaneClassificationAreTracked: true,
       allowedLanes: [...capabilityLaneNames],
+      compatRuntimeCarriersMustBeClosed: true,
+      allowedCompatRuntimeCarriers: [...capabilityCompatRuntimeCarriers],
     },
     summary: summarizeLaneClassificationCoverage(byCapability, statuses, owners),
     byCapability,
@@ -619,6 +661,181 @@ function groupOldInventoryEvidenceByCapability(oldInventoryEntries) {
     }
   }
   return byCapability;
+}
+
+function oldInventoryCoverage(ledgerEntries, oldInventoryCoverageSources) {
+  const knownCapabilityIds = new Set(ledgerEntries.map((entry) => entry.capabilityId));
+  const byInventory = oldInventoryCoverageSources.map((source) =>
+    oldInventorySourceCoverage(source, knownCapabilityIds)
+  );
+  const proofHoles = byInventory.flatMap((inventoryCoverage) => inventoryCoverage.proofHoles);
+
+  return {
+    rules: {
+      inventoriesAreReportedSeparately: true,
+      entriesRequireCapabilityIds: true,
+      capabilityIdsMustExistInLedger: true,
+      staleInvalidArchitectureRequiresReplacementCapabilities: true,
+      staleReplacementCapabilitiesMustExistInLedger: true,
+      staleReplacementCapabilitiesMustBeMappedAsEvidence: true,
+    },
+    summary: summarizeOldInventoryCoverage(byInventory, proofHoles),
+    byInventory,
+    proofHoles,
+  };
+}
+
+function oldInventorySourceCoverage(source, knownCapabilityIds) {
+  const entries = source.entries;
+  const statusCounts = zeroCountRecord(source.statuses);
+  const mappingStatusCounts = {};
+  const proofHoles = [];
+  const invalidEntries = [];
+  const staleEntries = [];
+
+  for (const entry of entries) {
+    increment(statusCounts, entry.status);
+    increment(mappingStatusCounts, entry.capabilityMappingStatus);
+
+    const entryProofHoles = [
+      ...oldInventoryEntryValidationHoles(source, entry),
+      ...oldInventoryCapabilityHoles(entry, knownCapabilityIds),
+      ...oldInventoryStaleReplacementHoles(entry, knownCapabilityIds),
+    ];
+
+    if (entryProofHoles.length > 0) {
+      proofHoles.push({
+        inventory: source.inventory,
+        oldPath: entry.oldPath,
+        status: entry.status,
+        proofHoles: entryProofHoles,
+      });
+      invalidEntries.push(entry.oldPath);
+    }
+
+    if (entry.status === "invalid-stale-architecture") {
+      staleEntries.push({
+        oldPath: entry.oldPath,
+        replacementCapabilityIds: Array.isArray(entry.replacementCapabilityIds)
+          ? [...entry.replacementCapabilityIds]
+          : [],
+        replacementCapabilityPath: typeof entry.replacementCapabilityPath === "string"
+          ? entry.replacementCapabilityPath
+          : null,
+        replacementStatus: oldInventoryReplacementStatus(entry, entryProofHoles),
+      });
+    }
+  }
+
+  return {
+    inventory: source.inventory,
+    entryCount: entries.length,
+    statusCounts,
+    mappingStatusCounts,
+    validationErrorCount: proofHoles.reduce((count, entry) => count + entry.proofHoles.length, 0),
+    invalidEntryCount: invalidEntries.length,
+    staleEntryCount: staleEntries.length,
+    staleEntries,
+    invalidEntries,
+    proofHoles,
+  };
+}
+
+function oldInventoryEntryValidationHoles(source, entry) {
+  const validationErrors = source.validate(entry);
+  return validationErrors.map((error) => `inventory-validation: ${error}`);
+}
+
+function oldInventoryCapabilityHoles(entry, knownCapabilityIds) {
+  const holes = [];
+  if (!Array.isArray(entry.capabilityIds) || entry.capabilityIds.length === 0) {
+    holes.push("missing-capabilityIds");
+    return holes;
+  }
+
+  for (const capabilityId of entry.capabilityIds) {
+    if (!knownCapabilityIds.has(capabilityId)) {
+      holes.push(`unknown-capabilityId: ${capabilityId}`);
+    }
+  }
+  return holes;
+}
+
+function oldInventoryStaleReplacementHoles(entry, knownCapabilityIds) {
+  if (entry.status !== "invalid-stale-architecture") {
+    if (entry.replacementCapabilityIds !== undefined || entry.replacementCapabilityPath !== undefined) {
+      return ["replacement-capabilities-on-non-stale-entry"];
+    }
+    return [];
+  }
+
+  const holes = [];
+  if (!Array.isArray(entry.replacementCapabilityIds) || entry.replacementCapabilityIds.length === 0) {
+    holes.push("missing-replacementCapabilityIds");
+  } else {
+    for (const capabilityId of entry.replacementCapabilityIds) {
+      if (!knownCapabilityIds.has(capabilityId)) {
+        holes.push(`unknown-replacementCapabilityId: ${capabilityId}`);
+      }
+      if (!Array.isArray(entry.capabilityIds) || !entry.capabilityIds.includes(capabilityId)) {
+        holes.push(`replacement-not-mapped-as-capabilityId: ${capabilityId}`);
+      }
+    }
+  }
+
+  if (typeof entry.replacementCapabilityPath !== "string" || entry.replacementCapabilityPath.length === 0) {
+    holes.push("missing-replacementCapabilityPath");
+  }
+  return holes;
+}
+
+function oldInventoryReplacementStatus(entry, proofHoles) {
+  if (entry.status !== "invalid-stale-architecture") {
+    return "not-stale";
+  }
+  return proofHoles.some((proofHole) =>
+    proofHole.includes("replacement") ||
+    proofHole.includes("inventory-validation")
+  )
+    ? "hole"
+    : "mapped";
+}
+
+function summarizeOldInventoryCoverage(byInventory, proofHoles) {
+  return {
+    inventoryCount: byInventory.length,
+    entryCount: byInventory.reduce((count, inventory) => count + inventory.entryCount, 0),
+    staleEntryCount: byInventory.reduce((count, inventory) => count + inventory.staleEntryCount, 0),
+    invalidEntryCount: byInventory.reduce((count, inventory) => count + inventory.invalidEntryCount, 0),
+    proofHoleCount: proofHoles.length,
+    proofStatus: proofHoles.length === 0 ? "proven" : "hole",
+  };
+}
+
+function ledgerValidationCoverage(ledgerEntries, requiredIds) {
+  const validationErrors = validateCapabilityLedger(ledgerEntries, { requiredIds });
+  const proofHoles = validationErrors.map((error) => ({
+    proofHole: "capability-ledger-validation",
+    error,
+  }));
+
+  return {
+    rules: {
+      entriesMustPassSingleEntryValidation: true,
+      completeCapabilitiesRequirePositiveAndNegativeProof: true,
+      completeCapabilitiesRequireReviewedEvidence: true,
+      completeCapabilitiesRequireOldInventoryEvidence: true,
+      completeBroadCapabilitiesRequireCompleteSubCapabilityEvidence: true,
+      requiredCapabilityIdsMustExist: requiredIds.length > 0,
+    },
+    summary: {
+      entryCount: ledgerEntries.length,
+      requiredCapabilityIdCount: requiredIds.length,
+      validationErrorCount: validationErrors.length,
+      proofStatus: validationErrors.length === 0 ? "proven" : "hole",
+    },
+    proofHoles,
+  };
 }
 
 function pathSetFromGroups(groups) {

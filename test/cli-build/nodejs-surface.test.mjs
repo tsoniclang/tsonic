@@ -150,3 +150,360 @@ test("CLI emits NodeJS namespace imports from selected surface provider facts", 
   assert.doesNotMatch(generatedSource, /return process\./);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
+
+
+test("CLI emits Buffer and crypto operations from selected NodeJS declaration facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-buffer-crypto-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodeBufferCrypto",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Buffer } from \"node:buffer\";",
+      "import { randomInt, getHashes } from \"node:crypto\";",
+      "",
+      "export function bufferText(): string {",
+      "  return Buffer.from(\"hello\").toString();",
+      "}",
+      "",
+      "export function bufferLength(): number {",
+      "  return Buffer.alloc(3).length;",
+      "}",
+      "",
+      "export function byteLength(): number {",
+      "  return Buffer.byteLength(\"hello\");",
+      "}",
+      "",
+      "export function validEncoding(): boolean {",
+      "  return Buffer.isEncoding(\"utf8\");",
+      "}",
+      "",
+      "export function boundedRandom(): number {",
+      "  return randomInt(10);",
+      "}",
+      "",
+      "export function rangedRandom(): number {",
+      "  return randomInt(1, 10);",
+      "}",
+      "",
+      "export function firstHash(): string {",
+      "  return getHashes()[0];",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.from\("hello"\)\.toString\(\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.alloc\(3\)\.length;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.byteLength\("hello"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.isEncoding\("utf8"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomInt\(10\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomInt\(1, 10\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.getHashes\(\)\[0\];/);
+  assert.doesNotMatch(generatedSource, /return Buffer\./);
+  assert.doesNotMatch(generatedSource, /return randomInt\(/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeBufferCrypto.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits fs.statSync and path object operations from selected NodeJS declarations", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-fs-path-object-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodeFsPathObjects",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { statSync } from \"node:fs\";",
+      "import { format, parse } from \"node:path\";",
+      "import * as nodePath from \"node:path\";",
+      "import * as nodeOs from \"node:os\";",
+      "import * as nodeProcess from \"node:process\";",
+      "",
+      "export function parsedExt(path: string): string {",
+      "  return parse(path).ext;",
+      "}",
+      "",
+      "export function formattedPath(path: string): string {",
+      "  return format(parse(path));",
+      "}",
+      "",
+      "export function statKind(path: string): boolean {",
+      "  const stat = statSync(path);",
+      "  return stat.isFile() || stat.isDirectory() || stat.size > 0;",
+      "}",
+      "",
+      "export function processId(): number {",
+      "  return nodeProcess.pid;",
+      "}",
+      "",
+      "export function firstArgument(): string {",
+      "  return nodeProcess.argv[0];",
+      "}",
+      "",
+      "export function surfaceSeparators(): string {",
+      "  return nodePath.sep + nodeOs.EOL;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.parse\(path\)\.ext;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.format\(Tsonic\.CSharp\.Node\.path\.parse\(path\)\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Stats stat = Tsonic\.CSharp\.Node\.fs\.statSync\(path\);/);
+  assert.match(generatedSource, /return stat\.IsFile\(\) \|\| stat\.IsDirectory\(\) \|\| stat\.size > 0;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.pid;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.argv\[0\];/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.sep \+ Tsonic\.CSharp\.Node\.os\.EOL;/);
+  assert.doesNotMatch(generatedSource, /return statSync\(/);
+  assert.doesNotMatch(generatedSource, /return parse\(/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeFsPathObjects.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+
+test("CLI emits closed node:util string operations from selected NodeJS declarations", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-util-string-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodeUtil",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { stripVTControlCharacters, toUSVString } from \"node:util\";",
+      "import { stripVTControlCharacters as bareStrip } from \"util\";",
+      "",
+      "export function clean(input: string): string {",
+      "  return stripVTControlCharacters(input);",
+      "}",
+      "",
+      "export function normalize(input: string): string {",
+      "  return toUSVString(input);",
+      "}",
+      "",
+      "export function cleanBare(input: string): string {",
+      "  return bareStrip(input);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.util\.stripVTControlCharacters\(input\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.util\.toUSVString\(input\);/);
+  assert.doesNotMatch(generatedSource, /return stripVTControlCharacters\(/);
+  assert.doesNotMatch(generatedSource, /return bareStrip\(/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeUtil.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects open-carrier node:util format operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-util-format-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { format } from \"node:util\";",
+      "",
+      "export function render(value: unknown): string {",
+      "  return format(\"%o\", value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST|CSHARP_NODEJS_CALL_NOT_MAPPED/);
+  assert.match(build.stderr, /closed target type|selected target signature fact|target binding/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI emits closed node:url operations from selected NodeJS declarations", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-url-closed-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodeUrl",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { URL, domainToASCII, fileURLToPath, pathToFileURL } from \"node:url\";",
+      "import { resolve as bareResolve } from \"url\";",
+      "",
+      "export function href(input: string): string {",
+      "  const parsed = new URL(input);",
+      "  return parsed.href;",
+      "}",
+      "",
+      "export function accepts(input: string): boolean {",
+      "  return URL.canParse(input);",
+      "}",
+      "",
+      "export function roundTrip(path: string): string {",
+      "  return fileURLToPath(pathToFileURL(path));",
+      "}",
+      "",
+      "export function ascii(domain: string): string {",
+      "  return domainToASCII(domain);",
+      "}",
+      "",
+      "export function joined(from: string, to: string): string {",
+      "  return bareResolve(from, to);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /new Tsonic\.CSharp\.Node\.URL\(input\)/);
+  assert.match(generatedSource, /return parsed\.href;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.URL\.canParse\(input\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.fileURLToPath\(Tsonic\.CSharp\.Node\.url\.pathToFileURL\(path\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.domainToASCII\(domain\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.resolve\(from, to\);/);
+  assert.doesNotMatch(generatedSource, /return URL\./);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeUrl.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects open-object node:url format operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-url-format-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { URL, format } from \"node:url\";",
+      "",
+      "export function render(input: string): string {",
+      "  const parsed = new URL(input);",
+      "  return format(parsed);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /CSHARP_NODEJS_CALL_NOT_MAPPED|CSHARP_UNSUPPORTED_AST/);
+  assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects unsupported selected NodeJS provider operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-unsupported-selected-operation");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { watchFile } from \"node:fs\";",
+      "",
+      "export function watch(path: string): void {",
+      "  watchFile(path, () => {});",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST/);
+  assert.match(build.stderr, /selected target signature fact|target binding/);
+  assert.doesNotMatch(build.stderr, /watchFile is not a function/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});

@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
+  capabilityCompatRuntimeCarriers,
   capabilityLedger,
   capabilityOwners,
   capabilityStatuses,
 } from "./capabilities/ledger.mjs";
 import { buildCapabilityCoverageReport } from "./capabilities/coverage-report.mjs";
+import { oldEmitterPortInventory } from "./old-emitter-inventory/inventory.mjs";
+import { oldProductUnitPortInventory } from "./old-product-unit-inventory/inventory.mjs";
+import { oldSuitePortInventory } from "./old-suite-inventory/inventory.mjs";
 
 test("capability coverage report exposes counts by status and owner", () => {
   const report = buildCapabilityCoverageReport();
@@ -37,6 +41,56 @@ test("capability coverage report exposes counts by status and owner", () => {
       );
     }
   }
+});
+
+test("capability coverage report exposes ledger validation as a gate", () => {
+  const report = buildCapabilityCoverageReport();
+
+  assert.equal(report.rules.capabilityLedgerValidationIsEnforced, true);
+  assert.equal(report.ledgerValidation.rules.entriesMustPassSingleEntryValidation, true);
+  assert.equal(report.ledgerValidation.rules.completeCapabilitiesRequirePositiveAndNegativeProof, true);
+  assert.equal(report.ledgerValidation.rules.completeBroadCapabilitiesRequireCompleteSubCapabilityEvidence, true);
+  assert.equal(report.ledgerValidation.summary.entryCount, capabilityLedger.length);
+  assert.equal(report.ledgerValidation.summary.validationErrorCount, 0);
+  assert.equal(report.ledgerValidation.summary.proofStatus, "proven");
+  assert.deepEqual(report.ledgerValidation.proofHoles, []);
+});
+
+test("capability coverage report flags complete broad capabilities with incomplete children", () => {
+  const report = buildCapabilityCoverageReport({
+    ledgerEntries: [
+      capabilityEntry({
+        capabilityId: "example.broad",
+        status: "complete",
+        evidenceReview: "reviewed",
+        positiveTests: ["test/current-positive.test.mjs"],
+        negativeTests: ["test/current-negative.test.mjs"],
+        oldEvidence: ["old/example.test.ts"],
+      }),
+      capabilityEntry({
+        capabilityId: "example.broad.child",
+        status: "blocked",
+        blockers: ["Synthetic blocked child capability."],
+      }),
+    ],
+    oldEvidenceSourceGroups: [
+      {
+        source: "test-old-source",
+        paths: ["old/example.test.ts"],
+      },
+    ],
+    oldInventoryEntries: [],
+  });
+
+  assert.equal(report.ledgerValidation.summary.validationErrorCount, 1);
+  assert.equal(report.ledgerValidation.summary.proofStatus, "hole");
+  assert.deepEqual(report.ledgerValidation.proofHoles, [
+    {
+      proofHole: "capability-ledger-validation",
+      error:
+        "example.broad: complete broad capabilities require complete sub-capability evidence; example.broad.child is blocked",
+    },
+  ]);
 });
 
 test("capability coverage report lists complete capabilities with proof holes", () => {
@@ -163,6 +217,91 @@ test("capability coverage report exposes oldEvidence coverage", () => {
   }
 });
 
+test("capability coverage report proves old inventory coverage by inventory", () => {
+  const report = buildCapabilityCoverageReport();
+  const inventoryCoverageByName = new Map(
+    report.oldInventoryCoverage.byInventory.map((entry) => [entry.inventory, entry]),
+  );
+
+  assert.equal(report.rules.oldInventoryCoverageIsSeparatedByInventory, true);
+  assert.equal(report.oldInventoryCoverage.rules.inventoriesAreReportedSeparately, true);
+  assert.equal(report.oldInventoryCoverage.rules.entriesRequireCapabilityIds, true);
+  assert.equal(report.oldInventoryCoverage.rules.capabilityIdsMustExistInLedger, true);
+  assert.equal(report.oldInventoryCoverage.rules.staleInvalidArchitectureRequiresReplacementCapabilities, true);
+  assert.equal(report.oldInventoryCoverage.rules.staleReplacementCapabilitiesMustExistInLedger, true);
+  assert.equal(report.oldInventoryCoverage.rules.staleReplacementCapabilitiesMustBeMappedAsEvidence, true);
+  assert.equal(report.oldInventoryCoverage.summary.inventoryCount, 3);
+  assert.equal(
+    report.oldInventoryCoverage.summary.entryCount,
+    oldSuitePortInventory.length + oldEmitterPortInventory.length + oldProductUnitPortInventory.length,
+  );
+  assert.equal(report.oldInventoryCoverage.summary.invalidEntryCount, 0);
+  assert.equal(report.oldInventoryCoverage.summary.proofHoleCount, 0);
+  assert.equal(report.oldInventoryCoverage.summary.proofStatus, "proven");
+  assert.deepEqual(report.oldInventoryCoverage.proofHoles, []);
+
+  assertOldInventoryCoverage(inventoryCoverageByName.get("old-fixture"), oldSuitePortInventory, {
+    total: 198,
+    ported: 39,
+    deferred: 156,
+    "invalid-stale-architecture": 3,
+  });
+  assertOldInventoryCoverage(inventoryCoverageByName.get("old-csharp-emitter"), oldEmitterPortInventory, {
+    total: 73,
+    ported: 55,
+    deferred: 14,
+    "replaced-by-stronger-test": 2,
+    "invalid-stale-architecture": 2,
+  });
+  assertOldInventoryCoverage(inventoryCoverageByName.get("old-product-unit"), oldProductUnitPortInventory, {
+    total: 109,
+    ported: 4,
+    deferred: 79,
+    "invalid-stale-architecture": 26,
+  });
+});
+
+test("capability coverage report exposes old inventory proof holes", () => {
+  const report = buildCapabilityCoverageReport({
+    oldInventoryCoverageSources: [
+      {
+        inventory: "old-fixture",
+        statuses: ["ported", "invalid-stale-architecture"],
+        entries: [
+          {
+            oldPath: "test/fixtures/stale/",
+            status: "invalid-stale-architecture",
+            capabilityIds: ["unknown.capability"],
+            replacementCapabilityIds: [],
+            replacementCapabilityPath: "",
+            capabilityMappingStatus: "reviewed",
+          },
+        ],
+        validate: () => ["replacementCapabilityIds must be a non-empty array"],
+      },
+    ],
+  });
+
+  assert.equal(report.oldInventoryCoverage.summary.inventoryCount, 1);
+  assert.equal(report.oldInventoryCoverage.summary.entryCount, 1);
+  assert.equal(report.oldInventoryCoverage.summary.invalidEntryCount, 1);
+  assert.equal(report.oldInventoryCoverage.summary.proofHoleCount, 1);
+  assert.equal(report.oldInventoryCoverage.summary.proofStatus, "hole");
+  assert.deepEqual(report.oldInventoryCoverage.proofHoles, [
+    {
+      inventory: "old-fixture",
+      oldPath: "test/fixtures/stale/",
+      status: "invalid-stale-architecture",
+      proofHoles: [
+        "inventory-validation: replacementCapabilityIds must be a non-empty array",
+        "unknown-capabilityId: unknown.capability",
+        "missing-replacementCapabilityIds",
+        "missing-replacementCapabilityPath",
+      ],
+    },
+  ]);
+});
+
 test("capability coverage report exposes complete oldEvidence bidirectional mapping holes", () => {
   const report = buildCapabilityCoverageReport({
     ledgerEntries: [
@@ -221,6 +360,8 @@ test("capability coverage report summarizes lane classification coverage", () =>
 
   assert.equal(report.rules.laneClassificationIsLedgerEnforced, true);
   assert.equal(report.laneClassificationCoverage.rules.allLedgerEntriesWithLaneClassificationAreTracked, true);
+  assert.equal(report.laneClassificationCoverage.rules.compatRuntimeCarriersMustBeClosed, true);
+  assert.deepEqual(report.laneClassificationCoverage.rules.allowedCompatRuntimeCarriers, [...capabilityCompatRuntimeCarriers]);
   assert.equal(report.laneClassificationCoverage.summary.total, trackedLedgerEntries.length);
   assert.equal(report.laneClassificationCoverage.proofHoles.length, report.laneClassificationCoverage.summary.withProofHoles);
 
@@ -276,6 +417,7 @@ test("capability coverage report mirrors lane classifications and reports proof 
       capabilityEntry({
         capabilityId: "operation.iteration.for-in.keys",
         status: "partial",
+        includeLaneClassification: false,
       }),
       capabilityEntry({
         capabilityId: "compat.any.dynamic-call",
@@ -325,6 +467,7 @@ test("capability coverage report mirrors lane classifications and reports proof 
 test("capability coverage report CLI emits machine-readable JSON", () => {
   const result = spawnSync(process.execPath, ["test/capabilities/coverage-report.mjs"], {
     encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -356,6 +499,29 @@ function expectedProofHoles(completeEntry) {
   return holes;
 }
 
+function assertOldInventoryCoverage(reportEntry, inventoryEntries, expectedStatusCounts) {
+  assert.notEqual(reportEntry, undefined);
+  assert.equal(reportEntry.entryCount, expectedStatusCounts.total);
+  assert.equal(reportEntry.entryCount, inventoryEntries.length);
+  assert.equal(reportEntry.validationErrorCount, 0);
+  assert.equal(reportEntry.invalidEntryCount, 0);
+  assert.deepEqual(reportEntry.invalidEntries, []);
+  assert.deepEqual(reportEntry.proofHoles, []);
+
+  for (const [status, expectedCount] of Object.entries(expectedStatusCounts)) {
+    if (status === "total") {
+      continue;
+    }
+    assert.equal(reportEntry.statusCounts[status], expectedCount, `${reportEntry.inventory}/${status}`);
+  }
+
+  for (const staleEntry of reportEntry.staleEntries) {
+    assert.equal(staleEntry.replacementStatus, "mapped", `${reportEntry.inventory}/${staleEntry.oldPath}`);
+    assert.ok(staleEntry.replacementCapabilityIds.length > 0, `${reportEntry.inventory}/${staleEntry.oldPath}`);
+    assert.notEqual(staleEntry.replacementCapabilityPath, null, `${reportEntry.inventory}/${staleEntry.oldPath}`);
+  }
+}
+
 function capabilityEntry({
   capabilityId,
   status,
@@ -366,13 +532,14 @@ function capabilityEntry({
   positiveTests = [],
   negativeTests = [],
   oldEvidence = [],
+  includeLaneClassification = true,
 }) {
   return {
     capabilityId,
     title: `Capability ${capabilityId}`,
     status,
     owner,
-    sourceExamples: [],
+    sourceExamples: [`${capabilityId} source example`],
     tstsDecision: "TSTS decision",
     providerFacts: [],
     backendContract: "Backend contract",
@@ -382,6 +549,24 @@ function capabilityEntry({
     oldEvidence,
     blockers,
     notes: "Test entry",
-    ...(laneClassification === undefined ? {} : { laneClassification }),
+    ...(includeLaneClassification
+      ? {
+        laneClassification: laneClassification ?? {
+          patternKind: "validation-test-pattern",
+          possibleLanes: ["static-native", "hard-reject"],
+          strictNative: {
+            lane: "static-native",
+          },
+          staticNative: {
+            lane: "static-native",
+            requiredFacts: [`${capabilityId}.fact`],
+          },
+          hardReject: {
+            lane: "hard-reject",
+            reasons: ["missing-required-facts"],
+          },
+        },
+      }
+      : {}),
   };
 }

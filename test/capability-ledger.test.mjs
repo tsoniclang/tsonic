@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  capabilityCompatRuntimeCarriers,
+  coreLangIntrinsicCoverage,
+  coreLangIntrinsicModuleSpecifier,
   capabilityLaneNames,
   capabilityIdSet,
   capabilityLedger,
   capabilityOwners,
   capabilityStatuses,
   requiredCapabilityIds,
+  validateCapabilityLedger,
   validateCapabilityLedgerEntry,
 } from "./capabilities/ledger.mjs";
 import {
@@ -31,6 +35,7 @@ import {
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
+const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
 
 test("capability ledger has valid machine-readable entries", () => {
   assert.equal(capabilityLedger.length, requiredCapabilityIds.length);
@@ -94,6 +99,11 @@ test("compat-runtime lane classifications name closed carriers and required fact
     assert.ok(Array.isArray(classification.compat.requiredFacts), `${entry.capabilityId} compat behavior must name required facts`);
     assert.ok(classification.compat.requiredFacts.length > 0, `${entry.capabilityId} compat behavior must require facts`);
     assert.doesNotMatch(classification.compat.runtimeCarrier, /QuickJS|Reflection|dynamic/u, `${entry.capabilityId} names a banned compat mechanism`);
+    assert.equal(
+      capabilityCompatRuntimeCarrierSet.has(classification.compat.runtimeCarrier),
+      true,
+      `${entry.capabilityId} names non-canonical compat carrier ${classification.compat.runtimeCarrier}`,
+    );
   }
 });
 
@@ -162,6 +172,22 @@ test("capability ledger validator rejects missing or malformed lane classificati
       "laneClassification.compat.runtimeCarrier must be a non-empty string when lane is compat-runtime",
     ],
   );
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({
+      ...sample,
+      laneClassification: {
+        ...sample.laneClassification,
+        compat: {
+          ...sample.laneClassification.compat,
+          runtimeCarrier: "OpenRuntimeObject",
+        },
+      },
+    }),
+    [
+      `laneClassification.compat.runtimeCarrier must be one of ${capabilityCompatRuntimeCarriers.join(", ")}`,
+    ],
+  );
 });
 
 test("capability ledger validator rejects incomplete and blocked entries without lane metadata", () => {
@@ -192,6 +218,8 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "source-core.out.storage-binding",
     "source-core.ref.parameter-mode",
     "source-core.struct.field-facts",
+    "source-core.lang.portable-intrinsics",
+    ...coreLangIntrinsicCoverage.map((entry) => entry.capabilityId),
     "operation.call.provider-selected-method",
     "operation.call.provider-argument-conversion",
     "operation.call.provider-parameter-mode",
@@ -205,6 +233,8 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "operation.iteration.provider-target",
     "operation.spread.provider-target-copy",
     "surface.js.console-log",
+    "surface.js.array.length-index",
+    "surface.js.array.sparse-delete-holes",
     "surface.js.math",
     "surface.node.process",
     "surface.node.fs",
@@ -222,10 +252,14 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "backend.csharp.no-direct-semantic-string-output",
     "backend.csharp.project-sdk-emit",
     "backend.csharp.runtime-artifacts",
+    "native.dotnet.array.explicit",
     "diagnostic.missing-provider-fact",
+    "diagnostic.missing-target-fact",
     "diagnostic.unsupported-target-operation",
+    "diagnostic.unsupported-selected-surface-operation",
     "diagnostic.strict-mode-slow-op",
     "target.shared.operation-contract",
+    "target.csharp.core-lang-intrinsics",
     "target.shared.ownership-placeholder",
     "target.rust.future-borrow-checker-boundary",
     "module.import.named",
@@ -242,6 +276,77 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
   for (const capabilityId of requiredIds) {
     assert.equal(capabilityIdSet.has(capabilityId), true, `missing required capability ${capabilityId}`);
   }
+});
+
+test("core lang intrinsic child capabilities define portable source contracts", () => {
+  const expectedExports = [
+    "out",
+    "ref",
+    "inref",
+    "borrow",
+    "borrowMut",
+    "move",
+    "struct",
+    "field",
+    "attribute",
+    "defaultof",
+    "ptr",
+    "fnptr",
+  ];
+  assert.deepEqual(coreLangIntrinsicCoverage.map((entry) => entry.exportName), expectedExports);
+
+  const entriesByCapabilityId = new Map(capabilityLedger.map((entry) => [entry.capabilityId, entry]));
+  for (const intrinsic of coreLangIntrinsicCoverage) {
+    const entry = entriesByCapabilityId.get(intrinsic.capabilityId);
+    assert.notEqual(entry, undefined, `missing core intrinsic capability ${intrinsic.capabilityId}`);
+    assert.equal(entry.status, "partial", `${intrinsic.capabilityId} must not be marked complete without full target proof`);
+    assert.equal(entry.owner, "source-core-provider", intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.moduleSpecifier, coreLangIntrinsicModuleSpecifier, intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.exportName, intrinsic.exportName, intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.factSlug, intrinsic.factSlug, intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.sourceKind, intrinsic.sourceKind, intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.unsupportedTargetBehavior, "deterministic-diagnostic", intrinsic.capabilityId);
+    assert.ok(entry.coreIntrinsic.requiredFacts.length > 0, `${intrinsic.capabilityId} must require facts`);
+    assert.ok(entry.coreIntrinsic.sourceContract.includes("Core owns"), `${intrinsic.capabilityId} must state core source ownership`);
+    assert.match(entry.coreIntrinsic.targetContract, /Targets .*diagnostic/u, intrinsic.capabilityId);
+    assert.ok(entry.providerFacts.includes("sourceCoreModuleIdentityFact"), intrinsic.capabilityId);
+    assert.ok(entry.providerFacts.includes("selectedTargetIntrinsicContractFact"), intrinsic.capabilityId);
+    assert.equal(entry.laneClassification.possibleLanes.includes("hard-reject"), true, intrinsic.capabilityId);
+    assert.equal(entry.laneClassification.possibleLanes.includes("compat-runtime"), false, intrinsic.capabilityId);
+    assert.equal(entry.laneClassification.hardReject.reasons.includes("unsupported-target-intrinsic"), true, intrinsic.capabilityId);
+    assert.ok(entry.sourceExamples.join("\n").includes(intrinsic.exportName), `${intrinsic.capabilityId} examples must name the export`);
+    assert.ok(entry.blockers.length > 0, `${intrinsic.capabilityId} must keep explicit partial blockers`);
+  }
+});
+
+test("capability ledger validator rejects incomplete core intrinsic metadata", () => {
+  const entry = capabilityLedger.find((candidate) =>
+    candidate.capabilityId === "source-core.lang.portable-intrinsics.out"
+  );
+  assert.notEqual(entry, undefined);
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({ ...entry, coreIntrinsic: undefined }),
+    ["coreIntrinsic must be an object"],
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...entry,
+      coreIntrinsic: {
+        ...entry.coreIntrinsic,
+        moduleSpecifier: "@tsonic/csharp/lang.js",
+      },
+    }).includes(`coreIntrinsic.moduleSpecifier must be ${coreLangIntrinsicModuleSpecifier}`),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...entry,
+      coreIntrinsic: {
+        ...entry.coreIntrinsic,
+        requiredFacts: [],
+      },
+    }).includes("coreIntrinsic.requiredFacts must be a non-empty array"),
+  );
 });
 
 test("complete capabilities require positive and negative proof", () => {
@@ -300,6 +405,65 @@ test("capability ledger validator rejects complete capabilities without proof", 
   assert.ok(
     validateCapabilityLedgerEntry({ ...completeEntry, oldEvidence: [] })
       .includes("complete capabilities must have oldEvidence"),
+  );
+});
+
+test("capability ledger validator rejects duplicated and stale evidence reuse", () => {
+  const completeEntry = capabilityLedger.find((entry) => entry.status === "complete");
+  assert.notEqual(completeEntry, undefined);
+
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      positiveTests: [...completeEntry.positiveTests, completeEntry.positiveTests[0]],
+    }).includes("positiveTests must not contain duplicate entries"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      negativeTests: [...completeEntry.negativeTests, completeEntry.negativeTests[0]],
+    }).includes("negativeTests must not contain duplicate entries"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      oldEvidence: [...completeEntry.oldEvidence, completeEntry.oldEvidence[0]],
+    }).includes("oldEvidence must not contain duplicate entries"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      positiveTests: [completeEntry.oldEvidence[0]],
+    }).includes("positiveTests must not reuse oldEvidence paths"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      negativeTests: [completeEntry.oldEvidence[0]],
+    }).includes("negativeTests must not reuse oldEvidence paths"),
+  );
+});
+
+test("capability ledger validator rejects incomplete sub-capability evidence for complete broad capabilities", () => {
+  const parentEntry = capabilityEntry({
+    capabilityId: "example.broad",
+    status: "complete",
+    evidenceReview: "reviewed",
+    positiveTests: ["test/current-positive.test.mjs"],
+    negativeTests: ["test/current-negative.test.mjs"],
+    oldEvidence: ["test/fixtures/old-example/"],
+  });
+  const partialChildEntry = capabilityEntry({
+    capabilityId: "example.broad.child",
+    status: "partial",
+    blockers: ["Child capability is intentionally incomplete for validation coverage."],
+  });
+
+  assert.deepEqual(
+    validateCapabilityLedger([parentEntry, partialChildEntry], { requiredIds: [] }),
+    [
+      "example.broad: complete broad capabilities require complete sub-capability evidence; example.broad.child is partial",
+    ],
   );
 });
 
@@ -525,4 +689,47 @@ function assertValidLaneBehavior(entry, fieldName, behavior) {
   assert.equal(typeof behavior, "object", `${entry.capabilityId} missing ${fieldName} lane behavior`);
   assert.equal(typeof behavior.lane, "string", `${entry.capabilityId} ${fieldName}.lane must be a string`);
   assert.equal(capabilityLaneSet.has(behavior.lane), true, `${entry.capabilityId} ${fieldName}.lane is invalid: ${behavior.lane}`);
+}
+
+function capabilityEntry({
+  capabilityId,
+  status,
+  owner = "target-provider",
+  blockers = [],
+  evidenceReview = "seeded",
+  positiveTests = [],
+  negativeTests = [],
+  oldEvidence = [],
+}) {
+  return {
+    capabilityId,
+    title: `Capability ${capabilityId}`,
+    status,
+    owner,
+    sourceExamples: [`${capabilityId} source example`],
+    tstsDecision: "TSTS owns the source-language decision.",
+    providerFacts: [`${capabilityId}.fact`],
+    backendContract: "Backend consumes finalized facts and fails closed when missing.",
+    evidenceReview,
+    positiveTests,
+    negativeTests,
+    oldEvidence,
+    laneClassification: {
+      patternKind: "validation-test-pattern",
+      possibleLanes: ["static-native", "hard-reject"],
+      strictNative: {
+        lane: "static-native",
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: [`${capabilityId}.fact`],
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: ["missing-required-facts"],
+      },
+    },
+    blockers,
+    notes: "Synthetic validation entry.",
+  };
 }

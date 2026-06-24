@@ -422,6 +422,54 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits sparse JS array delete and length mutation only through JSArray carrier facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-sparse-delete-length");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArraySparseDeleteLength",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function mutate(values: int32[], index: int32): int32 {",
+      "  delete values[index];",
+      "  values.length = 4;",
+      "  values[3] = 7;",
+      "  return values.length;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static int mutate\(System\.Collections\.Generic\.IEnumerable<int> __tsonic_param\d+, int index\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = new Tsonic\.CSharp\.Js\.JSArray<int>\(__tsonic_param\d+\);/);
+  assert.match(generatedSource, /values\.deleteAt\(index\);/);
+  assert.match(generatedSource, /values\.setLength\(4\);/);
+  assert.match(generatedSource, /values\[3\] = 7;/);
+  assert.match(generatedSource, /return values\.length;/);
+  assert.doesNotMatch(generatedSource, /values\.Count =/);
+  assert.doesNotMatch(generatedSource, /values\.Length =/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySparseDeleteLength.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI rejects fixed CLR array mutators without JSArray carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "array-fixed-mutator-rejections");
@@ -816,6 +864,59 @@ test("CLI emits Record for-in from provider Dictionary key facts", async () => {
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRecordForIn.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits Object helpers for closed Record dictionaries from selected JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "record-object-helpers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedRecordObjectHelpers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function recordKeys(values: Record<string, int32>): string[] {",
+      "  return Object.keys(values);",
+      "}",
+      "",
+      "export function recordValues(values: Record<string, int32>): int32[] {",
+      "  return Object.values(values);",
+      "}",
+      "",
+      "export function recordEntries(values: Record<string, int32>): [string, int32][] {",
+      "  return Object.entries(values);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> recordKeys\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.keys\(values\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> recordValues\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.values\(values\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<\(string, int\)> recordEntries\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.entries\(values\);/);
+  assert.doesNotMatch(generatedSource, /Object\.keys\(object/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRecordObjectHelpers.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 

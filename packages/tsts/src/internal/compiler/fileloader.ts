@@ -12,6 +12,8 @@ import * as strings from "../../go/strings.js";
 import { Once as OnceImpl } from "../../go/sync.js";
 import {
   ImportAttributesNode_GetResolutionModeOverride,
+  Node_Elements,
+  Node_ImportClause,
   Node_Text,
   SourceFile_FileName,
   SourceFile_Imports,
@@ -38,7 +40,7 @@ import {
 import { NewNodeFactory, NodeDefault_AsNode } from "../ast/spine.js";
 import * as casts from "../ast/generated/casts.js";
 import { IsExportDeclaration, IsImportDeclaration, IsImportEqualsDeclaration, IsExternalModuleReference, IsJSDocImportTag, IsLiteralTypeNode, IsImportTypeNode } from "../ast/generated/predicates.js";
-import { KindStringLiteral, KindJSImportDeclaration } from "../ast/generated/kinds.js";
+import { KindStringLiteral, KindJSImportDeclaration, KindNamedImports, KindNamespaceImport } from "../ast/generated/kinds.js";
 import { NodeFlagsJSDoc } from "../ast/generated/flags.js";
 import { GetExternalModuleIndicatorOptions } from "../ast/parseoptions.js";
 import type { SourceFileParseOptions } from "../ast/parseoptions.js";
@@ -257,13 +259,16 @@ function fileLoader_getProviderVirtualModule(receiver: GoPtr<fileLoader>, fileNa
   return fileLoader_getExtensionHost(receiver)?.providers.getVirtualModuleByFileName(fileName);
 }
 
-function fileLoader_resolveProviderVirtualModule(receiver: GoPtr<fileLoader>, extensionHost: ExtensionHost | undefined, moduleName: string, containingFile: string, mode: ResolutionMode): GoPtr<ResolvedModule> | undefined {
+function fileLoader_resolveProviderVirtualModule(receiver: GoPtr<fileLoader>, extensionHost: ExtensionHost | undefined, moduleName: string, containingFile: string, mode: ResolutionMode, usage: GoPtr<Node>): GoPtr<ResolvedModule> | undefined {
   if (extensionHost === undefined) {
     return undefined;
   }
+  const importRequest = fileLoader_providerImportRequest(usage);
   const context = {
     containingFile,
     resolutionMode: mode,
+    ...(importRequest.broadImport ? { broadImport: true as const } : {}),
+    ...(importRequest.requestedExports.length > 0 ? { requestedExports: importRequest.requestedExports } : {}),
     ...(extensionHost.activeTarget !== undefined ? { activeTarget: extensionHost.activeTarget } : {}),
     ...(extensionHost.activeSurface !== undefined ? { activeSurface: extensionHost.activeSurface } : {}),
   };
@@ -307,6 +312,39 @@ function fileLoader_resolveProviderVirtualModule(receiver: GoPtr<fileLoader>, ex
       ModuleSpecifier: result.module.resolution.moduleSpecifier,
     },
   };
+}
+
+function fileLoader_providerImportRequest(usage: GoPtr<Node>): { readonly requestedExports: readonly string[]; readonly broadImport: boolean } {
+  const parent = usage?.Parent;
+  if (parent === undefined || !IsImportDeclaration(parent)) {
+    return { requestedExports: [], broadImport: true };
+  }
+  const importClause = Node_ImportClause(parent);
+  if (importClause === undefined) {
+    return { requestedExports: [], broadImport: true };
+  }
+  const clause = casts.AsImportClause(importClause);
+  if (clause === undefined || clause.NamedBindings === undefined) {
+    return { requestedExports: [], broadImport: true };
+  }
+  if (clause.NamedBindings.Kind === KindNamespaceImport) {
+    return { requestedExports: [], broadImport: true };
+  }
+  if (clause.NamedBindings.Kind !== KindNamedImports) {
+    return { requestedExports: [], broadImport: true };
+  }
+  const requestedExports = new Set<string>();
+  for (const specifier of Node_Elements(clause.NamedBindings) ?? []) {
+    const importSpecifier = casts.AsImportSpecifier(specifier);
+    const importedName = importSpecifier?.PropertyName ?? importSpecifier?.name;
+    const text = importedName === undefined ? "" : Node_Text(importedName);
+    if (text !== "") {
+      requestedExports.add(text);
+    }
+  }
+  return requestedExports.size === 0
+    ? { requestedExports: [], broadImport: true }
+    : { requestedExports: [...requestedExports].sort(), broadImport: false };
 }
 
 /**
@@ -1638,7 +1676,7 @@ export function fileLoader_resolveImportsAndModuleAugmentations(receiver: GoPtr<
         const mode = getModeForUsageLocation(SourceFile_FileName(file), meta, entry as unknown as GoPtr<StringLiteralLike>, optionsForFile);
         const redirectedReference = redirect !== undefined ? ParsedCommandLine_as_ResolvedProjectReference(redirect) : undefined;
         let trace: GoSlice<DiagAndArgs> = [];
-        let resolvedModule = fileLoader_resolveProviderVirtualModule(receiver, extensionHost, moduleName, fileName, mode);
+        let resolvedModule = fileLoader_resolveProviderVirtualModule(receiver, extensionHost, moduleName, fileName, mode, entry);
         if (resolvedModule === undefined) {
           [resolvedModule, trace] = Resolver_ResolveModuleName(receiver!.resolver, moduleName, fileName, mode, redirectedReference);
         }
