@@ -422,6 +422,83 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI selects ordinary TypeScript array public ABI lanes from finalized JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-public-abi-lanes");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArrayPublicAbiLanes",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function unused(values: int32[]): int32 {",
+      "  return 1;",
+      "}",
+      "",
+      "export function sequence(values: int32[]): int32 {",
+      "  let total: int32 = 0;",
+      "  for (const value of values) {",
+      "    total += value;",
+      "  }",
+      "  return total;",
+      "}",
+      "",
+      "export function indexed(values: int32[]): int32 {",
+      "  return values[0] + values.length;",
+      "}",
+      "",
+      "export function dense(values: int32[], index: int32, value: int32): int32 {",
+      "  values[index] = value;",
+      "  return values.length;",
+      "}",
+      "",
+      "export function make(value: int32): int32[] {",
+      "  return [value, value + 1];",
+      "}",
+      "",
+      "export function sparse(values: int32[], index: int32): int32 {",
+      "  delete values[index];",
+      "  return values.length;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static int unused\(int\[\] values\)/);
+  assert.match(generatedSource, /public static int sequence\(System\.Collections\.Generic\.IEnumerable<int> values\)/);
+  assert.match(generatedSource, /foreach \(int value in values\)/);
+  assert.match(generatedSource, /public static int indexed\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return values\[0\] \+ values\.Count;/);
+  assert.match(generatedSource, /public static int dense\(System\.Collections\.Generic\.List<int> values, int index, int value\)/);
+  assert.match(generatedSource, /values\[index\] = value;/);
+  assert.match(generatedSource, /return values\.Count;/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> make\(int value\)/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.List<int>\(new int\[\] \{ value, value \+ 1 \}\);/);
+  assert.match(generatedSource, /public static int sparse\(System\.Collections\.Generic\.IEnumerable<int> __tsonic_param\d+, int index\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = new Tsonic\.CSharp\.Js\.JSArray<int>\(__tsonic_param\d+\);/);
+  assert.match(generatedSource, /values\.deleteAt\(index\);/);
+  assert.doesNotMatch(generatedSource, /public static .*Tsonic\.CSharp\.Js\.JSArray<int>/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayPublicAbiLanes.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits sparse JS array delete and length mutation only through JSArray carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "array-sparse-delete-length");
   await writeProject(projectDirectory, {

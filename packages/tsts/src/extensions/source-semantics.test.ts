@@ -280,6 +280,7 @@ test("source-semantics records primitive facts on canonical named re-exports", (
 test("source-semantics records out ref inref borrow move call-site facts without name guessing", () => {
   const { extended, program, index } = createProgram(`
     import { out, ref as refArg, inref, borrow, borrowMut, move } from "@example/native/lang.js";
+    import * as nativeLang from "@example/native/lang.js";
     import { out as localOut } from "./local.js";
 
     let value!: number;
@@ -289,6 +290,9 @@ test("source-semantics records out ref inref borrow move call-site facts without
     borrow(value);
     borrowMut(value);
     move(value);
+    nativeLang.borrow(value);
+    nativeLang.borrowMut(value);
+    nativeLang.move(value);
     out(value + 1);
     localOut(value);
   `, new Map([
@@ -307,6 +311,9 @@ test("source-semantics records out ref inref borrow move call-site facts without
   const borrowCall = getCallExpression(index, "borrow", 0);
   const borrowMutCall = getCallExpression(index, "borrowMut", 0);
   const moveCall = getCallExpression(index, "move", 0);
+  const namespaceBorrowCall = getCallExpression(index, "borrow", 1);
+  const namespaceBorrowMutCall = getCallExpression(index, "borrowMut", 1);
+  const namespaceMoveCall = getCallExpression(index, "move", 1);
   const invalidOutCall = getCallExpression(index, "out", 1);
   const localOutCall = getCallExpression(index, "localOut", 0);
 
@@ -320,6 +327,9 @@ test("source-semantics records out ref inref borrow move call-site facts without
   assert.equal(extended.extensionHost.facts.get(borrowCall, flowStateFactKey)?.state, "borrowed-shared");
   assert.equal(extended.extensionHost.facts.get(borrowMutCall, flowStateFactKey)?.state, "borrowed-mut");
   assert.equal(extended.extensionHost.facts.get(moveCall, flowStateFactKey)?.state, "moved");
+  assert.equal(extended.extensionHost.facts.get(namespaceBorrowCall, flowStateFactKey)?.state, "borrowed-shared");
+  assert.equal(extended.extensionHost.facts.get(namespaceBorrowMutCall, flowStateFactKey)?.state, "borrowed-mut");
+  assert.equal(extended.extensionHost.facts.get(namespaceMoveCall, flowStateFactKey)?.state, "moved");
   assert.equal(extended.extensionHost.facts.get(getFirstCallArgument(moveCall), flowStateFactKey)?.state, "moved");
 
   assert.equal(finalizeExtensionSemantics(extended.program), extended.extensionHost);

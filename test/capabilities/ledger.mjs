@@ -1484,13 +1484,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ],
     oldEvidence: [],
     blockers: [
       "source-core.lang.portable-intrinsics.borrow remains partial until post-borrow source-flow checks, C# unsupported diagnostic breadth, and future Rust implementation/rejection proof are complete.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records borrowed-shared flow for aliased and namespace borrow calls, rejects invalid arity through TSTS checking, and avoids facts for local/shadowed same-spelling calls. C# is target-owned and currently rejects finalized borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call.",
+      "Reviewed partial proof: TSTS/source-core records borrowed-shared flow for aliased and namespace borrow calls, rejects invalid arity through TSTS checking, and avoids facts for local/shadowed same-spelling calls. C# is target-owned and currently rejects finalized borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call; C# call mapping also rejects source-flow marker erasure when the finalized FlowStateFact is absent.",
   }),
   "source-core.lang.portable-intrinsics.borrow-mut": coreLangIntrinsicEvidence({
     exportName: "borrowMut",
@@ -1526,13 +1528,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ],
     oldEvidence: [],
     blockers: [
       "source-core.lang.portable-intrinsics.borrow-mut remains partial until mutable aliasing, nested borrows, C# unsupported diagnostic breadth, and future Rust implementation/rejection proof are complete.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records borrowed-mut flow for aliased and namespace borrowMut calls, rejects invalid arity through TSTS checking, and avoids facts for local/shadowed same-spelling calls. Selected targets own exclusivity; unsupported targets must diagnose rather than lower the marker away.",
+      "Reviewed partial proof: TSTS/source-core records borrowed-mut flow for aliased and namespace borrowMut calls, rejects invalid arity through TSTS checking, and avoids facts for local/shadowed same-spelling calls. Selected targets own exclusivity; unsupported targets must diagnose rather than lower the marker away, and C# call mapping now requires the finalized FlowStateFact before marker erasure.",
   }),
   "source-core.lang.portable-intrinsics.move": coreLangIntrinsicEvidence({
     exportName: "move",
@@ -1570,13 +1574,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/tsts/src/extensions/source-semantics.test.ts",
       "packages/tsts/src/extensions/provider-program.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ],
     oldEvidence: [],
     blockers: [
       "source-core.lang.portable-intrinsics.move remains partial until move assignment, post-move reads/writes, selected-target unsupported diagnostic breadth, and future Rust ownership proof are complete.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records moved flow on aliased and namespace move calls plus the moved argument, rejects invalid arity through TSTS checking, and provider-program tests show target validation can reject post-move use. C# remains explicit unsupported-target diagnostics, not silent marker erasure.",
+      "Reviewed partial proof: TSTS/source-core records moved flow on aliased and namespace move calls plus the moved argument, rejects invalid arity through TSTS checking, and provider-program tests show target validation can reject post-move use. C# remains explicit unsupported-target diagnostics, not silent marker erasure, and call mapping rejects missing finalized FlowStateFact instead of silently erasing move(value).",
   }),
   "source-core.lang.portable-intrinsics.struct": coreLangIntrinsicEvidence({
     exportName: "struct",
@@ -2198,6 +2204,44 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: generic declarations and constraints emit from source AST plus finalized target facts and compile under dotnet. This evidence does not close provider constraint validation by itself; provider-specific constraint legality remains tracked under type.generic.provider-target-constraints and native.dotnet.constraints.",
+  }),
+  "carrier.array.public-abi-policy": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export function sequence(values: int32[]): int32 { let total: int32 = 0; for (const value of values) { total += value; } return total; }",
+      "export function indexed(values: int32[]): int32 { return values[0] + values.length; }",
+      "export function dense(values: int32[], index: int32, value: int32): int32 { values[index] = value; return values.length; }",
+      "export function sparse(values: int32[], index: int32): int32 { delete values[index]; return values.length; }",
+    ]),
+    tstsDecision:
+      "TSTS checks every source expression as ordinary TypeScript Array<T>/T[] syntax; selected JS surface/provider facts, not source spelling, choose the C# public ABI and internal carrier lane.",
+    providerFacts: Object.freeze([
+      "csharpArrayBoundaryFact",
+      "csharpArrayCarrierFact",
+      "runtimeCarrierFact",
+      "targetIterationFact",
+      "targetOperationFact",
+      "csharpTargetMutationOperationFact",
+    ]),
+    backendContract:
+      "C# parameter and return types render from finalized array boundary/carrier facts: unused native arrays may expose T[], sequential reads use IEnumerable<T>, length/index reads use IReadOnlyList<T>, caller-visible dense mutation uses List<T>, array returns use List<T>, and JSArray<T> appears only as a copy-in local for full JS semantics.",
+    positiveTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/array-literal/",
+      "test/fixtures/array-index-dotnet/",
+      "test/fixtures/array-spread/",
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    blockers: Object.freeze([
+      "carrier.array.public-abi-policy remains partial until readonly arrays, inferred array returns, nested/generic public ABI carriers, native-array provider boundaries, and every full-JS copy-in/copy-out requirement are covered by focused evidence.",
+    ]),
+    notes:
+      "Reviewed partial proof: CLI evidence compiles ordinary source int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads, List<int> for dense mutation and array returns, and a JSArray<int> local only for delete/hole semantics. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
   }),
   "surface.js.array-methods": Object.freeze({
     positiveTests: Object.freeze([

@@ -624,6 +624,48 @@ test("CLI emits C# argument passing from neutral storage facts and C# aliases", 
 });
 
 
+test("CLI rejects neutral borrow and move markers before C# output", async () => {
+  const projectDirectory = resolve(tempRoot, "borrow-move-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedBorrowMoveRejected",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { borrow as sharedBorrow } from \"@tsonic/core/lang.js\";",
+      "import * as CoreLang from \"@tsonic/core/lang.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function use(value: int32): void {",
+      "  sharedBorrow(value);",
+      "  CoreLang.borrowMut(value);",
+      "  CoreLang.move(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TS9100135/);
+  assert.match(build.stderr, /C# target does not implement source flow marker/);
+  assert.match(build.stderr, /borrow/u);
+  assert.match(build.stderr, /borrowMut/u);
+  assert.match(build.stderr, /move/u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedBorrowMoveRejected.csproj")), false);
+});
+
+
 test("CLI emits C# pointer and function-pointer types from source marker facts", async () => {
   const projectDirectory = resolve(tempRoot, "pointer-function-pointer-types");
   await writeProject(projectDirectory, {
