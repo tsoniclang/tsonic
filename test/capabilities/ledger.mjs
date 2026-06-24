@@ -192,18 +192,18 @@ const baseCapabilityDefinitions = Object.freeze([
   ["carrier.tuple", "Tuple carriers provide arity and element facts", "partial", "target-provider"],
   ["carrier.object-shape", "Object-shape carriers are deterministic and fact-backed", "partial", "target-provider"],
   ["carrier.dictionary-record", "Record and index-signature carriers are fact-backed", "partial", "target-provider"],
-  ["carrier.union", "Runtime unions exist only when facts require them", "not-started", "target-provider"],
+  ["carrier.union", "Runtime unions exist only when facts require them", "partial", "target-provider"],
   ["carrier.null-undefined", "Null and undefined are represented consistently by target mode", "partial", "target-provider"],
   ["carrier.function-delegate", "Function values and callbacks use fact-backed delegate carriers", "partial", "target-provider"],
   ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "partial", "target-provider"],
 
-  ["surface.js.console", "JS console operations use selected JS surface facts", "blocked", "surface-provider"],
-  ["surface.js.console-log", "console.log uses selected JS surface facts", "blocked", "surface-provider"],
+  ["surface.js.console", "JS console operations use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.console-log", "console.log uses selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.array-methods", "JS array methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "partial", "surface-provider"],
-  ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "blocked", "surface-provider"],
+  ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
@@ -222,7 +222,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "partial", "target-provider"],
   ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "partial", "target-provider"],
   ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "partial", "target-provider"],
-  ["runtime.union.carrier", "Union carrier is explicit runtime capability", "not-started", "target-provider"],
+  ["runtime.union.carrier", "Union carrier is explicit runtime capability", "partial", "target-provider"],
   ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "partial", "target-provider"],
   ["runtime.dynamic.carrier", "Dynamic carrier is explicit runtime capability", "partial", "target-provider"],
 
@@ -1126,26 +1126,36 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, and selected string instance calls, while unsupported string methods fail without exact provider-backed JS semantics. Remains partial until all JS String methods and Boolean/String object surface conversions have positive and negative runtime coverage.",
   }),
   "surface.js.console": Object.freeze({
-    positiveTests: Object.freeze([]),
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
+    blockers: Object.freeze([
+      "surface.js.console remains partial until every Console member has selected-declaration proof, closed argument carrier/conversion facts, runtime/toolchain coverage, and diagnostics for unsupported members.",
+    ]),
     notes:
-      "Reviewed blocker: selected JS Console declarations are recognized, but the available C# console runtime takes broad object[] inputs rather than closed TsValue/TsObject/TsFunction carrier facts. The JS surface hard-rejects Console operations from bundled declarations and defers foreign same-spelling declarations; implementation remains blocked until closed console argument carriers and runtime AST emission exist.",
+      "Reviewed partial proof: selected JS Console declarations map only through the checked standard-library declaration identity; console property access defers to the selected call, foreign same-spelling declarations do not map, and console calls reject without finalized closed target facts for every argument.",
   }),
   "surface.js.console-log": Object.freeze({
-    positiveTests: Object.freeze([]),
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
+    blockers: Object.freeze([
+      "surface.js.console-log remains partial until console.log argument conversion facts and runtime/toolchain coverage prove every supported source argument family.",
+    ]),
     notes:
-      "Reviewed blocker: console.log is not mapped to Tsonic.CSharp.Js.console.log because that runtime signature is params object[] and would introduce broad CLR object semantics. It remains hard-rejected until selected JS surface facts can prove closed console argument carrier conversion.",
+      "Reviewed partial proof: console.log maps to Tsonic.CSharp.Js.console.log only from the selected bundled Console.log declaration and only when every argument has a finalized closed target fact; missing argument facts reject instead of boxing unknown values.",
   }),
   "surface.js.math-json-regexp": Object.freeze({
     positiveTests: Object.freeze([
@@ -1182,7 +1192,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed partial proof: selected JS surface facts map standard Math calls and constants to Tsonic.CSharp.Js.Math runtime operations, reject unselected/unsupported forms without spelling-based fallback, and reject Math.max without provider-proven runtime-compatible arguments. Remains partial until every Math static member has current runtime/toolchain coverage.",
   }),
   "surface.js.object-runtime": Object.freeze({
-    positiveTests: Object.freeze([]),
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
@@ -1191,8 +1203,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-inline-stringify/",
       "test/fixtures/json-native-typed-stringify/",
     ]),
+    blockers: Object.freeze([
+      "surface.js.object-runtime remains partial until Object.keys, Object.values, Object.entries, JSON parse/stringify, and object carrier operations have complete selected-declaration, carrier, runtime, and toolchain coverage.",
+    ]),
     notes:
-      "Reviewed blocker: Object and JSON selected standard-library declarations are recognized and fail closed because current runtime entrypoints accept broad object? instead of a closed TsObject/TsArray/TsValue carrier. Object.keys/values/entries and JSON.parse/stringify remain blocked until selected-surface facts can prove the closed carrier and backend AST operation.",
+      "Reviewed partial proof: Object.keys maps from the selected standard-library Object declaration only when finalized argument facts prove a closed JSObject carrier; missing carrier facts reject, foreign same-spelling declarations defer, and JSON remains fail-closed until closed JSON carrier facts exist.",
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
@@ -1469,6 +1484,34 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: TypeScript any receives only an opaque carrier fact; strict-native rejects it, compat mode requires explicit closed operation facts, and object/unknown are not promoted to any-like dynamic carriers.",
+  }),
+  "carrier.union": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/runtime-union.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/runtime-union.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "carrier.union remains partial until all union arities, nullish unions, discriminated unions, provider-owned union constituents, runtime arm projection, and end-to-end old fixture parity are covered.",
+    ]),
+    notes:
+      "Reviewed partial proof: heterogeneous non-nullish unions now create explicit Tsonic.CSharp.Runtime.Union<T...> carrier facts only after constituent carrier facts exist; narrowed branch expressions prefer checked flow carrier facts and do not emit union arm projection by spelling.",
+  }),
+  "runtime.union.carrier": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/runtime-union.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/runtime-union.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "runtime.union.carrier remains partial until runtime Union<T...> construction, arm selection, conversion, serialization boundaries, and target toolchain tests cover every supported arity and narrowing pattern.",
+    ]),
+    notes:
+      "Reviewed partial proof: the C# target records runtime union target identities for arities 2 through 8 and rejects union type annotation emission without finalized carrier facts; branch-narrowed values consume checked flow carrier facts directly.",
   }),
   "compat.prototype-mutation": Object.freeze({
     positiveTests: Object.freeze([
