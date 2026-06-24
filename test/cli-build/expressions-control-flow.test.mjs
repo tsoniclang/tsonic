@@ -1390,7 +1390,7 @@ test("CLI rejects tuple rest and default destructuring until slice facts are fin
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Array and tuple destructuring defaults require finalized undefined\/default-value element facts before C# emission/);
+  assert.match(build.stderr, /Tuple destructuring defaults require finalized tuple optional-element facts before C# emission/);
   assert.match(build.stderr, /Tuple rest destructuring requires finalized tuple slice facts before C# emission/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleRestDefaults.csproj")), false);
 });
