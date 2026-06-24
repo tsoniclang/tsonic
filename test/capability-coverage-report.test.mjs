@@ -7,6 +7,9 @@ import {
   capabilityStatuses,
 } from "./capabilities/ledger.mjs";
 import { buildCapabilityCoverageReport } from "./capabilities/coverage-report.mjs";
+import { oldEmitterPortInventory } from "./old-emitter-inventory/inventory.mjs";
+import { oldProductUnitPortInventory } from "./old-product-unit-inventory/inventory.mjs";
+import { oldSuitePortInventory } from "./old-suite-inventory/inventory.mjs";
 
 test("capability coverage report exposes counts by status and owner", () => {
   const report = buildCapabilityCoverageReport();
@@ -161,6 +164,91 @@ test("capability coverage report exposes oldEvidence coverage", () => {
       ledgerEntry.capabilityId,
     );
   }
+});
+
+test("capability coverage report proves old inventory coverage by inventory", () => {
+  const report = buildCapabilityCoverageReport();
+  const inventoryCoverageByName = new Map(
+    report.oldInventoryCoverage.byInventory.map((entry) => [entry.inventory, entry]),
+  );
+
+  assert.equal(report.rules.oldInventoryCoverageIsSeparatedByInventory, true);
+  assert.equal(report.oldInventoryCoverage.rules.inventoriesAreReportedSeparately, true);
+  assert.equal(report.oldInventoryCoverage.rules.entriesRequireCapabilityIds, true);
+  assert.equal(report.oldInventoryCoverage.rules.capabilityIdsMustExistInLedger, true);
+  assert.equal(report.oldInventoryCoverage.rules.staleInvalidArchitectureRequiresReplacementCapabilities, true);
+  assert.equal(report.oldInventoryCoverage.rules.staleReplacementCapabilitiesMustExistInLedger, true);
+  assert.equal(report.oldInventoryCoverage.rules.staleReplacementCapabilitiesMustBeMappedAsEvidence, true);
+  assert.equal(report.oldInventoryCoverage.summary.inventoryCount, 3);
+  assert.equal(
+    report.oldInventoryCoverage.summary.entryCount,
+    oldSuitePortInventory.length + oldEmitterPortInventory.length + oldProductUnitPortInventory.length,
+  );
+  assert.equal(report.oldInventoryCoverage.summary.invalidEntryCount, 0);
+  assert.equal(report.oldInventoryCoverage.summary.proofHoleCount, 0);
+  assert.equal(report.oldInventoryCoverage.summary.proofStatus, "proven");
+  assert.deepEqual(report.oldInventoryCoverage.proofHoles, []);
+
+  assertOldInventoryCoverage(inventoryCoverageByName.get("old-fixture"), oldSuitePortInventory, {
+    total: 198,
+    ported: 39,
+    deferred: 156,
+    "invalid-stale-architecture": 3,
+  });
+  assertOldInventoryCoverage(inventoryCoverageByName.get("old-csharp-emitter"), oldEmitterPortInventory, {
+    total: 73,
+    ported: 55,
+    deferred: 14,
+    "replaced-by-stronger-test": 2,
+    "invalid-stale-architecture": 2,
+  });
+  assertOldInventoryCoverage(inventoryCoverageByName.get("old-product-unit"), oldProductUnitPortInventory, {
+    total: 109,
+    ported: 4,
+    deferred: 79,
+    "invalid-stale-architecture": 26,
+  });
+});
+
+test("capability coverage report exposes old inventory proof holes", () => {
+  const report = buildCapabilityCoverageReport({
+    oldInventoryCoverageSources: [
+      {
+        inventory: "old-fixture",
+        statuses: ["ported", "invalid-stale-architecture"],
+        entries: [
+          {
+            oldPath: "test/fixtures/stale/",
+            status: "invalid-stale-architecture",
+            capabilityIds: ["unknown.capability"],
+            replacementCapabilityIds: [],
+            replacementCapabilityPath: "",
+            capabilityMappingStatus: "reviewed",
+          },
+        ],
+        validate: () => ["replacementCapabilityIds must be a non-empty array"],
+      },
+    ],
+  });
+
+  assert.equal(report.oldInventoryCoverage.summary.inventoryCount, 1);
+  assert.equal(report.oldInventoryCoverage.summary.entryCount, 1);
+  assert.equal(report.oldInventoryCoverage.summary.invalidEntryCount, 1);
+  assert.equal(report.oldInventoryCoverage.summary.proofHoleCount, 1);
+  assert.equal(report.oldInventoryCoverage.summary.proofStatus, "hole");
+  assert.deepEqual(report.oldInventoryCoverage.proofHoles, [
+    {
+      inventory: "old-fixture",
+      oldPath: "test/fixtures/stale/",
+      status: "invalid-stale-architecture",
+      proofHoles: [
+        "inventory-validation: replacementCapabilityIds must be a non-empty array",
+        "unknown-capabilityId: unknown.capability",
+        "missing-replacementCapabilityIds",
+        "missing-replacementCapabilityPath",
+      ],
+    },
+  ]);
 });
 
 test("capability coverage report exposes complete oldEvidence bidirectional mapping holes", () => {
@@ -355,6 +443,29 @@ function expectedProofHoles(completeEntry) {
     holes.push("negative-proof-uses-old-evidence");
   }
   return holes;
+}
+
+function assertOldInventoryCoverage(reportEntry, inventoryEntries, expectedStatusCounts) {
+  assert.notEqual(reportEntry, undefined);
+  assert.equal(reportEntry.entryCount, expectedStatusCounts.total);
+  assert.equal(reportEntry.entryCount, inventoryEntries.length);
+  assert.equal(reportEntry.validationErrorCount, 0);
+  assert.equal(reportEntry.invalidEntryCount, 0);
+  assert.deepEqual(reportEntry.invalidEntries, []);
+  assert.deepEqual(reportEntry.proofHoles, []);
+
+  for (const [status, expectedCount] of Object.entries(expectedStatusCounts)) {
+    if (status === "total") {
+      continue;
+    }
+    assert.equal(reportEntry.statusCounts[status], expectedCount, `${reportEntry.inventory}/${status}`);
+  }
+
+  for (const staleEntry of reportEntry.staleEntries) {
+    assert.equal(staleEntry.replacementStatus, "mapped", `${reportEntry.inventory}/${staleEntry.oldPath}`);
+    assert.ok(staleEntry.replacementCapabilityIds.length > 0, `${reportEntry.inventory}/${staleEntry.oldPath}`);
+    assert.notEqual(staleEntry.replacementCapabilityPath, null, `${reportEntry.inventory}/${staleEntry.oldPath}`);
+  }
 }
 
 function capabilityEntry({

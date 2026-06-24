@@ -422,6 +422,54 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits sparse JS array delete and length mutation only through JSArray carrier facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-sparse-delete-length");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArraySparseDeleteLength",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function mutate(values: int32[], index: int32): int32 {",
+      "  delete values[index];",
+      "  values.length = 4;",
+      "  values[3] = 7;",
+      "  return values.length;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static int mutate\(System\.Collections\.Generic\.IEnumerable<int> __tsonic_param\d+, int index\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = new Tsonic\.CSharp\.Js\.JSArray<int>\(__tsonic_param\d+\);/);
+  assert.match(generatedSource, /values\.deleteAt\(index\);/);
+  assert.match(generatedSource, /values\.setLength\(4\);/);
+  assert.match(generatedSource, /values\[3\] = 7;/);
+  assert.match(generatedSource, /return values\.length;/);
+  assert.doesNotMatch(generatedSource, /values\.Count =/);
+  assert.doesNotMatch(generatedSource, /values\.Length =/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySparseDeleteLength.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI rejects fixed CLR array mutators without JSArray carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "array-fixed-mutator-rejections");

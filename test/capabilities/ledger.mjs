@@ -207,7 +207,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.console-log", "console.log uses selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.array-methods", "JS array methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
-  ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "not-started", "surface-provider"],
+  ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "partial", "surface-provider"],
@@ -1703,13 +1703,19 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     backendContract:
       "Backends must reject sparse/delete/hole/length-mutation operations unless a closed JSArray carrier supplies deterministic operations; dense List<T> or CLR T[] carriers cannot silently approximate them.",
-    positiveTests: Object.freeze([]),
-    negativeTests: Object.freeze([]),
+    positiveTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "test/fixtures/array-constructor/",
     ]),
     blockers: Object.freeze([
-      "surface.js.array.sparse-delete-holes has no current implementation proof; it requires an approved closed JSArray carrier plus positive and negative tests for holes, delete, sparse construction, length growth/truncation, iteration over holes, JSON/stringification interactions, and fail-closed diagnostics on native CLR and dense List carriers.",
+      "surface.js.array.sparse-delete-holes remains partial until sparse array construction syntax, hole-presence operators, iteration over holes, JSON/stringification interactions, assignment-value-position length mutation, and complete fail-closed diagnostics across native CLR and dense List carriers are proven.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-array-sparse-hole-semantics",
@@ -1743,7 +1749,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "No completion is claimed: current reviewed array proof covers dense length/index/method lanes only. Sparse arrays, deleted elements, hole-presence checks, and length mutation must either use a closed JSArray carrier with explicit facts or fail closed; they must not be approximated with List<T>, IReadOnlyList<T>, or CLR T[].",
+      "Reviewed partial proof: selected JS surface delete and Array.length mutation on TypeScript arrays now require a closed JSArray carrier and emit JSArray.deleteAt/setLength through finalized operation facts, while runtime JSArray tests prove hole preservation across callbacks, search, copying, concat, flat, and flatMap. Remaining sparse/hole syntax and runtime lanes stay blocked rather than approximated with List<T>, IReadOnlyList<T>, or CLR T[].",
   }),
   "surface.js.string-methods": Object.freeze({
     positiveTests: Object.freeze([
