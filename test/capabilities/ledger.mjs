@@ -1535,7 +1535,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed partial proof: reflection provider records unsupported constructor/property/field/method/operator/event members instead of silently dropping static interface members, generic static members, multi-parameter indexers, pointer signatures, and generic operators; selected unsupported member identities now become fail-closed target diagnostics instead of generic not-found errors. Remains partial until type-ref conversion drops, constraint drops, default-value omissions, and attribute omissions are explicit diagnostics.",
+      "Reviewed partial proof: reflection provider records unsupported constructor/property/field/method/operator/event members instead of silently dropping static interface members, generic static members, multi-parameter indexers, pointer signatures, ranked CLR arrays, by-reference returns, and generic operators; selected unsupported member identities now become fail-closed target diagnostics instead of generic not-found errors. Remains partial until type-ref conversion drops, constraint drops, default-value omissions, and attribute omissions are explicit diagnostics.",
   }),
   "operation.call.provider-selected-method": Object.freeze({
     positiveTests: Object.freeze([
@@ -1807,7 +1807,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.parameter remains partial until every array/object/rest/default/nested parameter destructuring form is covered by current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: parameter destructuring now queries facts on the owning parameter declaration, not only the syntactic type node, so parameter array and object destructuring emit only from finalized carrier/object-shape facts.",
+      "Reviewed partial proof: parameter destructuring now queries facts on the owning parameter declaration, not only the syntactic type node, so parameter array, object, and nested object destructuring emit only from finalized carrier/object-shape facts; missing nested object-shape facts fail closed.",
   }),
   "binding.assignment": Object.freeze({
     positiveTests: Object.freeze([]),
