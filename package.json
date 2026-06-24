@@ -14,6 +14,7 @@
   },
   "workspaces": [
     "packages/tsts",
+    "packages/source-core",
     "packages/target-api",
     "packages/host",
     "packages/cli"

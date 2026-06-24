@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI emits typed, empty, nested, and spread array literals from finalized array facts", async () => {
   const projectDirectory = resolve(tempRoot, "arrays-typed-literals");
@@ -14,11 +14,6 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedArraysTypedLiterals",
-            references: {
-              projects: [
-                resolve(repoRoot, "../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"),
-              ],
-            },
           },
         },
       ],
@@ -114,11 +109,6 @@ test("CLI emits module-scope array spread constants from finalized expected arra
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedArraysModuleSpreadConstants",
-            references: {
-              projects: [
-                resolve(repoRoot, "../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"),
-              ],
-            },
           },
         },
       ],

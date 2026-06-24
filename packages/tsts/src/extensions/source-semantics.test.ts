@@ -437,6 +437,67 @@ test("source-semantics records struct field attribute and default facts from can
   assert.equal(consumer.getDefaultValueFact(zeroSymbol)?.type, defaultValueFact?.type);
 });
 
+test("source-semantics rejects source marker calls that cannot prove required type evidence", () => {
+  const { extended, program, index } = createProgram(`
+    import { attribute, defaultof, field } from "@example/native/lang.js";
+
+    const missingField = field();
+    const missingAttribute = attribute();
+    const missingDefault = defaultof();
+  `);
+
+  const diagnostics = Program_GetSemanticDiagnostics(program, Background(), index);
+  assert.deepEqual(diagnostics.map(Diagnostic_Code).sort(), [9901102, 9901105, 9901106]);
+  assert.match(Diagnostic_String(diagnostics.find((diagnostic) => Diagnostic_Code(diagnostic) === 9901102)!), /field<T>\(\)/);
+  assert.match(Diagnostic_String(diagnostics.find((diagnostic) => Diagnostic_Code(diagnostic) === 9901105)!), /attribute<T>\(\)/);
+  assert.match(Diagnostic_String(diagnostics.find((diagnostic) => Diagnostic_Code(diagnostic) === 9901106)!), /defaultof<T>\(\)/);
+  Program_BindSourceFiles(program);
+
+  assert.equal(extended.extensionHost.facts.get(getCallExpression(index, "field", 0), fieldFactKey), undefined);
+  assert.equal(extended.extensionHost.facts.get(getCallExpression(index, "attribute", 0), attributeFactKey), undefined);
+  assert.equal(extended.extensionHost.facts.get(getCallExpression(index, "defaultof", 0), defaultValueFactKey), undefined);
+
+  assert.equal(finalizeExtensionSemantics(extended.program), extended.extensionHost);
+  const extensionDiagnostics = extended.extensionHost.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort();
+  assert.deepEqual(extensionDiagnostics, [
+    "SOURCE_SEMANTICS_MISSING_ATTRIBUTE_TARGET_EVIDENCE",
+    "SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE",
+    "SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE",
+  ]);
+});
+
+test("source-semantics rejects attribute builder chains that cannot prove finalized targets", () => {
+  const { extended, program, index } = createProgram(`
+    import { attribute } from "@example/native/lang.js";
+
+    class ExampleAttribute {}
+    class User {
+      name = "";
+      save(route: string): void {}
+    }
+    const dynamicTarget = "return";
+    const dynamicParameter = "route";
+
+    attribute<User>().property((target) => target).add(ExampleAttribute);
+    attribute<User>().method((target) => target.save).parameter(dynamicParameter).add(ExampleAttribute);
+    attribute<User>().method((target) => target.save).target(dynamicTarget).add(ExampleAttribute);
+  `);
+
+  const diagnostics = Program_GetSemanticDiagnostics(program, Background(), index);
+  assert.deepEqual(diagnostics.map(Diagnostic_Code).sort(), [9901104, 9901107, 9901108]);
+  assert.match(Diagnostic_String(diagnostics.find((diagnostic) => Diagnostic_Code(diagnostic) === 9901104)!), /target\(specifier\) requires a string-literal/);
+  assert.match(Diagnostic_String(diagnostics.find((diagnostic) => Diagnostic_Code(diagnostic) === 9901107)!), /property\(selector\) requires an arrow selector/);
+  assert.match(Diagnostic_String(diagnostics.find((diagnostic) => Diagnostic_Code(diagnostic) === 9901108)!), /parameter\(name\) requires a string-literal/);
+  Program_BindSourceFiles(program);
+
+  const extensionDiagnostics = extended.extensionHost.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort();
+  assert.deepEqual(extensionDiagnostics, [
+    "SOURCE_SEMANTICS_ATTRIBUTE_PARAMETER_NAME_NOT_PROVEN",
+    "SOURCE_SEMANTICS_ATTRIBUTE_SELECTOR_TARGET_NOT_PROVEN",
+    "SOURCE_SEMANTICS_ATTRIBUTE_TARGET_SPECIFIER_NOT_PROVEN",
+  ]);
+});
+
 function createProgram(indexText: string, extraFiles: ReadonlyMap<string, string> = new Map()): {
   readonly extended: ExtendedProgram<ProgramOptions>;
   readonly program: GoPtr<Program>;

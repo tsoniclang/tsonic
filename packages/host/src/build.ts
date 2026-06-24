@@ -8,15 +8,14 @@ import type {
   TsonicProjectConfig,
 } from "@tsonic/target-api";
 import {
-  collectTargetRuntimeArtifacts,
+  collectTargetRuntimeContributions,
   compileTargetFromSemanticSession,
   createTsonicSemanticSession,
   collectTstsDiagnostics,
-  getSelectedSurfaceImplementations,
 } from "./compiler-session.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
-import { getMissingTargetProviderMessage } from "./target/extensions.js";
+import { getMissingTargetProviderMessage, selectTargetSurfaceImplementations } from "./target/extensions.js";
 
 export interface CompileProjectInput {
   readonly project: TsonicProjectConfig;
@@ -102,23 +101,40 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       continue;
     }
     const targetPaths = getTargetCompilationPaths(paths, target);
-    const runtimeArtifacts = collectTargetRuntimeArtifacts({
+    const runtimeContributions = collectTargetRuntimeContributions({
       project: input.project,
       target,
       targetPack,
       selectedSurfaces,
       paths: targetPaths,
     });
+    if (hasBlockingDiagnostics(runtimeContributions.diagnostics)) {
+      pushDiagnosticOnlyTarget(targets, diagnostics, target, runtimeContributions.diagnostics);
+      continue;
+    }
     const backendCompileResult = compileTargetFromSemanticSession(
       session,
       input.project,
       target,
       targetPack,
       targetPaths,
+      runtimeContributions.references,
     );
+    diagnostics.push(...backendCompileResult.diagnostics);
+    if (hasBlockingDiagnostics(backendCompileResult.diagnostics)) {
+      targets.push({
+        target,
+        compileResult: {
+          artifacts: [],
+          diagnostics: backendCompileResult.diagnostics,
+        },
+        diagnostics: [...tstsDiagnostics, ...backendCompileResult.diagnostics],
+      });
+      continue;
+    }
     const compileResult = {
       artifacts: [
-        ...runtimeArtifacts,
+        ...runtimeContributions.artifacts,
         ...backendCompileResult.artifacts,
       ],
       diagnostics: backendCompileResult.diagnostics,
@@ -129,7 +145,6 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       target,
       compileResult,
     });
-    diagnostics.push(...compileResult.diagnostics);
     diagnostics.push(...toolchainResult.diagnostics.map((message): TargetDiagnostic => ({
       code: "TARGET_TOOLCHAIN",
       category: "suggestion",
@@ -152,32 +167,32 @@ function getRequiredTargetPack(
   registry: TargetRegistry,
   target: TargetSelection,
 ): TargetPack | TargetDiagnostic {
-  try {
-    return registry.require(target.id);
-  } catch (error: unknown) {
+  const targetPack = registry.get(target.id);
+  if (targetPack === undefined) {
     return {
       code: "TARGET_SELECTION",
       category: "error",
-      message: error instanceof Error ? error.message : String(error),
+      message: `Unknown target '${target.id}'.`,
       source: "tsonic-host",
     };
   }
+  return targetPack;
 }
 
 function getTargetSelectedSurfaces(
   targetPack: TargetPack,
   target: TargetSelection,
 ): readonly TargetSurfaceImplementation[] | TargetDiagnostic {
-  try {
-    return getSelectedSurfaceImplementations(targetPack, target);
-  } catch (error: unknown) {
+  const result = selectTargetSurfaceImplementations(targetPack, target);
+  if ("error" in result) {
     return {
       code: "TARGET_SURFACE_SELECTION",
       category: "error",
-      message: error instanceof Error ? error.message : String(error),
+      message: result.error,
       source: targetPack.id,
     };
   }
+  return result.selectedSurfaces;
 }
 
 function getTargetProviderDiagnostic(

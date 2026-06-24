@@ -1,4 +1,4 @@
-import { assert, cliPath, repoRoot, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI runs generated C# executable for module constants and variable declarations", async () => {
   const assemblyName = "SmokeGeneratedE2EVariables";
@@ -671,11 +671,6 @@ test("CLI runs generated C# executable for array literals, spreads, destructurin
             namespace: "Smoke.Generated",
             assemblyName,
             outputType: "Exe",
-            references: {
-              projects: [
-                resolve(repoRoot, "../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"),
-              ],
-            },
           },
         },
       ],
@@ -823,11 +818,6 @@ test("CLI runs generated C# executable for nullish, optional, flow, ternary, and
             namespace: "Smoke.Generated",
             assemblyName,
             outputType: "Exe",
-            references: {
-              projects: [
-                resolve(repoRoot, "../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"),
-              ],
-            },
           },
         },
       ],

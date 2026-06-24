@@ -636,6 +636,7 @@ test("CLI routes top-level for-of statements through the C# module entrypoint", 
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedTopLevelForOf",
+            outputType: "Exe",
           },
         },
       ],
@@ -658,8 +659,10 @@ test("CLI routes top-level for-of statements through the C# module entrypoint", 
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedEntrypoint = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicEntrypoint.cs"), "utf8");
   assert.match(generatedSource, /public static double total = 0;/);
-  assert.match(generatedSource, /public static void Main\(\)/);
+  assert.match(generatedEntrypoint, /public static void Main\(\)/);
+  assert.match(generatedEntrypoint, /Index\.__tsonic_module_init\(\);/);
   assert.match(generatedSource, /foreach \(double value in new double\[\] \{ 1, 2, 3 \}\)/);
   assert.match(generatedSource, /total = total \+ value;/);
   assert.doesNotMatch(generatedSource, /Top-level statement is outside/);
@@ -1387,7 +1390,7 @@ test("CLI rejects tuple rest and default destructuring until slice facts are fin
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Tuple destructuring defaults require finalized optional-element facts before C# emission/);
+  assert.match(build.stderr, /Tuple destructuring defaults require finalized tuple optional-element facts before C# emission/);
   assert.match(build.stderr, /Tuple rest destructuring requires finalized tuple slice facts before C# emission/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleRestDefaults.csproj")), false);
 });

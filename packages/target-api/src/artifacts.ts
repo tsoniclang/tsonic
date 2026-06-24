@@ -27,3 +27,15 @@ export interface TargetCompileResult {
   readonly artifacts: readonly TargetArtifact[];
   readonly diagnostics: readonly TargetDiagnostic[];
 }
+
+export interface TargetRuntimeContributions {
+  readonly artifacts?: readonly TargetArtifact[];
+  readonly references?: readonly TargetRuntimeReference[];
+}
+
+export interface TargetRuntimeReference {
+  readonly kind: string;
+  readonly include: string;
+  readonly version?: string;
+  readonly attributes?: Readonly<Record<string, string>>;
+}

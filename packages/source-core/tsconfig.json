@@ -10,9 +10,5 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"],
-  "references": [
-    { "path": "../tsts" },
-    { "path": "../source-core" },
-    { "path": "../target-api" }
-  ]
+  "references": [{ "path": "../tsts" }]
 }

@@ -21,6 +21,10 @@ function runNode(args) {
   return run(process.execPath, args);
 }
 
+function runNodeInDirectory(cwd, args) {
+  return runInDirectory(cwd, process.execPath, args);
+}
+
 function csharpProjectPath(projectDirectory, assemblyName) {
   return resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
 }
@@ -35,8 +39,12 @@ function runGeneratedProject(projectDirectory, assemblyName) {
 }
 
 function run(command, args) {
+  return runInDirectory(repoRoot, command, args);
+}
+
+function runInDirectory(cwd, command, args) {
   const result = spawnSync(command, args, {
-    cwd: repoRoot,
+    cwd,
     encoding: "utf8",
   });
   return {
@@ -55,6 +63,7 @@ export {
   repoRoot,
   resolve,
   run,
+  runNodeInDirectory,
   runGeneratedProject,
   runNode,
   tempRoot,

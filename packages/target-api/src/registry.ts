@@ -3,6 +3,7 @@ import type { TargetPack } from "./pack.js";
 
 export interface TargetRegistry {
   readonly packs: readonly TargetPack[];
+  get(id: TargetId): TargetPack | undefined;
   require(id: TargetId): TargetPack;
 }
 
@@ -16,6 +17,9 @@ export function createTargetRegistry(packs: readonly TargetPack[]): TargetRegist
   }
   return {
     packs,
+    get(id: TargetId): TargetPack | undefined {
+      return byId.get(id);
+    },
     require(id: TargetId): TargetPack {
       const pack = byId.get(id);
       if (pack === undefined) {

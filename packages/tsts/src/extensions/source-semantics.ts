@@ -403,10 +403,10 @@ function recordSourceSemanticsCallMarker(
       recordStructMarker(facts, callExpression, evidence);
       return;
     case "attribute":
-      recordAttributeMarker(facts, callExpression, evidence);
+      recordAttributeMarker(facts, diagnostics, extensionId, callExpression, marker, evidence);
       return;
     case "defaultof":
-      recordDefaultValueMarker(facts, callExpression, evidence);
+      recordDefaultValueMarker(facts, diagnostics, extensionId, callExpression, marker, evidence);
       return;
   }
 }
@@ -551,11 +551,25 @@ function recordStructMarker(
 
 function recordAttributeMarker(
   facts: ExtensionFactStore,
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
   callExpression: Node,
+  marker: SourceCallMarkerDeclaration,
   evidence: readonly ExtensionEvidence[],
 ): void {
   const target = (Node_TypeArguments(callExpression) ?? [])[0];
   if (target === undefined) {
+    diagnostics.append({
+      extensionId,
+      extensionCode: "SOURCE_SEMANTICS_MISSING_ATTRIBUTE_TARGET_EVIDENCE",
+      numericCode: 9901105,
+      publicCode: "TSTS_SOURCE_SEMANTICS_0005",
+      category: "error",
+      message: `${marker.exportName}<T>() requires explicit target type evidence so finalized attribute facts can record the attribute target.`,
+      nodeOrSpan: callExpression,
+      evidence,
+      identity: `source-semantics-missing-attribute-target-evidence:${String(callExpression.id ?? "unknown")}`,
+    });
     return;
   }
   const fact = {
@@ -646,12 +660,28 @@ function getAttributeBuilderContext(
   const methodName = Node_Text(name);
   if (methodName === "property" || methodName === "method") {
     const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
-    const selectedTarget = getAttributeSelectorTarget((Node_Arguments(expression) ?? [])[0]);
-    return receiverContext === undefined || selectedTarget === undefined
-      ? undefined
-      : {
-        applicationTarget: selectedTarget,
-      };
+    if (receiverContext === undefined) {
+      return undefined;
+    }
+    const selector = (Node_Arguments(expression) ?? [])[0];
+    const selectedTarget = getAttributeSelectorTarget(selector);
+    if (selectedTarget === undefined) {
+      diagnostics.append({
+        extensionId,
+        extensionCode: "SOURCE_SEMANTICS_ATTRIBUTE_SELECTOR_TARGET_NOT_PROVEN",
+        numericCode: 9901107,
+        publicCode: "TSTS_SOURCE_SEMANTICS_0007",
+        category: "error",
+        message: `attribute(...).${methodName}(selector) requires an arrow selector whose body is a property access so finalized attribute facts can record the exact source declaration target.`,
+        nodeOrSpan: selector ?? expression,
+        evidence,
+        identity: `source-semantics-attribute-selector-target-not-proven:${methodName}:${String(expression.id ?? "unknown")}`,
+      });
+      return undefined;
+    }
+    return {
+      applicationTarget: selectedTarget,
+    };
   }
   if (methodName === "constructor") {
     const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
@@ -664,14 +694,30 @@ function getAttributeBuilderContext(
   }
   if (methodName === "parameter") {
     const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
-    const parameterName = getStringLiteralText((Node_Arguments(expression) ?? [])[0]);
-    return receiverContext === undefined || parameterName === undefined
-      ? undefined
-      : {
-        applicationTarget: receiverContext.applicationTarget,
-        applicationParameterName: parameterName,
-        ...(receiverContext.applicationPlacement !== undefined ? { applicationPlacement: receiverContext.applicationPlacement } : {}),
-      };
+    if (receiverContext === undefined) {
+      return undefined;
+    }
+    const parameterNameArgument = (Node_Arguments(expression) ?? [])[0];
+    const parameterName = getStringLiteralText(parameterNameArgument);
+    if (parameterName === undefined) {
+      diagnostics.append({
+        extensionId,
+        extensionCode: "SOURCE_SEMANTICS_ATTRIBUTE_PARAMETER_NAME_NOT_PROVEN",
+        numericCode: 9901108,
+        publicCode: "TSTS_SOURCE_SEMANTICS_0008",
+        category: "error",
+        message: "attribute(...).parameter(name) requires a string-literal parameter name so finalized attribute facts can record the exact source parameter target.",
+        nodeOrSpan: parameterNameArgument ?? expression,
+        evidence,
+        identity: `source-semantics-attribute-parameter-name-not-proven:${String(expression.id ?? "unknown")}`,
+      });
+      return undefined;
+    }
+    return {
+      applicationTarget: receiverContext.applicationTarget,
+      applicationParameterName: parameterName,
+      ...(receiverContext.applicationPlacement !== undefined ? { applicationPlacement: receiverContext.applicationPlacement } : {}),
+    };
   }
   if (methodName === "target") {
     const receiverContext = getAttributeBuilderContext(facts, diagnostics, extensionId, access.Expression, evidence);
@@ -709,7 +755,9 @@ function getAttributeSelectorTarget(selector: GoPtr<Node>): Node | undefined {
     return undefined;
   }
   const body = Node_Body(selector);
-  return AsPropertyAccessExpression(body);
+  return body?.Kind === KindPropertyAccessExpression
+    ? AsPropertyAccessExpression(body)
+    : undefined;
 }
 
 function getStringLiteralText(node: GoPtr<Node>): string | undefined {
@@ -723,11 +771,25 @@ function getExpressionNameText(node: Node): string {
 
 function recordDefaultValueMarker(
   facts: ExtensionFactStore,
+  diagnostics: ExtensionDiagnosticStore,
+  extensionId: string,
   callExpression: Node,
+  marker: SourceCallMarkerDeclaration,
   evidence: readonly ExtensionEvidence[],
 ): void {
   const type = (Node_TypeArguments(callExpression) ?? [])[0];
   if (type === undefined) {
+    diagnostics.append({
+      extensionId,
+      extensionCode: "SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE",
+      numericCode: 9901106,
+      publicCode: "TSTS_SOURCE_SEMANTICS_0006",
+      category: "error",
+      message: `${marker.exportName}<T>() requires explicit type evidence so finalized default-value facts can record the target type.`,
+      nodeOrSpan: callExpression,
+      evidence,
+      identity: `source-semantics-missing-default-type-evidence:${String(callExpression.id ?? "unknown")}`,
+    });
     return;
   }
   const fact = { type } satisfies DefaultValueFact;
@@ -899,8 +961,10 @@ function resolveSourceSemanticsCallMarkerReference(
   modules: readonly SourceSemanticsModuleRuntime[],
   markerImportIndex: SourceSemanticsMarkerImportIndex,
 ): SourceCallMarkerDeclaration | undefined {
-  return resolveSourceSemanticsMarkerFromImportIndex(node, markerImportIndex.callMarkersByLocalName, markerImportIndex.namespacesByLocalName, "call-marker")
-    ?? resolveSourceSemanticsMarkerReference(facts, node, modules, "call-marker");
+  const resolvedMarker = resolveSourceSemanticsMarkerReference<SourceCallMarkerDeclaration>(facts, node, modules, "call-marker");
+  return resolvedMarker !== undefined || sourceSemanticsMarkerReferenceHasBindingBarrier(node)
+    ? resolvedMarker
+    : resolveSourceSemanticsMarkerFromImportIndex(node, markerImportIndex.callMarkersByLocalName, markerImportIndex.namespacesByLocalName, "call-marker");
 }
 
 function resolveSourceSemanticsTypeMarkerReference(
@@ -909,8 +973,48 @@ function resolveSourceSemanticsTypeMarkerReference(
   modules: readonly SourceSemanticsModuleRuntime[],
   markerImportIndex: SourceSemanticsMarkerImportIndex,
 ): SourceTypeMarkerDeclaration | undefined {
-  return resolveSourceSemanticsMarkerFromImportIndex(node, markerImportIndex.typeMarkersByLocalName, markerImportIndex.namespacesByLocalName, "type-marker")
-    ?? resolveSourceSemanticsMarkerReference(facts, node, modules, "type-marker");
+  const resolvedMarker = resolveSourceSemanticsMarkerReference<SourceTypeMarkerDeclaration>(facts, node, modules, "type-marker");
+  return resolvedMarker !== undefined || sourceSemanticsMarkerReferenceHasBindingBarrier(node)
+    ? resolvedMarker
+    : resolveSourceSemanticsMarkerFromImportIndex(node, markerImportIndex.typeMarkersByLocalName, markerImportIndex.namespacesByLocalName, "type-marker");
+}
+
+interface SourceSemanticsLocalScopeNode {
+  readonly Locals?: ReadonlyMap<string, unknown>;
+}
+
+function sourceSemanticsMarkerReferenceHasBindingBarrier(node: GoPtr<Node>): boolean {
+  if (node === undefined) {
+    return false;
+  }
+  if (node.Kind === KindPropertyAccessExpression) {
+    const receiver = AsPropertyAccessExpression(node)?.Expression;
+    return Node_Symbol(receiver) !== undefined || sourceSemanticsIdentifierIsLexicallyShadowed(receiver);
+  }
+  if (node.Kind === KindQualifiedName) {
+    const left = AsQualifiedName(node)?.Left;
+    return Node_Symbol(left) !== undefined || sourceSemanticsIdentifierIsLexicallyShadowed(left);
+  }
+  return Node_Symbol(node) !== undefined || sourceSemanticsIdentifierIsLexicallyShadowed(node);
+}
+
+function sourceSemanticsIdentifierIsLexicallyShadowed(node: GoPtr<Node>): boolean {
+  if (node?.Kind !== KindIdentifier) {
+    return false;
+  }
+  const name = Node_Text(node);
+  let current = node.Parent;
+  while (current !== undefined) {
+    if (current.Parent === undefined) {
+      return false;
+    }
+    const locals = (current as SourceSemanticsLocalScopeNode).Locals;
+    if (locals?.has(name) === true) {
+      return true;
+    }
+    current = current.Parent;
+  }
+  return false;
 }
 
 function resolveSourceSemanticsMarkerFromImportIndex<TMarker extends { readonly exportName: string }>(

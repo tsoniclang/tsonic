@@ -123,6 +123,34 @@ test("CLI rejects provider-owned object literals until object-shape facts are fi
   assert.match(build.stderr, /TS2740: Type '\{ message: string; toString\(\): string; \}' is missing/);
 });
 
+test("CLI rejects unknown and object dynamic member access before target planning", async () => {
+  const projectDirectory = resolve(tempRoot, "unknown-object-dynamic-access-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function readUnknown(value: unknown): unknown {",
+      "  return value.foo;",
+      "}",
+      "",
+      "export function readObject(value: object): unknown {",
+      "  return value.foo;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TS18046: 'value' is of type 'unknown'/);
+  assert.match(build.stderr, /TS2339: Property 'foo' does not exist on type 'object'/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 
 test("CLI emits interface object literals through provider object-shape adapters", async () => {
   const projectDirectory = resolve(tempRoot, "interface-object-initializers");
@@ -264,7 +292,7 @@ test("CLI rejects class object literals when parameterless construction is unava
 });
 
 
-test("CLI rejects non-nullish unions until runtime-carrier facts are finalized", async () => {
+test("CLI emits non-nullish unions through finalized runtime-carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "runtime-carrier-unions");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -282,8 +310,17 @@ test("CLI rejects non-nullish unions until runtime-carrier facts are finalized",
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Union type annotations require finalized TSTS\/provider storage facts/);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "utf8");
+  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Runtime\.Union<string, double> choose\(bool flag\)/);
+  assert.match(generatedSource, /return flag \? "x" : 1;/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 

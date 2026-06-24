@@ -33,6 +33,24 @@ test("old C# emitter inventory entries have required classification fields", () 
   assert.equal(new Set(oldPaths).size, oldPaths.length);
 });
 
+test("old C# emitter stale entries require replacement capability evidence", () => {
+  const staleEntry = oldEmitterPortInventory.find((entry) => entry.status === "invalid-stale-architecture");
+  assert.notEqual(staleEntry, undefined);
+
+  assert.ok(
+    validateOldEmitterPortEntry({ ...staleEntry, replacementCapabilityIds: [] })
+      .includes("replacementCapabilityIds must be a non-empty array"),
+  );
+  assert.ok(
+    validateOldEmitterPortEntry({ ...staleEntry, replacementCapabilityPath: "" })
+      .includes("replacementCapabilityPath must be a non-empty string for stale entries"),
+  );
+  assert.ok(
+    validateOldEmitterPortEntry({ ...staleEntry, replacementCapabilityIds: ["unknown.capability"] })
+      .includes("replacementCapabilityIds must be included in capabilityIds"),
+  );
+});
+
 test("old C# emitter inventory report counts are deterministic", () => {
   const report = buildOldEmitterInventoryReport(oldEmitterHistoricalCasePaths);
 
@@ -53,6 +71,22 @@ test("old C# emitter inventory report counts are deterministic", () => {
     "deferred: 14",
     "unclassified: 0",
   ].join("\n"));
+  assert.equal(report.rules.unclassifiedOldInventoryIsImpossible, true);
+  assert.equal(report.classificationStatus, "complete");
   assert.deepEqual(report.classifiedUnknownOldPaths, []);
   assert.deepEqual(report.unclassifiedOldPaths, []);
+  assert.deepEqual(report.proofHoles, []);
+});
+
+test("old C# emitter inventory report exposes unclassified proof holes", () => {
+  const report = buildOldEmitterInventoryReport([oldEmitterHistoricalCasePaths[0]], []);
+
+  assert.equal(report.classificationStatus, "hole");
+  assert.deepEqual(report.unclassifiedOldPaths, [oldEmitterHistoricalCasePaths[0]]);
+  assert.deepEqual(report.proofHoles, [
+    {
+      oldPath: oldEmitterHistoricalCasePaths[0],
+      proofHole: "unclassified-old-inventory",
+    },
+  ]);
 });

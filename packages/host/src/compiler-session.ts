@@ -18,6 +18,7 @@ import type {
   TargetCompileResult,
   TargetCompilationPaths,
   TargetPack,
+  TargetRuntimeReference,
   TargetSelection,
   TargetSurfaceImplementation,
   TsonicProjectConfig,
@@ -29,11 +30,12 @@ export {
   collectTstsDiagnostics,
 } from "./diagnostics.js";
 export {
-  collectTargetRuntimeArtifacts,
-} from "./target/runtime-artifacts.js";
+  collectTargetRuntimeContributions,
+} from "./target/runtime-contributions.js";
 export type {
-  CollectTargetRuntimeArtifactsOptions,
-} from "./target/runtime-artifacts.js";
+  CollectedTargetRuntimeContributions,
+  CollectTargetRuntimeContributionsOptions,
+} from "./target/runtime-contributions.js";
 export {
   createTargetCompilerExtensions,
   getSelectedSurfaceImplementations,
@@ -80,7 +82,7 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
   if (extensionHost === undefined) {
     throw new Error("TSTS extension finalization returned no extension host.");
   }
-  const sourceFiles = compiler.getSourceFiles().filter((sourceFile): sourceFile is SourceFile => sourceFile !== undefined);
+  const sourceFiles = compiler.getSourceFilesToEmit().filter((sourceFile): sourceFile is SourceFile => sourceFile !== undefined);
   return {
     compiler,
     program: compiler.program,
@@ -99,6 +101,7 @@ export function compileTargetFromSemanticSession(
   target: TargetSelection,
   targetPack: TargetPack,
   paths: TargetCompilationPaths,
+  runtimeReferences: readonly TargetRuntimeReference[] = [],
 ): TargetCompileResult {
   const input: TargetCompileInput = {
     program: session.program,
@@ -109,6 +112,7 @@ export function compileTargetFromSemanticSession(
     semantics: createTargetSemanticQueries(session.ast, session.checker, session.types, session.facts, session.sourceFiles),
     project,
     target,
+    runtimeReferences,
     paths,
   };
   return targetPack.createBackend({ project, target }).compile(input);

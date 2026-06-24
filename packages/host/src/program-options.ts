@@ -7,7 +7,7 @@ import {
 } from "@tsonic/tsts";
 import type { ProgramOptions } from "@tsonic/tsts";
 import type { TsonicProjectConfig } from "@tsonic/target-api";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveProjectPaths } from "./project-paths.js";
 
@@ -78,10 +78,14 @@ function visitDirectory(directory: string, files: Map<string, string>): void {
     }
     const fullPath = join(directory, entry.name);
     if (entry.isDirectory()) {
+      if (entry.name === "node_modules") {
+        visitNodeModulesDirectory(fullPath, files);
+        continue;
+      }
       visitDirectory(fullPath, files);
       continue;
     }
-    if (!entry.isFile() || !isCompilerInputFile(entry.name)) {
+    if (!entry.isFile() || !isResolverInputFile(entry.name)) {
       continue;
     }
     const normalizedPath = fullPath.split("\\").join("/");
@@ -94,10 +98,68 @@ function shouldSkipEntry(name: string): boolean {
     name === ".temp" ||
     name === "bin" ||
     name === "dist" ||
+    name === "obj";
+}
+
+function visitNodeModulesDirectory(directory: string, files: Map<string, string>): void {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const fullPath = join(directory, entry.name);
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    if (entry.name.startsWith("@")) {
+      visitScopedNodeModulesDirectory(fullPath, files);
+      continue;
+    }
+    visitPackageDirectory(fullPath, files);
+  }
+}
+
+function visitScopedNodeModulesDirectory(directory: string, files: Map<string, string>): void {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      visitPackageDirectory(join(directory, entry.name), files);
+    }
+  }
+}
+
+function visitPackageDirectory(directory: string, files: Map<string, string>): void {
+  const packageJsonPath = join(directory, "package.json");
+  if (!existsSync(packageJsonPath)) {
+    return;
+  }
+  files.set(packageJsonPath.split("\\").join("/"), readFileSync(packageJsonPath, "utf8"));
+  visitPackageSourceDirectory(directory, files);
+}
+
+function visitPackageSourceDirectory(directory: string, files: Map<string, string>): void {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (shouldSkipPackageEntry(entry.name)) {
+      continue;
+    }
+    const fullPath = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      visitPackageSourceDirectory(fullPath, files);
+      continue;
+    }
+    if (entry.isFile() && isCompilerSourceFile(entry.name)) {
+      files.set(fullPath.split("\\").join("/"), readFileSync(fullPath, "utf8"));
+    }
+  }
+}
+
+function shouldSkipPackageEntry(name: string): boolean {
+  return name === ".git" ||
+    name === "bin" ||
+    name === "dist" ||
     name === "node_modules" ||
     name === "obj";
 }
 
-function isCompilerInputFile(name: string): boolean {
+function isResolverInputFile(name: string): boolean {
+  return name === "package.json" || isCompilerSourceFile(name);
+}
+
+function isCompilerSourceFile(name: string): boolean {
   return /\.(?:mts|ts)$/.test(name) && !/\.d\.(?:mts|ts)$/.test(name);
 }

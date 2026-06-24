@@ -701,10 +701,14 @@ test("provider declaration models render the supported export member and type ma
   assert.match(source, /constructor\(value: T\);/);
   assert.match(source, /value: T;/);
   assert.match(source, /static Count: number;/);
+  assert.match(source, /readonly fixedValue: T;/);
+  assert.match(source, /static readonly StaticId: number;/);
   assert.match(source, /\[index: number\]: string;/);
+  assert.match(source, /readonly \[offset: number\]: string;/);
   assert.match(source, /export interface Writer/);
   assert.match(source, /write\(text\?: string, \.\.\.chunks: string\[\]\): number;/);
-  assert.match(source, /readExternal\(reader: import\("@target\/io\.js"\)\.Reader\): void;/);
+  assert.match(source, /import type \{ Reader as __tsts_provider_0_Reader \} from "@target\/io\.js";/);
+  assert.match(source, /readExternal\(reader: __tsts_provider_0_Reader\): void;/);
   assert.match(source, /export declare function tryParse<T extends number>\(text\?: string, \.\.\.values: number\[\]\): boolean;/);
   assert.match(source, /export type Pair = \[number, string\];/);
   assert.match(source, /export declare const DefaultSize: number;/);
@@ -1501,12 +1505,35 @@ function matrixBindingProvider(
           static: true,
           type: { kind: "number" },
         }, {
+          id: "fixedValue",
+          name: "fixedValue",
+          kind: "property",
+          readonly: true,
+          type: { kind: "type-parameter", name: "T" },
+        }, {
+          id: "StaticId",
+          name: "StaticId",
+          kind: "field",
+          static: true,
+          readonly: true,
+          type: { kind: "number" },
+        }, {
           id: "item",
           name: "item",
           kind: "indexer",
           signatures: [{
             id: "item(number)",
             parameters: [{ name: "index", type: { kind: "number" } }],
+            returnType: { kind: "string" },
+          }],
+        }, {
+          id: "readonlyItem",
+          name: "readonlyItem",
+          kind: "indexer",
+          readonly: true,
+          signatures: [{
+            id: "readonlyItem(number)",
+            parameters: [{ name: "offset", type: { kind: "number" } }],
             returnType: { kind: "string" },
           }],
         }],

@@ -9,9 +9,24 @@ import {
   requiredCapabilityIds,
   validateCapabilityLedgerEntry,
 } from "./capabilities/ledger.mjs";
-import { oldEmitterHistoricalCasePaths, oldEmitterPortInventory } from "./old-emitter-inventory/inventory.mjs";
-import { oldProductUnitHistoricalTestFiles, oldProductUnitPortInventory } from "./old-product-unit-inventory/inventory.mjs";
-import { oldSuitePortInventory } from "./old-suite-inventory/inventory.mjs";
+import {
+  buildOldEmitterInventoryReport,
+  oldEmitterHistoricalCasePaths,
+  oldEmitterPortInventory,
+  validateOldEmitterPortEntry,
+} from "./old-emitter-inventory/inventory.mjs";
+import {
+  buildOldProductUnitInventoryReport,
+  oldProductUnitHistoricalTestFiles,
+  oldProductUnitPortInventory,
+  validateOldProductUnitPortEntry,
+} from "./old-product-unit-inventory/inventory.mjs";
+import {
+  buildOldSuiteInventoryReport,
+  oldSuitePortInventory,
+  oldSuiteRequiredSeedFixturePaths,
+  validateOldSuitePortEntry,
+} from "./old-suite-inventory/inventory.mjs";
 
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
@@ -149,6 +164,18 @@ test("capability ledger validator rejects missing or malformed lane classificati
   );
 });
 
+test("capability ledger validator rejects incomplete and blocked entries without lane metadata", () => {
+  for (const status of ["partial", "not-started", "blocked"]) {
+    const entry = capabilityLedger.find((candidate) => candidate.status === status);
+    assert.notEqual(entry, undefined, `missing sample ${status} capability`);
+    assert.ok(
+      validateCapabilityLedgerEntry({ ...entry, laneClassification: undefined })
+        .includes("laneClassification must be an object"),
+      `${entry.capabilityId} must fail without laneClassification`,
+    );
+  }
+});
+
 test("capability ledger includes active plan minimum and rereview expansion ids", () => {
   const requiredIds = [
     "host.project.package-discovery",
@@ -254,6 +281,28 @@ test("capability ledger validator rejects missing blocker evidence", () => {
   );
 });
 
+test("capability ledger validator rejects complete capabilities without proof", () => {
+  const completeEntry = capabilityLedger.find((entry) => entry.status === "complete");
+  assert.notEqual(completeEntry, undefined);
+
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, positiveTests: [] })
+      .includes("complete capabilities must have positiveTests"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, negativeTests: [] })
+      .includes("complete capabilities must have negativeTests"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, evidenceReview: "seeded" })
+      .includes("complete capabilities must have reviewed evidence"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, oldEvidence: [] })
+      .includes("complete capabilities must have oldEvidence"),
+  );
+});
+
 test("complete parent capabilities require complete child capabilities", () => {
   for (const entry of capabilityLedger) {
     if (entry.status !== "complete") {
@@ -320,6 +369,60 @@ test("old inventories map only to known capability ids", () => {
   }
 });
 
+test("focused capability gate validates old inventory classification completeness", () => {
+  for (const entry of oldEmitterPortInventory) {
+    assert.deepEqual(validateOldEmitterPortEntry(entry), [], entry.oldPath);
+  }
+  for (const entry of oldSuitePortInventory) {
+    assert.deepEqual(validateOldSuitePortEntry(entry), [], entry.oldPath);
+  }
+  for (const entry of oldProductUnitPortInventory) {
+    assert.deepEqual(validateOldProductUnitPortEntry(entry), [], entry.oldPath);
+  }
+
+  const oldEmitterReport = buildOldEmitterInventoryReport(oldEmitterHistoricalCasePaths);
+  const oldSuiteReport = buildOldSuiteInventoryReport(oldSuitePortInventory.map((entry) => entry.oldPath));
+  const oldProductUnitReport = buildOldProductUnitInventoryReport(oldProductUnitHistoricalTestFiles);
+
+  for (const report of [oldEmitterReport, oldSuiteReport, oldProductUnitReport]) {
+    assert.equal(report.rules.unclassifiedOldInventoryIsImpossible, true);
+    assert.equal(report.rules.classifiedInventoryPathsMustBeHistorical, true);
+    assert.equal(report.classificationStatus, "complete");
+    assert.deepEqual(report.unclassifiedOldPaths, []);
+    assert.deepEqual(report.classifiedUnknownOldPaths, []);
+    assert.deepEqual(report.proofHoles, []);
+  }
+
+  const oldSuitePathSet = new Set(oldSuitePortInventory.map((entry) => entry.oldPath));
+  for (const requiredSeedPath of oldSuiteRequiredSeedFixturePaths) {
+    assert.equal(oldSuitePathSet.has(requiredSeedPath), true, `old suite seed path is unclassified: ${requiredSeedPath}`);
+  }
+});
+
+test("reviewed old inventory entries are represented by ledger oldEvidence", () => {
+  const oldEvidenceByCapability = new Map(
+    capabilityLedger.map((entry) => [entry.capabilityId, new Set(entry.oldEvidence)]),
+  );
+  const reviewedOldInventoryEntries = [
+    ...oldEmitterPortInventory,
+    ...oldSuitePortInventory,
+    ...oldProductUnitPortInventory,
+  ].filter((entry) => entry.capabilityMappingStatus === "reviewed");
+
+  assert.ok(reviewedOldInventoryEntries.length > 0);
+
+  for (const entry of reviewedOldInventoryEntries) {
+    const representedByLedger = entry.capabilityIds.some((capabilityId) =>
+      oldEvidenceByCapability.get(capabilityId)?.has(entry.oldPath) === true,
+    );
+    assert.equal(
+      representedByLedger,
+      true,
+      `${entry.oldPath} has reviewed old inventory mapping but no matching ledger oldEvidence`,
+    );
+  }
+});
+
 test("capability oldEvidence references classified old inventory paths", () => {
   const classifiedOldPathSet = new Set([
     ...oldEmitterPortInventory.map((entry) => entry.oldPath),
@@ -354,6 +457,36 @@ test("complete capability oldEvidence is bidirectionally mapped by old inventori
         oldEntry.capabilityIds.includes(entry.capabilityId),
         true,
         `${entry.capabilityId} old evidence is not bidirectionally mapped by ${oldEvidencePath}`,
+      );
+    }
+  }
+});
+
+test("stale old inventory replacement capabilities reference known ledger ids", () => {
+  const staleOldInventoryEntries = [
+    ...oldEmitterPortInventory,
+    ...oldSuitePortInventory,
+    ...oldProductUnitPortInventory,
+  ].filter((entry) => entry.status === "invalid-stale-architecture");
+
+  assert.ok(staleOldInventoryEntries.length > 0);
+
+  for (const entry of staleOldInventoryEntries) {
+    assert.ok(
+      entry.replacementCapabilityIds.length > 0,
+      `${entry.oldPath} must name replacement capabilities`,
+    );
+
+    for (const capabilityId of entry.replacementCapabilityIds) {
+      assert.equal(
+        capabilityIdSet.has(capabilityId),
+        true,
+        `${entry.oldPath} references unknown replacement capability ${capabilityId}`,
+      );
+      assert.equal(
+        entry.capabilityIds.includes(capabilityId),
+        true,
+        `${entry.oldPath} replacement capability ${capabilityId} must also be mapped as old evidence`,
       );
     }
   }

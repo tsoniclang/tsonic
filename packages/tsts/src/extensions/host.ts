@@ -258,6 +258,7 @@ export interface ProviderMemberDeclaration {
   readonly name: string;
   readonly kind: "method" | "constructor" | "property" | "field" | "indexer";
   readonly static?: boolean;
+  readonly readonly?: boolean;
   readonly type?: ProviderTypeExpression;
   readonly signatures?: readonly ProviderSignatureDeclaration[];
   readonly documentation?: string;
@@ -1574,34 +1575,49 @@ function getProviderResolveCacheKey(identity: ProviderIdentity, specifier: strin
   ].join("\0");
 }
 
+interface ProviderRenderContext {
+  readonly importAliases: Map<string, string>;
+  readonly imports: ProviderRenderImport[];
+}
+
+interface ProviderRenderImport {
+  readonly moduleSpecifier: string;
+  readonly name: string;
+  readonly alias: string;
+}
+
 function renderProviderDeclarationModel(model: ProviderDeclarationModel): string {
+  const context: ProviderRenderContext = {
+    importAliases: new Map(),
+    imports: [],
+  };
+  const declarations = model.exports.map((exportDeclaration) => renderProviderExportDeclaration(exportDeclaration, context));
   const lines = [
     `// @tsts-provider-module ${model.providerModuleId}`,
     `// @tsts-provider-specifier ${JSON.stringify(model.moduleSpecifier)}`,
+    ...renderProviderImportDeclarations(context),
+    ...declarations,
   ];
-  for (const exportDeclaration of model.exports) {
-    lines.push(renderProviderExportDeclaration(exportDeclaration));
-  }
   return `${lines.join("\n")}\n`;
 }
 
-function renderProviderExportDeclaration(declaration: ProviderExportDeclaration): string {
-  const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? []);
+function renderProviderExportDeclaration(declaration: ProviderExportDeclaration, context: ProviderRenderContext): string {
+  const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], context);
   switch (declaration.kind) {
     case "class":
-      return `export declare class ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.extends ?? [])} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+      return `export declare class ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.extends ?? [], context)} {\n${renderProviderMembers(declaration.members ?? [], context)}\n}`;
     case "interface":
-      return `export interface ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.extends ?? [])} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+      return `export interface ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.extends ?? [], context)} {\n${renderProviderMembers(declaration.members ?? [], context)}\n}`;
     case "function":
-      return renderProviderSignatures(declaration.name, declaration.signatures ?? [])
+      return renderProviderSignatures(declaration.name, declaration.signatures ?? [], context)
         .map((signature) => `export declare function ${signature}`)
         .join("\n");
     case "type":
-      return `export type ${declaration.name}${typeParameters} = ${renderProviderTypeExpression(declaration.type!)};`;
+      return `export type ${declaration.name}${typeParameters} = ${renderProviderTypeExpression(declaration.type!, context)};`;
     case "value":
-      return `export declare const ${declaration.name}: ${renderProviderTypeExpression(declaration.type!)};`;
+      return `export declare const ${declaration.name}: ${renderProviderTypeExpression(declaration.type!, context)};`;
     case "namespace":
-      return `export declare namespace ${declaration.name} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+      return `export declare namespace ${declaration.name} {\n${renderProviderMembers(declaration.members ?? [], context)}\n}`;
     case "enum":
       return `export declare enum ${declaration.name} {\n${(declaration.members ?? []).map((member) => `  ${member.name},`).join("\n")}\n}`;
     case "opaque":
@@ -1609,28 +1625,29 @@ function renderProviderExportDeclaration(declaration: ProviderExportDeclaration)
   }
 }
 
-function renderProviderHeritage(types: readonly ProviderTypeExpression[]): string {
-  return types.length === 0 ? "" : ` extends ${types.map(renderProviderTypeExpression).join(", ")}`;
+function renderProviderHeritage(types: readonly ProviderTypeExpression[], context: ProviderRenderContext): string {
+  return types.length === 0 ? "" : ` extends ${types.map((type) => renderProviderTypeExpression(type, context)).join(", ")}`;
 }
 
-function renderProviderMembers(members: readonly ProviderMemberDeclaration[]): string {
-  return members.map((member) => `  ${renderProviderMember(member)}`).join("\n");
+function renderProviderMembers(members: readonly ProviderMemberDeclaration[], context: ProviderRenderContext): string {
+  return members.map((member) => `  ${renderProviderMember(member, context)}`).join("\n");
 }
 
-function renderProviderMember(member: ProviderMemberDeclaration): string {
+function renderProviderMember(member: ProviderMemberDeclaration, context: ProviderRenderContext): string {
   const staticPrefix = member.static === true ? "static " : "";
+  const readonlyPrefix = member.readonly === true ? "readonly " : "";
   switch (member.kind) {
     case "constructor":
-      return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], { constructSignature: true }).join("\n  ");
+      return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], context, { constructSignature: true }).join("\n  ");
     case "method":
-      return renderProviderSignatures(renderProviderMemberName(member.name), member.signatures ?? []).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
+      return renderProviderSignatures(renderProviderMemberName(member.name), member.signatures ?? [], context).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
     case "property":
     case "field":
-      return `${staticPrefix}${member.name}: ${renderProviderTypeExpression(member.type!)};`;
+      return `${staticPrefix}${readonlyPrefix}${member.name}: ${renderProviderTypeExpression(member.type!, context)};`;
     case "indexer": {
       const signature = member.signatures![0]!;
       const parameter = signature.parameters[0]!;
-      return `[${renderProviderParameter(parameter)}]: ${renderProviderTypeExpression(signature.returnType!)};`;
+      return `${readonlyPrefix}[${renderProviderParameter(parameter, context)}]: ${renderProviderTypeExpression(signature.returnType!, context)};`;
     }
   }
 }
@@ -1638,12 +1655,13 @@ function renderProviderMember(member: ProviderMemberDeclaration): string {
 function renderProviderSignatures(
   name: string,
   signatures: readonly ProviderSignatureDeclaration[],
+  context: ProviderRenderContext,
   options: { readonly constructSignature?: boolean } = {},
 ): readonly string[] {
   return signatures.map((signature) => {
-    const typeParameters = renderProviderTypeParameters(signature.typeParameters ?? []);
-    const parameters = signature.parameters.map(renderProviderParameter).join(", ");
-    const returnType = options.constructSignature === true ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" })}`;
+    const typeParameters = renderProviderTypeParameters(signature.typeParameters ?? [], context);
+    const parameters = signature.parameters.map((parameter) => renderProviderParameter(parameter, context)).join(", ");
+    const returnType = options.constructSignature === true ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" }, context)}`;
     return `${name}${typeParameters}(${parameters})${returnType};`;
   });
 }
@@ -1652,7 +1670,7 @@ function renderProviderMemberName(name: string): string {
   return name === "constructor" ? JSON.stringify(name) : name;
 }
 
-function renderProviderTypeParameters(typeParameters: readonly ProviderTypeParameterDeclaration[]): string {
+function renderProviderTypeParameters(typeParameters: readonly ProviderTypeParameterDeclaration[], context: ProviderRenderContext): string {
   if (typeParameters.length === 0) {
     return "";
   }
@@ -1660,17 +1678,17 @@ function renderProviderTypeParameters(typeParameters: readonly ProviderTypeParam
     const constraints = parameter.constraints ?? [];
     return constraints.length === 0
       ? parameter.name
-      : `${parameter.name} extends ${constraints.map(renderProviderTypeExpression).join(" & ")}`;
+      : `${parameter.name} extends ${constraints.map((constraint) => renderProviderTypeExpression(constraint, context)).join(" & ")}`;
   }).join(", ")}>`;
 }
 
-function renderProviderParameter(parameter: ProviderParameterDeclaration): string {
+function renderProviderParameter(parameter: ProviderParameterDeclaration, context: ProviderRenderContext): string {
   const restPrefix = parameter.rest === true ? "..." : "";
   const optionalSuffix = parameter.optional === true && parameter.rest !== true ? "?" : "";
-  return `${restPrefix}${parameter.name}${optionalSuffix}: ${renderProviderTypeExpression(parameter.type)}`;
+  return `${restPrefix}${parameter.name}${optionalSuffix}: ${renderProviderTypeExpression(parameter.type, context)}`;
 }
 
-function renderProviderTypeExpression(type: ProviderTypeExpression): string {
+function renderProviderTypeExpression(type: ProviderTypeExpression, context: ProviderRenderContext): string {
   switch (type.kind) {
     case "any":
     case "unknown":
@@ -1689,27 +1707,50 @@ function renderProviderTypeExpression(type: ProviderTypeExpression): string {
     case "provider-ref": {
       const name = type.moduleSpecifier === undefined
         ? type.name
-        : `import(${JSON.stringify(type.moduleSpecifier)}).${type.name}`;
+        : getProviderImportAlias(type.moduleSpecifier, type.name, context);
       return type.typeArguments === undefined || type.typeArguments.length === 0
         ? name
-        : `${name}<${type.typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
+        : `${name}<${type.typeArguments.map((argument) => renderProviderTypeExpression(argument, context)).join(", ")}>`;
     }
     case "target-named":
     case "opaque":
-      return renderProviderTypeExpression(type.sourceShape!);
+      return renderProviderTypeExpression(type.sourceShape!, context);
     case "array":
-      return `${renderProviderTypeExpression(type.elementType)}[]`;
+      return `${renderProviderTypeExpression(type.elementType, context)}[]`;
     case "tuple":
-      return `[${type.elementTypes.map(renderProviderTypeExpression).join(", ")}]`;
+      return `[${type.elementTypes.map((elementType) => renderProviderTypeExpression(elementType, context)).join(", ")}]`;
     case "union":
-      return type.types.map(renderProviderTypeExpression).join(" | ");
+      return type.types.map((unionType) => renderProviderTypeExpression(unionType, context)).join(" | ");
     case "intersection":
-      return type.types.map(renderProviderTypeExpression).join(" & ");
+      return type.types.map((intersectionType) => renderProviderTypeExpression(intersectionType, context)).join(" & ");
     case "function":
-      return `${renderProviderTypeParameters(type.typeParameters ?? [])}(${type.parameters.map(renderProviderParameter).join(", ")}) => ${renderProviderTypeExpression(type.returnType)}`;
+      return `${renderProviderTypeParameters(type.typeParameters ?? [], context)}(${type.parameters.map((parameter) => renderProviderParameter(parameter, context)).join(", ")}) => ${renderProviderTypeExpression(type.returnType, context)}`;
     case "literal":
       return type.value === null ? "null" : JSON.stringify(type.value);
   }
+}
+
+function getProviderImportAlias(moduleSpecifier: string, name: string, context: ProviderRenderContext): string {
+  const key = `${moduleSpecifier}\0${name}`;
+  const existing = context.importAliases.get(key);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const alias = `__tsts_provider_${context.imports.length}_${sanitizeProviderImportName(name)}`;
+  context.importAliases.set(key, alias);
+  context.imports.push({ moduleSpecifier, name, alias });
+  return alias;
+}
+
+function renderProviderImportDeclarations(context: ProviderRenderContext): readonly string[] {
+  return context.imports.map((importDeclaration) =>
+    `import type { ${importDeclaration.name} as ${importDeclaration.alias} } from ${JSON.stringify(importDeclaration.moduleSpecifier)};`
+  );
+}
+
+function sanitizeProviderImportName(name: string): string {
+  const sanitized = name.replace(/[^A-Za-z0-9_$]/gu, "_");
+  return /^[A-Za-z_$]/u.test(sanitized) ? sanitized : `_${sanitized}`;
 }
 
 function renderSourcePrimitiveType(name: SourcePrimitiveKind): string {

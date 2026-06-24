@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   compileProject,
   createProgramOptionsForProject,
+  createTsonicSemanticSession,
   createTargetCompilerExtensions,
   parseTsonicProjectConfig,
 } from "../../packages/host/dist/index.js";
@@ -174,6 +175,28 @@ test("host reports unknown requested surface as target diagnostic", async () => 
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
 });
 
+test("host reports duplicate target surface implementations before provider composition", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    surfaces: [
+      createFakeSurface("js"),
+      createFakeSurface("js"),
+    ],
+  });
+
+  const result = await compileFakeProject("duplicate-target-surfaces", targetPack, {
+    id: "demo",
+    surfaces: ["js"],
+  });
+
+  assert.equal(result.diagnostics.length, 1);
+  assert.deepEqual(events, []);
+  assert.equal(result.diagnostics[0].code, "TARGET_SURFACE_SELECTION");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "target 'demo' declares surface 'js' more than once");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
 test("host reports missing target provider as target diagnostic", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
@@ -321,6 +344,118 @@ test("host omits surface runtime artifacts when no surface is selected", async (
   assert.equal(events.includes("surface-runtime:js"), false);
 });
 
+test("host reports duplicate runtime artifacts as target diagnostics before backend emission", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerArtifacts: [
+      createFakeArtifact("asset", "runtime/shared.txt", "provider"),
+    ],
+    backendArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "backend"),
+    ],
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/shared.txt", "js"),
+        ],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("duplicate-runtime-artifacts", targetPack, {
+    id: "demo",
+    surfaces: ["js"],
+  });
+
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=js",
+    "provider-runtime:demo",
+    "surface-runtime:js",
+  ]);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "TARGET_RUNTIME");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "duplicate target runtime artifact 'runtime/shared.txt'");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(events.includes("backend:demo"), false);
+  assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
+});
+
+test("host reports duplicate runtime references as target diagnostics before backend emission", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerReferences: [
+      createFakeReference("project", "../runtime/Runtime.csproj"),
+    ],
+    backendArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "backend"),
+    ],
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        references: [
+          createFakeReference("project", "../runtime/Runtime.csproj"),
+        ],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("duplicate-runtime-references", targetPack, {
+    id: "demo",
+    surfaces: ["js"],
+  });
+
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=js",
+    "provider-runtime:demo",
+    "surface-runtime:js",
+  ]);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "TARGET_RUNTIME");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "duplicate target runtime reference 'project:../runtime/Runtime.csproj'");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(events.includes("backend:demo"), false);
+  assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
+});
+
+test("host suppresses backend artifacts and toolchain when backend reports errors", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerArtifacts: [
+      createFakeArtifact("asset", "runtime/provider.txt", "provider"),
+    ],
+    backendArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "backend"),
+    ],
+    backendDiagnostics: [
+      {
+        code: "MISSING_FACT",
+        category: "error",
+        message: "backend requires finalized target facts before emission",
+        source: "demo-backend",
+      },
+    ],
+  });
+
+  const result = await compileFakeProject("backend-error-no-artifacts", targetPack, {
+    id: "demo",
+  });
+
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=",
+    "provider-runtime:demo",
+    "backend:demo",
+  ]);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "MISSING_FACT");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(result.targets[0].compileResult.diagnostics.length, 1);
+  assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
+});
+
 test("host excludes generated declarations and metadata JSON from semantic input", async () => {
   const projectDirectory = resolve(tempRoot, "semantic-input-filter");
   const projectConfig = {
@@ -345,6 +480,201 @@ test("host excludes generated declarations and metadata JSON from semantic input
   assert.equal(fs.FileExists(resolve(projectDirectory, "src/index.ts")), true);
   assert.equal(fs.FileExists(resolve(projectDirectory, "src/generated.d.ts")), false);
   assert.equal(fs.FileExists(resolve(projectDirectory, "src/provider.metadata.json")), false);
+});
+
+test("host gives backends the TSTS source graph instead of the raw project file crawl", async () => {
+  const events = [];
+  let backendProjectSourceFiles = [];
+  const projectDirectory = resolve(tempRoot, "tsts-source-graph");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      backendProjectSourceFiles = input.sourceFiles
+        .map((sourceFile) => input.ast.getFileName(sourceFile))
+        .filter((fileName) => fileName.startsWith(projectDirectory))
+        .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
+        .sort();
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": "import { value } from \"./dep.js\";\nexport const result = value + 1;\n",
+    "src/dep.ts": "export const value = 41;\n",
+    "src/orphan.ts": "export const orphan = 0;\n",
+    "src/generated.d.ts": "declare global { const generatedAmbientLeak: string; }\n",
+    "src/provider.metadata.json": JSON.stringify({ target: "demo" }),
+  });
+
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(backendProjectSourceFiles, [
+    "src/dep.ts",
+    "src/index.ts",
+  ]);
+});
+
+test("host source graph follows relative ESM import and export edges through TSTS", async () => {
+  const events = [];
+  let backendProjectSourceFiles = [];
+  const projectDirectory = resolve(tempRoot, "tsts-relative-esm-graph");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      backendProjectSourceFiles = input.sourceFiles
+        .map((sourceFile) => input.ast.getFileName(sourceFile))
+        .filter((fileName) => fileName.startsWith(projectDirectory))
+        .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
+        .sort();
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "import defaultValue from \"./defaulted.js\";",
+      "import { named } from \"./named.js\";",
+      "import * as namespace from \"./namespace.js\";",
+      "import type { Shape } from \"./types.js\";",
+      "import \"./side-effect.js\";",
+      "export { named as renamed } from \"./named.js\";",
+      "export { default as renamedDefault } from \"./defaulted.js\";",
+      "export * from \"./star.js\";",
+      "export * as starNamespace from \"./star.js\";",
+      "export const result: Shape = { value: defaultValue + named + namespace.value };",
+      "",
+    ].join("\n"),
+    "src/defaulted.ts": "const value = 1;\nexport default value;\n",
+    "src/named.ts": "export const named = 2;\n",
+    "src/namespace.ts": "export const value = 3;\n",
+    "src/side-effect.ts": "export const initialized = true;\n",
+    "src/star.ts": "export const star = 4;\n",
+    "src/types.ts": "export interface Shape { value: number; }\n",
+    "src/orphan.ts": "export const orphan = 0;\n",
+    "src/generated.d.ts": "export declare const generatedAmbientLeak: string;\n",
+    "src/provider.metadata.json": JSON.stringify({ target: "demo" }),
+  });
+
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(backendProjectSourceFiles, [
+    "src/defaulted.ts",
+    "src/index.ts",
+    "src/named.ts",
+    "src/namespace.ts",
+    "src/side-effect.ts",
+    "src/star.ts",
+    "src/types.ts",
+  ]);
+});
+
+test("host source graph follows package exports and subpaths through TSTS", async () => {
+  const events = [];
+  let backendProjectSourceFiles = [];
+  const projectDirectory = resolve(tempRoot, "tsts-package-exports-graph");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      backendProjectSourceFiles = input.sourceFiles
+        .map((sourceFile) => input.ast.getFileName(sourceFile))
+        .filter((fileName) => fileName.startsWith(projectDirectory))
+        .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
+        .sort();
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "import { subpathValue } from \"@demo/source-pkg/subpath.js\";",
+      "export const result = subpathValue;",
+      "",
+    ].join("\n"),
+    "node_modules/@demo/source-pkg/package.json": JSON.stringify({
+      name: "@demo/source-pkg",
+      type: "module",
+      exports: {
+        "./subpath.js": {
+          types: "./src/subpath.ts",
+          default: "./src/subpath.ts",
+        },
+      },
+    }, null, 2),
+    "node_modules/@demo/source-pkg/src/subpath.ts": [
+      "import { internalValue } from \"./internal.js\";",
+      "export const subpathValue = internalValue + 1;",
+      "",
+    ].join("\n"),
+    "node_modules/@demo/source-pkg/src/internal.ts": "export const internalValue = 41;\n",
+    "node_modules/@demo/source-pkg/src/generated.d.ts": "export declare const generatedAmbientLeak: string;\n",
+    "node_modules/@demo/source-pkg/src/provider.metadata.json": JSON.stringify({ target: "demo" }),
+    "node_modules/@demo/source-pkg/src/orphan.ts": "export const orphan = 0;\n",
+  });
+
+  const project = parseTsonicProjectConfig(projectConfig);
+  const programOptions = createProgramOptionsForProject({
+    project,
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+  }).programOptions;
+  const session = createTsonicSemanticSession({
+    programOptions,
+    project,
+    target: project.targets[0],
+    targetPack,
+    selectedSurfaces: [],
+  });
+  const allTstsProjectFiles = session.compiler.getSourceFiles()
+    .map((sourceFile) => sourceFile === undefined ? undefined : session.ast.getFileName(sourceFile))
+    .filter((fileName) => fileName?.startsWith(projectDirectory))
+    .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
+    .sort();
+  const emitTstsProjectFiles = session.compiler.getSourceFilesToEmit()
+    .map((sourceFile) => sourceFile === undefined ? undefined : session.ast.getFileName(sourceFile))
+    .filter((fileName) => fileName?.startsWith(projectDirectory))
+    .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
+    .sort();
+
+  assert.deepEqual(allTstsProjectFiles, [
+    "node_modules/@demo/source-pkg/src/internal.ts",
+    "node_modules/@demo/source-pkg/src/subpath.ts",
+    "src/index.ts",
+  ]);
+  assert.deepEqual(emitTstsProjectFiles, [
+    "src/index.ts",
+  ]);
+
+  const result = compileProject({
+    project,
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(backendProjectSourceFiles, [
+    "src/index.ts",
+  ]);
 });
 
 test("host rejects declaration entrypoints before semantic input creation", () => {
@@ -387,6 +717,9 @@ async function writeProject(projectDirectory, files) {
 function createRegistry(targetPack) {
   return {
     packs: [targetPack],
+    get(id) {
+      return id === targetPack.id ? targetPack : undefined;
+    },
     require(id) {
       if (id !== targetPack.id) {
         throw new Error(`Unknown target '${id}'.`);
@@ -410,9 +743,12 @@ function createFakeTargetPack(events, options = {}) {
               events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
               return options.targetExtension === undefined ? [] : [options.targetExtension];
             },
-            runtimeArtifacts(context) {
+            runtimeContributions(context) {
               events.push(`provider-runtime:${context.target.id}`);
-              return options.providerArtifacts ?? [];
+              return {
+                artifacts: options.providerArtifacts ?? [],
+                references: options.providerReferences ?? [],
+              };
             },
           },
         }),
@@ -420,10 +756,11 @@ function createFakeTargetPack(events, options = {}) {
     createBackend() {
       return {
         compile(input) {
+          options.onBackend?.(input);
           events.push(`backend:${input.target.id}`);
           return {
             artifacts: options.backendArtifacts ?? [],
-            diagnostics: [],
+            diagnostics: options.backendDiagnostics ?? [],
           };
         },
       };
@@ -460,9 +797,12 @@ function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {
             return [options.extension];
           },
         }),
-    runtimeArtifacts() {
+    runtimeContributions() {
       options.events?.push(`surface-runtime:${id}`);
-      return options.artifacts ?? [];
+      return {
+        artifacts: options.artifacts ?? [],
+        references: options.references ?? [],
+      };
     },
   };
 }
@@ -472,5 +812,12 @@ function createFakeArtifact(kind, path, text) {
     kind,
     path,
     text,
+  };
+}
+
+function createFakeReference(kind, include) {
+  return {
+    kind,
+    include,
   };
 }

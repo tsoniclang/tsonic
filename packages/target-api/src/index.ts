@@ -3,6 +3,8 @@ export type {
   TargetArtifactKind,
   TargetCompileResult,
   TargetDiagnostic,
+  TargetRuntimeContributions,
+  TargetRuntimeReference,
   TargetSourceFile,
 } from "./artifacts.js";
 export type {
@@ -21,7 +23,7 @@ export type {
   TargetPack,
   TargetProvider,
   TargetProviderContext,
-  TargetRuntimeArtifactContext,
+  TargetRuntimeContributionContext,
   TargetSemanticNodeOptions,
   TargetSemanticQueries,
   TargetSurfaceExtensionContext,

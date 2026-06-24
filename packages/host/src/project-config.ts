@@ -4,6 +4,7 @@ export function parseTsonicProjectConfig(value: unknown): TsonicProjectConfig {
   if (!isRecord(value)) {
     throw new Error("Project config must be an object.");
   }
+  rejectUnknownProjectConfigKeys(value);
   const entryPoint = readString(value, "entryPoint");
   if (!isSupportedEntryPoint(entryPoint)) {
     throw new Error("Project config entryPoint must use a final ESM TypeScript source extension: .ts or .mts.");
@@ -25,6 +26,7 @@ function readTargets(value: unknown): readonly TargetSelection[] {
     if (!isRecord(target)) {
       throw new Error(`Target at index ${index} must be an object.`);
     }
+    rejectUnknownTargetKeys(target, index);
     const id = readString(target, "id");
     if (seen.has(id)) {
       throw new Error(`Project config target '${id}' is declared more than once. Use one target entry per target id.`);
@@ -41,6 +43,30 @@ function readTargets(value: unknown): readonly TargetSelection[] {
       ...(options !== undefined ? { options } : {}),
     };
   });
+}
+
+function rejectUnknownProjectConfigKeys(value: Readonly<Record<string, unknown>>): void {
+  rejectUnsupportedCompilerConfigKeys(value);
+  rejectUnknownKeys(value, new Set(["$schema", "entryPoint", "rootDir", "outDir", "targets"]), "Project config");
+}
+
+function rejectUnsupportedCompilerConfigKeys(value: Readonly<Record<string, unknown>>): void {
+  for (const key of ["compilerOptions", "baseUrl", "paths", "tsconfig", "extends", "references"]) {
+    if (value[key] !== undefined) {
+      throw new Error(`Project config field '${key}' is not supported. Tsonic project config must not silently carry TypeScript compiler path-mapping or tsconfig fields.`);
+    }
+  }
+}
+
+function rejectUnknownTargetKeys(value: Readonly<Record<string, unknown>>, index: number): void {
+  rejectUnknownKeys(value, new Set(["id", "surfaces", "options"]), `Target at index ${index}`);
+}
+
+function rejectUnknownKeys(value: Readonly<Record<string, unknown>>, allowedKeys: ReadonlySet<string>, subject: string): void {
+  const unknownKeys = Object.keys(value).filter((key) => !allowedKeys.has(key));
+  if (unknownKeys.length > 0) {
+    throw new Error(`${subject} has unsupported field '${unknownKeys[0]}'.`);
+  }
 }
 
 function readString(value: Readonly<Record<string, unknown>>, key: string): string {
