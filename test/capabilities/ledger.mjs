@@ -131,7 +131,7 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["expression.literal.string-number-boolean", "String, number, and boolean literals emit target literals", "partial", "csharp-backend"],
   ["expression.literal.null-undefined", "null and undefined literals emit target carriers", "partial", "csharp-backend"],
-  ["expression.literal.bigint-regex-template", "bigint, regex, and template literals use target facts", "not-started", "target-provider"],
+  ["expression.literal.bigint-regex-template", "bigint, regex, and template literals use target facts", "partial", "target-provider"],
   ["expression.object-literal", "Object literal expressions map to target shape facts", "partial", "target-provider"],
   ["expression.array-literal", "Array literal expressions map to target array facts", "partial", "target-provider"],
   ["expression.call", "Call expressions consume TSTS signature and provider facts", "partial", "target-provider"],
@@ -155,8 +155,8 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "partial", "target-provider"],
   ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "partial", "target-provider"],
-  ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "not-started", "target-provider"],
-  ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "not-started", "target-provider"],
+  ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "partial", "target-provider"],
+  ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "partial", "target-provider"],
   ["binding.object-shape", "Object-shape destructuring consumes generated shape facts", "partial", "target-provider"],
 
   ["function.declaration", "Function declarations emit target methods/functions", "partial", "csharp-backend"],
@@ -195,7 +195,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["carrier.union", "Runtime unions exist only when facts require them", "not-started", "target-provider"],
   ["carrier.null-undefined", "Null and undefined are represented consistently by target mode", "partial", "target-provider"],
   ["carrier.function-delegate", "Function values and callbacks use fact-backed delegate carriers", "partial", "target-provider"],
-  ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "not-started", "target-provider"],
+  ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "partial", "target-provider"],
 
   ["surface.js.console", "JS console operations use selected JS surface facts", "blocked", "surface-provider"],
   ["surface.js.console-log", "console.log uses selected JS surface facts", "blocked", "surface-provider"],
@@ -220,8 +220,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "partial", "target-provider"],
   ["compat.object.no-dynamic-access", "object is not treated like any", "partial", "target-provider"],
   ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "partial", "target-provider"],
-  ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "not-started", "target-provider"],
-  ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "not-started", "target-provider"],
+  ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "partial", "target-provider"],
+  ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "partial", "target-provider"],
   ["runtime.union.carrier", "Union carrier is explicit runtime capability", "not-started", "target-provider"],
   ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "partial", "target-provider"],
   ["runtime.dynamic.carrier", "Dynamic carrier is explicit runtime capability", "partial", "target-provider"],
@@ -242,7 +242,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["toolchain.csharp.project", "Emit C# project from target options", "partial", "csharp-toolchain"],
   ["toolchain.csharp.build-run", "dotnet build/run succeeds for executable tests", "partial", "csharp-toolchain"],
   ["toolchain.csharp.library", "Library output path and artifacts are deterministic", "partial", "csharp-toolchain"],
-  ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "not-started", "csharp-toolchain"],
+  ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "partial", "csharp-toolchain"],
   ["runtime.csharp.js", "C# JS runtime artifacts are selected by js surface", "partial", "csharp-runtime"],
   ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs surface", "partial", "csharp-runtime"],
   ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "partial", "csharp-runtime"],
@@ -266,7 +266,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.target-constraint", "Target constraint failure points to source", "partial", "target-provider"],
   ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "complete", "tsts-api"],
   ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "partial", "target-provider"],
-  ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "not-started", "target-provider"],
+  ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "partial", "target-provider"],
   ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
   ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "partial", "tests"],
 
@@ -1329,6 +1329,119 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: for-in emission is driven by finalized C# targetIteration facts recorded only after TSTS accepts for-in. JS surface array/string for-in uses index-key facts, object-shape for-in uses object-shape key facts, and Record<string, T> for-in uses provider-owned Dictionary.Keys facts. Missing/non-string key facts fail closed instead of falling back to syntax or source-name inference.",
   }),
+  "operation.destructure.array-object": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/array-destructuring/",
+    ]),
+    blockers: Object.freeze([
+      "operation.destructure.array-object remains partial until assignment destructuring has finalized target storage/extraction facts and old destructuring fixtures are ported through current CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: parameter and variable binding patterns now consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; assignment destructuring fails closed instead of emitting from stale lowering. This is not complete until target storage-write facts and end-to-end old fixture parity exist.",
+  }),
+  "expression.literal.bigint-regex-template": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "expression.literal.bigint-regex-template remains partial until real source/provider facts cover all bigint, RegExp, and template literal paths through CLI/runtime tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: bigint literals require BigInteger carrier facts, RegExp literals require literal pattern/flags plus matching runtime carrier and constructor operation facts, and template literals require finalized System.String carrier facts before Roslyn AST emission. Missing facts fail closed.",
+  }),
+  "binding.parameter": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/array-destructuring/",
+    ]),
+    blockers: Object.freeze([
+      "binding.parameter remains partial until every array/object/rest/default/nested parameter destructuring form is covered by current CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: parameter destructuring now queries facts on the owning parameter declaration, not only the syntactic type node, so parameter array and object destructuring emit only from finalized carrier/object-shape facts.",
+  }),
+  "binding.assignment": Object.freeze({
+    positiveTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/array-destructuring/",
+    ]),
+    blockers: Object.freeze([
+      "binding.assignment remains partial because assignment destructuring currently fails closed; implementation requires finalized target storage and extraction facts before positive emission can be added.",
+    ]),
+    notes:
+      "Reviewed partial proof: destructuring assignment is recognized as a binding-storage capability, not lowered through ordinary assignment; until storage/extraction facts exist, the backend emits a diagnostic instead of guessing.",
+  }),
+  "carrier.any-tsvalue": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/semantic-guards.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "carrier.any-tsvalue remains partial until concrete TsValue/TsObject/TsFunction carrier types, runtime artifacts, and backend AST emission are implemented.",
+    ]),
+    notes:
+      "Reviewed partial proof: TypeScript any receives only an opaque carrier fact; strict-native rejects it, compat mode requires explicit closed operation facts, and object/unknown are not promoted to any-like dynamic carriers.",
+  }),
+  "compat.prototype-mutation": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "compat.prototype-mutation remains partial until every prototype-affecting pattern is classified per resolved pattern instance with provider facts; source spelling alone is banned.",
+    ]),
+    notes:
+      "Reviewed partial proof: object-literal __proto__ prototype mutation is hard-rejected as syntax-level JS semantics, while shadowable property/member names are not classified by spelling. Future prototype support requires explicit closed compat-runtime facts.",
+  }),
+  "compat.proxy-eval-function-with": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "compat.proxy-eval-function-with remains partial: with is deterministically hard-rejected, but eval/Function/Proxy must be classified only from resolved provider/global identity facts, never raw source names.",
+    ]),
+    notes:
+      "Reviewed partial proof: with statements are hard-rejected because dynamic scope cannot be represented by closed target facts; source-name checks for eval, Function, Proxy, and Object.setPrototypeOf were removed to prevent source-name guessing.",
+  }),
   "compat.mode.strict-native": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
@@ -1655,6 +1768,86 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: C# backend exposes Roslyn-compatible syntax as the only output AST boundary; printer/planner tests reject legacy semantic string/custom AST paths.",
+  }),
+  "backend.csharp.project-sdk-emit": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/project-artifacts.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/project-artifacts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/dotnet-test-command/",
+    ]),
+    blockers: Object.freeze([
+      "backend.csharp.project-sdk-emit remains partial until SDK project emission is validated through full CLI/runtime/toolchain coverage and old project-output fixtures are fully mapped.",
+    ]),
+    notes:
+      "Reviewed partial proof: SDK project artifacts now emit deterministic target-owned properties, reject unknown custom project-property shapes, and include runtime references only from selected target/surface contributions.",
+  }),
+  "toolchain.csharp.project": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/project-artifacts.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/project-artifacts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/dotnet-test-command/",
+    ]),
+    blockers: Object.freeze([
+      "toolchain.csharp.project remains partial until generated projects are built and run through current end-to-end CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# target options own project OutputType/PublishAot/target-framework related artifacts, generic custom properties cannot override target-owned properties, and invalid option shapes fail before artifact emission.",
+  }),
+  "toolchain.csharp.library": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/project-artifacts.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/project-artifacts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/dotnet-test-command/",
+    ]),
+    blockers: Object.freeze([
+      "toolchain.csharp.library remains partial until library output paths and artifacts are covered by current CLI/toolchain tests against generated project output.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# project emission defaults to deterministic Library OutputType and only emits executable output from explicit target options.",
+  }),
+  "toolchain.csharp.nativeaot": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/project-artifacts.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/project-artifacts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/dotnet-test-command/",
+    ]),
+    blockers: Object.freeze([
+      "toolchain.csharp.nativeaot remains partial until NativeAOT project settings are built/published through target toolchain tests and runtime compatibility is proven.",
+    ]),
+    notes:
+      "Reviewed partial proof: NativeAOT is an explicit C# target project property, not generic compiler architecture; invalid PublishAot option shapes are rejected and source-to-source artifact reporting remains deterministic.",
+  }),
+  "diagnostic.strict-mode-slow-op": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "diagnostic.strict-mode-slow-op remains partial until all strict-native slow/compat operations have precise source spans and runtime/toolchain diagnostics.",
+    ]),
+    notes:
+      "Reviewed partial proof: strict-native diagnostics now cover dynamic any and syntax-level compat-runtime rejections with evidence that names the closed-runtime-carrier requirement and bans QuickJS, reflection dispatch, C# dynamic, and source-name guessing.",
   }),
   "diagnostic.ts-invalid-not-rescued": Object.freeze({
     positiveTests: Object.freeze([
