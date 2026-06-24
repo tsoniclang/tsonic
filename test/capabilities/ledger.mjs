@@ -881,6 +881,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "native.dotnet.member-fields-properties-events": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
@@ -892,7 +893,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed partial proof: .NET provider records reflected properties, fields, numeric indexers, generic Dictionary indexers, enum fields, static/instance target facts, and event target facts; source declaration conversion omits events and unsupported/non-source-shaped members, while target bindings retain deterministic event/property/field facts. Remains partial until event subscription semantics, property setter facts, field mutability facts, inherited member projection, and unsupported member diagnostics are end-to-end across emitted source.",
+      "Reviewed partial proof: .NET provider records reflected properties, fields, numeric indexers, generic Dictionary indexers, enum fields, static/instance target facts, and event target facts; selected property and field access maps only from selected provider member identity, selected events reject until explicit source event semantics exist, and source declaration conversion omits events plus unsupported/non-source-shaped members while target bindings retain deterministic facts. Remains partial until event subscription semantics, property setter writes, field writes, inherited member projection, and emitted-source/runtime coverage are complete.",
   }),
   "native.dotnet.constructors": Object.freeze({
     positiveTests: Object.freeze([
