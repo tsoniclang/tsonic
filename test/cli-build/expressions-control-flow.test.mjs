@@ -1056,6 +1056,10 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
       "  return flag ? 1.5 : null;",
       "}",
       "",
+      "export function maybeNumberUndefined(flag: boolean): number | undefined {",
+      "  return flag ? 2.5 : undefined;",
+      "}",
+      "",
       "export function maybeBoolean(flag: boolean): boolean | null {",
       "  return flag ? true : null;",
       "}",
@@ -1065,6 +1069,10 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
       "}",
       "",
       "export function readBoolean(value: boolean | null, alternate: boolean): boolean {",
+      "  return value ?? alternate;",
+      "}",
+      "",
+      "export function readUndefined(value: number | undefined, alternate: number): number {",
       "  return value ?? alternate;",
       "}",
       "",
@@ -1081,13 +1089,17 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
   assert.match(generatedSource, /return flag \? 1\.5 : null;/);
+  assert.match(generatedSource, /public static double\? maybeNumberUndefined\(bool flag\)/);
+  assert.match(generatedSource, /return flag \? 2\.5 : null;/);
   assert.match(generatedSource, /public static bool\? maybeBoolean\(bool flag\)/);
   assert.match(generatedSource, /return flag \? true : null;/);
   assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);
   assert.match(generatedSource, /public static bool readBoolean\(bool\? value, bool alternate\)/);
   assert.match(generatedSource, /return value \?\? alternate;/);
+  assert.match(generatedSource, /public static double readUndefined\(double\? value, double alternate\)/);
   assert.match(generatedSource, /public static double read\(Box\? box, double defaultValue\)/);
   assert.match(generatedSource, /return box\?\.value \?\? defaultValue;/);
+  assert.doesNotMatch(generatedSource, /\bundefined\b/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNullableUnions.csproj"), "--nologo", "--v:minimal"]);

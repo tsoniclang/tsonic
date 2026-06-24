@@ -2699,6 +2699,80 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: C# target aliases live under @tsonic/csharp/* and map to canonical source-core primitive and marker facts such as int32, int64, uint8, out, ref, field, attribute, defaultof, ptr, and fnptr without redefining @tsonic/core/* modules. Remains partial until every C# alias has direct CLI proof and future targets prove their alias modules consume the same source-core facts.",
   }),
+  "expression.literal.null-undefined": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nullish-coalescing/",
+      "test/fixtures/nullish-coalescing-threading/",
+    ]),
+    blockers: Object.freeze([
+      "expression.literal.null-undefined remains partial until null and undefined literals are covered across every target mode, JS surface carrier, compat carrier, contextual literal site, and old nullability fixture family.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# expression planning emits source null directly as Roslyn literal null and now emits TSTS-proven global undefined as the same current C# nullish carrier instead of leaking an unbound C# identifier; the CLI test validates generated C# with dotnet build and asserts no emitted undefined token. C# JS runtime tests prove the selected JS surface exposes undefined as its closed nullish carrier.",
+  }),
+  "expression.nullish-optional": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nullish-coalescing/",
+      "test/fixtures/nullish-coalescing-threading/",
+    ]),
+    blockers: Object.freeze([
+      "expression.nullish-optional remains partial until optional calls, optional element access, delete/void interactions, provider-owned nullable members, compat-mode nullish carriers, and every old nullish/optional fixture are covered by current executable evidence.",
+    ]),
+    notes:
+      "Reviewed partial proof: nullish coalescing and optional property/call/element emission consume TSTS flow plus provider nullable carrier facts, including int32/char expected-target threading and invalid char fallback diagnostics before C# emission. Remains partial because coverage is not yet exhaustive across every optional-chain form and provider-owned nullable operation.",
+  }),
+  "carrier.null-undefined": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nullish-coalescing/",
+      "test/fixtures/nullish-coalescing-threading/",
+    ]),
+    blockers: Object.freeze([
+      "carrier.null-undefined remains partial until all target modes classify null and undefined per resolved pattern instance, including native nullable value/reference types, JS surface nullish helpers, compat carriers, runtime-union nullish arms, and explicit hard rejects.",
+    ]),
+    notes:
+      "Reviewed partial proof: no-surface C# maps number/string/bool/reference unions with null or undefined to nullable C# carriers and fails generated C# builds if an unproven undefined identifier leaks; JS surface runtime helpers for Array.at/pop/shift/find/findLast, String.at/codePointAt/match, and global undefined expose closed nullish carrier behavior. Remains partial until every nullish carrier lane is classified and tested.",
+  }),
+  "runtime.undefined.carrier": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "runtime.undefined.carrier remains partial until strict-native, JS surface, Node surface, compat-runtime, object/array holes, optional APIs, and typed/native provider boundaries all use explicit undefined/nullish carriers or deterministic diagnostics.",
+    ]),
+    notes:
+      "Reviewed partial proof: the C# backend now treats only TSTS-proven global undefined as a nullish carrier and preserves the fail-closed distinction from ordinary identifiers; JS surface runtime tests prove undefined and nullish-returning helpers use closed runtime-owned carriers. Remains partial because full JS sparse/hole semantics and compat TsValue undefined are not complete.",
+  }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
