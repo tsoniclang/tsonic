@@ -256,6 +256,22 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values.at(index) ?? -1;",
       "}",
       "",
+      "export function popOr(values: int32[]): int32 {",
+      "  return values.pop() ?? -1;",
+      "}",
+      "",
+      "export function shiftOr(values: int32[]): int32 {",
+      "  return values.shift() ?? -1;",
+      "}",
+      "",
+      "export function firstPositive(values: int32[]): int32 {",
+      "  return values.find((value: int32, index: int32) => value > 0 && index > 0) ?? -1;",
+      "}",
+      "",
+      "export function lastPositive(values: int32[]): int32 {",
+      "  return values.findLast((value: int32, index: int32, source: int32[]) => source.length > index && value > 0) ?? -1;",
+      "}",
+      "",
       "export function hasFrom(values: int32[], value: int32, start: int32): boolean {",
       "  return values.includes(value, start);",
       "}",
@@ -373,6 +389,14 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.includes\(values, value\);/);
   assert.match(generatedSource, /public static int atOr\(System\.Collections\.Generic\.IReadOnlyList<int> values, int index\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.atValue\(values, index\) \?\? -1;/);
+  assert.match(generatedSource, /public static int popOr\(System\.Collections\.Generic\.List<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.popValue\(values\) \?\? -1;/);
+  assert.match(generatedSource, /public static int shiftOr\(System\.Collections\.Generic\.List<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.shiftValue\(values\) \?\? -1;/);
+  assert.match(generatedSource, /public static int firstPositive\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.findValue\(values, \(int value, int index\) => value > 0 && index > 0\) \?\? -1;/);
+  assert.match(generatedSource, /public static int lastPositive\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.findLastValue\(values, \(int value, int index, System\.Collections\.Generic\.IReadOnlyList<int> source\) => source\.Count > index && value > 0\) \?\? -1;/);
   assert.match(generatedSource, /public static bool hasFrom\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value, int start\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.includes\(values, value, start\);/);
   assert.match(generatedSource, /public static int positionOf\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value\)/);
