@@ -32,6 +32,7 @@ import {
   TypeFlagsBigIntLike,
   TypeFlagsBooleanLike,
   TypeFlagsIntersection,
+  TypeFlagsLiteral,
   TypeFlagsNever,
   TypeFlagsNull,
   TypeFlagsNumberLike,
@@ -44,6 +45,8 @@ import {
   TypeFlagsVoid,
   Type_Target,
   Type_Types,
+  Type_AsLiteralType,
+  LiteralType_Value,
 } from "../internal/checker/types.js";
 import type { IndexInfo, Signature, Type } from "../internal/checker/types.js";
 
@@ -74,6 +77,7 @@ export interface TypeShapeQueries {
   readonly getTypeReferenceTarget: (type: GoPtr<Type>) => GoPtr<Type>;
   readonly getTypeArguments: (type: GoPtr<Type>, options?: TypeShapeQueryOptions) => readonly GoPtr<Type>[];
   readonly getTupleElementTypes: (type: GoPtr<Type>, options?: TypeShapeQueryOptions) => readonly GoPtr<Type>[];
+  readonly getLiteralValue: (type: GoPtr<Type>) => string | number | boolean | null | undefined;
   readonly getProperties: (type: GoPtr<Type>, options?: TypeShapeQueryOptions) => readonly GoPtr<Symbol>[];
   readonly getProperty: (type: GoPtr<Type>, name: string, options?: TypeShapeQueryOptions) => GoPtr<Symbol>;
   readonly getPropertyType: (type: GoPtr<Type>, name: string, options?: TypeShapeQueryOptions) => GoPtr<Type>;
@@ -114,6 +118,7 @@ export function createTypeShapeQueries(program: GoPtr<Program>, defaultOptions: 
       }
       return Checker_GetTypeArguments(checker, type);
     }) ?? [],
+    getLiteralValue,
     getProperties: (type, options = {}) => withChecker(program, type, defaultOptions, options, (checker) => Checker_GetPropertiesOfType(checker, type)) ?? [],
     getProperty: (type, name, options = {}) => withChecker(program, type, defaultOptions, options, (checker) => Checker_GetPropertyOfType(checker, type, name)),
     getPropertyType: (type, name, options = {}) => withChecker(program, type, defaultOptions, options, (checker) => Checker_GetTypeOfPropertyOfType(checker, type, name)),
@@ -143,6 +148,16 @@ function isTupleType(type: GoPtr<Type>): boolean {
   }
   const target = Type_Target(type);
   return target !== undefined && (target.objectFlags & ObjectFlagsTuple) !== 0;
+}
+
+function getLiteralValue(type: GoPtr<Type>): string | number | boolean | null | undefined {
+  if (type === undefined || (type.flags & TypeFlagsLiteral) === 0) {
+    return undefined;
+  }
+  const value = LiteralType_Value(Type_AsLiteralType(type));
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null
+    ? value
+    : undefined;
 }
 
 function withCheckerForNode<T>(

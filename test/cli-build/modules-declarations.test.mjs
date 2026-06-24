@@ -1121,10 +1121,10 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
-  assert.match(generatedSource, /return apply\(3, input => input \+ 4\);/);
-  assert.match(generatedSource, /Func<double, double> mapper = input => input \* 2;/);
+  assert.match(generatedSource, /return apply\(3, \(double input\) => input \+ 4\);/);
+  assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \* 2;/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \+ 3;/);
-  assert.match(generatedSource, /Func<double, double> mapper = input =>\n\s*\{/);
+  assert.match(generatedSource, /Func<double, double> mapper = \(double input\) =>\n\s*\{/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) =>\n\s*\{/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -1165,9 +1165,9 @@ test("CLI emits module-scope arrow function values as C# Func fields", async () 
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly Func<double, double, double> add = \(left, right\) => left \+ right;/);
+  assert.match(generatedSource, /public static readonly Func<double, double, double> add = \(double left, double right\) => left \+ right;/);
   assert.match(generatedSource, /public static readonly Func<string, string> greet = \(string name\) => \$"Hello \{name\}";/);
-  assert.match(generatedSource, /public static readonly Func<double, double> @double = value => value \* 2;/);
+  assert.match(generatedSource, /public static readonly Func<double, double> @double = \(double value\) => value \* 2;/);
   assert.match(generatedSource, /public static readonly Func<double, double> triple = \(double value\) => value \* 3;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -1396,7 +1396,7 @@ test("CLI emits arrays and interfaces containing callable target types", async (
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly Func<int, int, int>\[\] operations = new Func<int, int, int>\[\] \{ \(left, right\) => left \+ right, \(left, right\) => left - right, \(left, right\) => left \* right \};/);
+  assert.match(generatedSource, /public static readonly Func<int, int, int>\[\] operations = new Func<int, int, int>\[\] \{ \(int left, int right\) => left \+ right, \(int left, int right\) => left - right, \(int left, int right\) => left \* right \};/);
   assert.match(generatedSource, /public interface OperationMap/);
   assert.match(generatedSource, /Func<int, int, int> add \{ get; \}/);
   assert.match(generatedSource, /Func<int, int, int> subtract \{ get; \}/);

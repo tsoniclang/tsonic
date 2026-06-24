@@ -1423,7 +1423,7 @@ test("CLI rejects tuple dynamic indexes without finalized element facts", async 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Tuple element access requires a finalized numeric-literal index type before C# emission/);
+  assert.match(build.stderr, /Tuple element access requires a numeric-literal source index; non-literal tuple indexing needs finalized target element-access facts before C# emission/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleDynamicIndex.csproj")), false);
 });
 

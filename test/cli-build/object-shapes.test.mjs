@@ -77,7 +77,7 @@ test("CLI emits source-owned typed object literals as C# object initializers", a
   assert.match(generatedSource, /return new Box\s*\{\s*value = value,\s*label = "three",\s*\};/);
   assert.match(generatedSource, /return flag \? new Box\s*\{\s*value = value,\s*label = "yes",\s*\} : new Box\s*\{\s*value = 0,\s*label = "no",\s*\};/);
   assert.match(generatedSource, /return new WithCtor\s*\{\s*value = value,\s*\};/);
-  assert.match(generatedSource, /public Func<double, double> run = value => value;/);
+  assert.match(generatedSource, /public Func<double, double> run = \(double value\) => value;/);
   assert.match(generatedSource, /return new HandlerBox\s*\{\s*run = \(double value\) =>\s*\{\s*return value \+ 1;\s*\},\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

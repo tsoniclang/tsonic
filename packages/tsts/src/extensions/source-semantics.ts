@@ -214,6 +214,19 @@ export function createSourceSemanticsExtension(options: SourceSemanticsExtension
       context.registerLifecycleHook<SourceFileBoundLifecycleRequest>(ExtensionLifecycleEvent.afterSourceFileBound, (request) => {
         recordSourceSemanticsFacts(request, context.facts, context.diagnostics, options.identity.id, modules);
       });
+      context.registerLifecycleHook(ExtensionLifecycleEvent.beforeSemanticsFinalized, (_request, lifecycleContext) => {
+        const compiler = lifecycleContext.compiler;
+        if (compiler === undefined) {
+          return;
+        }
+        for (const sourceFile of compiler.getSourceFiles()) {
+          if (sourceFile === undefined || sourceFile.IsDeclarationFile === true) {
+            continue;
+          }
+          const markerImportIndex = createSourceSemanticsMarkerImportIndex(sourceFile, modules);
+          recordSourceSemanticsStructMarkers(context.facts, sourceFile, modules, markerImportIndex);
+        }
+      });
     },
   };
 }
@@ -249,6 +262,23 @@ function recordSourceSemanticsFacts(
   recordSourceSemanticsTypeAliases(facts, sourceFile, modules, markerImportIndex);
   recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, modules, markerImportIndex);
   recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerImportIndex);
+}
+
+function recordSourceSemanticsStructMarkers(
+  facts: ExtensionFactStore,
+  sourceFile: GoPtr<SourceFile>,
+  modules: readonly SourceSemanticsModuleRuntime[],
+  markerImportIndex: SourceSemanticsMarkerImportIndex,
+): void {
+  visitSourceSemanticsNodePost(sourceFile, (node) => {
+    if (node?.Kind !== KindCallExpression) {
+      return;
+    }
+    const marker = resolveSourceSemanticsCallMarkerReference(facts, Node_Expression(node), modules, markerImportIndex);
+    if (marker?.marker === "struct") {
+      recordStructMarker(facts, node, createMarkerEvidence(marker.exportName));
+    }
+  });
 }
 
 function recordSourceSemanticsImportClause(
@@ -400,7 +430,6 @@ function recordSourceSemanticsCallMarker(
       recordFieldMarker(facts, diagnostics, extensionId, callExpression, marker, evidence);
       return;
     case "struct":
-      recordStructMarker(facts, callExpression, evidence);
       return;
     case "attribute":
       recordAttributeMarker(facts, diagnostics, extensionId, callExpression, marker, evidence);
