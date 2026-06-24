@@ -1,9 +1,68 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, runNodeInDirectory, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI lists built-in target packs", () => {
   const result = runNode([cliPath, "targets"]);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /^csharp\tC#$/m);
+});
+
+test("CLI prints current architecture help without legacy command aliases", () => {
+  for (const helpArg of [undefined, "help", "--help", "-h"]) {
+    const args = helpArg === undefined ? [cliPath] : [cliPath, helpArg];
+    const result = runNode(args);
+    assert.equal(result.status, 0, helpArg ?? "default");
+    assert.match(result.stdout, /tsonic build --project <tsonic\.json>/);
+    assert.match(result.stdout, /TSTS owns TypeScript parse\/bind\/check\/flow\/narrowing/);
+    assert.doesNotMatch(result.stdout, /\badd\b|\brestore\b|\btest-command\b/);
+  }
+});
+
+test("CLI rejects unknown commands instead of routing legacy command shims", () => {
+  for (const command of ["add", "restore", "test", "run", "unknown"]) {
+    const result = runNode([cliPath, command]);
+    assert.equal(result.status, 2, command);
+    assert.match(result.stderr, new RegExp(`Unknown command '${command}'`, "u"));
+    assert.match(result.stderr, /tsonic build --project <tsonic\.json>/);
+  }
+});
+
+test("CLI reports missing project path argument before project loading", () => {
+  for (const flag of ["--project", "-p"]) {
+    const missing = runNode([cliPath, "build", flag]);
+    assert.equal(missing.status, 1, flag);
+    assert.match(missing.stderr, /Expected a path after --project/);
+
+    const optionLike = runNode([cliPath, "build", flag, "--other"]);
+    assert.equal(optionLike.status, 1, flag);
+    assert.match(optionLike.stderr, /Expected a path after --project/);
+  }
+});
+
+test("CLI build uses tsonic.json in the current directory when --project is omitted", async () => {
+  const projectDirectory = resolve(tempRoot, "default-project-path");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedDefaultProject",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNodeInDirectory(projectDirectory, [cliPath, "build"]);
+  assert.equal(build.status, 0, build.stderr);
+  assert.match(build.stdout, /Entry: index\.ts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaultProject.csproj")), true);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), true);
 });
 
 

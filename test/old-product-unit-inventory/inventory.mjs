@@ -277,6 +277,50 @@ const oldProductUnitStaleProofByOldPath = new Map([
 
 const oldProductUnitOldEvidenceRole = "regression-evidence-only";
 
+const oldProductUnitPortedProofByOldPath = new Map([
+  ["packages/cli/src/cli/parser.test.ts", Object.freeze({
+    capabilityIds: freezeSortedStrings([
+      "host.config.project-load",
+      "host.package.composition",
+    ]),
+    newPath: "test/cli-build/target-config.test.mjs",
+    reason:
+      "Ported to current CLI command-contract tests: help, targets, build, unknown-command rejection, missing --project value diagnostics, and default tsonic.json project loading. Legacy add/restore/test-command breadth is intentionally not resurrected.",
+  })],
+  ["packages/cli/src/config.test.ts", Object.freeze({
+    capabilityIds: freezeSortedStrings([
+      "host.config.project-load",
+      "host.config.target-selection",
+      "host.project.target-selection",
+    ]),
+    newPath: "test/cli-build/target-config.test.mjs",
+    reason:
+      "Ported to current strict tsonic.json config tests: entryPoint/rootDir/outDir/targets are accepted, legacy output/rootNamespace/target-level namespace and TypeScript path-mapping fields are rejected, and target options are delegated to the selected target pack.",
+  })],
+  ["packages/cli/src/config-cases/resolve-basics.test.ts", Object.freeze({
+    capabilityIds: freezeSortedStrings([
+      "host.config.project-load",
+      "host.config.target-selection",
+      "host.project.target-selection",
+    ]),
+    newPath: "test/cli-build/target-config.test.mjs",
+    reason:
+      "Ported to current target-selection tests: missing/unknown/duplicate target ids and unsupported target fields are diagnosed before compiler or backend work starts.",
+  })],
+  ["packages/cli/src/config-cases/resolve-surfaces.test.ts", Object.freeze({
+    capabilityIds: freezeSortedStrings([
+      "host.config.surface-selection",
+      "host.project.surface-extension-composition",
+      "host.project.surface-selection",
+      "runtime.csharp.js",
+      "surface.js.array-methods",
+    ]),
+    newPath: "test/cli/surface-composition.test.mjs",
+    reason:
+      "Ported to current surface-selection tests: selected target-owned surfaces compose provider/surface extensions and runtime artifacts, while unknown, duplicate, missing-dependency, stale, and unselected surfaces fail closed.",
+  })],
+]);
+
 export const oldProductUnitPortInventory = Object.freeze(
   oldProductUnitHistoricalTestFileTuples.map(([oldPath, testDeclarations]) => withOldProductUnitCapabilityProof(oldPath, testDeclarations)),
 );
@@ -305,6 +349,9 @@ function withOldProductUnitCapabilityProof(oldPath, testDeclarations) {
   const staleProof = status === "invalid-stale-architecture"
     ? oldProductUnitStaleProofFor(oldPath)
     : undefined;
+  const portedProof = status === "ported"
+    ? oldProductUnitPortedProofFor(oldPath)
+    : undefined;
 
   return Object.freeze({
     oldPath,
@@ -314,15 +361,23 @@ function withOldProductUnitCapabilityProof(oldPath, testDeclarations) {
     owner: oldProductUnitOwnerFor(oldPath),
     oldEvidenceRole: oldProductUnitOldEvidenceRole,
     capabilityMappingStatus: status === "deferred" ? "deferred-derived" : "reviewed",
-    capabilityIds: staleProof === undefined
-      ? freezeSortedStrings(oldProductUnitCapabilityIdsFor(oldPath))
-      : staleProof.capabilityIds,
+    capabilityIds: staleProof?.capabilityIds ?? portedProof?.capabilityIds ?? freezeSortedStrings(oldProductUnitCapabilityIdsFor(oldPath)),
+    ...(portedProof?.newPath === undefined ? {} : { newPath: portedProof.newPath }),
     reason: oldProductUnitReasonFor(oldPath),
     ...(staleProof === undefined ? {} : {
       replacementCapabilityIds: staleProof.replacementCapabilityIds,
       replacementCapabilityPath: staleProof.replacementCapabilityPath,
     }),
   });
+}
+
+function oldProductUnitPortedProofFor(oldPath) {
+  const portedProof = oldProductUnitPortedProofByOldPath.get(oldPath);
+  if (portedProof === undefined) {
+    throw new Error(`missing current proof for ported old product unit entry ${oldPath}`);
+  }
+
+  return portedProof;
 }
 
 function oldProductUnitStaleProofFor(oldPath) {
@@ -335,6 +390,10 @@ function oldProductUnitStaleProofFor(oldPath) {
 }
 
 function oldProductUnitStatusFor(oldPath) {
+  if (oldProductUnitPortedProofByOldPath.has(oldPath)) {
+    return "ported";
+  }
+
   if (
     oldPath.includes("/package-manifests/bindings") ||
     oldPath.includes("/add-npm") ||
@@ -501,6 +560,11 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
 }
 
 function oldProductUnitReasonFor(oldPath) {
+  const portedProof = oldProductUnitPortedProofByOldPath.get(oldPath);
+  if (portedProof !== undefined) {
+    return portedProof.reason;
+  }
+
   if (oldProductUnitStatusFor(oldPath) === "invalid-stale-architecture") {
     return "Old unit test targets legacy frontend, package manifest, or binding-file architecture; replacement must be capability-ledger coverage against TSTS/provider/fact boundaries.";
   }
