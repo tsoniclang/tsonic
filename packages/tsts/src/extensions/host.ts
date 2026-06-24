@@ -189,6 +189,8 @@ export interface ProviderModuleContext {
   readonly resolutionMode?: unknown;
   readonly activeTarget?: string;
   readonly activeSurface?: string;
+  readonly requestedExports?: readonly string[];
+  readonly broadImport?: boolean;
 }
 
 export type ProviderOwnership =
@@ -203,6 +205,8 @@ export interface ProviderModuleResolution {
   readonly providerModuleId: string;
   readonly packageName?: string;
   readonly packageVersion?: string;
+  readonly requestedExports?: readonly string[];
+  readonly broadImport?: boolean;
   readonly evidence?: readonly ExtensionEvidence[];
 }
 
@@ -1573,6 +1577,8 @@ function getProviderResolveCacheKey(identity: ProviderIdentity, specifier: strin
     String(context.resolutionMode ?? ""),
     context.activeTarget ?? "",
     context.activeSurface ?? "",
+    context.broadImport === true ? "*" : "",
+    [...(context.requestedExports ?? [])].sort().join(","),
   ].join("\0");
 }
 
