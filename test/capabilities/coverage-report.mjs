@@ -4,6 +4,8 @@ import {
   capabilityLedger,
   capabilityOwners,
   capabilityStatuses,
+  requiredCapabilityIds,
+  validateCapabilityLedger,
   validateCapabilityLaneClassification,
 } from "./ledger.mjs";
 import {
@@ -34,6 +36,7 @@ export function buildCapabilityCoverageReport({
   oldEvidenceSourceGroups = defaultOldEvidenceSourceGroups(),
   oldInventoryEntries = defaultOldInventoryEntries(),
   oldInventoryCoverageSources = defaultOldInventoryCoverageSources(),
+  ledgerRequiredCapabilityIds = ledgerEntries === capabilityLedger ? requiredCapabilityIds : [],
 } = {}) {
   const classifiedOldEvidencePathSet = pathSetFromGroups(oldEvidenceSourceGroups);
   const oldInventoryEvidenceByCapability = groupOldInventoryEvidenceByCapability(oldInventoryEntries);
@@ -68,6 +71,7 @@ export function buildCapabilityCoverageReport({
       completeParentOnlyProofIsHole: true,
       laneClassificationIsLedgerEnforced: true,
       oldInventoryCoverageIsSeparatedByInventory: true,
+      capabilityLedgerValidationIsEnforced: true,
     },
     counts: {
       total: ledgerEntries.length,
@@ -86,6 +90,7 @@ export function buildCapabilityCoverageReport({
       oldInventoryEvidenceByCapability,
     ),
     oldInventoryCoverage: oldInventoryCoverage(ledgerEntries, oldInventoryCoverageSources),
+    ledgerValidation: ledgerValidationCoverage(ledgerEntries, ledgerRequiredCapabilityIds),
     laneClassificationCoverage: laneClassificationCoverage(ledgerEntries, statuses, owners),
     completeCapabilityProofHoles,
   };
@@ -801,6 +806,32 @@ function summarizeOldInventoryCoverage(byInventory, proofHoles) {
     invalidEntryCount: byInventory.reduce((count, inventory) => count + inventory.invalidEntryCount, 0),
     proofHoleCount: proofHoles.length,
     proofStatus: proofHoles.length === 0 ? "proven" : "hole",
+  };
+}
+
+function ledgerValidationCoverage(ledgerEntries, requiredIds) {
+  const validationErrors = validateCapabilityLedger(ledgerEntries, { requiredIds });
+  const proofHoles = validationErrors.map((error) => ({
+    proofHole: "capability-ledger-validation",
+    error,
+  }));
+
+  return {
+    rules: {
+      entriesMustPassSingleEntryValidation: true,
+      completeCapabilitiesRequirePositiveAndNegativeProof: true,
+      completeCapabilitiesRequireReviewedEvidence: true,
+      completeCapabilitiesRequireOldInventoryEvidence: true,
+      completeBroadCapabilitiesRequireCompleteSubCapabilityEvidence: true,
+      requiredCapabilityIdsMustExist: requiredIds.length > 0,
+    },
+    summary: {
+      entryCount: ledgerEntries.length,
+      requiredCapabilityIdCount: requiredIds.length,
+      validationErrorCount: validationErrors.length,
+      proofStatus: validationErrors.length === 0 ? "proven" : "hole",
+    },
+    proofHoles,
   };
 }
 

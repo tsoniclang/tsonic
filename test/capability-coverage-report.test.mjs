@@ -42,6 +42,56 @@ test("capability coverage report exposes counts by status and owner", () => {
   }
 });
 
+test("capability coverage report exposes ledger validation as a gate", () => {
+  const report = buildCapabilityCoverageReport();
+
+  assert.equal(report.rules.capabilityLedgerValidationIsEnforced, true);
+  assert.equal(report.ledgerValidation.rules.entriesMustPassSingleEntryValidation, true);
+  assert.equal(report.ledgerValidation.rules.completeCapabilitiesRequirePositiveAndNegativeProof, true);
+  assert.equal(report.ledgerValidation.rules.completeBroadCapabilitiesRequireCompleteSubCapabilityEvidence, true);
+  assert.equal(report.ledgerValidation.summary.entryCount, capabilityLedger.length);
+  assert.equal(report.ledgerValidation.summary.validationErrorCount, 0);
+  assert.equal(report.ledgerValidation.summary.proofStatus, "proven");
+  assert.deepEqual(report.ledgerValidation.proofHoles, []);
+});
+
+test("capability coverage report flags complete broad capabilities with incomplete children", () => {
+  const report = buildCapabilityCoverageReport({
+    ledgerEntries: [
+      capabilityEntry({
+        capabilityId: "example.broad",
+        status: "complete",
+        evidenceReview: "reviewed",
+        positiveTests: ["test/current-positive.test.mjs"],
+        negativeTests: ["test/current-negative.test.mjs"],
+        oldEvidence: ["old/example.test.ts"],
+      }),
+      capabilityEntry({
+        capabilityId: "example.broad.child",
+        status: "blocked",
+        blockers: ["Synthetic blocked child capability."],
+      }),
+    ],
+    oldEvidenceSourceGroups: [
+      {
+        source: "test-old-source",
+        paths: ["old/example.test.ts"],
+      },
+    ],
+    oldInventoryEntries: [],
+  });
+
+  assert.equal(report.ledgerValidation.summary.validationErrorCount, 1);
+  assert.equal(report.ledgerValidation.summary.proofStatus, "hole");
+  assert.deepEqual(report.ledgerValidation.proofHoles, [
+    {
+      proofHole: "capability-ledger-validation",
+      error:
+        "example.broad: complete broad capabilities require complete sub-capability evidence; example.broad.child is blocked",
+    },
+  ]);
+});
+
 test("capability coverage report lists complete capabilities with proof holes", () => {
   const report = buildCapabilityCoverageReport();
   const completeLedgerEntries = capabilityLedger.filter((entry) => entry.status === "complete");
@@ -364,6 +414,7 @@ test("capability coverage report mirrors lane classifications and reports proof 
       capabilityEntry({
         capabilityId: "operation.iteration.for-in.keys",
         status: "partial",
+        includeLaneClassification: false,
       }),
       capabilityEntry({
         capabilityId: "compat.any.dynamic-call",
@@ -478,13 +529,14 @@ function capabilityEntry({
   positiveTests = [],
   negativeTests = [],
   oldEvidence = [],
+  includeLaneClassification = true,
 }) {
   return {
     capabilityId,
     title: `Capability ${capabilityId}`,
     status,
     owner,
-    sourceExamples: [],
+    sourceExamples: [`${capabilityId} source example`],
     tstsDecision: "TSTS decision",
     providerFacts: [],
     backendContract: "Backend contract",
@@ -494,6 +546,24 @@ function capabilityEntry({
     oldEvidence,
     blockers,
     notes: "Test entry",
-    ...(laneClassification === undefined ? {} : { laneClassification }),
+    ...(includeLaneClassification
+      ? {
+        laneClassification: laneClassification ?? {
+          patternKind: "validation-test-pattern",
+          possibleLanes: ["static-native", "hard-reject"],
+          strictNative: {
+            lane: "static-native",
+          },
+          staticNative: {
+            lane: "static-native",
+            requiredFacts: [`${capabilityId}.fact`],
+          },
+          hardReject: {
+            lane: "hard-reject",
+            reasons: ["missing-required-facts"],
+          },
+        },
+      }
+      : {}),
   };
 }

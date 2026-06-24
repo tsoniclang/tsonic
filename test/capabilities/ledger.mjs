@@ -3784,6 +3784,76 @@ export const capabilityLedger = Object.freeze(baseCapabilityDefinitions.map(capa
 
 export const capabilityIdSet = Object.freeze(new Set(capabilityLedger.map((entry) => entry.capabilityId)));
 
+export function validateCapabilityLedger(entries, { requiredIds = requiredCapabilityIds } = {}) {
+  if (!Array.isArray(entries)) {
+    return ["capability ledger must be an array"];
+  }
+
+  return [
+    ...validateCapabilityLedgerEntrySet(entries, requiredIds),
+    ...entries.flatMap((entry) =>
+      validateCapabilityLedgerEntry(entry).map((error) => `${capabilityIdForValidationError(entry)}: ${error}`)
+    ),
+    ...validateCompleteBroadCapabilityEvidence(entries),
+  ];
+}
+
+function capabilityIdForValidationError(entry) {
+  if (isPlainObject(entry) && typeof entry.capabilityId === "string" && entry.capabilityId.length > 0) {
+    return entry.capabilityId;
+  }
+  return "<unknown>";
+}
+
+function validateCapabilityLedgerEntrySet(entries, requiredIds) {
+  const errors = [];
+  const seenCapabilityIds = new Set();
+
+  for (const entry of entries) {
+    if (!isPlainObject(entry) || typeof entry.capabilityId !== "string") {
+      continue;
+    }
+
+    if (seenCapabilityIds.has(entry.capabilityId)) {
+      errors.push(`duplicate capabilityId: ${entry.capabilityId}`);
+    }
+    seenCapabilityIds.add(entry.capabilityId);
+  }
+
+  for (const capabilityId of requiredIds) {
+    if (!seenCapabilityIds.has(capabilityId)) {
+      errors.push(`missing required capabilityId: ${capabilityId}`);
+    }
+  }
+
+  return errors;
+}
+
+function validateCompleteBroadCapabilityEvidence(entries) {
+  const errors = [];
+  const entriesByCapabilityId = new Map(entries
+    .filter((entry) => isPlainObject(entry) && typeof entry.capabilityId === "string")
+    .map((entry) => [entry.capabilityId, entry]));
+
+  for (const entry of entriesByCapabilityId.values()) {
+    if (entry.status !== "complete") {
+      continue;
+    }
+
+    const subCapabilities = [...entriesByCapabilityId.values()]
+      .filter((candidate) => candidate.capabilityId.startsWith(`${entry.capabilityId}.`));
+    for (const subCapability of subCapabilities) {
+      if (subCapability.status !== "complete") {
+        errors.push(
+          `${entry.capabilityId}: complete broad capabilities require complete sub-capability evidence; ${subCapability.capabilityId} is ${subCapability.status}`,
+        );
+      }
+    }
+  }
+
+  return errors;
+}
+
 export function validateCapabilityLedgerEntry(entry) {
   const errors = [];
   if (!isPlainObject(entry)) {

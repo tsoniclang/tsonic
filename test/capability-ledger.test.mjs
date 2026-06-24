@@ -7,6 +7,7 @@ import {
   capabilityOwners,
   capabilityStatuses,
   requiredCapabilityIds,
+  validateCapabilityLedger,
   validateCapabilityLedgerEntry,
 } from "./capabilities/ledger.mjs";
 import {
@@ -310,6 +311,29 @@ test("capability ledger validator rejects complete capabilities without proof", 
   );
 });
 
+test("capability ledger validator rejects incomplete sub-capability evidence for complete broad capabilities", () => {
+  const parentEntry = capabilityEntry({
+    capabilityId: "example.broad",
+    status: "complete",
+    evidenceReview: "reviewed",
+    positiveTests: ["test/current-positive.test.mjs"],
+    negativeTests: ["test/current-negative.test.mjs"],
+    oldEvidence: ["test/fixtures/old-example/"],
+  });
+  const partialChildEntry = capabilityEntry({
+    capabilityId: "example.broad.child",
+    status: "partial",
+    blockers: ["Child capability is intentionally incomplete for validation coverage."],
+  });
+
+  assert.deepEqual(
+    validateCapabilityLedger([parentEntry, partialChildEntry], { requiredIds: [] }),
+    [
+      "example.broad: complete broad capabilities require complete sub-capability evidence; example.broad.child is partial",
+    ],
+  );
+});
+
 test("complete parent capabilities require complete child capabilities", () => {
   for (const entry of capabilityLedger) {
     if (entry.status !== "complete") {
@@ -532,4 +556,47 @@ function assertValidLaneBehavior(entry, fieldName, behavior) {
   assert.equal(typeof behavior, "object", `${entry.capabilityId} missing ${fieldName} lane behavior`);
   assert.equal(typeof behavior.lane, "string", `${entry.capabilityId} ${fieldName}.lane must be a string`);
   assert.equal(capabilityLaneSet.has(behavior.lane), true, `${entry.capabilityId} ${fieldName}.lane is invalid: ${behavior.lane}`);
+}
+
+function capabilityEntry({
+  capabilityId,
+  status,
+  owner = "target-provider",
+  blockers = [],
+  evidenceReview = "seeded",
+  positiveTests = [],
+  negativeTests = [],
+  oldEvidence = [],
+}) {
+  return {
+    capabilityId,
+    title: `Capability ${capabilityId}`,
+    status,
+    owner,
+    sourceExamples: [`${capabilityId} source example`],
+    tstsDecision: "TSTS owns the source-language decision.",
+    providerFacts: [`${capabilityId}.fact`],
+    backendContract: "Backend consumes finalized facts and fails closed when missing.",
+    evidenceReview,
+    positiveTests,
+    negativeTests,
+    oldEvidence,
+    laneClassification: {
+      patternKind: "validation-test-pattern",
+      possibleLanes: ["static-native", "hard-reject"],
+      strictNative: {
+        lane: "static-native",
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: [`${capabilityId}.fact`],
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: ["missing-required-facts"],
+      },
+    },
+    blockers,
+    notes: "Synthetic validation entry.",
+  };
 }
