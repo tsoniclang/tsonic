@@ -1165,11 +1165,12 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /public static int lastPositionDefault\(string value, string needle\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.lastIndexOf\(value, needle\);/);
   assert.match(generatedSource, /public static string normalize\(string value\)/);
-  assert.match(generatedSource, /return value\.Trim\(\)\.ToLower\(\)\.ToUpper\(\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.toUpperCase\(Tsonic\.CSharp\.Js\.String\.toLowerCase\(Tsonic\.CSharp\.Js\.String\.trim\(value\)\)\);/);
   assert.match(generatedSource, /public static string trimEdges\(string value\)/);
-  assert.match(generatedSource, /return value\.TrimStart\(\)\.TrimEnd\(\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.trimEnd\(Tsonic\.CSharp\.Js\.String\.trimStart\(value\)\);/);
   assert.match(generatedSource, /public static string trimAliases\(string value\)/);
-  assert.match(generatedSource, /return value\.TrimStart\(\)\.TrimEnd\(\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.trimRight\(Tsonic\.CSharp\.Js\.String\.trimLeft\(value\)\);/);
+  assert.doesNotMatch(generatedSource, /\.Trim(Start|End)?\(\)|\.ToLower\(\)|\.ToUpper\(\)/);
   assert.match(generatedSource, /public static string replaced\(string value, string search, string replacement\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.replace\(value, search, replacement\);/);
   assert.match(generatedSource, /public static string replacedAll\(string value, string search, string replacement\)/);
