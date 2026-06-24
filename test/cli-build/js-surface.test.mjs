@@ -867,6 +867,59 @@ test("CLI emits Record for-in from provider Dictionary key facts", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits Object helpers for closed Record dictionaries from selected JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "record-object-helpers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedRecordObjectHelpers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function recordKeys(values: Record<string, int32>): string[] {",
+      "  return Object.keys(values);",
+      "}",
+      "",
+      "export function recordValues(values: Record<string, int32>): int32[] {",
+      "  return Object.values(values);",
+      "}",
+      "",
+      "export function recordEntries(values: Record<string, int32>): [string, int32][] {",
+      "  return Object.entries(values);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> recordKeys\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.keys\(values\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> recordValues\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.values\(values\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<\(string, int\)> recordEntries\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.entries\(values\);/);
+  assert.doesNotMatch(generatedSource, /Object\.keys\(object/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRecordObjectHelpers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits string instance calls from selected target signature facts", async () => {
   const projectDirectory = resolve(tempRoot, "string-call-target-facts");

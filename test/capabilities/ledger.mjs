@@ -1770,6 +1770,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "surface.js.console": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
@@ -1849,7 +1850,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.js.object-runtime remains partial until JSON parse/stringify, object carrier writes, prototype/static helpers, runtime execution, and toolchain coverage are complete.",
     ]),
     notes:
-      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject carrier and return selected JS surface array-return carriers; missing carrier facts reject, foreign same-spelling declarations defer, and JSON remains fail-closed until closed JSON carrier facts exist.",
+      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject, JSArray, string, or Record<string, T>/Dictionary<string, T> carrier; Record helper output is verified through CLI emission and C# toolchain build; missing carrier facts reject, foreign same-spelling declarations defer, and JSON remains fail-closed until closed JSON facts are complete.",
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
