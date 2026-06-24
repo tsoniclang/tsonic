@@ -2670,6 +2670,35 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: backend/printer source gates ban C# dynamic, CLR reflection, late MethodInfo invocation, generic method construction, Activator construction, and Assembly.Load as generated-language semantics; C# JS/runtime source gates enforce the same runtime boundary while allowing the separate build-time .NET reflection provider to remain tooling input. Remains partial until every runtime package and generated C# fixture family is scanned or built through this gate.",
   }),
+  "source-core.module.single-owner": Object.freeze({
+    positiveTests: Object.freeze([
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: @tsonic/core/types.js and @tsonic/core/lang.js are owned by the target-neutral source-core provider, while the C# source alias provider explicitly returns unowned for both portable core modules and owns only @tsonic/csharp/types.js and @tsonic/csharp/lang.js. Remains partial until every target pack proves the same non-redefinition boundary.",
+  }),
+  "source-core.target-alias-consumption": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: C# target aliases live under @tsonic/csharp/* and map to canonical source-core primitive and marker facts such as int32, int64, uint8, out, ref, field, attribute, defaultof, ptr, and fnptr without redefining @tsonic/core/* modules. Remains partial until every C# alias has direct CLI proof and future targets prove their alias modules consume the same source-core facts.",
+  }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
