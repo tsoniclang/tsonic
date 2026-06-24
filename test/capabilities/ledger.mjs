@@ -2655,6 +2655,21 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: selected NodeJS surface runtime contributions are represented in host composition, generated C# projects include the real csharp-nodejs project reference automatically, and current NodeJS surface tests build node:path/fs/crypto/os/process mappings through that reference. Remains partial until executable tests cover the old Node fixture matrix and all unsupported Node module members fail closed.",
   }),
+  "runtime.no-reflection-semantics": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NoReflectionSemanticsTests.cs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NoReflectionSemanticsTests.cs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-maximus-cases/json-static-safety.test.ts",
+    ]),
+    notes:
+      "Reviewed partial proof: backend/printer source gates ban C# dynamic, CLR reflection, late MethodInfo invocation, generic method construction, Activator construction, and Assembly.Load as generated-language semantics; C# JS/runtime source gates enforce the same runtime boundary while allowing the separate build-time .NET reflection provider to remain tooling input. Remains partial until every runtime package and generated C# fixture family is scanned or built through this gate.",
+  }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
