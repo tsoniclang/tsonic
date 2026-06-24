@@ -325,6 +325,7 @@ test("capability coverage report mirrors lane classifications and reports proof 
 test("capability coverage report CLI emits machine-readable JSON", () => {
   const result = spawnSync(process.execPath, ["test/capabilities/coverage-report.mjs"], {
     encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
   });
 
   assert.equal(result.status, 0, result.stderr);

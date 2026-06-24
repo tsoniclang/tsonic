@@ -211,6 +211,7 @@ export type ProviderDeclarationKind = "type" | "value" | "namespace" | "function
 export interface ProviderTypeParameterDeclaration {
   readonly name: string;
   readonly constraints?: readonly ProviderTypeExpression[];
+  readonly defaultType?: ProviderTypeExpression;
   readonly variance?: "in" | "out" | "invariant" | "target-defined";
 }
 
@@ -1576,6 +1577,7 @@ function getProviderResolveCacheKey(identity: ProviderIdentity, specifier: strin
 }
 
 interface ProviderRenderContext {
+  readonly moduleSpecifier: string;
   readonly importAliases: Map<string, string>;
   readonly imports: ProviderRenderImport[];
 }
@@ -1588,6 +1590,7 @@ interface ProviderRenderImport {
 
 function renderProviderDeclarationModel(model: ProviderDeclarationModel): string {
   const context: ProviderRenderContext = {
+    moduleSpecifier: model.moduleSpecifier,
     importAliases: new Map(),
     imports: [],
   };
@@ -1617,7 +1620,7 @@ function renderProviderExportDeclaration(declaration: ProviderExportDeclaration,
     case "value":
       return `export declare const ${declaration.name}: ${renderProviderTypeExpression(declaration.type!, context)};`;
     case "namespace":
-      return `export declare namespace ${declaration.name} {\n${renderProviderMembers(declaration.members ?? [], context)}\n}`;
+      return `export declare namespace ${declaration.name} {\n${renderProviderNamespaceMembers(declaration.members ?? [], context)}\n}`;
     case "enum":
       return `export declare enum ${declaration.name} {\n${(declaration.members ?? []).map((member) => `  ${member.name},`).join("\n")}\n}`;
     case "opaque":
@@ -1631,6 +1634,25 @@ function renderProviderHeritage(types: readonly ProviderTypeExpression[], contex
 
 function renderProviderMembers(members: readonly ProviderMemberDeclaration[], context: ProviderRenderContext): string {
   return members.map((member) => `  ${renderProviderMember(member, context)}`).join("\n");
+}
+
+function renderProviderNamespaceMembers(members: readonly ProviderMemberDeclaration[], context: ProviderRenderContext): string {
+  return members.map((member) => `  ${renderProviderNamespaceMember(member, context)}`).join("\n");
+}
+
+function renderProviderNamespaceMember(member: ProviderMemberDeclaration, context: ProviderRenderContext): string {
+  switch (member.kind) {
+    case "method":
+      return renderProviderSignatures(renderProviderMemberName(member.name), member.signatures ?? [], context)
+        .map((signature) => `export function ${signature}`)
+        .join("\n  ");
+    case "property":
+    case "field":
+      return `export const ${member.name}: ${renderProviderTypeExpression(member.type!, context)};`;
+    case "constructor":
+    case "indexer":
+      return renderProviderMember(member, context);
+  }
 }
 
 function renderProviderMember(member: ProviderMemberDeclaration, context: ProviderRenderContext): string {
@@ -1676,9 +1698,13 @@ function renderProviderTypeParameters(typeParameters: readonly ProviderTypeParam
   }
   return `<${typeParameters.map((parameter) => {
     const constraints = parameter.constraints ?? [];
-    return constraints.length === 0
-      ? parameter.name
-      : `${parameter.name} extends ${constraints.map((constraint) => renderProviderTypeExpression(constraint, context)).join(" & ")}`;
+    const constraintText = constraints.length === 0
+      ? ""
+      : ` extends ${constraints.map((constraint) => renderProviderTypeExpression(constraint, context)).join(" & ")}`;
+    const defaultText = parameter.defaultType === undefined
+      ? ""
+      : ` = ${renderProviderTypeExpression(parameter.defaultType, context)}`;
+    return `${parameter.name}${constraintText}${defaultText}`;
   }).join(", ")}>`;
 }
 
@@ -1705,7 +1731,7 @@ function renderProviderTypeExpression(type: ProviderTypeExpression, context: Pro
     case "type-parameter":
       return type.name;
     case "provider-ref": {
-      const name = type.moduleSpecifier === undefined
+      const name = type.moduleSpecifier === undefined || type.moduleSpecifier === context.moduleSpecifier
         ? type.name
         : getProviderImportAlias(type.moduleSpecifier, type.name, context);
       return type.typeArguments === undefined || type.typeArguments.length === 0
@@ -1911,7 +1937,9 @@ function isValidArgumentPassingMode(value: ArgumentPassingMode): boolean {
 }
 
 function isValidProviderTypeParameterDeclaration(value: ProviderTypeParameterDeclaration): boolean {
-  return isIdentifierText(value.name) && (value.constraints ?? []).every(isValidProviderTypeExpression);
+  return isIdentifierText(value.name)
+    && (value.constraints ?? []).every(isValidProviderTypeExpression)
+    && (value.defaultType === undefined || isValidProviderTypeExpression(value.defaultType));
 }
 
 function isValidProviderTypeExpression(value: ProviderTypeExpression): boolean {

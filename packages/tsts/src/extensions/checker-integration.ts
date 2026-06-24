@@ -10,7 +10,7 @@ import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import { Checker_GetPropertyOfType } from "../internal/checker/exports.js";
-import { Checker_GetAliasedSymbol, Checker_getResolvedSymbolOrNil } from "../internal/checker/checker/symbols.js";
+import { Checker_GetAliasedSymbol, Checker_GetSymbolAtLocation, Checker_getResolvedSymbolOrNil } from "../internal/checker/checker/symbols.js";
 import { Checker_getApplicableIndexInfo } from "../internal/checker/checker/signatures.js";
 import { Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
 import { GetSourceFileOfNode, NodeIsSynthesized } from "../internal/ast/utilities.js";
@@ -64,21 +64,6 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   const sourceSelectedDeclaration = sourceSelectedSignature?.declaration;
   const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
   const sourceSelectedContainerSymbol = sourceSelectedDeclarationContainer === undefined ? undefined : Node_Symbol(sourceSelectedDeclarationContainer);
-  const requireOwner = hasAnyExtensionOwnedSubject(extensionHost, [
-    callee,
-    calleeSymbols.symbol,
-    calleeSymbols.resolvedSymbol,
-    calleeSymbols.aliasedSymbol,
-    calleeReceiver,
-    calleeReceiverSymbols.symbol,
-    calleeReceiverSymbols.resolvedSymbol,
-    calleeReceiverSymbols.aliasedSymbol,
-    calleeReceiverType,
-    calleeReceiverType?.symbol,
-    sourceSelectedDeclaration,
-    sourceSelectedDeclarationContainer,
-    sourceSelectedContainerSymbol,
-  ]);
 
   const result = extensionHost.runObservation(
     ExtensionObservationPoint.mapCheckedCall,
@@ -105,7 +90,7 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
     () => {
       return noCheckedCallMapping;
     },
-    { requireOwner },
+    { requireOwner: false },
   );
 
   if (result.kind !== "accept") {
@@ -643,7 +628,7 @@ function getReferenceSymbols(
   if (checker === undefined || node === undefined || !isReferenceSymbolQueryNode(node)) {
     return {};
   }
-  const symbol = Node_Symbol(node);
+  const symbol = Node_Symbol(node) ?? Checker_GetSymbolAtLocation(checker, node);
   const resolvedSymbol = Checker_getResolvedSymbolOrNil(checker, node);
   const aliasedSymbol = getAliasedSymbolIfAvailable(checker, resolvedSymbol ?? symbol);
   return {

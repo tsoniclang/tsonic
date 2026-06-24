@@ -1,8 +1,8 @@
 import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
-import { Node_Members, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
+import { Node_Body, Node_Members, Node_Statements, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
 import { Node_Name } from "../internal/ast/spine.js";
-import { KindConstructor, KindIndexSignature } from "../internal/ast/generated/kinds.js";
+import { KindConstructor, KindIndexSignature, KindModuleDeclaration } from "../internal/ast/generated/kinds.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import {
   canonicalIdentityFactKey,
@@ -135,7 +135,7 @@ function recordProviderVirtualMemberFacts(
   if (declarationNode === undefined || exportDeclaration.members === undefined) {
     return;
   }
-  const memberNodes = Node_Members(declarationNode) ?? [];
+  const memberNodes = getProviderVirtualMemberNodes(declarationNode);
   for (const member of exportDeclaration.members) {
     const matchingDeclarations = memberNodes.filter((candidate): candidate is Node => candidate !== undefined && isProviderMemberDeclaration(candidate, member));
     if (matchingDeclarations.length === 0) {
@@ -163,6 +163,13 @@ function recordProviderVirtualMemberFacts(
       recordProviderVirtualMemberFact(extensionHost, virtualModule, exportDeclaration, member, undefined, memberNode, evidence);
     }
   }
+}
+
+function getProviderVirtualMemberNodes(declarationNode: Node): readonly GoPtr<Node>[] {
+  if (declarationNode.Kind === KindModuleDeclaration) {
+    return Node_Statements(Node_Body(declarationNode)) ?? [];
+  }
+  return Node_Members(declarationNode) ?? [];
 }
 
 function recordProviderVirtualMemberFact(

@@ -2,6 +2,7 @@ import type { bool } from "../go/scalars.js";
 import type { GoPtr } from "../go/compat.js";
 import type { Context } from "../go/context.js";
 import { Background } from "../go/context.js";
+import { Node_Expression } from "../internal/ast/ast.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
@@ -133,11 +134,15 @@ function recordCheckedOperationForPublicQuery(
     return;
   }
   if (IsPropertyAccessExpression(node)) {
-    recordExtensionCheckedPropertyAccessMapping(checker, node);
+    const receiver = Node_Expression(node);
+    const receiverType = receiver === undefined ? undefined : Checker_GetTypeAtLocation(checker, receiver);
+    recordExtensionCheckedPropertyAccessMapping(checker, node, receiverType);
     return;
   }
   if (IsElementAccessExpression(node)) {
-    recordExtensionCheckedElementAccessMapping(checker, node);
+    const receiver = Node_Expression(node);
+    const receiverType = receiver === undefined ? undefined : Checker_GetTypeAtLocation(checker, receiver);
+    recordExtensionCheckedElementAccessMapping(checker, node, receiverType);
     return;
   }
   if (IsBinaryExpression(node)) {

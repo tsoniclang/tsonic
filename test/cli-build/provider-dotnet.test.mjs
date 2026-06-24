@@ -45,6 +45,95 @@ test("CLI emits provider-owned static C# calls from selected TSTS target facts",
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits explicit provider-owned native .NET arrays without JS array surface semantics", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-native-dotnet-array");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderNativeDotnetArray",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function makeNativeArray(size: int32): DotNetArray<int32> {",
+      "  const values = DotNetArray.create<int32>(size);",
+      "  values[0] = 7;",
+      "  return values;",
+      "}",
+      "",
+      "export function nativeArrayLength(values: DotNetArray<int32>): int32 {",
+      "  return values.length;",
+      "}",
+      "",
+      "export function nativeArrayAt(values: DotNetArray<int32>, index: int32): int32 {",
+      "  return values[index];",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static int\[\] makeNativeArray\(int size\)/);
+  assert.match(generatedSource, /int\[\] values = new int\[size\];/);
+  assert.match(generatedSource, /values\[0\] = 7;/);
+  assert.match(generatedSource, /public static int nativeArrayLength\(int\[\] values\)/);
+  assert.match(generatedSource, /return values\.Length;/);
+  assert.match(generatedSource, /public static int nativeArrayAt\(int\[\] values, int index\)/);
+  assert.match(generatedSource, /return values\[index\];/);
+  assert.doesNotMatch(generatedSource, /JSArray/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderNativeDotnetArray.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects JS array mutators on explicit provider-owned native .NET arrays", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-native-dotnet-array-reject-mutator");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderNativeDotnetArrayRejectMutator",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function invalid(values: DotNetArray<int32>): void {",
+      "  values.push(1);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /push|does not exist|CSHARP_TARGET_MEMBER_NOT_FOUND/u);
+});
+
 
 test("CLI accepts provider-owned overloads discovered from .NET reflection", async () => {
   const projectDirectory = resolve(tempRoot, "provider-static-call-reflection-overload");
