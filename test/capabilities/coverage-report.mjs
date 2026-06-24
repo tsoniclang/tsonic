@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import {
+  capabilityCompatRuntimeCarriers,
   capabilityLaneNames,
   capabilityLedger,
   capabilityOwners,
@@ -399,6 +400,8 @@ function laneClassificationCoverage(ledgerEntries, statuses, owners) {
       trackedStatuses: [...laneClassificationTrackedStatuses],
       allLedgerEntriesWithLaneClassificationAreTracked: true,
       allowedLanes: [...capabilityLaneNames],
+      compatRuntimeCarriersMustBeClosed: true,
+      allowedCompatRuntimeCarriers: [...capabilityCompatRuntimeCarriers],
     },
     summary: summarizeLaneClassificationCoverage(byCapability, statuses, owners),
     byCapability,

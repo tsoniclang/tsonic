@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  capabilityCompatRuntimeCarriers,
   capabilityLaneNames,
   capabilityIdSet,
   capabilityLedger,
@@ -32,6 +33,7 @@ import {
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
+const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
 
 test("capability ledger has valid machine-readable entries", () => {
   assert.equal(capabilityLedger.length, requiredCapabilityIds.length);
@@ -95,6 +97,11 @@ test("compat-runtime lane classifications name closed carriers and required fact
     assert.ok(Array.isArray(classification.compat.requiredFacts), `${entry.capabilityId} compat behavior must name required facts`);
     assert.ok(classification.compat.requiredFacts.length > 0, `${entry.capabilityId} compat behavior must require facts`);
     assert.doesNotMatch(classification.compat.runtimeCarrier, /QuickJS|Reflection|dynamic/u, `${entry.capabilityId} names a banned compat mechanism`);
+    assert.equal(
+      capabilityCompatRuntimeCarrierSet.has(classification.compat.runtimeCarrier),
+      true,
+      `${entry.capabilityId} names non-canonical compat carrier ${classification.compat.runtimeCarrier}`,
+    );
   }
 });
 
@@ -161,6 +168,22 @@ test("capability ledger validator rejects missing or malformed lane classificati
     [
       "laneClassification.compat.requiredFacts must be a non-empty array",
       "laneClassification.compat.runtimeCarrier must be a non-empty string when lane is compat-runtime",
+    ],
+  );
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({
+      ...sample,
+      laneClassification: {
+        ...sample.laneClassification,
+        compat: {
+          ...sample.laneClassification.compat,
+          runtimeCarrier: "OpenRuntimeObject",
+        },
+      },
+    }),
+    [
+      `laneClassification.compat.runtimeCarrier must be one of ${capabilityCompatRuntimeCarriers.join(", ")}`,
     ],
   );
 });
@@ -308,6 +331,42 @@ test("capability ledger validator rejects complete capabilities without proof", 
   assert.ok(
     validateCapabilityLedgerEntry({ ...completeEntry, oldEvidence: [] })
       .includes("complete capabilities must have oldEvidence"),
+  );
+});
+
+test("capability ledger validator rejects duplicated and stale evidence reuse", () => {
+  const completeEntry = capabilityLedger.find((entry) => entry.status === "complete");
+  assert.notEqual(completeEntry, undefined);
+
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      positiveTests: [...completeEntry.positiveTests, completeEntry.positiveTests[0]],
+    }).includes("positiveTests must not contain duplicate entries"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      negativeTests: [...completeEntry.negativeTests, completeEntry.negativeTests[0]],
+    }).includes("negativeTests must not contain duplicate entries"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      oldEvidence: [...completeEntry.oldEvidence, completeEntry.oldEvidence[0]],
+    }).includes("oldEvidence must not contain duplicate entries"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      positiveTests: [completeEntry.oldEvidence[0]],
+    }).includes("positiveTests must not reuse oldEvidence paths"),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      negativeTests: [completeEntry.oldEvidence[0]],
+    }).includes("negativeTests must not reuse oldEvidence paths"),
   );
 });
 

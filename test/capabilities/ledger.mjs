@@ -25,9 +25,22 @@ export const capabilityLaneNames = Object.freeze([
   "hard-reject",
 ]);
 
+export const capabilityCompatRuntimeCarriers = Object.freeze([
+  "GeneratedProviderAdapter",
+  "SelectedSurfaceRuntime",
+  "TsArray",
+  "TsFunction",
+  "TsIterator",
+  "TsObject",
+  "TsThrownValueException",
+  "TsUnion",
+  "TsValue",
+]);
+
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
+const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
 const bannedCompatMechanismPattern = /QuickJS|Reflection|dynamic|GetProperty|GetProperties|GetMethod|GetMethods|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load/u;
 
 const baseCapabilityDefinitions = Object.freeze([
@@ -216,6 +229,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.process", "node:process uses selected Node surface facts", "partial", "surface-provider"],
+  ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
 
   ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "partial", "target-provider"],
   ["compat.mode.compat", "Compatibility mode enables explicit compat-runtime carriers", "partial", "target-provider"],
@@ -1908,6 +1922,22 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls, Buffer instance length/toString, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt overload-family mapping, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. Remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
   }),
+  "surface.node.util": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "surface.node.util remains partial until format, formatWithOptions, inspect, debuglog, deprecate, isDeepStrictEqual, and other open-object helpers have closed TsValue/provider-adapter semantics or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: selected node:util and bare util provider modules expose source-visible declarations, closed stripVTControlCharacters/toUSVString operations map by selected provider signature identity to Tsonic.CSharp.Node.util calls, and open-carrier format/inspect declarations fail closed without routing to reflection, dynamic dispatch, JsonSerializer object inspection, or generic runtime fallback.",
+  }),
   "backend.csharp.runtime-artifacts": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
@@ -3004,6 +3034,67 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: current tests reject standalone typeof without a selected typeof operator fact, native array length without JS/provider length facts, structural operators without selected target facts, backend missing-fact diagnostics before artifact/toolchain handoff, and old unknown/object/in-operator assumptions as missing-fact replacements. This proves fail-closed behavior for selected holes, not exhaustive missing-fact coverage.",
   }),
+  "diagnostic.missing-provider-fact": Object.freeze({
+    sourceExamples: Object.freeze([
+      "targets: [{ id: \"demo\" }]",
+      "import { File } from \"@tsonic/dotnet/System.IO.js\";",
+    ]),
+    tstsDecision:
+      "TSTS can only bind provider-owned modules after the selected target contributes a provider; no generated declaration or metadata file can stand in for a missing provider.",
+    providerFacts: Object.freeze([
+      "selectedTargetProviderFact",
+      "providerOwnershipFact",
+      "providerVirtualModuleFact",
+      "missingProviderDiagnosticFact",
+    ]),
+    backendContract:
+      "The host must diagnose missing providers before backend execution; backends must never synthesize provider facts from package names, declaration files, or metadata JSON.",
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/commands/restore.test.ts",
+      "packages/cli/src/package-manifests/bindings.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "diagnostic.missing-provider-fact remains partial until every selected target/provider/surface-owned virtual module path has missing-provider and unowned-provider diagnostics with exact source spans and no backend artifact emission.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "fail-closed-missing-provider-fact",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-selected-provider",
+          "provider-owned-module-without-owner",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-target-provider",
+          "provider-ownership",
+          "provider-virtual-module",
+        ]),
+        operation: "bind-provider-owned-module",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "missing-provider-fact-evidence",
+          "file-backed-provider-fallback-banned",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: host surface-composition tests diagnose target packs without providers before backend emission, and target-config tests reject generated .d.ts plus provider metadata JSON as hidden module fallbacks. This proves the provider path fails closed for selected missing-provider cases, not exhaustive provider ownership diagnostics.",
+  }),
   "diagnostic.unsupported-surface": Object.freeze({
     sourceExamples: Object.freeze([
       "targets: [{ id: \"csharp\", surfaces: [\"nodejs\"] }]",
@@ -3872,6 +3963,7 @@ export function validateCapabilityLedgerEntry(entry) {
   validateStringArrayField(errors, entry, "positiveTests");
   validateStringArrayField(errors, entry, "negativeTests");
   validateStringArrayField(errors, entry, "oldEvidence");
+  validateEvidenceArrays(errors, entry);
   validateCompleteCapabilityProof(errors, entry);
   validateStringArrayField(errors, entry, "blockers");
   validateBlockerCompleteness(errors, entry);
@@ -3895,6 +3987,51 @@ function validateCompleteCapabilityProof(errors, entry) {
   }
   if (!Array.isArray(entry.oldEvidence) || entry.oldEvidence.length === 0) {
     errors.push("complete capabilities must have oldEvidence");
+  }
+}
+
+function validateEvidenceArrays(errors, entry) {
+  validateUniqueStringArray(errors, entry.positiveTests, "positiveTests");
+  validateUniqueStringArray(errors, entry.negativeTests, "negativeTests");
+  validateUniqueStringArray(errors, entry.oldEvidence, "oldEvidence");
+
+  if (!Array.isArray(entry.oldEvidence)) {
+    return;
+  }
+
+  const oldEvidenceSet = new Set(entry.oldEvidence);
+  if (Array.isArray(entry.positiveTests)) {
+    for (const positiveTest of entry.positiveTests) {
+      if (oldEvidenceSet.has(positiveTest)) {
+        errors.push("positiveTests must not reuse oldEvidence paths");
+        break;
+      }
+    }
+  }
+  if (Array.isArray(entry.negativeTests)) {
+    for (const negativeTest of entry.negativeTests) {
+      if (oldEvidenceSet.has(negativeTest)) {
+        errors.push("negativeTests must not reuse oldEvidence paths");
+        break;
+      }
+    }
+  }
+}
+
+function validateUniqueStringArray(errors, value, field) {
+  if (!Array.isArray(value)) {
+    return;
+  }
+  const seen = new Set();
+  for (const item of value) {
+    if (typeof item !== "string") {
+      continue;
+    }
+    if (seen.has(item)) {
+      errors.push(`${field} must not contain duplicate entries`);
+      return;
+    }
+    seen.add(item);
   }
 }
 
@@ -3946,6 +4083,8 @@ function validateLaneClassification(errors, entry) {
       errors.push("laneClassification.compat.runtimeCarrier must be a non-empty string when lane is compat-runtime");
     } else if (bannedCompatMechanismPattern.test(classification.compat.runtimeCarrier)) {
       errors.push("laneClassification.compat.runtimeCarrier must not name a banned runtime mechanism");
+    } else if (!capabilityCompatRuntimeCarrierSet.has(classification.compat.runtimeCarrier)) {
+      errors.push(`laneClassification.compat.runtimeCarrier must be one of ${capabilityCompatRuntimeCarriers.join(", ")}`);
     }
     if (!isPlainObject(classification.compat) || typeof classification.compat.operation !== "string" || classification.compat.operation.length === 0) {
       errors.push("laneClassification.compat.operation must be a non-empty string when lane is compat-runtime");

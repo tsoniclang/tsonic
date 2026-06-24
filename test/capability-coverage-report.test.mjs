@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
+  capabilityCompatRuntimeCarriers,
   capabilityLedger,
   capabilityOwners,
   capabilityStatuses,
@@ -359,6 +360,8 @@ test("capability coverage report summarizes lane classification coverage", () =>
 
   assert.equal(report.rules.laneClassificationIsLedgerEnforced, true);
   assert.equal(report.laneClassificationCoverage.rules.allLedgerEntriesWithLaneClassificationAreTracked, true);
+  assert.equal(report.laneClassificationCoverage.rules.compatRuntimeCarriersMustBeClosed, true);
+  assert.deepEqual(report.laneClassificationCoverage.rules.allowedCompatRuntimeCarriers, [...capabilityCompatRuntimeCarriers]);
   assert.equal(report.laneClassificationCoverage.summary.total, trackedLedgerEntries.length);
   assert.equal(report.laneClassificationCoverage.proofHoles.length, report.laneClassificationCoverage.summary.withProofHoles);
 
