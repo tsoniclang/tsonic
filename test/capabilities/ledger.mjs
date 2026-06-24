@@ -1709,9 +1709,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "operation.property.provider-selected-member": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1722,7 +1724,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.property.provider-selected-member remains partial until fields, properties, events, indexers, inherited members, and unsupported-member diagnostics are proven through full CLI/runtime/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned property and field access maps only from selected provider declaration identity, same-spelling target members without selected identity reject, selected unsupported properties diagnose with provider reasons, and selected events reject until explicit source event semantics exist.",
+      "Reviewed partial proof: provider-owned property and field access maps only from selected provider declaration identity, backend property access emits from a finalized C# operation fact rather than source spelling, same-spelling target members without selected identity reject, selected unsupported properties diagnose with provider reasons, and selected events reject until explicit source event semantics exist.",
   }),
   "operation.member.provider-property": Object.freeze({
     positiveTests: Object.freeze([
@@ -1742,10 +1744,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "operation.member.provider-indexer": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
@@ -1758,7 +1762,28 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.member.provider-indexer remains partial until provider-owned indexer overloads, unsupported indexers, dictionary surface indexers, and mutable index assignments are proven through current CLI/runtime/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: selected provider indexer identity and provider-owned Dictionary indexer facts map element access without target-name guessing; missing or unsupported indexer facts reject.",
+      "Reviewed partial proof: selected provider indexer identity and provider-owned Dictionary indexer facts map element access without target-name guessing; backend element access requires both the generic selected indexer fact and the finalized C# operation fact; missing or unsupported indexer facts reject.",
+  }),
+  "operation.element.provider-indexer": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/dictionaries/Dictionaries.ts",
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    blockers: Object.freeze([
+      "operation.element.provider-indexer remains partial until provider-owned mutable index assignments, readonly indexer diagnostics, CLI/runtime execution, and old indexer fixture parity are proven.",
+    ]),
+    notes:
+      "Reviewed partial proof: checked element access reaches the backend only through selected provider/surface indexer facts; backend emission stops after the primary missing C# operation diagnostic when the generic selected indexer fact is not enough, and emits Roslyn ElementAccessExpression only from finalized selected indexer facts.",
   }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([
@@ -1810,6 +1835,65 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: parameter and variable binding patterns now consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; expression and statement assignment destructuring both fail closed instead of ordinary assignment fallback or stale lowering. This is not complete until target storage-write facts and end-to-end old fixture parity exist.",
+  }),
+  "expression.property-access": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/semantic-guards.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+    ]),
+    blockers: Object.freeze([
+      "expression.property-access remains partial until project-source properties, provider properties, fields, events, object-shape members, optional access, CLI/runtime execution, and old fixture parity are complete.",
+    ]),
+    notes:
+      "Reviewed partial proof: source-owned object-shape property access uses finalized structural member facts; provider-owned property access requires selected TSTS/provider facts plus a finalized C# operation fact; backend emission does not choose target members from the source property spelling.",
+  }),
+  "expression.element-access": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/dictionaries/Dictionaries.ts",
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    blockers: Object.freeze([
+      "expression.element-access remains partial until arrays, tuples, strings, dictionaries, provider indexers, optional element access, write operations, CLI/runtime execution, and old fixture parity are complete.",
+    ]),
+    notes:
+      "Reviewed partial proof: element access emits only when selected provider/surface indexer facts and finalized C# operation facts exist; generic selected target facts alone block emission with diagnostics.",
+  }),
+  "expression.assignment": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/assignability-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/assignability-boundary.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/array-destructuring/",
+      "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+    ]),
+    blockers: Object.freeze([
+      "expression.assignment remains partial until property/indexer writes, compound assignments, destructuring storage facts, readonly diagnostics, CLI/runtime execution, and old fixture parity are complete.",
+    ]),
+    notes:
+      "Reviewed partial proof: assignment emits canonical Roslyn AssignmentExpression only when the operator fact is finalized and both operands plan successfully; provider-owned assignment storage without selected target facts fails closed, and post-check target assignability validates writable provider members without redefining TypeScript assignability.",
   }),
   "expression.literal.bigint-regex-template": Object.freeze({
     positiveTests: Object.freeze([
