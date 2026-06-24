@@ -252,6 +252,10 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return values.includes(value);",
       "}",
       "",
+      "export function atOr(values: int32[], index: int32): int32 {",
+      "  return values.at(index) ?? -1;",
+      "}",
+      "",
       "export function hasFrom(values: int32[], value: int32, start: int32): boolean {",
       "  return values.includes(value, start);",
       "}",
@@ -367,6 +371,8 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.join\(values, "\|"\);/);
   assert.match(generatedSource, /public static bool has\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.includes\(values, value\);/);
+  assert.match(generatedSource, /public static int atOr\(System\.Collections\.Generic\.IReadOnlyList<int> values, int index\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.atValue\(values, index\) \?\? -1;/);
   assert.match(generatedSource, /public static bool hasFrom\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value, int start\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.includes\(values, value, start\);/);
   assert.match(generatedSource, /public static int positionOf\(System\.Collections\.Generic\.IReadOnlyList<int> values, int value\)/);
@@ -1083,6 +1089,10 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.charAt(index);",
       "}",
       "",
+      "export function atOrEmpty(value: string, index: int32): string {",
+      "  return value.at(index) ?? \"\";",
+      "}",
+      "",
       "export function code(value: string, index: int32): number {",
       "  return value.charCodeAt(index);",
       "}",
@@ -1150,6 +1160,8 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.repeat\(value, count\);/);
   assert.match(generatedSource, /public static string character\(string value, int index\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.charAt\(value, index\);/);
+  assert.match(generatedSource, /public static string atOrEmpty\(string value, int index\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.at\(value, index\) \?\? "";/);
   assert.match(generatedSource, /public static double code\(string value, int index\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.charCodeAt\(value, index\);/);
   assert.match(generatedSource, /public static int\? codePoint\(string value, int index\)/);
