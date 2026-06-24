@@ -106,22 +106,64 @@ function recordProviderVirtualModuleFacts(extensionHost: ExtensionHost, file: So
     if (targetBinding !== undefined) {
       extensionHost.facts.set(symbol, targetBindingFactKey, targetBinding, evidence);
     }
-    const declarationNode = symbol.Declarations?.find((candidate): candidate is Node => candidate !== undefined);
-    if (declarationNode !== undefined) {
-      extensionHost.facts.set(declarationNode, providerVirtualDeclarationFactKey, declarationFact, evidence);
-      if (targetBinding !== undefined) {
-        extensionHost.facts.set(declarationNode, targetBindingFactKey, targetBinding, evidence);
-      }
-      const declarationSymbol = Node_Symbol(declarationNode);
-      if (declarationSymbol !== undefined) {
-        extensionHost.facts.set(declarationSymbol, providerVirtualDeclarationFactKey, declarationFact, evidence);
-        if (targetBinding !== undefined) {
-          extensionHost.facts.set(declarationSymbol, targetBindingFactKey, targetBinding, evidence);
+    recordProviderVirtualExportDeclarationFacts(extensionHost, virtualModule, declaration, symbol, targetBinding, declarationFact, evidence);
+    recordProviderVirtualMemberFacts(extensionHost, virtualModule, declaration, symbol, evidence);
+  }
+}
+
+function recordProviderVirtualExportDeclarationFacts(
+  extensionHost: ExtensionHost,
+  virtualModule: ProviderResolvedModule,
+  declaration: ProviderExportDeclaration,
+  symbol: Symbol,
+  targetBinding: TargetBindingFact | undefined,
+  declarationFact: ProviderVirtualDeclarationFact,
+  evidence: readonly ExtensionEvidence[],
+): void {
+  if (declaration.kind === "function" && declaration.signatures !== undefined && declaration.signatures.length > 0) {
+    const declarationNodes = getProviderVirtualExportDeclarationNodes(symbol, declaration);
+    if (declarationNodes.length === declaration.signatures.length) {
+      for (let index = 0; index < declaration.signatures.length; index++) {
+        const signature = declaration.signatures[index];
+        const declarationNode = declarationNodes[index];
+        if (signature !== undefined && declarationNode !== undefined) {
+          extensionHost.facts.set(declarationNode, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration, undefined, signature), evidence);
+          if (targetBinding !== undefined) {
+            extensionHost.facts.set(declarationNode, targetBindingFactKey, targetBinding, evidence);
+          }
         }
       }
     }
-    recordProviderVirtualMemberFacts(extensionHost, virtualModule, declaration, symbol, evidence);
+    return;
   }
+
+  const declarationNode = symbol.Declarations?.find((candidate): candidate is Node => candidate !== undefined);
+  if (declarationNode !== undefined) {
+    extensionHost.facts.set(declarationNode, providerVirtualDeclarationFactKey, declarationFact, evidence);
+    if (targetBinding !== undefined) {
+      extensionHost.facts.set(declarationNode, targetBindingFactKey, targetBinding, evidence);
+    }
+    const declarationSymbol = Node_Symbol(declarationNode);
+    if (declarationSymbol !== undefined) {
+      extensionHost.facts.set(declarationSymbol, providerVirtualDeclarationFactKey, declarationFact, evidence);
+      if (targetBinding !== undefined) {
+        extensionHost.facts.set(declarationSymbol, targetBindingFactKey, targetBinding, evidence);
+      }
+    }
+  }
+}
+
+function getProviderVirtualExportDeclarationNodes(
+  symbol: Symbol,
+  declaration: ProviderExportDeclaration,
+): readonly Node[] {
+  return symbol.Declarations?.filter((candidate): candidate is Node => {
+    if (candidate === undefined) {
+      return false;
+    }
+    const name = Node_Name(candidate);
+    return name !== undefined && Node_Text(name) === declaration.name;
+  }) ?? [];
 }
 
 function recordProviderVirtualMemberFacts(

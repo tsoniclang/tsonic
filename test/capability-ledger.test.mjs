@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   capabilityCompatRuntimeCarriers,
+  coreLangIntrinsicCoverage,
+  coreLangIntrinsicModuleSpecifier,
   capabilityLaneNames,
   capabilityIdSet,
   capabilityLedger,
@@ -217,6 +219,7 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "source-core.ref.parameter-mode",
     "source-core.struct.field-facts",
     "source-core.lang.portable-intrinsics",
+    ...coreLangIntrinsicCoverage.map((entry) => entry.capabilityId),
     "operation.call.provider-selected-method",
     "operation.call.provider-argument-conversion",
     "operation.call.provider-parameter-mode",
@@ -273,6 +276,77 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
   for (const capabilityId of requiredIds) {
     assert.equal(capabilityIdSet.has(capabilityId), true, `missing required capability ${capabilityId}`);
   }
+});
+
+test("core lang intrinsic child capabilities define portable source contracts", () => {
+  const expectedExports = [
+    "out",
+    "ref",
+    "inref",
+    "borrow",
+    "borrowMut",
+    "move",
+    "struct",
+    "field",
+    "attribute",
+    "defaultof",
+    "ptr",
+    "fnptr",
+  ];
+  assert.deepEqual(coreLangIntrinsicCoverage.map((entry) => entry.exportName), expectedExports);
+
+  const entriesByCapabilityId = new Map(capabilityLedger.map((entry) => [entry.capabilityId, entry]));
+  for (const intrinsic of coreLangIntrinsicCoverage) {
+    const entry = entriesByCapabilityId.get(intrinsic.capabilityId);
+    assert.notEqual(entry, undefined, `missing core intrinsic capability ${intrinsic.capabilityId}`);
+    assert.equal(entry.status, "partial", `${intrinsic.capabilityId} must not be marked complete without full target proof`);
+    assert.equal(entry.owner, "source-core-provider", intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.moduleSpecifier, coreLangIntrinsicModuleSpecifier, intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.exportName, intrinsic.exportName, intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.factSlug, intrinsic.factSlug, intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.sourceKind, intrinsic.sourceKind, intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.unsupportedTargetBehavior, "deterministic-diagnostic", intrinsic.capabilityId);
+    assert.ok(entry.coreIntrinsic.requiredFacts.length > 0, `${intrinsic.capabilityId} must require facts`);
+    assert.ok(entry.coreIntrinsic.sourceContract.includes("Core owns"), `${intrinsic.capabilityId} must state core source ownership`);
+    assert.match(entry.coreIntrinsic.targetContract, /Targets .*diagnostic/u, intrinsic.capabilityId);
+    assert.ok(entry.providerFacts.includes("sourceCoreModuleIdentityFact"), intrinsic.capabilityId);
+    assert.ok(entry.providerFacts.includes("selectedTargetIntrinsicContractFact"), intrinsic.capabilityId);
+    assert.equal(entry.laneClassification.possibleLanes.includes("hard-reject"), true, intrinsic.capabilityId);
+    assert.equal(entry.laneClassification.possibleLanes.includes("compat-runtime"), false, intrinsic.capabilityId);
+    assert.equal(entry.laneClassification.hardReject.reasons.includes("unsupported-target-intrinsic"), true, intrinsic.capabilityId);
+    assert.ok(entry.sourceExamples.join("\n").includes(intrinsic.exportName), `${intrinsic.capabilityId} examples must name the export`);
+    assert.ok(entry.blockers.length > 0, `${intrinsic.capabilityId} must keep explicit partial blockers`);
+  }
+});
+
+test("capability ledger validator rejects incomplete core intrinsic metadata", () => {
+  const entry = capabilityLedger.find((candidate) =>
+    candidate.capabilityId === "source-core.lang.portable-intrinsics.out"
+  );
+  assert.notEqual(entry, undefined);
+
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({ ...entry, coreIntrinsic: undefined }),
+    ["coreIntrinsic must be an object"],
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...entry,
+      coreIntrinsic: {
+        ...entry.coreIntrinsic,
+        moduleSpecifier: "@tsonic/csharp/lang.js",
+      },
+    }).includes(`coreIntrinsic.moduleSpecifier must be ${coreLangIntrinsicModuleSpecifier}`),
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...entry,
+      coreIntrinsic: {
+        ...entry.coreIntrinsic,
+        requiredFacts: [],
+      },
+    }).includes("coreIntrinsic.requiredFacts must be a non-empty array"),
+  );
 });
 
 test("complete capabilities require positive and negative proof", () => {

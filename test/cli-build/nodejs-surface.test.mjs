@@ -380,6 +380,102 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
+test("CLI emits closed node:url operations from selected NodeJS declarations", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-url-closed-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodeUrl",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { URL, domainToASCII, fileURLToPath, pathToFileURL } from \"node:url\";",
+      "import { resolve as bareResolve } from \"url\";",
+      "",
+      "export function href(input: string): string {",
+      "  const parsed = new URL(input);",
+      "  return parsed.href;",
+      "}",
+      "",
+      "export function accepts(input: string): boolean {",
+      "  return URL.canParse(input);",
+      "}",
+      "",
+      "export function roundTrip(path: string): string {",
+      "  return fileURLToPath(pathToFileURL(path));",
+      "}",
+      "",
+      "export function ascii(domain: string): string {",
+      "  return domainToASCII(domain);",
+      "}",
+      "",
+      "export function joined(from: string, to: string): string {",
+      "  return bareResolve(from, to);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /new Tsonic\.CSharp\.Node\.URL\(input\)/);
+  assert.match(generatedSource, /return parsed\.href;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.URL\.canParse\(input\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.fileURLToPath\(Tsonic\.CSharp\.Node\.url\.pathToFileURL\(path\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.domainToASCII\(domain\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.resolve\(from, to\);/);
+  assert.doesNotMatch(generatedSource, /return URL\./);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeUrl.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects open-object node:url format operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-url-format-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { URL, format } from \"node:url\";",
+      "",
+      "export function render(input: string): string {",
+      "  const parsed = new URL(input);",
+      "  return format(parsed);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /CSHARP_NODEJS_CALL_NOT_MAPPED|CSHARP_UNSUPPORTED_AST/);
+  assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI rejects unsupported selected NodeJS provider operations without fallback", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-unsupported-selected-operation");
   await writeProject(projectDirectory, {
