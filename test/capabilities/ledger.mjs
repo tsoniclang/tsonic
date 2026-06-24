@@ -953,7 +953,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
-    negativeTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "test/fixtures/char-primitive/",
     ]),
@@ -1036,7 +1039,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
-    negativeTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "packages/targets/csharp/emitter/testcases/common/attributes/basic/Attributes.ts",
@@ -1044,24 +1050,27 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/attributes/targets/Attributes.ts",
     ]),
     blockers: Object.freeze([
-      "source.marker.attribute remains partial until invalid selector chains, unsupported constructor/named argument values, every placement target, and generated declaration attribute AST output are proven.",
+      "source.marker.attribute remains partial until unsupported constructor/named argument values, every placement target, and generated declaration attribute AST output are proven.",
     ]),
     notes:
-      "Reviewed partial proof: provider-backed attribute<User>() selectors attach attribute facts for type, constructor, constructor parameter, method, return, method parameter, property, and field-target placements with exact application targets and arguments. Negative source-authored selector diagnostics and end-to-end emission breadth remain open.",
+      "Reviewed partial proof: provider-backed attribute<User>() selectors attach attribute facts for type, constructor, constructor parameter, method, return, method parameter, property, and field-target placements with exact application targets and arguments. Missing explicit attribute target evidence, unproven selector bodies, non-literal parameter names, and non-literal target specifiers now fail closed with source-semantics diagnostics. Unsupported constructor/named argument value diagnostics and end-to-end emission breadth remain open.",
   }),
   "source.marker.defaultof": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
-    negativeTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "test/fixtures/defaultof-intrinsic/",
     ]),
     blockers: Object.freeze([
-      "source.marker.defaultof remains partial until default facts cover primitive, struct, nullable, reference, provider generic, invalid missing-type, and emitted target-default expression cases.",
+      "source.marker.defaultof remains partial until default facts cover primitive, struct, nullable, reference, provider generic, and emitted target-default expression cases.",
     ]),
     notes:
-      "Reviewed partial proof: defaultof<char>() attaches a default-value fact whose type is the finalized source type node. Old defaultof-intrinsic coverage remains regression evidence for future backend emission, not proof that every target default lane is complete.",
+      "Reviewed partial proof: defaultof<char>() attaches a default-value fact whose type is the finalized source type node. Missing explicit default type evidence now fails closed with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE. Old defaultof-intrinsic coverage remains regression evidence for future backend emission, not proof that every target default lane is complete.",
   }),
   "source.marker.ptr-fnptr": Object.freeze({
     positiveTests: Object.freeze([
