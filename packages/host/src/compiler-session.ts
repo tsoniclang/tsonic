@@ -82,7 +82,7 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
   if (extensionHost === undefined) {
     throw new Error("TSTS extension finalization returned no extension host.");
   }
-  const sourceFiles = compiler.getSourceFiles().filter((sourceFile): sourceFile is SourceFile => sourceFile !== undefined);
+  const sourceFiles = compiler.getSourceFilesToEmit().filter((sourceFile): sourceFile is SourceFile => sourceFile !== undefined);
   return {
     compiler,
     program: compiler.program,
