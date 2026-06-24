@@ -196,6 +196,67 @@ test("CLI rejects package-root imports instead of applying package-root shims", 
   assert.match(build.stderr, /@tsonic\/js/);
 });
 
+test("CLI rejects generated declaration files as hidden module fallbacks", async () => {
+  const projectDirectory = resolve(tempRoot, "generated-declaration-no-fallback");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "import { value } from \"./generated.js\";\nexport const result = value;\n",
+    "src/generated.d.ts": "export declare const value: number;\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /generated\.js/);
+});
+
+test("CLI rejects provider metadata JSON as hidden module fallbacks", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-metadata-json-no-fallback");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "import metadata from \"./provider.metadata.json\";\nexport const result = metadata;\n",
+    "src/provider.metadata.json": JSON.stringify({ target: "csharp" }),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /provider\.metadata\.json/);
+});
+
+test("CLI rejects package exports subpaths as hidden package-discovery fallbacks", async () => {
+  const projectDirectory = resolve(tempRoot, "package-exports-subpath-no-fallback");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "import { value } from \"@demo/pkg/subpath.js\";\nexport const result = value;\n",
+    "node_modules/@demo/pkg/package.json": JSON.stringify({
+      name: "@demo/pkg",
+      type: "module",
+      exports: {
+        "./subpath.js": "./subpath.d.ts",
+      },
+    }, null, 2),
+    "node_modules/@demo/pkg/subpath.d.ts": "export declare const value: number;\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /@demo\/pkg\/subpath\.js/);
+});
+
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
   const projectDirectory = resolve(tempRoot, "wide-csharp");
   await writeProject(projectDirectory, {

@@ -522,6 +522,69 @@ test("host gives backends the TSTS source graph instead of the raw project file 
   ]);
 });
 
+test("host source graph follows relative ESM import and export edges through TSTS", async () => {
+  const events = [];
+  let backendProjectSourceFiles = [];
+  const projectDirectory = resolve(tempRoot, "tsts-relative-esm-graph");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      backendProjectSourceFiles = input.sourceFiles
+        .map((sourceFile) => input.ast.getFileName(sourceFile))
+        .filter((fileName) => fileName.startsWith(projectDirectory))
+        .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
+        .sort();
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "import defaultValue from \"./defaulted.js\";",
+      "import { named } from \"./named.js\";",
+      "import * as namespace from \"./namespace.js\";",
+      "import type { Shape } from \"./types.js\";",
+      "import \"./side-effect.js\";",
+      "export { named as renamed } from \"./named.js\";",
+      "export { default as renamedDefault } from \"./defaulted.js\";",
+      "export * from \"./star.js\";",
+      "export * as starNamespace from \"./star.js\";",
+      "export const result: Shape = { value: defaultValue + named + namespace.value };",
+      "",
+    ].join("\n"),
+    "src/defaulted.ts": "const value = 1;\nexport default value;\n",
+    "src/named.ts": "export const named = 2;\n",
+    "src/namespace.ts": "export const value = 3;\n",
+    "src/side-effect.ts": "export const initialized = true;\n",
+    "src/star.ts": "export const star = 4;\n",
+    "src/types.ts": "export interface Shape { value: number; }\n",
+    "src/orphan.ts": "export const orphan = 0;\n",
+    "src/generated.d.ts": "export declare const generatedAmbientLeak: string;\n",
+    "src/provider.metadata.json": JSON.stringify({ target: "demo" }),
+  });
+
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(backendProjectSourceFiles, [
+    "src/defaulted.ts",
+    "src/index.ts",
+    "src/named.ts",
+    "src/namespace.ts",
+    "src/side-effect.ts",
+    "src/star.ts",
+    "src/types.ts",
+  ]);
+});
+
 test("host rejects declaration entrypoints before semantic input creation", () => {
   assert.throws(
     () => parseTsonicProjectConfig({

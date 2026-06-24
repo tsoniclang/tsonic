@@ -476,6 +476,142 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: current host does not discover package roots, generated declaration files, or metadata JSON as semantic input; provider-owned modules must enter through selected target/surface extensions, and package-root shim imports fail closed instead of being rescued by legacy package discovery.",
   }),
+  "module.graph.source-files": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/multi-file/",
+      "test/fixtures/multi-file-imports/",
+      "test/fixtures/multi-file-types/",
+    ]),
+    blockers: Object.freeze([
+      "module.graph.source-files remains partial until every old module fixture and package-style source graph case is mapped to current TSTS graph expectations.",
+    ]),
+    notes:
+      "Reviewed partial proof: relative ESM named/default/namespace/type-only/side-effect imports and re-export edges enter the backend only through TSTS sourceFiles, while orphan files, generated declarations, metadata JSON, and hidden package discovery paths are excluded or diagnosed.",
+  }),
+  "module.import.named": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/multi-file-imports/",
+    ]),
+    blockers: Object.freeze([
+      "module.import.named remains partial until named imports are covered across all old source-package/module fixture forms and backend emission capabilities.",
+    ]),
+    notes:
+      "Reviewed partial proof: named relative ESM imports are resolved by TSTS source graph; generated declaration, metadata JSON, tsconfig paths, and package-root/package-exports fallback imports fail closed instead of being rescued by host discovery.",
+  }),
+  "module.import.default": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "module.import.default remains partial until default imports are mapped to old fixture coverage and backend emission capabilities.",
+    ]),
+    notes:
+      "Reviewed partial proof: default relative ESM imports are resolved by TSTS source graph; hidden generated declaration and package discovery fallbacks are rejected.",
+  }),
+  "module.import.namespace": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/namespace-imports/",
+    ]),
+    blockers: Object.freeze([
+      "module.import.namespace remains partial until namespace imports are mapped across old fixtures and backend emission capabilities.",
+    ]),
+    notes:
+      "Reviewed partial proof: namespace relative ESM imports are resolved by TSTS source graph and not by backend source-name or package fallback discovery.",
+  }),
+  "module.import.type-only": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/multi-file-types/",
+    ]),
+    blockers: Object.freeze([
+      "module.import.type-only remains partial until type-only import erasure and old import-type fixture coverage are fully mapped.",
+    ]),
+    notes:
+      "Reviewed partial proof: type-only relative ESM imports participate in the TSTS source graph without creating generated declaration fallback input.",
+  }),
+  "module.import.side-effect": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/top-level-code/",
+    ]),
+    blockers: Object.freeze([
+      "module.import.side-effect remains partial until side-effect module initialization order is implemented and proven by backend/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: side-effect relative ESM imports enter the TSTS graph; initialization-order emission remains tracked separately under module.emit.top-level-order.",
+  }),
+  "module.export.named": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/module-constants/",
+    ]),
+    blockers: Object.freeze([
+      "module.export.named remains partial until named export declarations are fully mapped across old module fixtures and backend emission capabilities.",
+    ]),
+    notes:
+      "Reviewed partial proof: named exports and named re-export edges are represented through TSTS module symbols/sourceFiles rather than host-side export scanning.",
+  }),
+  "module.export.default": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "module.export.default remains partial until default export forms are mapped to old coverage and backend emission capabilities.",
+    ]),
+    notes:
+      "Reviewed partial proof: default exports participate in TSTS module graph resolution; the host does not synthesize default export declarations.",
+  }),
+  "module.export.reexport": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/barrel-reexports/",
+    ]),
+    blockers: Object.freeze([
+      "module.export.reexport remains partial until export-star, aliased re-export, and source-package re-export fixture coverage is fully mapped.",
+    ]),
+    notes:
+      "Reviewed partial proof: aliased named re-exports, default re-exports, export-star, and export-star-as edges enter through TSTS module graph rather than host-side barrel scanning.",
+  }),
   "module.package.exports-subpath": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/provider-dotnet.test.mjs",
@@ -494,7 +630,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "module.package.exports-subpath remains partial until package exports/subpath behavior is proven for ordinary project packages and provider-owned virtual modules without a file-backed fallback lane.",
     ]),
     notes:
-      "Reviewed partial proof: current provider and surface imports use explicit ESM subpaths, while package-root imports are not treated as bootstrap shims. Full completion requires an explicit package-exports ledger slice rather than relying on TSTS unresolved-module diagnostics alone.",
+      "Reviewed partial proof: current provider and surface imports use explicit ESM subpaths, while package-root imports and node_modules package exports are not treated as bootstrap shims or hidden generated-declaration fallbacks. Full completion requires provider-owned package subpath declarations and ordinary project package semantics to be proven without a file-backed fallback lane.",
   }),
   "module.path-mapping": Object.freeze({
     positiveTests: Object.freeze([
