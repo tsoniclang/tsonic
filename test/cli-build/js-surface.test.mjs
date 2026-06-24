@@ -56,17 +56,17 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double normalize\(double value\)/);
-  assert.match(generatedSource, /return System\.Math\.Truncate\(System\.Math\.Abs\(value\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.trunc\(Tsonic\.CSharp\.Js\.Math\.abs\(value\)\);/);
   assert.match(generatedSource, /public static double clamp\(double value, double low, double high\)/);
-  assert.match(generatedSource, /return System\.Math\.Max\(low, System\.Math\.Min\(high, value\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.max\(low, Tsonic\.CSharp\.Js\.Math\.min\(high, value\)\);/);
   assert.match(generatedSource, /public static double curve\(double value\)/);
-  assert.match(generatedSource, /System\.Math\.Sin\(value\) \+ System\.Math\.Cos\(value\) \+ System\.Math\.Sqrt\(System\.Math\.Pow\(value, 2\)\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.sin\(value\) \+ Tsonic\.CSharp\.Js\.Math\.cos\(value\) \+ Tsonic\.CSharp\.Js\.Math\.sqrt\(Tsonic\.CSharp\.Js\.Math\.pow\(value, 2\)\)/);
   assert.match(generatedSource, /public static double inverse\(double value\)/);
-  assert.match(generatedSource, /System\.Math\.Acos\(value\) \+ System\.Math\.Asin\(value\) \+ System\.Math\.Atan\(value\) \+ System\.Math\.Atan2\(value, 2\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.acos\(value\) \+ Tsonic\.CSharp\.Js\.Math\.asin\(value\) \+ Tsonic\.CSharp\.Js\.Math\.atan\(value\) \+ Tsonic\.CSharp\.Js\.Math\.atan2\(value, 2\)/);
   assert.match(generatedSource, /public static double logs\(double value\)/);
-  assert.match(generatedSource, /System\.Math\.Exp\(value\) \+ System\.Math\.Log\(value\) \+ System\.Math\.Log10\(value\) \+ System\.Math\.Log2\(value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.exp\(value\) \+ Tsonic\.CSharp\.Js\.Math\.log\(value\) \+ Tsonic\.CSharp\.Js\.Math\.log10\(value\) \+ Tsonic\.CSharp\.Js\.Math\.log2\(value\)/);
   assert.match(generatedSource, /public static double hyperbolic\(double value\)/);
-  assert.match(generatedSource, /System\.Math\.Sinh\(value\) \+ System\.Math\.Cosh\(value\) \+ System\.Math\.Tanh\(value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.sinh\(value\) \+ Tsonic\.CSharp\.Js\.Math\.cosh\(value\) \+ Tsonic\.CSharp\.Js\.Math\.tanh\(value\)/);
   assert.doesNotMatch(generatedSource, /return Math\./);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardMathCalls.csproj"), "--nologo", "--v:minimal"]);
