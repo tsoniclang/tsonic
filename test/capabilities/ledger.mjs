@@ -803,6 +803,49 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: .NET provider imports such as @tsonic/dotnet/System.js and @tsonic/dotnet/System.Reflection.js become TSTS compiler virtual modules, including cross-module inherited member refs whose provider-ref module ownership is preserved instead of rewritten to the inheriting base module.",
   }),
+  "provider.virtual-module.ownership": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/package-manifests/bindings.test.ts",
+      "packages/cli/src/commands/add-deps.test.ts",
+      "packages/cli/src/commands/restore.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "provider.virtual-module.ownership remains partial until every target and surface provider has explicit ownership tests for owned, unowned, rejected, missing, and unsupported module specifiers.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# target and selected surface providers explicitly own their virtual module specifiers, unselected providers do not rescue imports, and target packs without providers fail before backend emission instead of falling back to package files.",
+  }),
+  "provider.virtual-module.no-fallback": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/package-manifests/bindings.test.ts",
+      "packages/cli/src/commands/restore.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "provider.virtual-module.no-fallback remains partial until every provider-owned module failure mode has current CLI/toolchain coverage and precise diagnostics.",
+    ]),
+    notes:
+      "Reviewed partial proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; missing provider facts remain diagnostics/blockers.",
+  }),
   "provider.virtual-module.source-shape": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
