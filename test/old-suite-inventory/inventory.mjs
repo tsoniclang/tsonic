@@ -907,6 +907,249 @@ const oldSuiteReplacementProofByOldPath = new Map([
   })],
 ]);
 
+const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("dotnet-test-command"),
+  ], [
+    "backend.csharp.project-sdk-emit",
+    "toolchain.csharp.library",
+    "toolchain.csharp.nativeaot",
+    "toolchain.csharp.project",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("nodejs-surface-alias-coverage"),
+  ], [
+    "backend.csharp.runtime-artifacts",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("js-surface-runtime-builtins"),
+  ], [
+    "backend.csharp.runtime-artifacts",
+    "carrier.array.public-abi-policy",
+    "expression.element-access",
+    "surface.js.array.length-index",
+    "surface.js.console",
+    "surface.js.console-log",
+    "surface.js.math",
+    "surface.js.math-json-regexp",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-destructuring"),
+  ], [
+    "binding.array.fixed-rest-default",
+    "binding.assignment",
+    "binding.parameter",
+    "expression.assignment",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-spread"),
+  ], [
+    "carrier.array.public-abi-policy",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-literal"),
+  ], [
+    "carrier.array.public-abi-policy",
+    "expression.array-literal",
+    "surface.js.array.length-index",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-index-dotnet"),
+  ], [
+    "carrier.array.public-abi-policy",
+    "native.dotnet.array.explicit",
+    "surface.js.array.length-index",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("dotnet-disallowed-js-builtins"),
+    oldFixturePath("map-set-not-in-globals"),
+  ], [
+    "diagnostic.unsupported-selected-surface-operation",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("nodejs-surface-imports-negative"),
+  ], [
+    "diagnostic.unsupported-surface",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("source-package-surface-mismatch"),
+  ], [
+    "diagnostic.unsupported-surface",
+    "module.package.exports-subpath",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-double"),
+    oldFixturePath("array-multidimensional"),
+    oldFixturePath("array-type-emission"),
+  ], [
+    "expression.array-literal",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("nullish-coalescing"),
+    oldFixturePath("nullish-coalescing-threading"),
+  ], [
+    "expression.literal.null-undefined",
+    "expression.nullish-optional",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("optional-function-params"),
+  ], [
+    "function.default-rest-optional-params",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("multi-file"),
+  ], [
+    "host.graph.source-files",
+    "module.emit.multi-file",
+    "module.graph.source-files",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("multi-file-imports"),
+  ], [
+    "host.graph.source-files",
+    "module.emit.multi-file",
+    "module.graph.source-files",
+    "module.import.named",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("multi-file-types"),
+  ], [
+    "host.graph.source-files",
+    "module.graph.source-files",
+    "module.import.type-only",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("namespace-imports"),
+  ], [
+    "module.emit.multi-file",
+    "module.import.namespace",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("top-level-code"),
+  ], [
+    "module.emit.top-level-order",
+    "module.import.side-effect",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("module-constants"),
+  ], [
+    "module.export.named",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("barrel-reexports"),
+  ], [
+    "module.export.reexport",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("source-package-basic"),
+    oldFixturePath("source-package-subpath"),
+  ], [
+    "module.package.exports-subpath",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("native-array-push-mutation"),
+    oldFixturePath("readonly-array-property-mutation"),
+  ], [
+    "native.dotnet.array.explicit",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("generic-nested-substitution"),
+  ], [
+    "native.dotnet.constructors",
+    "native.dotnet.type-model",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("default-param-int-to-double"),
+    oldFixturePath("implicit-int-to-double"),
+  ], [
+    "native.dotnet.conversions",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("extension-methods-system"),
+    oldFixturePath("generic-method-standalone"),
+  ], [
+    "native.dotnet.member-methods",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("param-modifiers"),
+  ], [
+    "native.dotnet.parameter-modes",
+    "operation.call.provider-parameter-mode",
+    "source-core.lang.portable-intrinsics.inref",
+    "source-core.lang.portable-intrinsics.out",
+    "source-core.lang.portable-intrinsics.ref",
+    "source-core.out.storage-binding",
+    "source-core.ref.parameter-mode",
+    "source.marker.out-ref-inref",
+    "target.csharp.core-lang-intrinsics",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("defaultof-intrinsic"),
+  ], [
+    "source-core.lang.portable-intrinsics",
+    "source-core.lang.portable-intrinsics.defaultof",
+    "source.marker.defaultof",
+    "target.csharp.core-lang-intrinsics",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("core-intrinsics-provenance"),
+  ], [
+    "source-core.lang.portable-intrinsics",
+    "target.csharp.core-lang-intrinsics",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("struct-basic"),
+  ], [
+    "source-core.lang.portable-intrinsics.field",
+    "source-core.lang.portable-intrinsics.struct",
+    "source-core.struct.field-facts",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("pointer-types"),
+  ], [
+    "source-core.lang.portable-intrinsics.fnptr",
+    "source-core.lang.portable-intrinsics.ptr",
+    "source.marker.ptr-fnptr",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("char-primitive"),
+  ], [
+    "source.primitive.char-bool",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-constructor"),
+  ], [
+    "surface.js.array.sparse-delete-holes",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("js-surface-json-typed-parse"),
+    oldFixturePath("json-native-inline-stringify"),
+    oldFixturePath("json-native-typed-stringify"),
+  ], [
+    "surface.js.math-json-regexp",
+    "surface.js.object-runtime",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("clr-string-indexer-dotnet"),
+  ], [
+    "surface.js.string-methods",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("nodejs-surface-module-graph"),
+  ], [
+    "surface.node.buffer-crypto-os",
+    "surface.node.fs",
+    "surface.node.process",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("generic-constraints-object-struct"),
+    oldFixturePath("generic-constraints-single"),
+    oldFixturePath("generic-multiple-constraints"),
+  ], [
+    "type.generic.provider-target-constraints",
+  ]),
+]);
+
 const oldSuiteOldEvidenceRole = "regression-evidence-only";
 
 export const oldSuitePortInventory = Object.freeze(
@@ -956,9 +1199,10 @@ function deferredFixtures(names, featureArea, owner, reason) {
 
 function withOldSuiteCapabilityProof(entry) {
   const capabilityMappingStatus = entry.status === "deferred" ? "deferred-derived" : "reviewed";
-  const capabilityIds = entry.status === "deferred"
+  const baseCapabilityIds = entry.status === "deferred"
     ? defaultOldSuiteCapabilityIds(entry)
     : oldSuiteReviewedCapabilityIdsFor(entry);
+  const capabilityIds = oldSuiteCapabilityIdsWithLedgerEvidence(entry, baseCapabilityIds);
   const replacementProof = entry.status === "invalid-stale-architecture"
     ? oldSuiteReplacementProofFor(entry)
     : undefined;
@@ -982,6 +1226,20 @@ function freezeSortedStrings(values) {
 function reviewedOldSuiteCapabilityMapping(oldPaths, capabilityIds) {
   const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
   return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldSuiteLedgerEvidenceCapabilityMapping(oldPaths, capabilityIds) {
+  const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
+  return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldSuiteCapabilityIdsWithLedgerEvidence(entry, capabilityIds) {
+  const ledgerEvidenceCapabilityIds = oldSuiteLedgerEvidenceCapabilityIdsByOldPath.get(entry.oldPath);
+  if (ledgerEvidenceCapabilityIds === undefined) {
+    return capabilityIds;
+  }
+
+  return freezeSortedStrings([...capabilityIds, ...ledgerEvidenceCapabilityIds]);
 }
 
 function oldSuiteReviewedCapabilityIdsFor(entry) {

@@ -807,6 +807,159 @@ const oldEmitterReplacementProofByOldPath = new Map([
   })],
 ]);
 
+const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/interfaces/Interfaces"),
+  ], [
+    "carrier.object-shape",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("edge-cases/inline-object-param/InlineObjectParam"),
+    sourceCase("types/anonymous-objects/AnonymousObjects"),
+  ], [
+    "carrier.object-shape",
+    "expression.object-literal",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/constructor/User"),
+  ], [
+    "declaration.class.private-fields",
+    "native.dotnet.constructors",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/static-members/MathHelper"),
+  ], [
+    "declaration.class.static-blocks",
+    "declaration.class.visibility",
+    "diagnostic.unsupported-target-operation",
+    "expression.assignment",
+    "expression.property-access",
+    "native.dotnet.member-fields-properties-events",
+    "native.dotnet.unsupported-diagnostics",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/basic/Person"),
+  ], [
+    "declaration.class.visibility",
+    "native.dotnet.member-fields-properties-events",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/pointers/PointerTypes"),
+  ], [
+    "diagnostic.unsupported-target-operation",
+    "native.dotnet.unsupported-diagnostics",
+    "source-core.lang.portable-intrinsics.fnptr",
+    "source-core.lang.portable-intrinsics.ptr",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("arrays/multidimensional/MultiDimensional"),
+  ], [
+    "expression.array-literal",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("arrays/double-array/DoubleArray"),
+  ], [
+    "expression.array-literal",
+    "operation.iteration.for-in.keys",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("arrays/basic/ArrayLiteral"),
+  ], [
+    "expression.array-literal",
+    "operation.iteration.for-in.keys",
+    "operation.iteration.for-of.sync",
+    "statement.loop",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/dictionaries/Dictionaries"),
+  ], [
+    "expression.element-access",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("extensions/system/Overlaps"),
+  ], [
+    "expression.property-access",
+    "native.dotnet.assembly-model",
+    "native.dotnet.constructors",
+    "native.dotnet.member-methods",
+    "operation.call.provider-argument-conversion",
+    "provider.virtual-module.overload-identity",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("functions/default-params/DefaultParams"),
+    sourceCase("functions/optional-callbacks/OptionalParams"),
+  ], [
+    "function.default-rest-optional-params",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/constants/ModuleConstants"),
+  ], [
+    "module.emit.top-level-order",
+    "statement.top-level",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("extensions/linq/ExtensionMethods"),
+  ], [
+    "native.dotnet.assembly-model",
+    "native.dotnet.member-methods",
+    "provider.virtual-module.overload-identity",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("attributes/basic/Attributes"),
+    sourceCase("attributes/comprehensive/Attributes"),
+    sourceCase("attributes/targets/Attributes"),
+  ], [
+    "native.dotnet.attributes",
+    "source-core.lang.portable-intrinsics.attribute",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/type-assertions/TypeAssertions"),
+  ], [
+    "native.dotnet.conversions",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/field-inference/Counter"),
+  ], [
+    "native.dotnet.member-fields-properties-events",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/generic-methods/MethodInGenericClass"),
+    sourceCase("classes/generic-methods/MethodInNonGenericClass"),
+  ], [
+    "native.dotnet.member-methods",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/generic-inheritance/InheritanceChain"),
+    sourceCase("types/generic-interface-inheritance/InterfaceInheritance"),
+  ], [
+    "native.dotnet.type-model",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/expected-type-threading/VariableInit"),
+  ], [
+    "operation.call.provider-argument-conversion",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("structs/basic/Point"),
+  ], [
+    "source-core.lang.portable-intrinsics.field",
+    "source-core.lang.portable-intrinsics.struct",
+    "source-core.struct.field-facts",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("edge-cases/nested-scopes/NestedScopes"),
+  ], [
+    "statement.loop",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/generic-constraints/MultipleConstraints"),
+    sourceCase("types/generic-constraints/ObjectConstraint"),
+    sourceCase("types/generic-constraints/SingleConstraint"),
+  ], [
+    "type.generic.provider-target-constraints",
+  ]),
+]);
+
 const oldEmitterOldEvidenceRole = "regression-evidence-only";
 
 export const oldEmitterPortInventory = Object.freeze(
@@ -835,9 +988,10 @@ function expectedOnlyCases(relativePaths) {
 
 function withOldEmitterCapabilityProof(entry) {
   const capabilityMappingStatus = entry.status === "deferred" ? "deferred-derived" : "reviewed";
-  const capabilityIds = entry.status === "deferred"
+  const baseCapabilityIds = entry.status === "deferred"
     ? defaultOldEmitterCapabilityIds(entry)
     : oldEmitterReviewedCapabilityIdsFor(entry);
+  const capabilityIds = oldEmitterCapabilityIdsWithLedgerEvidence(entry, baseCapabilityIds);
   const replacementProof = entry.status === "invalid-stale-architecture"
     ? oldEmitterReplacementProofFor(entry)
     : undefined;
@@ -861,6 +1015,20 @@ function freezeSortedStrings(values) {
 function reviewedOldEmitterCapabilityMapping(oldPaths, capabilityIds) {
   const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
   return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldEmitterLedgerEvidenceCapabilityMapping(oldPaths, capabilityIds) {
+  const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
+  return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldEmitterCapabilityIdsWithLedgerEvidence(entry, capabilityIds) {
+  const ledgerEvidenceCapabilityIds = oldEmitterLedgerEvidenceCapabilityIdsByOldPath.get(entry.oldPath);
+  if (ledgerEvidenceCapabilityIds === undefined) {
+    return capabilityIds;
+  }
+
+  return freezeSortedStrings([...capabilityIds, ...ledgerEvidenceCapabilityIds]);
 }
 
 function oldEmitterReviewedCapabilityIdsFor(entry) {

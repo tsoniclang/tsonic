@@ -321,6 +321,83 @@ const oldProductUnitPortedProofByOldPath = new Map([
   })],
 ]);
 
+const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+  ], [
+    "backend.csharp.ast-statement",
+    "backend.csharp.printer",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/cli/src/commands/restore-cases/runtime-dlls.test.ts",
+    "packages/cli/src/package-manifests/bindings-cases/runtime-overrides-and-validation.test.ts",
+  ], [
+    "backend.csharp.runtime-artifacts",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+  ], [
+    "carrier.any-tsvalue",
+    "compat.any.call-construct",
+    "compat.any.dynamic-set",
+    "compat.any.property",
+    "compat.any.typed-boundary-cast",
+    "compat.mode.compat",
+    "compat.mode.strict-native",
+    "compat.prototype-mutation",
+    "compat.proxy-eval-function-with",
+    "diagnostic.dynamic-strict-mode",
+    "diagnostic.missing-target-fact",
+    "diagnostic.strict-mode-slow-op",
+    "runtime.dynamic.carrier",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/cli/src/commands/restore.test.ts",
+  ], [
+    "diagnostic.missing-provider-fact",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/cli/src/package-manifests/bindings.test.ts",
+  ], [
+    "diagnostic.missing-provider-fact",
+    "provider.virtual-module.source-shape",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/lowering/plan-builders.test.ts",
+    "packages/frontend/src/validator-maximus-cases/feature-gating.test.ts",
+  ], [
+    "diagnostic.missing-target-fact",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
+  ], [
+    "expression.literal.bigint-regex-template",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+  ], [
+    "source-core.lang.portable-intrinsics",
+    "source-core.lang.portable-intrinsics.attribute",
+    "source-core.lang.portable-intrinsics.field",
+    "source-core.lang.portable-intrinsics.inref",
+    "source-core.lang.portable-intrinsics.out",
+    "source-core.lang.portable-intrinsics.ref",
+    "source-core.module.single-owner",
+    "source-core.out.storage-binding",
+    "source-core.ref.parameter-mode",
+    "source-core.target-alias-consumption",
+    "source.marker.field",
+    "source.primitive.configured-type",
+    "target.csharp.core-lang-intrinsics",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
+  ], [
+    "source-core.target-alias-consumption",
+    "source.primitive.configured-type",
+  ]),
+]);
+
 export const oldProductUnitPortInventory = Object.freeze(
   oldProductUnitHistoricalTestFileTuples.map(([oldPath, testDeclarations]) => withOldProductUnitCapabilityProof(oldPath, testDeclarations)),
 );
@@ -344,6 +421,20 @@ function reviewedOldProductUnitStaleMappings(oldPaths, replacementCapabilityIds,
   return oldPaths.map((oldPath) => [oldPath, proof]);
 }
 
+function oldProductUnitLedgerEvidenceCapabilityMapping(oldPaths, capabilityIds) {
+  const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
+  return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldProductUnitCapabilityIdsWithLedgerEvidence(oldPath, capabilityIds) {
+  const ledgerEvidenceCapabilityIds = oldProductUnitLedgerEvidenceCapabilityIdsByOldPath.get(oldPath);
+  if (ledgerEvidenceCapabilityIds === undefined) {
+    return capabilityIds;
+  }
+
+  return freezeSortedStrings([...capabilityIds, ...ledgerEvidenceCapabilityIds]);
+}
+
 function withOldProductUnitCapabilityProof(oldPath, testDeclarations) {
   const status = oldProductUnitStatusFor(oldPath);
   const staleProof = status === "invalid-stale-architecture"
@@ -361,7 +452,10 @@ function withOldProductUnitCapabilityProof(oldPath, testDeclarations) {
     owner: oldProductUnitOwnerFor(oldPath),
     oldEvidenceRole: oldProductUnitOldEvidenceRole,
     capabilityMappingStatus: status === "deferred" ? "deferred-derived" : "reviewed",
-    capabilityIds: staleProof?.capabilityIds ?? portedProof?.capabilityIds ?? freezeSortedStrings(oldProductUnitCapabilityIdsFor(oldPath)),
+    capabilityIds: oldProductUnitCapabilityIdsWithLedgerEvidence(
+      oldPath,
+      staleProof?.capabilityIds ?? portedProof?.capabilityIds ?? freezeSortedStrings(oldProductUnitCapabilityIdsFor(oldPath)),
+    ),
     ...(portedProof?.newPath === undefined ? {} : { newPath: portedProof.newPath }),
     reason: oldProductUnitReasonFor(oldPath),
     ...(staleProof === undefined ? {} : {

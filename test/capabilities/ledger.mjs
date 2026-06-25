@@ -1156,6 +1156,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "test/fixtures/param-modifiers/",
     ]),
     blockers: Object.freeze([
       "source.marker.out-ref-inref remains partial until every assignable storage form, non-storage diagnostic, call/constructor propagation path, mutation flow, and emitted parameter-mode AST path is proven.",
@@ -1173,6 +1174,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
+      "test/fixtures/struct-basic/",
     ]),
     blockers: Object.freeze([
       "source.marker.field remains partial until field markers cover all valid containing declarations, invalid orphan/duplicate/member-name forms, target accessibility/mutability facts, and emitted field AST output.",
@@ -1280,6 +1282,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "test/fixtures/param-modifiers/",
     ]),
     blockers: Object.freeze([
       "source-core.out.storage-binding remains partial until destructured, provider-owned, readonly/non-assignable, source-span, and every selected-target byref write path have closed positive and negative proof.",
@@ -1298,6 +1301,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+      "test/fixtures/param-modifiers/",
     ]),
     blockers: Object.freeze([
       "source-core.ref.parameter-mode remains partial until ref/inref facts are consumed by every call, constructor, delegate, provider overload, invalid readonly, source-span, and emitted target parameter path.",
