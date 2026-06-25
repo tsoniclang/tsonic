@@ -692,7 +692,7 @@ test("CLI emits C# pointer and function-pointer types from source marker facts",
     }, null, 2),
     "src/index.ts": [
       "import type { int32 } from \"@tsonic/core/types.js\";",
-      "import type { ptr, fnptr } from \"@tsonic/csharp/lang.js\";",
+      "import type { ptr, fnptr } from \"@tsonic/core/lang.js\";",
       "",
       "export class NativeSlots {",
       "  current: ptr<int32>;",

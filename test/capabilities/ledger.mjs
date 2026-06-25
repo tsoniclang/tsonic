@@ -1248,10 +1248,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/pointer-types/",
     ]),
     blockers: Object.freeze([
-      "source.marker.ptr-fnptr remains partial until pointer/function-pointer facts cover explicit mutability variants, non-arity invalid type-argument forms, target diagnostics, and backend unsafe AST output across selected targets.",
+      "source.marker.ptr-fnptr remains partial until pointer/function-pointer facts cover explicit mutability variants, non-arity invalid type-argument forms, provider pointer boundaries, source spans, and all selected-target diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: neutral ptr<int32> and fnptr<[int32, bool], char> aliases plus core namespace marker imports attach pointer and function-pointer facts with target-defined mutability, unsafe requirements, parameter/result type nodes, and target-default ABI; local same-spelling markers do not attach facts, invalid arity is rejected by TSTS checking, and .NET provider tests prove unsupported pointer signatures are target diagnostics instead of source declarations.",
+      "Reviewed partial proof: neutral ptr<int32> and fnptr<[int32, bool], char> aliases plus core namespace marker imports attach pointer and function-pointer facts with target-defined mutability, unsafe requirements, parameter/result type nodes, and target-default ABI; local same-spelling markers do not attach facts, invalid arity is rejected by TSTS checking, C# CLI emits unsafe pointer/function-pointer output from finalized neutral facts, and .NET provider tests prove unsupported pointer signatures are target diagnostics instead of source declarations.",
   }),
   "source.marker.borrow-move": Object.freeze({
     positiveTests: Object.freeze([
@@ -1578,6 +1578,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
@@ -1959,10 +1960,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/pointer-types/",
     ],
     blockers: [
-      "source-core.lang.portable-intrinsics.fnptr remains partial until direct CLI proof, non-arity invalid Args/Result forms, ABI/calling convention facts, unsafe project settings, provider boundaries, source spans, and all selected-target diagnostics are proven.",
+      "source-core.lang.portable-intrinsics.fnptr remains partial until non-arity invalid Args/Result forms, ABI/calling convention facts, provider boundaries, source spans, and all selected-target diagnostics are proven.",
     ],
     notes:
-      "Reviewed partial proof: source-semantics records fnptr parameter/result type facts from aliased and namespace core type marker imports, rejects local same-spelling aliases, and relies on TSTS checking for invalid arity. Direct core-module CLI proof and complete target ABI diagnostics remain open.",
+      "Reviewed partial proof: source-semantics records fnptr parameter/result type facts from aliased and namespace core type marker imports, rejects local same-spelling aliases, relies on TSTS checking for invalid arity, and C# CLI emits delegate* output with AllowUnsafeBlocks only from finalized neutral facts. Complete target ABI diagnostics remain open.",
   }),
   "native.dotnet.assembly-model": Object.freeze({
     positiveTests: Object.freeze([
