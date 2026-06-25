@@ -316,7 +316,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.type-model", ".NET provider models generic, nested, static, and instance types", "partial", "target-provider"],
   ["native.dotnet.member-methods", ".NET provider models methods, overloads, extension methods, and generic methods", "partial", "target-provider"],
   ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "partial", "target-provider"],
-  ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "partial", "target-provider"],
+  ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "complete", "target-provider"],
   ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "partial", "target-provider"],
   ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "partial", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "partial", "target-provider"],
@@ -2163,7 +2163,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/generic-nested-substitution/",
     ]),
     notes:
-      "Reviewed partial proof: .NET provider records reflected constructors as constructor members with exact signature ids, preserves constructor array-literal element metadata, cross-namespace parameter provider refs, optional/default/params facts, and selected constructor identity; source conversion omits constructor-named non-constructor members and records unsupported constructor signatures instead of dropping them. Remains partial until accessibility, all constructor overload groups, provider-owned new-expression facts, and unsupported constructor diagnostics are complete end to end.",
+      "Reviewed proof: .NET provider records public reflected constructors as constructor members with exact signature ids, excludes non-public constructors from raw/source/target models, preserves constructor overload groups, array-literal element metadata, cross-namespace parameter provider refs, optional/default/params/byref facts, and selected constructor identity; source conversion omits constructor-named non-constructor members, records unsupported constructor signatures instead of dropping them, and CLI/provider-selection tests prove provider-owned new expressions and selected unsupported constructor diagnostics end to end.",
   }),
   "native.dotnet.constraints": Object.freeze({
     positiveTests: Object.freeze([
