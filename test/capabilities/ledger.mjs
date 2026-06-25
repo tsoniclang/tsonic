@@ -2907,7 +2907,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface runtime contributions are represented in host composition, current JS surface tests require closed C# JS runtime carriers for array and RegExp behavior, generated C# library projects include the real csharp-runtime/csharp-js project references while excluding csharp-nodejs when only js is selected, and a generated JS+Node executable runs through the C# JS runtime console path. Remains partial until every JS runtime carrier operation has executable runtime coverage and strict unsupported-operation diagnostics.",
+      "Reviewed partial proof: selected JS surface runtime contributions are represented in host composition, current JS surface tests require closed C# JS runtime carriers for array and RegExp behavior, generated C# library projects include the real csharp-runtime/csharp-js project references while excluding csharp-nodejs when only js is selected, a JS-only generated executable runs console and Math through the C# JS runtime without NodeJS, and a generated JS+Node executable runs through the C# JS runtime console path. Remains partial until every JS runtime carrier operation has executable runtime coverage and strict unsupported-operation diagnostics.",
   }),
   "runtime.csharp.nodejs": Object.freeze({
     positiveTests: Object.freeze([
