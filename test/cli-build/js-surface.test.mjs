@@ -658,7 +658,9 @@ test("CLI rejects fixed CLR array mutators without JSArray carrier facts", async
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.match(build.stderr, /C# native array source contract has no target-backed property 'push'/);
+  assert.match(build.stderr, /C# native array source contract has no target-backed property 'pop'/);
+  assert.match(build.stderr, /C# native array source contract has no target-backed property 'splice'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
@@ -1343,7 +1345,9 @@ test("CLI rejects string methods without exact provider-backed JS semantics", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.match(build.stderr, /C# property access 'replace' must be selected by TSTS\/provider facts before emission/);
+  assert.match(build.stderr, /C# property access 'replaceAll' must be selected by TSTS\/provider facts before emission/);
+  assert.match(build.stderr, /C# property access 'at' must be selected by TSTS\/provider facts before emission/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
