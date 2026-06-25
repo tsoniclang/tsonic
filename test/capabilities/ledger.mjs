@@ -3342,10 +3342,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
     ]),
     blockers: Object.freeze([
-      "operation.iteration.for-of.sync remains partial until provider-owned foreach, string code-point iteration, destructuring iteration, CLI execution, and old fixture parity are proven.",
+      "operation.iteration.for-of.sync remains partial until destructuring iteration, async iteration policy, CLI execution, and old fixture parity are proven.",
     ]),
     notes:
-      "Reviewed partial proof: for-of emits a Roslyn ForEachStatement only from a finalized provider targetIteration fact, and missing iteration facts fail closed before emission. This proof does not complete string, destructuring, async, or runtime/toolchain iteration coverage.",
+      "Reviewed partial proof: for-of emits Roslyn loop AST only from finalized targetIteration facts. Provider foreach, selected JS string code-point iteration, missing-fact diagnostics, and wrong-kind/wrong-lowering rejections are covered; destructuring, async, and runtime/toolchain iteration coverage remain open.",
   }),
   "operation.property.provider-selected-member": Object.freeze({
     positiveTests: Object.freeze([
@@ -3442,6 +3442,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -3449,7 +3450,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/arrays/double-array/DoubleArray.ts",
     ]),
     notes:
-      "Reviewed partial proof: for-in emission is driven by finalized C# targetIteration facts recorded only after TSTS accepts for-in. JS surface array/string for-in uses index-key facts, object-shape for-in uses object-shape key facts, and Record<string, T> for-in uses provider-owned Dictionary.Keys facts. Missing/non-string key facts fail closed instead of falling back to syntax or source-name inference.",
+      "Reviewed partial proof: for-in emission is driven by finalized C# targetIteration facts recorded only after TSTS accepts for-in. JS surface array/string for-in uses index-key facts, object-shape for-in uses object-shape key facts, and Record<string, T> for-in uses provider-owned Dictionary.Keys facts. Missing facts, wrong iteration kinds/lowerings, unsupported selected surface targets, and non-string key facts fail closed instead of falling back to syntax or source-name inference.",
   }),
   "operation.destructure.array-object": Object.freeze({
     positiveTests: Object.freeze([
@@ -3599,10 +3600,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/edge-cases/nested-scopes/NestedScopes.ts",
     ]),
     blockers: Object.freeze([
-      "statement.loop remains partial until for/while/do/for-in/for-of, destructuring iteration, top-level loop ordering, runtime/toolchain coverage, and old fixture parity are complete.",
+      "statement.loop remains partial until destructuring iteration, top-level loop ordering, runtime/toolchain coverage, and old fixture parity are complete.",
     ]),
     notes:
-      "Reviewed partial proof: while conditions require finalized bool carriers, for-of requires finalized provider iteration facts, and selected for-in provider/surface facts are tested separately. Missing facts fail closed.",
+      "Reviewed partial proof: while/for/do conditions require finalized bool carriers; for-of and for-in require finalized provider/surface iteration facts; wrong iteration facts and missing facts fail closed before C# AST emission.",
   }),
   "statement.control-transfer": Object.freeze({
     positiveTests: Object.freeze([
