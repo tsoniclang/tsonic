@@ -4094,8 +4094,16 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed partial proof: every reviewed old C# emitter inventory case is represented as backend.ast.only ledger evidence, Roslyn-boundary tests enforce no custom/raw syntax node kinds, and printer tests fail closed for invalid or foreign raw syntax nodes. Completion still requires every supported capability batch to prove Roslyn-compatible AST output end-to-end.",
   }),
   "backend.fail-closed-facts": Object.freeze({
-    positiveTests: Object.freeze([]),
-    negativeTests: Object.freeze([]),
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/lowering/plan-builders.test.ts",
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
@@ -4116,7 +4124,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "backend.fail-closed-facts remains partial until every missing-fact branch has current negative tests and old frontend validation assumptions are replaced by capability-specific diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: stale old frontend lowering and validator units are mapped as fail-closed evidence, not as a legacy frontend path. The final architecture requires missing facts to block emission with diagnostics instead of recovering through backend semantic inference.",
+      "Reviewed partial proof: stale old frontend lowering and validator units are mapped as fail-closed evidence, not as a legacy frontend path. Current C# backend tests reject semantic-only primitive/utility/callable type shapes, missing selected target call facts, bare instance target operations without value receivers, and non-static conversion-method facts. The final architecture requires missing facts to block emission with diagnostics instead of recovering through backend semantic inference.",
   }),
   "backend.no-semantic-strings": Object.freeze({
     positiveTests: Object.freeze([
