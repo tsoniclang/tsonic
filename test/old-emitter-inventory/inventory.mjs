@@ -704,6 +704,8 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "declaration.class.fields",
     "declaration.class.inheritance",
     "declaration.class.methods",
+    "operation.member.provider-property",
+    "operation.property.provider-selected-member",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("collections/list-initializer/ListInitializer"),
@@ -714,6 +716,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "carrier.dictionary-record",
     "operation.construct.provider-selected-constructor",
     "operation.element.provider-indexer",
+    "operation.member.provider-indexer",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("extensions/linq/ExtensionMethods"),
@@ -723,6 +726,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.fail-closed-facts",
     "operation.call.provider-selected-method",
     "operation.member.no-name-guess",
+    "operation.property.provider-selected-member",
     "provider.virtual-module.target-identity",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
@@ -741,6 +745,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "backend.fail-closed-facts",
+    "operation.conversion.checked-target-conversion",
     "source.marker.field",
     "source.marker.struct",
     "source.primitive.numeric",

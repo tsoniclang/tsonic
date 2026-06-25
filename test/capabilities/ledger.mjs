@@ -164,13 +164,13 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.call.provider-parameter-mode", "Provider-owned calls record parameter mode facts", "partial", "target-provider"],
   ["operation.construct.provider-selected-constructor", "Provider-owned constructors emit from selected constructor facts", "partial", "target-provider"],
   ["operation.constructor.provider-selected-target", "Constructors map to selected target constructor facts", "partial", "target-provider"],
-  ["operation.property.provider-selected-member", "Provider-owned property access emits from selected member facts", "partial", "target-provider"],
-  ["operation.member.provider-property", "Member properties map through selected provider declarations", "partial", "target-provider"],
-  ["operation.member.provider-indexer", "Member indexers map through selected provider declarations", "partial", "target-provider"],
+  ["operation.property.provider-selected-member", "Provider-owned property access emits from selected member facts", "complete", "target-provider"],
+  ["operation.member.provider-property", "Member properties map through selected provider declarations", "complete", "target-provider"],
+  ["operation.member.provider-indexer", "Member indexers map through selected provider declarations", "complete", "target-provider"],
   ["operation.member.no-name-guess", "Target member mapping cannot guess from source spelling", "complete", "target-provider"],
-  ["operation.element.provider-indexer", "Element access emits from selected indexer or carrier facts", "partial", "target-provider"],
+  ["operation.element.provider-indexer", "Element access emits from selected indexer or carrier facts", "complete", "target-provider"],
   ["operation.operator.checked-target-operation", "Operators emit from checked target operation facts", "partial", "target-provider"],
-  ["operation.conversion.checked-target-conversion", "Target conversions are explicit facts", "partial", "target-provider"],
+  ["operation.conversion.checked-target-conversion", "Target conversions are explicit facts", "complete", "target-provider"],
   ["operation.iteration.for-of.sync", "for-of emits only with sync iteration facts", "partial", "target-provider"],
   ["operation.iteration.for-in.keys", "for-in emits only with key enumeration facts", "partial", "target-provider"],
   ["operation.iteration.provider-target", "Iteration maps to provider target iteration facts", "partial", "target-provider"],
@@ -259,6 +259,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
@@ -1976,6 +1977,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/default-param-int-to-double/",
       "packages/targets/csharp/emitter/testcases/common/types/type-assertions/TypeAssertions.ts",
     ]),
+    blockers: Object.freeze([
+      "native.dotnet.conversions remains partial until reflected conversion operators are exercised through current CLI/runtime source calls, assertions, assignments, returns, generic substitutions, unsupported lifted/pointer/interface operators, and exact source-span diagnostics.",
+    ]),
     notes:
       "Reviewed partial proof: .NET reflection records op_Implicit and op_Explicit as target-only conversion operator facts, keeps them out of source-visible provider members, selects conversion operators by reflected source/target type identity, reports ambiguity rather than choosing by order, and records pointer-source conversion operators as unsupported provider evidence instead of exposing them. Remains partial until provider-owned conversions are proven through end-to-end source calls/assertions and unsupported conversion diagnostics cover every unsupported operator shape.",
   }),
@@ -2466,7 +2470,6 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2477,7 +2480,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-typed-stringify/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations including zero-argument max/min JS semantics, RegExp literal/constructor/test/property carriers with C# build coverage, and hard-reject JSON parse/stringify until closed JSON value carriers exist. Remains partial until JSON value carriers, Date, Map, Set, and every RegExp operation have selected-surface facts and runtime/toolchain tests.",
+      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations including zero-argument max/min JS semantics, RegExp literal/constructor/test/property carriers with C# build coverage, and JSON parse/stringify direct surface facts with closed TsValue carriers. Remains partial until nested JSON carrier flow, Map, Set, and every RegExp operation have selected-surface facts and runtime/toolchain tests; Date is tracked separately by surface.js.date.",
   }),
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
@@ -2485,14 +2488,49 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
+    blockers: Object.freeze([
+      "surface.js.math remains partial until every selected Math static method/property has current CLI and runtime proof plus focused missing-declaration, missing-carrier, and unsupported-operation diagnostics.",
+    ]),
     notes:
       "Reviewed partial proof: selected JS surface facts map standard Math calls and constants to Tsonic.CSharp.Js.Math runtime operations, preserve JavaScript zero-argument max/min behavior through the selected JS surface runtime, and reject unselected/unsupported forms without spelling-based fallback. Remains partial until every Math static member has current runtime/toolchain coverage.",
+  }),
+  "surface.js.date": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const date = new Date(Date.UTC(2023, 5, 15, 12, 30, 45, 123));",
+      "return date.toISOString();",
+      "return date.getTime();",
+      "return Date();",
+    ]),
+    tstsDecision:
+      "TSTS validates Date construction, call, static calls, and instance calls against selected JS surface declarations; local or unselected Date spellings do not provide target facts.",
+    providerFacts: Object.freeze([
+      "selectedJsDateDeclarationFact",
+      "jsDateRuntimeCarrierFact",
+      "dateConstructorOperationFact",
+      "dateStaticOperationFact",
+      "dateInstanceOperationFact",
+    ]),
+    backendContract:
+      "C# emits Tsonic.CSharp.Js.Date construction, static calls, call(), and instance calls only from finalized selected-surface Date operation facts; without selected facts, Date calls and constructors fail before artifact creation.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/date-not-global/",
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    notes:
+      "Reviewed proof: selected JS surface Date declarations map Date.UTC, Date(), new Date(...), toISOString(), and getTime() to the closed Tsonic.CSharp.Js.Date runtime carrier; CLI output includes JS runtime artifacts, generated C# build succeeds, no unqualified Date target spelling leaks, and no-surface Date construction fails closed with a selected-target-signature diagnostic.",
   }),
   "surface.js.object-runtime": Object.freeze({
     positiveTests: Object.freeze([
@@ -2507,10 +2545,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-typed-stringify/",
     ]),
     blockers: Object.freeze([
-      "surface.js.object-runtime remains partial until JSON parse/stringify, object carrier writes, prototype/static helpers, runtime execution, and toolchain coverage are complete.",
+      "surface.js.object-runtime remains partial until nested JSON value flow, object carrier writes, prototype/static helpers, runtime execution, and toolchain coverage are complete.",
     ]),
     notes:
-      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject, JSArray, string, or Record<string, T>/Dictionary<string, T> carrier; Record helper output is verified through CLI emission and C# toolchain build; missing carrier facts reject, foreign same-spelling declarations defer, and JSON remains fail-closed until closed JSON facts are complete.",
+      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject, JSArray, string, or Record<string, T>/Dictionary<string, T> carrier; Record helper output is verified through CLI emission and C# toolchain build; missing carrier facts reject, foreign same-spelling declarations defer, and JSON direct parse/stringify uses selected facts plus closed TsValue carrier facts while nested JSON carrier flow remains incomplete.",
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
@@ -2808,6 +2846,25 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: provider-owned calls select exact signature identity from provider facts, including overload groups, extension receivers, byref parameters, and optional/params arity; backend rejects mutated call facts.",
   }),
+  "operation.call.provider-argument-conversion": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/VariableInit.ts",
+    ]),
+    blockers: Object.freeze([
+      "operation.call.provider-argument-conversion remains partial until provider-owned method, constructor, delegate, indexer, and extension-call arguments each prove explicit source-to-target conversion facts, missing/mutated conversion facts, source spans, and CLI/toolchain emission.",
+    ]),
+    notes:
+      "Reviewed partial proof: current provider-selection and conversion planner tests prove selected target argument facts and finalized conversion operation facts are required before emission. Completion is blocked on call-site-specific proof that every provider argument conversion is recorded on the selected signature path rather than recovered from parameter names or target type spelling.",
+  }),
   "operation.call.provider-parameter-mode": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
@@ -2828,11 +2885,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/conversions.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../tsonic-csharp/test/provider-conversion-operators.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/conversions.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../tsonic-csharp/test/provider-conversion-operators.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/types/type-assertions/TypeAssertions.ts",
@@ -2841,7 +2900,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/default-param-int-to-double/",
     ]),
     notes:
-      "Reviewed partial proof: target conversions are finalized as TSTS targetConversion facts, C# emission requires a matching C# target conversion operation fact, provider conversion operators carry source and target type evidence, and mismatched/missing/ambiguous conversion facts fail closed. Remains partial until provider-owned conversions have full CLI/runtime coverage across calls, returns, assignments, assertions, and generic substitutions.",
+      "Reviewed proof: target conversions are finalized as TSTS targetConversion facts, C# emission requires a matching C# target conversion operation fact, source assertion CLI coverage emits explicit System.Convert/cast output from finalized facts, provider conversion operators carry source and target type evidence, and mismatched, missing, or ambiguous conversion facts fail closed.",
   }),
   "operation.iteration.for-of.sync": Object.freeze({
     positiveTests: Object.freeze([
@@ -2863,6 +2922,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
@@ -2872,15 +2932,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
     ]),
-    blockers: Object.freeze([
-      "operation.property.provider-selected-member remains partial until fields, properties, events, indexers, inherited members, and unsupported-member diagnostics are proven through full CLI/runtime/toolchain tests.",
-    ]),
     notes:
-      "Reviewed partial proof: provider-owned property and field access maps only from selected provider declaration identity, backend property access emits from a finalized C# operation fact rather than source spelling, same-spelling target members without selected identity reject, selected unsupported properties diagnose with provider reasons, and selected events reject until explicit source event semantics exist.",
+      "Reviewed proof: provider-owned property and field access maps only from selected provider declaration identity, backend property access emits from a finalized C# operation fact rather than source spelling, same-spelling target members without selected identity reject, selected unsupported properties diagnose with provider reasons, and selected events reject until explicit source event semantics exist.",
   }),
   "operation.member.provider-property": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/provider-selection.test.mjs",
@@ -2888,17 +2946,15 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
-    blockers: Object.freeze([
-      "operation.member.provider-property remains partial until provider-owned instance/static property and field reads/writes have source-span diagnostics, runtime/toolchain coverage, and old fixture parity.",
-    ]),
     notes:
-      "Reviewed partial proof: selected provider member identity, not property source spelling, owns property/field operation mapping; unsupported provider members fail closed with the recorded provider reason.",
+      "Reviewed proof: selected provider member identity, not property source spelling, owns property/field operation mapping; CLI coverage emits provider static and instance member access from selected facts, and unsupported provider members fail closed with the recorded provider reason.",
   }),
   "operation.member.provider-indexer": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
@@ -2910,17 +2966,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/dictionaries/Dictionaries.ts",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "operation.member.provider-indexer remains partial until provider-owned indexer overloads, unsupported indexers, dictionary surface indexers, and mutable index assignments are proven through current CLI/runtime/toolchain tests.",
-    ]),
     notes:
-      "Reviewed partial proof: selected provider indexer identity and provider-owned Dictionary indexer facts map element access without target-name guessing; backend element access requires both the generic selected indexer fact and the finalized C# operation fact; missing or unsupported indexer facts reject.",
+      "Reviewed proof: selected provider indexer identity and provider-owned Dictionary/List/native-array indexer facts map element access without target-name guessing; backend element access requires both the generic selected indexer fact and the finalized C# operation fact; missing or unsupported indexer facts reject.",
   }),
   "operation.element.provider-indexer": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
@@ -2931,11 +2985,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/dictionaries/Dictionaries.ts",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "operation.element.provider-indexer remains partial until provider-owned mutable index assignments, readonly indexer diagnostics, CLI/runtime execution, and old indexer fixture parity are proven.",
-    ]),
     notes:
-      "Reviewed partial proof: checked element access reaches the backend only through selected provider/surface indexer facts; backend emission stops after the primary missing C# operation diagnostic when the generic selected indexer fact is not enough, and emits Roslyn ElementAccessExpression only from finalized selected indexer facts.",
+      "Reviewed proof: checked element access reaches the backend only through selected provider/surface indexer facts; backend emission stops after the primary missing C# operation diagnostic when the generic selected indexer fact is not enough, and emits Roslyn ElementAccessExpression only from finalized selected indexer facts.",
   }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([
@@ -3590,6 +3641,24 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: stale old frontend lowering and validator units are mapped as fail-closed evidence, not as a legacy frontend path. The final architecture requires missing facts to block emission with diagnostics instead of recovering through backend semantic inference.",
   }),
+  "backend.no-semantic-strings": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/csharp-printer.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "backend.no-semantic-strings remains partial because backend.csharp.no-direct-semantic-string-output is complete only for the C# AST/printer boundary; this broader backend gate still needs every backend/project/runtime artifact path to prove Roslyn-compatible AST or structured project artifacts without semantic string fallbacks.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# boundary tests prove no raw semantic output node kinds and printer tests fail closed for foreign raw syntax. The broad backend capability stays partial so the complete C# child does not imply every backend/project artifact path has finished no-semantic-string proof.",
+  }),
   "backend.csharp.no-direct-semantic-string-output": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/roslyn-boundary.test.mjs",
@@ -3781,7 +3850,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
     ]),
     blockers: Object.freeze([
-      "diagnostic.missing-target-fact remains partial until every backend, provider, surface, carrier, conversion, iteration, and runtime-required fact has a current negative test with precise source spans and no artifact emission.",
+      "diagnostic.missing-target-fact remains partial until missing-fact negatives cover each backend operation family separately: provider calls/properties/indexers/conversions, JS/Node surface operations, object/array/tuple/union/nullish carriers, iteration/spread/destructuring, runtime artifacts, precise source spans, and no artifact/toolchain handoff.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "fail-closed-missing-target-fact",
@@ -3842,7 +3911,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/cli/src/package-manifests/bindings.test.ts",
     ]),
     blockers: Object.freeze([
-      "diagnostic.missing-provider-fact remains partial until every selected target/provider/surface-owned virtual module path has missing-provider and unowned-provider diagnostics with exact source spans and no backend artifact emission.",
+      "diagnostic.missing-provider-fact remains partial until every selected target, provider-owned virtual module, surface-owned virtual module, unowned import, missing dependency, and target-without-provider path has exact source-span diagnostics and proves no backend artifact emission.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "fail-closed-missing-provider-fact",

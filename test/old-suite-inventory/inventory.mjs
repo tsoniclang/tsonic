@@ -1095,6 +1095,13 @@ function defaultOldSuiteCapabilityIds(entry) {
     ids.add("operation.call.provider-selected-method");
     ids.add("operation.member.no-name-guess");
   }
+  if (oldPath.includes("date") || oldPath.includes("js-surface-runtime-builtins")) {
+    ids.add("surface.js.date");
+  }
+  if (oldPath.includes("js-surface-runtime-builtins")) {
+    ids.add("operation.element.provider-indexer");
+    ids.add("operation.member.provider-indexer");
+  }
   if (entry.status === "invalid-stale-architecture") {
     ids.add("host.config.no-legacy-config");
     ids.add("backend.fail-closed-facts");
