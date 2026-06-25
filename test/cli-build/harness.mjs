@@ -38,6 +38,10 @@ function runGeneratedProject(projectDirectory, assemblyName) {
   return executed.stdout.replace(/\r\n/g, "\n");
 }
 
+function dotnetOutputAssemblyPath(projectDirectory, assemblyName) {
+  return resolve(projectDirectory, ".dotnet-test-artifacts/bin", `${assemblyName}.dll`);
+}
+
 function run(command, args) {
   return runInDirectory(repoRoot, command, args);
 }
@@ -96,6 +100,7 @@ function dotnetProjectPath(cwd, args) {
 export {
   assert,
   csharpProjectPath,
+  dotnetOutputAssemblyPath,
   cliPath,
   existsSync,
   readFile,

@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, dotnetOutputAssemblyPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 async function readGeneratedModuleSource(projectDirectory) {
   return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
@@ -262,7 +262,7 @@ test("CLI resolves provider-owned modules from explicit target assembly referenc
   });
   const libraryBuild = run("dotnet", ["build", resolve(libraryDirectory, "Acme.Native.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(libraryBuild.status, 0, libraryBuild.stdout + libraryBuild.stderr);
-  const libraryAssembly = resolve(libraryDirectory, "bin/Debug/net10.0/Acme.Native.dll");
+  const libraryAssembly = dotnetOutputAssemblyPath(libraryDirectory, "Acme.Native");
   assert.equal(existsSync(libraryAssembly), true);
 
   const projectDirectory = resolve(tempRoot, "provider-explicit-assembly-reference");
@@ -1354,7 +1354,7 @@ test("CLI enforces provider-backed generic interface constraints through TSTS de
   });
   const libraryBuild = run("dotnet", ["build", resolve(libraryDirectory, "Acme.Constraints.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(libraryBuild.status, 0, libraryBuild.stdout + libraryBuild.stderr);
-  const libraryAssembly = resolve(libraryDirectory, "bin/Debug/net10.0/Acme.Constraints.dll");
+  const libraryAssembly = dotnetOutputAssemblyPath(libraryDirectory, "Acme.Constraints");
   assert.equal(existsSync(libraryAssembly), true);
 
   const validProjectDirectory = resolve(tempRoot, "provider-generic-constraint-valid");
