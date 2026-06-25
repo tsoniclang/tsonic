@@ -136,6 +136,158 @@ test("CLI emits JSON.stringify from selected JS surface facts", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI compiles existing TypeScript JS-surface utility code when JS surface is selected", async () => {
+  const projectDirectory = resolve(tempRoot, "existing-typescript-js-surface-utility-code");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedExistingTypescriptJsSurfaceUtilityCode",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function appendTag(tags: string[], tag: string): string[] {",
+      "  tags.push(tag);",
+      "  return tags;",
+      "}",
+      "",
+      "export function summarize(values: number[]): number {",
+      "  const first = values.at(0) ?? 0;",
+      "  const last = values.at(values.length - 1) ?? 0;",
+      "  return Math.trunc(Math.max(first, last));",
+      "}",
+      "",
+      "export function stringifyCount(count: number): string {",
+      "  return JSON.stringify(count);",
+      "}",
+      "",
+      "export function normalizeName(name: string): string {",
+      "  return name.trim().toUpperCase().slice(0, 8);",
+      "}",
+      "",
+      "export function renderRecord(values: Record<string, number>): string {",
+      "  return Object.keys(values).join(\",\");",
+      "}",
+      "",
+      "export function splitAndJoin(input: string): string {",
+      "  return input.split(\":\").join(\"|\");",
+      "}",
+      "",
+      "export function acceptsUser(input: string): boolean {",
+      "  return /^user:/i.test(input);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingTypescriptJsSurfaceUtilityCode.csproj"), "utf8");
+  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assert.doesNotMatch(generatedProject, /Tsonic\.CSharp\.Node\.csproj/);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> appendTag\(System\.Collections\.Generic\.List<string> tags, string tag\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.push\(tags, tag\);/);
+  assert.match(generatedSource, /public static double summarize\(System\.Collections\.Generic\.IReadOnlyList<double> values\)/);
+  assert.match(generatedSource, /double first = Tsonic\.CSharp\.Js\.Array\.atValue\(values, 0\) \?\? 0;/);
+  assert.match(generatedSource, /double last = Tsonic\.CSharp\.Js\.Array\.atValue\(values, values\.Count - 1\) \?\? 0;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.trunc\(Tsonic\.CSharp\.Js\.Math\.max\(first, last\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSON\.stringify\(count\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.slice\(Tsonic\.CSharp\.Js\.String\.toUpperCase\(Tsonic\.CSharp\.Js\.String\.trim\(name\)\), 0, 8\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.join\(Tsonic\.CSharp\.Js\.Object\.keys\(values\), ","\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.join\(Tsonic\.CSharp\.Js\.String\.split\(input, ":"\), "\|"\);/);
+  assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.RegExp\("\^user:", "i"\)\.test\(input\);/);
+  assert.doesNotMatch(generatedSource, /return Math\./);
+  assert.doesNotMatch(generatedSource, /return Object\./);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingTypescriptJsSurfaceUtilityCode.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects existing TypeScript JS built-ins without selected JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "existing-typescript-js-builtins-without-js-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedExistingTypescriptJsBuiltinsWithoutJsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function appendTag(tags: string[], tag: string): string[] {",
+      "  tags.push(tag);",
+      "  return tags;",
+      "}",
+      "",
+      "export function normalizeName(name: string): string {",
+      "  return name.trim().toUpperCase().slice(0, 8);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# native array source contract has no target-backed property 'push'/);
+  assert.match(build.stderr, /C# property access 'trim' must be selected by TSTS\/provider facts before emission/);
+  assert.match(build.stderr, /C# property access 'toUpperCase' must be selected by TSTS\/provider facts before emission/);
+  assert.match(build.stderr, /C# property access 'slice' must be selected by TSTS\/provider facts before emission/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingTypescriptJsBuiltinsWithoutJsSurface.csproj")), false);
+});
+
+test("CLI rejects unsupported JS expression carriers even when JS surface is selected", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-js-expression-carrier");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedUnsupportedJsExpressionCarrier",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function stringifyRounded(value: number): string {",
+      "  return JSON.stringify(Math.trunc(value));",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# JS surface could not map checked TypeScript library call 'JSON\.stringify' because the selected receiver lacks finalized target runtime facts/);
+  assert.doesNotMatch(build.stderr, /Reflection|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedUnsupportedJsExpressionCarrier.csproj")), false);
+});
 
 test("CLI emits typeof narrowing through selected TSTS target facts", async () => {
   const projectDirectory = resolve(tempRoot, "typeof-narrowing");
