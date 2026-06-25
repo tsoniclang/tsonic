@@ -1059,7 +1059,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "provider.module.virtual-import remains partial until provider virtual imports cover every reflected namespace, explicit assembly reference, provider-owned module alias, selected surface module, and missing-provider diagnostic path through CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: .NET provider imports such as @tsonic/dotnet/System.js and @tsonic/dotnet/System.Reflection.js become TSTS compiler virtual modules, including cross-module inherited member refs whose provider-ref module ownership is preserved instead of rewritten to the inheriting base module.",
+      "Reviewed partial proof: .NET provider imports such as @tsonic/dotnet/System.js and @tsonic/dotnet/System.Reflection.js become TSTS compiler virtual modules, including cross-module inherited member refs whose provider-ref module ownership is preserved instead of rewritten to the inheriting base module. Sliced imports and encoded dependency modules now preserve requested export slices through declaration-model loading instead of upgrading dependencies to broad namespace imports.",
   }),
   "provider.virtual-module.ownership": Object.freeze({
     positiveTests: Object.freeze([
@@ -1104,7 +1104,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "provider.virtual-module.no-fallback remains partial until every provider-owned module failure mode has current CLI/toolchain coverage and precise diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; selected .NET modules win over shadow package files, missing provider facts remain diagnostics/blockers, and unsliced .NET provider module/declaration requests fail before provider loading instead of silently widening to a broad import.",
+      "Reviewed partial proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; selected .NET modules win over shadow package files, missing provider facts remain diagnostics/blockers, unsliced .NET provider module/declaration requests fail before provider loading instead of silently widening to a broad import, and sliced requests fail closed when a requested export is not provider-proven.",
   }),
   "provider.virtual-module.source-shape": Object.freeze({
     positiveTests: Object.freeze([
@@ -1124,7 +1124,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "provider.virtual-module.source-shape remains partial until all source-visible shape families, inherited declarations, target-only omissions, unsupported exports, and selected surface modules are proven end to end.",
     ]),
     notes:
-      "Reviewed partial proof: reflected .NET declarations produce source-visible provider shapes for classes, delegates, properties, methods, constructors, overloads, inherited members, and explicit unsupported omissions; dependency declarations are resolved through exact requested export slices; unsupported by-ref delegate returns remain target-only instead of leaking fake source declarations.",
+      "Reviewed partial proof: reflected .NET declarations produce source-visible provider shapes for classes, delegates, properties, methods, constructors, overloads, inherited members, and explicit unsupported omissions; dependency declarations are resolved through exact requested export slices; sliced System imports expose only requested declarations such as Convert instead of broad unrelated namespaces such as System.Xml or System.ComponentModel; unsupported by-ref delegate returns remain target-only instead of leaking fake source declarations.",
   }),
   "provider.virtual-module.target-identity": Object.freeze({
     positiveTests: Object.freeze([
@@ -1214,15 +1214,16 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source.primitive.numeric remains partial until every neutral numeric width, decimal/native alias, numeric literal flow, assertion/conversion boundary, and backend carrier emission has positive and negative proof.",
     ]),
     notes:
-      "Reviewed partial proof: @tsonic/core/types.js exposes neutral int8 through uint128, nativeInt/nativeUint, float16/32/64, and decimal without C# alias names; source-core package tests prove aliased int32/float64 and namespace uint64/float32 imports carry width, sign, runtimeBase, and module identity, while same-spelling local imports and aliases do not create source-primitive facts.",
+      "Reviewed partial proof: @tsonic/core/types.js exposes neutral bool, char, int8 through uint128, nativeInt/nativeUint, float16/32/64, and decimal without C# alias names; source-core package tests prove every primitive export carries exact width, sign, runtimeBase, and module identity through direct, aliased, and namespace imports, while same-spelling local imports and aliases do not create source-primitive facts.",
   }),
   "source.primitive.char-bool": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     negativeTests: Object.freeze([
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/char-primitive/",
@@ -1231,7 +1232,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source.primitive.char-bool remains partial until char literal/Rune interop, bool flow through operators/calls, backend carrier emission, and invalid char/bool source forms have positive and negative proof.",
     ]),
     notes:
-      "Reviewed partial proof: neutral bool and char imports attach source-primitive facts with boolean and string runtime bases, char width/sign data is preserved, and bool field facts flow through struct field collection. Old char-primitive coverage is broader than the current fact proof and remains regression evidence only.",
+      "Reviewed partial proof: neutral bool and char imports attach source-primitive facts with boolean and string runtime bases, char width/sign data is preserved, bool field facts flow through struct field collection, and source-core package tests prove direct/alias/namespace imports plus local same-spelling no-guessing behavior. Old char-primitive coverage is broader than the current backend proof and remains regression evidence only.",
   }),
   "source.primitive.configured-type": Object.freeze({
     positiveTests: Object.freeze([
@@ -1521,7 +1522,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core-owned module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove alias and namespace import facts for storage, flow, struct, field, attribute, defaultof, ptr, and fnptr markers, invalid arity rejection through TSTS checking, fail-closed missing storage/type evidence, and no-name-guessing for local/shadowed markers; CLI and C# tests prove selected target implementation/rejection for current paths. Completion requires every child intrinsic to have full per-target implementation or explicit rejection evidence, including direct re-export/barrel source forms once TSTS exposes stable canonical re-export identity.",
+      "Reviewed partial proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core-owned module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove direct provider-owned facts for every current intrinsic, alias and namespace import facts for storage, flow, struct, field, attribute, defaultof, ptr, and fnptr markers, invalid arity rejection through TSTS checking, fail-closed missing storage/type evidence, and no-name-guessing for local/shadowed markers; CLI and C# tests prove selected target implementation/rejection for current paths. Completion requires every child intrinsic to have full per-target implementation or explicit rejection evidence, including direct re-export/barrel source forms once TSTS exposes stable canonical re-export identity.",
   }),
   "source-core.lang.portable-intrinsics.out": coreLangIntrinsicEvidence({
     exportName: "out",
@@ -3831,7 +3832,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: opaque any property and element operations are not source-owned fallbacks; strict-native rejects them, compat rejects missing operation facts, and the backend emits property get/set only from explicit closed operation facts with explicit argument projection. Remains partial until real carrier get/set provider facts and runtime artifacts exist.",
+      "Reviewed partial proof: opaque any property and element operations are not source-owned fallbacks; strict-native rejects them, compat rejects missing operation facts, backend property reads and property/element writes emit only from explicit closed operation facts with explicit argument projection, and direct property-assignment operation facts are rejected as insufficient evidence. Remains partial until real carrier get/set provider facts and runtime artifacts exist.",
   }),
   "compat.any.call-construct": Object.freeze({
     positiveTests: Object.freeze([
@@ -3878,7 +3879,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: property and element writes through any are caught at the opaque any operation node and require closed compat-runtime operation facts with explicit source-argument projection rather than backend assignment guessing. Backend C# AST planning now renders any element writes only from closed carrier facts with explicit key and value projection. Remains partial until explicit set/delete/update provider facts and runtime artifacts exist.",
+      "Reviewed partial proof: property and element writes through any are caught at the opaque any operation node and require closed compat-runtime method operation facts with explicit source-argument projection rather than backend assignment guessing. Backend C# AST planning rejects direct property-assignment operation facts and renders property/element writes only from closed carrier facts with explicit value or key/value projection. Remains partial until explicit set/delete/update provider facts and runtime artifacts exist.",
   }),
   "compat.any.dynamic-call": Object.freeze({
     positiveTests: Object.freeze([
