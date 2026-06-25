@@ -396,7 +396,7 @@ function recordSourceSemanticsCallMarker(
     case "out":
     case "ref":
     case "inref": {
-      const argument = (Node_Arguments(callExpression) ?? [])[0];
+      const argument = singleCallArgument(callExpression);
       if (argument === undefined) {
         return;
       }
@@ -404,7 +404,7 @@ function recordSourceSemanticsCallMarker(
       return;
     }
     case "borrow": {
-      const argument = (Node_Arguments(callExpression) ?? [])[0];
+      const argument = singleCallArgument(callExpression);
       if (argument === undefined) {
         return;
       }
@@ -412,7 +412,7 @@ function recordSourceSemanticsCallMarker(
       return;
     }
     case "borrowMut": {
-      const argument = (Node_Arguments(callExpression) ?? [])[0];
+      const argument = singleCallArgument(callExpression);
       if (argument === undefined) {
         return;
       }
@@ -420,7 +420,7 @@ function recordSourceSemanticsCallMarker(
       return;
     }
     case "move": {
-      const argument = (Node_Arguments(callExpression) ?? [])[0];
+      const argument = singleCallArgument(callExpression);
       if (argument === undefined) {
         return;
       }
@@ -439,6 +439,11 @@ function recordSourceSemanticsCallMarker(
       recordDefaultValueMarker(facts, diagnostics, extensionId, callExpression, marker, evidence);
       return;
   }
+}
+
+function singleCallArgument(callExpression: Node): GoPtr<Node> {
+  const arguments_ = Node_Arguments(callExpression) ?? [];
+  return arguments_.length === 1 ? arguments_[0] : undefined;
 }
 
 function recordArgumentPassingMarker(

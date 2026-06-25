@@ -218,7 +218,7 @@ test("source-core records storage and flow marker facts from aliases and namespa
   const { session, sourceFile } = createCleanSourceCoreSession(`
     import { out as writeOut, ref as readWrite, inref as readOnly, borrow as shared, borrowMut as mutable, move as moved } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
-    import { out as localOut, borrow as localBorrow } from "./local.js";
+    import { out as localOut, borrow as localBorrow, borrowMut as localBorrowMut, move as localMove } from "./local.js";
 
     let value = 0;
     let index = 0;
@@ -237,18 +237,39 @@ test("source-core records storage and flow marker facts from aliases and namespa
     lang.move(box.values[index]);
     localOut(value);
     localBorrow(value);
+    localBorrowMut(value);
+    localMove(value);
     function out(value: number): number {
       return value;
     }
     out(value);
-    function shadow(writeOut: (value: number) => number, lang: { out(value: number): number }) {
+    function shadow(
+      writeOut: (value: number) => number,
+      shared: (value: number) => number,
+      mutable: (value: number) => number,
+      moved: (value: number) => number,
+      lang: {
+        out(value: number): number;
+        borrow(value: number): number;
+        borrowMut(value: number): number;
+        move(value: number): number;
+      },
+    ) {
       writeOut(value);
       lang.out(value);
+      shared(value);
+      mutable(value);
+      moved(value);
+      lang.borrow(value);
+      lang.borrowMut(value);
+      lang.move(value);
     }
   `, {
     "/src/local.ts": [
       "export function out<T>(value: T): T { return value; }",
       "export function borrow<T>(value: T): T { return value; }",
+      "export function borrowMut<T>(value: T): T { return value; }",
+      "export function move<T>(value: T): T { return value; }",
     ].join("\n"),
   });
 
@@ -259,26 +280,78 @@ test("source-core records storage and flow marker facts from aliases and namespa
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "lang.ref")), "byref-readwrite");
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "lang.inref")), "byref-readonly");
 
-  assert.equal(flowState(session, callExpression(session, sourceFile, "shared")), "borrowed-shared");
-  assert.equal(flowState(session, callExpression(session, sourceFile, "mutable")), "borrowed-mut");
+  const sharedCall = callExpression(session, sourceFile, "shared", 0);
+  assert.equal(flowState(session, sharedCall), "borrowed-shared");
+  assert.equal(flowState(session, firstCallArgument(session, sharedCall)), "borrowed-shared");
+  const mutableCall = callExpression(session, sourceFile, "mutable", 0);
+  assert.equal(flowState(session, mutableCall), "borrowed-mut");
+  assert.equal(flowState(session, firstCallArgument(session, mutableCall)), "borrowed-mut");
   const movedCall = callExpression(session, sourceFile, "moved");
   assert.equal(flowState(session, movedCall), "moved");
   assert.equal(flowState(session, firstCallArgument(session, movedCall)), "moved");
-  assert.equal(flowState(session, callExpression(session, sourceFile, "lang.borrow")), "borrowed-shared");
-  assert.equal(flowState(session, callExpression(session, sourceFile, "lang.borrowMut")), "borrowed-mut");
-  assert.equal(flowState(session, callExpression(session, sourceFile, "lang.move")), "moved");
+  const namespaceBorrowCall = callExpression(session, sourceFile, "lang.borrow", 0);
+  assert.equal(flowState(session, namespaceBorrowCall), "borrowed-shared");
+  assert.equal(flowState(session, firstCallArgument(session, namespaceBorrowCall)), "borrowed-shared");
+  const namespaceBorrowMutCall = callExpression(session, sourceFile, "lang.borrowMut", 0);
+  assert.equal(flowState(session, namespaceBorrowMutCall), "borrowed-mut");
+  assert.equal(flowState(session, firstCallArgument(session, namespaceBorrowMutCall)), "borrowed-mut");
+  const namespaceMoveCall = callExpression(session, sourceFile, "lang.move", 0);
+  assert.equal(flowState(session, namespaceMoveCall), "moved");
+  assert.equal(flowState(session, firstCallArgument(session, namespaceMoveCall)), "moved");
 
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localOut"), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localBorrow"), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localBorrowMut"), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localMove"), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out"), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "writeOut", 1), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.out", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "mutable", 1), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "moved", 1), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrow", 1), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrowMut", 1), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.move", 1), flowStateFactKey), undefined);
 
   const extensionHost = session.finalizeExtensions();
   assert.ok(extensionHost !== undefined);
   const consumer = createExtensionConsumerQueries(extensionHost, "source-core-test");
   assert.equal(consumer.getArgumentPassingFact(callExpression(session, sourceFile, "lang.out", 0))?.mode, "byref-writeonly-must-init");
   assert.equal(consumer.getFact(callExpression(session, sourceFile, "lang.move"), flowStateFactKey)?.state, "moved");
+});
+
+test("source-core keeps flow marker facts on exact call and argument subjects", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import { borrow, borrowMut, move } from "@tsonic/core/lang.js";
+
+    let source = { field: 1 };
+    let unrelated = { field: 2 };
+    const borrowed = borrow(source);
+    const mutable = borrowMut(source.field);
+    const movedValue = move(source);
+    const laterSource = source;
+    const laterField = source.field;
+    const laterUnrelated = unrelated;
+  `);
+
+  const borrowCall = callExpression(session, sourceFile, "borrow");
+  assert.equal(flowState(session, borrowCall), "borrowed-shared");
+  assert.equal(flowState(session, firstCallArgument(session, borrowCall)), "borrowed-shared");
+  assert.equal(flowState(session, variableDeclaration(session, sourceFile, "borrowed")), undefined);
+
+  const borrowMutCall = callExpression(session, sourceFile, "borrowMut");
+  assert.equal(flowState(session, borrowMutCall), "borrowed-mut");
+  assert.equal(flowState(session, firstCallArgument(session, borrowMutCall)), "borrowed-mut");
+  assert.equal(flowState(session, variableDeclaration(session, sourceFile, "mutable")), undefined);
+
+  const moveCall = callExpression(session, sourceFile, "move");
+  assert.equal(flowState(session, moveCall), "moved");
+  assert.equal(flowState(session, firstCallArgument(session, moveCall)), "moved");
+  assert.equal(flowState(session, variableDeclaration(session, sourceFile, "movedValue")), undefined);
+
+  assert.equal(flowState(session, variableInitializer(session, sourceFile, "laterSource")), undefined);
+  assert.equal(flowState(session, variableInitializer(session, sourceFile, "laterField")), undefined);
+  assert.equal(flowState(session, variableInitializer(session, sourceFile, "laterUnrelated")), undefined);
 });
 
 test("source-core reports non-storage diagnostics for byref markers", () => {
@@ -445,16 +518,25 @@ test("source-core reports missing evidence diagnostics through namespace marker 
 
 test("source-core virtual declarations leave invalid arity to TypeScript checking", () => {
   const { session, sourceFile } = createSourceCoreSession(`
-    import { out, borrow, borrowMut, move } from "@tsonic/core/lang.js";
+    import { out, borrow as shared, borrowMut as mutable, move as moved } from "@tsonic/core/lang.js";
+    import * as lang from "@tsonic/core/lang.js";
     import type { ptr, fnptr } from "@tsonic/core/lang.js";
 
     let value = 1;
     out();
     out(value, value);
-    borrow();
-    borrow(value, value);
-    borrowMut();
-    move(value, value);
+    shared();
+    shared(value, value);
+    mutable();
+    mutable(value, value);
+    moved();
+    moved(value, value);
+    lang.borrow();
+    lang.borrow(value, value);
+    lang.borrowMut();
+    lang.borrowMut(value, value);
+    lang.move();
+    lang.move(value, value);
     type MissingPointer = ptr;
     type ExtraPointer = ptr<number, number>;
     type MissingFunctionPointer = fnptr<[number]>;
@@ -470,8 +552,19 @@ test("source-core virtual declarations leave invalid arity to TypeScript checkin
 
   session.ensureBound();
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out", 0), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "borrow", 0), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "borrowMut"), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 0), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "mutable", 0), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "mutable", 1), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "moved", 0), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "moved", 1), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrow", 0), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrow", 1), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrowMut", 0), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrowMut", 1), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.move", 0), flowStateFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.move", 1), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "ptr", 0), pointerFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "fnptr", 0), functionPointerFactKey), undefined);
 });
@@ -708,6 +801,19 @@ function typeAliasType(session: CompilerSession, sourceFile: SourceFile, aliasNa
   const type = session.ast.as.AsTypeAliasDeclaration(found)?.Type;
   assert.ok(type !== undefined, `Missing type alias '${aliasName}'.`);
   return type;
+}
+
+function variableDeclaration(session: CompilerSession, sourceFile: SourceFile, variableName: string): Node {
+  const found = findNode(sourceFile, session.ast, (node, ast) =>
+    ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === variableName);
+  assert.ok(found !== undefined, `Missing variable declaration '${variableName}'.`);
+  return found;
+}
+
+function variableInitializer(session: CompilerSession, sourceFile: SourceFile, variableName: string): Node {
+  const initializer = session.ast.as.AsVariableDeclaration(variableDeclaration(session, sourceFile, variableName))?.Initializer;
+  assert.ok(initializer !== undefined, `Missing variable initializer '${variableName}'.`);
+  return initializer;
 }
 
 function typeReferenceName(session: CompilerSession, node: Node | undefined): string {
