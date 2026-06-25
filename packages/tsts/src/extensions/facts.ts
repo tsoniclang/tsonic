@@ -137,12 +137,29 @@ export interface TargetTypeParameter {
   readonly variance?: "in" | "out" | "invariant" | "target-defined";
 }
 
+export type TargetParameterDefaultValue =
+  | { readonly kind: "null" }
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "source-primitive"; readonly name: SourcePrimitiveKind; readonly value: string | boolean }
+  | { readonly kind: "enum"; readonly value: string; readonly fieldName?: string }
+  | { readonly kind: "target-specific"; readonly target: string; readonly value?: unknown; readonly evidence?: readonly ExtensionEvidence[] };
+
+export interface TargetUnsupportedParameterDefaultValue {
+  readonly kind: "unsupported-default-value";
+  readonly id: string;
+  readonly parameterName: string;
+  readonly reason: string;
+  readonly evidence?: readonly ExtensionEvidence[];
+}
+
 export interface TargetParameter {
   readonly name: string;
   readonly type: TargetTypeRef;
   readonly passingMode: ArgumentPassingMode;
   readonly optional?: boolean;
   readonly paramsArray?: boolean;
+  readonly defaultValue?: TargetParameterDefaultValue;
+  readonly unsupportedDefaultValue?: TargetUnsupportedParameterDefaultValue;
   readonly attributes?: readonly TargetAttributeFact[];
   readonly unsupportedAttributes?: readonly TargetUnsupportedAttributeFact[];
 }
