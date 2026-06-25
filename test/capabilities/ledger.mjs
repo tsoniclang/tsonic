@@ -2111,10 +2111,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.member-methods": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
@@ -2416,6 +2418,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "type.generic.provider-target-constraints": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/assignability-boundary.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
@@ -2425,6 +2428,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/assignability-boundary.test.mjs",
       "../tsonic-csharp/test/declaration-generics.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
       "test/cli-build/js-surface.test.mjs",
