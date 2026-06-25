@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 const bannedGeneratedRuntimeSemantics = [
   /\bdynamic\b/u,
@@ -176,6 +176,43 @@ test("CLI emits NodeJS runtime references with transitive JS runtime only when N
 
   const dotnet = run("dotnet", ["build", generatedProjectPath, "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI runs generated JS and NodeJS surface executable through runtime references", async () => {
+  const assemblyName = "SmokeGeneratedJsNodeRuntimeExecution";
+  const projectDirectory = resolve(tempRoot, "js-node-runtime-execution");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { join } from \"node:path\";",
+      "",
+      "console.log(join(\"uploads\", \"tenant\", \"events.json\"));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProjectPath = resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
+  const generatedProject = await readFile(generatedProjectPath, "utf8");
+  assertRuntimeReferences(generatedProject, { runtime: true, js: true, nodejs: true });
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "uploads/tenant/events.json\n");
 });
 
 function assertRuntimeReferences(projectText, expected) {
