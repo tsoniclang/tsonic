@@ -725,9 +725,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "module.emit.multi-file": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-output-identity.test.mjs",
+      "../tsonic-csharp/test/module-graph.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-output-identity.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -739,7 +742,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "module.emit.multi-file remains partial until every old multi-file/source-package fixture is classified and every exported declaration form has current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: the C# backend emits one Roslyn compilation unit per non-declaration project source file, derives artifact/class identity from the TSTS source graph, avoids basename/type collisions such as animal.ts plus class Animal, and verifies generated multi-file C# through the target toolchain.",
+      "Reviewed partial proof: the C# backend emits one Roslyn compilation unit per non-declaration project source file and derives artifact/class identity only from validated project-relative TSTS source graph paths. It rejects outside-root files, deterministic class/artifact path collisions, and attempts to plan source artifacts without the validated output identity registry. It no longer inspects top-level source declaration names as a hidden collision-avoidance heuristic; future same-file target declaration collisions must be deterministic diagnostics or stable naming policy, not source-name guessing.",
   }),
   "module.emit.top-level-order": Object.freeze({
     positiveTests: Object.freeze([
@@ -3269,7 +3272,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads, and CLI provider tests prove omitted optional arguments are accepted only when the selected target parameter carries a supported reflected default value and reflected params arrays render extra arguments through the selected params element type. Constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; call emission rejects mutated receiver/parameter-passing facts. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
+      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, default values, constructors, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads, and CLI provider tests prove omitted optional arguments are accepted only when the selected target parameter carries a supported reflected default value and reflected params arrays render extra arguments through the selected params element type. Target member selection rejects malformed provider parameter facts such as missing/noncanonical passingMode, paramsArray on non-array types, paramsArray byref parameters, and default values without optional arity. Constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; call emission rejects mutated receiver/parameter-passing facts. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
   }),
   "operation.construct.provider-selected-constructor": Object.freeze({
     positiveTests: Object.freeze([
