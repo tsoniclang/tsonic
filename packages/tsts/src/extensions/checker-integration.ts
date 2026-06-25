@@ -5,7 +5,7 @@ import { Node_Arguments, Node_Expression, Node_Symbol, Node_Text, Node_TypeArgum
 import type { Symbol } from "../internal/ast/symbol.js";
 import { Node_Name } from "../internal/ast/spine.js";
 import { AsElementAccessExpression, AsForInOrOfStatement, AsPropertyAccessExpression } from "../internal/ast/generated/casts.js";
-import { KindElementAccessExpression, KindIdentifier, KindPrivateIdentifier, KindPropertyAccessExpression, KindQualifiedName } from "../internal/ast/generated/kinds.js";
+import { KindElementAccessExpression, KindIdentifier, KindPrivateIdentifier, KindQualifiedName } from "../internal/ast/generated/kinds.js";
 import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
@@ -59,7 +59,6 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   const calleeSymbols = getReferenceSymbols(checker, callee);
   const calleeAccess = AsPropertyAccessExpression(callee);
   const calleeReceiver = calleeAccess?.Expression;
-  const calleeReceiverType = calleeReceiver === undefined ? undefined : Checker_GetTypeAtLocation(checker, calleeReceiver);
   const calleeReceiverSymbols = getReferenceSymbols(checker, calleeReceiver);
   const sourceSelectedDeclaration = sourceSelectedSignature?.declaration;
   const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
@@ -74,8 +73,6 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
       ...(calleeSymbols.resolvedSymbol !== undefined ? { calleeResolvedSymbol: calleeSymbols.resolvedSymbol } : {}),
       ...(calleeSymbols.aliasedSymbol !== undefined ? { calleeAliasedSymbol: calleeSymbols.aliasedSymbol } : {}),
       ...(calleeReceiver !== undefined ? { calleeReceiver } : {}),
-      ...(calleeReceiverType !== undefined ? { calleeReceiverType } : {}),
-      ...(calleeReceiverType?.symbol !== undefined ? { calleeReceiverTypeSymbol: calleeReceiverType.symbol } : {}),
       ...(calleeReceiverSymbols.symbol !== undefined ? { calleeReceiverSymbol: calleeReceiverSymbols.symbol } : {}),
       ...(calleeReceiverSymbols.resolvedSymbol !== undefined ? { calleeReceiverResolvedSymbol: calleeReceiverSymbols.resolvedSymbol } : {}),
       ...(calleeReceiverSymbols.aliasedSymbol !== undefined ? { calleeReceiverAliasedSymbol: calleeReceiverSymbols.aliasedSymbol } : {}),

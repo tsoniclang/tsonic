@@ -110,8 +110,13 @@ export function createTypeShapeQueries(program: GoPtr<Program>, defaultOptions: 
     isTuple: isTupleType,
     isArrayLike: (type, options = {}) => withChecker(program, type, defaultOptions, options, (checker) => Checker_IsArrayLikeType(checker, type)) === true,
     getUnionOrIntersectionTypes: (type) => Type_Types(type) ?? [],
-    getTypeReferenceTarget: (type) => Type_Target(type),
-    getTypeArguments: (type, options = {}) => withChecker(program, type, defaultOptions, options, (checker) => Checker_GetTypeArguments(checker, type)) ?? [],
+    getTypeReferenceTarget: (type) => type !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0 ? Type_Target(type) : undefined,
+    getTypeArguments: (type, options = {}) => withChecker(program, type, defaultOptions, options, (checker) => {
+      if (type === undefined || (type.objectFlags & ObjectFlagsReference) === 0) {
+        return [];
+      }
+      return Checker_GetTypeArguments(checker, type);
+    }) ?? [],
     getTupleElementTypes: (type, options = {}) => withChecker(program, type, defaultOptions, options, (checker) => {
       if (!isTupleType(type)) {
         return [];
