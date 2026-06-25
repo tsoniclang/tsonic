@@ -182,7 +182,7 @@ test("CLI rejects direct C# bitwise operators on plain TypeScript number", async
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# binary operator emission requires a selected provider operator fact/);
+  assert.match(build.stderr, /C# bitwise operator '&' requires integral, enum, or explicit provider operator facts/);
 });
 
 
@@ -375,7 +375,7 @@ test("CLI rejects in-operator emission without selected provider operation facts
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# binary operator emission requires a selected provider operator fact/);
+  assert.match(build.stderr, /C# operator 'in' has no finalized provider target operation/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedInOperatorFacts.csproj")), false);
 });
 

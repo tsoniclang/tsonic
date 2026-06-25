@@ -4,8 +4,8 @@ import type { Node } from "../internal/ast/ast.js";
 import { Node_Arguments, Node_Expression, Node_Symbol, Node_Text, Node_TypeArguments } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import { Node_Name } from "../internal/ast/spine.js";
-import { AsElementAccessExpression, AsForInOrOfStatement, AsPropertyAccessExpression } from "../internal/ast/generated/casts.js";
-import { KindElementAccessExpression, KindIdentifier, KindPrivateIdentifier, KindQualifiedName } from "../internal/ast/generated/kinds.js";
+import { AsCallExpression, AsElementAccessExpression, AsForInOrOfStatement, AsPropertyAccessExpression } from "../internal/ast/generated/casts.js";
+import { KindCallExpression, KindElementAccessExpression, KindIdentifier, KindPrivateIdentifier, KindQualifiedName } from "../internal/ast/generated/kinds.js";
 import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
@@ -17,6 +17,7 @@ import { GetSourceFileOfNode, NodeIsSynthesized } from "../internal/ast/utilitie
 import { ExtensionObservationPoint } from "./observations.js";
 import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityObservationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
+import type { TargetTypeRef } from "./facts.js";
 import type { ExtensionEvidence, ExtensionFactKey, ExtensionFactSubject, ExtensionHost } from "./host.js";
 import { getExtensionHost } from "./host.js";
 
@@ -124,6 +125,10 @@ export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<Check
     return;
   }
 
+  if (propertyAccessExpressionIsImmediateCallCallee(propertyAccessExpression)) {
+    return;
+  }
+
   const extensionHost = getExtensionHost(checker.program);
   if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedPropertyAccess) === undefined) {
     return;
@@ -181,6 +186,12 @@ export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<Check
   }
 
   extensionHost.facts.set(propertyAccessExpression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
+}
+
+function propertyAccessExpressionIsImmediateCallCallee(propertyAccessExpression: Node): boolean {
+  const parent = propertyAccessExpression.Parent;
+  return parent?.Kind === KindCallExpression &&
+    AsCallExpression(parent)?.Expression === propertyAccessExpression;
 }
 
 export function recordExtensionCheckedElementAccessMapping(checker: GoPtr<CheckerWithProgram>, elementAccessExpression: GoPtr<Node>, receiverType?: GoPtr<Type>): void {
@@ -411,10 +422,46 @@ export function recordExtensionRuntimeCarrierFact(checker: GoPtr<CheckerWithProg
     carrier: result.value.carrier,
     ...(result.value.requiresAllocation !== undefined ? { requiresAllocation: result.value.requiresAllocation } : {}),
   };
-  extensionHost.facts.set(type, runtimeCarrierFactKey, fact, result.evidence ?? []);
+  const canAttachToSemanticType = runtimeCarrierCanAttachToSemanticType(fact.carrier);
+  if (canAttachToSemanticType) {
+    extensionHost.facts.set(type, runtimeCarrierFactKey, fact, result.evidence ?? []);
+  }
   setFactOnOptionalSubject(extensionHost, typeReference, runtimeCarrierFactKey, fact, result.evidence ?? []);
-  setFactOnOptionalSubject(extensionHost, symbol, runtimeCarrierFactKey, fact, result.evidence ?? []);
-  setFactOnOptionalSubject(extensionHost, type.symbol, runtimeCarrierFactKey, fact, result.evidence ?? []);
+  if (canAttachToSemanticType) {
+    setFactOnOptionalSubject(extensionHost, symbol, runtimeCarrierFactKey, fact, result.evidence ?? []);
+    setFactOnOptionalSubject(extensionHost, type.symbol, runtimeCarrierFactKey, fact, result.evidence ?? []);
+  }
+}
+
+function runtimeCarrierCanAttachToSemanticType(type: TargetTypeRef): bool {
+  return (type.kind === "target-named" &&
+    (type.typeArguments?.length ?? 0) === 0 &&
+    !targetTypeRefContainsSourcePrimitive(type)) as bool;
+}
+
+function targetTypeRefContainsSourcePrimitive(type: TargetTypeRef): bool {
+  switch (type.kind) {
+    case "source-primitive":
+      return true as bool;
+    case "target-named":
+      return type.typeArguments?.some((argument) => targetTypeRefContainsSourcePrimitive(argument)) === true as bool;
+    case "array":
+      return targetTypeRefContainsSourcePrimitive(type.element);
+    case "tuple":
+      return type.elements.some((element) => targetTypeRefContainsSourcePrimitive(element)) as bool;
+    case "pointer":
+      return targetTypeRefContainsSourcePrimitive(type.pointee);
+    case "function-pointer":
+      return (type.args.some((argument) => targetTypeRefContainsSourcePrimitive(argument)) ||
+        targetTypeRefContainsSourcePrimitive(type.result)) as bool;
+    case "associated-type":
+      return targetTypeRefContainsSourcePrimitive(type.owner);
+    case "type-parameter":
+    case "opaque":
+    case "lifetime":
+    case "target-specific":
+      return false as bool;
+  }
 }
 
 export function recordExtensionContextualTargetTypeFact(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, contextualType: GoPtr<Type>): void {

@@ -71,11 +71,18 @@ async function runBuild(args: readonly string[], currentDirectory: string): Prom
     ...(buildResult.diagnostics.length > 0
       ? {
           stderr: buildResult.diagnostics
-            .map((diagnostic) => `${diagnostic.category.toUpperCase()} ${diagnostic.source ?? "tsonic"}:${diagnostic.code}: ${diagnostic.message}`)
+            .map(formatDiagnostic)
             .join("\n") + "\n",
         }
       : {}),
   };
+}
+
+function formatDiagnostic(diagnostic: ProjectBuildResult["diagnostics"][number]): string {
+  const evidence = diagnostic.evidence === undefined || diagnostic.evidence.length === 0
+    ? ""
+    : diagnostic.evidence.map((entry) => `\n  evidence: ${entry}`).join("");
+  return `${diagnostic.category.toUpperCase()} ${diagnostic.source ?? "tsonic"}:${diagnostic.code}: ${diagnostic.message}${evidence}`;
 }
 
 async function writeBuildArtifacts(

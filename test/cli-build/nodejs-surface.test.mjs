@@ -374,8 +374,8 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST|CSHARP_NODEJS_CALL_NOT_MAPPED/);
-  assert.match(build.stderr, /closed target type|selected target signature fact|target binding/);
+  assert.match(build.stderr, /C# NodeJS surface could not map checked 'node:util' export 'format'/);
+  assert.match(build.stderr, /System\.Object/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
@@ -470,7 +470,7 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /CSHARP_NODEJS_CALL_NOT_MAPPED|CSHARP_UNSUPPORTED_AST/);
+  assert.match(build.stderr, /C# NodeJS surface could not map checked 'node:url' export 'format'/);
   assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -502,8 +502,8 @@ test("CLI rejects unsupported selected NodeJS provider operations without fallba
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST/);
-  assert.match(build.stderr, /selected target signature fact|target binding/);
+  assert.match(build.stderr, /C# NodeJS surface could not map checked 'node:fs' export 'watchFile'/);
+  assert.match(build.stderr, /node:fs\.watchFile/);
   assert.doesNotMatch(build.stderr, /watchFile is not a function/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });

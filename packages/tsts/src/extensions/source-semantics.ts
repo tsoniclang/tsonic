@@ -1058,17 +1058,30 @@ function resolveSourceSemanticsMarkerFromImportIndex<TMarker extends { readonly 
   }
   if (node.Kind === KindPropertyAccessExpression) {
     const receiver = AsPropertyAccessExpression(node)?.Expression;
-    const receiverName = receiver?.Kind === KindIdentifier ? Node_Text(receiver) : "";
+    if (receiver?.Kind !== KindIdentifier) {
+      return undefined;
+    }
+    const receiverName = Node_Text(receiver);
     const namespaceModule = namespacesByLocalName.get(receiverName);
-    const propertyName = Node_Text(Node_Name(node));
+    const name = Node_Name(node);
+    if (name === undefined) {
+      return undefined;
+    }
+    const propertyName = Node_Text(name);
     const marker = getModuleMarker(namespaceModule, capability, propertyName);
     return marker as TMarker | undefined;
   }
   if (node.Kind === KindQualifiedName) {
     const qualifiedName = AsQualifiedName(node);
-    const namespaceModule = namespacesByLocalName.get(Node_Text(qualifiedName?.Left));
-    const marker = getModuleMarker(namespaceModule, capability, Node_Text(qualifiedName?.Right));
+    if (qualifiedName?.Left?.Kind !== KindIdentifier || qualifiedName.Right?.Kind !== KindIdentifier) {
+      return undefined;
+    }
+    const namespaceModule = namespacesByLocalName.get(Node_Text(qualifiedName.Left));
+    const marker = getModuleMarker(namespaceModule, capability, Node_Text(qualifiedName.Right));
     return marker as TMarker | undefined;
+  }
+  if (node.Kind !== KindIdentifier) {
+    return undefined;
   }
   return markersByLocalName.get(Node_Text(node));
 }

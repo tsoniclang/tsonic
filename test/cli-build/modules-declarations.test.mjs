@@ -667,8 +667,8 @@ test("CLI rejects generic type-parameter operators without selected target facts
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /operator emission requires a selected provider operator fact/);
-  assert.match(build.stderr, /operand type parameter/);
+  assert.match(build.stderr, /C# operator '===' requires finalized provider operator facts for type-parameter operands/);
+  assert.match(build.stderr, /type-parameter operands/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 

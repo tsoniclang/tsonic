@@ -422,10 +422,7 @@ export const runtimeCarrierFactKey = defineExtensionFactKey<RuntimeCarrierFact>(
 export const targetConversionFactKey = defineExtensionFactKey<TargetConversionFact>({
   extensionId: "tsts.target-bindings",
   name: "targetConversion",
-  equals: (left, right) =>
-    optionalTargetTypeRefEquals(left.sourceType, right.sourceType) &&
-    optionalTargetTypeRefEquals(left.convertedType, right.convertedType) &&
-    optionalTargetOperationFactEquals(left.operation, right.operation),
+  equals: targetConversionFactEquals,
 });
 
 export const providerVirtualDeclarationFactKey = defineExtensionFactKey<ProviderVirtualDeclarationFact>({
@@ -546,6 +543,16 @@ function targetConversionOperatorArrayEquals(left: readonly TargetConversionOper
     return left === right;
   }
   return left.length === right.length && left.every((value, index) => targetConversionOperatorEquals(value, right[index]!));
+}
+
+function targetConversionFactEquals(left: TargetConversionFact, right: TargetConversionFact): boolean {
+  return optionalTargetTypeRefMatchesWhenPresent(left.sourceType, right.sourceType) &&
+    optionalTargetTypeRefEquals(left.convertedType, right.convertedType) &&
+    optionalTargetOperationFactEquals(left.operation, right.operation);
+}
+
+function optionalTargetTypeRefMatchesWhenPresent(left: TargetTypeRef | undefined, right: TargetTypeRef | undefined): boolean {
+  return left === undefined || right === undefined || targetTypeRefEquals(left, right);
 }
 
 function targetConversionOperatorEquals(left: TargetConversionOperatorFact, right: TargetConversionOperatorFact): boolean {
