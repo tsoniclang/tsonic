@@ -85,6 +85,57 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits JSON.stringify from selected JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "standard-json-stringify");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStandardJsonStringify",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function stringifyText(value: string): string {",
+      "  return JSON.stringify(value);",
+      "}",
+      "",
+      "export function stringifyNumber(value: number): string {",
+      "  return JSON.stringify(value);",
+      "}",
+      "",
+      "export function stringifyBool(value: boolean): string {",
+      "  return JSON.stringify(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardJsonStringify.csproj"), "utf8");
+  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static string stringifyText\(string value\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSON\.stringify\(value\);/);
+  assert.match(generatedSource, /public static string stringifyNumber\(double value\)/);
+  assert.match(generatedSource, /public static string stringifyBool\(bool value\)/);
+  assert.doesNotMatch(generatedSource, /JSON\.stringify\(.*dynamic/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardJsonStringify.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits typeof narrowing through selected TSTS target facts", async () => {
   const projectDirectory = resolve(tempRoot, "typeof-narrowing");
