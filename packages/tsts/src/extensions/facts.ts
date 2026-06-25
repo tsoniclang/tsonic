@@ -123,6 +123,7 @@ export type TargetConstraint =
   | { readonly kind: "reference-type" }
   | { readonly kind: "constructible" }
   | { readonly kind: "unmanaged" }
+  | { readonly kind: "unsupported"; readonly target: string; readonly id: string; readonly reason: string; readonly value?: unknown }
   | { readonly kind: "copy" }
   | { readonly kind: "clone" }
   | { readonly kind: "default" }
@@ -673,6 +674,8 @@ function targetConstraintEquals(left: TargetConstraint, right: TargetConstraint)
       return right.kind === "lifetime" && left.name === right.name;
     case "target-specific":
       return right.kind === "target-specific" && left.target === right.target && left.name === right.name && Object.is(left.value, right.value);
+    case "unsupported":
+      return right.kind === "unsupported" && left.target === right.target && left.id === right.id && left.reason === right.reason && Object.is(left.value, right.value);
     case "value-type":
     case "reference-type":
     case "constructible":

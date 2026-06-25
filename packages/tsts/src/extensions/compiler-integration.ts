@@ -260,6 +260,9 @@ function getSymbolFactId(symbol: Symbol): string {
 }
 
 function getTargetBindingFact(virtualModule: ProviderResolvedModule, declaration: ProviderExportDeclaration): TargetBindingFact | undefined {
+  if (declaration.targetBinding !== undefined) {
+    return declaration.targetBinding;
+  }
   if (declaration.targetIdentity === undefined) {
     return undefined;
   }
