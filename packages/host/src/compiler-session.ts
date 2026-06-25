@@ -54,6 +54,7 @@ export interface TsonicSemanticSession {
   readonly extensionHost: ExtensionHost;
   readonly checker: TypeCheckerQueries;
   readonly facts: ExtensionConsumerQueries;
+  readonly tstsDiagnostics: ReturnType<CompilerSession["getDiagnostics"]>;
 }
 
 export interface CreateTsonicSemanticSessionOptions {
@@ -77,7 +78,7 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
     throw new Error("TSTS createCompilerSession returned no program.");
   }
   compiler.ensureBound();
-  forceDiagnostics(compiler);
+  const tstsDiagnostics = forceDiagnostics(compiler);
   const extensionHost = compiler.finalizeExtensions();
   if (extensionHost === undefined) {
     throw new Error("TSTS extension finalization returned no extension host.");
@@ -92,6 +93,7 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
     extensionHost,
     checker: compiler.checker,
     facts: createExtensionConsumerQueries(extensionHost, "tsonic-host"),
+    tstsDiagnostics,
   };
 }
 

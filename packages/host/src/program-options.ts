@@ -41,6 +41,7 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     "--moduleResolution",
     "nodenext",
     "--strict",
+    "--singleThreaded",
     "--preserveSymlinks",
     "--allowArbitraryExtensions",
     "--rootDir",

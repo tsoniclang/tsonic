@@ -4,7 +4,7 @@ import type { TargetDiagnostic } from "@tsonic/target-api";
 import type { TsonicSemanticSession } from "./compiler-session.js";
 
 export function collectTstsDiagnostics(session: TsonicSemanticSession, currentDirectory: string): readonly TargetDiagnostic[] {
-  const diagnostics = session.compiler.getDiagnostics("all")
+  const diagnostics = session.tstsDiagnostics
     .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined);
   const message = formatDiagnostics(diagnostics, currentDirectory);
   if (message.length === 0) {
@@ -18,10 +18,18 @@ export function collectTstsDiagnostics(session: TsonicSemanticSession, currentDi
   }];
 }
 
-export function forceDiagnostics(session: CompilerSession): void {
-  session.getDiagnostics("program");
+export function forceDiagnostics(session: CompilerSession): ReturnType<CompilerSession["getDiagnostics"]> {
+  const diagnostics: ReturnType<CompilerSession["getDiagnostics"]>[number][] = [
+    ...session.getDiagnostics("config"),
+    ...session.getDiagnostics("program"),
+    ...session.getDiagnostics("global"),
+  ];
   for (const sourceFile of session.getSourceFiles()) {
-    session.getDiagnostics("syntactic", sourceFile);
-    session.getDiagnostics("semantic", sourceFile);
+    diagnostics.push(...session.getDiagnostics("syntactic", sourceFile));
+    diagnostics.push(...session.getDiagnostics("bind", sourceFile));
+    if (sourceFile?.IsDeclarationFile !== true) {
+      diagnostics.push(...session.getDiagnostics("semantic", sourceFile));
+    }
   }
+  return diagnostics;
 }
