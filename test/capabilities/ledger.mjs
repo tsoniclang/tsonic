@@ -1190,7 +1190,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider virtual declarations keep target-only generic constraints out of source-visible TypeScript shapes while retaining reflected target constraint facts for backend/provider consumers, and the C# semantic provider validates those constraints only from finalized target facts after TSTS has accepted source syntax. Old TypeScript constraint fixtures are not mapped here because they prove source generic declarations, not provider-owned virtual-module constraints.",
+      "Reviewed partial proof: provider virtual declarations keep target-only generic constraints out of source-visible TypeScript shapes while retaining reflected target constraint facts for backend/provider consumers, including C# notnull as a target-specific constraint. The C# semantic provider validates those constraints only from finalized target facts after TSTS has accepted source syntax. Old TypeScript constraint fixtures are not mapped here because they prove source generic declarations, not provider-owned virtual-module constraints.",
   }),
   "source.primitive.numeric": Object.freeze({
     positiveTests: Object.freeze([
@@ -2176,7 +2176,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     notes:
-      "Reviewed partial proof: .NET reflection records class, struct, new, unmanaged, interface, base-class, generic-method, and variance constraints as target facts with assembly-qualified target identities, keeps those target-only constraints out of source declarations, and the C# semantic provider accepts or rejects generic constraints from finalized target binding facts instead of changing TSTS source assignability. Remains partial until notnull policy, full base-vs-interface substitution evidence, unsupported constraint evidence, and source-level provider constraint diagnostics are complete.",
+      "Reviewed partial proof: .NET reflection records class, struct, new, unmanaged, notnull, interface, base-class, generic-method, and variance constraints as target facts with assembly-qualified target identities, keeps those target-only constraints out of source declarations, maps notnull to C# target-specific constraint facts, and the C# semantic provider accepts or rejects generic constraints from finalized target binding facts instead of changing TSTS source assignability. Remains partial until full base-vs-interface substitution evidence, unsupported constraint evidence, and source-level provider constraint diagnostics are complete.",
   }),
   "native.dotnet.conversions": Object.freeze({
     positiveTests: Object.freeze([
@@ -2438,7 +2438,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/generic-constraints-object-struct/",
     ]),
     notes:
-      "Reviewed partial proof: source and provider generic constraints render only from finalized target constraint facts, primitive constraint failures produce diagnostics, C# provider target constraints are accepted only when finalized value/reference/constructible/unmanaged/implemented-contract facts prove them, unproven provider type arguments produce source-level C# target diagnostics after TSTS accepts the source syntax, and old generic-constraint emitter/fixture coverage is mapped as evidence. Remains partial until every reflected constraint form has end-to-end tests.",
+      "Reviewed partial proof: source and provider generic constraints render only from finalized target constraint facts, primitive constraint failures produce diagnostics, C# provider target constraints are accepted only when finalized value/reference/constructible/unmanaged/notnull/implemented-contract facts prove them, unproven provider type arguments produce source-level C# target diagnostics after TSTS accepts the source syntax, and old generic-constraint emitter/fixture coverage is mapped as evidence. Remains partial until every reflected constraint form has end-to-end tests.",
   }),
   "declaration.generic-parameters": Object.freeze({
     positiveTests: Object.freeze([
