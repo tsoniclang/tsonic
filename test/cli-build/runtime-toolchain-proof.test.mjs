@@ -15,6 +15,24 @@ const bannedGeneratedRuntimeSemantics = [
   /\bAssembly\.Load\b/u,
 ];
 
+test("C# runtime packages do not contain reflection or dynamic language semantics", async () => {
+  const runtimeSourceDirectories = [
+    resolve("../csharp-runtime/src"),
+    resolve("../csharp-js/src"),
+    resolve("../csharp-nodejs/src"),
+  ];
+  const files = (await Promise.all(runtimeSourceDirectories.map((directory) =>
+    collectFiles(directory, (fileName) => fileName.endsWith(".cs"))
+  ))).flat();
+  assert.notEqual(files.length, 0);
+  for (const file of files) {
+    const text = await readFile(file, "utf8");
+    for (const pattern of bannedGeneratedRuntimeSemantics) {
+      assert.doesNotMatch(text, pattern, `${file} contains banned runtime semantic mechanism ${pattern}`);
+    }
+  }
+});
+
 test("CLI emits configured C# library projects with runtime-only references", async () => {
   const assemblyName = "SmokeGeneratedRuntimeOnlyLibrary";
   const projectDirectory = resolve(tempRoot, "runtime-only-library");
@@ -186,13 +204,17 @@ async function assertGeneratedOutputHasNoReflectionSemantics(projectDirectory) {
 }
 
 async function collectGeneratedFiles(directory) {
+  return collectFiles(directory, (fileName) => fileName.endsWith(".cs") || fileName.endsWith(".csproj"));
+}
+
+async function collectFiles(directory, predicate) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     const fullPath = join(directory, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await collectGeneratedFiles(fullPath));
-    } else if (entry.isFile() && (entry.name.endsWith(".cs") || entry.name.endsWith(".csproj"))) {
+      files.push(...await collectFiles(fullPath, predicate));
+    } else if (entry.isFile() && predicate(entry.name)) {
       files.push(fullPath);
     }
   }
