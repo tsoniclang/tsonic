@@ -321,6 +321,81 @@ const oldProductUnitPortedProofByOldPath = new Map([
   })],
 ]);
 
+const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/cli/src/commands/build.test.ts",
+  ], [
+    "backend.csharp.project-sdk-emit",
+    "host.config.project-load",
+    "host.package.composition",
+    "host.project.provider-composition",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/cli/src/surface/profiles.test.ts",
+  ], [
+    "host.config.surface-selection",
+    "host.project.surface-extension-composition",
+    "host.project.surface-selection",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.console",
+    "surface.node.fs-path-process",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/surface/profiles.test.ts",
+  ], [
+    "host.config.surface-selection",
+    "host.project.surface-extension-composition",
+    "host.project.surface-selection",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.console",
+    "surface.node.fs-path-process",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
+  ], [
+    "source-core.target-alias-consumption",
+    "source.marker.attribute",
+    "source.marker.out-ref-inref",
+    "source.primitive.configured-type",
+    "source.primitive.numeric",
+    "tsts.no-target-overrides",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+  ], [
+    "source-core.lang.portable-intrinsics",
+    "source-core.lang.portable-intrinsics.attribute",
+    "source-core.lang.portable-intrinsics.field",
+    "source-core.lang.portable-intrinsics.inref",
+    "source-core.lang.portable-intrinsics.out",
+    "source-core.lang.portable-intrinsics.ref",
+    "source-core.module.single-owner",
+    "source-core.out.storage-binding",
+    "source-core.ref.parameter-mode",
+    "source-core.target-alias-consumption",
+    "source.marker.attribute",
+    "source.marker.field",
+    "source.marker.out-ref-inref",
+    "source.primitive.configured-type",
+    "source.primitive.numeric",
+    "target.csharp.core-lang-intrinsics",
+    "tsts.no-target-overrides",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.csharp.no-direct-semantic-string-output",
+    "backend.csharp.printer",
+    "backend.no-semantic-strings",
+  ]),
+]);
+
 const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldProductUnitLedgerEvidenceCapabilityMapping([
     "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
@@ -407,7 +482,7 @@ const oldProductUnitCapabilityMappingStatusSet = new Set(oldProductUnitCapabilit
 const oldProductUnitFeatureAreaSet = new Set(oldProductUnitFeatureAreas);
 
 function freezeSortedStrings(values) {
-  return Object.freeze([...values].sort());
+  return Object.freeze([...new Set(values)].sort());
 }
 
 function reviewedOldProductUnitStaleMappings(oldPaths, replacementCapabilityIds, replacementCapabilityPath) {
@@ -419,6 +494,11 @@ function reviewedOldProductUnitStaleMappings(oldPaths, replacementCapabilityIds,
   });
 
   return oldPaths.map((oldPath) => [oldPath, proof]);
+}
+
+function reviewedOldProductUnitDeferredCapabilityMapping(oldPaths, capabilityIds) {
+  const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
+  return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
 }
 
 function oldProductUnitLedgerEvidenceCapabilityMapping(oldPaths, capabilityIds) {
@@ -443,6 +523,7 @@ function withOldProductUnitCapabilityProof(oldPath, testDeclarations) {
   const portedProof = status === "ported"
     ? oldProductUnitPortedProofFor(oldPath)
     : undefined;
+  const reviewedDeferredCapabilityIds = oldProductUnitReviewedDeferredCapabilityIdsByOldPath.get(oldPath);
 
   return Object.freeze({
     oldPath,
@@ -451,10 +532,15 @@ function withOldProductUnitCapabilityProof(oldPath, testDeclarations) {
     featureArea: oldProductUnitFeatureAreaFor(oldPath),
     owner: oldProductUnitOwnerFor(oldPath),
     oldEvidenceRole: oldProductUnitOldEvidenceRole,
-    capabilityMappingStatus: status === "deferred" ? "deferred-derived" : "reviewed",
+    capabilityMappingStatus: staleProof !== undefined || portedProof !== undefined || reviewedDeferredCapabilityIds !== undefined
+      ? "reviewed"
+      : "deferred-derived",
     capabilityIds: oldProductUnitCapabilityIdsWithLedgerEvidence(
       oldPath,
-      staleProof?.capabilityIds ?? portedProof?.capabilityIds ?? freezeSortedStrings(oldProductUnitCapabilityIdsFor(oldPath)),
+      staleProof?.capabilityIds ??
+        portedProof?.capabilityIds ??
+        reviewedDeferredCapabilityIds ??
+        freezeSortedStrings(oldProductUnitCapabilityIdsFor(oldPath)),
     ),
     ...(portedProof?.newPath === undefined ? {} : { newPath: portedProof.newPath }),
     reason: oldProductUnitReasonFor(oldPath),
@@ -769,10 +855,6 @@ export function validateOldProductUnitPortEntry(entry) {
 
   if (!oldProductUnitCapabilityMappingStatusSet.has(entry.capabilityMappingStatus)) {
     errors.push(`capabilityMappingStatus must be one of ${oldProductUnitCapabilityMappingStatuses.join(", ")}`);
-  }
-
-  if (entry.status === "deferred" && entry.capabilityMappingStatus !== "deferred-derived") {
-    errors.push("deferred entries must use deferred-derived capability mappings");
   }
 
   if (entry.status !== "deferred" && entry.capabilityMappingStatus !== "reviewed") {

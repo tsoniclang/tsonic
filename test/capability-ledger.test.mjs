@@ -623,6 +623,31 @@ test("reviewed old inventory entries are represented by ledger oldEvidence", () 
   }
 });
 
+test("ledger oldEvidence paths are reviewed old inventory mappings", () => {
+  const oldEntriesByPath = new Map([
+    ...oldEmitterPortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldSuitePortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldProductUnitPortInventory.map((entry) => [entry.oldPath, entry]),
+  ]);
+
+  for (const entry of capabilityLedger) {
+    for (const oldEvidencePath of entry.oldEvidence) {
+      const oldEntry = oldEntriesByPath.get(oldEvidencePath);
+      assert.notEqual(oldEntry, undefined, `${entry.capabilityId} references old evidence without an inventory entry: ${oldEvidencePath}`);
+      assert.equal(
+        oldEntry.capabilityMappingStatus,
+        "reviewed",
+        `${entry.capabilityId} old evidence is not reviewed by ${oldEvidencePath}`,
+      );
+      assert.equal(
+        oldEntry.capabilityIds.includes(entry.capabilityId),
+        true,
+        `${entry.capabilityId} old evidence is not bidirectionally mapped by ${oldEvidencePath}`,
+      );
+    }
+  }
+});
+
 test("capability oldEvidence references classified old inventory paths", () => {
   const classifiedOldPathSet = new Set([
     ...oldEmitterPortInventory.map((entry) => entry.oldPath),

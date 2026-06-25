@@ -650,6 +650,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.fail-closed-facts",
     "expression.nullish-optional",
+    "type.generic.provider-target-arguments",
     "operation.conversion.checked-target-conversion",
     "operation.operator.checked-target-operation",
   ]),
@@ -783,6 +784,78 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "operation.conversion.checked-target-conversion",
     "operation.operator.checked-target-operation",
     "runtime.union.carrier",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("attributes/comprehensive/Attributes"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "declaration.attributes",
+    "native.dotnet.attributes",
+    "source-core.lang.portable-intrinsics.attribute",
+    "source.marker.attribute",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("edge-cases/inline-object-param/InlineObjectParam"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.object-shape",
+    "expression.nullish-optional",
+    "expression.object-literal",
+    "operation.conversion.checked-target-conversion",
+    "operation.operator.checked-target-operation",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/anonymous-objects/AnonymousObjects"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.object-shape",
+    "declaration.generic-parameters",
+    "expression.object-literal",
+    "tsts.generic-inference",
+    "type.generic.provider-target-arguments",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/interfaces/Interfaces"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.object-shape",
+    "declaration.generic-parameters",
+    "tsts.generic-inference",
+    "type.generic.provider-target-arguments",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/tuples-arity/TuplesArity"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.tuple",
+    "declaration.generic-parameters",
+    "tsts.generic-inference",
+    "type.generic.provider-target-arguments",
+    "type.variadic-tuple",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.object-shape",
+    "declaration.generated-structural",
+    "expression.object-literal",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("lang/stackalloc/StackAlloc"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "native.dotnet.parameter-modes",
+    "source.marker.field",
+    "source.marker.struct",
+    "source.primitive.numeric",
   ]),
 ]);
 
@@ -987,10 +1060,9 @@ function expectedOnlyCases(relativePaths) {
 }
 
 function withOldEmitterCapabilityProof(entry) {
-  const capabilityMappingStatus = entry.status === "deferred" ? "deferred-derived" : "reviewed";
-  const baseCapabilityIds = entry.status === "deferred"
-    ? defaultOldEmitterCapabilityIds(entry)
-    : oldEmitterReviewedCapabilityIdsFor(entry);
+  const reviewedCapabilityIds = oldEmitterReviewedCapabilityIdsByOldPath.get(entry.oldPath);
+  const capabilityMappingStatus = reviewedCapabilityIds === undefined ? "deferred-derived" : "reviewed";
+  const baseCapabilityIds = reviewedCapabilityIds ?? oldEmitterDerivedCapabilityIdsFor(entry);
   const capabilityIds = oldEmitterCapabilityIdsWithLedgerEvidence(entry, baseCapabilityIds);
   const replacementProof = entry.status === "invalid-stale-architecture"
     ? oldEmitterReplacementProofFor(entry)
@@ -1009,7 +1081,7 @@ function withOldEmitterCapabilityProof(entry) {
 }
 
 function freezeSortedStrings(values) {
-  return Object.freeze([...values].sort());
+  return Object.freeze([...new Set(values)].sort());
 }
 
 function reviewedOldEmitterCapabilityMapping(oldPaths, capabilityIds) {
@@ -1038,6 +1110,14 @@ function oldEmitterReviewedCapabilityIdsFor(entry) {
   }
 
   return capabilityIds;
+}
+
+function oldEmitterDerivedCapabilityIdsFor(entry) {
+  if (entry.status !== "deferred") {
+    return oldEmitterReviewedCapabilityIdsFor(entry);
+  }
+
+  return defaultOldEmitterCapabilityIds(entry);
 }
 
 function oldEmitterReplacementProofFor(entry) {
@@ -1300,10 +1380,6 @@ export function validateOldEmitterPortEntry(entry) {
 
   if (!oldEmitterCapabilityMappingStatusSet.has(entry.capabilityMappingStatus)) {
     errors.push(`capabilityMappingStatus must be one of ${oldEmitterCapabilityMappingStatuses.join(", ")}`);
-  }
-
-  if (entry.status === "deferred" && entry.capabilityMappingStatus !== "deferred-derived") {
-    errors.push("deferred entries must use deferred-derived capability mappings");
   }
 
   if (entry.status !== "deferred" && entry.capabilityMappingStatus !== "reviewed") {
