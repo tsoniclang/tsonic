@@ -2575,7 +2575,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: selected JS surface Array.length maps only from the standard-library declaration and a finalized array receiver fact; provider tests defer when the declaration or carrier is absent and reject non-integral indexes. CLI tests emit IReadOnlyList<T>.Count/List indexer and native byte[].Length only when selected facts exist, and reject native array length or element access without those facts.",
+      "Reviewed partial proof: selected JS surface Array.length and element access map only from the standard-library declaration plus finalized array receiver carrier facts; provider tests defer when the declaration or carrier is absent, reject non-integral indexes, and finalize source-level element operation facts from carrier evidence before backend emission. CLI tests emit IReadOnlyList<T>.Count/List indexer and native byte[].Length only when selected facts exist, and reject native array length or element access without those facts.",
   }),
   "surface.js.array.sparse-delete-holes": Object.freeze({
     sourceExamples: Object.freeze([
