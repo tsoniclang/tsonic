@@ -299,7 +299,7 @@ function fileLoader_resolveProviderVirtualModule(receiver: GoPtr<fileLoader>, ex
     ResolvedUsingTsExtension: false,
     PackageId: {
       Name: result.module.resolution.packageName ?? "",
-      SubModuleName: result.module.resolution.moduleSpecifier,
+      SubModuleName: result.module.resolution.virtualFileName,
       Version: result.module.resolution.packageVersion ?? "",
       PeerDependencies: "",
     },
