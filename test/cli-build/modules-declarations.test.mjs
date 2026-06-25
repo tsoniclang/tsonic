@@ -252,17 +252,21 @@ test("CLI does not run type-only module dependencies during initialization", asy
     "src/types.ts": [
       "import { append } from \"./state.js\";",
       "append(\"types;\");",
-      "export type Marker = number;",
-      "export type Named = string;",
+      "export interface Marker {",
+      "  value: number;",
+      "}",
+      "export interface Named {",
+      "  name: string;",
+      "}",
       "",
     ].join("\n"),
     "src/index.ts": [
       "import { append, text } from \"./state.js\";",
       "import type { Marker } from \"./types.js\";",
       "import { type Named } from \"./types.js\";",
-      "const marker: Marker = 1;",
-      "const named: Named = \"item\";",
-      "append(`index:${marker}:${named};`);",
+      "const marker: Marker = { value: 1 };",
+      "const named: Named = { name: \"item\" };",
+      "append(`index:${marker.value}:${named.name};`);",
       "console.log(text);",
       "",
     ].join("\n"),
@@ -274,6 +278,8 @@ test("CLI does not run type-only module dependencies during initialization", asy
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(indexSource, /State\.__tsonic_module_init\(\);/);
   assert.doesNotMatch(indexSource, /Types\.__tsonic_module_init\(\);/);
+  assert.match(indexSource, /__TsonicShape_Marker_[A-Za-z0-9_]+/);
+  assert.match(indexSource, /__TsonicShape_Named_[A-Za-z0-9_]+/);
 
   const typesSource = await readFile(resolve(projectDirectory, "out/csharp/src/Types.cs"), "utf8");
   assert.match(typesSource, /State\.append\("types;"\);/);

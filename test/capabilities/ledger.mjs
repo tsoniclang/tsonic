@@ -624,7 +624,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "module.import.type-only remains partial until every old import-type fixture is mapped and invalid type-only-as-value forms have current focused diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: type-only relative ESM imports participate in the TSTS source graph without creating generated declaration fallback input, and CLI runtime proof shows type-only dependencies do not trigger generated C# module initialization.",
+      "Reviewed partial proof: type-only relative ESM imports participate in the TSTS source graph without creating generated declaration fallback input, CLI runtime proof shows type-only dependencies do not trigger generated C# module initialization, and imported interface annotations can drive object-shape adapter facts without forcing the imported type-only module to run.",
   }),
   "module.import.side-effect": Object.freeze({
     positiveTests: Object.freeze([
@@ -3129,6 +3129,29 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: parameter and variable binding patterns now consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; expression and statement assignment destructuring both fail closed instead of ordinary assignment fallback or stale lowering. This is not complete until target storage-write facts and end-to-end old fixture parity exist.",
   }),
+  "expression.object-literal": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/edge-cases/inline-object-param/InlineObjectParam.ts",
+      "packages/targets/csharp/emitter/testcases/common/edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/anonymous-objects/AnonymousObjects.ts",
+      "test/fixtures/object-literal-method-shorthand/",
+      "test/fixtures/object-literal-object/",
+    ]),
+    blockers: Object.freeze([
+      "expression.object-literal remains partial until inline parameters, generic type-parameter object literals, nested object literals, spread/rest/default members, and every old object-literal fixture are mapped to current provider facts and runtime/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: object literals receive expression-local generated adapter carriers such as __TsonicShape_Marker_* from finalized object-shape facts. Imported interface annotations remain storage/type facts on the declared variable and TypeReferenceNode, so the object literal does not overwrite the interface carrier or create a dual runtimeCarrier path.",
+  }),
   "expression.property-access": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
@@ -3319,6 +3342,31 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: destructuring assignment is recognized as a binding-storage capability in expression and statement planning, not lowered through ordinary assignment; until storage/extraction facts exist, the backend emits diagnostics instead of guessing.",
+  }),
+  "carrier.object-shape": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/edge-cases/inline-object-param/InlineObjectParam.ts",
+      "packages/targets/csharp/emitter/testcases/common/edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/anonymous-objects/AnonymousObjects.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/interfaces/Interfaces.ts",
+      "test/fixtures/object-literal-method-shorthand/",
+      "test/fixtures/object-literal-object/",
+    ]),
+    blockers: Object.freeze([
+      "carrier.object-shape remains partial until structural interface storage, generated adapter emission, inline object parameters, generic object literal paths, object spread/rest/default extraction, and full old fixture parity are covered end to end.",
+    ]),
+    notes:
+      "Reviewed partial proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. This prevents imported interface object literals from conflicting with declaration carriers and keeps missing shape/provider facts fail-closed instead of falling back to source spelling.",
   }),
   "carrier.any-tsvalue": Object.freeze({
     positiveTests: Object.freeze([
