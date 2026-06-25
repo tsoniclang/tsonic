@@ -925,6 +925,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([
       "tsts.consumer-queries remains partial until every backend consumption path is proven to use public TSTS queries/finalized facts rather than compiler internals or legacy frontend analysis.",
+      "Provider virtual declaration consumer queries do not yet expose a truthful default-export/default-alias contract, so provider-backed default imports such as import fs from 'node:fs' cannot be implemented without a TSTS API addition.",
     ]),
     notes:
       "Reviewed partial proof: embedding/source-core tests use public TSTS consumer queries for facts and diagnostics, and host tests route compiler sessions through composed extensions instead of raw filesystem crawling. Remaining proof must be capability-specific per backend consumer.",
@@ -3077,6 +3078,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-path-posix-join/",
       "test/fixtures/nodejs-surface-imports-negative/",
       "test/fixtures/nodejs-surface-module-graph/",
+    ]),
+    blockers: Object.freeze([
+      "surface.node.fs-path-process remains partial for default imports until TSTS provider virtual declarations support truthful default exports or default namespace-object aliases with identity propagation to selected members.",
     ]),
     notes:
       "Reviewed partial proof: selected NodeJS surface facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property access, and rejection of node:path/fs without the NodeJS surface. Remains partial until fs/path/process behavior is runtime-verified across the full old Node fixture matrix and all unsupported module members fail closed.",
