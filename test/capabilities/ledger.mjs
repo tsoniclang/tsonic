@@ -115,7 +115,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["provider.virtual-module.source-shape", "Provider supplies source-visible virtual declarations", "partial", "target-provider"],
   ["provider.virtual-module.target-identity", "Provider attaches target identity to virtual declarations", "partial", "target-provider"],
   ["provider.virtual-module.constraints", "Provider supplies target constraints outside TS source shape", "partial", "target-provider"],
-  ["provider.virtual-module.overload-identity", "Provider supplies exact overload/member identity", "partial", "target-provider"],
+  ["provider.virtual-module.overload-identity", "Provider supplies exact overload/member identity", "complete", "target-provider"],
   ["provider.module.virtual-import", "Provider-backed virtual imports become compiler state", "partial", "target-provider"],
   ["provider.module.no-file-backed-fallback", "Provider module resolution has no declaration-file fallback", "complete", "target-provider"],
   ["provider.module.missing-provider-diagnostic", "Missing provider-owned modules produce diagnostics", "complete", "target-provider"],
@@ -2372,17 +2372,24 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
       "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned overload identity is selected from exact declaration/signature facts, including same-spelling overload groups, generic method arity, byref parameter modes, optional/params arity, and selected signatures whose source argument facts would otherwise match sibling overloads. The provider closes selected generic target signatures through the selected identity only and rejects contradictory target facts instead of searching siblings; remains partial until assembly-qualified identities and unsupported-member diagnostics cover every collision/drop case.",
+      "Reviewed proof: provider-owned overload identity is selected from exact declaration/signature facts, including same-spelling overload groups, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, selected JS/Node surface signatures, and selected signatures whose source argument facts would otherwise match sibling overloads. The provider closes selected generic target signatures through the selected identity only, reports selected unsupported member identities with provider reasons, and rejects contradictory or unowned target facts instead of searching siblings or guessing from source spelling.",
   }),
   "type.generic.provider-target-arguments": Object.freeze({
     positiveTests: Object.freeze([
