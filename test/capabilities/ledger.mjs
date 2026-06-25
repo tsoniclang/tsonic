@@ -3863,7 +3863,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: any property/element reads require closed compat-runtime get facts; strict-native fails even if a fact is present, while compat mode requires the finalized operation fact before backend AST output. Remains partial until TsValue/TsObject key semantics are real provider facts and runtime artifacts.",
+      "Reviewed partial proof: any property/element reads require closed compat-runtime get facts; strict-native fails even if a fact is present, while compat mode requires the finalized operation fact before backend AST output. Backend C# AST planning now renders any element reads only from closed carrier facts with explicit key projection and fails closed when projection evidence is missing. Remains partial until TsValue/TsObject key semantics are real provider facts and runtime artifacts.",
   }),
   "compat.any.dynamic-set": Object.freeze({
     positiveTests: Object.freeze([
@@ -3878,7 +3878,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: property writes through any are caught at the opaque any property node and require closed compat-runtime operation facts with explicit source-argument projection rather than backend assignment guessing. Remains partial until explicit set/delete/update provider facts and runtime artifacts exist.",
+      "Reviewed partial proof: property and element writes through any are caught at the opaque any operation node and require closed compat-runtime operation facts with explicit source-argument projection rather than backend assignment guessing. Backend C# AST planning now renders any element writes only from closed carrier facts with explicit key and value projection. Remains partial until explicit set/delete/update provider facts and runtime artifacts exist.",
   }),
   "compat.any.dynamic-call": Object.freeze({
     positiveTests: Object.freeze([
