@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI emits module-scope variables as C# static fields", async () => {
   const projectDirectory = resolve(tempRoot, "module-fields");
@@ -32,7 +32,9 @@ test("CLI emits module-scope variables as C# static fields", async () => {
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double total = 1;/);
+  assert.match(generatedSource, /public static double total;/);
+  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /total = 1;/);
   assert.match(generatedSource, /total = total \+ 1;/);
   assert.doesNotMatch(generatedSource, /public static void Main\(\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -73,7 +75,9 @@ test("CLI emits module-scope const bindings as C# static readonly fields", async
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly double total = 1;/);
+  assert.match(generatedSource, /public static readonly double total;/);
+  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /total = 1;/);
   assert.doesNotMatch(generatedSource, /public static double total = 1;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -102,7 +106,9 @@ test("CLI erases source-local standalone export declarations", async () => {
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly double value = 1;/);
+  assert.match(generatedSource, /public static readonly double value;/);
+  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /value = 1;/);
   assert.doesNotMatch(generatedSource, /export|__unsupported/);
 });
 
@@ -152,6 +158,69 @@ test("CLI emits cross-file source references from TSTS resolved symbols", async 
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCrossFileReferences.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+
+test("CLI emits side-effect import initialization before importer top-level statements", async () => {
+  const projectDirectory = resolve(tempRoot, "side-effect-import-order");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            outputType: "Exe",
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedSideEffectImportOrder",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/state.ts": [
+      "export let text = \"\";",
+      "export function append(value: string): void {",
+      "  text = text + value;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/side.ts": [
+      "import { append } from \"./state.js\";",
+      "append(\"side;\");",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import \"./side.js\";",
+      "import { append, text } from \"./state.js\";",
+      "append(\"index;\");",
+      "console.log(text);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(indexSource, /static Index\(\)/);
+  assert.match(indexSource, /Side\.__tsonic_module_init\(\);[\s\S]*State\.__tsonic_module_init\(\);[\s\S]*State\.append\("index;"\);/);
+  assert.doesNotMatch(indexSource, /__unsupported/);
+
+  const sideSource = await readFile(resolve(projectDirectory, "out/csharp/src/Side.cs"), "utf8");
+  assert.match(sideSource, /static Side\(\)/);
+  assert.match(sideSource, /State\.__tsonic_module_init\(\);[\s\S]*State\.append\("side;"\);/);
+  assert.doesNotMatch(sideSource, /__unsupported/);
+
+  const stateSource = await readFile(resolve(projectDirectory, "out/csharp/src/State.cs"), "utf8");
+  assert.match(stateSource, /public static string text;/);
+  assert.match(stateSource, /text = "";/);
+  assert.doesNotMatch(stateSource, /__unsupported/);
+
+  const output = runGeneratedProject(projectDirectory, "SmokeGeneratedSideEffectImportOrder");
+  assert.equal(output, "side;index;\n");
 });
 
 
@@ -1165,10 +1234,14 @@ test("CLI emits module-scope arrow function values as C# Func fields", async () 
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly Func<double, double, double> add = \(double left, double right\) => left \+ right;/);
-  assert.match(generatedSource, /public static readonly Func<string, string> greet = \(string name\) => \$"Hello \{name\}";/);
-  assert.match(generatedSource, /public static readonly Func<double, double> @double = \(double value\) => value \* 2;/);
-  assert.match(generatedSource, /public static readonly Func<double, double> triple = \(double value\) => value \* 3;/);
+  assert.match(generatedSource, /public static readonly Func<double, double, double> add;/);
+  assert.match(generatedSource, /public static readonly Func<string, string> greet;/);
+  assert.match(generatedSource, /public static readonly Func<double, double> @double;/);
+  assert.match(generatedSource, /public static readonly Func<double, double> triple;/);
+  assert.match(generatedSource, /add = \(double left, double right\) => left \+ right;/);
+  assert.match(generatedSource, /greet = \(string name\) => \$"Hello \{name\}";/);
+  assert.match(generatedSource, /@double = \(double value\) => value \* 2;/);
+  assert.match(generatedSource, /triple = \(double value\) => value \* 3;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedModuleArrowValues.csproj"), "--nologo", "--v:minimal"]);
@@ -1396,7 +1469,8 @@ test("CLI emits arrays and interfaces containing callable target types", async (
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly Func<int, int, int>\[\] operations = new Func<int, int, int>\[\] \{ \(int left, int right\) => left \+ right, \(int left, int right\) => left - right, \(int left, int right\) => left \* right \};/);
+  assert.match(generatedSource, /public static readonly Func<int, int, int>\[\] operations;/);
+  assert.match(generatedSource, /operations = new Func<int, int, int>\[\] \{ \(int left, int right\) => left \+ right, \(int left, int right\) => left - right, \(int left, int right\) => left \* right \};/);
   assert.match(generatedSource, /public interface OperationMap/);
   assert.match(generatedSource, /Func<int, int, int> add \{ get; \}/);
   assert.match(generatedSource, /Func<int, int, int> subtract \{ get; \}/);

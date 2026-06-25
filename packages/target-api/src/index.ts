@@ -23,6 +23,7 @@ export type {
   TargetPack,
   TargetProvider,
   TargetProviderContext,
+  TargetProjectSourceModuleDependency,
   TargetRuntimeContributionContext,
   TargetSemanticNodeOptions,
   TargetSemanticQueries,

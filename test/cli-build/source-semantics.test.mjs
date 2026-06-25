@@ -325,12 +325,19 @@ test("CLI emits reference type assertions through finalized C# conversion facts"
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly int intFromLiteral = 1000;/);
-  assert.match(generatedSource, /public static readonly byte byteFromLiteral = 255;/);
-  assert.match(generatedSource, /public static readonly short shortFromLiteral = 1000;/);
-  assert.match(generatedSource, /public static readonly long longFromLiteral = System\.Convert\.ToInt64\(1000000\);/);
-  assert.match(generatedSource, /public static readonly float floatFromLiteral = 1\.5F;/);
-  assert.match(generatedSource, /public static readonly double doubleFromLiteral = 1\.5;/);
+  assert.match(generatedSource, /public static readonly int intFromLiteral;/);
+  assert.match(generatedSource, /public static readonly byte byteFromLiteral;/);
+  assert.match(generatedSource, /public static readonly short shortFromLiteral;/);
+  assert.match(generatedSource, /public static readonly long longFromLiteral;/);
+  assert.match(generatedSource, /public static readonly float floatFromLiteral;/);
+  assert.match(generatedSource, /public static readonly double doubleFromLiteral;/);
+  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /intFromLiteral = 1000;/);
+  assert.match(generatedSource, /byteFromLiteral = 255;/);
+  assert.match(generatedSource, /shortFromLiteral = 1000;/);
+  assert.match(generatedSource, /longFromLiteral = System\.Convert\.ToInt64\(1000000\);/);
+  assert.match(generatedSource, /floatFromLiteral = 1\.5F;/);
+  assert.match(generatedSource, /doubleFromLiteral = 1\.5;/);
   assert.match(generatedSource, /Dog dog = \(Dog\)animal;/);
   assert.match(generatedSource, /return System\.Convert\.ToByte\(value\);/);
   assert.match(generatedSource, /return System\.Convert\.ToInt16\(value\);/);

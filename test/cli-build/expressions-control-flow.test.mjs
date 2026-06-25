@@ -660,7 +660,9 @@ test("CLI routes top-level for-of statements through the C# module entrypoint", 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   const generatedEntrypoint = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicEntrypoint.cs"), "utf8");
-  assert.match(generatedSource, /public static double total = 0;/);
+  assert.match(generatedSource, /public static double total;/);
+  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /total = 0;/);
   assert.match(generatedEntrypoint, /public static void Main\(\)/);
   assert.match(generatedEntrypoint, /Index\.__tsonic_module_init\(\);/);
   assert.match(generatedSource, /foreach \(double value in new double\[\] \{ 1, 2, 3 \}\)/);

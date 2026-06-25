@@ -67,6 +67,13 @@ export interface TargetProjectSourceReference {
   readonly sourceFile: SourceFile;
 }
 
+export interface TargetProjectSourceModuleDependency {
+  readonly sourceFile: SourceFile;
+  readonly declaration: Node;
+  readonly moduleSpecifier: Node;
+  readonly kind: "import" | "export";
+}
+
 export interface TargetProjectSourceMethodDispatch {
   readonly overridesBase: boolean;
   readonly hasDerivedOverride: boolean;
@@ -93,6 +100,7 @@ export interface TargetSemanticQueries {
   isProjectSourceConstructibleObjectForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): boolean;
   getProjectSourceDeclarationForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Node | undefined;
   getProjectSourceReferenceForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetProjectSourceReference | undefined;
+  getProjectSourceModuleDependencies(sourceFile: SourceFile): readonly TargetProjectSourceModuleDependency[];
   getProjectSourceMethodDispatch(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetProjectSourceMethodDispatch | undefined;
   describeTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): string | undefined;
 }

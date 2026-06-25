@@ -11,6 +11,7 @@ import type { TargetSemanticQueries } from "@tsonic/target-api";
 import { asNode, asSymbol, isTypeSyntaxNode } from "./guards.js";
 import {
   getProjectSourceDeclarationForNode,
+  getProjectSourceModuleDependencies,
   getProjectSourceMethodDispatch,
   getProjectSourceReferenceForNode,
   hasParameterlessConstruction,
@@ -182,6 +183,9 @@ export function createTargetSemanticQueries(
     },
     getProjectSourceReferenceForNode(subject, options) {
       return getProjectSourceReferenceForNode(ast, checker, types, asNode(subject), options, sourceFiles);
+    },
+    getProjectSourceModuleDependencies(sourceFile) {
+      return getProjectSourceModuleDependencies(ast, checker, sourceFile, sourceFiles);
     },
     getProjectSourceMethodDispatch(subject, options) {
       const node = asNode(subject);

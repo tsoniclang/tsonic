@@ -7,7 +7,10 @@ import type {
   TypeCheckerQueries,
   TypeShapeQueries,
 } from "@tsonic/tsts";
-import type { TargetSemanticQueries } from "@tsonic/target-api";
+import type {
+  TargetProjectSourceModuleDependency,
+  TargetSemanticQueries,
+} from "@tsonic/target-api";
 import { asNode, asSymbol } from "./guards.js";
 import {
   getAliasedSymbolIfAlias,
@@ -118,6 +121,117 @@ export function isProjectSourceDeclaration(ast: AstReader, declaration: Node | u
     !declarationFile.IsDeclarationFile &&
     !ast.getFileName(declarationFile).startsWith("tsts-provider://") &&
     sourceFiles.some((sourceFile) => sourceFile === declarationFile);
+}
+
+export function getProjectSourceModuleDependencies(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  sourceFile: SourceFile,
+  sourceFiles: readonly SourceFile[],
+): ReturnType<TargetSemanticQueries["getProjectSourceModuleDependencies"]> {
+  const dependencies: TargetProjectSourceModuleDependency[] = [];
+  const seen = new Set<SourceFile>();
+  for (const statement of ast.statements(sourceFile)) {
+    if (statement === undefined) {
+      continue;
+    }
+    const dependency = getRuntimeModuleDependency(ast, checker, statement, sourceFile, sourceFiles);
+    if (dependency === undefined || seen.has(dependency.sourceFile)) {
+      continue;
+    }
+    seen.add(dependency.sourceFile);
+    dependencies.push(dependency);
+  }
+  return dependencies;
+}
+
+function getRuntimeModuleDependency(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  statement: Node,
+  sourceFile: SourceFile,
+  sourceFiles: readonly SourceFile[],
+): TargetProjectSourceModuleDependency | undefined {
+  if (ast.is.IsImportDeclaration(statement)) {
+    if (isTypeOnlyImportDeclaration(ast, statement)) {
+      return undefined;
+    }
+    return resolveRuntimeModuleDependency(ast, checker, statement, getModuleSpecifier(statement), "import", sourceFile, sourceFiles);
+  }
+  if (ast.is.IsExportDeclaration(statement)) {
+    if ((statement as { readonly IsTypeOnly?: boolean }).IsTypeOnly === true) {
+      return undefined;
+    }
+    return resolveRuntimeModuleDependency(ast, checker, statement, getModuleSpecifier(statement), "export", sourceFile, sourceFiles);
+  }
+  return undefined;
+}
+
+function resolveRuntimeModuleDependency(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  declaration: Node,
+  moduleSpecifier: Node | undefined,
+  kind: "import" | "export",
+  sourceFile: SourceFile,
+  sourceFiles: readonly SourceFile[],
+): TargetProjectSourceModuleDependency | undefined {
+  if (moduleSpecifier === undefined) {
+    return undefined;
+  }
+  const resolvedSourceFile = checker.getResolvedModuleSourceFile(moduleSpecifier, { sourceFile });
+  if (!isProjectSourceFile(ast, resolvedSourceFile, sourceFiles)) {
+    return undefined;
+  }
+  return {
+    sourceFile: resolvedSourceFile,
+    declaration,
+    moduleSpecifier,
+    kind,
+  };
+}
+
+function isTypeOnlyImportDeclaration(ast: AstReader, declaration: Node): boolean {
+  const importClause = (declaration as { readonly ImportClause?: Node }).ImportClause;
+  if (importClause === undefined) {
+    return false;
+  }
+  if (ast.kindNameFromKind((importClause as { readonly PhaseModifier?: unknown }).PhaseModifier as number | undefined) === "KindTypeKeyword") {
+    return true;
+  }
+  const name = ast.name(importClause);
+  if (name !== undefined) {
+    return false;
+  }
+  const namedBindings = (importClause as { readonly NamedBindings?: Node }).NamedBindings;
+  if (namedBindings === undefined) {
+    return false;
+  }
+  if (ast.is.IsNamespaceImport(namedBindings)) {
+    return false;
+  }
+  if (!ast.is.IsNamedImports(namedBindings)) {
+    return false;
+  }
+  const elements = ast.elements(namedBindings);
+  return elements.length > 0 &&
+    elements.every((element) => element === undefined || (element as { readonly IsTypeOnly?: boolean }).IsTypeOnly === true);
+}
+
+function getModuleSpecifier(node: Node): Node | undefined {
+  const moduleSpecifier = (node as { readonly ModuleSpecifier?: unknown }).ModuleSpecifier;
+  return asNode(moduleSpecifier);
+}
+
+function isProjectSourceFile(
+  ast: AstReader,
+  sourceFile: SourceFile | undefined,
+  sourceFiles: readonly SourceFile[],
+): sourceFile is SourceFile {
+  return sourceFile !== undefined &&
+    !sourceFile.IsDeclarationFile &&
+    !ast.getFileName(sourceFile).startsWith("tsts-provider://") &&
+    sourceFiles.some((candidate) => candidate === sourceFile);
 }
 
 export function hasParameterlessConstruction(ast: AstReader, classDeclaration: Node): boolean {

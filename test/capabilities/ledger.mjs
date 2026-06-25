@@ -628,6 +628,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "module.import.side-effect": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
@@ -636,10 +637,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/top-level-code/",
     ]),
     blockers: Object.freeze([
-      "module.import.side-effect remains partial until side-effect module initialization order is implemented and proven by backend/toolchain tests.",
+      "module.import.side-effect remains partial until every old side-effect import fixture and package-style side-effect import path is mapped to current TSTS module graph expectations.",
     ]),
     notes:
-      "Reviewed partial proof: side-effect relative ESM imports enter the TSTS graph; initialization-order emission remains tracked separately under module.emit.top-level-order.",
+      "Reviewed partial proof: side-effect relative ESM imports enter the TSTS-resolved module dependency graph and are runtime-verified through generated C# static module initializers; package-style side-effect import parity remains tracked separately.",
   }),
   "module.export.named": Object.freeze({
     positiveTests: Object.freeze([
@@ -716,6 +717,42 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: tsonic.json compilerOptions/baseUrl/paths are rejected, and a colocated tsconfig paths mapping is not used as a hidden fallback for module resolution.",
+  }),
+  "module.emit.multi-file": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/multi-file/",
+      "test/fixtures/multi-file-imports/",
+      "test/fixtures/namespace-imports/",
+    ]),
+    blockers: Object.freeze([
+      "module.emit.multi-file remains partial until every old multi-file/source-package fixture is classified and every exported declaration form has current CLI/toolchain proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: the C# backend emits one Roslyn compilation unit per non-declaration project source file, derives artifact/class identity from the TSTS source graph, avoids basename/type collisions such as animal.ts plus class Animal, and verifies generated multi-file C# through the target toolchain.",
+  }),
+  "module.emit.top-level-order": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/entrypoint-planner.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/entrypoint-planner.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/top-level-code/",
+      "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+    ]),
+    blockers: Object.freeze([
+      "module.emit.top-level-order remains partial until export initialization, cycles, package-style imports, and all old module/top-level fixtures have current runtime proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# emission now evaluates runtime imports through static constructors before importer top-level statements, keeps top-level field initializers inside module initialization order rather than C# field initializers, synthesizes an executable entrypoint only for Exe outputs, and does not synthesize an entrypoint for library outputs.",
   }),
   "host.project.target-selection": Object.freeze({
     positiveTests: Object.freeze([
@@ -3191,6 +3228,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "statement.top-level": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/entrypoint-planner.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/entrypoint-planner.test.mjs",
@@ -3199,10 +3237,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
     ]),
     blockers: Object.freeze([
-      "statement.top-level remains partial until multi-file source graph order, import side-effect order, export initialization, CLI execution, and old module fixture parity are complete.",
+      "statement.top-level remains partial until export initialization, cycles, package-style imports, and old module fixture parity are complete.",
     ]),
     notes:
-      "Reviewed partial proof: executable output creates a separate Roslyn AST entrypoint that calls source module initializers; library output does not synthesize an entrypoint.",
+      "Reviewed partial proof: executable output creates a separate Roslyn AST entrypoint that calls the entry source module initializer, library output does not synthesize an entrypoint, and CLI/toolchain proof covers side-effect import order plus top-level field assignment inside static module constructors.",
   }),
   "binding.parameter": Object.freeze({
     positiveTests: Object.freeze([

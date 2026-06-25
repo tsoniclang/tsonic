@@ -550,7 +550,9 @@ test("CLI escapes TypeScript identifiers that are C# reserved words", async () =
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double @event = 1;/);
+  assert.match(generatedSource, /public static double @event;/);
+  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /@event = 1;/);
   assert.match(generatedSource, /public static double read\(double @operator\)/);
   assert.match(generatedSource, /double @params = @operator \+ @event;/);
   assert.match(generatedSource, /return @params;/);
