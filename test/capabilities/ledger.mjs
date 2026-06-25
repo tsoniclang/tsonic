@@ -3259,7 +3259,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; exact selected signature identity now enforces optional/params arity without searching sibling overloads, and call emission rejects mutated passing-mode facts. Remains partial until constructor, delegate, indexer, and extension-call parameter-mode consumers have full missing/mutated fact rejection coverage.",
+      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads; constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; and call emission rejects mutated receiver/parameter-passing facts. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
   }),
   "operation.construct.provider-selected-constructor": Object.freeze({
     positiveTests: Object.freeze([
