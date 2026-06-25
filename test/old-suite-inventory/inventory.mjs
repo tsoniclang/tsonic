@@ -624,11 +624,27 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "source-package-subpath",
     "source-package-surface-mismatch",
   ], "config", "Tsonic host module graph + source package loader", "Valid behavior covers ESM import/export graphs, type-only erasure, source package subpaths, multi-file source ownership, and target/surface mismatch diagnostics; port after current host config and TSTS module graph queries cover the fixture shape."),
+  Object.freeze({
+    oldPath: "test/fixtures/defaultof-intrinsic/",
+    status: "ported",
+    featureArea: "native-provider",
+    owner: "source semantics + C# backend planner",
+    newPath: "test/cli-build/source-semantics.test.mjs",
+    reason:
+      "Ported as current-architecture coverage for neutral defaultof<T>() source facts, C# alias defaultof, fail-closed missing-type diagnostics, Roslyn default-expression emission, and dotnet build under the final source-core/provider pipeline.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/pointer-types/",
+    status: "ported",
+    featureArea: "native-provider",
+    owner: "source semantics + C# backend planner",
+    newPath: "test/cli-build/source-semantics.test.mjs",
+    reason:
+      "Ported as current-architecture coverage for neutral ptr<T> and fnptr<[...], R> marker facts, unsafe C# pointer/function-pointer type emission from finalized facts, project unsafe-block wiring, and dotnet build without backend type guessing.",
+  }),
   ...deferredFixtures([
     "core-intrinsics-provenance",
-    "defaultof-intrinsic",
     "integer-casting",
-    "pointer-types",
     "stackalloc-span",
     "type-assertions",
   ], "native-provider", "source semantics + C# native provider + C# backend planner", "Valid behavior covers source intrinsics, primitive casts, pointers, stack allocation, and assertion erasure; port after source marker facts and provider target facts fully determine the C# AST without backend inference."),
@@ -651,10 +667,34 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "instanceof-narrowing",
     "optional-value-type-properties",
   ], "csharp-backend", "TSTS flow/contextual facts + C# expression planner", "Valid behavior covers narrowing, discriminants, cast erasure, nullish/optional threading, and precedence preservation; port after C# expression planning consumes TSTS flow and contextual target facts instead of recalculating them."),
+  Object.freeze({
+    oldPath: "test/fixtures/date-not-global/",
+    status: "ported",
+    featureArea: "js-surface",
+    owner: "C# JS surface provider + C# JS runtime",
+    newPath: "test/cli-build/js-surface.test.mjs",
+    reason:
+      "Ported as final surface-selection coverage: Date constructor/calls compile only when the JS surface supplies provider-backed Date facts, while no-surface Date usage fails closed instead of becoming a native/global fallback.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/dotnet-disallowed-js-builtins/",
+    status: "ported",
+    featureArea: "js-surface",
+    owner: "C# JS surface provider + C# backend diagnostics",
+    newPath: "test/cli-build/js-surface.test.mjs",
+    reason:
+      "Ported as final no-surface rejection coverage for standard JS built-ins: array mutators, string methods, and Date constructors require selected JS surface facts and otherwise produce deterministic diagnostics with no output project.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/js-string-array-returns/",
+    status: "ported",
+    featureArea: "js-surface",
+    owner: "C# JS surface provider + C# JS runtime",
+    newPath: "test/cli-build/js-surface.test.mjs",
+    reason:
+      "Ported as current JS-surface C# AST coverage for string and array-returning operations, including array push/at/length, string trim/toUpperCase/slice/split/join, runtime carrier selection, and dotnet build.",
+  }),
   ...deferredFixtures([
-    "date-not-global",
-    "dotnet-disallowed-js-builtins",
-    "js-string-array-returns",
     "js-surface-array-from-map-keys",
     "js-surface-boolean-tostring",
     "js-surface-hello",
