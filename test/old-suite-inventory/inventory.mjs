@@ -952,11 +952,13 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "operation.element.provider-indexer",
     "operation.member.provider-indexer",
     "runtime.csharp.js",
+    "surface.js.boolean-methods",
     "surface.js.array-methods",
     "surface.js.array.length-index",
     "surface.js.console",
     "surface.js.console-log",
     "surface.js.date",
+    "surface.js.map-set",
     "surface.js.math",
     "surface.js.math-json-regexp",
     "surface.js.string-methods",
@@ -978,15 +980,15 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "carrier.array",
+    "diagnostic.ts-invalid-not-rescued",
     "host.package.composition",
     "host.project.surface-extension-composition",
     "operation.array.literal",
     "runtime.csharp.js",
-    "source.marker.field",
-    "source.marker.struct",
+    "surface.js.array-constructor",
     "surface.js.array-methods",
+    "surface.js.array.length-index",
     "surface.js.array.sparse-delete-holes",
-    "surface.js.string-methods",
     "toolchain.csharp.build-run",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
@@ -1227,6 +1229,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "operation.array.literal",
     "runtime.csharp.js",
     "surface.js.array-methods",
+    "surface.js.map-set",
     "surface.js.string-methods",
     "toolchain.csharp.build-run",
   ]),
@@ -1237,8 +1240,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "host.package.composition",
     "host.project.surface-extension-composition",
     "runtime.csharp.js",
-    "surface.js.array-methods",
-    "surface.js.string-methods",
+    "surface.js.boolean-methods",
     "toolchain.csharp.build-run",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
@@ -1258,13 +1260,43 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("map-set-not-in-globals"),
   ], [
     "backend.ast.only",
-    "diagnostic.unsupported-selected-surface-operation",
+    "diagnostic.ts-invalid-not-rescued",
     "host.package.composition",
     "host.project.surface-extension-composition",
     "runtime.csharp.js",
-    "surface.js.array-methods",
-    "surface.js.string-methods",
+    "surface.js.map-set",
+    "tsts.no-target-overrides",
     "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("js-surface-node-boolean-tostring"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.runtime-artifacts",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.js",
+    "runtime.csharp.nodejs",
+    "surface.js.boolean-methods",
+    "surface.node.fs",
+    "surface.node.fs-path-process",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("js-surface-node-date-union"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.runtime-artifacts",
+    "carrier.null-undefined",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.js",
+    "runtime.csharp.nodejs",
+    "surface.js.date",
+    "surface.node.fs",
+    "surface.node.fs-stats-date",
+    "toolchain.csharp.build-run",
+    "tsts.flow-narrowing",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("json-native-inline-stringify"),
@@ -1378,6 +1410,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
     "surface.js.array.length-index",
     "surface.js.console",
     "surface.js.console-log",
+    "surface.js.map-set",
     "surface.js.math",
     "surface.js.math-json-regexp",
   ]),
@@ -1410,7 +1443,6 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("dotnet-disallowed-js-builtins"),
-    oldFixturePath("map-set-not-in-globals"),
   ], [
     "diagnostic.unsupported-selected-surface-operation",
   ]),
@@ -1567,7 +1599,20 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("array-constructor"),
   ], [
+    "surface.js.array-constructor",
     "surface.js.array.sparse-delete-holes",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("js-surface-array-from-map-keys"),
+    oldFixturePath("map-set-not-in-globals"),
+  ], [
+    "surface.js.map-set",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("js-surface-boolean-tostring"),
+    oldFixturePath("js-surface-node-boolean-tostring"),
+  ], [
+    "surface.js.boolean-methods",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("js-surface-json-typed-parse"),
@@ -1576,6 +1621,11 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ], [
     "surface.js.math-json-regexp",
     "surface.js.object-runtime",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("js-surface-node-date-union"),
+  ], [
+    "surface.node.fs-stats-date",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("clr-string-indexer-dotnet"),

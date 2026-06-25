@@ -260,16 +260,20 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.console", "JS console operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.console-log", "console.log uses selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.array-methods", "JS array methods use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "partial", "surface-provider"],
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.boolean-methods", "JS Boolean primitive methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.map-set", "Map and Set use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
+  ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "partial", "surface-provider"],
   ["surface.node.process", "node:process uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
   ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "partial", "surface-provider"],
@@ -2779,7 +2783,35 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.js.array-methods remains partial until every Array constructor, length read/write, sparse slot, delete, hole-presence, mutation, callback, iterator, native-array-boundary, runtime artifact, and fail-closed unsupported lane is covered by sub-capability evidence.",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JS carriers only for full JS behavior. Covered length/index access, concat/includes/index/search/slice/join helpers, nullish-producing at/pop/shift/find/findLast value/reference helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, and array for-in. No-surface array mutators and sparse delete/length mutation fail closed without selected surface facts. Length/index reads are tracked under surface.js.array.length-index; sparse/delete/hole/length-mutation semantics remain partial under surface.js.array.sparse-delete-holes; explicit CLR arrays remain partial under native.dotnet.array.explicit.",
+      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JS carriers only for full JS behavior. Covered length/index access, concat/includes/index/search/slice/join helpers, nullish-producing at/pop/shift/find/findLast value/reference helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, and array for-in. No-surface array mutators and sparse delete/length mutation fail closed without selected surface facts. Length/index reads are tracked under surface.js.array.length-index; sparse/delete/hole/length-mutation semantics remain partial under surface.js.array.sparse-delete-holes; Array constructor coverage is tracked under surface.js.array-constructor; explicit CLR arrays remain partial under native.dotnet.array.explicit.",
+  }),
+  "surface.js.array-constructor": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const values = new Array<int32>(size);",
+      "const fixed = new Array<string>(5);",
+    ]),
+    tstsDecision:
+      "TSTS validates Array constructor value usage only when the selected JS surface supplies a value declaration; without that declaration, Array<T> remains a type-only source shape and must fail before backend emission.",
+    providerFacts: Object.freeze([
+      "selectedJsArrayConstructorDeclaration",
+      "arrayConstructorOperationFact",
+      "arrayConstructorElementCarrierFact",
+      "closedJsArrayCarrierFact",
+    ]),
+    backendContract:
+      "C# must emit Array construction only from finalized selected-surface constructor facts; it must not reinterpret type-only Array<T> usage as a CLR allocation or native array fallback.",
+    positiveTests: Object.freeze([
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+    ]),
+    negativeTests: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/array-constructor/",
+    ]),
+    blockers: Object.freeze([
+      "surface.js.array-constructor remains partial because current proof is runtime-only; it still needs selected-surface CLI/provider proof for new Array<T>(size), no-surface/type-only Array constructor rejection, and exact diagnostics that do not lower to CLR arrays or dense List<T> by spelling.",
+    ]),
+    notes:
+      "Reviewed partial proof: the C# JS runtime has current JSArray construction behavior, but the current source-to-source surface does not yet have explicit selected Array constructor facts or a focused no-surface Array constructor diagnostic. The old array-constructor fixture therefore remains blocker evidence, not completion proof.",
   }),
   "surface.js.array.length-index": Object.freeze({
     sourceExamples: Object.freeze([
@@ -2940,11 +2972,39 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/clr-string-indexer-dotnet/",
       "test/fixtures/js-string-array-returns/",
-      "test/fixtures/js-surface-boolean-tostring/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     notes:
       "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, selected string instance/helper calls including trim/toUpperCase chaining, normalize/at/locale/search/well-formed helpers, split returning the selected JS surface List<string> array-return ABI, and fail-closed rejection without closed string receiver facts. Remains partial until all JS String methods and Boolean/String object surface conversions have positive and negative runtime coverage.",
+  }),
+  "surface.js.boolean-methods": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const text = false.toString();",
+      "const value = maybe.valueOf();",
+    ]),
+    tstsDecision:
+      "TSTS validates Boolean primitive member calls against selected JS surface declarations; the surface provider must prove a closed boolean receiver and selected Boolean prototype operation.",
+    providerFacts: Object.freeze([
+      "selectedJsBooleanDeclaration",
+      "booleanPrimitiveReceiverFact",
+      "booleanToStringOperationFact",
+      "booleanValueOfOperationFact",
+    ]),
+    backendContract:
+      "C# emits BooleanOps.toString/valueOf extension calls only from finalized selected Boolean operation facts; bool.ToString() casing or native object fallback must not be used as JavaScript semantics.",
+    positiveTests: Object.freeze([
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/BooleanTests.cs",
+    ]),
+    negativeTests: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/js-surface-boolean-tostring/",
+      "test/fixtures/js-surface-node-boolean-tostring/",
+    ]),
+    blockers: Object.freeze([
+      "surface.js.boolean-methods remains partial because current proof is runtime-only; it still needs selected-surface provider/CLI proof for boolean.toString()/valueOf(), Node-returned boolean chaining, and fail-closed diagnostics when Boolean prototype facts are absent.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# JS runtime BooleanOps currently proves lowercase JavaScript boolean toString() and valueOf() behavior. No current CLI/provider test proves primitive boolean member calls are selected from JS surface facts, so the old boolean fixtures remain blocker evidence rather than proof.",
   }),
   "surface.js.console": Object.freeze({
     positiveTests: Object.freeze([
@@ -2995,7 +3055,40 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-typed-stringify/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations including zero-argument max/min JS semantics, RegExp literal/constructor/test/property carriers with C# build coverage, and JSON parse/stringify direct surface facts with closed TsValue carriers. Remains partial until nested JSON carrier flow, Map, Set, and every RegExp operation have selected-surface facts and runtime/toolchain tests; Date is tracked separately by surface.js.date.",
+      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations including zero-argument max/min JS semantics, RegExp literal/constructor/test/property carriers with C# build coverage, and JSON parse/stringify direct surface facts with closed TsValue carriers. Remains partial until nested JSON carrier flow and every RegExp operation have selected-surface facts and runtime/toolchain tests; Map and Set are tracked separately by surface.js.map-set; Date is tracked separately by surface.js.date.",
+  }),
+  "surface.js.map-set": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const counts = new Map<string, number>(); counts.set(\"alpha\", 1);",
+      "const names = new Set<string>(); names.add(\"alpha\");",
+      "const keys = Array.from(counts.keys());",
+    ]),
+    tstsDecision:
+      "TSTS validates Map and Set only when the selected JS surface supplies standard declarations; without selected declarations, Map and Set must remain ordinary unresolved source names.",
+    providerFacts: Object.freeze([
+      "selectedJsMapDeclaration",
+      "selectedJsSetDeclaration",
+      "mapSetConstructorOperationFact",
+      "mapSetInstanceOperationFact",
+      "mapSetIteratorCarrierFact",
+    ]),
+    backendContract:
+      "C# emits Map/Set runtime operations only from finalized selected-surface facts; unresolved globals, foreign declarations, and missing iterator carriers must diagnose instead of falling back to dictionaries, HashSet, reflection, or name-based helpers.",
+    positiveTests: Object.freeze([
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MapTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/SetTests.cs",
+    ]),
+    negativeTests: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/js-surface-array-from-map-keys/",
+      "test/fixtures/js-surface-runtime-builtins/",
+      "test/fixtures/map-set-not-in-globals/",
+    ]),
+    blockers: Object.freeze([
+      "surface.js.map-set remains partial because current proof is runtime-only; it still needs selected-surface provider/CLI proof for Map/Set constructors, set/add/get/has, Map.keys() iterator carriers flowing into Array.from, and no-surface Map/Set name-resolution diagnostics.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# JS runtime Map and Set behavior has current unit coverage, but the source-to-source JS surface does not yet prove selected Map/Set declarations or Map.keys() iterator carriers through CLI/toolchain tests. The old Map/Set fixtures stay mapped as regression evidence and blockers, not completion proof.",
   }),
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
@@ -3101,7 +3194,38 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.fs remains partial until every supported node:fs and bare fs operation has selected-declaration target facts, every unsupported fs member has precise selected-surface diagnostics, and the old Node fixture matrix has runtime/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, existsSync/readFileSync/statSync/write-style target mappings, no-surface negative paths block Node-owned modules before artifact emission, and unsupported selected fs.watchFile fails closed without runtime fallback. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
+      "Reviewed partial proof: selected NodeJS surface facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, existsSync/readFileSync/statSync/write-style target mappings, no-surface negative paths block Node-owned modules before artifact emission, and unsupported selected fs.watchFile fails closed without runtime fallback. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
+  }),
+  "surface.node.fs-stats-date": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const resolved = maybeDate ?? statSync(\"tsonic.json\").mtime;",
+      "return resolved.toISOString().length.toString();",
+    ]),
+    tstsDecision:
+      "TSTS validates node:fs Stats members from selected NodeJS virtual declarations and Date instance calls from selected JS declarations; nullish Date unions must preserve the closed Date carrier across both surfaces.",
+    providerFacts: Object.freeze([
+      "nodeFsStatSyncOperationFact",
+      "nodeFsStatsMtimeMemberFact",
+      "selectedJsDateDeclarationFact",
+      "dateInstanceOperationFact",
+      "crossSurfaceDateCarrierFact",
+    ]),
+    backendContract:
+      "C# emits Stats.mtime Date access and Date instance calls only from finalized NodeJS and JS surface facts; it must not reinterpret Stats timestamps as native DateTime, string, dynamic object, or unproven nullable union carriers.",
+    positiveTests: Object.freeze([
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/statSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/fstatSync.tests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
+    ]),
+    negativeTests: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/js-surface-node-date-union/",
+    ]),
+    blockers: Object.freeze([
+      "surface.node.fs-stats-date remains partial because current proof is runtime-only for Stats Date values; the NodeJS surface currently proves statSync/Stats.size/isFile/isDirectory, but not Stats.mtime Date member facts, cross-surface Date union flow, CLI/toolchain emission, or no-surface diagnostics for the old node date-union fixture.",
+    ]),
+    notes:
+      "Reviewed partial proof: csharp-nodejs runtime Stats exposes Date-valued timestamp fields and runtime tests cover timestamp behavior, while C# JS Date tests cover Date operations. The compiler surface still lacks current selected-provider proof for Stats.mtime and the Date | undefined nullish chain used by the old fixture, so this remains blocker evidence only.",
   }),
   "surface.node.process": Object.freeze({
     positiveTests: Object.freeze([
@@ -4668,7 +4792,6 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-disallowed-js-builtins/",
-      "test/fixtures/map-set-not-in-globals/",
     ]),
     blockers: Object.freeze([
       "diagnostic.unsupported-selected-surface-operation remains partial until every selected JS/Node surface member without implementation has CLI/toolchain diagnostics, exact source spans, and no placeholder/runtime fallback.",
