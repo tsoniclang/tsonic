@@ -223,6 +223,65 @@ test("CLI emits side-effect import initialization before importer top-level stat
   assert.equal(output, "side;index;\n");
 });
 
+test("CLI does not run type-only module dependencies during initialization", async () => {
+  const projectDirectory = resolve(tempRoot, "type-only-import-order");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            outputType: "Exe",
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedTypeOnlyImportOrder",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/state.ts": [
+      "export let text = \"\";",
+      "export function append(value: string): void {",
+      "  text = text + value;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/types.ts": [
+      "import { append } from \"./state.js\";",
+      "append(\"types;\");",
+      "export type Marker = number;",
+      "export type Named = string;",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { append, text } from \"./state.js\";",
+      "import type { Marker } from \"./types.js\";",
+      "import { type Named } from \"./types.js\";",
+      "const marker: Marker = 1;",
+      "const named: Named = \"item\";",
+      "append(`index:${marker}:${named};`);",
+      "console.log(text);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(indexSource, /State\.__tsonic_module_init\(\);/);
+  assert.doesNotMatch(indexSource, /Types\.__tsonic_module_init\(\);/);
+
+  const typesSource = await readFile(resolve(projectDirectory, "out/csharp/src/Types.cs"), "utf8");
+  assert.match(typesSource, /State\.append\("types;"\);/);
+
+  const output = runGeneratedProject(projectDirectory, "SmokeGeneratedTypeOnlyImportOrder");
+  assert.equal(output, "index:1:item;\n");
+});
+
 
 test("CLI emits namespace-import source references from TSTS resolved symbols", async () => {
   const projectDirectory = resolve(tempRoot, "namespace-import-source-reference");

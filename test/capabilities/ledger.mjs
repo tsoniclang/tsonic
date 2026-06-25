@@ -160,7 +160,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["type.variadic-tuple", "Variadic tuple types are consumed from TSTS results", "partial", "tsts-api"],
   ["type.satisfies", "satisfies checks source without target emission", "partial", "tsts-api"],
   ["type.as-const", "as const preserves literal and readonly facts", "partial", "tsts-api"],
-  ["type.assertion", "Type assertions consume TSTS type facts and target casts", "partial", "tsts-api"],
+  ["type.assertion", "Type assertions consume TSTS type facts and target casts", "complete", "tsts-api"],
   ["type.non-null-assertion", "Non-null assertions consume TSTS nullable facts", "partial", "tsts-api"],
   ["type.generic.provider-target-arguments", "Map TSTS-inferred type arguments to target type arguments", "partial", "target-provider"],
   ["type.generic.provider-target-constraints", "Validate provider target generic constraints", "partial", "target-provider"],
@@ -612,6 +612,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "module.import.type-only": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
@@ -620,10 +621,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/multi-file-types/",
     ]),
     blockers: Object.freeze([
-      "module.import.type-only remains partial until type-only import erasure and old import-type fixture coverage are fully mapped.",
+      "module.import.type-only remains partial until every old import-type fixture is mapped and invalid type-only-as-value forms have current focused diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: type-only relative ESM imports participate in the TSTS source graph without creating generated declaration fallback input.",
+      "Reviewed partial proof: type-only relative ESM imports participate in the TSTS source graph without creating generated declaration fallback input, and CLI runtime proof shows type-only dependencies do not trigger generated C# module initialization.",
   }),
   "module.import.side-effect": Object.freeze({
     positiveTests: Object.freeze([
@@ -830,6 +831,37 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: provider/extension observations can add facts after TS-Go accepts source, and TSTS diagnostics stop artifact emission when source TypeScript is invalid.",
   }),
+  "tsts.program.create-with-extensions": Object.freeze({
+    positiveTests: Object.freeze([
+      "packages/tsts/src/services/embedding-api.test.ts",
+      "packages/tsts/src/extensions/extension-host.test.ts",
+    ]),
+    negativeTests: Object.freeze([
+      "packages/tsts/src/extensions/extension-host.test.ts",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "tsts.program.create-with-extensions remains partial until old extension-host/frontend integration evidence is explicitly mapped in the old product unit inventory.",
+    ]),
+    notes:
+      "Reviewed proof: TSTS compiler sessions can be created with provider/source extensions through the public embedding path, extension attachment contributes compiler-visible facts, and malformed extension configuration is rejected before consumers run.",
+  }),
+  "tsts.diagnostic.provider-sourced": Object.freeze({
+    positiveTests: Object.freeze([
+      "packages/tsts/src/extensions/provider-program.test.ts",
+      "packages/source-core/src/source-extension.test.ts",
+    ]),
+    negativeTests: Object.freeze([
+      "packages/tsts/src/extensions/provider-program.test.ts",
+      "packages/source-core/src/source-extension.test.ts",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "tsts.diagnostic.provider-sourced remains partial until old validator/source-extension diagnostics evidence is explicitly mapped in the old product unit inventory.",
+    ]),
+    notes:
+      "Reviewed proof: provider and source extensions surface diagnostics through standard TSTS diagnostics with deterministic codes, source spans, and no backend artifact fallback.",
+  }),
   "type.template-literal": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
@@ -889,6 +921,21 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: as const is consumed as a TSTS literal/readonly decision, valid readonly tuple literals emit from resolved tuple facts without target-specific as-const syntax, and readonly mutation is rejected by TSTS before backend artifacts are produced.",
+  }),
+  "type.assertion": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/source-semantics.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/variable-decls/VariableDecls.ts",
+    ]),
+    notes:
+      "Reviewed proof: TypeScript assertion wrappers erase after TSTS validation, source primitive and reference assertions emit only from finalized C# conversion facts, and broad object assertions fail closed without finalized carrier facts.",
   }),
   "provider.module.virtual-import": Object.freeze({
     positiveTests: Object.freeze([
