@@ -2272,9 +2272,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "provider.virtual-module.overload-identity": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2282,7 +2284,29 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned overload identity is selected from declaration/signature facts, including same-spelling overload groups, generic method arity, and byref parameter modes; remains partial until assembly-qualified identities and unsupported-member diagnostics cover collision/drop cases.",
+      "Reviewed partial proof: provider-owned overload identity is selected from exact declaration/signature facts, including same-spelling overload groups, generic method arity, byref parameter modes, optional/params arity, and selected signatures whose source argument facts would otherwise match sibling overloads. The provider closes selected generic target signatures through the selected identity only and rejects contradictory target facts instead of searching siblings; remains partial until assembly-qualified identities and unsupported-member diagnostics cover every collision/drop case.",
+  }),
+  "type.generic.provider-target-arguments": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-lifecycle.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-lifecycle.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/generic-constraints/SingleConstraint.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/VariableInit.ts",
+    ]),
+    blockers: Object.freeze([
+      "type.generic.provider-target-arguments remains partial until provider-owned constructors, indexers, delegates, extension calls, inherited generic members, and every old generic call fixture have current CLI/toolchain proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: C# provider call facts close selected generic target members from TSTS-selected source signatures and proven target argument facts, reject unresolved or contradictory selected generic facts, and CLI module tests prove imported/re-exported generic source calls emit explicit C# generic arguments from TSTS-selected declarations. Backend type rendering still requires finalized target argument facts and fails closed without them.",
   }),
   "type.generic.provider-target-constraints": Object.freeze({
     positiveTests: Object.freeze([
@@ -3118,17 +3142,19 @@ const reviewedCapabilityEvidence = Object.freeze({
   "operation.call.provider-parameter-mode": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; remains partial until every parameter-mode consumer has missing/mutated fact rejection coverage.",
+      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; exact selected signature identity now enforces optional/params arity without searching sibling overloads, and call emission rejects mutated passing-mode facts. Remains partial until constructor, delegate, indexer, and extension-call parameter-mode consumers have full missing/mutated fact rejection coverage.",
   }),
   "operation.conversion.checked-target-conversion": Object.freeze({
     positiveTests: Object.freeze([
