@@ -18,10 +18,48 @@ import {
 import type {
   AstReader,
   CompilerSession,
+  ExtensionDiagnostic,
   Node,
+  ProviderDeclarationModel,
+  ProviderModuleResolution,
   SourceFile,
 } from "@tsonic/tsts";
+import {
+  tsonicCoreLangModule,
+  tsonicCoreTypesModule,
+} from "./identity.js";
 import { createTsonicCoreSourceExtension } from "./source-extension.js";
+import { createTsonicCoreVirtualModulesProvider } from "./virtual-modules.js";
+
+test("source-core virtual module provider owns only neutral core modules", () => {
+  const provider = createTsonicCoreVirtualModulesProvider();
+  assert.equal(provider.ownsModule(tsonicCoreLangModule, {}).kind, "owned");
+  assert.equal(provider.ownsModule(tsonicCoreTypesModule, {}).kind, "owned");
+  assert.equal(provider.ownsModule("@tsonic/csharp/lang.js", {}).kind, "unowned");
+  assert.equal(provider.ownsModule("@tsonic/csharp/types.js", {}).kind, "unowned");
+
+  const langResolution = assertVirtualModuleResolution(provider.resolveModule(tsonicCoreLangModule, {}));
+  assert.equal(langResolution.providerModuleId, tsonicCoreLangModule);
+  const declarationModel = assertProviderDeclarationModel(provider.getDeclarationModel(langResolution));
+  assert.deepEqual(declarationModel.exports.map((entry) => entry.name).filter((name) => name !== "__TsonicAttributeBuilder" && name !== "__TsonicAttributeMemberBuilder"), [
+    "out",
+    "ref",
+    "inref",
+    "borrow",
+    "borrowMut",
+    "move",
+    "struct",
+    "field",
+    "attribute",
+    "defaultof",
+    "ptr",
+    "fnptr",
+  ]);
+  assert.equal(declarationModel.exports.some((entry) => entry.name === "int"), false);
+
+  const unownedResolution = provider.resolveModule("@tsonic/csharp/lang.js", {});
+  assert.equal(assertExtensionDiagnostic(unownedResolution).extensionCode, "TSONIC_SOURCE_CORE_MODULE_UNOWNED");
+});
 
 test("source-core records primitive facts only from core types aliases and namespaces", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
@@ -215,6 +253,49 @@ test("source-core records abstract struct, field, attribute, and default facts",
   assert.equal(consumer.getAttributeFact(propertyCallExpression(session, sourceFile, "add"))?.attributeName, "RouteAttribute");
 });
 
+test("source-core records structural, attribute, and default facts from core namespace imports", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import * as lang from "@tsonic/core/lang.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    class RouteAttribute {}
+    class User {
+      name = "";
+    }
+    const local = {
+      struct<T>(shape: T): T { return shape; },
+      field<T>(): T { throw new Error("local field"); },
+      attribute<T>() { return { add(_attribute: object): void {} }; },
+      defaultof<T>(): T { throw new Error("local default"); },
+    };
+
+    const defaultBool = lang.defaultof<bool>();
+    const Point = lang.struct({ id: lang.field<int32>(), skipped: local.field<int32>() });
+    lang.attribute<User>().add(RouteAttribute);
+    const fakeDefault = local.defaultof<bool>();
+    const Fake = local.struct({ id: local.field<int32>() });
+    local.attribute<User>().add(RouteAttribute);
+  `);
+
+  const defaultCall = callExpression(session, sourceFile, "lang.defaultof");
+  const defaultFact = session.extensionHost?.facts.get(defaultCall, defaultValueFactKey);
+  assert.equal(typeReferenceName(session, defaultFact?.type as Node | undefined), "bool");
+
+  const fieldCall = callExpression(session, sourceFile, "lang.field");
+  const fieldFact = session.extensionHost?.facts.get(fieldCall, fieldFactKey);
+  assert.equal(fieldFact?.name, "id");
+  assert.equal(session.extensionHost?.facts.get(fieldFact?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
+
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  assert.deepEqual(extensionHost.facts.get(callExpression(session, sourceFile, "lang.struct"), structFactKey)?.fields?.map((field) => field.name), ["id"]);
+  assert.equal(extensionHost.facts.get(propertyCallExpression(session, sourceFile, "add", 0), attributeFactKey)?.attributeName, "RouteAttribute");
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "local.field", 0), fieldFactKey), undefined);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "local.defaultof"), defaultValueFactKey), undefined);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "local.struct"), structFactKey), undefined);
+  assert.equal(extensionHost.facts.get(propertyCallExpression(session, sourceFile, "add", 1), attributeFactKey), undefined);
+});
+
 test("source-core reports missing explicit type evidence for target-neutral marker facts", () => {
   const { session, sourceFile } = createSourceCoreSession(`
     import { attribute, defaultof, field } from "@tsonic/core/lang.js";
@@ -237,6 +318,28 @@ test("source-core reports missing explicit type evidence for target-neutral mark
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "field"), fieldFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "attribute"), attributeFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "defaultof"), defaultValueFactKey), undefined);
+});
+
+test("source-core reports missing evidence diagnostics through namespace marker forms", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import * as lang from "@tsonic/core/lang.js";
+
+    const namespaceField = lang.field();
+    const namespaceAttribute = lang.attribute();
+    const namespaceDefault = lang.defaultof();
+  `);
+
+  session.ensureBound();
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  assert.deepEqual(extensionHost.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort(), [
+    "SOURCE_SEMANTICS_MISSING_ATTRIBUTE_TARGET_EVIDENCE",
+    "SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE",
+    "SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE",
+  ]);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "lang.field"), fieldFactKey), undefined);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "lang.attribute"), attributeFactKey), undefined);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "lang.defaultof"), defaultValueFactKey), undefined);
 });
 
 test("source-core virtual declarations leave invalid arity to TypeScript checking", () => {
@@ -315,6 +418,21 @@ test("source-core records ptr and fnptr facts from aliases and namespaces withou
   assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "localPointer"), pointerFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "localFunctionPointer"), functionPointerFactKey), undefined);
 });
+
+function assertVirtualModuleResolution(value: ProviderModuleResolution | ExtensionDiagnostic): ProviderModuleResolution {
+  assert.equal((value as { readonly kind?: string }).kind, "virtual");
+  return value as ProviderModuleResolution;
+}
+
+function assertProviderDeclarationModel(value: ProviderDeclarationModel | ExtensionDiagnostic): ProviderDeclarationModel {
+  assert.equal((value as { readonly moduleSpecifier?: string }).moduleSpecifier, tsonicCoreLangModule);
+  return value as ProviderDeclarationModel;
+}
+
+function assertExtensionDiagnostic(value: ProviderModuleResolution | ExtensionDiagnostic): ExtensionDiagnostic {
+  assert.equal((value as { readonly category?: string }).category, "error");
+  return value as ExtensionDiagnostic;
+}
 
 function createSourceCoreSession(sourceText: string, extraFiles: Readonly<Record<string, string>> = {}): {
   readonly session: CompilerSession;
@@ -477,6 +595,9 @@ function expressionText(ast: AstReader, node: Node | undefined): string {
     const receiver = expressionText(ast, access?.Expression);
     const name = ast.text(ast.name(node));
     return receiver === "" ? name : `${receiver}.${name}`;
+  }
+  if (ast.is.IsCallExpression(node)) {
+    return expressionText(ast, ast.as.AsCallExpression(node)?.Expression);
   }
   return ast.text(ast.name(node) ?? node);
 }
