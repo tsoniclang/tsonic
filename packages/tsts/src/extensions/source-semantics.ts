@@ -20,6 +20,7 @@ import {
 } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { AsCallExpression, AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
+import { GetSymbolId } from "../internal/ast/utilities.js";
 import {
   KindArrowFunction,
   KindCallExpression,
@@ -1604,7 +1605,7 @@ export function sourcePrimitive(
 }
 
 function getSymbolFactId(symbol: Symbol): string {
-  return `${symbol.Name}:${String(symbol.id)}`;
+  return `${symbol.Name}:${String(GetSymbolId(symbol))}`;
 }
 
 function getLifecycleSourceFile(request: SourceFileBoundLifecycleRequest): GoPtr<SourceFile> {

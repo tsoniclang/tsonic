@@ -42,6 +42,10 @@ const noCheckedOperationMapping: CheckedOperationMappingResult = {
   },
 };
 
+function isNoTargetCallMapping(result: CheckedCallMappingResult): bool {
+  return (result.selectedSignature.member.id === noCheckedCallMapping.selectedSignature.member.id) as bool;
+}
+
 export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProgram>, callExpression: GoPtr<Node>, sourceSelectedSignature?: GoPtr<Signature>): void {
   if (checker === undefined || callExpression === undefined || !isUserSourceOperationNode(callExpression)) {
     return;
@@ -56,13 +60,25 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   if (callee === undefined) {
     return;
   }
-  const calleeSymbols = getReferenceSymbols(checker, callee);
   const calleeAccess = AsPropertyAccessExpression(callee);
   const calleeReceiver = calleeAccess?.Expression;
-  const calleeReceiverSymbols = getReferenceSymbols(checker, calleeReceiver);
   const sourceSelectedDeclaration = sourceSelectedSignature?.declaration;
   const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
   const sourceSelectedContainerSymbol = sourceSelectedDeclarationContainer === undefined ? undefined : Node_Symbol(sourceSelectedDeclarationContainer);
+  const arguments_ = Node_Arguments(callExpression) ?? [];
+  if (!hasAnyExtensionOwnedSubject(extensionHost, [
+    callExpression,
+    callee,
+    calleeReceiver,
+    ...arguments_,
+    sourceSelectedDeclaration,
+    sourceSelectedDeclarationContainer,
+    sourceSelectedContainerSymbol,
+  ])) {
+    return;
+  }
+  const calleeSymbols = getReferenceSymbols(checker, callee);
+  const calleeReceiverSymbols = getReferenceSymbols(checker, calleeReceiver);
 
   const result = extensionHost.runObservation(
     ExtensionObservationPoint.mapCheckedCall,
@@ -77,7 +93,7 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
       ...(calleeReceiverSymbols.resolvedSymbol !== undefined ? { calleeReceiverResolvedSymbol: calleeReceiverSymbols.resolvedSymbol } : {}),
       ...(calleeReceiverSymbols.aliasedSymbol !== undefined ? { calleeReceiverAliasedSymbol: calleeReceiverSymbols.aliasedSymbol } : {}),
       ...(calleeAccess?.name !== undefined ? { calleePropertyName: Node_Text(calleeAccess.name) } : {}),
-      arguments: definedFactSubjects(Node_Arguments(callExpression) ?? []),
+      arguments: definedFactSubjects(arguments_),
       ...(sourceSelectedSignature !== undefined ? { sourceSelectedSignature } : {}),
       ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
       ...(sourceSelectedDeclarationContainer !== undefined ? { sourceSelectedDeclarationContainer } : {}),
@@ -93,8 +109,10 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   if (result.kind !== "accept") {
     return;
   }
+  if (isNoTargetCallMapping(result.value)) {
+    return;
+  }
 
-  const arguments_ = Node_Arguments(callExpression) ?? [];
   const selectedSignature = recordExtensionTargetTypeArgumentMapping(extensionHost, callee, sourceSelectedSignature, result.value, arguments_);
   extensionHost.facts.set(callExpression, selectedTargetSignatureFactKey, selectedSignature, result.evidence ?? []);
   recordExtensionCallParameterModes(extensionHost, { ...result.value, selectedSignature }, arguments_);
