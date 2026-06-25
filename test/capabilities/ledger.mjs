@@ -2929,9 +2929,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.js.string-methods": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2941,7 +2943,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, selected string instance/helper calls including normalize/at/locale/search/well-formed helpers, split returning the selected JS surface List<string> array-return ABI, and fail-closed rejection without closed string receiver facts. Remains partial until all JS String methods and Boolean/String object surface conversions have positive and negative runtime coverage.",
+      "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, selected string instance/helper calls including trim/toUpperCase chaining, normalize/at/locale/search/well-formed helpers, split returning the selected JS surface List<string> array-return ABI, and fail-closed rejection without closed string receiver facts. Remains partial until all JS String methods and Boolean/String object surface conversions have positive and negative runtime coverage.",
   }),
   "surface.js.console": Object.freeze({
     positiveTests: Object.freeze([
@@ -3060,13 +3062,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.js.object-runtime remains partial until nested JSON value flow, object carrier writes, prototype/static helpers, runtime execution, and toolchain coverage are complete.",
     ]),
     notes:
-      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject, JSArray, string, or Record<string, T>/Dictionary<string, T> carrier; Record helper output is verified through CLI emission and C# toolchain build; missing carrier facts reject, foreign same-spelling declarations defer, and JSON direct parse/stringify uses selected facts plus closed TsValue carrier facts while nested JSON carrier flow remains incomplete.",
+      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject, JSArray, string, or Record<string, T>/Dictionary<string, T> carrier; unchanged TypeScript Object.keys(values).join('|') chains finalize from selected Object and Array facts; Record helper output is verified through CLI emission and C# toolchain build; missing carrier facts reject, foreign same-spelling declarations defer, and JSON direct parse/stringify uses selected facts plus closed TsValue carrier facts while nested JSON carrier flow remains incomplete.",
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -3075,13 +3079,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover canonical node:path imports, bare path imports, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property access, and rejection of node:path without the NodeJS surface. Remains partial until fs/path/process behavior is runtime-verified across the full old Node fixture matrix and all unsupported module members fail closed.",
+      "Reviewed partial proof: selected NodeJS surface facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property access, and rejection of node:path/fs without the NodeJS surface. Remains partial until fs/path/process behavior is runtime-verified across the full old Node fixture matrix and all unsupported module members fail closed.",
   }),
   "surface.node.fs": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -3091,13 +3097,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.fs remains partial until every supported node:fs and bare fs operation has selected-declaration target facts, every unsupported fs member has precise selected-surface diagnostics, and the old Node fixture matrix has runtime/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover bare fs and node:fs namespace imports, existsSync/readFileSync/write-style target mappings, no-surface negative paths block Node-owned modules before artifact emission, and unsupported selected fs.watchFile fails closed without runtime fallback. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
+      "Reviewed partial proof: selected NodeJS surface facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, existsSync/readFileSync/statSync/write-style target mappings, no-surface negative paths block Node-owned modules before artifact emission, and unsupported selected fs.watchFile fails closed without runtime fallback. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
   }),
   "surface.node.process": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -3107,7 +3115,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.process remains partial until cwd, argv, env, exit, pid, platform, version, ESM process import forms, unsupported members, and platform-specific runtime behavior all have selected-surface facts plus positive and fail-closed tests.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover bare process and node:process cwd() and platform target mappings through namespace import facts, and unselected Node modules fail during provider-aware resolution. Remains partial until process environment, argv, exit, and platform-specific behavior are covered through closed runtime facts.",
+      "Reviewed partial proof: selected NodeJS surface facts cover bare process and node:process cwd(), argv, and platform target mappings through named and namespace import facts, and unselected Node modules fail during provider-aware resolution. Remains partial until process environment, exit, pid, version, and platform-specific behavior are covered through closed runtime facts.",
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([
