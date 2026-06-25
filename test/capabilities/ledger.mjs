@@ -1074,13 +1074,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   "provider.virtual-module.constraints": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider virtual declarations keep target-only generic constraints out of source-visible TypeScript shapes while retaining reflected target constraint facts for backend/provider consumers. Old TypeScript constraint fixtures are not mapped here because they prove source generic declarations, not provider-owned virtual-module constraints.",
+      "Reviewed partial proof: provider virtual declarations keep target-only generic constraints out of source-visible TypeScript shapes while retaining reflected target constraint facts for backend/provider consumers, and the C# semantic provider validates those constraints only from finalized target facts. Old TypeScript constraint fixtures are not mapped here because they prove source generic declarations, not provider-owned virtual-module constraints.",
   }),
   "source.primitive.numeric": Object.freeze({
     positiveTests: Object.freeze([
@@ -2045,13 +2047,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   "native.dotnet.constraints": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     notes:
-      "Reviewed partial proof: .NET reflection records class, struct, new, unmanaged, interface, base-class, generic-method, and variance constraints as target facts with assembly-qualified target identities, and keeps those target-only constraints out of source declarations. Remains partial until notnull policy, base-vs-interface distinction, unsupported constraint evidence, and source-level provider constraint diagnostics are complete.",
+      "Reviewed partial proof: .NET reflection records class, struct, new, unmanaged, interface, base-class, generic-method, and variance constraints as target facts with assembly-qualified target identities, keeps those target-only constraints out of source declarations, and the C# semantic provider accepts or rejects generic constraints from finalized target binding facts instead of changing TSTS source assignability. Remains partial until notnull policy, full base-vs-interface substitution evidence, unsupported constraint evidence, and source-level provider constraint diagnostics are complete.",
   }),
   "native.dotnet.conversions": Object.freeze({
     positiveTests: Object.freeze([
@@ -2260,12 +2264,14 @@ const reviewedCapabilityEvidence = Object.freeze({
   "type.generic.provider-target-constraints": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-generics.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
@@ -2278,7 +2284,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/generic-constraints-object-struct/",
     ]),
     notes:
-      "Reviewed partial proof: source and provider generic constraints render only from finalized target constraint facts, primitive constraint failures produce diagnostics, and old generic-constraint emitter/fixture coverage is mapped as evidence. Remains partial until provider-owned invalid type-argument validation and source-span evidence are complete.",
+      "Reviewed partial proof: source and provider generic constraints render only from finalized target constraint facts, primitive constraint failures produce diagnostics, C# provider target constraints are accepted only when finalized value/reference/constructible/unmanaged/implemented-contract facts prove them, and old generic-constraint emitter/fixture coverage is mapped as evidence. Remains partial until provider-owned invalid type-argument diagnostics are covered through full compiler-session source spans and every reflected constraint form has end-to-end tests.",
   }),
   "declaration.generic-parameters": Object.freeze({
     positiveTests: Object.freeze([
@@ -2298,6 +2304,127 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: generic declarations and constraints emit from source AST plus finalized target facts and compile under dotnet. This evidence does not close provider constraint validation by itself; provider-specific constraint legality remains tracked under type.generic.provider-target-constraints and native.dotnet.constraints.",
+  }),
+  "carrier.array": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/double-array/DoubleArray.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/multidimensional/MultiDimensional.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/spread/ArraySpread.ts",
+      "test/fixtures/array-destructuring/",
+      "test/fixtures/array-double/",
+      "test/fixtures/array-literal/",
+      "test/fixtures/array-multidimensional/",
+      "test/fixtures/array-spread/",
+      "test/fixtures/array-type-emission/",
+    ]),
+    blockers: Object.freeze([
+      "carrier.array remains partial until every array carrier lane has current positive and negative proof: readonly/read-write ABI, nested/generic arrays, inferred returns, tuple interaction, native CLR boundaries, sparse/full-JS carriers, and provider-fact absence diagnostics.",
+    ]),
+    notes:
+      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, and JS-surface array carriers, including fail-closed diagnostics for untyped empty returns and native length access without selected facts.",
+  }),
+  "operation.array.literal": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/double-array/DoubleArray.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/multidimensional/MultiDimensional.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/spread/ArraySpread.ts",
+      "test/fixtures/array-destructuring/",
+      "test/fixtures/array-double/",
+      "test/fixtures/array-literal/",
+      "test/fixtures/array-multidimensional/",
+      "test/fixtures/array-spread/",
+      "test/fixtures/array-type-emission/",
+    ]),
+    blockers: Object.freeze([
+      "operation.array.literal remains partial until literal holes, readonly tuple/literal preservation, contextual empty arrays, provider native-array literals, sparse/full-JS array construction, and every old deferred array fixture have current positive and fail-closed tests.",
+    ]),
+    notes:
+      "Reviewed partial proof for the old array-literal slice: current CLI tests build and run typed source array literals, empty typed literals, nested literals, spread literals, double-array returns, and primitive element carriers from finalized provider/surface facts. The old validator array inference test is mapped as stale evidence only; TSTS owns source typing and target array emission now requires explicit carrier facts.",
+  }),
+  "expression.array-literal": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/double-array/DoubleArray.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/multidimensional/MultiDimensional.ts",
+      "test/fixtures/array-double/",
+      "test/fixtures/array-literal/",
+      "test/fixtures/array-multidimensional/",
+      "test/fixtures/array-type-emission/",
+    ]),
+    blockers: Object.freeze([
+      "expression.array-literal remains partial until the old inventory is split between syntax-level expression coverage and target operation coverage, and until every expression-only array literal form has focused positive and negative evidence.",
+    ]),
+    notes:
+      "Reviewed partial proof: array literal expression coverage is now tied to the same old literal fixtures that prove carrier and operation behavior, but it is kept separate so expression syntax coverage cannot imply carrier completeness. Current negative proof rejects literal emission when element evidence is absent instead of synthesizing an array carrier from syntax.",
+  }),
+  "operation.spread.array": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/arrays/spread/ArraySpread.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/ArraySpread.ts",
+      "test/fixtures/array-spread/",
+    ]),
+    blockers: Object.freeze([
+      "operation.spread.array remains partial until spread over readonly, tuple, provider-native arrays, iterable providers, sparse/full-JS arrays, nested spreads, and unsupported spread operands have complete current proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current CLI proof renders spread only from finalized expected array facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, and does not revive old expected-type-threading logic inside Tsonic.",
+  }),
+  "binding.array.fixed-rest-default": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
+      "test/fixtures/array-destructuring/",
+    ]),
+    blockers: Object.freeze([
+      "binding.array.fixed-rest-default remains partial until assignment destructuring, nested default values, tuple rest, provider-native array extraction, and sparse/full-JS array extraction have current positive and fail-closed proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, and nested array extraction using finalized carrier facts. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
   }),
   "carrier.array.public-abi-policy": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3115,19 +3242,22 @@ const reviewedCapabilityEvidence = Object.freeze({
   "operation.destructure.array-object": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
       "test/fixtures/array-destructuring/",
     ]),
     blockers: Object.freeze([
-      "operation.destructure.array-object remains partial until assignment destructuring has finalized target storage/extraction facts, expression/statement assignment positives, and old destructuring fixtures are ported through current CLI/toolchain tests.",
+      "operation.destructure.array-object remains partial until assignment destructuring has finalized target storage/extraction facts, expression/statement assignment positives, object rest/default parity, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: parameter and variable binding patterns now consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; expression and statement assignment destructuring both fail closed instead of ordinary assignment fallback or stale lowering. This is not complete until target storage-write facts and end-to-end old fixture parity exist.",
+      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter and variable binding patterns consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; expression and statement assignment destructuring both fail closed instead of ordinary assignment fallback or stale lowering.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([
