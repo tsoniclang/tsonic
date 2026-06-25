@@ -2216,7 +2216,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities; unsupported default values now carry deterministic parameter identity/evidence; unsupported pointer parameter source shapes and wrong optional/params arities reject. Remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path.",
+      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities; omitted optional target arguments require a deterministic reflected default value, unsupported or missing defaults fail closed during selected target-member identity matching, unsupported default values carry deterministic parameter identity/evidence, unsupported pointer parameter source shapes and wrong optional/params arities reject. Remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path.",
   }),
   "native.dotnet.array.explicit": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3263,7 +3263,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads; constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; and call emission rejects mutated receiver/parameter-passing facts. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
+      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads, and omitted optional arguments are accepted only when the selected target parameter carries a supported reflected default value; constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; and call emission rejects mutated receiver/parameter-passing facts. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
   }),
   "operation.construct.provider-selected-constructor": Object.freeze({
     positiveTests: Object.freeze([
@@ -3992,7 +3992,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/optional-function-params/",
     ]),
     notes:
-      "Reviewed partial proof: current CLI emits TypeScript rest, default, and optional callable parameters from finalized C# carriers, while external-current C# provider tests enforce optional/params arity; remains partial until source-function negative coverage proves missing parameter facts fail closed.",
+      "Reviewed partial proof: current CLI emits TypeScript rest, default, and optional callable parameters from finalized C# carriers, while external-current C# provider tests enforce optional/params arity and reject omitted provider optional arguments when the reflected target default is missing or unsupported; remains partial until source-function negative coverage proves missing parameter facts fail closed.",
   }),
   "operation.member.no-name-guess": Object.freeze({
     positiveTests: Object.freeze([
