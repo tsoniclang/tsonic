@@ -2399,7 +2399,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
     ]),
     notes:
-      "Reviewed proof: provider-owned overload identity is selected from exact declaration/signature facts, including same-spelling overload groups, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, selected JS/Node surface signatures, and selected signatures whose source argument facts would otherwise match sibling overloads. TSTS-selected provider identity is the proof boundary: provider target facts may refine within the selected member/signature's overload group when target argument facts require a different closed target overload, but they must never search by source spelling or outside that proven group. Valid selected-signature target conversions remain explicit provider facts; missing selected identity, unsupported selected identities, ambiguous group refinement, and unproven conversion facts fail closed.",
+      "Reviewed proof: provider-owned overload identity is selected from exact declaration/signature facts, including same-spelling overload groups, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, selected JS/Node surface signatures, and selected signatures whose source argument facts would otherwise match sibling overloads. TSTS-selected provider identity is the proof boundary: exact selected signatures map only to the matching target member id and may not search sibling overloads; provider refinement is allowed only inside a proven overload group without source spelling lookup. Valid selected-signature target conversions remain explicit provider facts; missing selected identity, unsupported selected identities, ambiguous group refinement, contradictory generic argument facts, and unproven conversion facts fail closed.",
   }),
   "type.generic.provider-target-arguments": Object.freeze({
     positiveTests: Object.freeze([
@@ -3235,14 +3235,16 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
     ]),
     notes:
-      "Reviewed proof: provider-owned calls select exact signature identity from provider facts, including overload groups, extension receivers, byref parameters, and optional/params arity; backend rejects mutated call facts.",
+      "Reviewed proof: provider-owned calls select exact signature identity from provider facts, including overload groups, extension receivers, byref parameters, generic target arguments, and optional/params arity. Exact selected signatures no longer search sibling overloads when source argument facts would match another overload, and backend emission rejects mutated operation kind, receiver, parameter-passing, or selected-member facts.",
   }),
   "operation.call.provider-argument-conversion": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/conversions.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/conversions.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
@@ -3251,10 +3253,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/VariableInit.ts",
     ]),
     blockers: Object.freeze([
-      "operation.call.provider-argument-conversion remains partial until provider-owned method, constructor, delegate, indexer, and extension-call arguments each prove explicit source-to-target conversion facts, missing/mutated conversion facts, source spans, and CLI/toolchain emission.",
+      "operation.call.provider-argument-conversion remains partial until constructor, delegate, indexer, and extension-call arguments each prove explicit source-to-target conversion facts, source spans, and CLI/toolchain emission.",
     ]),
     notes:
-      "Reviewed partial proof: current provider-selection and conversion planner tests prove selected target argument facts and finalized conversion operation facts are required before emission. Completion is blocked on call-site-specific proof that every provider argument conversion is recorded on the selected signature path rather than recovered from parameter names or target type spelling.",
+      "Reviewed partial proof: provider-selection, conversion planner, and argument-emission tests prove selected target argument conversion facts take precedence over expected-type threading, must match the finalized selected parameter target type, and fail closed when missing or mutated instead of recovering from parameter names or target type spelling.",
   }),
   "operation.call.provider-parameter-mode": Object.freeze({
     positiveTests: Object.freeze([
@@ -3273,7 +3275,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, default values, constructors, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads, and CLI provider tests prove omitted optional arguments are accepted only when the selected target parameter carries a supported reflected default value and reflected params arrays render extra arguments through the selected params element type. Target member selection rejects malformed provider parameter facts such as missing/noncanonical passingMode, paramsArray on non-array types, paramsArray byref parameters, and default values without optional arity. Constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; call emission rejects mutated receiver/parameter-passing facts. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
+      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, by-value, optional, default values, constructors, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads, and CLI provider tests prove omitted optional arguments are accepted only when the selected target parameter carries a supported reflected default value. Target member selection rejects malformed provider parameter facts such as missing/noncanonical passingMode, paramsArray on non-array types, paramsArray byref parameters, and default values without optional arity. Constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; call emission rejects mutated receiver/parameter-passing facts and unsupported finalized passing modes. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
   }),
   "operation.construct.provider-selected-constructor": Object.freeze({
     positiveTests: Object.freeze([
