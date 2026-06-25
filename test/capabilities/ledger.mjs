@@ -866,6 +866,90 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: provider and source extensions surface diagnostics through standard TSTS diagnostics with deterministic codes, source spans, and no backend artifact fallback.",
   }),
+  "type.utility": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "type.utility remains partial until utility type coverage includes Partial/Required/Readonly/Pick/Omit/Record/Exclude/Extract/NonNullable/ReturnType/Parameters/Awaited across object, callable, provider, and source-core primitive boundaries.",
+    ]),
+    notes:
+      "Reviewed partial proof: Extract is accepted or rejected by TSTS before backend emission, and the C# backend consumes the resolved string source shape without preserving utility type syntax or reimplementing utility type compatibility.",
+  }),
+  "type.conditional": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "type.conditional remains partial until distributive/non-distributive conditionals, generic constraints, provider virtual types, source-core primitives, nested conditions, and negative assignability proof are covered through current CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: conditional type aliases resolve through TSTS, including tuple-head extraction, and invalid assignment to the resolved conditional result stops before backend artifacts are produced.",
+  }),
+  "type.mapped": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "type.mapped remains partial until readonly/optional modifiers, key remapping, template literal keys, provider virtual declarations, source-core primitive fields, and object-literal freshness are proven end to end.",
+    ]),
+    notes:
+      "Reviewed partial proof: mapped type aliases are resolved by TSTS and consumed through indexed access as ordinary source types in C# emission; backend output contains no mapped-type syntax or source-name inference.",
+  }),
+  "type.indexed-access": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "type.indexed-access remains partial until tuple, array, object, union-key, keyof, mapped-type, provider virtual declaration, and invalid key forms are covered by current CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: indexed access into a mapped type resolves to string via TSTS and an incompatible numeric assignment is rejected by TSTS before backend artifacts are produced.",
+  }),
+  "type.keyof": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "type.keyof remains partial until object, array, tuple, mapped, provider virtual declaration, symbol/numeric key, and key-remapping forms are proven across current CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: keyof drives a mapped type entirely inside TSTS; C# emission consumes the resolved value type and does not inspect source property names as type evidence.",
+  }),
+  "type.infer": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "type.infer remains partial until nested infer positions, rest tuple inference, callable return/parameter inference, provider generic types, source-core primitive aliases, and failing inference branches are covered.",
+    ]),
+    notes:
+      "Reviewed partial proof: infer in a conditional tuple type resolves through TSTS to the selected tuple head, and backend emission consumes the resolved string type without implementing infer semantics.",
+  }),
   "type.template-literal": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
@@ -925,6 +1009,20 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: as const is consumed as a TSTS literal/readonly decision, valid readonly tuple literals emit from resolved tuple facts without target-specific as-const syntax, and readonly mutation is rejected by TSTS before backend artifacts are produced.",
+  }),
+  "type.non-null-assertion": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "type.non-null-assertion remains partial until expression, property, call, provider-owned, source-core primitive, generic, and optional-chain forms are covered with current CLI/toolchain tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: non-null assertion is checked by TSTS, valid source emits the underlying expression without backend nullability inference, and invalid member access after the assertion is rejected by TSTS before backend artifacts are produced.",
   }),
   "type.assertion": Object.freeze({
     positiveTests: Object.freeze([

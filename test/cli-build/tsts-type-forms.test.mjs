@@ -150,3 +150,56 @@ test("CLI consumes TSTS as-const literal readonly results and rejects readonly w
     "",
   ], /TS2540: Cannot assign to '0' because it is a read-only property/);
 });
+
+test("CLI consumes TSTS utility, conditional, infer, keyof, indexed-access, and mapped type results", async () => {
+  const { generatedSource } = await assertBuilds("advanced-type-operators-positive", "SmokeGeneratedAdvancedTypeOperators", [
+    "type Source = { name: string; count: number };",
+    "type Copy<T> = { [K in keyof T]: T[K] };",
+    "type Name = Copy<Source>[\"name\"];",
+    "type First<T> = T extends readonly [infer Head, ...unknown[]] ? Head : never;",
+    "type FirstName = First<[Name, number]>;",
+    "type TextOnly = Extract<string | number | boolean, string>;",
+    "",
+    "export function readName(value: FirstName): TextOnly {",
+    "  return value;",
+    "}",
+    "",
+  ]);
+
+  assert.match(generatedSource, /public static string readName\(string value\)/);
+  assert.match(generatedSource, /return value;/);
+  assert.doesNotMatch(generatedSource, /Extract|keyof|infer|Copy|FirstName/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  await assertRejected("advanced-type-operators-negative", "SmokeGeneratedAdvancedTypeOperatorsNegative", [
+    "type Source = { name: string; count: number };",
+    "type Copy<T> = { [K in keyof T]: T[K] };",
+    "type Name = Copy<Source>[\"name\"];",
+    "type First<T> = T extends readonly [infer Head, ...unknown[]] ? Head : never;",
+    "type FirstName = First<[Name, number]>;",
+    "const bad: FirstName = 123;",
+    "export function value(): FirstName { return bad; }",
+    "",
+  ], /TS2322: Type 'number' is not assignable to type 'string'/);
+});
+
+test("CLI consumes TSTS non-null assertion results without backend nullability inference", async () => {
+  const { generatedSource } = await assertBuilds("non-null-assertion-positive", "SmokeGeneratedNonNullAssertion", [
+    "export function unwrap(value: string | null): string {",
+    "  return value!;",
+    "}",
+    "",
+  ]);
+
+  assert.match(generatedSource, /public static string unwrap\(string\? value\)/);
+  assert.match(generatedSource, /return value;/);
+  assert.doesNotMatch(generatedSource, /!/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  await assertRejected("non-null-assertion-negative", "SmokeGeneratedNonNullAssertionNegative", [
+    "const value: string | null = \"x\";",
+    "const bad = value!.missing;",
+    "export function read(): string { return bad; }",
+    "",
+  ], /TS2339: Property 'missing' does not exist on type 'string'/);
+});
