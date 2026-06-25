@@ -49,6 +49,8 @@ test("capability coverage report exposes ledger validation as a gate", () => {
   assert.equal(report.rules.capabilityLedgerValidationIsEnforced, true);
   assert.equal(report.ledgerValidation.rules.entriesMustPassSingleEntryValidation, true);
   assert.equal(report.ledgerValidation.rules.completeCapabilitiesRequirePositiveAndNegativeProof, true);
+  assert.equal(report.ledgerValidation.rules.completeCapabilitiesRequireCurrentPositiveAndNegativeProof, true);
+  assert.equal(report.ledgerValidation.rules.positiveNegativeProofMustNotUseOldEvidence, true);
   assert.equal(report.ledgerValidation.rules.completeBroadCapabilitiesRequireCompleteSubCapabilityEvidence, true);
   assert.equal(report.ledgerValidation.summary.entryCount, capabilityLedger.length);
   assert.equal(report.ledgerValidation.summary.validationErrorCount, 0);
@@ -143,6 +145,54 @@ test("capability coverage report flags complete proof holes for missing reviewed
   assert.deepEqual(report.completeCapabilityProofHoles[0].proofHoles, [
     "missing-reviewed-evidence",
     "missing-old-evidence",
+  ]);
+});
+
+test("capability coverage report validates complete proof is current", () => {
+  const report = buildCapabilityCoverageReport({
+    ledgerEntries: [
+      capabilityEntry({
+        capabilityId: "host.project.target-selection",
+        status: "complete",
+        evidenceReview: "reviewed",
+        positiveTests: ["old/positive.test.ts"],
+        negativeTests: ["old/negative.test.ts"],
+        oldEvidence: ["old/evidence.test.ts"],
+      }),
+    ],
+    oldEvidenceSourceGroups: [
+      {
+        source: "test-old-source",
+        paths: ["old/positive.test.ts", "old/negative.test.ts", "old/evidence.test.ts"],
+      },
+    ],
+    oldInventoryEntries: [],
+  });
+
+  assert.equal(report.ledgerValidation.summary.validationErrorCount, 4);
+  assert.deepEqual(report.ledgerValidation.proofHoles, [
+    {
+      proofHole: "capability-ledger-validation",
+      error: "host.project.target-selection: complete capabilities must have current positiveTests",
+    },
+    {
+      proofHole: "capability-ledger-validation",
+      error: "host.project.target-selection: complete capabilities must have current negativeTests",
+    },
+    {
+      proofHole: "capability-ledger-validation",
+      error: "host.project.target-selection: positiveTests must not reference old evidence paths",
+    },
+    {
+      proofHole: "capability-ledger-validation",
+      error: "host.project.target-selection: negativeTests must not reference old evidence paths",
+    },
+  ]);
+  assert.deepEqual(report.completeCapabilityProofHoles[0].proofHoles, [
+    "missing-current-positive-proof",
+    "missing-current-negative-proof",
+    "positive-proof-uses-old-evidence",
+    "negative-proof-uses-old-evidence",
   ]);
 });
 

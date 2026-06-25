@@ -33,6 +33,30 @@ test("old C# emitter inventory entries have required classification fields", () 
   assert.equal(new Set(oldPaths).size, oldPaths.length);
 });
 
+test("old C# emitter inventory requires explicit capability ids", () => {
+  const entry = oldEmitterPortInventory[0];
+
+  assert.ok(
+    validateOldEmitterPortEntry({ ...entry, capabilityIds: [] })
+      .includes("capabilityIds must be a non-empty array"),
+  );
+
+  const report = buildOldEmitterInventoryReport([entry.oldPath], [
+    { ...entry, capabilityIds: [] },
+  ]);
+  assert.equal(report.rules.entriesMustPassValidation, true);
+  assert.equal(report.rules.entriesRequireExplicitCapabilityIds, true);
+  assert.equal(report.validationErrorCount, 1);
+  assert.equal(report.classificationStatus, "hole");
+  assert.deepEqual(report.proofHoles, [
+    {
+      oldPath: entry.oldPath,
+      proofHole: "old-inventory-validation",
+      error: "capabilityIds must be a non-empty array",
+    },
+  ]);
+});
+
 test("old C# emitter stale entries require replacement capability evidence", () => {
   const staleEntry = oldEmitterPortInventory.find((entry) => entry.status === "invalid-stale-architecture");
   assert.notEqual(staleEntry, undefined);
@@ -72,7 +96,11 @@ test("old C# emitter inventory report counts are deterministic", () => {
     "unclassified: 0",
   ].join("\n"));
   assert.equal(report.rules.unclassifiedOldInventoryIsImpossible, true);
+  assert.equal(report.rules.entriesMustPassValidation, true);
+  assert.equal(report.rules.entriesRequireExplicitCapabilityIds, true);
+  assert.equal(report.rules.staleEntriesRequireReplacementCapabilities, true);
   assert.equal(report.classificationStatus, "complete");
+  assert.equal(report.validationErrorCount, 0);
   assert.deepEqual(report.classifiedUnknownOldPaths, []);
   assert.deepEqual(report.unclassifiedOldPaths, []);
   assert.deepEqual(report.proofHoles, []);

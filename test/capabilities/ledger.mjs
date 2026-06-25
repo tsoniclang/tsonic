@@ -6,6 +6,11 @@ export const capabilityStatuses = Object.freeze([
   "invalid",
 ]);
 
+export const capabilityEvidenceReviewStatuses = Object.freeze([
+  "seeded",
+  "reviewed",
+]);
+
 export const capabilityOwners = Object.freeze([
   "tsonic-host",
   "tsts-api",
@@ -38,6 +43,7 @@ export const capabilityCompatRuntimeCarriers = Object.freeze([
 ]);
 
 const capabilityStatusSet = new Set(capabilityStatuses);
+const capabilityEvidenceReviewStatusSet = new Set(capabilityEvidenceReviewStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
 const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
@@ -4829,16 +4835,21 @@ export const capabilityLedger = Object.freeze(baseCapabilityDefinitions.map(capa
 
 export const capabilityIdSet = Object.freeze(new Set(capabilityLedger.map((entry) => entry.capabilityId)));
 
-export function validateCapabilityLedger(entries, { requiredIds = requiredCapabilityIds } = {}) {
+export function validateCapabilityLedger(entries, {
+  requiredIds = requiredCapabilityIds,
+  oldEvidencePaths = [],
+} = {}) {
   if (!Array.isArray(entries)) {
     return ["capability ledger must be an array"];
   }
 
+  const oldEvidencePathSet = new Set(oldEvidencePaths);
   return [
     ...validateCapabilityLedgerEntrySet(entries, requiredIds),
     ...entries.flatMap((entry) =>
       validateCapabilityLedgerEntry(entry).map((error) => `${capabilityIdForValidationError(entry)}: ${error}`)
     ),
+    ...validateCompleteCapabilityCurrentProof(entries, oldEvidencePathSet),
     ...validateCompleteBroadCapabilityEvidence(entries),
   ];
 }
@@ -4899,6 +4910,39 @@ function validateCompleteBroadCapabilityEvidence(entries) {
   return errors;
 }
 
+function validateCompleteCapabilityCurrentProof(entries, oldEvidencePathSet) {
+  if (oldEvidencePathSet.size === 0) {
+    return [];
+  }
+
+  const errors = [];
+  for (const entry of entries) {
+    if (!isPlainObject(entry) || entry.status !== "complete") {
+      continue;
+    }
+
+    const positiveTests = Array.isArray(entry.positiveTests) ? entry.positiveTests : [];
+    const negativeTests = Array.isArray(entry.negativeTests) ? entry.negativeTests : [];
+    const oldPositiveTests = positiveTests.filter((testPath) => oldEvidencePathSet.has(testPath));
+    const oldNegativeTests = negativeTests.filter((testPath) => oldEvidencePathSet.has(testPath));
+
+    if (positiveTests.length > 0 && oldPositiveTests.length === positiveTests.length) {
+      errors.push(`${entry.capabilityId}: complete capabilities must have current positiveTests`);
+    }
+    if (negativeTests.length > 0 && oldNegativeTests.length === negativeTests.length) {
+      errors.push(`${entry.capabilityId}: complete capabilities must have current negativeTests`);
+    }
+    if (oldPositiveTests.length > 0) {
+      errors.push(`${entry.capabilityId}: positiveTests must not reference old evidence paths`);
+    }
+    if (oldNegativeTests.length > 0) {
+      errors.push(`${entry.capabilityId}: negativeTests must not reference old evidence paths`);
+    }
+  }
+
+  return errors;
+}
+
 export function validateCapabilityLedgerEntry(entry) {
   const errors = [];
   if (!isPlainObject(entry)) {
@@ -4912,7 +4956,7 @@ export function validateCapabilityLedgerEntry(entry) {
   validateStringField(errors, entry, "tstsDecision");
   validateStringArrayField(errors, entry, "providerFacts");
   validateStringField(errors, entry, "backendContract");
-  validateStringField(errors, entry, "evidenceReview");
+  validateEnumField(errors, entry, "evidenceReview", capabilityEvidenceReviewStatusSet, capabilityEvidenceReviewStatuses);
   validateStringArrayField(errors, entry, "positiveTests");
   validateStringArrayField(errors, entry, "negativeTests");
   validateStringArrayField(errors, entry, "oldEvidence");

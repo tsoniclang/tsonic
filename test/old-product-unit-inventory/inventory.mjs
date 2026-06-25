@@ -728,8 +728,11 @@ export function buildOldProductUnitInventoryReport(historicalOldPaths, inventory
   const classifiedUnknownOldPathSet = new Set();
   const counts = createOldProductUnitCounts(historicalPaths.length);
   const capabilityMappingCounts = createOldProductUnitCapabilityMappingCounts();
+  const validationProofHoles = [];
 
   for (const entry of inventoryEntries) {
+    validationProofHoles.push(...oldProductUnitInventoryValidationProofHoles(entry));
+
     if (!historicalPathSet.has(entry.oldPath)) {
       classifiedUnknownOldPathSet.add(entry.oldPath);
       continue;
@@ -748,16 +751,24 @@ export function buildOldProductUnitInventoryReport(historicalOldPaths, inventory
 
   const unclassifiedOldPaths = historicalPaths.filter((oldPath) => !classifiedOldPathSet.has(oldPath));
   counts.unclassified = unclassifiedOldPaths.length;
-  const proofHoles = oldProductUnitInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet);
+  const proofHoles = oldProductUnitInventoryProofHoles(
+    unclassifiedOldPaths,
+    classifiedUnknownOldPathSet,
+    validationProofHoles,
+  );
 
   return Object.freeze({
     rules: Object.freeze({
       unclassifiedOldInventoryIsImpossible: true,
       classifiedInventoryPathsMustBeHistorical: true,
+      entriesMustPassValidation: true,
+      entriesRequireExplicitCapabilityIds: true,
+      staleEntriesRequireReplacementCapabilities: true,
     }),
     classificationStatus: proofHoles.length === 0 ? "complete" : "hole",
     counts: Object.freeze(counts),
     capabilityMappingCounts: Object.freeze(capabilityMappingCounts),
+    validationErrorCount: validationProofHoles.length,
     classifiedOldPaths: Object.freeze([...classifiedOldPathSet].sort()),
     classifiedUnknownOldPaths: Object.freeze([...classifiedUnknownOldPathSet].sort()),
     unclassifiedOldPaths: Object.freeze(unclassifiedOldPaths),
@@ -765,8 +776,20 @@ export function buildOldProductUnitInventoryReport(historicalOldPaths, inventory
   });
 }
 
-function oldProductUnitInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet) {
+function oldProductUnitInventoryValidationProofHoles(entry) {
+  const oldPath = typeof entry?.oldPath === "string" && entry.oldPath.length > 0
+    ? entry.oldPath
+    : "<unknown>";
+  return validateOldProductUnitPortEntry(entry).map((error) => Object.freeze({
+    oldPath,
+    proofHole: "old-inventory-validation",
+    error,
+  }));
+}
+
+function oldProductUnitInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet, validationProofHoles) {
   return [
+    ...validationProofHoles,
     ...unclassifiedOldPaths.map((oldPath) => Object.freeze({
       oldPath,
       proofHole: "unclassified-old-inventory",

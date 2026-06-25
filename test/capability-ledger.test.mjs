@@ -407,6 +407,10 @@ test("capability ledger validator rejects complete capabilities without proof", 
       .includes("complete capabilities must have reviewed evidence"),
   );
   assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, evidenceReview: "rubber-stamped" })
+      .includes("evidenceReview must be one of seeded, reviewed"),
+  );
+  assert.ok(
     validateCapabilityLedgerEntry({ ...completeEntry, oldEvidence: [] })
       .includes("complete capabilities must have oldEvidence"),
   );
@@ -515,6 +519,34 @@ test("complete capability proof references current positive and negative tests",
       assert.equal(oldPathSet.has(negativeTest), false, `${entry.capabilityId} uses old evidence as negative proof: ${negativeTest}`);
     }
   }
+});
+
+test("capability ledger validator rejects old paths as complete current proof", () => {
+  const completeEntry = capabilityEntry({
+    capabilityId: "example.current-proof",
+    status: "complete",
+    evidenceReview: "reviewed",
+    positiveTests: ["old/positive.test.ts"],
+    negativeTests: ["old/negative.test.ts"],
+    oldEvidence: ["old/evidence.test.ts"],
+  });
+
+  assert.deepEqual(
+    validateCapabilityLedger([completeEntry], {
+      requiredIds: [],
+      oldEvidencePaths: [
+        "old/positive.test.ts",
+        "old/negative.test.ts",
+        "old/evidence.test.ts",
+      ],
+    }),
+    [
+      "example.current-proof: complete capabilities must have current positiveTests",
+      "example.current-proof: complete capabilities must have current negativeTests",
+      "example.current-proof: positiveTests must not reference old evidence paths",
+      "example.current-proof: negativeTests must not reference old evidence paths",
+    ],
+  );
 });
 
 test("old inventories map only to known capability ids", () => {

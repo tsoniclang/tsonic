@@ -258,6 +258,30 @@ test("old suite port inventory entries have required classification fields", () 
   }
 });
 
+test("old suite inventory requires explicit capability ids", () => {
+  const entry = oldSuitePortInventory[0];
+
+  assert.ok(
+    validateOldSuitePortEntry({ ...entry, capabilityIds: [] })
+      .includes("capabilityIds must be a non-empty array"),
+  );
+
+  const report = buildOldSuiteInventoryReport([entry.oldPath], [
+    { ...entry, capabilityIds: [] },
+  ]);
+  assert.equal(report.rules.entriesMustPassValidation, true);
+  assert.equal(report.rules.entriesRequireExplicitCapabilityIds, true);
+  assert.equal(report.validationErrorCount, 1);
+  assert.equal(report.classificationStatus, "hole");
+  assert.deepEqual(report.proofHoles, [
+    {
+      oldPath: entry.oldPath,
+      proofHole: "old-inventory-validation",
+      error: "capabilityIds must be a non-empty array",
+    },
+  ]);
+});
+
 test("old suite stale entries require replacement capability evidence", () => {
   const staleEntry = oldSuitePortInventory.find((entry) => entry.status === "invalid-stale-architecture");
   assert.notEqual(staleEntry, undefined);
@@ -307,7 +331,11 @@ test("old suite inventory report counts are deterministic", () => {
     "unclassified: 0",
   ].join("\n"));
   assert.equal(report.rules.unclassifiedOldInventoryIsImpossible, true);
+  assert.equal(report.rules.entriesMustPassValidation, true);
+  assert.equal(report.rules.entriesRequireExplicitCapabilityIds, true);
+  assert.equal(report.rules.staleEntriesRequireReplacementCapabilities, true);
   assert.equal(report.classificationStatus, "complete");
+  assert.equal(report.validationErrorCount, 0);
   assert.deepEqual(report.classifiedUnknownOldPaths, []);
   assert.deepEqual(report.proofHoles, []);
 });
