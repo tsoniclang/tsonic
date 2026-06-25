@@ -168,8 +168,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.call.provider-selected-method", "Provider-owned calls emit from selected signature facts", "complete", "target-provider"],
   ["operation.call.provider-argument-conversion", "Provider-owned calls record target argument conversion facts", "partial", "target-provider"],
   ["operation.call.provider-parameter-mode", "Provider-owned calls record parameter mode facts", "partial", "target-provider"],
-  ["operation.construct.provider-selected-constructor", "Provider-owned constructors emit from selected constructor facts", "partial", "target-provider"],
-  ["operation.constructor.provider-selected-target", "Constructors map to selected target constructor facts", "partial", "target-provider"],
+  ["operation.construct.provider-selected-constructor", "Provider-owned constructors emit from selected constructor facts", "complete", "target-provider"],
+  ["operation.constructor.provider-selected-target", "Constructors map to selected target constructor facts", "complete", "target-provider"],
   ["operation.property.provider-selected-member", "Provider-owned property access emits from selected member facts", "complete", "target-provider"],
   ["operation.member.provider-property", "Member properties map through selected provider declarations", "complete", "target-provider"],
   ["operation.member.provider-indexer", "Member indexers map through selected provider declarations", "complete", "target-provider"],
@@ -3253,6 +3253,40 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; exact selected signature identity now enforces optional/params arity without searching sibling overloads, and call emission rejects mutated passing-mode facts. Remains partial until constructor, delegate, indexer, and extension-call parameter-mode consumers have full missing/mutated fact rejection coverage.",
+  }),
+  "operation.construct.provider-selected-constructor": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
+      "packages/targets/csharp/emitter/testcases/common/collections/list-initializer/ListInitializer.ts",
+    ]),
+    notes:
+      "Reviewed proof: provider-owned new expressions map only from TSTS-selected provider constructor declaration/signature identity; exact selected constructor signatures win over sibling overload search, overload refinement stays inside the proven provider constructor group, constructor byref parameters require finalized source marker facts, unsupported selected constructors report provider reasons, and non-source-owned constructors without selected target signature facts fail closed.",
+  }),
+  "operation.constructor.provider-selected-target": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
+      "packages/targets/csharp/emitter/testcases/common/collections/list-initializer/ListInitializer.ts",
+    ]),
+    notes:
+      "Reviewed proof: C# constructor operation facts carry the selected target constructor and constructed target result type from provider target facts; missing declaring/constructed type facts reject before backend emission, and the backend consumes finalized constructor operation facts rather than deriving target type from source spelling.",
   }),
   "operation.conversion.checked-target-conversion": Object.freeze({
     positiveTests: Object.freeze([

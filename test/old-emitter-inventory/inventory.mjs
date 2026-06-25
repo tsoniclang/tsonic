@@ -898,6 +898,14 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ], [
     "declaration.class.private-fields",
     "native.dotnet.constructors",
+    "operation.construct.provider-selected-constructor",
+    "operation.constructor.provider-selected-target",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("collections/list-initializer/ListInitializer"),
+  ], [
+    "operation.construct.provider-selected-constructor",
+    "operation.constructor.provider-selected-target",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("classes/static-members/MathHelper"),
