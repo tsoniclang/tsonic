@@ -429,6 +429,60 @@ test("CLI emits default export expression snapshots through TSTS module-export s
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits default function imports and default re-exports from TSTS module-export symbols", async () => {
+  const projectDirectory = resolve(tempRoot, "default-function-re-export");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedDefaultFunctionReExport",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/service.ts": [
+      "export default function compute(value: number): number {",
+      "  return value + 1;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/barrel.ts": [
+      "export { default as compute } from \"./service.js\";",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import directCompute from \"./service.js\";",
+      "import { compute } from \"./barrel.js\";",
+      "",
+      "export function read(): number {",
+      "  return directCompute(1) + compute(2);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Service\.compute\(1\) \+ Service\.compute\(2\);/);
+  assert.match(generatedSource, /Service\.__tsonic_module_init\(\);[\s\S]*Barrel\.__tsonic_module_init\(\);/);
+  assert.doesNotMatch(generatedSource, /directCompute|Barrel\.compute|__unsupported/);
+
+  const barrelSource = await readFile(resolve(projectDirectory, "out/csharp/src/Barrel.cs"), "utf8");
+  assert.match(barrelSource, /Service\.__tsonic_module_init\(\);/);
+  assert.doesNotMatch(barrelSource, /compute|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaultFunctionReExport.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits aliased star and namespace re-exports from TSTS module-export symbols", async () => {
   const projectDirectory = resolve(tempRoot, "module-export-forms");
@@ -479,6 +533,72 @@ test("CLI emits aliased star and namespace re-exports from TSTS module-export sy
   assert.doesNotMatch(generatedSource, /answer|math\.seed|add\(seed\)|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedModuleExportForms.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI preserves export-star module initialization before re-exported values are read", async () => {
+  const projectDirectory = resolve(tempRoot, "export-star-module-init-order");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedExportStarModuleInitOrder",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/state.ts": [
+      "export let text = \"\";",
+      "export function append(value: string): void {",
+      "  text = text + value;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/side.ts": [
+      "import { append } from \"./state.js\";",
+      "append(\"side;\");",
+      "export const sideValue = 1;",
+      "",
+    ].join("\n"),
+    "src/barrel.ts": [
+      "export * from \"./side.js\";",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { sideValue } from \"./barrel.js\";",
+      "",
+      "export function read(): number {",
+      "  return sideValue;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(indexSource, /return Side\.sideValue;/);
+  assert.match(indexSource, /static Index\(\)/);
+  assert.match(indexSource, /Barrel\.__tsonic_module_init\(\);/);
+  assert.doesNotMatch(indexSource, /return sideValue;|__unsupported/);
+
+  const barrelSource = await readFile(resolve(projectDirectory, "out/csharp/src/Barrel.cs"), "utf8");
+  assert.match(barrelSource, /static Barrel\(\)/);
+  assert.match(barrelSource, /Side\.__tsonic_module_init\(\);/);
+  assert.doesNotMatch(barrelSource, /__unsupported/);
+
+  const sideSource = await readFile(resolve(projectDirectory, "out/csharp/src/Side.cs"), "utf8");
+  assert.match(sideSource, /State\.__tsonic_module_init\(\);[\s\S]*State\.append\("side;"\);[\s\S]*sideValue = 1;/);
+  assert.doesNotMatch(sideSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedExportStarModuleInitOrder.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 

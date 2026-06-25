@@ -367,6 +367,34 @@ test("CLI rejects package exports subpaths as hidden package-discovery fallbacks
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
+test("CLI does not fall back from package export targets to same-named package files", async () => {
+  const projectDirectory = resolve(tempRoot, "package-export-target-no-fallback");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "src/index.ts",
+      rootDir: ".",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "import { value } from \"@demo/pkg/public.js\";\nexport const result = value;\n",
+    "node_modules/@demo/pkg/package.json": JSON.stringify({
+      name: "@demo/pkg",
+      type: "module",
+      exports: {
+        "./public.js": "./src/missing.ts",
+      },
+    }, null, 2),
+    "node_modules/@demo/pkg/public.ts": "export const value = 41;\n",
+    "node_modules/@demo/pkg/src/public.ts": "export const value = 42;\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /@demo\/pkg\/public\.js/);
+  assert.doesNotMatch(build.stderr, /public\.ts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
   const projectDirectory = resolve(tempRoot, "wide-csharp");
   await writeProject(projectDirectory, {

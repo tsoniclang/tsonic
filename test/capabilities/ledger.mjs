@@ -582,6 +582,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "module.import.default": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
@@ -591,11 +592,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "module.import.default remains partial until default imports are mapped to old fixture coverage and backend emission capabilities.",
     ]),
     notes:
-      "Reviewed partial proof: default relative ESM imports are resolved by TSTS source graph; hidden generated declaration and package discovery fallbacks are rejected.",
+      "Reviewed partial proof: default relative ESM imports are resolved by TSTS source graph and CLI C# emission uses the selected TSTS export symbol for default function imports; hidden generated declaration and package discovery fallbacks are rejected.",
   }),
   "module.import.namespace": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
@@ -607,7 +609,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "module.import.namespace remains partial until namespace imports are mapped across old fixtures and backend emission capabilities.",
     ]),
     notes:
-      "Reviewed partial proof: namespace relative ESM imports are resolved by TSTS source graph and not by backend source-name or package fallback discovery.",
+      "Reviewed partial proof: namespace relative ESM imports are resolved by TSTS source graph and CLI C# emission dereferences the resolved project source symbol instead of backend source-name or package fallback discovery.",
   }),
   "module.import.type-only": Object.freeze({
     positiveTests: Object.freeze([
@@ -660,18 +662,20 @@ const reviewedCapabilityEvidence = Object.freeze({
   "module.export.default": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "module.export.default remains partial until default export forms are mapped to old coverage and backend emission capabilities.",
+      "module.export.default remains partial until default class exports and every old default-export fixture form are mapped to current backend emission capabilities.",
     ]),
     notes:
-      "Reviewed partial proof: default exports participate in TSTS module graph resolution; the host does not synthesize default export declarations.",
+      "Reviewed partial proof: default exports participate in TSTS module graph resolution, CLI C# emission uses TSTS symbols for default export expression snapshots and default function imports, and the host does not synthesize default export declarations.",
   }),
   "module.export.reexport": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([]),
     oldEvidence: Object.freeze([
@@ -681,7 +685,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "module.export.reexport remains partial until export-star, aliased re-export, and source-package re-export fixture coverage is fully mapped.",
     ]),
     notes:
-      "Reviewed partial proof: aliased named re-exports, default re-exports, export-star, and export-star-as edges enter through TSTS module graph rather than host-side barrel scanning.",
+      "Reviewed partial proof: aliased named re-exports, default re-exports, export-star, and export-star-as edges enter through TSTS module graph rather than host-side barrel scanning, with CLI C# emission preserving export-star module initialization before re-exported values are read.",
   }),
   "module.package.exports-subpath": Object.freeze({
     positiveTests: Object.freeze([
@@ -703,7 +707,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "module.package.exports-subpath remains partial until package exports/subpath behavior is proven for ordinary project packages and provider-owned virtual modules without a file-backed fallback lane.",
     ]),
     notes:
-      "Reviewed partial proof: ordinary package exports/subpaths that resolve to source files enter through the TSTS graph, provider and surface imports use explicit ESM subpaths, and package-root imports plus declaration-only package exports are not treated as bootstrap shims or hidden generated-declaration fallbacks.",
+      "Reviewed partial proof: ordinary package exports/subpaths that resolve to source files enter through the TSTS graph, provider and surface imports use explicit ESM subpaths, and package-root imports, declaration-only package exports, and same-named package files outside the selected package export target are not treated as bootstrap shims or hidden generated-declaration fallbacks.",
   }),
   "module.path-mapping": Object.freeze({
     positiveTests: Object.freeze([
