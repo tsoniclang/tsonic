@@ -806,6 +806,141 @@ test("CLI rejects generic type-parameter operators without selected target facts
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
+test("CLI emits imported and re-exported generic source calls from TSTS-selected declarations", async () => {
+  const projectDirectory = resolve(tempRoot, "generic-source-calls-across-modules");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedGenericSourceCallsAcrossModules",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/generics.ts": [
+      "export class Box<T> {",
+      "  value: T;",
+      "",
+      "  constructor(value: T) {",
+      "    this.value = value;",
+      "  }",
+      "",
+      "  get(): T {",
+      "    return this.value;",
+      "  }",
+      "}",
+      "",
+      "export function identity<T>(value: T): T {",
+      "  return value;",
+      "}",
+      "",
+      "export function boxedValue<T>(box: Box<T>): T {",
+      "  return box.get();",
+      "}",
+      "",
+    ].join("\n"),
+    "src/barrel.ts": [
+      "export { Box, identity, boxedValue } from \"./generics.js\";",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import { Box, identity, boxedValue } from \"./barrel.js\";",
+      "",
+      "export function echoText(value: string): string {",
+      "  return identity<string>(value);",
+      "}",
+      "",
+      "export function echoNumber(value: int32): int32 {",
+      "  return identity<int32>(value);",
+      "}",
+      "",
+      "export function readBox(value: int32): int32 {",
+      "  const box = new Box<int32>(value);",
+      "  return boxedValue<int32>(box);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static string echoText\(string value\)/);
+  assert.match(generatedSource, /return Generics\.identity<string>\(value\);/);
+  assert.match(generatedSource, /public static int echoNumber\(int value\)/);
+  assert.match(generatedSource, /return Generics\.identity<int>\(value\);/);
+  assert.match(generatedSource, /Box<int> box = new Box<int>\(value\);/);
+  assert.match(generatedSource, /return Generics\.boxedValue<int>\(box\);/);
+  assert.doesNotMatch(generatedSource, /Barrel\.identity|Barrel\.boxedValue|identity\(value\)|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedGenericSourceCallsAcrossModules.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits contextual generic source call results from TSTS-selected call signatures", async () => {
+  const projectDirectory = resolve(tempRoot, "contextual-generic-source-calls");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedContextualGenericSourceCalls",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/helpers.ts": [
+      "export function apply<T, R>(fn: (value: T) => R, value: T): R {",
+      "  return fn(value);",
+      "}",
+      "",
+      "export function choose<T>(left: T, right: T): T {",
+      "  return left;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import { apply, choose } from \"./helpers.js\";",
+      "",
+      "export function stringify(value: int32): string {",
+      "  return apply<int32, string>((current: int32): string => `${current}`, value);",
+      "}",
+      "",
+      "export function pick(value: int32): int32 {",
+      "  const chosen: int32 = choose<int32>(value, 7);",
+      "  return chosen;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static string stringify\(int value\)/);
+  assert.match(generatedSource, /return Helpers\.apply<int, string>\(\(int current\) => \$"\{current\}", value\);/);
+  assert.match(generatedSource, /int chosen = Helpers\.choose<int>\(value, 7\);/);
+  assert.doesNotMatch(generatedSource, /apply\(|choose\(|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedContextualGenericSourceCalls.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
   const projectDirectory = resolve(tempRoot, "interfaces-and-heritage");
