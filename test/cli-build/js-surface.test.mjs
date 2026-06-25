@@ -628,6 +628,72 @@ test("CLI emits sparse JS array delete and length mutation only through JSArray 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects sparse JS array operations without selected JS surface facts", async () => {
+  const deleteProjectDirectory = resolve(tempRoot, "array-sparse-delete-without-js-surface");
+  await writeProject(deleteProjectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArraySparseDeleteWithoutJsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function mutate(values: int32[], index: int32): int32 {",
+      "  delete values[index];",
+      "  return 0;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const deleteBuild = runNode([cliPath, "build", "--project", resolve(deleteProjectDirectory, "tsonic.json")]);
+  assert.equal(deleteBuild.status, 1);
+  assert.match(deleteBuild.stderr, /C# JS surface delete emission requires a finalized JSArray\.deleteAt mutation operation fact/);
+  assert.equal(existsSync(resolve(deleteProjectDirectory, "out/csharp/SmokeGeneratedArraySparseDeleteWithoutJsSurface.csproj")), false);
+
+  const lengthProjectDirectory = resolve(tempRoot, "array-sparse-length-without-js-surface");
+  await writeProject(lengthProjectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArraySparseLengthWithoutJsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function grow(values: int32[]): int32 {",
+      "  values.length = 4;",
+      "  return 4;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const lengthBuild = runNode([cliPath, "build", "--project", resolve(lengthProjectDirectory, "tsonic.json")]);
+  assert.equal(lengthBuild.status, 1);
+  assert.match(lengthBuild.stderr, /C# native array source contract has no target-backed property 'length'/);
+  assert.equal(existsSync(resolve(lengthProjectDirectory, "out/csharp/SmokeGeneratedArraySparseLengthWithoutJsSurface.csproj")), false);
+});
+
 
 test("CLI rejects fixed CLR array mutators without JSArray carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "array-fixed-mutator-rejections");

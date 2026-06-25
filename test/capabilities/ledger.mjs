@@ -2498,7 +2498,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.js.array-methods remains partial until every Array constructor, length read/write, sparse slot, delete, hole-presence, mutation, callback, iterator, native-array-boundary, runtime artifact, and fail-closed unsupported lane is covered by sub-capability evidence.",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JS carriers only for full JS behavior. Covered length/index access, concat/includes/index/search/slice/join helpers, nullish-producing at/pop/shift/find/findLast value/reference helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, and array for-in. No-surface array mutators fail closed without selected surface facts. Length/index reads are tracked under surface.js.array.length-index; sparse/delete/hole/length-mutation semantics remain not-started under surface.js.array.sparse-delete-holes; explicit CLR arrays remain partial under native.dotnet.array.explicit.",
+      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JS carriers only for full JS behavior. Covered length/index access, concat/includes/index/search/slice/join helpers, nullish-producing at/pop/shift/find/findLast value/reference helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, and array for-in. No-surface array mutators and sparse delete/length mutation fail closed without selected surface facts. Length/index reads are tracked under surface.js.array.length-index; sparse/delete/hole/length-mutation semantics remain partial under surface.js.array.sparse-delete-holes; explicit CLR arrays remain partial under native.dotnet.array.explicit.",
   }),
   "surface.js.array.length-index": Object.freeze({
     sourceExamples: Object.freeze([
@@ -2580,7 +2580,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: selected JS surface Array.length and element access map only from the standard-library declaration plus finalized array receiver carrier facts; provider tests defer when the declaration or carrier is absent, reject non-integral indexes, and finalize source-level element operation facts from carrier evidence before backend emission. CLI tests emit IReadOnlyList<T>.Count/List indexer and native byte[].Length only when selected facts exist, and reject native array length or element access without those facts.",
+      "Reviewed partial proof: selected JS surface Array.length and element access map only from the standard-library declaration plus finalized array receiver carrier facts; provider tests defer when the declaration or carrier is absent, reject non-integral indexes, and finalize source-level element operation facts from carrier evidence before backend emission. CLI tests emit IReadOnlyList<T>.Count/List indexer, JSArray<T>.setLength for full-JS length mutation, and native byte[].Length only when selected facts exist, and reject native array length or element access without those facts.",
   }),
   "surface.js.array.sparse-delete-holes": Object.freeze({
     sourceExamples: Object.freeze([
@@ -2598,10 +2598,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Backends must reject sparse/delete/hole/length-mutation operations unless a closed JSArray carrier supplies deterministic operations; dense List<T> or CLR T[] carriers cannot silently approximate them.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
@@ -2609,7 +2611,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-constructor/",
     ]),
     blockers: Object.freeze([
-      "surface.js.array.sparse-delete-holes remains partial until sparse array construction syntax, hole-presence operators, iteration over holes, JSON/stringification interactions, assignment-value-position length mutation, and complete fail-closed diagnostics across native CLR and dense List carriers are proven.",
+      "surface.js.array.sparse-delete-holes remains partial until supported sparse array construction, supported hole-presence operators, iteration over holes, JSON/stringification interactions, assignment-value-position length mutation, and complete fail-closed diagnostics across native CLR and dense List carriers are proven.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-array-sparse-hole-semantics",
@@ -2643,7 +2645,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: selected JS surface delete and Array.length mutation on TypeScript arrays now require a closed JSArray carrier and emit JSArray.deleteAt/setLength through finalized operation facts, while runtime JSArray tests prove hole preservation across callbacks, search, copying, concat, flat, and flatMap. Remaining sparse/hole syntax and runtime lanes stay blocked rather than approximated with List<T>, IReadOnlyList<T>, or CLR T[].",
+      "Reviewed partial proof: selected JS surface delete and Array.length mutation on TypeScript arrays now require a closed JSArray carrier and emit JSArray.deleteAt/setLength through finalized operation facts, while no-surface sparse operations reject before emission. Surface-boundary tests classify `index in values` as requiring the full-JS carrier before the unsupported operator fails closed, and sparse array literal elisions produce an exact planner diagnostic before dense lowering can compact holes. Runtime JSArray tests prove hole preservation across callbacks, search, copying, concat, flat, and flatMap. Remaining supported sparse/hole runtime lanes stay blocked rather than approximated with List<T>, IReadOnlyList<T>, or CLR T[].",
   }),
   "surface.js.string-methods": Object.freeze({
     positiveTests: Object.freeze([
@@ -2891,10 +2893,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-array-from-map-keys/",
@@ -2903,16 +2907,18 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface runtime contributions are represented in host composition, current JS surface tests require closed C# JS runtime carriers for array and RegExp behavior, and generated C# projects include the real csharp-runtime/csharp-js project references automatically. Remains partial until every JS runtime carrier operation has executable runtime coverage and strict unsupported-operation diagnostics.",
+      "Reviewed partial proof: selected JS surface runtime contributions are represented in host composition, current JS surface tests require closed C# JS runtime carriers for array and RegExp behavior, and generated C# library projects include the real csharp-runtime/csharp-js project references while excluding csharp-nodejs when only js is selected. Remains partial until every JS runtime carrier operation has executable runtime coverage and strict unsupported-operation diagnostics.",
   }),
   "runtime.csharp.nodejs": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-path-posix-join/",
@@ -2921,14 +2927,16 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface runtime contributions are represented in host composition, generated C# projects include the real csharp-nodejs project reference automatically, and current NodeJS surface tests build node:path/fs/crypto/os/process mappings through that reference. Remains partial until executable tests cover the old Node fixture matrix and all unsupported Node module members fail closed.",
+      "Reviewed partial proof: selected NodeJS surface runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, and current NodeJS surface tests build node:path/fs/crypto/os/process mappings through that reference. Remains partial until executable tests cover the old Node fixture matrix and all unsupported Node module members fail closed.",
   }),
   "runtime.no-reflection-semantics": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
       "../tsonic-csharp/test/roslyn-boundary.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NoReflectionSemanticsTests.cs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
       "../tsonic-csharp/test/roslyn-boundary.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NoReflectionSemanticsTests.cs",
     ]),
@@ -2936,7 +2944,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-maximus-cases/json-static-safety.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: backend/printer source gates ban C# dynamic, CLR reflection, late MethodInfo invocation, generic method construction, Activator construction, and Assembly.Load as generated-language semantics; C# JS/runtime source gates enforce the same runtime boundary while allowing the separate build-time .NET reflection provider to remain tooling input. Remains partial until every runtime package and generated C# fixture family is scanned or built through this gate.",
+      "Reviewed partial proof: backend/printer source gates ban C# dynamic, CLR reflection, late MethodInfo invocation, generic method construction, Activator construction, and Assembly.Load as generated-language semantics; CLI runtime/toolchain proof scans generated C# library projects for the same banned mechanisms across runtime-only, js, and nodejs selections; C# JS/runtime source gates enforce the same runtime boundary while allowing the separate build-time .NET reflection provider to remain tooling input. Remains partial until every runtime package and generated C# fixture family is scanned or built through this gate.",
   }),
   "source-core.module.single-owner": Object.freeze({
     positiveTests: Object.freeze([
@@ -4031,19 +4039,21 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "toolchain.csharp.project": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
       "../tsonic-csharp/test/project-artifacts.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
       "../tsonic-csharp/test/project-artifacts.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-test-command/",
     ]),
     blockers: Object.freeze([
-      "toolchain.csharp.project remains partial until generated projects are built and run through current end-to-end CLI/toolchain tests.",
+      "toolchain.csharp.project remains partial until every target-owned project property and reference shape has CLI build/run coverage through the current toolchain path.",
     ]),
     notes:
-      "Reviewed partial proof: C# target options own project OutputType/PublishAot/target-framework related artifacts, generic custom properties cannot override target-owned properties, and invalid option shapes fail before artifact emission.",
+      "Reviewed partial proof: C# target options own project OutputType/PublishAot/target-framework related artifacts, generic custom properties cannot override target-owned properties, invalid option shapes fail before artifact emission, and current CLI proof builds generated projects with runtime-only, js, and nodejs reference selections.",
   }),
   "toolchain.csharp.build-run": Object.freeze({
     positiveTests: Object.freeze([
@@ -4068,19 +4078,21 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "toolchain.csharp.library": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
       "../tsonic-csharp/test/project-artifacts.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
       "../tsonic-csharp/test/project-artifacts.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-test-command/",
     ]),
     blockers: Object.freeze([
-      "toolchain.csharp.library remains partial until library output paths and artifacts are covered by current CLI/toolchain tests against generated project output.",
+      "toolchain.csharp.library remains partial until library packaging, downstream consumption, and all target-owned reference combinations are covered through current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: C# project emission defaults to deterministic Library OutputType and only emits executable output from explicit target options.",
+      "Reviewed partial proof: C# project emission defaults to deterministic Library OutputType, only emits executable output from explicit target options, and current CLI proof builds an explicitly configured library project without synthesizing a TsonicEntrypoint source artifact.",
   }),
   "toolchain.csharp.nativeaot": Object.freeze({
     positiveTests: Object.freeze([

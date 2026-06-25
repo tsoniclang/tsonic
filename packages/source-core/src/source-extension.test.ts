@@ -2,14 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   argumentPassingFactKey,
+  attributeFactKey,
   canonicalIdentityFactKey,
   createCompilerSessionFromFiles,
   createExtensionConsumerQueries,
+  defaultValueFactKey,
+  fieldFactKey,
   flowStateFactKey,
   formatDiagnostics,
   functionPointerFactKey,
   pointerFactKey,
   sourcePrimitiveFactKey,
+  structFactKey,
 } from "@tsonic/tsts";
 import type {
   AstReader,
@@ -162,6 +166,77 @@ test("source-core reports non-storage diagnostics for byref markers", () => {
     assert.notEqual(session.extensionHost?.facts.get(call, argumentPassingFactKey), undefined);
     assert.equal(session.extensionHost?.facts.get(firstCallArgument(session, call), argumentPassingFactKey), undefined);
   }
+});
+
+test("source-core records abstract struct, field, attribute, and default facts", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import { attribute, defaultof, field, struct } from "@tsonic/core/lang.js";
+    import type { bool, char, int32 } from "@tsonic/core/types.js";
+    import { field as localField } from "./local.js";
+
+    class RouteAttribute {}
+    class User {
+      name = "";
+    }
+
+    const defaultChar = defaultof<char>();
+    const Point = struct({ x: field<int32>(), ok: field<bool>(), ignored: localField<int32>() });
+    attribute<User>().add(RouteAttribute, "user");
+  `, {
+    "/src/local.ts": "export function field<T>(): T { throw new Error('local field'); }",
+  });
+
+  const defaultCall = callExpression(session, sourceFile, "defaultof");
+  const defaultFact = session.extensionHost?.facts.get(defaultCall, defaultValueFactKey);
+  assert.equal(typeReferenceName(session, defaultFact?.type as Node | undefined), "char");
+
+  const fieldFacts = [
+    session.extensionHost?.facts.get(callExpression(session, sourceFile, "field", 0), fieldFactKey),
+    session.extensionHost?.facts.get(callExpression(session, sourceFile, "field", 1), fieldFactKey),
+  ];
+  assert.deepEqual(fieldFacts.map((fact) => fact?.name), ["x", "ok"]);
+  assert.equal(session.extensionHost?.facts.get(fieldFacts[0]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
+  assert.equal(session.extensionHost?.facts.get(fieldFacts[1]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "bool");
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localField"), fieldFactKey), undefined);
+
+  const attributeFact = session.extensionHost?.facts.get(propertyCallExpression(session, sourceFile, "add"), attributeFactKey);
+  assert.equal(attributeFact?.attributeName, "RouteAttribute");
+  assert.equal(typeReferenceName(session, attributeFact?.applicationTarget as Node | undefined), "User");
+  assert.equal(attributeFact?.arguments?.length, 1);
+
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  const structFact = extensionHost.facts.get(callExpression(session, sourceFile, "struct"), structFactKey);
+  assert.equal(structFact?.valueType, true);
+  assert.deepEqual(structFact?.fields?.map((field) => field.name), ["x", "ok"]);
+  const consumer = createExtensionConsumerQueries(extensionHost, "source-core-test");
+  assert.equal(consumer.getDefaultValueFact(defaultCall)?.type, defaultFact?.type);
+  assert.equal(consumer.getStructFact(callExpression(session, sourceFile, "struct"))?.fields?.length, 2);
+  assert.equal(consumer.getAttributeFact(propertyCallExpression(session, sourceFile, "add"))?.attributeName, "RouteAttribute");
+});
+
+test("source-core reports missing explicit type evidence for target-neutral marker facts", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import { attribute, defaultof, field } from "@tsonic/core/lang.js";
+
+    const missingField = field();
+    const missingAttribute = attribute();
+    const missingDefault = defaultof();
+  `);
+
+  const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
+  const extensionCodes = session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort();
+  assert.deepEqual(extensionCodes, [
+    "SOURCE_SEMANTICS_MISSING_ATTRIBUTE_TARGET_EVIDENCE",
+    "SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE",
+    "SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE",
+  ]);
+  assert.deepEqual(diagnostics.map(diagnosticCode).sort(numberSort), [9901102, 9901105, 9901106]);
+
+  session.ensureBound();
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "field"), fieldFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "attribute"), attributeFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "defaultof"), defaultValueFactKey), undefined);
 });
 
 test("source-core virtual declarations leave invalid arity to TypeScript checking", () => {
@@ -321,6 +396,30 @@ function callExpression(session: CompilerSession, sourceFile: SourceFile, callee
     return false;
   });
   assert.ok(found !== undefined, `Missing call expression '${calleeText}' occurrence ${occurrence}.`);
+  return found;
+}
+
+function propertyCallExpression(session: CompilerSession, sourceFile: SourceFile, propertyName: string, occurrence = 0): Node {
+  let seen = 0;
+  const found = findNode(sourceFile, session.ast, (node, ast) => {
+    if (!ast.is.IsCallExpression(node)) {
+      return false;
+    }
+    const expression = ast.as.AsCallExpression(node)?.Expression;
+    if (!ast.is.IsPropertyAccessExpression(expression)) {
+      return false;
+    }
+    const name = ast.name(expression);
+    if (name === undefined || ast.text(name) !== propertyName) {
+      return false;
+    }
+    if (seen === occurrence) {
+      return true;
+    }
+    seen += 1;
+    return false;
+  });
+  assert.ok(found !== undefined, `Missing property call expression '${propertyName}' occurrence ${occurrence}.`);
   return found;
 }
 
