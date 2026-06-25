@@ -62,6 +62,8 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
     return;
   }
   const calleeAccess = AsPropertyAccessExpression(callee);
+  const calleeMemberName = calleeAccess?.name;
+  const selectedCalleeReference = calleeMemberName ?? callee;
   const calleeReceiver = calleeAccess?.Expression;
   const sourceSelectedDeclaration = sourceSelectedSignature?.declaration;
   const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
@@ -70,6 +72,7 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   if (!hasAnyExtensionOwnedSubject(extensionHost, [
     callExpression,
     callee,
+    calleeMemberName,
     calleeReceiver,
     ...arguments_,
     sourceSelectedDeclaration,
@@ -78,7 +81,7 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   ])) {
     return;
   }
-  const calleeSymbols = getReferenceSymbols(checker, callee);
+  const calleeSymbols = getReferenceSymbols(checker, selectedCalleeReference);
   const calleeReceiverSymbols = getReferenceSymbols(checker, calleeReceiver);
 
   const result = extensionHost.runObservation(
@@ -690,7 +693,7 @@ function getReferenceSymbols(
   if (checker === undefined || node === undefined || !isReferenceSymbolQueryNode(node)) {
     return {};
   }
-  const symbol = Node_Symbol(node) ?? Checker_GetSymbolAtLocation(checker, node);
+  const symbol = Checker_GetSymbolAtLocation(checker, node) ?? Node_Symbol(node);
   const resolvedSymbol = Checker_getResolvedSymbolOrNil(checker, node);
   const aliasedSymbol = getAliasedSymbolIfAvailable(checker, resolvedSymbol ?? symbol);
   return {
