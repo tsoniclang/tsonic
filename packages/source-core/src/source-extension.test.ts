@@ -22,6 +22,7 @@ import type {
   Node,
   ProviderDeclarationModel,
   ProviderModuleResolution,
+  SourcePrimitiveFact,
   SourceFile,
 } from "@tsonic/tsts";
 import {
@@ -29,7 +30,47 @@ import {
   tsonicCoreTypesModule,
 } from "./identity.js";
 import { createTsonicCoreSourceExtension } from "./source-extension.js";
+import { tsonicCoreSourceSemanticsModules } from "./source-modules.js";
 import { createTsonicCoreVirtualModulesProvider } from "./virtual-modules.js";
+
+const expectedSourceCorePrimitiveFacts = [
+  { exportName: "bool", fact: { kind: "bool", runtimeBase: "boolean" } },
+  { exportName: "char", fact: { kind: "char", runtimeBase: "string", signed: false, width: 16 } },
+  { exportName: "int8", fact: { kind: "int8", runtimeBase: "number", signed: true, width: 8 } },
+  { exportName: "uint8", fact: { kind: "uint8", runtimeBase: "number", signed: false, width: 8 } },
+  { exportName: "int16", fact: { kind: "int16", runtimeBase: "number", signed: true, width: 16 } },
+  { exportName: "uint16", fact: { kind: "uint16", runtimeBase: "number", signed: false, width: 16 } },
+  { exportName: "int32", fact: { kind: "int32", runtimeBase: "number", signed: true, width: 32 } },
+  { exportName: "uint32", fact: { kind: "uint32", runtimeBase: "number", signed: false, width: 32 } },
+  { exportName: "int64", fact: { kind: "int64", runtimeBase: "bigint", signed: true, width: 64 } },
+  { exportName: "uint64", fact: { kind: "uint64", runtimeBase: "bigint", signed: false, width: 64 } },
+  { exportName: "int128", fact: { kind: "int128", runtimeBase: "bigint", signed: true, width: 128 } },
+  { exportName: "uint128", fact: { kind: "uint128", runtimeBase: "bigint", signed: false, width: 128 } },
+  { exportName: "nativeInt", fact: { kind: "native-int", runtimeBase: "number", signed: true } },
+  { exportName: "nativeUint", fact: { kind: "native-uint", runtimeBase: "number", signed: false } },
+  { exportName: "float16", fact: { kind: "float16", runtimeBase: "number", signed: true, width: 16 } },
+  { exportName: "float32", fact: { kind: "float32", runtimeBase: "number", signed: true, width: 32 } },
+  { exportName: "float64", fact: { kind: "float64", runtimeBase: "number", signed: true, width: 64 } },
+  { exportName: "decimal", fact: { kind: "decimal", runtimeBase: "number", signed: true, width: 128 } },
+] satisfies readonly {
+  readonly exportName: string;
+  readonly fact: SourcePrimitiveFact;
+}[];
+
+const expectedSourceCoreLangIntrinsics = [
+  { kind: "call-marker", exportName: "out", marker: "out" },
+  { kind: "call-marker", exportName: "ref", marker: "ref" },
+  { kind: "call-marker", exportName: "inref", marker: "inref" },
+  { kind: "call-marker", exportName: "borrow", marker: "borrow" },
+  { kind: "call-marker", exportName: "borrowMut", marker: "borrowMut" },
+  { kind: "call-marker", exportName: "move", marker: "move" },
+  { kind: "call-marker", exportName: "struct", marker: "struct" },
+  { kind: "call-marker", exportName: "field", marker: "field" },
+  { kind: "call-marker", exportName: "attribute", marker: "attribute" },
+  { kind: "call-marker", exportName: "defaultof", marker: "defaultof" },
+  { kind: "type-marker", exportName: "ptr", marker: "ptr" },
+  { kind: "type-marker", exportName: "fnptr", marker: "fnptr" },
+] as const;
 
 test("source-core virtual module provider owns only neutral core modules", () => {
   const provider = createTsonicCoreVirtualModulesProvider();
@@ -42,18 +83,7 @@ test("source-core virtual module provider owns only neutral core modules", () =>
   assert.equal(langResolution.providerModuleId, tsonicCoreLangModule);
   const declarationModel = assertProviderDeclarationModel(provider.getDeclarationModel(langResolution));
   assert.deepEqual(declarationModel.exports.map((entry) => entry.name).filter((name) => name !== "__TsonicAttributeBuilder" && name !== "__TsonicAttributeMemberBuilder"), [
-    "out",
-    "ref",
-    "inref",
-    "borrow",
-    "borrowMut",
-    "move",
-    "struct",
-    "field",
-    "attribute",
-    "defaultof",
-    "ptr",
-    "fnptr",
+    ...expectedSourceCoreLangIntrinsics.map((entry) => entry.exportName),
   ]);
   assert.equal(declarationModel.exports.some((entry) => entry.name === "int"), false);
 
@@ -61,56 +91,127 @@ test("source-core virtual module provider owns only neutral core modules", () =>
   assert.equal(assertExtensionDiagnostic(unownedResolution).extensionCode, "TSONIC_SOURCE_CORE_MODULE_UNOWNED");
 });
 
-test("source-core records primitive facts only from core types aliases and namespaces", () => {
+test("source-core records exact facts for every core primitive export", () => {
+  assert.deepEqual(sourceCorePrimitiveExportFacts(), expectedSourceCorePrimitiveFacts);
+
+  const namedImports = expectedSourceCorePrimitiveFacts.map((entry) => entry.exportName).join(", ");
+  const aliasImports = expectedSourceCorePrimitiveFacts
+    .map((entry) => `${entry.exportName} as Alias_${entry.exportName}`)
+    .join(", ");
+  const directAliases = expectedSourceCorePrimitiveFacts
+    .map((entry) => `type Direct_${entry.exportName} = ${entry.exportName};`)
+    .join("\n");
+  const importedAliases = expectedSourceCorePrimitiveFacts
+    .map((entry) => `type ImportedAlias_${entry.exportName} = Alias_${entry.exportName};`)
+    .join("\n");
+  const namespaceAliases = expectedSourceCorePrimitiveFacts
+    .map((entry) => `type Namespace_${entry.exportName} = coreTypes.${entry.exportName};`)
+    .join("\n");
+
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import type { int32 as I32, float64 as Float } from "@tsonic/core/types.js";
+    import type { ${namedImports} } from "@tsonic/core/types.js";
+    import type { ${aliasImports} } from "@tsonic/core/types.js";
     import type * as coreTypes from "@tsonic/core/types.js";
-    import type { int32 as localI32 } from "./local.js";
 
-    type LocalInt32 = number;
-    type Direct = I32;
-    type AliasChain = Direct;
-    type Namespaced = coreTypes.uint64;
-    type NamespacedFloat = coreTypes.float32;
-    type ImportedLocal = localI32;
-    type SameSpellingLocal = LocalInt32;
-    type FloatAlias = Float;
+    ${directAliases}
+    ${importedAliases}
+    ${namespaceAliases}
+  `);
+
+  for (const expected of expectedSourceCorePrimitiveFacts) {
+    const identity = `${tsonicCoreTypesModule}::${expected.exportName}`;
+    assertSourcePrimitive(session, typeAliasType(session, sourceFile, `Direct_${expected.exportName}`), expected.fact, identity);
+    assertSourcePrimitive(session, typeAliasType(session, sourceFile, `ImportedAlias_${expected.exportName}`), expected.fact, identity);
+    assertSourcePrimitive(session, typeAliasType(session, sourceFile, `Namespace_${expected.exportName}`), expected.fact, identity);
+  }
+});
+
+test("source-core does not guess primitive facts from same-spelling local aliases", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import type { int32 as coreInt32 } from "@tsonic/core/types.js";
+    import type { int32 as localInt32, uint64 as localUint64 } from "./local.js";
+
+    type int32 = number;
+    type uint64 = bigint;
+    type Direct = coreInt32;
+    type ImportedLocalInt32 = localInt32;
+    type ImportedLocalUint64 = localUint64;
+    type ShadowedInt32 = int32;
+    type ShadowedUint64 = uint64;
   `, {
-    "/src/local.ts": "export type int32 = number;",
+    "/src/local.ts": [
+      "export type int32 = number;",
+      "export type uint64 = bigint;",
+    ].join("\n"),
   });
 
-  assertSourcePrimitive(session, typeReference(session, sourceFile, "I32"), "int32", {
+  assertSourcePrimitive(session, typeAliasType(session, sourceFile, "Direct"), {
+    kind: "int32",
     runtimeBase: "number",
+    signed: true,
     width: 32,
-    signed: true,
-    identity: "@tsonic/core/types.js::int32",
-  });
-  assertSourcePrimitive(session, typeReference(session, sourceFile, "Direct"), "int32", {
-    runtimeBase: "number",
-    width: 32,
-    signed: true,
-    identity: "@tsonic/core/types.js::int32",
-  });
-  assertSourcePrimitive(session, typeReference(session, sourceFile, "coreTypes.uint64"), "uint64", {
-    runtimeBase: "bigint",
-    width: 64,
-    signed: false,
-    identity: "@tsonic/core/types.js::uint64",
-  });
-  assertSourcePrimitive(session, typeReference(session, sourceFile, "coreTypes.float32"), "float32", {
-    runtimeBase: "number",
-    width: 32,
-    signed: true,
-    identity: "@tsonic/core/types.js::float32",
-  });
-  assertSourcePrimitive(session, typeReference(session, sourceFile, "Float"), "float64", {
-    runtimeBase: "number",
-    width: 64,
-    signed: true,
-    identity: "@tsonic/core/types.js::float64",
-  });
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "localI32"), sourcePrimitiveFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "LocalInt32"), sourcePrimitiveFactKey), undefined);
+  }, `${tsonicCoreTypesModule}::int32`);
+  assert.equal(session.extensionHost?.facts.get(typeAliasType(session, sourceFile, "ImportedLocalInt32"), sourcePrimitiveFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(typeAliasType(session, sourceFile, "ImportedLocalUint64"), sourcePrimitiveFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(typeAliasType(session, sourceFile, "ShadowedInt32"), sourcePrimitiveFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(typeAliasType(session, sourceFile, "ShadowedUint64"), sourcePrimitiveFactKey), undefined);
+});
+
+test("source-core records direct provider-owned facts for every core lang intrinsic", () => {
+  assert.deepEqual(sourceCoreLangExportFacts(), expectedSourceCoreLangIntrinsics);
+
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import { attribute, borrow, borrowMut, defaultof, field, inref, move, out, ref, struct } from "@tsonic/core/lang.js";
+    import type { fnptr, ptr } from "@tsonic/core/lang.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    class RouteAttribute {}
+    class User {
+      name = "";
+    }
+
+    let value = 0;
+    out(value);
+    ref(value);
+    inref(value);
+    borrow(value);
+    borrowMut(value);
+    move(value);
+    const defaultValue = defaultof<int32>();
+    const Point = struct({ id: field<int32>() });
+    attribute<User>().add(RouteAttribute);
+    type DirectPointer = ptr<int32>;
+    type DirectFunctionPointer = fnptr<[int32], bool>;
+  `);
+
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "out")), "byref-writeonly-must-init");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "ref")), "byref-readwrite");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "inref")), "byref-readonly");
+  assert.equal(flowState(session, callExpression(session, sourceFile, "borrow")), "borrowed-shared");
+  assert.equal(flowState(session, callExpression(session, sourceFile, "borrowMut")), "borrowed-mut");
+  assert.equal(flowState(session, callExpression(session, sourceFile, "move")), "moved");
+
+  const defaultFact = session.extensionHost?.facts.get(callExpression(session, sourceFile, "defaultof"), defaultValueFactKey);
+  assert.equal(typeReferenceName(session, defaultFact?.type as Node | undefined), "int32");
+
+  const fieldFact = session.extensionHost?.facts.get(callExpression(session, sourceFile, "field"), fieldFactKey);
+  assert.equal(fieldFact?.name, "id");
+  assert.equal(session.extensionHost?.facts.get(fieldFact?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
+
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  assert.deepEqual(extensionHost.facts.get(callExpression(session, sourceFile, "struct"), structFactKey)?.fields?.map((field) => field.name), ["id"]);
+  assert.equal(extensionHost.facts.get(propertyCallExpression(session, sourceFile, "add"), attributeFactKey)?.attributeName, "RouteAttribute");
+
+  const pointerFact = extensionHost.facts.get(typeAliasType(session, sourceFile, "DirectPointer"), pointerFactKey);
+  assert.equal(pointerFact?.mutability, "target-defined");
+  assert.equal(pointerFact?.unsafeRequired, true);
+  assert.equal(typeReferenceName(session, nodeFactSubject(pointerFact?.pointee)), "int32");
+
+  const functionPointerFact = extensionHost.facts.get(typeAliasType(session, sourceFile, "DirectFunctionPointer"), functionPointerFactKey);
+  assert.equal(functionPointerFact?.parameters.length, 1);
+  assert.equal(typeReferenceName(session, nodeFactSubject(functionPointerFact?.result)), "bool");
+  assert.deepEqual(functionPointerFact?.abi, ["target-default"]);
 });
 
 test("source-core records storage and flow marker facts from aliases and namespaces without guessing names", () => {
@@ -434,6 +535,49 @@ function assertExtensionDiagnostic(value: ProviderModuleResolution | ExtensionDi
   return value as ExtensionDiagnostic;
 }
 
+function sourceCorePrimitiveExportFacts(): readonly {
+  readonly exportName: string;
+  readonly fact: SourcePrimitiveFact;
+}[] {
+  return sourceCoreModuleExports(tsonicCoreTypesModule).map((exportDeclaration) => {
+    if (exportDeclaration.kind !== "source-primitive") {
+      assert.fail(`Expected only source primitive declarations in ${tsonicCoreTypesModule}.`);
+    }
+    return {
+      exportName: exportDeclaration.exportName,
+      fact: {
+        kind: exportDeclaration.primitive,
+        runtimeBase: exportDeclaration.runtimeBase,
+        ...(exportDeclaration.signed !== undefined ? { signed: exportDeclaration.signed } : {}),
+        ...(exportDeclaration.width !== undefined ? { width: exportDeclaration.width } : {}),
+      },
+    };
+  });
+}
+
+function sourceCoreLangExportFacts(): readonly {
+  readonly kind: "call-marker" | "type-marker";
+  readonly exportName: string;
+  readonly marker: string;
+}[] {
+  return sourceCoreModuleExports(tsonicCoreLangModule).map((exportDeclaration) => {
+    if (exportDeclaration.kind === "source-primitive") {
+      assert.fail(`Expected only lang marker declarations in ${tsonicCoreLangModule}.`);
+    }
+    return {
+      kind: exportDeclaration.kind,
+      exportName: exportDeclaration.exportName,
+      marker: exportDeclaration.marker,
+    };
+  });
+}
+
+function sourceCoreModuleExports(moduleSpecifier: string) {
+  const module = tsonicCoreSourceSemanticsModules().find((candidate) => candidate.moduleSpecifier === moduleSpecifier);
+  assert.ok(module !== undefined, `Missing source-core module '${moduleSpecifier}'.`);
+  return module.exports;
+}
+
 function createSourceCoreSession(sourceText: string, extraFiles: Readonly<Record<string, string>> = {}): {
   readonly session: CompilerSession;
   readonly sourceFile: SourceFile;
@@ -473,20 +617,12 @@ function createCleanSourceCoreSession(sourceText: string, extraFiles: Readonly<R
 function assertSourcePrimitive(
   session: CompilerSession,
   node: Node,
-  kind: string,
-  expected: {
-    readonly runtimeBase: string;
-    readonly width: number;
-    readonly signed: boolean;
-    readonly identity: string;
-  },
+  expected: SourcePrimitiveFact,
+  identity: string,
 ): void {
   const fact = session.extensionHost?.facts.get(node, sourcePrimitiveFactKey);
-  assert.equal(fact?.kind, kind);
-  assert.equal(fact?.runtimeBase, expected.runtimeBase);
-  assert.equal(fact?.width, expected.width);
-  assert.equal(fact?.signed, expected.signed);
-  assert.equal(session.extensionHost?.facts.get(node, canonicalIdentityFactKey)?.id, expected.identity);
+  assert.deepEqual(fact, expected);
+  assert.equal(session.extensionHost?.facts.get(node, canonicalIdentityFactKey)?.id, identity);
 }
 
 function argumentMode(session: CompilerSession, call: Node) {
@@ -564,6 +700,14 @@ function typeReference(session: CompilerSession, sourceFile: SourceFile, nameTex
   });
   assert.ok(found !== undefined, `Missing type reference '${nameText}' occurrence ${occurrence}.`);
   return found;
+}
+
+function typeAliasType(session: CompilerSession, sourceFile: SourceFile, aliasName: string): Node {
+  const found = findNode(sourceFile, session.ast, (node, ast) =>
+    ast.is.IsTypeAliasDeclaration(node) && ast.text(ast.name(node)) === aliasName);
+  const type = session.ast.as.AsTypeAliasDeclaration(found)?.Type;
+  assert.ok(type !== undefined, `Missing type alias '${aliasName}'.`);
+  return type;
 }
 
 function typeReferenceName(session: CompilerSession, node: Node | undefined): string {
