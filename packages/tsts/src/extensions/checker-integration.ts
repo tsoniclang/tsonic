@@ -17,7 +17,7 @@ import { GetSourceFileOfNode, NodeIsSynthesized } from "../internal/ast/utilitie
 import { ExtensionObservationPoint } from "./observations.js";
 import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityObservationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
-import type { TargetTypeRef } from "./facts.js";
+import type { TargetParameter, TargetTypeRef } from "./facts.js";
 import type { ExtensionEvidence, ExtensionFactKey, ExtensionFactSubject, ExtensionHost } from "./host.js";
 import { getExtensionHost } from "./host.js";
 
@@ -641,18 +641,19 @@ function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, ca
     return;
   }
   const parameters = callResult.selectedSignature.member.parameters;
-  for (let index = 0; index < parameters.length; index++) {
-    const parameter = parameters[index];
+  for (let index = 0; index < arguments_.length; index++) {
+    const parameter = getTargetParameterForCallArgument(parameters, index);
     const argument = arguments_[index];
     if (parameter === undefined || argument === undefined) {
       continue;
     }
+    const target = getTargetConversionTypeForCallArgument(parameter);
     const result = extensionHost.runObservation(
       ExtensionObservationPoint.mapCheckedConversion,
       {
         expression: argument,
         source: argument,
-        target: parameter.type,
+        target,
         ...(extensionHost.activeTarget !== undefined ? { targetPlatform: extensionHost.activeTarget } : {}),
       },
       () => {
@@ -669,6 +670,21 @@ function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, ca
       ...(result.value.operation !== undefined ? { operation: result.value.operation } : {}),
     }, result.evidence ?? []);
   }
+}
+
+function getTargetParameterForCallArgument(parameters: readonly TargetParameter[], index: number): TargetParameter | undefined {
+  const parameter = parameters[index];
+  if (parameter !== undefined) {
+    return parameter;
+  }
+  const last = parameters[parameters.length - 1];
+  return last?.paramsArray === true ? last : undefined;
+}
+
+function getTargetConversionTypeForCallArgument(parameter: TargetParameter): TargetTypeRef {
+  return parameter.paramsArray === true && parameter.type.kind === "array"
+    ? parameter.type.element
+    : parameter.type;
 }
 
 function definedFactSubjects<T extends object>(subjects: readonly (T | undefined)[]): readonly ExtensionFactSubject[] {
