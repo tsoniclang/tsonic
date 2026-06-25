@@ -2207,18 +2207,20 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/lang/stackalloc/StackAlloc.ts",
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities; omitted optional target arguments require a deterministic reflected default value, unsupported or missing defaults fail closed during selected target-member identity matching, unsupported default values carry deterministic parameter identity/evidence, unsupported pointer parameter source shapes and wrong optional/params arities reject. Remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path.",
+      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities; CLI provider tests prove omitted optional target arguments emit only when a deterministic reflected default exists and reject omitted optional arguments without reflected defaults. Unsupported default values carry deterministic parameter identity/evidence, unsupported pointer parameter source shapes and wrong optional/params arities reject. Remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path.",
   }),
   "native.dotnet.array.explicit": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3255,17 +3257,19 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads, and omitted optional arguments are accepted only when the selected target parameter carries a supported reflected default value; constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; and call emission rejects mutated receiver/parameter-passing facts. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
+      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, optional, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads, and CLI provider tests prove omitted optional arguments are accepted only when the selected target parameter carries a supported reflected default value. Constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; call emission rejects mutated receiver/parameter-passing facts. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
   }),
   "operation.construct.provider-selected-constructor": Object.freeze({
     positiveTests: Object.freeze([
