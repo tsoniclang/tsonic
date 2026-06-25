@@ -83,7 +83,7 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
   if (extensionHost === undefined) {
     throw new Error("TSTS extension finalization returned no extension host.");
   }
-  const sourceFiles = compiler.getSourceFilesToEmit().filter((sourceFile): sourceFile is SourceFile => sourceFile !== undefined);
+  const sourceFiles = collectResolvedSourceFilesForBackend(compiler);
   return {
     compiler,
     program: compiler.program,
@@ -95,6 +95,14 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
     facts: createExtensionConsumerQueries(extensionHost, "tsonic-host"),
     tstsDiagnostics,
   };
+}
+
+function collectResolvedSourceFilesForBackend(compiler: CompilerSession): readonly SourceFile[] {
+  return compiler.getSourceFiles()
+    .filter((sourceFile): sourceFile is SourceFile =>
+      sourceFile !== undefined &&
+      !sourceFile.IsDeclarationFile &&
+      !compiler.ast.getFileName(sourceFile).startsWith("tsts-provider://"));
 }
 
 export function compileTargetFromSemanticSession(

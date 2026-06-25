@@ -724,6 +724,8 @@ test("host source graph follows package exports and subpaths through TSTS", asyn
 
   assert.deepEqual(result.diagnostics, []);
   assert.deepEqual(backendProjectSourceFiles, [
+    "node_modules/@demo/source-pkg/src/internal.ts",
+    "node_modules/@demo/source-pkg/src/subpath.ts",
     "src/index.ts",
   ]);
 });

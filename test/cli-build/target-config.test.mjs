@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, runNodeInDirectory, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, runNodeInDirectory, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI lists built-in target packs", () => {
   const result = runNode([cliPath, "targets"]);
@@ -393,6 +393,82 @@ test("CLI does not fall back from package export targets to same-named package f
   assert.match(build.stderr, /@demo\/pkg\/public\.js/);
   assert.doesNotMatch(build.stderr, /public\.ts/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI emits package export target source files from the TSTS subpath graph", async () => {
+  const projectDirectory = resolve(tempRoot, "package-export-source-subpath-emission");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: ".",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            outputType: "Exe",
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedPackageSourceSubpath",
+          },
+        },
+      ],
+    }, null, 2),
+    "index.ts": [
+      "import { append, trace, value } from \"@demo/pkg/public.js\";",
+      "append(\"index;\");",
+      "console.log(trace);",
+      "",
+      "export function read(): number {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+    "node_modules/@demo/pkg/package.json": JSON.stringify({
+      name: "@demo/pkg",
+      type: "module",
+      exports: {
+        "./public.js": {
+          types: "./src/public.ts",
+          default: "./src/public.ts",
+        },
+      },
+    }, null, 2),
+    "node_modules/@demo/pkg/src/public.ts": [
+      "import { append as appendState, trace } from \"./state.js\";",
+      "appendState(\"public;\");",
+      "export const value = 41;",
+      "export { appendState as append, trace };",
+      "",
+    ].join("\n"),
+    "node_modules/@demo/pkg/src/state.ts": [
+      "export let trace = \"\";",
+      "export function append(value: string): void {",
+      "  trace = trace + value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const publicSourcePath = resolve(projectDirectory, "out/csharp/src/node_modules/@demo/pkg/src/Node_modules_Demo_pkg_src_public.cs");
+  const stateSourcePath = resolve(projectDirectory, "out/csharp/src/node_modules/@demo/pkg/src/Node_modules_Demo_pkg_src_state.cs");
+  assert.equal(existsSync(publicSourcePath), true);
+  assert.equal(existsSync(stateSourcePath), true);
+  assert.match(indexSource, /Node_modules_Demo_pkg_src_public\.__tsonic_module_init\(\);[\s\S]*Node_modules_Demo_pkg_src_state\.append\("index;"\);/);
+  assert.match(indexSource, /return Node_modules_Demo_pkg_src_public\.value;/);
+  assert.doesNotMatch(indexSource, /return value;/);
+  assert.doesNotMatch(indexSource, /__unsupported/);
+
+  const publicSource = await readFile(publicSourcePath, "utf8");
+  assert.match(publicSource, /Node_modules_Demo_pkg_src_state\.__tsonic_module_init\(\);[\s\S]*Node_modules_Demo_pkg_src_state\.append\("public;"\);/);
+  assert.doesNotMatch(publicSource, /__unsupported/);
+
+  const output = runGeneratedProject(projectDirectory, "SmokeGeneratedPackageSourceSubpath");
+  assert.equal(output, "public;index;\n");
 });
 
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
