@@ -1744,7 +1744,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.borrow-mut remains partial until mutable aliasing, nested borrows, C# unsupported diagnostic breadth, and future Rust implementation/rejection proof are complete.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records borrowed-mut flow for aliased and namespace borrowMut calls, rejects invalid arity through TSTS checking, and avoids facts for local/shadowed same-spelling calls. Selected targets own exclusivity; unsupported targets must diagnose rather than lower the marker away, and C# call mapping now requires the finalized FlowStateFact before marker erasure.",
+      "Reviewed partial proof: TSTS/source-core records borrowed-mut flow for aliased and namespace borrowMut calls, rejects invalid arity through TSTS checking, and avoids facts for local/shadowed same-spelling calls. Selected targets own exclusivity; unsupported targets must diagnose rather than lower the marker away, and C# call mapping now rejects finalized borrowMut facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED while still rejecting missing FlowStateFact with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN.",
   }),
   "source-core.lang.portable-intrinsics.move": coreLangIntrinsicEvidence({
     exportName: "move",
@@ -1790,7 +1790,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.move remains partial until move assignment, post-move reads/writes, selected-target unsupported diagnostic breadth, and future Rust ownership proof are complete.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records moved flow on aliased and namespace move calls plus the moved argument, rejects invalid arity through TSTS checking, and provider-program tests show target validation can reject post-move use. C# remains explicit unsupported-target diagnostics, not silent marker erasure, and call mapping rejects missing finalized FlowStateFact instead of silently erasing move(value).",
+      "Reviewed partial proof: TSTS/source-core records moved flow on aliased and namespace move calls plus the moved argument, rejects invalid arity through TSTS checking, and provider-program tests show target validation can reject post-move use. C# remains explicit unsupported-target diagnostics, not silent marker erasure, and call mapping now rejects finalized move facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED while still rejecting missing FlowStateFact with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN.",
   }),
   "source-core.lang.portable-intrinsics.struct": coreLangIntrinsicEvidence({
     exportName: "struct",
