@@ -983,11 +983,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-performance.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-performance.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/cli/src/package-manifests/bindings.test.ts",
@@ -997,15 +999,17 @@ const reviewedCapabilityEvidence = Object.freeze({
       "provider.virtual-module.no-fallback remains partial until every provider-owned module failure mode has current CLI/toolchain coverage and precise diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; selected .NET modules win over shadow package files, and missing provider facts remain diagnostics/blockers.",
+      "Reviewed partial proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; selected .NET modules win over shadow package files, missing provider facts remain diagnostics/blockers, and unsliced .NET provider module/declaration requests fail before provider loading instead of silently widening to a broad import.",
   }),
   "provider.virtual-module.source-shape": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-performance.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-performance.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1015,7 +1019,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "provider.virtual-module.source-shape remains partial until all source-visible shape families, inherited declarations, target-only omissions, unsupported exports, and selected surface modules are proven end to end.",
     ]),
     notes:
-      "Reviewed partial proof: reflected .NET declarations produce source-visible provider shapes for classes, delegates, properties, methods, constructors, overloads, inherited members, and explicit unsupported omissions; unsupported by-ref delegate returns remain target-only instead of leaking fake source declarations.",
+      "Reviewed partial proof: reflected .NET declarations produce source-visible provider shapes for classes, delegates, properties, methods, constructors, overloads, inherited members, and explicit unsupported omissions; dependency declarations are resolved through exact requested export slices; unsupported by-ref delegate returns remain target-only instead of leaking fake source declarations.",
   }),
   "provider.virtual-module.target-identity": Object.freeze({
     positiveTests: Object.freeze([
@@ -1073,16 +1077,18 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "provider.virtual-module.constraints": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/assignability-boundary.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/assignability-boundary.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider virtual declarations keep target-only generic constraints out of source-visible TypeScript shapes while retaining reflected target constraint facts for backend/provider consumers, and the C# semantic provider validates those constraints only from finalized target facts. Old TypeScript constraint fixtures are not mapped here because they prove source generic declarations, not provider-owned virtual-module constraints.",
+      "Reviewed partial proof: provider virtual declarations keep target-only generic constraints out of source-visible TypeScript shapes while retaining reflected target constraint facts for backend/provider consumers, and the C# semantic provider validates those constraints only from finalized target facts after TSTS has accepted source syntax. Old TypeScript constraint fixtures are not mapped here because they prove source generic declarations, not provider-owned virtual-module constraints.",
   }),
   "source.primitive.numeric": Object.freeze({
     positiveTests: Object.freeze([
@@ -2263,6 +2269,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "type.generic.provider-target-constraints": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/assignability-boundary.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
@@ -2270,6 +2277,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/assignability-boundary.test.mjs",
       "../tsonic-csharp/test/declaration-generics.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
@@ -2284,7 +2292,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/generic-constraints-object-struct/",
     ]),
     notes:
-      "Reviewed partial proof: source and provider generic constraints render only from finalized target constraint facts, primitive constraint failures produce diagnostics, C# provider target constraints are accepted only when finalized value/reference/constructible/unmanaged/implemented-contract facts prove them, and old generic-constraint emitter/fixture coverage is mapped as evidence. Remains partial until provider-owned invalid type-argument diagnostics are covered through full compiler-session source spans and every reflected constraint form has end-to-end tests.",
+      "Reviewed partial proof: source and provider generic constraints render only from finalized target constraint facts, primitive constraint failures produce diagnostics, C# provider target constraints are accepted only when finalized value/reference/constructible/unmanaged/implemented-contract facts prove them, unproven provider type arguments produce source-level C# target diagnostics after TSTS accepts the source syntax, and old generic-constraint emitter/fixture coverage is mapped as evidence. Remains partial until every reflected constraint form has end-to-end tests.",
   }),
   "declaration.generic-parameters": Object.freeze({
     positiveTests: Object.freeze([
