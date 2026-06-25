@@ -3,7 +3,7 @@
 `porter sig-check` compares every ported `@tsgo-unit`'s **actual** TS signature
 (parsed from the `.ts` file) against the signature **derived from the Go** source
 it claims to port. It closes the gap where a hand-edited TS signature can drift
-while the Go hash, `tsc` build, and conformance baselines all stay green.
+while the Go hash, compiler build, and conformance baselines all stay green.
 
 ```
 node packages/tsts/tools/porter/porter.mjs sig-check [--id <glob>] [--json] [--no-gate]

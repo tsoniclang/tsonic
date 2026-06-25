@@ -13,7 +13,7 @@ This directory is the mechanical-port backbone for TSTS. The tooling reads the r
 - `npm run porter:facades -- --check` verifies the checked-in Go compatibility/facade layer is exactly the deterministic output for the current TS-Go snapshot.
 - `npm run porter:large-files` verifies every active literal-port Go file over the configured LOC threshold has a semantic split plan.
 - `npm run porter:large-files -- --write-draft` writes a draft semantic split plan from the current TS-Go declaration inventory. Existing differing plans are never overwritten unless `-- --force` is also supplied. Treat this as a bootstrap command, not the normal update path for a reviewed plan.
-- `npm run porter:skeleton-check` renders the complete missing-unit skeleton corpus into `.temp/porter/skeleton` and runs `tsc --noEmit` against it.
+- `npm run porter:skeleton-check` renders the complete missing-unit skeleton corpus into `.temp/porter/skeleton` and runs TS-Go with `--noEmit` against it.
 
 ## Embedded Metadata
 

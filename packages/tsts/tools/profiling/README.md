@@ -1,15 +1,17 @@
 # tsgo-suite profiling
 
 Two composable tools to measure *where TSTS spends time* and *how it compares to
-the pinned native `tsgo` and official `tsc`* — so the cost of running a Go
-compiler ported to TypeScript-on-Node is quantified, and the recoverable
-JS-emulation overhead (the part a native Tsonic→C# build would erase) is isolated.
+TS-Go v7 and legacy `tsc` as a profiling baseline only* — so the cost of
+running a Go compiler ported to TypeScript-on-Node is quantified, and the
+recoverable JS-emulation overhead (the part a native Tsonic→C# build would erase)
+is isolated.
 
 ## `bench.mjs` — cross-compiler benchmark
 
-Runs TSTS, `tsgo`, and `tsc` on the same projects with `--extendedDiagnostics`
-(all three expose it) and reports per-phase time + memory side by side with
-`TSTS÷tsgo` and `TSTS÷tsc` ratios.
+Runs TSTS, `tsgo`, and legacy `tsc` on the same projects with
+`--extendedDiagnostics` and reports per-phase time + memory side by side with
+`TSTS÷tsgo` and `TSTS÷tsc` ratios. This is the only allowed old-`tsc` lane: it is
+measurement-only and never a build, test, or semantic dependency.
 
 ```bash
 node packages/tsts/tools/profiling/bench.mjs --corpus corpus.json [--runs 3] [--profile] [--json]
@@ -24,8 +26,8 @@ node packages/tsts/tools/profiling/bench.mjs --corpus corpus.json [--runs 3] [--
 - **`--profile`**: also capture a TSTS CPU + heap profile per project and run the
   attributor (below) — one command for "compare *and* explain".
 - **Compiler paths**: TSTS dist CLI is computed; override `tsgo` via `TSGO_BIN`
-  (default `/tmp/tsgo`), `tsc` via `TSC_BIN` (default `node_modules/.bin/tsc`).
-  Build `tsgo`: `go build -C packages/tsts/_vendor/typescript-go -o /tmp/tsgo ./cmd/tsgo`.
+  (default `node_modules/.bin/tsgo`) and profiling-only `tsc` via `TSC_BIN`
+  (default `node_modules/.bin/tsc`).
 
 Memory is captured externally via `/usr/bin/time -v` (maxRSS) — TSTS's own
 `--extendedDiagnostics` reports `Memory used: 0K` because the memory fields live
@@ -36,10 +38,10 @@ maxRSS gives the comparison in the meantime.
 
 ## `self-compile-bench.mjs` — mandatory whole-program benchmark
 
-Runs the built TSTS compiler and official `tsc` against TSTS itself:
+Runs the built TSTS compiler, TS-Go v7, and legacy `tsc` against TSTS itself:
 
 ```bash
-npx tsc -p packages/tsts/tsconfig.json
+node_modules/.bin/tsgo -p packages/tsts/tsconfig.json --pretty false
 npm run profile:self
 ```
 
@@ -89,7 +91,7 @@ It compares the current built TSTS helpers against legacy-equivalent
 source strings:
 
 ```bash
-npx tsc -p packages/tsts/tsconfig.json
+node_modules/.bin/tsgo -p packages/tsts/tsconfig.json --pretty false
 npm run profile:utf8
 ```
 
@@ -104,7 +106,7 @@ Measures the built scanner directly on large ASCII, mixed-Unicode, and JSX
 source strings:
 
 ```bash
-npx tsc -p packages/tsts/tsconfig.json
+node_modules/.bin/tsgo -p packages/tsts/tsconfig.json --pretty false
 npm run profile:scanner
 ```
 

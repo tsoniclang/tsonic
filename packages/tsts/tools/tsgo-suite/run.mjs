@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { appendFile, cp, mkdir, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import ts from "typescript";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = join(dirname(scriptPath), "../../../..");
@@ -2229,7 +2228,7 @@ export function transpileExpectedOutputFiles(inputFile, compilerOptions, kind) {
     return outputs;
   }
   if (kind === "declaration") {
-    const declarationFile = changeHarnessExtension(inputFile, ts.getDeclarationEmitExtensionForPath(inputFile));
+    const declarationFile = changeHarnessExtension(inputFile, getDeclarationEmitExtensionForPath(inputFile));
     const outputs = [declarationFile];
     if (compilerOptions.declarationMap === true) {
       outputs.push(`${declarationFile}.map`);
@@ -2240,9 +2239,31 @@ export function transpileExpectedOutputFiles(inputFile, compilerOptions, kind) {
 }
 
 function getJsOutputExtension(inputFile, compilerOptions) {
-  return ts.getOutputExtension(inputFile, {
-    jsx: compilerOptions.jsx === "preserve" ? ts.JsxEmit.Preserve : undefined,
-  });
+  const lower = inputFile.toLowerCase();
+  if (lower.endsWith(".json")) {
+    return ".json";
+  }
+  if ((lower.endsWith(".tsx") || lower.endsWith(".jsx")) && compilerOptions.jsx === "preserve") {
+    return ".jsx";
+  }
+  if (lower.endsWith(".mts") || lower.endsWith(".mjs")) {
+    return ".mjs";
+  }
+  if (lower.endsWith(".cts") || lower.endsWith(".cjs")) {
+    return ".cjs";
+  }
+  return ".js";
+}
+
+function getDeclarationEmitExtensionForPath(inputFile) {
+  const lower = inputFile.toLowerCase();
+  if (lower.endsWith(".mts")) {
+    return ".d.mts";
+  }
+  if (lower.endsWith(".cts")) {
+    return ".d.cts";
+  }
+  return ".d.ts";
 }
 
 function changeHarnessExtension(inputFile, extension) {
@@ -2269,7 +2290,7 @@ async function inheritedConfigCompilerOptions(configPath, rootConfig) {
       }
       let parentConfig;
       try {
-        parentConfig = ts.parseConfigFileTextToJson(parentPath, await readSourceText(parentPath)).config;
+        parentConfig = parseConfigFileTextToJson(parentPath, await readSourceText(parentPath)).config;
       } catch {
         continue;
       }
@@ -2285,13 +2306,116 @@ async function inheritedConfigCompilerOptions(configPath, rootConfig) {
 
 async function mergeFileBasedOptionsIntoProjectConfig(configPath, settings) {
   const configText = await readSourceText(configPath);
-  const parsed = ts.parseConfigFileTextToJson(configPath, configText);
+  const parsed = parseConfigFileTextToJson(configPath, configText);
   if (parsed.error !== undefined) {
     return { config: undefined, parsedByTypescript: false };
   }
   const merged = compilerOptionsForExistingProjectConfig(parsed.config ?? {}, settings);
   await writeFile(configPath, `${JSON.stringify(merged, null, 2)}\n`);
   return { config: merged, parsedByTypescript: true };
+}
+
+function parseConfigFileTextToJson(fileName, text) {
+  try {
+    return { config: JSON.parse(stripJsonCommentsAndTrailingCommas(text)) };
+  } catch (error) {
+    return {
+      config: undefined,
+      error: {
+        fileName,
+        messageText: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+function stripJsonCommentsAndTrailingCommas(text) {
+  const sourceText = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const withoutComments = stripJsonComments(sourceText);
+  return stripTrailingJsonCommas(withoutComments);
+}
+
+function stripJsonComments(text) {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index++) {
+    const ch = text[index];
+    const next = text[index + 1];
+    if (inString) {
+      result += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === "\"") {
+      inString = true;
+      result += ch;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      index += 2;
+      while (index < text.length && text[index] !== "\n" && text[index] !== "\r") {
+        index++;
+      }
+      index--;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      index += 2;
+      while (index < text.length && !(text[index] === "*" && text[index + 1] === "/")) {
+        if (text[index] === "\n" || text[index] === "\r") {
+          result += text[index];
+        }
+        index++;
+      }
+      index++;
+      continue;
+    }
+    result += ch;
+  }
+  return result;
+}
+
+function stripTrailingJsonCommas(text) {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index++) {
+    const ch = text[index];
+    if (inString) {
+      result += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === "\"") {
+      inString = true;
+      result += ch;
+      continue;
+    }
+    if (ch === ",") {
+      let lookahead = index + 1;
+      while (lookahead < text.length && /\s/.test(text[lookahead])) {
+        lookahead++;
+      }
+      if (text[lookahead] === "}" || text[lookahead] === "]") {
+        continue;
+      }
+    }
+    result += ch;
+  }
+  return result;
 }
 
 export function hasRootPackageJson(writtenFiles) {

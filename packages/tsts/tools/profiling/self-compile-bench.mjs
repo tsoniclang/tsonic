@@ -7,11 +7,13 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../../../..");
 const tstsCli = join(repoRoot, "packages/tsts/dist/src/cli/index.js");
-const tscBin = join(repoRoot, "node_modules/typescript/bin/tsc");
+const tsgoBin = process.env.TSGO_BIN || join(repoRoot, "node_modules/.bin/tsgo");
+const tscBin = process.env.TSC_BIN || join(repoRoot, "node_modules/.bin/tsc");
 
 const compilers = [
   { id: "tsts", argv: [process.execPath, tstsCli], available: existsSync(tstsCli) },
-  { id: "tsc", argv: [process.execPath, tscBin], available: existsSync(tscBin) },
+  { id: "tsgo", argv: [tsgoBin], available: existsSync(tsgoBin) },
+  { id: "tsc", argv: [tscBin], available: existsSync(tscBin) },
 ];
 
 const phases = ["Parse", "Bind", "Check", "Emit"];
@@ -129,26 +131,27 @@ for (const compiler of compilers) {
 }
 
 if (!results.tsts) {
-  throw new Error(`Missing built TSTS CLI at ${tstsCli}. Run npx tsc -p packages/tsts/tsconfig.json first.`);
+  throw new Error(`Missing built TSTS CLI at ${tstsCli}. Run node_modules/.bin/tsgo -p packages/tsts/tsconfig.json --pretty false first.`);
 }
 
 if (options.json) {
   console.log(JSON.stringify({ runs: options.runs, project: "packages/tsts/tsconfig.json", results }, null, 2));
 } else {
   const tsts = results.tsts;
+  const tsgo = results.tsgo;
   const tsc = results.tsc;
   console.log(`# TSTS self-compile benchmark`);
   console.log(`project: packages/tsts/tsconfig.json --noEmit`);
   console.log(`runs: ${options.runs} (cold first run dropped, median warm runs)`);
   console.log(`files/lines: ${tsts.Files ?? "?"}/${tsts.Lines ?? "?"}`);
-  console.log(`| metric | tsc | TSTS | TSTS÷tsc |`);
-  console.log(`|---|---:|---:|---:|`);
+  console.log(`| metric | tsgo | tsc | TSTS | TSTS÷tsgo | TSTS÷tsc |`);
+  console.log(`|---|---:|---:|---:|---:|---:|`);
   for (const phase of phases) {
-    console.log(`| ${phase} | ${fmt(tsc?.[phase], "s")} | ${fmt(tsts[phase], "s")} | ${ratio(tsts[phase], tsc?.[phase])} |`);
+    console.log(`| ${phase} | ${fmt(tsgo?.[phase], "s")} | ${fmt(tsc?.[phase], "s")} | ${fmt(tsts[phase], "s")} | ${ratio(tsts[phase], tsgo?.[phase])} | ${ratio(tsts[phase], tsc?.[phase])} |`);
   }
-  console.log(`| Total diagnostics | ${fmt(tsc?.Total, "s")} | ${fmt(tsts.Total, "s")} | ${ratio(tsts.Total, tsc?.Total)} |`);
-  console.log(`| wall | ${fmt(tsc?.wallSecs, "s")} | ${fmt(tsts.wallSecs, "s")} | ${ratio(tsts.wallSecs, tsc?.wallSecs)} |`);
-  console.log(`| CPU time | ${fmt(tsc?.cpuSecs, "s")} | ${fmt(tsts.cpuSecs, "s")} | ${ratio(tsts.cpuSecs, tsc?.cpuSecs)} |`);
-  console.log(`| CPU utilization | ${fmt(tsc?.cpuPercent, "%", 0)} | ${fmt(tsts.cpuPercent, "%", 0)} | ${ratio(tsts.cpuPercent, tsc?.cpuPercent)} |`);
-  console.log(`| maxRSS MB | ${fmt(tsc?.maxRssKB === undefined ? undefined : tsc.maxRssKB / 1024)} | ${fmt(tsts.maxRssKB === undefined ? undefined : tsts.maxRssKB / 1024)} | ${ratio(tsts.maxRssKB, tsc?.maxRssKB)} |`);
+  console.log(`| Total diagnostics | ${fmt(tsgo?.Total, "s")} | ${fmt(tsc?.Total, "s")} | ${fmt(tsts.Total, "s")} | ${ratio(tsts.Total, tsgo?.Total)} | ${ratio(tsts.Total, tsc?.Total)} |`);
+  console.log(`| wall | ${fmt(tsgo?.wallSecs, "s")} | ${fmt(tsc?.wallSecs, "s")} | ${fmt(tsts.wallSecs, "s")} | ${ratio(tsts.wallSecs, tsgo?.wallSecs)} | ${ratio(tsts.wallSecs, tsc?.wallSecs)} |`);
+  console.log(`| CPU time | ${fmt(tsgo?.cpuSecs, "s")} | ${fmt(tsc?.cpuSecs, "s")} | ${fmt(tsts.cpuSecs, "s")} | ${ratio(tsts.cpuSecs, tsgo?.cpuSecs)} | ${ratio(tsts.cpuSecs, tsc?.cpuSecs)} |`);
+  console.log(`| CPU utilization | ${fmt(tsgo?.cpuPercent, "%", 0)} | ${fmt(tsc?.cpuPercent, "%", 0)} | ${fmt(tsts.cpuPercent, "%", 0)} | ${ratio(tsts.cpuPercent, tsgo?.cpuPercent)} | ${ratio(tsts.cpuPercent, tsc?.cpuPercent)} |`);
+  console.log(`| maxRSS MB | ${fmt(tsgo?.maxRssKB === undefined ? undefined : tsgo.maxRssKB / 1024)} | ${fmt(tsc?.maxRssKB === undefined ? undefined : tsc.maxRssKB / 1024)} | ${fmt(tsts.maxRssKB === undefined ? undefined : tsts.maxRssKB / 1024)} | ${ratio(tsts.maxRssKB, tsgo?.maxRssKB)} | ${ratio(tsts.maxRssKB, tsc?.maxRssKB)} |`);
 }

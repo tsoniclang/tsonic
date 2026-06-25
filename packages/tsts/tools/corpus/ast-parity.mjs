@@ -17,7 +17,7 @@ const helperSourcePath = join(packageRoot, "tools/corpus/tsgo-ast-dump/main.go")
 const helperToolRoot = join(tempRoot, "tools/tsgo-ast-dump");
 const helperBuildRoot = join(tempRoot, "build/tsgo-ast-dump");
 const resultRoot = join(tempRoot, "ast");
-const tscPath = join(repoRoot, "node_modules/typescript/bin/tsc");
+const tsgoPath = join(repoRoot, "node_modules/.bin/tsgo");
 
 const sourceFileExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]);
 const defaultExcludedDirectories = new Set([".git", ".next", ".temp", ".turbo", "bower_components", "coverage", "dist", "node_modules", "tmp"]);
@@ -340,18 +340,18 @@ async function copyTrackedTsgoSource(destinationRoot) {
 }
 
 function buildTstsDist() {
-  if (!existsSync(tscPath)) {
-    throw new Error(`TypeScript compiler not found at ${relative(repoRoot, tscPath)}; run npm install first`);
+  if (!existsSync(tsgoPath)) {
+    throw new Error(`TS-Go v7 compiler not found at ${relative(repoRoot, tsgoPath)}; run npm install first`);
   }
   console.log("Building TSTS dist for AST parity");
-  run(process.execPath, [tscPath, "-p", "packages/tsts/tsconfig.json", "--pretty", "false"], repoRoot);
+  run(tsgoPath, ["-p", "packages/tsts/tsconfig.json", "--pretty", "false"], repoRoot);
 }
 
 async function createTstsDumper() {
   const distRoot = join(packageRoot, "dist/src");
   const parserPath = join(distRoot, "internal/parser/parser/statements-declarations.js");
   if (!existsSync(parserPath)) {
-    throw new Error(`TSTS dist parser not found at ${relative(repoRoot, parserPath)}; run npx tsc -p packages/tsts/tsconfig.json`);
+    throw new Error(`TSTS dist parser not found at ${relative(repoRoot, parserPath)}; run node_modules/.bin/tsgo -p packages/tsts/tsconfig.json --pretty false`);
   }
   const jsdocModule = await import(pathToFileURL(join(distRoot, "internal/parser/jsdoc.js")).href);
   jsdocModule.init();
