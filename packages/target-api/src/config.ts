@@ -20,3 +20,17 @@ export interface TsonicProjectConfig {
   readonly outDir?: string;
   readonly targets: readonly TargetSelection[];
 }
+
+const targetIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
+
+export function isValidTargetId(value: string): value is TargetId {
+  return targetIdPattern.test(value);
+}
+
+export function isValidTargetSurfaceId(value: string): value is TargetSurfaceId {
+  return targetIdPattern.test(value);
+}
+
+export function getTargetIdValidationMessage(subject: string): string {
+  return `${subject} must match ${targetIdPattern.source}; use lowercase ASCII letters, digits, and single hyphen-separated segments.`;
+}

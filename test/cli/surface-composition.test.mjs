@@ -10,6 +10,9 @@ import {
   createTargetCompilerExtensions,
   parseTsonicProjectConfig,
 } from "../../packages/host/dist/index.js";
+import {
+  createTargetRegistry,
+} from "../../packages/target-api/dist/index.js";
 
 const repoRoot = process.cwd();
 const tempRoot = resolve(repoRoot, ".temp/test-runs/host-surface-composition", `${Date.now()}-${process.pid}`);
@@ -280,6 +283,42 @@ test("host reports missing selected surface dependency as target diagnostic", as
   assert.equal(result.diagnostics[0].category, "error");
   assert.equal(result.diagnostics[0].message, "target 'demo' surface 'nodejs' requires surface 'js'");
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
+test("host rejects unsafe configured target and surface identifiers", () => {
+  assert.throws(
+    () => parseTsonicProjectConfig({
+      entryPoint: "index.ts",
+      targets: [{ id: "../csharp" }],
+    }),
+    /Target at index 0 id '\.\.\/csharp' must match/,
+  );
+  assert.throws(
+    () => parseTsonicProjectConfig({
+      entryPoint: "index.ts",
+      targets: [{ id: "csharp", surfaces: ["../nodejs"] }],
+    }),
+    /Target 'csharp' surface '\.\.\/nodejs' must match/,
+  );
+});
+
+test("target registry rejects unsafe pack and required surface identifiers", () => {
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], { id: "../csharp" }),
+    ]),
+    /Target pack id '\.\.\/csharp' must match/,
+  );
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], {
+        surfaces: [
+          createFakeSurface("nodejs", ["../js"]),
+        ],
+      }),
+    ]),
+    /required surface id '\.\.\/js' must match/,
+  );
 });
 
 test("host does not pass unselected surfaces to the target provider", () => {
@@ -782,7 +821,7 @@ function extensionIds(extensions) {
 
 function createFakeTargetPack(events, options = {}) {
   return {
-    id: "demo",
+    id: options.id ?? "demo",
     displayName: "Demo Target",
     ...(options.includeProvider === false
       ? {}

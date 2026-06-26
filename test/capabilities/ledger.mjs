@@ -413,7 +413,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "host.config.target-selection has current parse/build proof, but remains partial until the old config inventory is fully mapped to current target-selection behavior.",
     ]),
     notes:
-      "Reviewed partial proof: targets[] is mandatory and non-empty, duplicate target ids are rejected before compilation, unknown selected target ids become TARGET_SELECTION diagnostics, and target-specific options are delegated to the selected target pack rather than host-level guessing.",
+      "Reviewed partial proof: targets[] is mandatory and non-empty, target ids must be safe canonical output path segments, duplicate target ids are rejected before compilation, unknown selected target ids become TARGET_SELECTION diagnostics, and target-specific options are delegated to the selected target pack rather than host-level guessing.",
   }),
   "host.config.surface-selection": Object.freeze({
     positiveTests: Object.freeze([
@@ -433,7 +433,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "host.config.surface-selection has current selected-surface proof, but remains partial until every old surface profile/config case is explicitly reviewed against target-owned surfaces.",
     ]),
     notes:
-      "Reviewed partial proof: configured surfaces are explicit target-owned ids, duplicate requested surfaces are rejected, unknown target surfaces and missing required surfaces become TARGET_SURFACE_SELECTION diagnostics, and unselected surfaces cannot contribute compiler extensions or runtime artifacts.",
+      "Reviewed partial proof: configured surfaces are explicit target-owned canonical ids, unsafe surface ids and duplicate requested surfaces are rejected, unknown target surfaces and missing required surfaces become TARGET_SURFACE_SELECTION diagnostics, and unselected surfaces cannot contribute compiler extensions or runtime artifacts.",
   }),
   "host.config.no-legacy-config": Object.freeze({
     positiveTests: Object.freeze([
@@ -809,6 +809,22 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: selected surface ids are passed to the target provider as owned surface instances; unknown, dependency-missing, stale, and unselected surfaces fail closed.",
   }),
+  "host.project.surface-dependency-validation": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "host.project.surface-dependency-validation has focused proof for selected surface dependencies, but remains partial until old surface profile inventory is fully mapped to target-owned surface dependencies.",
+    ]),
+    notes:
+      "Reviewed partial proof: selected surfaces are validated against target-owned requiredSurfaces before provider, surface extension, runtime contribution, backend, or toolchain execution. Missing dependencies produce TARGET_SURFACE_SELECTION diagnostics and no target artifacts.",
+  }),
   "host.project.provider-composition": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
@@ -838,6 +854,36 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: selected surfaces contribute their own compiler extensions after the target provider and in selected-surface order; unselected, stale, and dependency-missing surfaces cannot contribute semantic extensions or runtime artifacts.",
+  }),
+  "host.project.deterministic-output-paths": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+      "test/architecture-contract.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+      "test/architecture-contract.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "host.project.deterministic-output-paths has target-id and artifact containment proof, but remains partial until every backend artifact family is covered by deterministic output identity tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: target ids and selected surface ids are safe canonical path segments; target pack and surface ids are registry-validated; target output roots are resolved under the configured outDir; CLI artifact writing rejects absolute or escaping artifact paths before writing.",
+  }),
+  "host.project.clean-rebuild": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "host.project.clean-rebuild has focused stale-artifact proof for CLI output, but remains partial until runtime assets, multi-target projects, diagnostic-only targets, and every toolchain artifact family are covered.",
+    ]),
+    notes:
+      "Reviewed partial proof: CLI build removes the selected target output root before writing current artifacts, so stale generated source/runtime files do not survive a clean rebuild. Target-id validation and artifact containment prevent clean rebuild from escaping the configured output root.",
   }),
   "tsts.parse-bind-check": Object.freeze({
     positiveTests: Object.freeze([

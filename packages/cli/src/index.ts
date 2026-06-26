@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { compileProject, parseTsonicProjectConfig, resolveProjectPaths } from "@tsonic/host";
 import type { ProjectBuildResult } from "@tsonic/host";
 import { createStandardTargetRegistry } from "./standard-targets.js";
@@ -93,12 +93,30 @@ async function writeBuildArtifacts(
   const paths = resolveProjectPaths({ project: config, projectFilePath: projectPath });
   for (const targetResult of buildResult.targets) {
     const targetRoot = resolve(paths.outputRoot, targetResult.target.id);
+    assertContainedPath(paths.outputRoot, targetRoot, `target '${targetResult.target.id}' output root`);
+    await rm(targetRoot, { recursive: true, force: true });
     for (const artifact of targetResult.compileResult.artifacts) {
       const outputPath = resolve(targetRoot, artifact.path);
+      assertSafeArtifactPath(targetRoot, artifact.path, outputPath);
       await mkdir(dirname(outputPath), { recursive: true });
       await writeFile(outputPath, artifact.text, "utf8");
     }
   }
+}
+
+function assertSafeArtifactPath(targetRoot: string, artifactPath: string, outputPath: string): void {
+  if (isAbsolute(artifactPath)) {
+    throw new Error(`Target artifact path '${artifactPath}' must be project-relative inside the target output root.`);
+  }
+  assertContainedPath(targetRoot, outputPath, `target artifact '${artifactPath}'`);
+}
+
+function assertContainedPath(root: string, candidate: string, subject: string): void {
+  const relation = relative(root, candidate);
+  if (relation === "" || (!relation.startsWith("..") && !isAbsolute(relation))) {
+    return;
+  }
+  throw new Error(`${subject} resolves outside '${root}'.`);
 }
 
 function readProjectPath(args: readonly string[]): string {

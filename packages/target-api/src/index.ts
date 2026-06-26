@@ -15,6 +15,11 @@ export type {
   TargetTypescriptCompatibilityMode,
   TsonicProjectConfig,
 } from "./config.js";
+export {
+  getTargetIdValidationMessage,
+  isValidTargetId,
+  isValidTargetSurfaceId,
+} from "./config.js";
 export type {
   TargetArgumentFlowRecord,
   TargetFunctionSummary,

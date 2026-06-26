@@ -83,6 +83,39 @@ test("CLI rejects duplicate target ids before compiling", async () => {
   assert.match(build.stderr, /target 'csharp' is declared more than once/);
 });
 
+test("CLI rejects unsafe target and surface ids before output path creation", async () => {
+  const cases = [
+    {
+      name: "unsafe-target-id",
+      target: { id: "../csharp" },
+      expected: /Target at index 0 id '\.\.\/csharp' must match/,
+    },
+    {
+      name: "unsafe-surface-id",
+      target: { id: "csharp", surfaces: ["../js"] },
+      expected: /Target 'csharp' surface '\.\.\/js' must match/,
+    },
+  ];
+
+  for (const { name, target, expected } of cases) {
+    const projectDirectory = resolve(tempRoot, name);
+    await writeProject(projectDirectory, {
+      "tsonic.json": JSON.stringify({
+        entryPoint: "index.ts",
+        rootDir: "src",
+        outDir: "out",
+        targets: [target],
+      }, null, 2),
+      "src/index.ts": "export const value = 1;\n",
+    });
+
+    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+    assert.equal(build.status, 1, name);
+    assert.match(build.stderr, expected, name);
+    assert.equal(existsSync(resolve(projectDirectory, "out")), false, name);
+  }
+});
+
 test("CLI rejects non-final entrypoint source extensions before compiling", async () => {
   const projectDirectory = resolve(tempRoot, "unsupported-entry-extension");
   await writeProject(projectDirectory, {
@@ -255,6 +288,35 @@ test("CLI rejects duplicate configured surfaces before target composition", asyn
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /Target 'csharp' surface 'js' is declared more than once/);
+});
+
+test("CLI clean rebuild removes stale target artifacts before writing current outputs", async () => {
+  const projectDirectory = resolve(tempRoot, "clean-rebuild-stale-output");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedCleanRebuild",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+    "out/csharp/src/Stale.cs": "public static class Stale {}\n",
+    "out/csharp/runtime/stale.txt": "stale\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), true);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Stale.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/runtime/stale.txt")), false);
 });
 
 test("CLI does not use tsconfig path mapping as a hidden module-resolution fallback", async () => {
