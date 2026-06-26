@@ -218,7 +218,7 @@ test("source-core records storage and flow marker facts from aliases and namespa
   const { session, sourceFile } = createCleanSourceCoreSession(`
     import { out as writeOut, ref as readWrite, inref as readOnly, borrow as shared, borrowMut as mutable, move as moved } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
-    import { out as localOut, borrow as localBorrow, borrowMut as localBorrowMut, move as localMove } from "./local.js";
+    import { out as localOut, ref as localRef, inref as localInref, borrow as localBorrow, borrowMut as localBorrowMut, move as localMove } from "./local.js";
 
     let value = 0;
     let index = 0;
@@ -236,6 +236,8 @@ test("source-core records storage and flow marker facts from aliases and namespa
     lang.borrowMut(box.field);
     lang.move(box.values[index]);
     localOut(value);
+    localRef(value);
+    localInref(value);
     localBorrow(value);
     localBorrowMut(value);
     localMove(value);
@@ -245,18 +247,26 @@ test("source-core records storage and flow marker facts from aliases and namespa
     out(value);
     function shadow(
       writeOut: (value: number) => number,
+      readWrite: (value: number) => number,
+      readOnly: (value: number) => number,
       shared: (value: number) => number,
       mutable: (value: number) => number,
       moved: (value: number) => number,
       lang: {
         out(value: number): number;
+        ref(value: number): number;
+        inref(value: number): number;
         borrow(value: number): number;
         borrowMut(value: number): number;
         move(value: number): number;
       },
     ) {
       writeOut(value);
+      readWrite(value);
+      readOnly(value);
       lang.out(value);
+      lang.ref(value);
+      lang.inref(value);
       shared(value);
       mutable(value);
       moved(value);
@@ -267,6 +277,8 @@ test("source-core records storage and flow marker facts from aliases and namespa
   `, {
     "/src/local.ts": [
       "export function out<T>(value: T): T { return value; }",
+      "export function ref<T>(value: T): T { return value; }",
+      "export function inref<T>(value: T): T { return value; }",
       "export function borrow<T>(value: T): T { return value; }",
       "export function borrowMut<T>(value: T): T { return value; }",
       "export function move<T>(value: T): T { return value; }",
@@ -300,12 +312,18 @@ test("source-core records storage and flow marker facts from aliases and namespa
   assert.equal(flowState(session, firstCallArgument(session, namespaceMoveCall)), "moved");
 
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localOut"), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localRef"), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localInref"), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localBorrow"), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localBorrowMut"), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localMove"), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out"), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "writeOut", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "readWrite", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "readOnly", 1), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.out", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.ref", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.inref", 1), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "mutable", 1), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "moved", 1), flowStateFactKey), undefined);
@@ -470,6 +488,112 @@ test("source-core records structural, attribute, and default facts from core nam
   assert.equal(extensionHost.facts.get(propertyCallExpression(session, sourceFile, "add", 1), attributeFactKey), undefined);
 });
 
+test("source-core records structural, attribute, and default facts from aliases without guessing names", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import { attribute as coreAttribute, defaultof as coreDefaultof, field as coreField, struct as coreStruct } from "@tsonic/core/lang.js";
+    import { attribute as localAttribute, defaultof as localDefaultof, field as localField, struct as localStruct } from "./local.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    class RouteAttribute {}
+    class User {
+      name = "";
+    }
+
+    const defaultValue = coreDefaultof<bool>();
+    const Point = coreStruct({ id: coreField<int32>() });
+    coreAttribute<User>().add(RouteAttribute);
+    const localDefault = localDefaultof<bool>();
+    const Local = localStruct({ id: localField<int32>() });
+    localAttribute<User>().add(RouteAttribute);
+
+    function shadow(
+      coreStruct: <T>(shape: T) => T,
+      coreField: <T>() => T,
+      coreAttribute: <T>() => { add(attribute: object): void },
+      coreDefaultof: <T>() => T,
+    ) {
+      const shadowDefault = coreDefaultof<bool>();
+      const Shadow = coreStruct({ id: coreField<int32>() });
+      coreAttribute<User>().add(RouteAttribute);
+      return { shadowDefault, Shadow };
+    }
+  `, {
+    "/src/local.ts": [
+      "export function struct<T>(shape: T): T { return shape; }",
+      "export function field<T>(): T { throw new Error('local field'); }",
+      "export function attribute<T>(): { add(attribute: object): void } { return { add(_attribute: object): void {} }; }",
+      "export function defaultof<T>(): T { throw new Error('local default'); }",
+    ].join("\n"),
+  });
+
+  const defaultFact = session.extensionHost?.facts.get(callExpression(session, sourceFile, "coreDefaultof", 0), defaultValueFactKey);
+  assert.equal(typeReferenceName(session, defaultFact?.type as Node | undefined), "bool");
+
+  const fieldFact = session.extensionHost?.facts.get(callExpression(session, sourceFile, "coreField", 0), fieldFactKey);
+  assert.equal(fieldFact?.name, "id");
+  assert.equal(session.extensionHost?.facts.get(fieldFact?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
+
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  assert.deepEqual(extensionHost.facts.get(callExpression(session, sourceFile, "coreStruct", 0), structFactKey)?.fields?.map((field) => field.name), ["id"]);
+  assert.equal(extensionHost.facts.get(propertyCallExpression(session, sourceFile, "add", 0), attributeFactKey)?.attributeName, "RouteAttribute");
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "localDefaultof"), defaultValueFactKey), undefined);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "localField"), fieldFactKey), undefined);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "localStruct"), structFactKey), undefined);
+  assert.equal(extensionHost.facts.get(propertyCallExpression(session, sourceFile, "add", 1), attributeFactKey), undefined);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "coreDefaultof", 1), defaultValueFactKey), undefined);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "coreField", 1), fieldFactKey), undefined);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "coreStruct", 1), structFactKey), undefined);
+  assert.equal(extensionHost.facts.get(propertyCallExpression(session, sourceFile, "add", 2), attributeFactKey), undefined);
+});
+
+test("source-core attaches no intrinsic facts through unsupported local barrel re-exports", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import { out, ref, inref, borrow, borrowMut, move, struct, field, attribute, defaultof } from "./barrel.js";
+    import type { ptr, fnptr } from "./barrel.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    class RouteAttribute {}
+    class User {
+      name = "";
+    }
+
+    let value = 0;
+    out(value);
+    ref(value);
+    inref(value);
+    borrow(value);
+    borrowMut(value);
+    move(value);
+    const defaultValue = defaultof<int32>();
+    const Point = struct({ id: field<int32>() });
+    attribute<User>().add(RouteAttribute);
+    type Pointer = ptr<int32>;
+    type FunctionPointer = fnptr<[int32], bool>;
+  `, {
+    "/src/barrel.ts": [
+      "export { out, ref, inref, borrow, borrowMut, move, struct, field, attribute, defaultof } from '@tsonic/core/lang.js';",
+      "export type { ptr, fnptr } from '@tsonic/core/lang.js';",
+    ].join("\n"),
+  });
+
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "out")), undefined);
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "ref")), undefined);
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "inref")), undefined);
+  assert.equal(flowState(session, callExpression(session, sourceFile, "borrow")), undefined);
+  assert.equal(flowState(session, callExpression(session, sourceFile, "borrowMut")), undefined);
+  assert.equal(flowState(session, callExpression(session, sourceFile, "move")), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "defaultof"), defaultValueFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "field"), fieldFactKey), undefined);
+
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  assert.equal(extensionHost.facts.get(callExpression(session, sourceFile, "struct"), structFactKey), undefined);
+  assert.equal(extensionHost.facts.get(propertyCallExpression(session, sourceFile, "add"), attributeFactKey), undefined);
+  assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
+  assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
+});
+
 test("source-core reports missing explicit type evidence for target-neutral marker facts", () => {
   const { session, sourceFile } = createSourceCoreSession(`
     import { attribute, defaultof, field } from "@tsonic/core/lang.js";
@@ -576,12 +700,16 @@ test("source-core records ptr and fnptr facts from aliases and namespaces withou
     import type { int32, bool } from "@tsonic/core/types.js";
     import type { ptr as localPointer, fnptr as localFunctionPointer } from "./local.js";
 
+    type ptr<T> = T;
+    type fnptr<TArgs, TReturn> = unknown;
     type AliasPointer = pointer<int32>;
     type NamespacePointer = lang.ptr<int32>;
     type AliasFunctionPointer = functionPointer<[int32, bool], int32>;
     type NamespaceFunctionPointer = lang.fnptr<[lang.ptr<int32>, int32], bool>;
     type LocalPointer = localPointer<int32>;
     type LocalFunctionPointer = localFunctionPointer<[int32], int32>;
+    type ShadowPointer = ptr<int32>;
+    type ShadowFunctionPointer = fnptr<[int32], int32>;
   `, {
     "/src/local.ts": [
       "export type ptr<T> = T;",
@@ -611,6 +739,8 @@ test("source-core records ptr and fnptr facts from aliases and namespaces withou
 
   assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "localPointer"), pointerFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "localFunctionPointer"), functionPointerFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
 });
 
 function assertVirtualModuleResolution(value: ProviderModuleResolution | ExtensionDiagnostic): ProviderModuleResolution {
