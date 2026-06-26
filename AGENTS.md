@@ -132,6 +132,14 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 - If a path or artifact is optional, discovery must prove it exists before reading it; do not probe and then silently recover.
 - Remove existing heuristic/native-compat code when touching that area unless the maintainer explicitly requests otherwise.
 
+## Generic Policy First (IMPORTANT)
+
+- Every product mechanism must be implemented at the most generic policy/fact/provider level that correctly fits the domain; do not solve repeated compiler/runtime patterns with one-off hardcoded branches.
+- Source or target names such as `Map`, `Set`, `Date`, `Array`, `fs`, `C#`, or `Rust` may appear in declarative policy, provider metadata, capability ledgers, and explicit exception definitions, but not as source-family algorithm branches in generic resolution paths.
+- When one case exposes a pattern, design the reusable policy engine or provider contract first, then express the case as data/policy over that mechanism.
+- Hardcoded special cases are allowed only as narrow policy exceptions with source identity, target identity, reason, required facts, diagnostics, positive and negative tests, and ledger evidence.
+- If existing code is hardcoded where a generic policy belongs, delete/rebuild it against the generic mechanism rather than extending the hardcoded path.
+
 ## Source Syntax Discipline (IMPORTANT)
 
 - Treat TypeScript as a type-annotation layer over standard modern JavaScript. Runtime-shape syntax in product code, runtime-facing tests, fixtures, docs, and first-party source packages must stay compatible with modern ECMAScript semantics.
