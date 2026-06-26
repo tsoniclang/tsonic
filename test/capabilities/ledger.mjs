@@ -269,7 +269,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "partial", "surface-provider"],
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
-  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
+  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "partial", "tests"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
@@ -3009,8 +3009,45 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
     ]),
+    blockers: Object.freeze([
+      "analysis.abstraction.policy-enforcement remains partial until the validator catches JS source-family registries, receiver validator tables, executable surface member templates, and array-specific use classifiers, and the catalog is burned down by replacing those paths with lazy generic analysis plus declarative policy/provider metadata.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "analysis-abstraction-policy-violation",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "architecture-validator-rule",
+          "reviewed-debt-catalog-entry-or-zero-finding",
+          "capability-ledger-status",
+        ]),
+        diagnostics: Object.freeze([
+          "unclassified-source-family-algorithm",
+          "unclassified-target-member-selection",
+          "unclassified-array-specific-use-classifier",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "architecture-validator-rule",
+          "reviewed-debt-catalog-entry-or-zero-finding",
+          "capability-ledger-status",
+          "lazy-generic-analysis-replacement-plan",
+        ]),
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "source-family-generic-control-flow",
+          "target-member-guessing",
+          "procedural-policy-instead-of-declarative-metadata",
+        ]),
+      },
+    }),
     notes:
-      "Reviewed proof: the C# target architecture guard scans product source for source-family member branches, direct source-library probing, target-member helper tables, product console debugging, and semantic fallback wording. The migration catalog is now empty and the scanner reports zero findings, so the final guard is no longer an exemption list; any new source-family algorithm or target-member guessing branch fails architecture validation.",
+      "Reviewed partial proof: the C# target architecture guard now scans product source for the known false-green classes reported by review, including JS source-family provider registries, source-family closed-fact validator tables, executable Map/Set member templates, and array-specific use classifiers. The current debt catalog is therefore a burn-down ledger, not proof of completion.",
   }),
   "architecture.target-pack.no-procedural-policy": Object.freeze({
     sourceExamples: Object.freeze([
