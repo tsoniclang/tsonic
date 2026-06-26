@@ -359,7 +359,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["architecture.native-compilable.no-unapproved-deps", "Product compiler/runtime paths avoid unapproved third-party dependencies", "partial", "tests"],
   ["architecture.target-pack.boundaries", "Target pack packages keep provider, surfaces, backend, runtime, and toolchain as explicit modules", "partial", "tests"],
   ["architecture.target-pack.no-catch-all-semantics", "Target packs avoid catch-all semantic blobs and hidden source-family helpers", "partial", "tests"],
-  ["architecture.target-pack.no-procedural-policy", "Policy files are declarative data, generic selectors, or explicit exception records only", "partial", "tests"],
+  ["architecture.target-pack.no-procedural-policy", "Policy files are declarative data, generic selectors, or explicit exception records only", "complete", "tests"],
   ["target.csharp.source-flow-marker-contract", "C# explicitly implements or rejects portable source flow markers", "partial", "target-provider"],
   ["target.csharp.core-lang-intrinsics", "C# implements or rejects every portable @tsonic/core/lang.js intrinsic from finalized facts", "partial", "target-provider"],
   ["target.shared.ownership-placeholder", "Shared contracts preserve future ownership facts", "not-started", "rust-future"],
@@ -3011,6 +3011,35 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: the C# target architecture guard scans product source for source-family member branches, direct source-library probing, target-member helper tables, product console debugging, and semantic fallback wording. The migration catalog is now empty and the scanner reports zero findings, so the final guard is no longer an exemption list; any new source-family algorithm or target-member guessing branch fails architecture validation.",
+  }),
+  "architecture.target-pack.no-procedural-policy": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const values = [1, 2, 3]; values.map((value) => value + 1);",
+      "const created = new Date(0);",
+      "const payload = JSON.stringify({ ok: true });",
+    ]),
+    tstsDecision:
+      "TSTS selects checked TypeScript declarations, signatures, types, and flow results. Target-pack files named as policy modules are not allowed to become procedural source-family selectors over those results.",
+    providerFacts: Object.freeze([
+      "selectedSourceDeclarationOrSignature",
+      "declarativePolicyRecord",
+      "providerTargetMetadata",
+      "explicitSemanticExceptionRecord",
+      "architectureValidationFact",
+    ]),
+    backendContract:
+      "Target packs must express source identities as data, policy as declarative records, and true semantic mismatches as explicit exception records. Product files named policy.ts, selection-policy.ts, property-policy.ts, or array-use-policy.ts are rejected before they can accumulate source-family branches.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/analysis-abstraction-policy.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/analysis-abstraction-policy.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    ]),
+    notes:
+      "Reviewed proof: the C# architecture validator now has an explicit procedural-policy-file rule. The negative test proves final-forbidden filenames are rejected, while the positive side proves renamed final modules such as target-selection.ts, array-use-rules.ts, member-providers.ts, receiver-facts.ts, and source-identity.ts are accepted. This closes the policy-file loophole instead of treating renamed procedural policy as compliant.",
   }),
   "surface.js.string-methods": Object.freeze({
     positiveTests: Object.freeze([

@@ -400,6 +400,7 @@ const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldProductUnitLedgerEvidenceCapabilityMapping([
     "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
   ], [
+    "architecture.target-pack.no-procedural-policy",
     "analysis.abstraction.policy-enforcement",
     "backend.csharp.ast-statement",
     "backend.csharp.printer",
