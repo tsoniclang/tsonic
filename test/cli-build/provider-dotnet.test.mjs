@@ -188,6 +188,40 @@ test("CLI rejects JS array mutators on explicit provider-owned native .NET array
   assert.match(build.stdout + build.stderr, /push|does not exist|CSHARP_TARGET_MEMBER_NOT_FOUND/u);
 });
 
+test("CLI rejects length mutation on explicit provider-owned native .NET arrays", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-native-dotnet-array-reject-length-set");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderNativeDotnetArrayRejectLengthSet",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function invalid(values: DotNetArray<int32>): void {",
+      "  values.length = 3;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /Cannot assign to 'length' because it is a read-only property/u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderNativeDotnetArrayRejectLengthSet.csproj")), false);
+});
+
 
 test("CLI accepts provider-owned overloads discovered from .NET reflection", async () => {
   const projectDirectory = resolve(tempRoot, "provider-static-call-reflection-overload");
