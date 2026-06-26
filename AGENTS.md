@@ -136,6 +136,8 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 
 - Every product mechanism must be implemented at the most generic policy/fact/provider level that correctly fits the domain; do not solve repeated compiler/runtime patterns with one-off hardcoded branches.
 - Source or target names such as `Map`, `Set`, `Date`, `Array`, `fs`, `C#`, or `Rust` may appear in declarative policy, provider metadata, capability ledgers, and explicit exception definitions, but not as source-family algorithm branches in generic resolution paths.
+- This rule applies across all analysis layers, not only surfaces: source semantics, target type resolution, object-shape analysis, runtime-carrier lifecycle, operation providers, backend planning, compat/runtime lanes, tests, and capability ledgers.
+- Concrete source/target names are data. Generic algorithms consume selected TSTS declarations/signatures, provider metadata, finalized facts, source identities, and policy entries; they must not branch on source-family spellings or target member names.
 - When one case exposes a pattern, design the reusable policy engine or provider contract first, then express the case as data/policy over that mechanism.
 - Hardcoded special cases are allowed only as narrow policy exceptions with source identity, target identity, reason, required facts, diagnostics, positive and negative tests, and ledger evidence.
 - If existing code is hardcoded where a generic policy belongs, delete/rebuild it against the generic mechanism rather than extending the hardcoded path.

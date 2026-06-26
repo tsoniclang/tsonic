@@ -961,6 +961,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "surface.js.map-set",
     "surface.js.math",
     "surface.js.math-json-regexp",
+    "surface.js.number-methods",
     "surface.js.string-methods",
     "toolchain.csharp.build-run",
   ]),
@@ -1864,6 +1865,7 @@ function defaultOldSuiteCapabilityIds(entry) {
   if (oldPath.includes("js-surface-runtime-builtins")) {
     ids.add("operation.element.provider-indexer");
     ids.add("operation.member.provider-indexer");
+    ids.add("surface.js.number-methods");
   }
   if (entry.status === "invalid-stale-architecture") {
     ids.add("host.config.no-legacy-config");

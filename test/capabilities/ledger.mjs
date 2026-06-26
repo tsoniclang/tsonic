@@ -263,6 +263,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "partial", "surface-provider"],
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
+  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "partial", "tests"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
@@ -2962,6 +2963,44 @@ const reviewedCapabilityEvidence = Object.freeze({
     }),
     notes:
       "Reviewed partial proof: selected JS surface delete and Array.length mutation on TypeScript arrays now require a closed JSArray carrier and emit JSArray.deleteAt/setLength through finalized operation facts, while no-surface sparse operations reject before emission. Surface-boundary tests classify `index in values` as requiring the full-JS carrier before the unsupported operator fails closed, and sparse array literal elisions produce an exact planner diagnostic before dense lowering can compact holes. Runtime JSArray tests prove hole preservation across callbacks, search, copying, concat, flat, and flatMap. Remaining supported sparse/hole runtime lanes stay blocked rather than approximated with List<T>, IReadOnlyList<T>, or CLR T[].",
+  }),
+  "analysis.abstraction.policy-enforcement": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const counts = new Map<string, number>(); counts.set(\"alpha\", 1);",
+      "const values = [1, 2, 3]; values.map((value) => value + 1);",
+      "const payload = JSON.stringify({ ok: true });",
+      "async function load(): Promise<string> { return \"ready\"; }",
+      "import { readFile } from \"node:fs/promises\";",
+    ]),
+    tstsDecision:
+      "TSTS selects the TypeScript declaration, signature, source type, flow result, overload, contextual type, and generic substitution. Tsonic may classify that checked result into source identities and policy entries, but generic analysis paths must not branch on source-family names such as Map, Set, Date, JSON, Array, Promise, Buffer, or fs.",
+    providerFacts: Object.freeze([
+      "selectedSourceDeclarationOrSignature",
+      "selectedSourceIdentityPolicy",
+      "selectedSurfacePolicy",
+      "providerTargetMemberMetadata",
+      "typeClassificationFact",
+      "runtimeCarrierFact",
+      "explicitExceptionFact",
+    ]),
+    backendContract:
+      "Backends consume finalized policy/provider facts and target AST. They do not rediscover target members from source spelling, source-family branches, target member names, or fallback inference.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/analysis-abstraction-policy.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/analysis-abstraction-policy.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    blockers: Object.freeze([
+      "analysis.abstraction.policy-enforcement remains partial until every cataloged architecture-debt entry in ../tsonic-csharp/test/architecture/analysis-abstraction-policy.mjs has been deleted or converted into a final policy/provider/fact/explicit-exception mechanism.",
+      "The current validator freezes known source-family and target-member algorithms as an explicit migration queue; completion requires replacing the queued sites, not preserving them as final architecture.",
+    ]),
+    notes:
+      "Reviewed partial proof: the architecture guard now scans the C# target source tree for source-family member branches, direct source-library probing, target-member helper tables, product console debugging, and semantic fallback wording. Each existing hit must have an owner, classification, and replacement abstraction. This is a deletion queue, not compatibility approval.",
   }),
   "surface.js.string-methods": Object.freeze({
     positiveTests: Object.freeze([
