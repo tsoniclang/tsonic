@@ -3010,7 +3010,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
     ]),
     blockers: Object.freeze([
-      "analysis.abstraction.policy-enforcement remains partial until the validator catches JS source-family registries, receiver validator tables, executable surface member templates, and array-specific use classifiers, and the catalog is burned down by replacing those paths with lazy generic analysis plus declarative policy/provider metadata.",
+      "analysis.abstraction.policy-enforcement remains partial until the remaining JS source-family call-provider registry and receiver validator table debt is burned down by replacing those paths with declarative source identity policy, generic provider/runtime metadata selectors, and generic closed-fact validation over selected TSTS declarations.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "analysis-abstraction-policy-violation",
@@ -3047,7 +3047,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: the C# target architecture guard now scans product source for the known false-green classes reported by review, including JS source-family provider registries, source-family closed-fact validator tables, executable Map/Set member templates, and array-specific use classifiers. The current debt catalog is therefore a burn-down ledger, not proof of completion.",
+      "Reviewed partial proof: the C# target architecture guard now scans product source for the known false-green classes reported by review. Array-specific use discovery has been replaced with the generic lazy analysis service, and Map/Set executable member templates have been replaced with declarative member shapes. The remaining debt catalog is therefore a burn-down ledger for the still-procedural JS call-provider registry and receiver closed-fact validator table.",
   }),
   "architecture.target-pack.no-procedural-policy": Object.freeze({
     sourceExamples: Object.freeze([
