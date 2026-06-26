@@ -269,7 +269,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "partial", "surface-provider"],
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
-  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "partial", "tests"],
+  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
@@ -3006,12 +3006,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
-    blockers: Object.freeze([
-      "analysis.abstraction.policy-enforcement remains partial until every cataloged architecture-debt entry in ../tsonic-csharp/test/architecture/analysis-abstraction-policy.mjs has been deleted or converted into a final policy/provider/fact/explicit-exception mechanism.",
-      "The current validator freezes known source-family and target-member algorithms as an explicit migration queue; completion requires replacing the queued sites, not preserving them as final architecture.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: the architecture guard now scans the C# target source tree for source-family member branches, direct source-library probing, target-member helper tables, product console debugging, and semantic fallback wording. Each existing hit must have an owner, classification, and replacement abstraction. This is a deletion queue, not compatibility approval.",
+      "Reviewed proof: the C# target architecture guard scans product source for source-family member branches, direct source-library probing, target-member helper tables, product console debugging, and semantic fallback wording. The migration catalog is now empty and the scanner reports zero findings, so the final guard is no longer an exemption list; any new source-family algorithm or target-member guessing branch fails architecture validation.",
   }),
   "surface.js.string-methods": Object.freeze({
     positiveTests: Object.freeze([
