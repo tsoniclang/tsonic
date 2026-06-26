@@ -3010,7 +3010,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
     ]),
     blockers: Object.freeze([
-      "analysis.abstraction.policy-enforcement remains partial until the remaining JS source-family call-provider registry debt is burned down by replacing that path with declarative source identity policy and generic provider/runtime metadata selectors.",
+      "analysis.abstraction.policy-enforcement remains partial after the current scanner debt burn-down until the deeper JS property, Node provider metadata, carrier-planning, and backend required-fact paths are audited against the consolidated generic analysis and declarative policy contract.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "analysis-abstraction-policy-violation",
