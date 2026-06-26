@@ -1594,6 +1594,48 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits selected JS boolean method facts through the C# JS runtime", async () => {
+  const projectDirectory = resolve(tempRoot, "js-boolean-methods");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedBooleanMethods",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function asText(value: boolean): string {",
+      "  return value.toString();",
+      "}",
+      "",
+      "export function asValue(value: boolean): boolean {",
+      "  return value.valueOf();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.BooleanOps\.toString\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.BooleanOps\.valueOf\(value\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedBooleanMethods.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI rejects string methods without exact provider-backed JS semantics", async () => {
   const projectDirectory = resolve(tempRoot, "string-call-target-fact-rejections");

@@ -2996,18 +2996,61 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# emits BooleanOps.toString/valueOf extension calls only from finalized selected Boolean operation facts; bool.ToString() casing or native object fallback must not be used as JavaScript semantics.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/BooleanTests.cs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
-    negativeTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-boolean-tostring/",
       "test/fixtures/js-surface-node-boolean-tostring/",
     ]),
     blockers: Object.freeze([
-      "surface.js.boolean-methods remains partial because current proof is runtime-only; it still needs selected-surface provider/CLI proof for boolean.toString()/valueOf(), Node-returned boolean chaining, and fail-closed diagnostics when Boolean prototype facts are absent.",
+      "surface.js.boolean-methods remains partial until Node-returned boolean chaining, Boolean object wrapper edge cases, missing-surface diagnostics, non-boolean receiver rejection, and complete fail-closed diagnostics when Boolean prototype facts are absent are proven with focused positive and negative coverage.",
     ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "js-boolean-method-operation",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-boolean-prototype-declaration",
+          "closed-boolean-receiver-target-type",
+          "selected-boolean-target-signature",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-selected-js-surface",
+          "missing-boolean-prototype-declaration",
+          "missing-closed-boolean-receiver",
+          "missing-selected-target-signature",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-boolean-prototype-declaration",
+          "closed-boolean-receiver-target-type",
+          "selected-boolean-target-signature",
+        ]),
+        operation: "emit-selected-js-boolean-method",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "unsupported-boolean-method",
+          "receiver-not-closed-boolean",
+          "source-spelling-only",
+        ]),
+      },
+    }),
     notes:
-      "Reviewed partial proof: C# JS runtime BooleanOps currently proves lowercase JavaScript boolean toString() and valueOf() behavior. No current CLI/provider test proves primitive boolean member calls are selected from JS surface facts, so the old boolean fixtures remain blocker evidence rather than proof.",
+      "Reviewed partial proof: selected JS surface facts now cover Boolean.toString and Boolean.valueOf only from selected Boolean declaration identity plus closed bool receiver facts; C# JS runtime tests prove lowercase JavaScript boolean toString() and valueOf() behavior; the tsonic CLI test emits boolean toString/valueOf as Tsonic.CSharp.Js.BooleanOps calls and dotnet-builds the generated project. Remaining gaps are explicit missing-surface diagnostics, non-boolean receiver rejection, Node-returned boolean chaining, and Boolean object wrapper edge cases.",
   }),
   "surface.js.number-methods": Object.freeze({
     sourceExamples: Object.freeze([
