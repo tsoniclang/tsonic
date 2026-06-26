@@ -3010,7 +3010,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
     ]),
     blockers: Object.freeze([
-      "analysis.abstraction.policy-enforcement remains partial while the hardened scanner tracks 19 reviewed migration findings across JS source-id analysis tables and Node local export/signature selection. Each entry must be deleted, moved to provider/runtime metadata rows, or converted into an explicit semantic exception with evidence.",
+      "analysis.abstraction.policy-enforcement remains partial while the hardened scanner tracks 18 reviewed migration findings across JS source-id analysis tables and Node local export/signature selection. Each entry must be deleted, moved to provider/runtime metadata rows, or converted into an explicit semantic exception with evidence.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "analysis-abstraction-policy-violation",
