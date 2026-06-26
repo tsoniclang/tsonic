@@ -215,19 +215,6 @@ export function createSourceSemanticsExtension(options: SourceSemanticsExtension
       context.registerLifecycleHook<SourceFileBoundLifecycleRequest>(ExtensionLifecycleEvent.afterSourceFileBound, (request) => {
         recordSourceSemanticsFacts(request, context.facts, context.diagnostics, options.identity.id, modules);
       });
-      context.registerLifecycleHook(ExtensionLifecycleEvent.beforeSemanticsFinalized, (_request, lifecycleContext) => {
-        const compiler = lifecycleContext.compiler;
-        if (compiler === undefined) {
-          return;
-        }
-        for (const sourceFile of compiler.getSourceFiles()) {
-          if (sourceFile === undefined || sourceFile.IsDeclarationFile === true) {
-            continue;
-          }
-          const markerImportIndex = createSourceSemanticsMarkerImportIndex(sourceFile, modules);
-          recordSourceSemanticsStructMarkers(context.facts, sourceFile, modules, markerImportIndex);
-        }
-      });
     },
   };
 }
@@ -262,6 +249,7 @@ function recordSourceSemanticsFacts(
   const markerImportIndex = createSourceSemanticsMarkerImportIndex(sourceFile, modules);
   recordSourceSemanticsTypeAliases(facts, sourceFile, modules, markerImportIndex);
   recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, modules, markerImportIndex);
+  recordSourceSemanticsStructMarkers(facts, sourceFile, modules, markerImportIndex);
   recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerImportIndex);
 }
 
