@@ -265,6 +265,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.map-set", "Map and Set use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "partial", "surface-provider"],
@@ -2362,6 +2363,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     sourceExamples: Object.freeze([
       "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
       "const values: DotNetArray<int32> = DotNetArray.create<int32>(size); values[0] = 7; return values.length;",
+      "function invalid(values: DotNetArray<int32>): void { values.length = 3; }",
     ]),
     tstsDecision:
       "TSTS checks the provider-owned .NET declarations and ordinary TypeScript array syntax; native CLR array identity is supplied only by provider facts.",
@@ -2370,9 +2372,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "nativeClrArrayCarrierFact",
       "providerSelectedMemberFact",
       "selectedArrayLengthOrIndexerFact",
+      "readOnlyNativeArrayLengthFact",
     ]),
     backendContract:
-      "C# emission may use T[] element access and Length only from finalized provider/native-array facts; normal source T[] stays TypeScript Array<T> semantics and does not become explicit CLR Array<T> by spelling.",
+      "C# emission may use T[] element access and Length only from finalized provider/native-array facts; assignment to native-array length must remain a read-only diagnostic, and normal source T[] stays TypeScript Array<T> semantics instead of becoming explicit CLR Array<T> by spelling.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
@@ -2391,7 +2394,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/readonly-array-property-mutation/",
     ]),
     blockers: Object.freeze([
-      "native.dotnet.array.explicit remains partial until covariance, returned CLR arrays from broad BCL APIs, native-array public ABI boundaries, ranked-array rejection breadth, and runtime/toolchain behavior across the full provider matrix are proven; explicit Array<T> source shape, construction, element assignment, length, index access, mutator rejection, and selected-fact C# emission already have current proof.",
+      "native.dotnet.array.explicit remains partial until covariance, returned CLR arrays from broad BCL APIs, native-array public ABI boundaries, ranked-array rejection breadth, and runtime/toolchain behavior across the full provider matrix are proven; explicit Array<T> source shape, construction, element assignment, read-only length, index access, mutator rejection, and selected-fact C# emission already have current proof.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "dotnet-native-array-carrier",
@@ -2428,7 +2431,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, and selected member/indexer facts; CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, and rejects JS mutators such as push on explicit native arrays. Completion still requires covariance, returned CLR arrays from broad BCL APIs, native-array ABI boundaries, and ranked-array rejection coverage across the full provider matrix.",
+      "Reviewed partial proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, and selected member/indexer facts; CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, and rejects JS mutators such as push plus length assignment on explicit native arrays. Completion still requires covariance, returned CLR arrays from broad BCL APIs, native-array ABI boundaries, and ranked-array rejection coverage across the full provider matrix.",
   }),
   "native.dotnet.attributes": Object.freeze({
     positiveTests: Object.freeze([
@@ -3005,6 +3008,82 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: C# JS runtime BooleanOps currently proves lowercase JavaScript boolean toString() and valueOf() behavior. No current CLI/provider test proves primitive boolean member calls are selected from JS surface facts, so the old boolean fixtures remain blocker evidence rather than proof.",
+  }),
+  "surface.js.number-methods": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export function fromNumber(value: number): string { return value.toString(); }",
+      "const root: { count: number } = { count: 2 }; return root.count.toString();",
+      "export function fromPrimitive(value: int32): string { return value.toString(); }",
+      "export function fromStatic(value: number): boolean { return Number.isFinite(value) && Number.isInteger(value); }",
+      "export function fromParsed(value: string): number { return Number.parseFloat(value) + Number.MAX_SAFE_INTEGER; }",
+    ]),
+    tstsDecision:
+      "TSTS validates Number primitive member calls, Number static calls, and Number static properties against selected JS surface declarations; the surface provider must prove selected Number declarations plus closed receiver or argument facts before target facts are finalized.",
+    providerFacts: Object.freeze([
+      "selectedJsNumberDeclaration",
+      "numberPrimitiveReceiverFact",
+      "numberToStringOperationFact",
+      "numberStaticOperationFact",
+      "numberStaticPropertyFact",
+      "selectedTargetSignatureFact",
+    ]),
+    backendContract:
+      "C# emits Tsonic.CSharp.Js.Number operations only from finalized selected Number operation/signature/property facts; CLR ToString(), culture-sensitive formatting, boxing, dynamic, source-spelling lookup, or static property name guessing must not provide JavaScript number semantics.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NumberTests.cs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/js-surface-runtime-builtins/",
+    ]),
+    blockers: Object.freeze([
+      "surface.js.number-methods remains partial until Number.valueOf(), radix-aware toString(), toFixed(), toExponential(), toPrecision(), locale formatting, parseInt variable-radix coercion, non-number receiver rejection, missing-surface diagnostics, and NaN/Infinity/-0/runtime edge cases are proven with focused positive and negative coverage.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "js-number-operation",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-number-declaration",
+          "closed-number-receiver-or-argument-target-type",
+          "selected-number-target-signature-or-property",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-selected-js-surface",
+          "missing-number-declaration",
+          "missing-closed-number-receiver-or-argument",
+          "missing-selected-target-signature-or-property",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-number-declaration",
+          "closed-number-receiver-or-argument-target-type",
+          "selected-number-target-signature-or-property",
+        ]),
+        operation: "emit-selected-js-number-operation",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "unsupported-number-operation",
+          "receiver-or-argument-not-closed-number",
+          "source-spelling-only",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: tsonic-csharp surface-boundary evidence maps Number.toString only from selected Number declaration identity plus closed number receiver facts, and maps Number.isFinite plus Number.MAX_SAFE_INTEGER only from selected NumberConstructor declarations; csharp-js runtime tests prove invariant toString formatting and static predicate helpers for double/int/long and nullable integral receivers; the tsonic CLI test emits primitive number toString, object-shape number property toString, int32 toString, Number.isFinite, Number.isInteger, Number.parseFloat, and Number.MAX_SAFE_INTEGER through Tsonic.CSharp.Js.Number and dotnet-builds the generated project. Negative evidence is limited to existing missing-fact surface-boundary and no-selected-JS-surface diagnostics, so number-specific unsupported method and receiver rejection coverage remains a blocker.",
   }),
   "surface.js.console": Object.freeze({
     positiveTests: Object.freeze([
