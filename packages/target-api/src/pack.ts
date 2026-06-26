@@ -14,6 +14,9 @@ import type {
 } from "@tsonic/tsts";
 import type { TargetCompileResult, TargetRuntimeContributions, TargetRuntimeReference } from "./artifacts.js";
 import type {
+  TargetLazySourceAnalysis,
+} from "./analysis/types.js";
+import type {
   TargetSelection,
   TargetSurfaceId,
   TsonicProjectConfig,
@@ -107,6 +110,7 @@ export interface TargetProjectSourceMethodDispatch {
 }
 
 export interface TargetSourceAnalysisQueries {
+  readonly lazy: TargetLazySourceAnalysis;
   getSymbolAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Symbol | undefined;
   getResolvedSymbol(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Symbol | undefined;
   getTypeOfSymbol(symbol: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;

@@ -16,6 +16,21 @@ export type {
   TsonicProjectConfig,
 } from "./config.js";
 export type {
+  TargetArgumentFlowRecord,
+  TargetFunctionSummary,
+  TargetLazySourceAnalysis,
+  TargetSourceAccessKind,
+  TargetSourceCallsite,
+  TargetSourceCaptureRecord,
+  TargetSourceEscapeRecord,
+  TargetSourceReferenceRecord,
+  TargetSourceUseOperation,
+  TargetSourceUseRecord,
+} from "./analysis/types.js";
+export {
+  createLazyTargetSourceAnalysis,
+} from "./analysis/lazy.js";
+export type {
   TargetBackend,
   TargetBackendContext,
   TargetAnalysisNodeOptions,

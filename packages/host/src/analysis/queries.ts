@@ -6,6 +6,9 @@ import type {
   TypeShapeQueries,
 } from "@tsonic/tsts";
 import type { TargetSourceAnalysisQueries } from "@tsonic/target-api";
+import {
+  createLazyTargetSourceAnalysis,
+} from "@tsonic/target-api";
 import { asNode, asSymbol } from "./guards.js";
 import {
   getProjectSourceDeclarationForNode,
@@ -28,7 +31,9 @@ export function createTargetSourceAnalysisQueries(
   sourceFiles: readonly SourceFile[],
 ): TargetSourceAnalysisQueries {
   const projectSourceMethodDispatchCache = new WeakMap<object, ReturnType<TargetSourceAnalysisQueries["getProjectSourceMethodDispatch"]> | null>();
+  const lazy = createLazyTargetSourceAnalysis(ast, checker, sourceFiles);
   return {
+    lazy,
     getSymbolAtLocation(subject, options) {
       const node = asNode(subject);
       return node === undefined ? undefined : getSymbolAtReferenceNode(ast, checker, node, options);
