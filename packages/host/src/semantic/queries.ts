@@ -158,9 +158,32 @@ export function createTargetSemanticQueries(
         return undefined;
       }
       const declarationType = checker.getTypeAtLocation(node, options);
-      const signature = types.getCallSignatures(declarationType, options)[0];
-      const returnType = types.getReturnTypeOfSignature(signature, options);
-      return getRuntimeCarrier(facts, returnType) ?? getRuntimeCarrier(facts, returnType?.symbol);
+      const declarationName = ast.name(node);
+      const declarationNameType = declarationName === undefined
+        ? undefined
+        : checker.getTypeAtLocation(declarationName, options);
+      const declarationSymbol = declarationName === undefined
+        ? undefined
+        : checker.getSymbolAtLocation(declarationName, options);
+      const resolvedDeclarationSymbol = declarationName === undefined
+        ? undefined
+        : checker.getResolvedSymbol(declarationName, options);
+      const declarationSymbolType = declarationName === undefined
+        ? undefined
+        : checker.getTypeOfSymbol(declarationSymbol, options);
+      const resolvedDeclarationSymbolType = declarationName === undefined
+        ? undefined
+        : checker.getTypeOfSymbol(resolvedDeclarationSymbol, options);
+      const signature = types.getCallSignatures(declarationType, options)[0] ??
+        types.getCallSignatures(declarationNameType, options)[0] ??
+        types.getCallSignatures(declarationSymbolType, options)[0] ??
+        types.getCallSignatures(resolvedDeclarationSymbolType, options)[0];
+      const returnType = signature === undefined
+        ? undefined
+        : types.getReturnTypeOfSignature(signature, options);
+      return getRuntimeCarrier(facts, returnType) ??
+        getRuntimeCarrier(facts, returnType?.symbol) ??
+        getRuntimeCarrierForType(ast, types, facts, returnType, options);
     },
     isProjectSourceShapeForNode(subject, options) {
       const declaration = getProjectSourceDeclarationForNode(ast, checker, types, asNode(subject), options, sourceFiles);
