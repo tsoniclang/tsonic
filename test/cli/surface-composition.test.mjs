@@ -773,12 +773,6 @@ function createRegistry(targetPack) {
     get(id) {
       return id === targetPack.id ? targetPack : undefined;
     },
-    require(id) {
-      if (id !== targetPack.id) {
-        throw new Error(`Unknown target '${id}'.`);
-      }
-      return targetPack;
-    },
   };
 }
 

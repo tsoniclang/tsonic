@@ -82,8 +82,14 @@ const baseCapabilityDefinitions = Object.freeze([
   ["host.project.package-discovery", "Discover project packages without legacy package-root shims", "partial", "tsonic-host"],
   ["host.project.target-selection", "Select target by target id", "complete", "tsonic-host"],
   ["host.project.surface-selection", "Select surfaces by target capability", "complete", "tsonic-host"],
+  ["host.project.surface-dependency-validation", "Validate selected surface dependency graph before providers run", "partial", "tsonic-host"],
   ["host.project.provider-composition", "Compose provider set for a compile session", "complete", "tsonic-host"],
   ["host.project.surface-extension-composition", "Compose selected surface extensions as first-class compiler contributors", "complete", "tsonic-host"],
+  ["host.project.module-graph", "Create one deterministic project module graph from TSTS source files", "partial", "tsonic-host"],
+  ["host.project.package-path-resolution", "Resolve project packages, package exports, and paths without package-root shims", "partial", "tsonic-host"],
+  ["host.project.deterministic-output-paths", "Derive deterministic output paths from validated project-relative source paths", "partial", "tsonic-host"],
+  ["host.project.clean-rebuild", "Clean rebuild removes stale target artifacts without preserving legacy output", "partial", "tsonic-host"],
+  ["host.project.top-level-initialization-order", "Preserve deterministic module top-level initialization order", "partial", "tsonic-host"],
 
   ["module.graph.source-files", "Resolve ordinary TypeScript source file graph", "partial", "tsts-api"],
   ["module.import.named", "Support named ESM imports", "partial", "tsts-api"],
@@ -349,6 +355,11 @@ const baseCapabilityDefinitions = Object.freeze([
   ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "partial", "tests"],
 
   ["target.shared.operation-contract", "Targets share operation/fact contracts without C# shortcuts", "partial", "tests"],
+  ["architecture.native-compilable.esm-only", "Product compiler/runtime source remains ESM-only and native-compilable", "partial", "tests"],
+  ["architecture.native-compilable.no-unapproved-deps", "Product compiler/runtime paths avoid unapproved third-party dependencies", "partial", "tests"],
+  ["architecture.target-pack.boundaries", "Target pack packages keep provider, surfaces, backend, runtime, and toolchain as explicit modules", "partial", "tests"],
+  ["architecture.target-pack.no-catch-all-semantics", "Target packs avoid catch-all semantic blobs and hidden source-family helpers", "partial", "tests"],
+  ["architecture.target-pack.no-procedural-policy", "Policy files are declarative data, generic selectors, or explicit exception records only", "partial", "tests"],
   ["target.csharp.source-flow-marker-contract", "C# explicitly implements or rejects portable source flow markers", "partial", "target-provider"],
   ["target.csharp.core-lang-intrinsics", "C# implements or rejects every portable @tsonic/core/lang.js intrinsic from finalized facts", "partial", "target-provider"],
   ["target.shared.ownership-placeholder", "Shared contracts preserve future ownership facts", "not-started", "rust-future"],
@@ -5249,6 +5260,17 @@ function capabilityDefaults(capabilityId, owner) {
     };
   }
 
+  if (capabilityId.startsWith("architecture.")) {
+    return {
+      sourceExamples: ["import { compileProject } from \"@tsonic/host\";"],
+      tstsDecision:
+        "TSTS remains a source-analysis dependency only; product compiler/runtime source must stay ESM-only and native-compilable.",
+      providerFacts: ["architectureValidationFact", "targetPackBoundaryFact"],
+      backendContract:
+        "Backends and target packs must expose final modules directly, not bridge through legacy shims, procedural policy blobs, or unapproved dependencies.",
+    };
+  }
+
   return {
     sourceExamples: ["const value = 1;"],
     tstsDecision: "TSTS owns TypeScript source semantics.",
@@ -5429,6 +5451,9 @@ function lanePatternKind(capabilityId) {
   if (capabilityId.startsWith("downstream.")) {
     return "downstream-proof";
   }
+  if (capabilityId.startsWith("architecture.")) {
+    return "architecture-contract";
+  }
   if (capabilityId.startsWith("rust.") || capabilityId.startsWith("target.rust") || capabilityId.startsWith("target.shared")) {
     return "future-target-contract";
   }
@@ -5472,6 +5497,9 @@ function laneStaticRequiredFacts(capabilityId, owner) {
   if (capabilityId.startsWith("downstream.")) {
     return Object.freeze(["representative-project", "capability-coverage-proof"]);
   }
+  if (capabilityId.startsWith("architecture.")) {
+    return Object.freeze(["validated-product-path", "approved-package-boundary"]);
+  }
   if (owner === "rust-future") {
     return Object.freeze(["shared-target-contract", "target-owned-facts"]);
   }
@@ -5499,6 +5527,9 @@ function laneStaticOperation(capabilityId) {
   }
   if (capabilityId.startsWith("backend.")) {
     return "render-target-ast";
+  }
+  if (capabilityId.startsWith("architecture.")) {
+    return "validate-product-architecture";
   }
   return "finalize-capability";
 }
