@@ -3199,18 +3199,23 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MapTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/SetTests.cs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
-    negativeTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-array-from-map-keys/",
       "test/fixtures/js-surface-runtime-builtins/",
       "test/fixtures/map-set-not-in-globals/",
     ]),
     blockers: Object.freeze([
-      "surface.js.map-set remains partial because current proof is runtime-only; it still needs selected-surface provider/CLI proof for Map/Set constructors, set/add/get/has, Map.keys() iterator carriers flowing into Array.from, and no-surface Map/Set name-resolution diagnostics.",
+      "surface.js.map-set remains partial until no-surface Map/Set name-resolution diagnostics, Map.get nullish expected-target threading, Map/Set iterable constructor overloads, entries/values/size/delete/clear/forEach operations, and complete runtime/toolchain edge coverage are proven.",
     ]),
     notes:
-      "Reviewed partial proof: C# JS runtime Map and Set behavior has current unit coverage, but the source-to-source JS surface does not yet prove selected Map/Set declarations or Map.keys() iterator carriers through CLI/toolchain tests. The old Map/Set fixtures stay mapped as regression evidence and blockers, not completion proof.",
+      "Reviewed partial proof: current provider evidence maps selected Map/Set declarations, constructors, set/get/has/add calls, and collection iterator carriers without spelling fallback; current CLI/toolchain evidence compiles TypeScript new Map<string, int32>(), set/get/has, new Set<string>(), add/has, and Array.from(counts.keys()) to Tsonic.CSharp.Js.Map, Tsonic.CSharp.Js.Set, and Tsonic.CSharp.Js.Array.from, then dotnet-builds the generated C# project. Negative evidence rejects missing closed collection carrier facts in provider tests and asserts generated CLI output contains no InvalidExpression, __unsupported, dynamic/reflection, Dictionary/HashSet substitution, or unqualified Map/Set constructor spelling. The focused CLI proof intentionally keeps Map.get as int32 | undefined because Map.get(key) ?? fallback currently belongs to the separate nullish expected-target blocker. The old Map/Set fixtures stay mapped as regression evidence and blockers, not completion proof.",
   }),
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
