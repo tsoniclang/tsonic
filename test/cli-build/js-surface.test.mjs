@@ -1567,6 +1567,14 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
       "  return value.toString();",
       "}",
       "",
+      "export function fromStatic(value: number): boolean {",
+      "  return Number.isFinite(value) && Number.isInteger(value);",
+      "}",
+      "",
+      "export function fromParsed(value: string): number {",
+      "  return Number.parseFloat(value) + Number.MAX_SAFE_INTEGER;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1576,6 +1584,10 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toString\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toString\(root\.count\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isFinite\(value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isInteger\(value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.parseFloat\(value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.MAX_SAFE_INTEGER/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberToString.csproj"), "--nologo", "--v:minimal"]);
