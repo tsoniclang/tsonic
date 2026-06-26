@@ -14,13 +14,13 @@ import {
   getDeclarationTypeNode,
   getProjectSourceDeclarationForType,
   getProjectSourceReferenceForNode,
-} from "./project-source.js";
+} from "../analysis/project-source.js";
 import {
   getResolvedSymbolForReferenceNode,
   getSemanticTypeForNode,
   getSymbolAtReferenceNode,
   isTypeReferenceQuery,
-} from "./symbols.js";
+} from "../analysis/symbols.js";
 
 export function getRuntimeCarrier(
   facts: ExtensionConsumerQueries,

@@ -57,7 +57,7 @@ export interface TargetRuntimeContributionContext {
   readonly paths: TargetCompilationPaths;
 }
 
-export interface TargetSemanticNodeOptions {
+export interface TargetAnalysisNodeOptions {
   readonly sourceFile: SourceFile;
 }
 
@@ -79,30 +79,33 @@ export interface TargetProjectSourceMethodDispatch {
   readonly hasDerivedOverride: boolean;
 }
 
-export interface TargetSemanticQueries {
-  getRuntimeCarrier(subject: ExtensionFactSubject | undefined): TargetTypeRef | undefined;
-  getRuntimeCarrierForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
-  getTargetBinding(subject: ExtensionFactSubject | undefined): TargetBindingFact | undefined;
-  getTargetBindingForReference(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetBindingFact | undefined;
-  getSymbolAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Symbol | undefined;
-  getResolvedSymbol(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Symbol | undefined;
-  getTypeOfSymbol(symbol: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
-  getTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
-  getTypeFromTypeNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
-  getResolvedCallReturnType(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Type | undefined;
-  getResolvedCallReturnRuntimeCarrier(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
-  getResolvedCallParameterDeclarations(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (Node | undefined)[] | undefined;
-  getResolvedCallParameterTypes(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (Type | undefined)[] | undefined;
-  getResolvedCallParameterRuntimeCarriers(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): readonly (TargetTypeRef | undefined)[] | undefined;
-  getEnumMemberConstant(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): { readonly value: string | number | undefined } | undefined;
-  getReturnTypeCarrierFromDeclaration(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetTypeRef | undefined;
-  isProjectSourceShapeForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): boolean;
-  isProjectSourceConstructibleObjectForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): boolean;
-  getProjectSourceDeclarationForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): Node | undefined;
-  getProjectSourceReferenceForNode(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetProjectSourceReference | undefined;
+export interface TargetSourceAnalysisQueries {
+  getSymbolAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Symbol | undefined;
+  getResolvedSymbol(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Symbol | undefined;
+  getTypeOfSymbol(symbol: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
+  getTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
+  getTypeFromTypeNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
+  getResolvedCallReturnType(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
+  getResolvedCallParameterDeclarations(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): readonly (Node | undefined)[] | undefined;
+  getResolvedCallParameterTypes(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): readonly (Type | undefined)[] | undefined;
+  getEnumMemberConstant(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): { readonly value: string | number | undefined } | undefined;
+  isProjectSourceShapeForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): boolean;
+  isProjectSourceConstructibleObjectForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): boolean;
+  getProjectSourceDeclarationForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Node | undefined;
+  getProjectSourceReferenceForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetProjectSourceReference | undefined;
   getProjectSourceModuleDependencies(sourceFile: SourceFile): readonly TargetProjectSourceModuleDependency[];
-  getProjectSourceMethodDispatch(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): TargetProjectSourceMethodDispatch | undefined;
-  describeTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetSemanticNodeOptions): string | undefined;
+  getProjectSourceMethodDispatch(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetProjectSourceMethodDispatch | undefined;
+  describeTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): string | undefined;
+}
+
+export interface TargetFactQueries {
+  getRuntimeCarrier(subject: ExtensionFactSubject | undefined): TargetTypeRef | undefined;
+  getRuntimeCarrierForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetTypeRef | undefined;
+  getTargetBinding(subject: ExtensionFactSubject | undefined): TargetBindingFact | undefined;
+  getTargetBindingForReference(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetBindingFact | undefined;
+  getResolvedCallReturnRuntimeCarrier(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetTypeRef | undefined;
+  getResolvedCallParameterRuntimeCarriers(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): readonly (TargetTypeRef | undefined)[] | undefined;
+  getReturnTypeCarrierFromDeclaration(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetTypeRef | undefined;
 }
 
 export interface TargetCompileInput {
@@ -111,7 +114,8 @@ export interface TargetCompileInput {
   readonly types: TypeShapeQueries;
   readonly sourceFiles: readonly SourceFile[];
   readonly facts: ExtensionConsumerQueries;
-  readonly semantics: TargetSemanticQueries;
+  readonly analysis: TargetSourceAnalysisQueries;
+  readonly targetFacts: TargetFactQueries;
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly runtimeReferences: readonly TargetRuntimeReference[];

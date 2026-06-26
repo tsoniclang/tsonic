@@ -78,11 +78,40 @@ test("product compiler source stays ESM-only and native-compilable", async () =>
   assert.deepEqual(failures, []);
 });
 
+test("architecture scan scope covers every first-party product source root", async () => {
+  const expectedRoots = Object.freeze([
+    "packages/cli/src",
+    "packages/host/src",
+    "packages/source-core/src",
+    "packages/target-api/src",
+  ]);
+
+  assert.deepEqual(productSourceRoots, expectedRoots);
+});
+
 test("product source has no procedural policy or metadata blob filenames", async () => {
   const failures = [];
   for (const sourceFile of await productSourceFiles()) {
     if (bannedProductFileNames.includes(basename(sourceFile))) {
       failures.push(repoRelative(sourceFile));
+    }
+  }
+
+  assert.deepEqual(failures, []);
+});
+
+test("product source has no catch-all semantic facade names", async () => {
+  const failures = [];
+  for (const sourceFile of await productSourceFiles()) {
+    const relativePath = repoRelative(sourceFile);
+    const pathParts = relativePath.split("/");
+    if (pathParts.includes("semantic") || pathParts.includes("semantics")) {
+      failures.push(`${relativePath}: catch-all semantic directory`);
+    }
+
+    const text = await readFile(sourceFile, "utf8");
+    if (/\bTargetSemantic(?:Queries|NodeOptions)\b/u.test(text)) {
+      failures.push(`${relativePath}: catch-all TargetSemantic API`);
     }
   }
 

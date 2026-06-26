@@ -9,7 +9,7 @@ import type {
 } from "@tsonic/tsts";
 import type {
   TargetProjectSourceModuleDependency,
-  TargetSemanticQueries,
+  TargetSourceAnalysisQueries,
 } from "@tsonic/target-api";
 import { asNode, asSymbol } from "./guards.js";
 import {
@@ -42,7 +42,7 @@ export function getProjectSourceReferenceForNode(
   node: Node | undefined,
   options: { readonly sourceFile: SourceFile },
   sourceFiles: readonly SourceFile[],
-): ReturnType<TargetSemanticQueries["getProjectSourceReferenceForNode"]> {
+): ReturnType<TargetSourceAnalysisQueries["getProjectSourceReferenceForNode"]> {
   if (node === undefined) {
     return undefined;
   }
@@ -80,7 +80,7 @@ export function getProjectSourceReferenceForSymbol(
   ast: AstReader,
   symbol: Symbol | undefined,
   sourceFiles: readonly SourceFile[],
-): ReturnType<TargetSemanticQueries["getProjectSourceReferenceForNode"]> {
+): ReturnType<TargetSourceAnalysisQueries["getProjectSourceReferenceForNode"]> {
   if (symbol === undefined) {
     return undefined;
   }
@@ -128,7 +128,7 @@ export function getProjectSourceModuleDependencies(
   checker: TypeCheckerQueries,
   sourceFile: SourceFile,
   sourceFiles: readonly SourceFile[],
-): ReturnType<TargetSemanticQueries["getProjectSourceModuleDependencies"]> {
+): ReturnType<TargetSourceAnalysisQueries["getProjectSourceModuleDependencies"]> {
   const dependencies: TargetProjectSourceModuleDependency[] = [];
   const seen = new Set<SourceFile>();
   for (const statement of ast.statements(sourceFile)) {
@@ -252,7 +252,7 @@ export function getProjectSourceMethodDispatch(
   node: Node | undefined,
   options: { readonly sourceFile: SourceFile },
   sourceFiles: readonly SourceFile[],
-): ReturnType<TargetSemanticQueries["getProjectSourceMethodDispatch"]> {
+): ReturnType<TargetSourceAnalysisQueries["getProjectSourceMethodDispatch"]> {
   if (node === undefined || !ast.is.IsMethodDeclaration(node) || !isProjectSourceDispatchMethod(ast, node, sourceFiles)) {
     return undefined;
   }
@@ -430,7 +430,7 @@ function getProjectSourceReferenceForNamespacePropertyAccess(
   node: Node,
   options: { readonly sourceFile: SourceFile },
   sourceFiles: readonly SourceFile[],
-): ReturnType<TargetSemanticQueries["getProjectSourceReferenceForNode"]> {
+): ReturnType<TargetSourceAnalysisQueries["getProjectSourceReferenceForNode"]> {
   if (!ast.is.IsPropertyAccessExpression(node)) {
     return undefined;
   }
@@ -461,7 +461,7 @@ function getImportedProjectSourceReferenceForSymbol(
   symbol: Symbol | undefined,
   options: { readonly sourceFile: SourceFile },
   sourceFiles: readonly SourceFile[],
-): ReturnType<TargetSemanticQueries["getProjectSourceReferenceForNode"]> {
+): ReturnType<TargetSourceAnalysisQueries["getProjectSourceReferenceForNode"]> {
   if (symbol === undefined) {
     return undefined;
   }

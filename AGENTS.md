@@ -124,6 +124,7 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 - Do not add “old-or-new format” readers, dual manifest normalizers, transitional format bridges, compatibility adapters, or branchy fallback loaders unless the maintainer explicitly approves that exact migration.
 - If an older first-party format is still accepted, treat it as technical debt to remove, not as a pattern to copy.
 - Prefer breaking stale assumptions and fixing the real architecture over keeping old paths alive.
+- Treat hardcoding as an architecture smell by default. Before keeping any concrete source/target name, prove it belongs in declarative policy, provider metadata, tests, or a documented exception; otherwise rethink the abstraction.
 
 ## Truth Over Heuristics (IMPORTANT)
 

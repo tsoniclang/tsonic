@@ -23,8 +23,9 @@ import type {
   TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
+import { createTargetSourceAnalysisQueries } from "./analysis/queries.js";
 import { forceDiagnostics } from "./diagnostics.js";
-import { createTargetSemanticQueries } from "./semantic/queries.js";
+import { createTargetFactQueries } from "./target-facts/queries.js";
 import { createTargetCompilerExtensions } from "./target/extensions.js";
 export {
   collectTstsDiagnostics,
@@ -119,7 +120,8 @@ export function compileTargetFromSemanticSession(
     types: session.types,
     sourceFiles: session.sourceFiles,
     facts: session.facts,
-    semantics: createTargetSemanticQueries(session.ast, session.checker, session.types, session.facts, session.sourceFiles),
+    analysis: createTargetSourceAnalysisQueries(session.ast, session.checker, session.types, session.sourceFiles),
+    targetFacts: createTargetFactQueries(session.ast, session.checker, session.types, session.facts, session.sourceFiles),
     project,
     target,
     runtimeReferences,
