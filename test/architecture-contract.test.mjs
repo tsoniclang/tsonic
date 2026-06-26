@@ -118,6 +118,19 @@ test("product source has no catch-all semantic facade names", async () => {
   assert.deepEqual(failures, []);
 });
 
+test("target fact API exposes structured carrier resolution instead of optional raw carriers", async () => {
+  const text = await readFile(join(repoRoot, "packages/target-api/src/pack.ts"), "utf8");
+
+  assert.match(text, /\bexport type TargetCarrierResolution = TargetCarrierResolved \| TargetCarrierMissing;/u);
+  assert.doesNotMatch(text, /\bgetRuntimeCarrierForNode\b/u);
+  assert.doesNotMatch(text, /\bgetResolvedCallReturnRuntimeCarrier\b/u);
+  assert.doesNotMatch(text, /\bgetResolvedCallParameterRuntimeCarriers\b/u);
+  assert.doesNotMatch(text, /\bgetReturnTypeCarrierFromDeclaration\b/u);
+  assert.doesNotMatch(text, /resolveRuntimeCarrierForNode\([^)]*\):\s*TargetTypeRef\s*\|\s*undefined/u);
+  assert.doesNotMatch(text, /resolveCallReturnRuntimeCarrier\([^)]*\):\s*TargetTypeRef\s*\|\s*undefined/u);
+  assert.doesNotMatch(text, /resolveDeclarationReturnCarrier\([^)]*\):\s*TargetTypeRef\s*\|\s*undefined/u);
+});
+
 test("product package manifests use only approved compiler/runtime dependencies", async () => {
   const failures = [];
   for (const manifestPath of packageManifestPaths) {

@@ -1,13 +1,18 @@
 import type {
   AstReader,
   ExtensionConsumerQueries,
+  ExtensionFactSubject,
   SourceFile,
   Symbol,
   TargetTypeRef,
   TypeCheckerQueries,
   TypeShapeQueries,
 } from "@tsonic/tsts";
-import type { TargetFactQueries } from "@tsonic/target-api";
+import type {
+  TargetCallParameterCarrierResolution,
+  TargetCarrierResolution,
+  TargetFactQueries,
+} from "@tsonic/target-api";
 import { asNode } from "../analysis/guards.js";
 import { isTypeSyntaxNode } from "../analysis/guards.js";
 import {
@@ -34,18 +39,28 @@ export function createTargetFactQueries(
   sourceFiles: readonly SourceFile[],
 ): TargetFactQueries {
   return {
-    getRuntimeCarrier(subject) {
-      return getRuntimeCarrier(facts, subject);
+    resolveRuntimeCarrier(subject) {
+      return carrierResolution(
+        getRuntimeCarrier(facts, subject),
+        "Runtime carrier resolved from an explicit provider/source-core fact.",
+        "Runtime carrier fact is missing for the requested subject.",
+        subject,
+      );
     },
-    getRuntimeCarrierForNode(subject, options) {
+    resolveRuntimeCarrierForNode(subject, options) {
       const node = asNode(subject);
       if (node === undefined) {
-        return undefined;
+        return missingCarrier("Runtime carrier resolution requires a TSTS node subject.", subject);
       }
       const semanticCarrier = getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
       if (isTypeSyntaxNode(ast, node)) {
-        return refineTargetNamedCarrier(getRuntimeCarrier(facts, node), semanticCarrier) ??
-          getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles);
+        return carrierResolution(
+          refineTargetNamedCarrier(getRuntimeCarrier(facts, node), semanticCarrier) ??
+            getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles),
+          "Runtime carrier resolved from explicit type syntax facts and TSTS-selected declaration graph evidence.",
+          "Runtime carrier is missing for TSTS-selected type syntax; no provider/source-core fact proved every leaf carrier.",
+          node,
+        );
       }
       const declaredCarrier = getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles);
       const directCarrier = refineTargetNamedCarrier(getRuntimeCarrier(facts, node), semanticCarrier) ??
@@ -57,11 +72,21 @@ export function createTargetFactQueries(
         declaredCarrier !== undefined &&
         (directCarrier === undefined || targetTypeRefContainsSourcePrimitive(declaredCarrier))
       ) {
-        return declaredCarrier;
+        return carrierResolution(
+          declaredCarrier,
+          "Runtime carrier resolved by walking the TSTS-selected declaration fact graph.",
+          "Runtime carrier is missing from the TSTS-selected declaration fact graph.",
+          node,
+        );
       }
-      return directCarrier ??
-        declaredCarrier ??
-        semanticCarrier;
+      return carrierResolution(
+        directCarrier ??
+          declaredCarrier ??
+          semanticCarrier,
+        "Runtime carrier resolved from explicit subject, symbol, alias, resolved symbol, declaration, or semantic type facts.",
+        "Runtime carrier is missing; no explicit provider/source-core fact or complete TSTS-selected derivation was available.",
+        node,
+      );
     },
     getTargetBinding(subject) {
       return facts.getTargetBindingFact(subject);
@@ -84,25 +109,37 @@ export function createTargetFactQueries(
       }
       return referenceBinding;
     },
-    getResolvedCallReturnRuntimeCarrier(subject, options) {
+    resolveCallReturnRuntimeCarrier(subject, options) {
       const node = asNode(subject);
       const signature = node === undefined ? undefined : checker.getResolvedSignature(node, options);
       const returnType = signature === undefined
         ? undefined
         : checker.getReturnTypeOfSignature(signature, options);
-      return getRuntimeCarrierForType(ast, types, facts, returnType, options);
+      return carrierResolution(
+        getRuntimeCarrierForType(ast, types, facts, returnType, options),
+        "Call return runtime carrier resolved from TSTS-selected signature return type and provider/source-core facts.",
+        signature === undefined
+          ? "Call return runtime carrier requires a TSTS-selected call signature."
+          : "Call return runtime carrier is missing for the TSTS-selected signature return type.",
+        node,
+      );
     },
-    getResolvedCallParameterRuntimeCarriers(subject, options) {
+    resolveCallParameterRuntimeCarriers(subject, options) {
       const node = asNode(subject);
       const signature = node === undefined ? undefined : checker.getResolvedSignature(node, options);
-      return signature === undefined
-        ? undefined
-        : signature.parameters.map((parameter) => getRuntimeCarrierForParameter(parameter, options));
+      if (signature === undefined) {
+        return missingCallParameterCarriers("Call parameter carrier resolution requires a TSTS-selected call signature.", node);
+      }
+      return {
+        kind: "resolved-parameters",
+        parameters: signature.parameters.map((parameter) => getRuntimeCarrierForParameter(parameter, options)),
+        evidence: [{ message: "Call parameter carriers resolved from TSTS-selected signature parameter symbols." }],
+      } satisfies TargetCallParameterCarrierResolution;
     },
-    getReturnTypeCarrierFromDeclaration(subject, options) {
+    resolveDeclarationReturnCarrier(subject, options) {
       const node = asNode(subject);
       if (node === undefined) {
-        return undefined;
+        return missingCarrier("Declaration return carrier resolution requires a TSTS node subject.", subject);
       }
       const declarationType = checker.getTypeAtLocation(node, options);
       const declarationName = ast.name(node);
@@ -128,19 +165,31 @@ export function createTargetFactQueries(
       const returnType = signature === undefined
         ? undefined
         : types.getReturnTypeOfSignature(signature, options);
-      return getRuntimeCarrier(facts, returnType) ??
-        getRuntimeCarrier(facts, returnType?.symbol) ??
-        getRuntimeCarrierForType(ast, types, facts, returnType, options);
+      return carrierResolution(
+        getRuntimeCarrier(facts, returnType) ??
+          getRuntimeCarrier(facts, returnType?.symbol) ??
+          getRuntimeCarrierForType(ast, types, facts, returnType, options),
+        "Declaration return carrier resolved from TSTS-selected declaration signature return type facts.",
+        signature === undefined
+          ? "Declaration return carrier requires a TSTS-selected declaration signature."
+          : "Declaration return carrier is missing for the TSTS-selected declaration return type.",
+        node,
+      );
     },
   };
 
   function getRuntimeCarrierForParameter(
     parameter: Symbol | undefined,
     options: { readonly sourceFile: SourceFile },
-  ): TargetTypeRef | undefined {
+  ): TargetCarrierResolution {
     const direct = getRuntimeCarrier(facts, parameter);
     if (direct !== undefined) {
-      return direct;
+      return carrierResolution(
+        direct,
+        "Parameter runtime carrier resolved from explicit parameter symbol fact.",
+        "Parameter runtime carrier fact is missing.",
+        parameter,
+      );
     }
     const declaration = getPrimaryDeclaration(parameter);
     const declarationFile = ast.getSourceFile(declaration) ?? options.sourceFile;
@@ -148,11 +197,58 @@ export function createTargetFactQueries(
       ? undefined
       : getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, declaration, { sourceFile: declarationFile }, sourceFiles);
     if (declarationCarrier !== undefined) {
-      return declarationCarrier;
+      return carrierResolution(
+        declarationCarrier,
+        "Parameter runtime carrier resolved from TSTS-selected parameter declaration fact graph.",
+        "Parameter declaration runtime carrier is missing.",
+        declaration,
+      );
     }
     const type = checker.getTypeOfSymbol(parameter, options);
-    return getRuntimeCarrier(facts, type) ?? getRuntimeCarrier(facts, type?.symbol);
+    return carrierResolution(
+      getRuntimeCarrier(facts, type) ?? getRuntimeCarrier(facts, type?.symbol),
+      "Parameter runtime carrier resolved from TSTS-selected parameter type facts.",
+      "Parameter runtime carrier is missing for the TSTS-selected parameter type.",
+      parameter,
+    );
   }
+}
+
+function carrierResolution(
+  carrier: TargetTypeRef | undefined,
+  message: string,
+  missingReason: string,
+  subject?: Symbol | ExtensionFactSubject,
+): TargetCarrierResolution {
+  return carrier === undefined
+    ? missingCarrier(missingReason, subject)
+    : {
+        kind: "resolved",
+        carrier,
+        evidence: [{ message, ...(subject === undefined ? {} : { subject }) }],
+      };
+}
+
+function missingCarrier(
+  reason: string,
+  subject?: Symbol | ExtensionFactSubject,
+): TargetCarrierResolution {
+  return {
+    kind: "missing",
+    reason,
+    evidence: subject === undefined ? [] : [{ message: reason, subject }],
+  };
+}
+
+function missingCallParameterCarriers(
+  reason: string,
+  subject?: Symbol | ExtensionFactSubject,
+): TargetCallParameterCarrierResolution {
+  return {
+    kind: "missing",
+    reason,
+    evidence: subject === undefined ? [] : [{ message: reason, subject }],
+  };
 }
 
 function refineTargetNamedCarrier(

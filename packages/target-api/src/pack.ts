@@ -61,6 +61,33 @@ export interface TargetAnalysisNodeOptions {
   readonly sourceFile: SourceFile;
 }
 
+export interface TargetCarrierResolutionEvidence {
+  readonly message: string;
+  readonly subject?: ExtensionFactSubject;
+}
+
+export interface TargetCarrierResolved {
+  readonly kind: "resolved";
+  readonly carrier: TargetTypeRef;
+  readonly evidence: readonly TargetCarrierResolutionEvidence[];
+}
+
+export interface TargetCarrierMissing {
+  readonly kind: "missing";
+  readonly reason: string;
+  readonly evidence: readonly TargetCarrierResolutionEvidence[];
+}
+
+export type TargetCarrierResolution = TargetCarrierResolved | TargetCarrierMissing;
+
+export interface TargetCallParameterCarriersResolved {
+  readonly kind: "resolved-parameters";
+  readonly parameters: readonly TargetCarrierResolution[];
+  readonly evidence: readonly TargetCarrierResolutionEvidence[];
+}
+
+export type TargetCallParameterCarrierResolution = TargetCallParameterCarriersResolved | TargetCarrierMissing;
+
 export interface TargetProjectSourceReference {
   readonly symbol: Symbol;
   readonly declaration: Node;
@@ -99,13 +126,13 @@ export interface TargetSourceAnalysisQueries {
 }
 
 export interface TargetFactQueries {
-  getRuntimeCarrier(subject: ExtensionFactSubject | undefined): TargetTypeRef | undefined;
-  getRuntimeCarrierForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetTypeRef | undefined;
+  resolveRuntimeCarrier(subject: ExtensionFactSubject | undefined): TargetCarrierResolution;
+  resolveRuntimeCarrierForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetCarrierResolution;
   getTargetBinding(subject: ExtensionFactSubject | undefined): TargetBindingFact | undefined;
   getTargetBindingForReference(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetBindingFact | undefined;
-  getResolvedCallReturnRuntimeCarrier(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetTypeRef | undefined;
-  getResolvedCallParameterRuntimeCarriers(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): readonly (TargetTypeRef | undefined)[] | undefined;
-  getReturnTypeCarrierFromDeclaration(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetTypeRef | undefined;
+  resolveCallReturnRuntimeCarrier(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetCarrierResolution;
+  resolveCallParameterRuntimeCarriers(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetCallParameterCarrierResolution;
+  resolveDeclarationReturnCarrier(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetCarrierResolution;
 }
 
 export interface TargetCompileInput {
