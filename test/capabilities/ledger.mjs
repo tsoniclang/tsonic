@@ -269,7 +269,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "partial", "surface-provider"],
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
-  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
+  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "partial", "tests"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
@@ -3055,7 +3055,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
     ]),
-    blockers: Object.freeze([]),
+    blockers: Object.freeze([
+      "analysis.abstraction.policy-enforcement remains partial until the architecture scanner is hardened beyond the current known false-green classes and proves it catches unclassified source-family, target-member, and procedural-policy branches across product source.",
+      "analysis.abstraction.policy-enforcement remains partial until the remaining product debt catalog for the procedural JS call-provider registry and receiver closed-fact validator table is burned down or explicitly converted to declarative policy/provider metadata.",
+    ]),
     laneClassification: freezeLaneClassification({
       patternKind: "analysis-abstraction-policy-violation",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -3091,7 +3094,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: the C# target architecture guard now scans product source for the known false-green classes reported by review. Array-specific use discovery has been replaced with the generic lazy analysis service, and Map/Set executable member templates have been replaced with declarative member shapes. The remaining debt catalog is therefore a burn-down ledger for the still-procedural JS call-provider registry and receiver closed-fact validator table.",
+      "Reviewed partial proof: the C# target architecture guard now scans product source for the known false-green classes reported by review; this is current scanner evidence, not completion. Array-specific use discovery has been replaced with the generic lazy analysis service, and Map/Set executable member templates have been replaced with declarative member shapes. The capability remains partial until scanner hardening proves broader source-family, target-member, and procedural-policy detection and the remaining procedural JS call-provider registry plus receiver closed-fact validator table debt is burned down or converted to declarative policy/provider metadata.",
   }),
   "architecture.native-compilable.esm-only": Object.freeze({
     sourceExamples: Object.freeze([
