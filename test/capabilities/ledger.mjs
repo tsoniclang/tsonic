@@ -355,10 +355,10 @@ const baseCapabilityDefinitions = Object.freeze([
   ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "partial", "tests"],
 
   ["target.shared.operation-contract", "Targets share operation/fact contracts without C# shortcuts", "partial", "tests"],
-  ["architecture.native-compilable.esm-only", "Product compiler/runtime source remains ESM-only and native-compilable", "partial", "tests"],
-  ["architecture.native-compilable.no-unapproved-deps", "Product compiler/runtime paths avoid unapproved third-party dependencies", "partial", "tests"],
-  ["architecture.target-pack.boundaries", "Target pack packages keep provider, surfaces, backend, runtime, and toolchain as explicit modules", "partial", "tests"],
-  ["architecture.target-pack.no-catch-all-semantics", "Target packs avoid catch-all semantic blobs and hidden source-family helpers", "partial", "tests"],
+  ["architecture.native-compilable.esm-only", "Product compiler/runtime source remains ESM-only and native-compilable", "complete", "tests"],
+  ["architecture.native-compilable.no-unapproved-deps", "Product compiler/runtime paths avoid unapproved third-party dependencies", "complete", "tests"],
+  ["architecture.target-pack.boundaries", "Target pack packages keep provider, surfaces, backend, runtime, and toolchain as explicit modules", "complete", "tests"],
+  ["architecture.target-pack.no-catch-all-semantics", "Target packs avoid catch-all semantic blobs and hidden source-family helpers", "complete", "tests"],
   ["architecture.target-pack.no-procedural-policy", "Policy files are declarative data, generic selectors, or explicit exception records only", "complete", "tests"],
   ["target.csharp.source-flow-marker-contract", "C# explicitly implements or rejects portable source flow markers", "partial", "target-provider"],
   ["target.csharp.core-lang-intrinsics", "C# implements or rejects every portable @tsonic/core/lang.js intrinsic from finalized facts", "partial", "target-provider"],
@@ -3046,6 +3046,117 @@ const reviewedCapabilityEvidence = Object.freeze({
     }),
     notes:
       "Reviewed partial proof: the C# target architecture guard now scans product source for the known false-green classes reported by review. Array-specific use discovery has been replaced with the generic lazy analysis service, and Map/Set executable member templates have been replaced with declarative member shapes. The remaining debt catalog is therefore a burn-down ledger for the still-procedural JS call-provider registry and receiver closed-fact validator table.",
+  }),
+  "architecture.native-compilable.esm-only": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { compileProject } from \"@tsonic/host\";",
+      "export { createTargetRegistry } from \"@tsonic/target-api/registry.js\";",
+    ]),
+    tstsDecision:
+      "TSTS is a source-analysis dependency only. Product compiler/runtime code must be plain ESM TypeScript that can be compiled toward native targets without CommonJS, triple-slash references, or namespace/module shims.",
+    providerFacts: Object.freeze([
+      "architectureValidationFact",
+      "validatedProductSourceRoot",
+      "nativeCompilableModuleFact",
+    ]),
+    backendContract:
+      "Product paths use ESM imports/exports and explicit module boundaries. CommonJS require/module.exports/exports mutations, TypeScript export assignments, triple-slash references, namespaces, and ambient module shims are rejected by the architecture gate.",
+    positiveTests: Object.freeze([
+      "test/architecture-contract.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/architecture-contract.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: architecture-contract scans every first-party Tsonic product source root and includes negative snippets for require, module.exports, exports mutation, export assignment, triple-slash references, namespace declarations, and ambient module shims.",
+  }),
+  "architecture.native-compilable.no-unapproved-deps": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import type { TargetPack } from \"@tsonic/target-api\";",
+      "import { readFile } from \"node:fs/promises\";",
+    ]),
+    tstsDecision:
+      "TSTS supplies compiler services through approved first-party packages. Product compiler/runtime paths do not take unreviewed third-party runtime/compiler dependencies.",
+    providerFacts: Object.freeze([
+      "architectureValidationFact",
+      "approvedDependencyFact",
+      "validatedPackageManifestFact",
+    ]),
+    backendContract:
+      "Product package manifests may depend on first-party @tsonic packages. Root-only development dependencies are limited to approved compiler/profile tooling. Any new package dependency must be consciously approved and reflected in this gate.",
+    positiveTests: Object.freeze([
+      "test/architecture-contract.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/architecture-contract.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: architecture-contract validates package.json files for the root and all current first-party product packages, and the negative test proves non-@tsonic product dependencies and unapproved root devDependencies are rejected.",
+  }),
+  "architecture.target-pack.boundaries": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const pack: TargetPack = { id: 'csharp', provider, surfaces, createBackend, createToolchain };",
+    ]),
+    tstsDecision:
+      "TSTS owns source parse/bind/check/query state. Target packs compose explicit provider, surface, backend, runtime contribution, and toolchain modules around finalized TSTS facts.",
+    providerFacts: Object.freeze([
+      "targetPackBoundaryFact",
+      "targetProviderFact",
+      "targetSurfaceFact",
+      "targetBackendFact",
+      "targetToolchainFact",
+      "targetRuntimeContributionFact",
+    ]),
+    backendContract:
+      "Target pack APIs expose provider, surfaces, backend, runtime contribution, and toolchain contracts as explicit modules. They must not collapse into one catch-all semantic blob or hidden helper path.",
+    positiveTests: Object.freeze([
+      "test/architecture-contract.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/architecture-contract.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: architecture-contract asserts the public target-pack API exposes TargetProvider, TargetSurfaceImplementation, TargetBackend, TargetToolchain, runtime contribution context, and TargetPack provider/surfaces/createBackend/createToolchain boundaries.",
+  }),
+  "architecture.target-pack.no-catch-all-semantics": Object.freeze({
+    sourceExamples: Object.freeze([
+      "input.targetFacts.resolveRuntimeCarrierForNode(node, { sourceFile });",
+      "input.analysis.lazy.mutationsOf(symbol);",
+    ]),
+    tstsDecision:
+      "TSTS exposes source checker and fact queries. Target packs must consume specific analysis, provider, target fact, backend, runtime, and toolchain APIs rather than catch-all semantic facade objects.",
+    providerFacts: Object.freeze([
+      "architectureValidationFact",
+      "specificTargetFactQuery",
+      "specificLazyAnalysisQuery",
+      "targetPackBoundaryFact",
+    ]),
+    backendContract:
+      "Product source cannot introduce semantic/semantics directories or TargetSemantic* facade names that accumulate source-family behavior. New behavior must land in explicit provider, policy-data, selector, analysis, target-fact, backend, runtime, or toolchain modules.",
+    positiveTests: Object.freeze([
+      "test/architecture-contract.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/architecture-contract.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: architecture-contract scans all current Tsonic product source roots for catch-all semantic directories and TargetSemantic facade names, and includes negative cases proving both classes are rejected.",
   }),
   "architecture.target-pack.no-procedural-policy": Object.freeze({
     sourceExamples: Object.freeze([

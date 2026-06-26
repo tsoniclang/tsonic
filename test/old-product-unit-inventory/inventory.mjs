@@ -401,6 +401,10 @@ const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
     "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
   ], [
     "architecture.target-pack.no-procedural-policy",
+    "architecture.native-compilable.esm-only",
+    "architecture.native-compilable.no-unapproved-deps",
+    "architecture.target-pack.boundaries",
+    "architecture.target-pack.no-catch-all-semantics",
     "analysis.abstraction.policy-enforcement",
     "backend.csharp.ast-statement",
     "backend.csharp.printer",

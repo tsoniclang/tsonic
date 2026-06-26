@@ -78,6 +78,26 @@ test("product compiler source stays ESM-only and native-compilable", async () =>
   assert.deepEqual(failures, []);
 });
 
+test("architecture validator rejects non-ESM and non-native source snippets", () => {
+  const rejectedSnippets = [
+    ["CommonJS require call", "const fs = require('node:fs');"],
+    ["CommonJS module.exports assignment", "module.exports = {};"],
+    ["CommonJS exports mutation", "exports.value = 1;"],
+    ["TypeScript export assignment", "export = value;"],
+    ["triple-slash reference", "/// <reference types=\"node\" />"],
+    ["namespace declaration shim", "namespace Legacy { export const value = 1; }"],
+    ["ambient module shim", "declare module \"legacy\" { export const value: number; }"],
+  ];
+
+  for (const [name, text] of rejectedSnippets) {
+    assert.equal(
+      forbiddenSourcePatterns.some((forbidden) => forbidden.name === name && forbidden.pattern.test(text)),
+      true,
+      `expected snippet to be rejected as ${name}`,
+    );
+  }
+});
+
 test("architecture scan scope covers every first-party product source root", async () => {
   const expectedRoots = Object.freeze([
     "packages/cli/src",
@@ -92,7 +112,7 @@ test("architecture scan scope covers every first-party product source root", asy
 test("product source has no procedural policy or metadata blob filenames", async () => {
   const failures = [];
   for (const sourceFile of await productSourceFiles()) {
-    if (bannedProductFileNames.includes(basename(sourceFile))) {
+    if (isBannedProductFileName(sourceFile)) {
       failures.push(repoRelative(sourceFile));
     }
   }
@@ -100,22 +120,32 @@ test("product source has no procedural policy or metadata blob filenames", async
   assert.deepEqual(failures, []);
 });
 
+test("architecture validator rejects procedural policy and metadata blob filenames", () => {
+  const rejectedPaths = bannedProductFileNames.map((fileName) => join(repoRoot, "packages/target-api/src", fileName));
+
+  assert.deepEqual(rejectedPaths.map(isBannedProductFileName), rejectedPaths.map(() => true));
+});
+
 test("product source has no catch-all semantic facade names", async () => {
   const failures = [];
   for (const sourceFile of await productSourceFiles()) {
     const relativePath = repoRelative(sourceFile);
-    const pathParts = relativePath.split("/");
-    if (pathParts.includes("semantic") || pathParts.includes("semantics")) {
-      failures.push(`${relativePath}: catch-all semantic directory`);
-    }
-
     const text = await readFile(sourceFile, "utf8");
-    if (/\bTargetSemantic(?:Queries|NodeOptions)\b/u.test(text)) {
-      failures.push(`${relativePath}: catch-all TargetSemantic API`);
-    }
+    failures.push(...catchAllSemanticFailures(relativePath, text));
   }
 
   assert.deepEqual(failures, []);
+});
+
+test("architecture validator rejects catch-all semantic directories and APIs", () => {
+  assert.deepEqual(
+    catchAllSemanticFailures("packages/target-api/src/semantics/index.ts", "export const value = 1;"),
+    ["packages/target-api/src/semantics/index.ts: catch-all semantic directory"],
+  );
+  assert.deepEqual(
+    catchAllSemanticFailures("packages/target-api/src/pack.ts", "export interface TargetSemanticQueries {}"),
+    ["packages/target-api/src/pack.ts: catch-all TargetSemantic API"],
+  );
 });
 
 test("target fact API exposes structured carrier resolution instead of optional raw carriers", async () => {
@@ -129,6 +159,20 @@ test("target fact API exposes structured carrier resolution instead of optional 
   assert.doesNotMatch(text, /resolveRuntimeCarrierForNode\([^)]*\):\s*TargetTypeRef\s*\|\s*undefined/u);
   assert.doesNotMatch(text, /resolveCallReturnRuntimeCarrier\([^)]*\):\s*TargetTypeRef\s*\|\s*undefined/u);
   assert.doesNotMatch(text, /resolveDeclarationReturnCarrier\([^)]*\):\s*TargetTypeRef\s*\|\s*undefined/u);
+});
+
+test("target pack API exposes explicit provider surface backend runtime and toolchain modules", async () => {
+  const text = await readFile(join(repoRoot, "packages/target-api/src/pack.ts"), "utf8");
+
+  assert.match(text, /export interface TargetProvider\b/u);
+  assert.match(text, /export interface TargetSurfaceImplementation\b/u);
+  assert.match(text, /export interface TargetBackend\b/u);
+  assert.match(text, /export interface TargetToolchain\b/u);
+  assert.match(text, /export interface TargetRuntimeContributionContext\b/u);
+  assert.match(text, /readonly provider\?: TargetProvider;/u);
+  assert.match(text, /readonly surfaces\?: readonly TargetSurfaceImplementation\[\];/u);
+  assert.match(text, /createBackend\(context: TargetBackendContext\): TargetBackend;/u);
+  assert.match(text, /createToolchain\(context: TargetToolchainContext\): TargetToolchain;/u);
 });
 
 test("product package manifests use only approved compiler/runtime dependencies", async () => {
@@ -149,6 +193,39 @@ test("product package manifests use only approved compiler/runtime dependencies"
 
   assert.deepEqual(failures, []);
 });
+
+test("architecture validator rejects unapproved product dependencies", () => {
+  const failures = [];
+  collectDisallowedDependencies(failures, "packages/host/package.json", "dependencies", {
+    "@tsonic/target-api": "workspace:*",
+    "left-pad": "^1.3.0",
+  }, isAllowedProductDependency);
+  collectDisallowedDependencies(failures, "package.json", "devDependencies", {
+    "@types/node": "latest",
+    "some-build-helper": "latest",
+  }, (name) => allowedRootDevDependencies.includes(name));
+
+  assert.deepEqual(failures, [
+    "packages/host/package.json:dependencies:left-pad",
+    "package.json:devDependencies:some-build-helper",
+  ]);
+});
+
+function isBannedProductFileName(sourceFile) {
+  return bannedProductFileNames.includes(basename(sourceFile));
+}
+
+function catchAllSemanticFailures(relativePath, text) {
+  const failures = [];
+  const pathParts = relativePath.split("/");
+  if (pathParts.includes("semantic") || pathParts.includes("semantics")) {
+    failures.push(`${relativePath}: catch-all semantic directory`);
+  }
+  if (/\bTargetSemantic(?:Queries|NodeOptions)\b/u.test(text)) {
+    failures.push(`${relativePath}: catch-all TargetSemantic API`);
+  }
+  return failures;
+}
 
 function collectDisallowedDependencies(failures, manifestPath, field, dependencies, isAllowed) {
   if (dependencies === undefined) {
