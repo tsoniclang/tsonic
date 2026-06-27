@@ -289,7 +289,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.console", "JS console operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.console-log", "console.log uses selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.array-methods", "JS array methods use selected JS surface facts", "partial", "surface-provider"],
-  ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "partial", "surface-provider"],
+  ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "complete", "surface-provider"],
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
   ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
@@ -3038,18 +3038,41 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/array-constructor/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.array-constructor remains partial until selected-surface CLI/toolchain proof for new Array<T>(size), no-surface/type-only Array constructor rejection, and diagnostics that do not lower to CLR arrays or dense List<T> by spelling are covered.",
-    ]),
+    blockers: Object.freeze([]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: the C# JS runtime has current JSArray construction behavior, and tsonic-csharp selected-surface provider tests map Array constructor calls only from selected Array constructor declarations plus closed JSArray<T> result carrier facts. Missing result carrier facts reject instead of allocating CLR arrays or dense List<T> by spelling. Remaining proof is CLI/toolchain and no-surface/type-only constructor diagnostics.",
+      "Reviewed proof: selected JS surface Array constructor declarations map new Array<T>(size) only from finalized selected-constructor facts plus closed JSArray<T> carrier facts. Explicit source-core primitive type arguments are preserved through constructor runtime carrier evidence, so new Array<int32>(size) emits JSArray<int>, not JSArray<double>. Missing result carrier facts reject in the provider, and no-surface/type-only Array constructor usage fails before artifact creation instead of allocating CLR arrays or dense List<T> from spelling. CLI evidence dotnet-builds the generated C# project and asserts no CLR-array/List fallback output.",
   }),
   "surface.js.array.length-index": Object.freeze({
     sourceExamples: Object.freeze([

@@ -946,6 +946,83 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits Array construction only from selected JS surface carrier facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-constructor-selected-js-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArrayConstructorSelectedJsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function make(size: int32): int32 {",
+      "  const values = new Array<int32>(size);",
+      "  values[0] = 7;",
+      "  return values.length;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static int make\(int size\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = new Tsonic\.CSharp\.Js\.JSArray<int>\(System\.Convert\.ToDouble\(size\)\);/);
+  assert.match(generatedSource, /values\[0\] = 7;/);
+  assert.match(generatedSource, /return values\.length;/);
+  assert.doesNotMatch(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double>/);
+  assert.doesNotMatch(generatedSource, /new int\[/);
+  assert.doesNotMatch(generatedSource, /System\.Collections\.Generic\.List<int>/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayConstructorSelectedJsSurface.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const withoutSurfaceDirectory = resolve(tempRoot, "array-constructor-without-js-surface");
+  await writeProject(withoutSurfaceDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedArrayConstructorWithoutJsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function make(size: int32): int32[] {",
+      "  return new Array<int32>(size);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const rejected = runNode([cliPath, "build", "--project", resolve(withoutSurfaceDirectory, "tsonic.json")]);
+  assert.equal(rejected.status, 1);
+  assert.match(rejected.stderr, /C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assert.equal(existsSync(resolve(withoutSurfaceDirectory, "out/csharp/SmokeGeneratedArrayConstructorWithoutJsSurface.csproj")), false);
+});
+
 test("CLI selects ordinary TypeScript array public ABI lanes from finalized JS surface facts", async () => {
   const projectDirectory = resolve(tempRoot, "array-public-abi-lanes");
   await writeProject(projectDirectory, {
