@@ -788,6 +788,41 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "tsts.generic-inference",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("generic-function-value-default-export"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "declaration.generic-parameters",
+    "host.package.composition",
+    "module.export.default",
+    "toolchain.csharp.build-run",
+    "tsts.generic-inference",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("import-type-erase"),
+  ], [
+    "backend.ast.only",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.package.composition",
+    "module.import.type-only",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("module-const-array-mutation"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.package.composition",
+    "host.project.top-level-initialization-order",
+    "operation.array.literal",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("arrow-function"),
     oldFixturePath("arrow-inference"),
     oldFixturePath("closures"),
@@ -1480,6 +1515,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("multi-file"),
   ], [
+    "host.project.module-graph",
     "host.graph.source-files",
     "module.emit.multi-file",
     "module.graph.source-files",
@@ -1487,6 +1523,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("multi-file-imports"),
   ], [
+    "host.project.module-graph",
     "host.graph.source-files",
     "module.emit.multi-file",
     "module.graph.source-files",
@@ -1495,6 +1532,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("multi-file-types"),
   ], [
+    "host.project.module-graph",
     "host.graph.source-files",
     "module.graph.source-files",
     "module.import.type-only",
@@ -1502,14 +1540,22 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("namespace-imports"),
   ], [
+    "host.project.module-graph",
     "module.emit.multi-file",
     "module.import.namespace",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("top-level-code"),
   ], [
+    "host.project.module-graph",
+    "host.project.top-level-initialization-order",
     "module.emit.top-level-order",
     "module.import.side-effect",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("module-const-array-mutation"),
+  ], [
+    "host.project.top-level-initialization-order",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("module-constants"),
@@ -1519,13 +1565,33 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("barrel-reexports"),
   ], [
+    "host.project.module-graph",
+    "host.project.top-level-initialization-order",
     "module.export.reexport",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("generic-function-value-default-export"),
+  ], [
+    "module.export.default",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("import-type-erase"),
+  ], [
+    "module.import.type-only",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("source-package-basic"),
     oldFixturePath("source-package-subpath"),
   ], [
+    "host.project.module-graph",
+    "host.project.package-path-resolution",
     "module.package.exports-subpath",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("source-package-surface-mismatch"),
+  ], [
+    "host.project.module-graph",
+    "host.project.package-path-resolution",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("native-array-push-mutation"),

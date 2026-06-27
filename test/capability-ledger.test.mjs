@@ -659,6 +659,91 @@ test("reviewed old inventory entries are represented by ledger oldEvidence", () 
   }
 });
 
+test("host and module capabilities carry reviewed old inventory proof", () => {
+  const requiredOldEvidenceByCapability = new Map([
+    [
+      "host.project.module-graph",
+      [
+        "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+        "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+        "packages/frontend/src/program/entrypoint-scope.test.ts",
+        "packages/frontend/src/program/program-input-discovery.test.ts",
+        "packages/frontend/src/resolver/namespace.test.ts",
+        "test/fixtures/barrel-reexports/",
+        "test/fixtures/multi-file/",
+        "test/fixtures/multi-file-imports/",
+        "test/fixtures/multi-file-types/",
+        "test/fixtures/namespace-imports/",
+        "test/fixtures/source-package-basic/",
+        "test/fixtures/source-package-subpath/",
+        "test/fixtures/source-package-surface-mismatch/",
+        "test/fixtures/top-level-code/",
+      ],
+    ],
+    [
+      "host.project.package-path-resolution",
+      [
+        "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+        "packages/cli/src/commands/build-source-package.test.ts",
+        "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+        "packages/frontend/src/program/package-roots.test.ts",
+        "test/fixtures/source-package-basic/",
+        "test/fixtures/source-package-subpath/",
+        "test/fixtures/source-package-surface-mismatch/",
+      ],
+    ],
+    [
+      "host.project.top-level-initialization-order",
+      [
+        "packages/frontend/src/program/entrypoint-scope.test.ts",
+        "test/fixtures/barrel-reexports/",
+        "test/fixtures/module-const-array-mutation/",
+        "test/fixtures/top-level-code/",
+      ],
+    ],
+    [
+      "module.import.type-only",
+      [
+        "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+        "test/fixtures/import-type-erase/",
+        "test/fixtures/multi-file-types/",
+      ],
+    ],
+    [
+      "module.package.exports-subpath",
+      [
+        "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+        "packages/cli/src/commands/build-source-package.test.ts",
+        "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+        "packages/frontend/src/program/package-roots.test.ts",
+        "test/fixtures/source-package-basic/",
+        "test/fixtures/source-package-subpath/",
+        "test/fixtures/source-package-surface-mismatch/",
+      ],
+    ],
+  ]);
+  const capabilityById = new Map(capabilityLedger.map((entry) => [entry.capabilityId, entry]));
+  const oldEntriesByPath = new Map([
+    ...oldEmitterPortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldSuitePortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldProductUnitPortInventory.map((entry) => [entry.oldPath, entry]),
+  ]);
+
+  for (const [capabilityId, requiredOldPaths] of requiredOldEvidenceByCapability) {
+    const capability = capabilityById.get(capabilityId);
+    assert.notEqual(capability, undefined, capabilityId);
+    const oldEvidenceSet = new Set(capability.oldEvidence);
+
+    for (const oldPath of requiredOldPaths) {
+      assert.equal(oldEvidenceSet.has(oldPath), true, `${capabilityId} missing oldEvidence ${oldPath}`);
+      const oldEntry = oldEntriesByPath.get(oldPath);
+      assert.notEqual(oldEntry, undefined, `${capabilityId} references unknown old inventory path ${oldPath}`);
+      assert.equal(oldEntry.capabilityMappingStatus, "reviewed", `${oldPath} must be a reviewed mapping for ${capabilityId}`);
+      assert.equal(oldEntry.capabilityIds.includes(capabilityId), true, `${oldPath} is not bidirectionally mapped to ${capabilityId}`);
+    }
+  }
+});
+
 test("ledger oldEvidence paths are reviewed old inventory mappings", () => {
   const oldEntriesByPath = new Map([
     ...oldEmitterPortInventory.map((entry) => [entry.oldPath, entry]),

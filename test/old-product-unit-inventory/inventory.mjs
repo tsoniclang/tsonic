@@ -332,6 +332,80 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
     "toolchain.csharp.build-run",
   ]),
   ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+  ], [
+    "host.package.composition",
+    "host.project.package-discovery",
+    "host.project.package-path-resolution",
+    "module.package.exports-subpath",
+    "provider.module.no-file-backed-fallback",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/cli/src/commands/build-source-package.test.ts",
+  ], [
+    "host.package.composition",
+    "host.project.module-graph",
+    "host.project.package-path-resolution",
+    "module.emit.multi-file",
+    "module.package.exports-subpath",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+  ], [
+    "host.project.module-graph",
+    "module.export.default",
+    "module.export.named",
+    "module.export.reexport",
+    "module.graph.source-files",
+    "module.import.default",
+    "module.import.named",
+    "module.import.namespace",
+    "module.import.type-only",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+  ], [
+    "host.project.package-discovery",
+    "host.project.package-path-resolution",
+    "module.package.exports-subpath",
+    "provider.module.no-file-backed-fallback",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+  ], [
+    "host.graph.source-files",
+    "host.project.module-graph",
+    "module.graph.source-files",
+    "tsts.program.create-with-extensions",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/entrypoint-scope.test.ts",
+  ], [
+    "host.project.deterministic-output-paths",
+    "host.project.module-graph",
+    "host.project.top-level-initialization-order",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/package-roots.test.ts",
+  ], [
+    "host.project.package-discovery",
+    "host.project.package-path-resolution",
+    "module.package.exports-subpath",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/program-input-discovery.test.ts",
+  ], [
+    "host.graph.source-files",
+    "host.project.module-graph",
+    "module.graph.source-files",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/resolver/namespace.test.ts",
+  ], [
+    "host.project.module-graph",
+    "module.import.namespace",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
     "packages/cli/src/surface/profiles.test.ts",
   ], [
     "host.config.surface-selection",

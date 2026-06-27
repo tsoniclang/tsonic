@@ -461,6 +461,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli/surface-composition.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+      "packages/frontend/src/program/program-input-discovery.test.ts",
       "test/fixtures/multi-file/",
       "test/fixtures/multi-file-imports/",
       "test/fixtures/multi-file-types/",
@@ -571,7 +573,22 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+      "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+      "packages/frontend/src/program/entrypoint-scope.test.ts",
+      "packages/frontend/src/program/program-input-discovery.test.ts",
+      "packages/frontend/src/resolver/namespace.test.ts",
+      "test/fixtures/barrel-reexports/",
+      "test/fixtures/multi-file/",
+      "test/fixtures/multi-file-imports/",
+      "test/fixtures/multi-file-types/",
+      "test/fixtures/namespace-imports/",
+      "test/fixtures/source-package-basic/",
+      "test/fixtures/source-package-subpath/",
+      "test/fixtures/source-package-surface-mismatch/",
+      "test/fixtures/top-level-code/",
+    ]),
     blockers: Object.freeze([
       "host.project.module-graph remains partial until every old module/source-package fixture and product unit path is explicitly mapped to current TSTS source graph behavior.",
     ]),
@@ -585,7 +602,15 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+      "packages/cli/src/commands/build-source-package.test.ts",
+      "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+      "packages/frontend/src/program/package-roots.test.ts",
+      "test/fixtures/source-package-basic/",
+      "test/fixtures/source-package-subpath/",
+      "test/fixtures/source-package-surface-mismatch/",
+    ]),
     blockers: Object.freeze([
       "host.project.package-path-resolution remains partial until every old source-package fixture and package path unit test is classified against provider-owned virtual modules or current TSTS package export resolution.",
     ]),
@@ -601,7 +626,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/program/entrypoint-scope.test.ts",
+      "test/fixtures/barrel-reexports/",
+      "test/fixtures/module-const-array-mutation/",
+      "test/fixtures/top-level-code/",
+    ]),
     blockers: Object.freeze([
       "host.project.top-level-initialization-order remains partial until cycles, export initialization edge cases, and every old module/top-level fixture have current runtime proof.",
     ]),
@@ -619,6 +649,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+      "packages/frontend/src/program/program-input-discovery.test.ts",
       "test/fixtures/multi-file/",
       "test/fixtures/multi-file-imports/",
       "test/fixtures/multi-file-types/",
@@ -639,6 +671,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
       "test/fixtures/multi-file-imports/",
     ]),
     blockers: Object.freeze([
@@ -656,7 +689,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+    ]),
     blockers: Object.freeze([
       "module.import.default remains partial until default imports are mapped to old fixture coverage and backend emission capabilities.",
     ]),
@@ -673,6 +708,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+      "packages/frontend/src/resolver/namespace.test.ts",
       "test/fixtures/namespace-imports/",
     ]),
     blockers: Object.freeze([
@@ -691,6 +728,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+      "test/fixtures/import-type-erase/",
       "test/fixtures/multi-file-types/",
     ]),
     blockers: Object.freeze([
@@ -726,6 +765,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
       "test/fixtures/module-constants/",
     ]),
     blockers: Object.freeze([
@@ -742,7 +782,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/modules-declarations.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+      "test/fixtures/generic-function-value-default-export/",
+    ]),
     blockers: Object.freeze([
       "module.export.default remains partial until default class exports and every old default-export fixture form are mapped to current backend emission capabilities.",
     ]),
@@ -758,6 +801,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
       "test/fixtures/barrel-reexports/",
     ]),
     blockers: Object.freeze([
@@ -778,6 +822,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+      "packages/cli/src/commands/build-source-package.test.ts",
+      "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+      "packages/frontend/src/program/package-roots.test.ts",
       "test/fixtures/source-package-basic/",
       "test/fixtures/source-package-subpath/",
       "test/fixtures/source-package-surface-mismatch/",
