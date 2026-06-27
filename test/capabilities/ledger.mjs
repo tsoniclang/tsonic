@@ -269,7 +269,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "partial", "surface-provider"],
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
-  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "partial", "tests"],
+  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
@@ -3187,21 +3187,23 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/analysis-abstraction-policy.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/lazy-analysis.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/analysis-abstraction-policy.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/lazy-analysis.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
     ]),
-    blockers: Object.freeze([
-      "analysis.abstraction.policy-enforcement remains partial until the zero-finding C# target validator is proven across JS and NodeJS surface/provider modules, not just the recently burned-down JS call/property provider debt.",
-      "Lazy generic analysis services must cover source references, uses, mutations, property/element writes, calls, captures, escapes, and summaries before array/object/surface planning can be considered fully policy-driven.",
-      "NodeJS surface mapping must receive the same scanner coverage and old-inventory proof so provider member tables cannot become a second source-family algorithm layer.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "analysis-abstraction-policy-violation",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -3237,7 +3239,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: the architecture guard already rejects direct source-member id branches, procedural policy filenames, ad hoc source-member matchers, target-member synthesis from source names, and local Node target-member identity maps. The capability remains partial because manual review found remaining JS surface source-family provider rows and policy-shaped member tables that must be scanner-enforced and burned down before the ledger may claim complete policy enforcement.",
+      "Complete proof: the C# architecture validator now reports zero findings across product code after JS/Node surface member routing and object-shape member lookup were moved behind selected identity, finalized facts, declarative metadata, generic selectors, or structured missing diagnostics. Lazy generic analysis tests prove checked-source structural queries without policy conclusions, and surface/object-shape tests prove selected declarations/facts are required for JS, Node, and object-shape operations.",
   }),
   "architecture.native-compilable.esm-only": Object.freeze({
     sourceExamples: Object.freeze([
