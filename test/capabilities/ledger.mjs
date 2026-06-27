@@ -42,12 +42,35 @@ export const capabilityCompatRuntimeCarriers = Object.freeze([
   "TsValue",
 ]);
 
+export const capabilitySurfaceEvidenceGateNames = Object.freeze([
+  "selectedOperationFacts",
+  "providerFacts",
+  "backendEmission",
+  "runtimeBehavior",
+  "failClosedDiagnostics",
+  "backendNoFallback",
+]);
+
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityEvidenceReviewStatusSet = new Set(capabilityEvidenceReviewStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
 const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
 const bannedCompatMechanismPattern = /QuickJS|Reflection|dynamic|GetProperty|GetProperties|GetMethod|GetMethods|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load/u;
+const mapSetCapabilityId = "surface.js.map-set";
+const mapSetRequiredPossibleLanes = Object.freeze(["static-native", "compat-runtime", "hard-reject"]);
+const mapSetRequiredStaticNativeFacts = Object.freeze([
+  "selected static-native Map/Set lane",
+  "provider equality semantics evidence",
+]);
+const mapSetRequiredCompatFacts = Object.freeze([
+  "closed JS Map/Set runtime carrier",
+  "JS SameValueZero equality metadata",
+]);
+const mapSetRequiredHardRejectReasons = Object.freeze([
+  "clr-equality-not-full-js-compat",
+  "unsupported-selected-map-set-operation",
+]);
 
 export const coreLangIntrinsicModuleSpecifier = "@tsonic/core/lang.js";
 
@@ -3626,6 +3649,52 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     backendContract:
       "C# emits Map/Set runtime operations only from finalized selected-surface facts; unresolved globals, foreign declarations, and missing iterator carriers must diagnose instead of falling back to dictionaries, HashSet, reflection, or name-based helpers.",
+    laneClassification: freezeLaneClassification({
+      patternKind: "js-map-set-lane-selection",
+      possibleLanes: ["static-native", "compat-runtime", "hard-reject"],
+      strictNative: {
+        lane: "hard-reject",
+        reason:
+          "Map/Set full JS compatibility requires an explicit selected lane plus equality/runtime facts before any static-native carrier can be emitted.",
+        hardRejectIfMissing: [
+          "selected Map/Set lane fact",
+          "provider equality semantics evidence",
+          "selected operation support fact",
+        ],
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: [
+          "selected Map/Set source declaration identity",
+          "selected static-native Map/Set lane",
+          "closed Map/Set key/value carrier facts",
+          "provider equality semantics evidence",
+        ],
+        operation: "emit-static-native-map-set-operation-with-declared-equality-lane",
+      },
+      compat: {
+        lane: "compat-runtime",
+        requiredFacts: [
+          "selected compat-runtime Map/Set lane",
+          "selected Map/Set source declaration identity",
+          "closed JS Map/Set runtime carrier",
+          "JS SameValueZero equality metadata",
+          "SelectedSurfaceRuntime carrier fact",
+        ],
+        runtimeCarrier: "SelectedSurfaceRuntime",
+        operation: "emit-closed-js-map-set-runtime-operation",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: [
+          "missing-selected-map-set-lane",
+          "clr-equality-not-full-js-compat",
+          "map-set-key-not-proven-for-selected-lane",
+          "unsupported-selected-map-set-operation",
+          "missing-finalized-map-set-lane-fact",
+        ],
+      },
+    }),
     positiveTests: Object.freeze([
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MapTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/SetTests.cs",
@@ -3642,10 +3711,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/map-set-not-in-globals/",
     ]),
     blockers: Object.freeze([
-      "surface.js.map-set remains partial until no-surface Map/Set name-resolution diagnostics, Map.get nullish expected-target threading, Map/Set iterable constructor overloads, forEach CLI/toolchain operations, and exact generated diagnostics for unsupported selected patterns are proven.",
+      "surface.js.map-set remains partial until no-surface Map/Set name-resolution diagnostics, Map.get nullish expected-target threading, Map/Set iterable constructor overloads, entries/values/size/delete/clear/forEach operations, and complete runtime/toolchain edge coverage are proven.",
+      "surface.js.map-set cannot be complete until evidence proves each operation's selected static-native versus compat-runtime lane, rejects missing finalized lane facts, and records that Dictionary<K,V>, HashSet<T>, and Map<K,V> where K : notnull with CLR equality do not claim full JS Map/Set compatibility.",
     ]),
     notes:
-      "Reviewed partial proof: current provider evidence maps selected Map/Set declarations, constructors, set/get/has/delete/clear/keys/values/entries/add calls, size properties, and collection iterator carriers through compat-runtime policy metadata with js-same-value-zero equality semantics; no static-native Dictionary/HashSet carrier is selected by the normal JS surface. Current csharp-js runtime evidence proves insertion order, overwrite keeps order, delete/re-add order, NaN key/value equality, +0/-0 equality, null and JSUndefined keys/values when represented, and object keys/values by reference identity rather than structural Equals. Current CLI/toolchain evidence compiles TypeScript new Map<string, int32>(), set/get/has, new Set<string>(), add/has, and Array.from(counts.keys()) to Tsonic.CSharp.Js.Map, Tsonic.CSharp.Js.Set, and Tsonic.CSharp.Js.Array.from, then dotnet-builds the generated C# project. Negative evidence rejects missing closed collection carrier facts in provider tests and asserts generated CLI output contains no InvalidExpression, __unsupported, dynamic/reflection, Dictionary/HashSet substitution, or unqualified Map/Set constructor spelling. The focused CLI proof intentionally keeps Map.get as int32 | undefined because Map.get(key) ?? fallback currently belongs to the separate nullish expected-target blocker. The old Map/Set fixtures stay mapped as regression evidence and blockers, not completion proof.",
+      "Reviewed partial proof: current provider evidence maps selected Map/Set declarations, constructors, set/get/has/delete/clear/keys/values/entries/add calls, size properties, and collection iterator carriers through compat-runtime policy metadata with js-same-value-zero equality semantics; no static-native Dictionary/HashSet carrier is selected by the normal JS surface. Current csharp-js runtime evidence proves insertion order, overwrite keeps order, delete/re-add order, NaN key/value equality, +0/-0 equality, null and JSUndefined keys/values when represented, and object keys/values by reference identity rather than structural Equals. Current CLI/toolchain evidence compiles TypeScript new Map<string, int32>(), set/get/has, new Set<string>(), add/has, and Array.from(counts.keys()) to Tsonic.CSharp.Js.Map, Tsonic.CSharp.Js.Set, and Tsonic.CSharp.Js.Array.from, then dotnet-builds the generated C# project. Negative evidence rejects missing closed collection carrier facts in provider tests and asserts generated CLI output contains no InvalidExpression, __unsupported, dynamic/reflection, Dictionary/HashSet substitution, or unqualified Map/Set constructor spelling. The lane ledger distinguishes static-native Map/Set from compat-runtime Map/Set, requires SameValueZero/equality metadata for full JS compatibility, and forces missing lane facts or unsupported selected operations into hard-reject diagnostics rather than CLR Dictionary/HashSet fallback. The focused CLI proof intentionally keeps Map.get as int32 | undefined because Map.get(key) ?? fallback currently belongs to the separate nullish expected-target blocker. The old Map/Set fixtures stay mapped as regression evidence and blockers, not completion proof.",
   }),
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
@@ -3694,6 +3764,27 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/date-not-global/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
       "Reviewed proof: selected JS surface Date declarations map Date.UTC, Date(), new Date(...), toISOString(), and getTime() to the closed Tsonic.CSharp.Js.Date runtime carrier; CLI output includes JS runtime artifacts, generated C# build succeeds, no unqualified Date target spelling leaks, and no-surface Date construction fails closed with a selected-target-signature diagnostic.",
   }),
@@ -3783,6 +3874,30 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-node-date-union/",
     ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/statSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/fstatSync.tests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
     blockers: Object.freeze([]),
     notes:
       "Reviewed complete proof: selected NodeJS provider declarations expose Stats.mtime as the JS Date source shape, property mapping requires the selected provider member identity, JS Date instance calls require selected JS declarations, Date | undefined nullish coalescing preserves the closed JS Date carrier across surfaces, CLI/toolchain emission produces Tsonic.CSharp.Js.Date rather than DateTime/string/dynamic carriers, no-surface Node imports fail before artifact emission, and runtime tests cover Stats Date values plus JS Date behavior.",
@@ -3815,6 +3930,34 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/arch.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/argv.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/cwd.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/env.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/platform.tests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/chdir.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/kill.tests.cs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
     blockers: Object.freeze([]),
     notes:
       "Reviewed complete proof: selected NodeJS process facts cover process module imports, cwd/chdir/exit/kill calls, scalar metadata properties, exitCode reads, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, and no-surface fail-closed diagnostics. CLI/toolchain proof emits only finalized NodeJS surface operations, csharp-nodejs runtime tests cover platform/env/version/exit/kill behavior, and unsupported or unselected process use fails before fallback output.",
@@ -5339,6 +5482,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     sourceExamples: Object.freeze([
       "targets: [{ id: \"csharp\", surfaces: [\"nodejs\"] }]",
       "import path from \"node:path\";",
+      "targets: [{ id: \"csharp\", surfaces: [\"nodejs-without-js-dependency\"] }]",
     ]),
     tstsDecision:
       "TSTS source acceptance does not select target surfaces; the host and surface provider own selected-surface validation.",
@@ -5346,6 +5490,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "selectedSurfaceFact",
       "surfaceDependencyFact",
       "surfaceOwnershipFact",
+      "surfaceTargetCompatibilityFact",
       "unsupportedSurfaceDiagnosticFact",
     ]),
     backendContract:
@@ -5370,15 +5515,18 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "diagnostic.unsupported-selected-surface-operation": Object.freeze({
     sourceExamples: Object.freeze([
-      "Object.assign({}, value);",
-      "const assign = Object.assign;",
+      "Promise.resolve(1).then(value => value + 1);",
+      "import { format } from \"node:util\"; format({ value: 1 });",
+      "const value = values.join(\"|\"); // when finalized receiver carrier facts are missing",
     ]),
     tstsDecision:
       "TSTS checks the selected JS declaration; the selected surface provider decides whether that declaration has target/runtime facts.",
     providerFacts: Object.freeze([
+      "selectedSourceDeclarationFact",
       "selectedSurfaceOperationFact",
       "unsupportedSurfaceOperationFact",
       "surfaceDiagnosticEvidenceFact",
+      "missingCarrierReasonEvidenceFact",
     ]),
     backendContract:
       "Selected but unsupported surface operations must reject with the owning surface diagnostic and must not defer to backend name lookup or emit placeholder calls.",
@@ -5423,7 +5571,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: C# JS surface tests hard-reject selected Object.assign calls and property-valued access with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED instead of deferring to spelling, backend lookup, or placeholder runtime code. Completion requires the same fail-closed lane for all unsupported selected JS and Node surface operations.",
+      "Reviewed partial proof: C# JS and NodeJS surface tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_SURFACE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Missing finalized surface facts remain separate deterministic missing-fact diagnostics instead of backend lookup, placeholder output, or source-name fallback. Completion requires the same fail-closed lane for every unsupported selected JS and Node surface member, exact source spans, and integrated CLI/toolchain no-artifact proof.",
   }),
   "diagnostic.unsupported-target-operation": Object.freeze({
     positiveTests: Object.freeze([
@@ -6187,6 +6335,15 @@ function freezeLaneBehavior(behavior) {
   });
 }
 
+function freezeSurfaceEvidence(surfaceEvidence) {
+  return Object.freeze(Object.fromEntries(
+    capabilitySurfaceEvidenceGateNames.map((gateName) => [
+      gateName,
+      Object.freeze([...(surfaceEvidence?.[gateName] ?? [])]),
+    ]),
+  ));
+}
+
 function capability([capabilityId, title, status, owner]) {
   const defaults = capabilityDefaults(capabilityId, owner);
   const reviewedEvidence = reviewedCapabilityEvidence[capabilityId];
@@ -6210,6 +6367,9 @@ function capability([capabilityId, title, status, owner]) {
     laneClassification,
     ...(reviewedEvidence?.coreIntrinsic === undefined ? {} : {
       coreIntrinsic: freezeCoreIntrinsicContract(reviewedEvidence.coreIntrinsic),
+    }),
+    ...(reviewedEvidence?.surfaceEvidence === undefined ? {} : {
+      surfaceEvidence: freezeSurfaceEvidence(reviewedEvidence.surfaceEvidence),
     }),
     blockers: Object.freeze(blockers),
     notes: reviewedEvidence?.notes ??
@@ -6366,12 +6526,123 @@ export function validateCapabilityLedgerEntry(entry) {
   validateStringArrayField(errors, entry, "oldEvidence");
   validateEvidenceArrays(errors, entry);
   validateCompleteCapabilityProof(errors, entry);
+  validateSurfaceEvidence(errors, entry);
   validateStringArrayField(errors, entry, "blockers");
   validateBlockerCompleteness(errors, entry);
   validateStringField(errors, entry, "notes");
   validateCoreIntrinsicContract(errors, entry);
   errors.push(...validateCapabilityLaneClassification(entry));
+  validateMapSetLaneClassification(errors, entry);
   return errors;
+}
+
+function validateSurfaceEvidence(errors, entry) {
+  if (!isSurfaceCapability(entry.capabilityId)) {
+    if (entry.surfaceEvidence !== undefined) {
+      errors.push("surfaceEvidence is only valid for surface capabilities");
+    }
+    return;
+  }
+
+  if (entry.status !== "complete" && entry.surfaceEvidence === undefined) {
+    return;
+  }
+
+  const surfaceEvidence = entry.surfaceEvidence;
+  if (!isPlainObject(surfaceEvidence)) {
+    if (entry.status === "complete") {
+      errors.push("complete surface capabilities must have surfaceEvidence");
+    } else {
+      errors.push("surfaceEvidence must be an object");
+    }
+    return;
+  }
+
+  const positiveTestSet = new Set(Array.isArray(entry.positiveTests) ? entry.positiveTests : []);
+  const negativeTestSet = new Set(Array.isArray(entry.negativeTests) ? entry.negativeTests : []);
+  const currentTestSet = new Set([...positiveTestSet, ...negativeTestSet]);
+
+  for (const gateName of capabilitySurfaceEvidenceGateNames) {
+    const gatePaths = surfaceEvidence[gateName];
+    if (!Array.isArray(gatePaths) || gatePaths.length === 0) {
+      if (entry.status === "complete") {
+        errors.push(`surfaceEvidence.${gateName} must be a non-empty array for complete surface capabilities`);
+      } else if (gatePaths !== undefined) {
+        errors.push(`surfaceEvidence.${gateName} must be a non-empty array`);
+      }
+      continue;
+    }
+
+    for (const testPath of gatePaths) {
+      if (typeof testPath !== "string" || testPath.length === 0) {
+        errors.push(`surfaceEvidence.${gateName} must contain only non-empty strings`);
+        break;
+      }
+      if (!currentTestSet.has(testPath)) {
+        errors.push(`surfaceEvidence.${gateName} must reference current positiveTests or negativeTests`);
+        break;
+      }
+      if (gateName === "failClosedDiagnostics" || gateName === "backendNoFallback") {
+        if (!negativeTestSet.has(testPath)) {
+          errors.push(`surfaceEvidence.${gateName} must reference negativeTests`);
+          break;
+        }
+      } else if (!positiveTestSet.has(testPath)) {
+        errors.push(`surfaceEvidence.${gateName} must reference positiveTests`);
+        break;
+      }
+    }
+  }
+}
+
+function isSurfaceCapability(capabilityId) {
+  return typeof capabilityId === "string" &&
+    (capabilityId.startsWith("surface.js") || capabilityId.startsWith("surface.node"));
+}
+
+function validateMapSetLaneClassification(errors, entry) {
+  if (entry.capabilityId !== mapSetCapabilityId) {
+    return;
+  }
+
+  const classification = entry.laneClassification;
+  if (!isPlainObject(classification)) {
+    return;
+  }
+
+  validateIncludes(errors, classification.possibleLanes, mapSetRequiredPossibleLanes, "surface.js.map-set laneClassification.possibleLanes");
+  validateIncludes(
+    errors,
+    isPlainObject(classification.staticNative) ? classification.staticNative.requiredFacts : undefined,
+    mapSetRequiredStaticNativeFacts,
+    "surface.js.map-set laneClassification.staticNative.requiredFacts",
+  );
+  validateIncludes(
+    errors,
+    isPlainObject(classification.compat) ? classification.compat.requiredFacts : undefined,
+    mapSetRequiredCompatFacts,
+    "surface.js.map-set laneClassification.compat.requiredFacts",
+  );
+  if (!isPlainObject(classification.compat) || classification.compat.runtimeCarrier !== "SelectedSurfaceRuntime") {
+    errors.push("surface.js.map-set laneClassification.compat.runtimeCarrier must be SelectedSurfaceRuntime");
+  }
+  validateIncludes(
+    errors,
+    isPlainObject(classification.hardReject) ? classification.hardReject.reasons : undefined,
+    mapSetRequiredHardRejectReasons,
+    "surface.js.map-set laneClassification.hardReject.reasons",
+  );
+}
+
+function validateIncludes(errors, values, requiredValues, path) {
+  if (!Array.isArray(values)) {
+    return;
+  }
+  for (const requiredValue of requiredValues) {
+    if (!values.includes(requiredValue)) {
+      errors.push(`${path} must include ${requiredValue}`);
+    }
+  }
 }
 
 function validateCompleteCapabilityProof(errors, entry) {

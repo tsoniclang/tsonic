@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   capabilityCompatRuntimeCarriers,
+  capabilitySurfaceEvidenceGateNames,
   coreLangIntrinsicCoverage,
   coreLangIntrinsicModuleSpecifier,
   capabilityLaneNames,
@@ -105,6 +106,55 @@ test("compat-runtime lane classifications name closed carriers and required fact
       `${entry.capabilityId} names non-canonical compat carrier ${classification.compat.runtimeCarrier}`,
     );
   }
+});
+
+test("Map and Set ledger row distinguishes native and compat runtime lanes", () => {
+  const entry = capabilityLedger.find((candidate) => candidate.capabilityId === "surface.js.map-set");
+  assert.notEqual(entry, undefined);
+
+  const classification = entry.laneClassification;
+  assert.deepEqual(classification.possibleLanes, ["static-native", "compat-runtime", "hard-reject"]);
+  assert.equal(classification.compat.runtimeCarrier, "SelectedSurfaceRuntime");
+  assert.ok(classification.staticNative.requiredFacts.includes("selected static-native Map/Set lane"));
+  assert.ok(classification.staticNative.requiredFacts.includes("provider equality semantics evidence"));
+  assert.ok(classification.compat.requiredFacts.includes("closed JS Map/Set runtime carrier"));
+  assert.ok(classification.compat.requiredFacts.includes("JS SameValueZero equality metadata"));
+  assert.ok(classification.hardReject.reasons.includes("clr-equality-not-full-js-compat"));
+  assert.ok(classification.hardReject.reasons.includes("unsupported-selected-map-set-operation"));
+  assert.match(entry.blockers.join("\n"), /Dictionary<K,V>, HashSet<T>, and Map<K,V> where K : notnull/u);
+});
+
+test("capability ledger validator rejects incomplete Map and Set lane evidence", () => {
+  const entry = capabilityLedger.find((candidate) => candidate.capabilityId === "surface.js.map-set");
+  assert.notEqual(entry, undefined);
+
+  const errors = validateCapabilityLedgerEntry({
+    ...entry,
+    laneClassification: {
+      ...entry.laneClassification,
+      staticNative: {
+        ...entry.laneClassification.staticNative,
+        requiredFacts: entry.laneClassification.staticNative.requiredFacts
+          .filter((fact) => fact !== "provider equality semantics evidence"),
+      },
+      compat: {
+        ...entry.laneClassification.compat,
+        runtimeCarrier: "TsObject",
+        requiredFacts: entry.laneClassification.compat.requiredFacts
+          .filter((fact) => fact !== "JS SameValueZero equality metadata"),
+      },
+      hardReject: {
+        ...entry.laneClassification.hardReject,
+        reasons: entry.laneClassification.hardReject.reasons
+          .filter((reason) => reason !== "clr-equality-not-full-js-compat"),
+      },
+    },
+  });
+
+  assert.ok(errors.includes("surface.js.map-set laneClassification.staticNative.requiredFacts must include provider equality semantics evidence"));
+  assert.ok(errors.includes("surface.js.map-set laneClassification.compat.requiredFacts must include JS SameValueZero equality metadata"));
+  assert.ok(errors.includes("surface.js.map-set laneClassification.compat.runtimeCarrier must be SelectedSurfaceRuntime"));
+  assert.ok(errors.includes("surface.js.map-set laneClassification.hardReject.reasons must include clr-equality-not-full-js-compat"));
 });
 
 test("capability ledger validator rejects missing or malformed lane classification", () => {
@@ -557,6 +607,61 @@ test("complete capability proof references current positive and negative tests",
   }
 });
 
+test("complete surface capabilities require fact/backend/runtime evidence gates", () => {
+  const completeSurfaceEntries = capabilityLedger.filter((entry) =>
+    entry.status === "complete" &&
+    (entry.capabilityId.startsWith("surface.js") || entry.capabilityId.startsWith("surface.node"))
+  );
+  assert.ok(completeSurfaceEntries.length > 0);
+
+  for (const entry of completeSurfaceEntries) {
+    assert.equal(typeof entry.surfaceEvidence, "object", entry.capabilityId);
+    for (const gateName of capabilitySurfaceEvidenceGateNames) {
+      assert.ok(Array.isArray(entry.surfaceEvidence[gateName]), `${entry.capabilityId} missing ${gateName}`);
+      assert.ok(entry.surfaceEvidence[gateName].length > 0, `${entry.capabilityId} has empty ${gateName}`);
+    }
+  }
+
+  const missingGateEntry = capabilityEntry({
+    capabilityId: "surface.js.example",
+    status: "complete",
+    owner: "surface-provider",
+    evidenceReview: "reviewed",
+    positiveTests: ["test/current-positive.test.mjs"],
+    negativeTests: ["test/current-negative.test.mjs"],
+    oldEvidence: ["test/fixtures/old-example/"],
+  });
+  assert.ok(
+    validateCapabilityLedgerEntry(missingGateEntry)
+      .includes("complete surface capabilities must have surfaceEvidence"),
+  );
+
+  const malformedGateEntry = capabilityEntry({
+    capabilityId: "surface.node.example",
+    status: "complete",
+    owner: "surface-provider",
+    evidenceReview: "reviewed",
+    positiveTests: ["test/current-positive.test.mjs"],
+    negativeTests: ["test/current-negative.test.mjs"],
+    oldEvidence: ["test/fixtures/old-example/"],
+    surfaceEvidence: {
+      selectedOperationFacts: ["test/current-negative.test.mjs"],
+      providerFacts: ["test/current-positive.test.mjs"],
+      backendEmission: ["test/current-positive.test.mjs"],
+      runtimeBehavior: ["test/current-positive.test.mjs"],
+      failClosedDiagnostics: ["test/current-positive.test.mjs"],
+      backendNoFallback: ["test/current-negative.test.mjs"],
+    },
+  });
+  assert.deepEqual(
+    validateCapabilityLedgerEntry(malformedGateEntry).filter((error) => error.startsWith("surfaceEvidence.")),
+    [
+      "surfaceEvidence.selectedOperationFacts must reference positiveTests",
+      "surfaceEvidence.failClosedDiagnostics must reference negativeTests",
+    ],
+  );
+});
+
 test("capability ledger validator rejects old paths as complete current proof", () => {
   const completeEntry = capabilityEntry({
     capabilityId: "example.current-proof",
@@ -882,6 +987,7 @@ function capabilityEntry({
   positiveTests = [],
   negativeTests = [],
   oldEvidence = [],
+  surfaceEvidence,
 }) {
   return {
     capabilityId,
@@ -896,6 +1002,7 @@ function capabilityEntry({
     positiveTests,
     negativeTests,
     oldEvidence,
+    ...(surfaceEvidence === undefined ? {} : { surfaceEvidence }),
     laneClassification: {
       patternKind: "validation-test-pattern",
       possibleLanes: ["static-native", "hard-reject"],
