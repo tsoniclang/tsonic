@@ -521,6 +521,38 @@ test("CLI rejects Math without selected JS surface facts", async () => {
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedMathWithoutJsSurface.csproj")), false);
 });
 
+test("CLI rejects Math.f16round because the current TSTS default library does not expose it", async () => {
+  const projectDirectory = resolve(tempRoot, "math-f16round-current-lib-exclusion");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedMathF16RoundCurrentLibExclusion",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function rounded(value: number): number {",
+      "  return Math.f16round(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stdout + build.stderr, /Property 'f16round' does not exist on type 'Math'/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedMathF16RoundCurrentLibExclusion.csproj")), false);
+});
+
 test("CLI rejects Boolean methods without selected JS surface facts", async () => {
   const projectDirectory = resolve(tempRoot, "boolean-without-js-surface");
   await writeProject(projectDirectory, {

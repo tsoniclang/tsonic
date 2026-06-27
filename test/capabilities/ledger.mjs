@@ -298,7 +298,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.map-set", "Map and Set use selected JS surface facts", "partial", "surface-provider"],
-  ["surface.js.math", "Math operations use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.math", "Math operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node surface facts", "partial", "surface-provider"],
@@ -3939,17 +3939,37 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.math remains partial because Math.f16round is implemented in Tsonic.CSharp.Js.Math runtime/provider metadata but is not selectable by the current default TSTS library; full completion requires a supported ES2025 library/config path or a deliberate exclusion policy for that source member.",
-      "surface.js.math remains partial until complete surfaceEvidence can be recorded across selected operation facts, provider facts, backend emission, runtime behavior, fail-closed diagnostics, and backend no-fallback proof for every source-selectable Math member.",
-    ]),
+    blockers: Object.freeze([]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS surface facts map current source-selectable Math calls and constants to Tsonic.CSharp.Js.Math runtime operations, preserve JavaScript zero-argument max/min behavior through the selected JS surface runtime, and reject unselected/unsupported forms without spelling-based fallback. CLI evidence currently emits abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, clz32, cos, cosh, exp, expm1, floor, fround, hypot, imul, log, log10, log1p, log2, max, min, pow, random, round, sign, sin, sinh, sqrt, tan, tanh, trunc, and E/PI/LN2/LN10/LOG2E/LOG10E/SQRT1_2/SQRT2 to Tsonic.CSharp.Js.Math, then dotnet-builds the generated C# project. Runtime evidence covers all Tsonic.CSharp.Js.Math members including f16round. Negative evidence rejects Math without selected JS surface facts, selected Math calls without closed numeric argument facts, and selected Math calls without provider metadata rows; backend no-fallback evidence asserts no raw Math.*, InvalidExpression, __unsupported, reflection, GetProperty/GetMethod, or dynamic output.",
+      "Reviewed proof: selected JS surface facts map current source-selectable Math calls and constants to Tsonic.CSharp.Js.Math runtime operations, preserve JavaScript zero-argument max/min behavior through the selected JS surface runtime, and reject unselected/unsupported forms without spelling-based fallback. CLI evidence emits abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, clz32, cos, cosh, exp, expm1, floor, fround, hypot, imul, log, log10, log1p, log2, max, min, pow, random, round, sign, sin, sinh, sqrt, tan, tanh, trunc, and E/PI/LN2/LN10/LOG2E/LOG10E/SQRT1_2/SQRT2 to Tsonic.CSharp.Js.Math, then dotnet-builds the generated C# project. Runtime evidence covers all Tsonic.CSharp.Js.Math runtime members including f16round. Math.f16round is deliberately excluded from source-surface completion for the current default TSTS library because TSTS rejects it before provider mapping; the CLI exclusion test proves that no C# fallback, spelling-based mapping, or runtime-only path makes it source-selectable. Negative evidence rejects Math without selected JS surface facts, selected Math calls without closed numeric argument facts, selected Math calls without provider metadata rows, and current-lib-unavailable Math.f16round before artifacts; backend no-fallback evidence asserts no raw Math.*, InvalidExpression, __unsupported, reflection, GetProperty/GetMethod, or dynamic output.",
   }),
   "surface.js.date": Object.freeze({
     sourceExamples: Object.freeze([
