@@ -572,6 +572,32 @@ test("host excludes generated declarations and metadata JSON from semantic input
   assert.equal(fs.FileExists(resolve(projectDirectory, "src/provider.metadata.json")), false);
 });
 
+test("host excludes the configured output root from semantic input", async () => {
+  const projectDirectory = resolve(tempRoot, "configured-output-root-filter");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "generated",
+    targets: [{ id: "demo" }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": "export const value = 1;\n",
+    "generated/stale.ts": "export const stale = ;\n",
+    "generated/nested/stale.ts": "export const staleNested = ;\n",
+  });
+
+  const created = createProgramOptionsForProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+  });
+  const fs = created.programOptions.Host.FS();
+
+  assert.equal(fs.FileExists(resolve(projectDirectory, "src/index.ts")), true);
+  assert.equal(fs.FileExists(resolve(projectDirectory, "generated/stale.ts")), false);
+  assert.equal(fs.FileExists(resolve(projectDirectory, "generated/nested/stale.ts")), false);
+});
+
 test("host gives backends the TSTS source graph instead of the raw project file crawl", async () => {
   const events = [];
   let backendProjectSourceFiles = [];
