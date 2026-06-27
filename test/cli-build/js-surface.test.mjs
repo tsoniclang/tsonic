@@ -2108,6 +2108,80 @@ test("CLI emits selected JS boolean method facts through the C# JS runtime", asy
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits selected JS Boolean conversion calls through the C# JS runtime", async () => {
+  const projectDirectory = resolve(tempRoot, "js-boolean-conversion-call");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedBooleanConversionCall",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function converted(flag: boolean, text: string, count: int32): boolean {",
+      "  return Boolean(flag) && Boolean(text) && Boolean(count) && !Boolean();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Boolean\(flag\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Boolean\(text\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Boolean\(count\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Boolean\(\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedBooleanConversionCall.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects JS Boolean wrapper construction until a closed wrapper carrier exists", async () => {
+  const projectDirectory = resolve(tempRoot, "js-boolean-wrapper-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedBooleanWrapperRejected",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function wrapper(flag: boolean): Boolean {",
+      "  return new Boolean(flag);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /Boolean\.constructor|C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedBooleanWrapperRejected.csproj")), false);
+});
+
 
 test("CLI rejects string methods without exact provider-backed JS semantics", async () => {
   const projectDirectory = resolve(tempRoot, "string-call-target-fact-rejections");

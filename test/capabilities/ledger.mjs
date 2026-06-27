@@ -294,7 +294,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
   ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
-  ["surface.js.boolean-methods", "JS Boolean primitive methods use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.boolean-methods", "JS Boolean primitive methods and conversion calls use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.map-set", "Map and Set use selected JS surface facts", "partial", "surface-provider"],
@@ -3460,19 +3460,26 @@ const reviewedCapabilityEvidence = Object.freeze({
     sourceExamples: Object.freeze([
       "const text = false.toString();",
       "const value = maybe.valueOf();",
+      "const converted = Boolean(value);",
+      "const wrapper = new Boolean(value);",
     ]),
     tstsDecision:
-      "TSTS validates Boolean primitive member calls against selected JS surface declarations; the surface provider must prove a closed boolean receiver and selected Boolean prototype operation.",
+      "TSTS validates Boolean primitive member calls and BooleanConstructor call/construct signatures against selected JS surface declarations; the surface provider must prove closed boolean receiver facts for prototype methods and closed conversion argument facts for Boolean(value).",
     providerFacts: Object.freeze([
       "selectedJsBooleanDeclaration",
+      "selectedJsBooleanConstructorDeclaration",
       "booleanPrimitiveReceiverFact",
+      "booleanConversionArgumentFact",
       "booleanToStringOperationFact",
       "booleanValueOfOperationFact",
+      "booleanConversionOperationFact",
+      "booleanWrapperUnsupportedDiagnosticFact",
     ]),
     backendContract:
-      "C# emits BooleanOps.toString/valueOf extension calls only from finalized selected Boolean operation facts; bool.ToString() casing or native object fallback must not be used as JavaScript semantics.",
+      "C# emits BooleanOps.toString/valueOf and Globals.Boolean conversion calls only from finalized selected Boolean operation facts; bool.ToString() casing, native object fallback, and implicit Boolean wrapper construction must not be used as JavaScript semantics.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/BooleanTests.cs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
@@ -3485,9 +3492,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-boolean-tostring/",
       "test/fixtures/js-surface-node-boolean-tostring/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.boolean-methods remains partial until Boolean object wrapper edge cases and any wrapper-specific target carrier diagnostics are classified and proven with focused positive and negative coverage.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-boolean-method-operation",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -3496,14 +3501,19 @@ const reviewedCapabilityEvidence = Object.freeze({
         requiredFacts: Object.freeze([
           "selected-js-surface",
           "selected-js-boolean-prototype-declaration",
+          "selected-js-boolean-constructor-declaration",
           "closed-boolean-receiver-target-type",
+          "closed-boolean-conversion-argument-target-type",
           "selected-boolean-target-signature",
         ]),
         hardRejectIfMissing: Object.freeze([
           "missing-selected-js-surface",
           "missing-boolean-prototype-declaration",
+          "missing-boolean-constructor-declaration",
           "missing-closed-boolean-receiver",
+          "missing-closed-boolean-conversion-argument",
           "missing-selected-target-signature",
+          "unsupported-boolean-wrapper-carrier",
         ]),
       },
       staticNative: {
@@ -3511,10 +3521,12 @@ const reviewedCapabilityEvidence = Object.freeze({
         requiredFacts: Object.freeze([
           "selected-js-surface",
           "selected-js-boolean-prototype-declaration",
+          "selected-js-boolean-constructor-declaration",
           "closed-boolean-receiver-target-type",
+          "closed-boolean-conversion-argument-target-type",
           "selected-boolean-target-signature",
         ]),
-        operation: "emit-selected-js-boolean-method",
+        operation: "emit-selected-js-boolean-method-or-conversion",
       },
       hardReject: {
         lane: "hard-reject",
@@ -3522,12 +3534,38 @@ const reviewedCapabilityEvidence = Object.freeze({
           "missing-required-facts",
           "unsupported-boolean-method",
           "receiver-not-closed-boolean",
+          "conversion-argument-not-closed",
+          "boolean-wrapper-carrier-not-exposed",
           "source-spelling-only",
         ]),
       },
     }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/BooleanTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS surface facts now cover Boolean.toString and Boolean.valueOf only from selected Boolean declaration identity plus closed bool receiver facts, including Object.toString delegation for closed bool primitive receivers; C# JS runtime tests prove lowercase JavaScript boolean toString() and valueOf() behavior; the tsonic CLI test emits boolean toString/valueOf as Tsonic.CSharp.Js.BooleanOps calls and dotnet-builds the generated project. Negative evidence rejects Boolean methods without the JS surface, without closed bool receiver facts, and with non-boolean closed receivers. Node surface evidence proves a provider-returned boolean from Buffer.isEncoding chains through the JS BooleanOps.toString fact instead of native bool.ToString(). Remaining gap is Boolean object wrapper behavior and any wrapper-specific target carrier diagnostics.",
+      "Reviewed proof: selected JS surface facts cover Boolean.toString and Boolean.valueOf only from selected Boolean declaration identity plus closed bool receiver facts, including Object.toString delegation for closed bool primitive receivers. Boolean(value) maps only from selected BooleanConstructor call signature identity, call-vs-construct expression shape, and closed conversion argument facts to Tsonic.CSharp.Js.Globals.Boolean; zero-argument Boolean() uses the runtime default false value. new Boolean(value) is deliberately hard-rejected until an explicit wrapper-object carrier exists, so wrapper construction never falls back to object/dynamic/native bool semantics. C# JS runtime tests prove lowercase JavaScript boolean toString(), valueOf(), and Boolean conversion behavior; CLI evidence emits BooleanOps/Globals.Boolean calls, dotnet-builds the generated project, and proves unsupported wrapper construction fails before artifacts. Node surface evidence proves a provider-returned boolean from Buffer.isEncoding chains through the JS BooleanOps.toString fact instead of native bool.ToString().",
   }),
   "surface.js.number-methods": Object.freeze({
     sourceExamples: Object.freeze([
