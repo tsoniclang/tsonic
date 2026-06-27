@@ -151,18 +151,21 @@ test("CLI emits selected JS console calls through the C# JS runtime", async () =
       "  console.debug(label);",
       "  console.trace(label);",
       "  console.assert(ok, label);",
+      "  console.assert();",
+      "  console.assert(ok, label, count);",
       "  console.time(label);",
       "  console.timeLog(label, count);",
       "  console.timeEnd(label);",
+      "  console.timeStamp(label);",
       "  console.count(label);",
       "  console.countReset(label);",
       "  console.group(label);",
       "  console.groupCollapsed(label);",
       "  console.groupEnd();",
       "  console.clear();",
-      "  console.dir(label);",
-      "  console.dirxml(label);",
-      "  console.table(label);",
+      "  console.dir(label, \"depth=1\");",
+      "  console.dirxml(label, count);",
+      "  console.table(label, [\"length\"]);",
       "}",
       "",
     ].join("\n"),
@@ -180,18 +183,21 @@ test("CLI emits selected JS console calls through the C# JS runtime", async () =
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.debug\(label\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.trace\(label\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.assert\(ok, label\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.assert\(\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.assert\(ok, label, count\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.time\(label\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.timeLog\(label, count\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.timeEnd\(label\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.timeStamp\(label\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.count\(label\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.countReset\(label\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.group\(label\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.groupCollapsed\(label\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.groupEnd\(\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.clear\(\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.dir\(label\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.dirxml\(label\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.table\(label\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.dir\(label, "depth=1"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.dirxml\(label, count\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.console\.table\(label, .*length.*\);/s);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedConsoleCalls.csproj"), "--nologo", "--v:minimal"]);

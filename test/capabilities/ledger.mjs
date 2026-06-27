@@ -286,7 +286,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["carrier.function-delegate", "Function values and callbacks use fact-backed delegate carriers", "partial", "target-provider"],
   ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "partial", "target-provider"],
 
-  ["surface.js.console", "JS console operations use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.console", "JS console operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.console-log", "console.log uses selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.array-methods", "JS array methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "complete", "surface-provider"],
@@ -3644,21 +3644,99 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed partial proof: tsonic-csharp surface-boundary evidence maps Number.toString/valueOf only from selected Number declaration identity plus closed number receiver facts, maps Object.toString delegation for closed number primitive receivers, rejects missing and non-number receiver facts, and maps Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and Number constants only from selected NumberConstructor declarations. csharp-js runtime tests prove invariant toString/valueOf behavior, Number constants, and static predicate helpers for double/int/long and nullable integral receivers. The tsonic CLI test emits primitive number toString/valueOf, object-shape number property toString, int32 toString, Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and all current Number constants through Tsonic.CSharp.Js.Number and dotnet-builds the generated project. Negative evidence rejects Number methods without the JS surface, without closed number receiver facts, and with non-number closed receivers. Remaining gaps are formatting-specific Number methods, object wrappers, and full special-value runtime parity.",
   }),
   "surface.js.console": Object.freeze({
+    sourceExamples: Object.freeze([
+      "console.log(label, count, ok);",
+      "console.assert(ok, label, count);",
+      "console.dir(label, \"depth=1\");",
+      "console.table(label, [\"length\"]);",
+      "console.timeStamp(label);",
+    ]),
+    tstsDecision:
+      "TSTS validates Console operations only from selected bundled Console declarations; foreign same-spelling declarations and unselected console globals do not provide target facts.",
+    providerFacts: Object.freeze([
+      "selectedJsConsoleDeclaration",
+      "closedConsoleArgumentFacts",
+      "consoleTargetSignatureFacts",
+      "consoleRuntimeMetadataRows",
+    ]),
+    backendContract:
+      "C# emits Tsonic.CSharp.Js.console operations only from finalized selected Console operation facts and closed argument carriers; it must not route to System.Console directly, box unknown values, infer from source spelling, or emit placeholder calls.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ConsoleTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.console remains partial until every Console member has selected-declaration proof, closed argument carrier/conversion facts, runtime/toolchain coverage, and diagnostics for unsupported members.",
-    ]),
+    blockers: Object.freeze([]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "js-console-operation",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-console-declaration",
+          "closed-console-argument-target-facts",
+          "selected-console-target-signature",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-selected-js-surface",
+          "missing-console-declaration",
+          "missing-closed-console-argument",
+          "missing-selected-target-signature",
+          "unsupported-console-member",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-console-declaration",
+          "closed-console-argument-target-facts",
+          "selected-console-target-signature",
+        ]),
+        operation: "emit-selected-js-console-operation",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "unsupported-console-member",
+          "unsupported-console-argument",
+          "source-spelling-only",
+        ]),
+      },
+    }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ConsoleTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS Console declarations map only through the checked standard-library declaration identity; console property access defers to the selected call, foreign same-spelling declarations do not map, and console calls reject without finalized closed target facts and runtime-member-compatible argument shapes. CLI evidence now emits log/error/warn/info/debug/trace/assert/time/timeLog/timeEnd/count/countReset/group/groupCollapsed/groupEnd/clear/dir/dirxml/table through Tsonic.CSharp.Js.console and dotnet-builds the generated project.",
+      "Reviewed proof: selected JS Console declarations map only through checked standard-library declaration identity; console property access defers to the selected call, foreign same-spelling declarations do not map, and console calls reject without finalized closed target facts or runtime-member-compatible argument shapes. Provider/runtime metadata covers the current TSTS Console interface: assert(condition?, ...data), clear, count, countReset, debug, dir(item?, options?), dirxml(...data), error, group, groupCollapsed, groupEnd, info, log, table(tabularData?, properties?), time, timeEnd, timeLog, timeStamp, trace, and warn. CLI evidence emits the full selected Console member set through Tsonic.CSharp.Js.console, dotnet-builds the generated project, rejects console.log without the selected JS surface before artifacts, and asserts no unsupported/invalid fallback output. Runtime evidence proves the corresponding Tsonic.CSharp.Js.console entrypoints accept supported argument shapes without throwing.",
   }),
   "surface.js.console-log": Object.freeze({
     sourceExamples: Object.freeze([
