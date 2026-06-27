@@ -3574,6 +3574,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "export function fromPrimitive(value: int32): string { return value.toString(); }",
       "export function fromStatic(value: number): boolean { return Number.isFinite(value) && Number.isInteger(value); }",
       "export function fromParsed(value: string): number { return Number.parseFloat(value) + Number.MAX_SAFE_INTEGER; }",
+      "export function converted(value: string): number { return Number(value) + Number(); }",
     ]),
     tstsDecision:
       "TSTS validates Number primitive member calls, Number static calls, and Number static properties against selected JS surface declarations; the surface provider must prove selected Number declarations plus closed receiver or argument facts before target facts are finalized.",
@@ -3600,7 +3601,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     blockers: Object.freeze([
-      "surface.js.number-methods remains partial until radix-aware Number.prototype.toString(), toFixed(), toExponential(), toPrecision(), locale formatting, Number object wrapper edge cases, and NaN/Infinity/-0 formatting/runtime edge cases are implemented or deliberately rejected with focused positive and negative coverage.",
+      "surface.js.number-methods remains partial until radix-aware Number.prototype.toString(), toFixed(), toExponential(), toPrecision(), locale formatting, and NaN/Infinity/-0 formatting/runtime edge cases are implemented or deliberately rejected with focused positive and negative coverage.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-number-operation",
@@ -3641,7 +3642,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: tsonic-csharp surface-boundary evidence maps Number.toString/valueOf only from selected Number declaration identity plus closed number receiver facts, maps Object.toString delegation for closed number primitive receivers, rejects missing and non-number receiver facts, and maps Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and Number constants only from selected NumberConstructor declarations. csharp-js runtime tests prove invariant toString/valueOf behavior, Number constants, and static predicate helpers for double/int/long and nullable integral receivers. The tsonic CLI test emits primitive number toString/valueOf, object-shape number property toString, int32 toString, Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and all current Number constants through Tsonic.CSharp.Js.Number and dotnet-builds the generated project. Negative evidence rejects Number methods without the JS surface, without closed number receiver facts, and with non-number closed receivers. Remaining gaps are formatting-specific Number methods, object wrappers, and full special-value runtime parity.",
+      "Reviewed partial proof: tsonic-csharp surface-boundary evidence maps Number.toString/valueOf only from selected Number declaration identity plus closed number receiver facts, maps Object.toString delegation for closed number primitive receivers, rejects missing and non-number receiver facts, maps Number(value)/Number() primitive conversion from selected NumberConstructor declaration identity while rejecting new Number(value) wrapper construction without a closed wrapper carrier, and maps Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and Number constants only from selected NumberConstructor declarations. csharp-js runtime tests prove invariant toString/valueOf behavior, Number conversion no-argument/null/string/integral behavior, Number constants, and static predicate helpers for double/int/long and nullable integral receivers. The tsonic CLI test emits primitive number toString/valueOf, object-shape number property toString, int32 toString, Number(value)/Number(), Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and all current Number constants through selected C# JS runtime facts and dotnet-builds the generated project. Negative evidence rejects Number methods without the JS surface, without closed number receiver facts, with non-number closed receivers, and rejects new Number(value) wrapper construction. Remaining gaps are formatting-specific Number methods and full special-value runtime parity.",
   }),
   "surface.js.console": Object.freeze({
     sourceExamples: Object.freeze([

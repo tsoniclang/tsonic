@@ -2074,6 +2074,10 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
       "  return Number.MAX_VALUE + Number.MIN_VALUE + Number.MIN_SAFE_INTEGER + Number.POSITIVE_INFINITY + Number.NEGATIVE_INFINITY + Number.NaN + Number.EPSILON;",
       "}",
       "",
+      "export function converted(text: string, count: int32): number {",
+      "  return Number(text) + Number(count) + Number();",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -2098,10 +2102,45 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.NEGATIVE_INFINITY/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.NaN/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.EPSILON/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(text\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(count\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(\)/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberToString.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects JS Number wrapper construction until a closed wrapper carrier exists", async () => {
+  const projectDirectory = resolve(tempRoot, "js-number-wrapper-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNumberWrapperRejected",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function wrapper(value: number): Number {",
+      "  return new Number(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /Number\.constructor|C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberWrapperRejected.csproj")), false);
 });
 
 test("CLI emits selected JS boolean method facts through the C# JS runtime", async () => {
