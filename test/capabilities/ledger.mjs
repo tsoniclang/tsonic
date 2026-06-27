@@ -281,7 +281,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
-  ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "partial", "surface-provider"],
+  ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "complete", "surface-provider"],
   ["surface.node.process", "node:process uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
   ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "partial", "surface-provider"],
@@ -3610,19 +3610,22 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# emits Stats.mtime Date access and Date instance calls only from finalized NodeJS and JS surface facts; it must not reinterpret Stats timestamps as native DateTime, string, dynamic object, or unproven nullable union carriers.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/statSync.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/fstatSync.tests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
     ]),
-    negativeTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-node-date-union/",
     ]),
-    blockers: Object.freeze([
-      "surface.node.fs-stats-date remains partial because current proof is runtime-only for Stats Date values; the NodeJS surface currently proves statSync/Stats.size/isFile/isDirectory, but not Stats.mtime Date member facts, cross-surface Date union flow, CLI/toolchain emission, or no-surface diagnostics for the old node date-union fixture.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: csharp-nodejs runtime Stats exposes Date-valued timestamp fields and runtime tests cover timestamp behavior, while C# JS Date tests cover Date operations. The compiler surface still lacks current selected-provider proof for Stats.mtime and the Date | undefined nullish chain used by the old fixture, so this remains blocker evidence only.",
+      "Reviewed complete proof: selected NodeJS provider declarations expose Stats.mtime as the JS Date source shape, property mapping requires the selected provider member identity, JS Date instance calls require selected JS declarations, Date | undefined nullish coalescing preserves the closed JS Date carrier across surfaces, CLI/toolchain emission produces Tsonic.CSharp.Js.Date rather than DateTime/string/dynamic carriers, no-surface Node imports fail before artifact emission, and runtime tests cover Stats Date values plus JS Date behavior.",
   }),
   "surface.node.process": Object.freeze({
     positiveTests: Object.freeze([

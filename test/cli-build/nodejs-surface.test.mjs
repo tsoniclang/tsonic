@@ -449,6 +449,96 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits fs Stats Date members through selected NodeJS and JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-fs-stats-date-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodeFsStatsDate",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { statSync } from \"node:fs\";",
+      "",
+      "export function mtimeIso(path: string): string {",
+      "  const stats = statSync(path);",
+      "  return stats.mtime.toISOString() + \":\" + stats.mtimeMs;",
+      "}",
+      "",
+      "export function selectedMtimeIso(path: string, maybeDate: Date | undefined): string {",
+      "  const resolved = maybeDate ?? statSync(path).mtime;",
+      "  return resolved.toISOString();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeFsStatsDate.csproj"), "utf8");
+  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Node\.csproj/);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Stats stats = Tsonic\.CSharp\.Node\.fs\.statSync\(path\);/);
+  assert.match(generatedSource, /return stats\.mtime\.toISOString\(\) \+ ":" \+ stats\.mtimeMs;/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Date resolved = maybeDate \?\? Tsonic\.CSharp\.Node\.fs\.statSync\(path\)\.mtime;/);
+  assert.match(generatedSource, /return resolved\.toISOString\(\);/);
+  assert.doesNotMatch(generatedSource, /DateTime/);
+  assert.doesNotMatch(generatedSource, /return statSync\(/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeFsStatsDate.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects fs Stats Date chains when NodeJS surface is not selected", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-fs-stats-date-no-nodejs-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodeFsStatsDateNoNodejsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { statSync } from \"node:fs\";",
+      "",
+      "export function mtimeIso(path: string): string {",
+      "  return statSync(path).mtime.toISOString();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
+  assert.match(build.stderr, /Cannot find name 'node:fs'/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeFsStatsDateNoNodejsSurface.csproj")), false);
+});
+
 
 test("CLI emits closed node:util string operations from selected NodeJS declarations", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-util-string-surface");
