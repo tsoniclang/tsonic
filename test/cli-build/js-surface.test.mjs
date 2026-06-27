@@ -441,6 +441,38 @@ test("CLI rejects Boolean methods without selected JS surface facts", async () =
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedBooleanWithoutJsSurface.csproj")), false);
 });
 
+test("CLI rejects Number methods without selected JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "number-without-js-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNumberWithoutJsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function finite(value: number): boolean {",
+      "  return Number.isFinite(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.match(build.stderr, /callee node runtime carrier/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberWithoutJsSurface.csproj")), false);
+});
+
 test("CLI rejects unsupported JS expression carriers even when JS surface is selected", async () => {
   const projectDirectory = resolve(tempRoot, "unsupported-js-expression-carrier");
   await writeProject(projectDirectory, {
@@ -1743,6 +1775,10 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
       "  return value.toString();",
       "}",
       "",
+      "export function numberValue(value: number): number {",
+      "  return value.valueOf();",
+      "}",
+      "",
       "export function fromObjectShape(): string {",
       "  const root: { count: number } = { count: 2 };",
       "  return root.count.toString();",
@@ -1753,11 +1789,15 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
       "}",
       "",
       "export function fromStatic(value: number): boolean {",
-      "  return Number.isFinite(value) && Number.isInteger(value);",
+      "  return Number.isFinite(value) && Number.isInteger(value) && Number.isSafeInteger(value) && !Number.isNaN(value);",
       "}",
       "",
       "export function fromParsed(value: string): number {",
-      "  return Number.parseFloat(value) + Number.MAX_SAFE_INTEGER;",
+      "  return Number.parseFloat(value) + Number.parseInt(value, 16) + Number.MAX_SAFE_INTEGER;",
+      "}",
+      "",
+      "export function numberConstants(): number {",
+      "  return Number.MAX_VALUE + Number.MIN_VALUE + Number.MIN_SAFE_INTEGER + Number.POSITIVE_INFINITY + Number.NEGATIVE_INFINITY + Number.NaN + Number.EPSILON;",
       "}",
       "",
     ].join("\n"),
@@ -1768,11 +1808,22 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toString\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.valueOf\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toString\(root\.count\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isFinite\(value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isInteger\(value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isSafeInteger\(value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isNaN\(value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.parseFloat\(value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.parseInt\(value, 16\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.MAX_SAFE_INTEGER/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.MAX_VALUE/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.MIN_VALUE/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.MIN_SAFE_INTEGER/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.POSITIVE_INFINITY/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.NEGATIVE_INFINITY/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.NaN/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.EPSILON/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberToString.csproj"), "--nologo", "--v:minimal"]);
