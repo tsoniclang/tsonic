@@ -10,7 +10,6 @@ import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import { Checker_GetPropertyOfType } from "../internal/checker/exports.js";
-import { Checker_GetAliasedSymbol, Checker_GetSymbolAtLocation, Checker_getResolvedSymbolOrNil } from "../internal/checker/checker/symbols.js";
 import { Checker_getApplicableIndexInfo } from "../internal/checker/checker/signatures.js";
 import { Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
 import { GetSourceFileOfNode, NodeIsSynthesized } from "../internal/ast/utilities.js";
@@ -48,7 +47,7 @@ function isNoTargetCallMapping(result: CheckedCallMappingResult): bool {
 }
 
 export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProgram>, callExpression: GoPtr<Node>, sourceSelectedSignature?: GoPtr<Signature>): void {
-  if (checker === undefined || callExpression === undefined || !isUserSourceOperationNode(callExpression)) {
+  if (checker === undefined || callExpression === undefined || sourceSelectedSignature === undefined || !isUserSourceOperationNode(callExpression)) {
     return;
   }
 
@@ -709,25 +708,14 @@ function getReferenceSymbols(
   if (checker === undefined || node === undefined || !isReferenceSymbolQueryNode(node)) {
     return {};
   }
-  const symbol = Checker_GetSymbolAtLocation(checker, node) ?? Node_Symbol(node);
-  const resolvedSymbol = Checker_getResolvedSymbolOrNil(checker, node);
-  const aliasedSymbol = getAliasedSymbolIfAvailable(checker, resolvedSymbol ?? symbol);
+  const symbol = Node_Symbol(node);
+  const resolvedSymbol = undefined;
+  const aliasedSymbol = undefined;
   return {
     ...(symbol !== undefined ? { symbol } : {}),
     ...(resolvedSymbol !== undefined && resolvedSymbol !== symbol ? { resolvedSymbol } : {}),
     ...(aliasedSymbol !== undefined && aliasedSymbol !== symbol && aliasedSymbol !== resolvedSymbol ? { aliasedSymbol } : {}),
   };
-}
-
-function getAliasedSymbolIfAvailable(checker: GoPtr<CheckerWithProgram>, symbol: GoPtr<Symbol>): GoPtr<Symbol> {
-  if (checker === undefined || symbol === undefined) {
-    return undefined;
-  }
-  try {
-    return Checker_GetAliasedSymbol(checker, symbol);
-  } catch {
-    return undefined;
-  }
 }
 
 function isReferenceSymbolQueryNode(node: Node): boolean {

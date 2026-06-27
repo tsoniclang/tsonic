@@ -575,8 +575,8 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readFileSync\(path, "utf8"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readFileSync\(path\)\.toString\(\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeFileSync\(path, Tsonic\.CSharp\.Node\.Buffer\.from\("x"\)\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.fstatSync\(fd\)\.size;/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readSync\(fd, buffer, 0, 1, 0\) \+ Tsonic\.CSharp\.Node\.fs\.writeSync\(fd, buffer, 0, 1, 0\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.fstatSync\(System\.Convert\.ToInt32\(fd\)\)\.size;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readSync\(System\.Convert\.ToInt32\(fd\), buffer, 0, 1, 0\) \+ Tsonic\.CSharp\.Node\.fs\.writeSync\(System\.Convert\.ToInt32\(fd\), buffer, 0, 1, 0\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.pid;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.argv\[0\];/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.sep \+ Tsonic\.CSharp\.Node\.os\.EOL;/);
@@ -757,7 +757,7 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS surface could not map checked 'node:util' export 'format'/);
+  assert.match(build.stderr, /C# NodeJS surface hard-rejected selected call 'node:util' export 'format'/);
   assert.match(build.stderr, /System\.Object/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -875,7 +875,7 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS surface could not map checked 'node:url' export 'format'/);
+  assert.match(build.stderr, /C# NodeJS surface hard-rejected selected call 'node:url' export 'format'/);
   assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
