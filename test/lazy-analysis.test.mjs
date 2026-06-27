@@ -24,7 +24,10 @@ test("lazy generic source analysis returns structural use records without source
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify(projectConfig, null, 2),
     "src/index.ts": [
-      "export function analyze(xs: number[], sink: (value: number[]) => void): number[] {",
+      "export async function analyze(xs: number[], sink: (value: number[]) => void, promise: Promise<number[]>): Promise<number[]> {",
+      "  const [first] = xs;",
+      "  const clone = [...xs];",
+      "  const awaited = await promise;",
       "  xs[0] = 1;",
       "  xs.length = 0;",
       "  const captured = () => xs.length;",
@@ -32,6 +35,9 @@ test("lazy generic source analysis returns structural use records without source
       "    sink(xs);",
       "  }",
       "  captured();",
+      "  void first;",
+      "  void clone;",
+      "  void awaited;",
       "  return xs;",
       "}",
       "",
@@ -57,6 +63,9 @@ test("lazy generic source analysis returns structural use records without source
   const sinkName = findParameterName(session.ast, sourceFile, "sink");
   assert.notEqual(sinkName, undefined);
   const sinkSymbol = session.checker.getSymbolAtLocation(sinkName, { sourceFile });
+  const promiseName = findParameterName(session.ast, sourceFile, "promise");
+  assert.notEqual(promiseName, undefined);
+  const promiseSymbol = session.checker.getSymbolAtLocation(promiseName, { sourceFile });
   const analyzeName = findFunctionName(session.ast, sourceFile, "analyze");
   assert.notEqual(analyzeName, undefined);
   const analyzeFunction = session.ast.parent(analyzeName);
@@ -68,6 +77,7 @@ test("lazy generic source analysis returns structural use records without source
   const sinkCallsites = analysisInput.analysis.lazy.callsitesOf(sinkSymbol);
   const escapes = analysisInput.analysis.lazy.escapesOf(xsSymbol);
   const captures = analysisInput.analysis.lazy.capturesOf(xsSymbol);
+  const promiseUses = analysisInput.analysis.lazy.usesOf(promiseSymbol);
   const summary = analysisInput.analysis.lazy.summaryOf(analyzeFunction);
 
   assert.equal(analysisInput.analysis.lazy.elementWritesOn(xsSymbol).length, 1);
@@ -76,8 +86,11 @@ test("lazy generic source analysis returns structural use records without source
     [["length", "write"]],
   );
   assert.ok(uses.some((use) => use.operation === "iteration" && use.access === "read"));
+  assert.ok(uses.some((use) => use.operation === "destructure" && use.access === "read"));
+  assert.ok(uses.some((use) => use.operation === "spread" && use.access === "read"));
   assert.ok(uses.some((use) => use.operation === "argument" && use.argumentIndex === 0));
   assert.ok(uses.some((use) => use.operation === "return"));
+  assert.ok(promiseUses.some((use) => use.operation === "await" && use.access === "read"));
   assert.equal(argumentFlows.length, 1);
   assert.equal(argumentFlows[0].argumentIndex, 0);
   assert.equal(sinkCallsites.length, 1);

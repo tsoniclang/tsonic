@@ -281,6 +281,25 @@ export function createLazyTargetSourceAnalysis(
         operator: "in",
       };
     }
+    if (parent !== undefined && initializerIsDestructured(node, parent)) {
+      return {
+        ...reference,
+        operation: "destructure",
+        access: "read",
+        parent,
+        expression: node,
+      };
+    }
+    if (parent !== undefined && destructuringAssignmentRightHandSide(node, parent)) {
+      return {
+        ...reference,
+        operation: "destructure",
+        access: "read",
+        parent,
+        expression: parent,
+        operator: getAnalysisBinaryOperatorText(ast, parent),
+      };
+    }
     if (parent !== undefined && (ast.is.IsForOfStatement(parent) || ast.is.IsForInStatement(parent)) && asAnalysisNode(getAnalysisNodeField(parent, "Expression")) === node) {
       return {
         ...reference,
@@ -291,10 +310,28 @@ export function createLazyTargetSourceAnalysis(
         iterationKind: ast.is.IsForInStatement(parent) ? "for-in" : "for-of",
       };
     }
-    if (parent !== undefined && ast.kindName(parent) === "KindSpreadElement" && asAnalysisNode(getAnalysisNodeField(parent, "Expression")) === node) {
+    if (parent !== undefined && (ast.kindName(parent) === "KindSpreadElement" || ast.kindName(parent) === "KindSpreadAssignment") && asAnalysisNode(getAnalysisNodeField(parent, "Expression")) === node) {
       return {
         ...reference,
         operation: "spread",
+        access: "read",
+        parent,
+        expression: parent,
+      };
+    }
+    if (parent !== undefined && ast.kindName(parent) === "KindAwaitExpression" && asAnalysisNode(getAnalysisNodeField(parent, "Expression")) === node) {
+      return {
+        ...reference,
+        operation: "await",
+        access: "read",
+        parent,
+        expression: parent,
+      };
+    }
+    if (parent !== undefined && ast.kindName(parent) === "KindYieldExpression" && asAnalysisNode(getAnalysisNodeField(parent, "Expression")) === node) {
+      return {
+        ...reference,
+        operation: "yield",
         access: "read",
         parent,
         expression: parent,
@@ -381,6 +418,39 @@ export function createLazyTargetSourceAnalysis(
       ast.kindName(node) === "KindArrowFunction" ||
       ast.kindName(node) === "KindFunctionExpression" ||
       ast.kindName(node) === "KindConstructor";
+  }
+
+  function initializerIsDestructured(node: Node, parent: Node): boolean {
+    if (asAnalysisNode(getAnalysisNodeField(parent, "Initializer")) !== node) {
+      return false;
+    }
+    return isDestructuringPattern(asAnalysisNode(getAnalysisNodeField(parent, "name")));
+  }
+
+  function destructuringAssignmentRightHandSide(node: Node, parent: Node): boolean {
+    if (!ast.is.IsBinaryExpression(parent) || asAnalysisNode(getAnalysisNodeField(parent, "Right")) !== node) {
+      return false;
+    }
+    return isAnalysisWriteOperator(getAnalysisBinaryOperatorText(ast, parent)) &&
+      isDestructuringAssignmentTarget(asAnalysisNode(getAnalysisNodeField(parent, "Left")));
+  }
+
+  function isDestructuringAssignmentTarget(node: Node | undefined): boolean {
+    if (node === undefined) {
+      return false;
+    }
+    const kind = ast.kindName(node);
+    return kind === "KindObjectLiteralExpression" ||
+      kind === "KindArrayLiteralExpression" ||
+      isDestructuringPattern(node);
+  }
+
+  function isDestructuringPattern(node: Node | undefined): boolean {
+    if (node === undefined) {
+      return false;
+    }
+    const kind = ast.kindName(node);
+    return kind === "KindObjectBindingPattern" || kind === "KindArrayBindingPattern";
   }
 }
 

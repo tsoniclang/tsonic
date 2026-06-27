@@ -13,6 +13,9 @@ export type TargetSourceUseOperation =
   | "operator"
   | "iteration"
   | "spread"
+  | "destructure"
+  | "await"
+  | "yield"
   | "return";
 
 export type TargetSourceAccessKind = "read" | "write" | "delete";
