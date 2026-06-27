@@ -3584,7 +3584,6 @@ const reviewedCapabilityEvidence = Object.freeze({
   "surface.js.console": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -3721,6 +3720,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
