@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, runNodeInDirectory, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, runNodeInDirectory, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI lists built-in target packs", () => {
   const result = runNode([cliPath, "targets"]);
@@ -81,6 +81,39 @@ test("CLI rejects duplicate target ids before compiling", async () => {
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /target 'csharp' is declared more than once/);
+});
+
+test("CLI rejects unsafe target and surface ids before output path creation", async () => {
+  const cases = [
+    {
+      name: "unsafe-target-id",
+      target: { id: "../csharp" },
+      expected: /Target at index 0 id '\.\.\/csharp' must match/,
+    },
+    {
+      name: "unsafe-surface-id",
+      target: { id: "csharp", surfaces: ["../js"] },
+      expected: /Target 'csharp' surface '\.\.\/js' must match/,
+    },
+  ];
+
+  for (const { name, target, expected } of cases) {
+    const projectDirectory = resolve(tempRoot, name);
+    await writeProject(projectDirectory, {
+      "tsonic.json": JSON.stringify({
+        entryPoint: "index.ts",
+        rootDir: "src",
+        outDir: "out",
+        targets: [target],
+      }, null, 2),
+      "src/index.ts": "export const value = 1;\n",
+    });
+
+    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+    assert.equal(build.status, 1, name);
+    assert.match(build.stderr, expected, name);
+    assert.equal(existsSync(resolve(projectDirectory, "out")), false, name);
+  }
 });
 
 test("CLI rejects non-final entrypoint source extensions before compiling", async () => {
@@ -257,6 +290,35 @@ test("CLI rejects duplicate configured surfaces before target composition", asyn
   assert.match(build.stderr, /Target 'csharp' surface 'js' is declared more than once/);
 });
 
+test("CLI clean rebuild removes stale target artifacts before writing current outputs", async () => {
+  const projectDirectory = resolve(tempRoot, "clean-rebuild-stale-output");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedCleanRebuild",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+    "out/csharp/src/Stale.cs": "public static class Stale {}\n",
+    "out/csharp/runtime/stale.txt": "stale\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), true);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Stale.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/runtime/stale.txt")), false);
+});
+
 test("CLI does not use tsconfig path mapping as a hidden module-resolution fallback", async () => {
   const projectDirectory = resolve(tempRoot, "tsconfig-path-mapping-no-fallback");
   await writeProject(projectDirectory, {
@@ -281,6 +343,8 @@ test("CLI does not use tsconfig path mapping as a hidden module-resolution fallb
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /@app\/value\.js/);
+  assert.doesNotMatch(build.stderr, /src\/app\/value\.ts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects package-root imports instead of applying package-root shims", async () => {
@@ -298,6 +362,7 @@ test("CLI rejects package-root imports instead of applying package-root shims", 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /@tsonic\/js/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects generated declaration files as hidden module fallbacks", async () => {
@@ -316,6 +381,7 @@ test("CLI rejects generated declaration files as hidden module fallbacks", async
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /generated\.js/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects provider metadata JSON as hidden module fallbacks", async () => {
@@ -334,6 +400,7 @@ test("CLI rejects provider metadata JSON as hidden module fallbacks", async () =
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /provider\.metadata\.json/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects package exports subpaths as hidden package-discovery fallbacks", async () => {
@@ -359,6 +426,111 @@ test("CLI rejects package exports subpaths as hidden package-discovery fallbacks
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /@demo\/pkg\/subpath\.js/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI does not fall back from package export targets to same-named package files", async () => {
+  const projectDirectory = resolve(tempRoot, "package-export-target-no-fallback");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "src/index.ts",
+      rootDir: ".",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "import { value } from \"@demo/pkg/public.js\";\nexport const result = value;\n",
+    "node_modules/@demo/pkg/package.json": JSON.stringify({
+      name: "@demo/pkg",
+      type: "module",
+      exports: {
+        "./public.js": "./src/missing.ts",
+      },
+    }, null, 2),
+    "node_modules/@demo/pkg/public.ts": "export const value = 41;\n",
+    "node_modules/@demo/pkg/src/public.ts": "export const value = 42;\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /@demo\/pkg\/public\.js/);
+  assert.doesNotMatch(build.stderr, /public\.ts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI emits package export target source files from the TSTS subpath graph", async () => {
+  const projectDirectory = resolve(tempRoot, "package-export-source-subpath-emission");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: ".",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            outputType: "Exe",
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedPackageSourceSubpath",
+          },
+        },
+      ],
+    }, null, 2),
+    "index.ts": [
+      "import { append, trace, value } from \"@demo/pkg/public.js\";",
+      "append(\"index;\");",
+      "console.log(trace);",
+      "",
+      "export function read(): number {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+    "node_modules/@demo/pkg/package.json": JSON.stringify({
+      name: "@demo/pkg",
+      type: "module",
+      exports: {
+        "./public.js": {
+          types: "./src/public.ts",
+          default: "./src/public.ts",
+        },
+      },
+    }, null, 2),
+    "node_modules/@demo/pkg/src/public.ts": [
+      "import { append as appendState, trace } from \"./state.js\";",
+      "appendState(\"public;\");",
+      "export const value = 41;",
+      "export { appendState as append, trace };",
+      "",
+    ].join("\n"),
+    "node_modules/@demo/pkg/src/state.ts": [
+      "export let trace = \"\";",
+      "export function append(value: string): void {",
+      "  trace = trace + value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const publicSourcePath = resolve(projectDirectory, "out/csharp/src/node_modules/@demo/pkg/src/Node_modules_Demo_pkg_src_public.cs");
+  const stateSourcePath = resolve(projectDirectory, "out/csharp/src/node_modules/@demo/pkg/src/Node_modules_Demo_pkg_src_state.cs");
+  assert.equal(existsSync(publicSourcePath), true);
+  assert.equal(existsSync(stateSourcePath), true);
+  assert.match(indexSource, /Node_modules_Demo_pkg_src_public\.__tsonic_module_init\(\);[\s\S]*Node_modules_Demo_pkg_src_state\.append\("index;"\);/);
+  assert.match(indexSource, /return Node_modules_Demo_pkg_src_public\.value;/);
+  assert.doesNotMatch(indexSource, /return value;/);
+  assert.doesNotMatch(indexSource, /__unsupported/);
+
+  const publicSource = await readFile(publicSourcePath, "utf8");
+  assert.match(publicSource, /Node_modules_Demo_pkg_src_state\.__tsonic_module_init\(\);[\s\S]*Node_modules_Demo_pkg_src_state\.append\("public;"\);/);
+  assert.doesNotMatch(publicSource, /__unsupported/);
+
+  const output = runGeneratedProject(projectDirectory, "SmokeGeneratedPackageSourceSubpath");
+  assert.equal(output, "public;index;\n");
 });
 
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
@@ -544,7 +716,9 @@ test("CLI escapes TypeScript identifiers that are C# reserved words", async () =
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double @event = 1;/);
+  assert.match(generatedSource, /public static double @event;/);
+  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /@event = 1;/);
   assert.match(generatedSource, /public static double read\(double @operator\)/);
   assert.match(generatedSource, /double @params = @operator \+ @event;/);
   assert.match(generatedSource, /return @params;/);

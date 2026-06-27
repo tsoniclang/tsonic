@@ -23,8 +23,9 @@ import type {
   TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
+import { createTargetSourceAnalysisQueries } from "./analysis/queries.js";
 import { forceDiagnostics } from "./diagnostics.js";
-import { createTargetSemanticQueries } from "./semantic/queries.js";
+import { createTargetFactQueries } from "./target-facts/queries.js";
 import { createTargetCompilerExtensions } from "./target/extensions.js";
 export {
   collectTstsDiagnostics,
@@ -54,6 +55,7 @@ export interface TsonicSemanticSession {
   readonly extensionHost: ExtensionHost;
   readonly checker: TypeCheckerQueries;
   readonly facts: ExtensionConsumerQueries;
+  readonly tstsDiagnostics: ReturnType<CompilerSession["getDiagnostics"]>;
 }
 
 export interface CreateTsonicSemanticSessionOptions {
@@ -77,12 +79,12 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
     throw new Error("TSTS createCompilerSession returned no program.");
   }
   compiler.ensureBound();
-  forceDiagnostics(compiler);
+  const tstsDiagnostics = forceDiagnostics(compiler);
   const extensionHost = compiler.finalizeExtensions();
   if (extensionHost === undefined) {
     throw new Error("TSTS extension finalization returned no extension host.");
   }
-  const sourceFiles = compiler.getSourceFilesToEmit().filter((sourceFile): sourceFile is SourceFile => sourceFile !== undefined);
+  const sourceFiles = collectResolvedSourceFilesForBackend(compiler);
   return {
     compiler,
     program: compiler.program,
@@ -92,7 +94,16 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
     extensionHost,
     checker: compiler.checker,
     facts: createExtensionConsumerQueries(extensionHost, "tsonic-host"),
+    tstsDiagnostics,
   };
+}
+
+function collectResolvedSourceFilesForBackend(compiler: CompilerSession): readonly SourceFile[] {
+  return compiler.getSourceFiles()
+    .filter((sourceFile): sourceFile is SourceFile =>
+      sourceFile !== undefined &&
+      !sourceFile.IsDeclarationFile &&
+      !compiler.ast.getFileName(sourceFile).startsWith("tsts-provider://"));
 }
 
 export function compileTargetFromSemanticSession(
@@ -109,7 +120,8 @@ export function compileTargetFromSemanticSession(
     types: session.types,
     sourceFiles: session.sourceFiles,
     facts: session.facts,
-    semantics: createTargetSemanticQueries(session.ast, session.checker, session.types, session.facts, session.sourceFiles),
+    analysis: createTargetSourceAnalysisQueries(session.ast, session.checker, session.types, session.sourceFiles),
+    targetFacts: createTargetFactQueries(session.ast, session.checker, session.types, session.facts, session.sourceFiles),
     project,
     target,
     runtimeReferences,

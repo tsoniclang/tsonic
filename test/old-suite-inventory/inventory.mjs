@@ -624,11 +624,27 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "source-package-subpath",
     "source-package-surface-mismatch",
   ], "config", "Tsonic host module graph + source package loader", "Valid behavior covers ESM import/export graphs, type-only erasure, source package subpaths, multi-file source ownership, and target/surface mismatch diagnostics; port after current host config and TSTS module graph queries cover the fixture shape."),
+  Object.freeze({
+    oldPath: "test/fixtures/defaultof-intrinsic/",
+    status: "ported",
+    featureArea: "native-provider",
+    owner: "source semantics + C# backend planner",
+    newPath: "test/cli-build/source-semantics.test.mjs",
+    reason:
+      "Ported as current-architecture coverage for neutral defaultof<T>() source facts, C# alias defaultof, fail-closed missing-type diagnostics, Roslyn default-expression emission, and dotnet build under the final source-core/provider pipeline.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/pointer-types/",
+    status: "ported",
+    featureArea: "native-provider",
+    owner: "source semantics + C# backend planner",
+    newPath: "test/cli-build/source-semantics.test.mjs",
+    reason:
+      "Ported as current-architecture coverage for neutral ptr<T> and fnptr<[...], R> marker facts, unsafe C# pointer/function-pointer type emission from finalized facts, project unsafe-block wiring, and dotnet build without backend type guessing.",
+  }),
   ...deferredFixtures([
     "core-intrinsics-provenance",
-    "defaultof-intrinsic",
     "integer-casting",
-    "pointer-types",
     "stackalloc-span",
     "type-assertions",
   ], "native-provider", "source semantics + C# native provider + C# backend planner", "Valid behavior covers source intrinsics, primitive casts, pointers, stack allocation, and assertion erasure; port after source marker facts and provider target facts fully determine the C# AST without backend inference."),
@@ -651,10 +667,34 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "instanceof-narrowing",
     "optional-value-type-properties",
   ], "csharp-backend", "TSTS flow/contextual facts + C# expression planner", "Valid behavior covers narrowing, discriminants, cast erasure, nullish/optional threading, and precedence preservation; port after C# expression planning consumes TSTS flow and contextual target facts instead of recalculating them."),
+  Object.freeze({
+    oldPath: "test/fixtures/date-not-global/",
+    status: "ported",
+    featureArea: "js-surface",
+    owner: "C# JS surface provider + C# JS runtime",
+    newPath: "test/cli-build/js-surface.test.mjs",
+    reason:
+      "Ported as final surface-selection coverage: Date constructor/calls compile only when the JS surface supplies provider-backed Date facts, while no-surface Date usage fails closed instead of becoming a native/global fallback.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/dotnet-disallowed-js-builtins/",
+    status: "ported",
+    featureArea: "js-surface",
+    owner: "C# JS surface provider + C# backend diagnostics",
+    newPath: "test/cli-build/js-surface.test.mjs",
+    reason:
+      "Ported as final no-surface rejection coverage for standard JS built-ins: array mutators, string methods, and Date constructors require selected JS surface facts and otherwise produce deterministic diagnostics with no output project.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/js-string-array-returns/",
+    status: "ported",
+    featureArea: "js-surface",
+    owner: "C# JS surface provider + C# JS runtime",
+    newPath: "test/cli-build/js-surface.test.mjs",
+    reason:
+      "Ported as current JS-surface C# AST coverage for string and array-returning operations, including array push/at/length, string trim/toUpperCase/slice/split/join, runtime carrier selection, and dotnet build.",
+  }),
   ...deferredFixtures([
-    "date-not-global",
-    "dotnet-disallowed-js-builtins",
-    "js-string-array-returns",
     "js-surface-array-from-map-keys",
     "js-surface-boolean-tostring",
     "js-surface-hello",
@@ -746,6 +786,41 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "source.marker.struct",
     "toolchain.csharp.build-run",
     "tsts.generic-inference",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("generic-function-value-default-export"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "declaration.generic-parameters",
+    "host.package.composition",
+    "module.export.default",
+    "toolchain.csharp.build-run",
+    "tsts.generic-inference",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("import-type-erase"),
+  ], [
+    "backend.ast.only",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.package.composition",
+    "module.import.type-only",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("module-const-array-mutation"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.package.composition",
+    "host.project.top-level-initialization-order",
+    "operation.array.literal",
+    "toolchain.csharp.build-run",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("arrow-function"),
@@ -874,6 +949,447 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "host.package.composition",
     "toolchain.csharp.build-run",
   ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("extension-methods-system"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "native.dotnet.member-methods",
+    "operation.call.provider-selected-method",
+    "operation.member.no-name-guess",
+    "provider.virtual-module.target-identity",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("struct-basic"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "host.package.composition",
+    "source-core.lang.portable-intrinsics.field",
+    "source-core.lang.portable-intrinsics.struct",
+    "source-core.struct.field-facts",
+    "source.marker.field",
+    "source.marker.struct",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("js-surface-runtime-builtins"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.runtime-artifacts",
+    "carrier.array.public-abi-policy",
+    "expression.element-access",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "operation.element.provider-indexer",
+    "operation.member.provider-indexer",
+    "runtime.csharp.js",
+    "surface.js.boolean-methods",
+    "surface.js.array-methods",
+    "surface.js.array.length-index",
+    "surface.js.console",
+    "surface.js.console-log",
+    "surface.js.date",
+    "surface.js.map-set",
+    "surface.js.math",
+    "surface.js.math-json-regexp",
+    "surface.js.number-methods",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("nodejs-surface-alias-coverage"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.runtime-artifacts",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.nodejs",
+    "surface.node.fs-path-process",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("array-constructor"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "diagnostic.ts-invalid-not-rescued",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "operation.array.literal",
+    "runtime.csharp.js",
+    "surface.js.array-constructor",
+    "surface.js.array-methods",
+    "surface.js.array.length-index",
+    "surface.js.array.sparse-delete-holes",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("char-primitive"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "operation.call.provider-selected-method",
+    "provider.virtual-module.target-identity",
+    "source.primitive.char-bool",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("array-index-dotnet"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "carrier.array.public-abi-policy",
+    "host.package.composition",
+    "native.dotnet.array.explicit",
+    "operation.array.literal",
+    "operation.call.provider-selected-method",
+    "provider.virtual-module.target-identity",
+    "surface.js.array.length-index",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("clr-string-indexer-dotnet"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "operation.call.provider-selected-method",
+    "provider.virtual-module.target-identity",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("native-array-push-mutation"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "host.package.composition",
+    "native.dotnet.array.explicit",
+    "operation.array.literal",
+    "operation.call.provider-selected-method",
+    "provider.virtual-module.target-identity",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("readonly-array-property-mutation"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "host.package.composition",
+    "native.dotnet.array.explicit",
+    "operation.array.literal",
+    "operation.call.provider-selected-method",
+    "provider.virtual-module.target-identity",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("param-modifiers"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "host.package.composition",
+    "native.dotnet.parameter-modes",
+    "operation.call.provider-parameter-mode",
+    "source-core.lang.portable-intrinsics.inref",
+    "source-core.lang.portable-intrinsics.out",
+    "source-core.lang.portable-intrinsics.ref",
+    "source-core.out.storage-binding",
+    "source-core.ref.parameter-mode",
+    "source.marker.out-ref-inref",
+    "target.csharp.core-lang-intrinsics",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("barrel-reexports"),
+  ], [
+    "backend.ast.only",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.package.composition",
+    "module.export.reexport",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("multi-file"),
+  ], [
+    "backend.ast.only",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.graph.source-files",
+    "host.package.composition",
+    "module.emit.multi-file",
+    "module.graph.source-files",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("multi-file-imports"),
+  ], [
+    "backend.ast.only",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.graph.source-files",
+    "host.package.composition",
+    "module.emit.multi-file",
+    "module.graph.source-files",
+    "module.import.named",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("multi-file-types"),
+  ], [
+    "backend.ast.only",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.graph.source-files",
+    "host.package.composition",
+    "module.graph.source-files",
+    "module.import.type-only",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("source-package-basic"),
+  ], [
+    "backend.ast.only",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.package.composition",
+    "module.package.exports-subpath",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("source-package-subpath"),
+  ], [
+    "backend.ast.only",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.package.composition",
+    "module.package.exports-subpath",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("source-package-surface-mismatch"),
+  ], [
+    "backend.ast.only",
+    "diagnostic.unsupported-surface",
+    "host.config.no-legacy-config",
+    "host.config.project-load",
+    "host.package.composition",
+    "module.package.exports-subpath",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("core-intrinsics-provenance"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "operation.call.provider-selected-method",
+    "provider.virtual-module.target-identity",
+    "source-core.lang.portable-intrinsics",
+    "target.csharp.core-lang-intrinsics",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("defaultof-intrinsic"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "operation.call.provider-selected-method",
+    "provider.virtual-module.target-identity",
+    "source-core.lang.portable-intrinsics",
+    "source-core.lang.portable-intrinsics.defaultof",
+    "source.marker.defaultof",
+    "target.csharp.core-lang-intrinsics",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("pointer-types"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "operation.call.provider-selected-method",
+    "provider.virtual-module.target-identity",
+    "source-core.lang.portable-intrinsics.fnptr",
+    "source-core.lang.portable-intrinsics.ptr",
+    "source.marker.ptr-fnptr",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("date-not-global"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.date",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("dotnet-disallowed-js-builtins"),
+  ], [
+    "backend.ast.only",
+    "diagnostic.unsupported-selected-surface-operation",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("js-string-array-returns"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "operation.array.literal",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("js-surface-array-from-map-keys"),
+  ], [
+    "backend.ast.only",
+    "carrier.array",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "operation.array.literal",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.map-set",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("js-surface-boolean-tostring"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.js",
+    "surface.js.boolean-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("js-surface-json-typed-parse"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.math-json-regexp",
+    "surface.js.object-runtime",
+    "surface.js.string-methods",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("map-set-not-in-globals"),
+  ], [
+    "backend.ast.only",
+    "diagnostic.ts-invalid-not-rescued",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.js",
+    "surface.js.map-set",
+    "tsts.no-target-overrides",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("js-surface-node-boolean-tostring"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.runtime-artifacts",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.js",
+    "runtime.csharp.nodejs",
+    "surface.js.boolean-methods",
+    "surface.node.fs",
+    "surface.node.fs-path-process",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("js-surface-node-date-union"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.runtime-artifacts",
+    "carrier.null-undefined",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.js",
+    "runtime.csharp.nodejs",
+    "surface.js.date",
+    "surface.node.fs",
+    "surface.node.fs-stats-date",
+    "toolchain.csharp.build-run",
+    "tsts.flow-narrowing",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("json-native-inline-stringify"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "runtime.csharp.js",
+    "runtime.no-reflection-semantics",
+    "surface.js.math-json-regexp",
+    "surface.js.object-runtime",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("json-native-typed-stringify"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "runtime.csharp.js",
+    "runtime.no-reflection-semantics",
+    "surface.js.math-json-regexp",
+    "surface.js.object-runtime",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("nodejs-path-posix-join"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.nodejs",
+    "surface.node.fs-path-process",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("nodejs-surface-imports-negative"),
+  ], [
+    "backend.ast.only",
+    "diagnostic.unsupported-surface",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.nodejs",
+    "surface.node.fs-path-process",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("nodejs-surface-module-graph"),
+  ], [
+    "backend.ast.only",
+    "host.package.composition",
+    "host.project.surface-extension-composition",
+    "runtime.csharp.nodejs",
+    "surface.node.buffer-crypto-os",
+    "surface.node.fs",
+    "surface.node.fs-path-process",
+    "surface.node.process",
+    "toolchain.csharp.build-run",
+  ]),
 ]);
 
 const oldSuiteReplacementProofByOldPath = new Map([
@@ -905,6 +1421,298 @@ const oldSuiteReplacementProofByOldPath = new Map([
     replacementCapabilityPath:
       "Current default-parameter numeric semantics replace the old negative fixture: TSTS accepts the numeric default, source.primitive.numeric and literal facts preserve the value, and operation.conversion.checked-target-conversion supplies the finalized double optional-parameter carrier.",
   })],
+]);
+
+const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("dotnet-test-command"),
+  ], [
+    "backend.csharp.project-sdk-emit",
+    "toolchain.csharp.library",
+    "toolchain.csharp.nativeaot",
+    "toolchain.csharp.project",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("nodejs-surface-alias-coverage"),
+  ], [
+    "backend.csharp.runtime-artifacts",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("js-surface-runtime-builtins"),
+  ], [
+    "backend.csharp.runtime-artifacts",
+    "carrier.array.public-abi-policy",
+    "expression.element-access",
+    "surface.js.array.length-index",
+    "surface.js.console",
+    "surface.js.console-log",
+    "surface.js.map-set",
+    "surface.js.math",
+    "surface.js.math-json-regexp",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-destructuring"),
+  ], [
+    "binding.array.fixed-rest-default",
+    "binding.assignment",
+    "binding.parameter",
+    "expression.assignment",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-spread"),
+  ], [
+    "carrier.array.public-abi-policy",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-literal"),
+  ], [
+    "carrier.array.public-abi-policy",
+    "expression.array-literal",
+    "surface.js.array.length-index",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-index-dotnet"),
+  ], [
+    "carrier.array.public-abi-policy",
+    "native.dotnet.array.explicit",
+    "surface.js.array.length-index",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("dotnet-disallowed-js-builtins"),
+  ], [
+    "diagnostic.unsupported-selected-surface-operation",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("nodejs-surface-imports-negative"),
+  ], [
+    "diagnostic.unsupported-surface",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("source-package-surface-mismatch"),
+  ], [
+    "diagnostic.unsupported-surface",
+    "module.package.exports-subpath",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-double"),
+    oldFixturePath("array-multidimensional"),
+    oldFixturePath("array-type-emission"),
+  ], [
+    "expression.array-literal",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("nullish-coalescing"),
+    oldFixturePath("nullish-coalescing-threading"),
+  ], [
+    "expression.literal.null-undefined",
+    "expression.nullish-optional",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("optional-function-params"),
+  ], [
+    "function.default-rest-optional-params",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("multi-file"),
+  ], [
+    "host.project.module-graph",
+    "host.graph.source-files",
+    "module.emit.multi-file",
+    "module.graph.source-files",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("multi-file-imports"),
+  ], [
+    "host.project.module-graph",
+    "host.graph.source-files",
+    "module.emit.multi-file",
+    "module.graph.source-files",
+    "module.import.named",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("multi-file-types"),
+  ], [
+    "host.project.module-graph",
+    "host.graph.source-files",
+    "module.graph.source-files",
+    "module.import.type-only",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("namespace-imports"),
+  ], [
+    "host.project.module-graph",
+    "module.emit.multi-file",
+    "module.import.namespace",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("top-level-code"),
+  ], [
+    "host.project.module-graph",
+    "host.project.top-level-initialization-order",
+    "module.emit.top-level-order",
+    "module.import.side-effect",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("module-const-array-mutation"),
+  ], [
+    "host.project.top-level-initialization-order",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("module-constants"),
+  ], [
+    "module.export.named",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("barrel-reexports"),
+  ], [
+    "host.project.module-graph",
+    "host.project.top-level-initialization-order",
+    "module.export.reexport",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("generic-function-value-default-export"),
+  ], [
+    "module.export.default",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("import-type-erase"),
+  ], [
+    "module.import.type-only",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("source-package-basic"),
+    oldFixturePath("source-package-subpath"),
+  ], [
+    "host.project.module-graph",
+    "host.project.package-path-resolution",
+    "module.package.exports-subpath",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("source-package-surface-mismatch"),
+  ], [
+    "host.project.module-graph",
+    "host.project.package-path-resolution",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("native-array-push-mutation"),
+    oldFixturePath("readonly-array-property-mutation"),
+  ], [
+    "native.dotnet.array.explicit",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("generic-nested-substitution"),
+  ], [
+    "native.dotnet.constructors",
+    "native.dotnet.type-model",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("default-param-int-to-double"),
+    oldFixturePath("implicit-int-to-double"),
+  ], [
+    "native.dotnet.conversions",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("extension-methods-system"),
+    oldFixturePath("generic-method-standalone"),
+  ], [
+    "native.dotnet.member-methods",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("param-modifiers"),
+  ], [
+    "native.dotnet.parameter-modes",
+    "operation.call.provider-parameter-mode",
+    "source-core.lang.portable-intrinsics.inref",
+    "source-core.lang.portable-intrinsics.out",
+    "source-core.lang.portable-intrinsics.ref",
+    "source-core.out.storage-binding",
+    "source-core.ref.parameter-mode",
+    "source.marker.out-ref-inref",
+    "target.csharp.core-lang-intrinsics",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("defaultof-intrinsic"),
+  ], [
+    "source-core.lang.portable-intrinsics",
+    "source-core.lang.portable-intrinsics.defaultof",
+    "source.marker.defaultof",
+    "target.csharp.core-lang-intrinsics",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("core-intrinsics-provenance"),
+  ], [
+    "source-core.lang.portable-intrinsics",
+    "target.csharp.core-lang-intrinsics",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("struct-basic"),
+  ], [
+    "source-core.lang.portable-intrinsics.field",
+    "source-core.lang.portable-intrinsics.struct",
+    "source-core.struct.field-facts",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("pointer-types"),
+  ], [
+    "source-core.lang.portable-intrinsics.fnptr",
+    "source-core.lang.portable-intrinsics.ptr",
+    "source.marker.ptr-fnptr",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("char-primitive"),
+  ], [
+    "source.primitive.char-bool",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("array-constructor"),
+  ], [
+    "surface.js.array-constructor",
+    "surface.js.array.sparse-delete-holes",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("js-surface-array-from-map-keys"),
+    oldFixturePath("map-set-not-in-globals"),
+  ], [
+    "surface.js.map-set",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("js-surface-boolean-tostring"),
+    oldFixturePath("js-surface-node-boolean-tostring"),
+  ], [
+    "surface.js.boolean-methods",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("js-surface-json-typed-parse"),
+    oldFixturePath("json-native-inline-stringify"),
+    oldFixturePath("json-native-typed-stringify"),
+  ], [
+    "surface.js.math-json-regexp",
+    "surface.js.object-runtime",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("js-surface-node-date-union"),
+  ], [
+    "surface.node.fs-stats-date",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("clr-string-indexer-dotnet"),
+  ], [
+    "surface.js.string-methods",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("nodejs-surface-module-graph"),
+  ], [
+    "surface.node.buffer-crypto-os",
+    "surface.node.fs",
+    "surface.node.process",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("generic-constraints-object-struct"),
+    oldFixturePath("generic-constraints-single"),
+    oldFixturePath("generic-multiple-constraints"),
+  ], [
+    "type.generic.provider-target-constraints",
+  ]),
 ]);
 
 const oldSuiteOldEvidenceRole = "regression-evidence-only";
@@ -955,10 +1763,10 @@ function deferredFixtures(names, featureArea, owner, reason) {
 }
 
 function withOldSuiteCapabilityProof(entry) {
-  const capabilityMappingStatus = entry.status === "deferred" ? "deferred-derived" : "reviewed";
-  const capabilityIds = entry.status === "deferred"
-    ? defaultOldSuiteCapabilityIds(entry)
-    : oldSuiteReviewedCapabilityIdsFor(entry);
+  const reviewedCapabilityIds = oldSuiteReviewedCapabilityIdsByOldPath.get(entry.oldPath);
+  const capabilityMappingStatus = reviewedCapabilityIds === undefined ? "deferred-derived" : "reviewed";
+  const baseCapabilityIds = reviewedCapabilityIds ?? oldSuiteDerivedCapabilityIdsFor(entry);
+  const capabilityIds = oldSuiteCapabilityIdsWithLedgerEvidence(entry, baseCapabilityIds);
   const replacementProof = entry.status === "invalid-stale-architecture"
     ? oldSuiteReplacementProofFor(entry)
     : undefined;
@@ -976,12 +1784,26 @@ function withOldSuiteCapabilityProof(entry) {
 }
 
 function freezeSortedStrings(values) {
-  return Object.freeze([...values].sort());
+  return Object.freeze([...new Set(values)].sort());
 }
 
 function reviewedOldSuiteCapabilityMapping(oldPaths, capabilityIds) {
   const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
   return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldSuiteLedgerEvidenceCapabilityMapping(oldPaths, capabilityIds) {
+  const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
+  return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldSuiteCapabilityIdsWithLedgerEvidence(entry, capabilityIds) {
+  const ledgerEvidenceCapabilityIds = oldSuiteLedgerEvidenceCapabilityIdsByOldPath.get(entry.oldPath);
+  if (ledgerEvidenceCapabilityIds === undefined) {
+    return capabilityIds;
+  }
+
+  return freezeSortedStrings([...capabilityIds, ...ledgerEvidenceCapabilityIds]);
 }
 
 function oldSuiteReviewedCapabilityIdsFor(entry) {
@@ -991,6 +1813,14 @@ function oldSuiteReviewedCapabilityIdsFor(entry) {
   }
 
   return capabilityIds;
+}
+
+function oldSuiteDerivedCapabilityIdsFor(entry) {
+  if (entry.status !== "deferred") {
+    return oldSuiteReviewedCapabilityIdsFor(entry);
+  }
+
+  return defaultOldSuiteCapabilityIds(entry);
 }
 
 function oldSuiteReplacementProofFor(entry) {
@@ -1095,6 +1925,14 @@ function defaultOldSuiteCapabilityIds(entry) {
     ids.add("operation.call.provider-selected-method");
     ids.add("operation.member.no-name-guess");
   }
+  if (oldPath.includes("date") || oldPath.includes("js-surface-runtime-builtins")) {
+    ids.add("surface.js.date");
+  }
+  if (oldPath.includes("js-surface-runtime-builtins")) {
+    ids.add("operation.element.provider-indexer");
+    ids.add("operation.member.provider-indexer");
+    ids.add("surface.js.number-methods");
+  }
   if (entry.status === "invalid-stale-architecture") {
     ids.add("host.config.no-legacy-config");
     ids.add("backend.fail-closed-facts");
@@ -1186,10 +2024,6 @@ export function validateOldSuitePortEntry(entry) {
     errors.push(`capabilityMappingStatus must be one of ${oldSuiteCapabilityMappingStatuses.join(", ")}`);
   }
 
-  if (entry.status === "deferred" && entry.capabilityMappingStatus !== "deferred-derived") {
-    errors.push("deferred entries must use deferred-derived capability mappings");
-  }
-
   if (entry.status !== "deferred" && entry.capabilityMappingStatus !== "reviewed") {
     errors.push("reused, ported, replaced, and stale entries must use reviewed capability mappings");
   }
@@ -1237,8 +2071,11 @@ export function buildOldSuiteInventoryReport(historicalOldPaths, inventoryEntrie
   const classifiedUnknownOldPathSet = new Set();
   const counts = createOldSuiteCounts(historicalPaths.length);
   const capabilityMappingCounts = createOldSuiteCapabilityMappingCounts();
+  const validationProofHoles = [];
 
   for (const entry of inventoryEntries) {
+    validationProofHoles.push(...oldSuiteInventoryValidationProofHoles(entry));
+
     if (!historicalPathSet.has(entry.oldPath)) {
       classifiedUnknownOldPathSet.add(entry.oldPath);
       continue;
@@ -1257,16 +2094,24 @@ export function buildOldSuiteInventoryReport(historicalOldPaths, inventoryEntrie
 
   const unclassifiedOldPaths = historicalPaths.filter((oldPath) => !classifiedOldPathSet.has(oldPath));
   counts.unclassified = unclassifiedOldPaths.length;
-  const proofHoles = oldSuiteInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet);
+  const proofHoles = oldSuiteInventoryProofHoles(
+    unclassifiedOldPaths,
+    classifiedUnknownOldPathSet,
+    validationProofHoles,
+  );
 
   return Object.freeze({
     rules: Object.freeze({
       unclassifiedOldInventoryIsImpossible: true,
       classifiedInventoryPathsMustBeHistorical: true,
+      entriesMustPassValidation: true,
+      entriesRequireExplicitCapabilityIds: true,
+      staleEntriesRequireReplacementCapabilities: true,
     }),
     classificationStatus: proofHoles.length === 0 ? "complete" : "hole",
     counts: Object.freeze(counts),
     capabilityMappingCounts: Object.freeze(capabilityMappingCounts),
+    validationErrorCount: validationProofHoles.length,
     classifiedOldPaths: Object.freeze([...classifiedOldPathSet].sort()),
     classifiedUnknownOldPaths: Object.freeze([...classifiedUnknownOldPathSet].sort()),
     unclassifiedOldPaths: Object.freeze(unclassifiedOldPaths),
@@ -1274,8 +2119,20 @@ export function buildOldSuiteInventoryReport(historicalOldPaths, inventoryEntrie
   });
 }
 
-function oldSuiteInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet) {
+function oldSuiteInventoryValidationProofHoles(entry) {
+  const oldPath = typeof entry?.oldPath === "string" && entry.oldPath.length > 0
+    ? entry.oldPath
+    : "<unknown>";
+  return validateOldSuitePortEntry(entry).map((error) => Object.freeze({
+    oldPath,
+    proofHole: "old-inventory-validation",
+    error,
+  }));
+}
+
+function oldSuiteInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet, validationProofHoles) {
   return [
+    ...validationProofHoles,
     ...unclassifiedOldPaths.map((oldPath) => Object.freeze({
       oldPath,
       proofHole: "unclassified-old-inventory",

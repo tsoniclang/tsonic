@@ -91,7 +91,7 @@ export function buildCapabilityCoverageReport({
       oldInventoryEvidenceByCapability,
     ),
     oldInventoryCoverage: oldInventoryCoverage(ledgerEntries, oldInventoryCoverageSources),
-    ledgerValidation: ledgerValidationCoverage(ledgerEntries, ledgerRequiredCapabilityIds),
+    ledgerValidation: ledgerValidationCoverage(ledgerEntries, ledgerRequiredCapabilityIds, classifiedOldEvidencePathSet),
     laneClassificationCoverage: laneClassificationCoverage(ledgerEntries, statuses, owners),
     completeCapabilityProofHoles,
   };
@@ -400,6 +400,7 @@ function laneClassificationCoverage(ledgerEntries, statuses, owners) {
       trackedStatuses: [...laneClassificationTrackedStatuses],
       allLedgerEntriesWithLaneClassificationAreTracked: true,
       allowedLanes: [...capabilityLaneNames],
+      failClosedLaneRequired: true,
       compatRuntimeCarriersMustBeClosed: true,
       allowedCompatRuntimeCarriers: [...capabilityCompatRuntimeCarriers],
     },
@@ -812,8 +813,8 @@ function summarizeOldInventoryCoverage(byInventory, proofHoles) {
   };
 }
 
-function ledgerValidationCoverage(ledgerEntries, requiredIds) {
-  const validationErrors = validateCapabilityLedger(ledgerEntries, { requiredIds });
+function ledgerValidationCoverage(ledgerEntries, requiredIds, oldEvidencePaths) {
+  const validationErrors = validateCapabilityLedger(ledgerEntries, { requiredIds, oldEvidencePaths });
   const proofHoles = validationErrors.map((error) => ({
     proofHole: "capability-ledger-validation",
     error,
@@ -823,6 +824,8 @@ function ledgerValidationCoverage(ledgerEntries, requiredIds) {
     rules: {
       entriesMustPassSingleEntryValidation: true,
       completeCapabilitiesRequirePositiveAndNegativeProof: true,
+      completeCapabilitiesRequireCurrentPositiveAndNegativeProof: true,
+      positiveNegativeProofMustNotUseOldEvidence: true,
       completeCapabilitiesRequireReviewedEvidence: true,
       completeCapabilitiesRequireOldInventoryEvidence: true,
       completeBroadCapabilitiesRequireCompleteSubCapabilityEvidence: true,

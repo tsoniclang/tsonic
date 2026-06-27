@@ -5,8 +5,8 @@
 // DIRECTLY from the Go extractor's structured type model (resolving each named
 // type to the TS module where its @tsgo-unit actually lives). Both sides become
 // canonical structured descriptors and are compared structurally. Closes the gap
-// where a hand-edited TS signature can drift while the Go hash, tsc build, and
-// conformance baselines all stay green.
+// where a hand-edited TS signature can drift while the Go hash, compiler build,
+// and conformance baselines all stay green.
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";

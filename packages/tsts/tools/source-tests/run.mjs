@@ -9,11 +9,11 @@ const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = join(dirname(scriptPath), "../../../..");
 const testRoot = join(repoRoot, ".temp/source-tests/dist/src");
 const testConfig = "packages/tsts/tsconfig.source-tests.json";
-const tscPath = join(repoRoot, "node_modules/typescript/bin/tsc");
+const tsgoPath = join(repoRoot, "node_modules/.bin/tsgo");
 
 rmSync(join(repoRoot, ".temp/source-tests"), { recursive: true, force: true });
 
-const build = spawnSync(process.execPath, [tscPath, "-p", testConfig, "--pretty", "false"], {
+const build = spawnSync(tsgoPath, ["-p", testConfig, "--pretty", "false", "--composite", "false"], {
   cwd: repoRoot,
   stdio: "inherit",
 });
@@ -52,7 +52,7 @@ try {
   }
 } catch (error) {
   console.error(`Built source tests were not found under ${relative(repoRoot, testRoot)}.`);
-  console.error(`Run \`npx tsc -p ${testConfig}\` before inspecting built source tests manually.`);
+  console.error(`Run \`${relative(repoRoot, tsgoPath)} -p ${testConfig} --pretty false --composite false\` before inspecting built source tests manually.`);
   if (error instanceof Error) {
     console.error(error.message);
   }

@@ -15,17 +15,45 @@ export type {
   TargetTypescriptCompatibilityMode,
   TsonicProjectConfig,
 } from "./config.js";
+export {
+  getTargetIdValidationMessage,
+  isValidTargetId,
+  isValidTargetSurfaceId,
+} from "./config.js";
+export type {
+  TargetArgumentFlowRecord,
+  TargetFunctionSummary,
+  TargetLazySourceAnalysis,
+  TargetSourceAccessKind,
+  TargetSourceCallsite,
+  TargetSourceCaptureRecord,
+  TargetSourceEscapeRecord,
+  TargetSourceReferenceRecord,
+  TargetSourceUseOperation,
+  TargetSourceUseRecord,
+} from "./analysis/types.js";
+export {
+  createLazyTargetSourceAnalysis,
+} from "./analysis/lazy.js";
 export type {
   TargetBackend,
   TargetBackendContext,
+  TargetAnalysisNodeOptions,
+  TargetCallParameterCarrierResolution,
+  TargetCallParameterCarriersResolved,
+  TargetCarrierMissing,
+  TargetCarrierResolution,
+  TargetCarrierResolutionEvidence,
+  TargetCarrierResolved,
   TargetCompilationPaths,
   TargetCompileInput,
+  TargetFactQueries,
   TargetPack,
   TargetProvider,
   TargetProviderContext,
+  TargetProjectSourceModuleDependency,
   TargetRuntimeContributionContext,
-  TargetSemanticNodeOptions,
-  TargetSemanticQueries,
+  TargetSourceAnalysisQueries,
   TargetSurfaceExtensionContext,
   TargetSurfaceImplementation,
   TargetToolchain,

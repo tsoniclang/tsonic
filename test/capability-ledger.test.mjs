@@ -204,10 +204,22 @@ test("capability ledger validator rejects incomplete and blocked entries without
 
 test("capability ledger includes active plan minimum and rereview expansion ids", () => {
   const requiredIds = [
+    "host.config.project-load",
+    "host.config.target-selection",
+    "host.config.surface-selection",
+    "host.config.no-legacy-config",
+    "host.graph.source-files",
+    "host.package.composition",
     "host.project.package-discovery",
     "host.project.target-selection",
     "host.project.surface-selection",
+    "host.project.surface-dependency-validation",
     "host.project.provider-composition",
+    "host.project.module-graph",
+    "host.project.package-path-resolution",
+    "host.project.deterministic-output-paths",
+    "host.project.clean-rebuild",
+    "host.project.top-level-initialization-order",
     "tsts.program.create-with-extensions",
     "tsts.type-query.flow-narrowed-type",
     "tsts.diagnostic.provider-sourced",
@@ -223,9 +235,12 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "operation.call.provider-selected-method",
     "operation.call.provider-argument-conversion",
     "operation.call.provider-parameter-mode",
+    "operation.property.provider-selected-member",
     "operation.member.provider-property",
     "operation.member.provider-indexer",
     "operation.member.no-name-guess",
+    "operation.element.provider-indexer",
+    "operation.conversion.checked-target-conversion",
     "operation.constructor.provider-selected-target",
     "type.generic.provider-target-arguments",
     "type.generic.provider-target-constraints",
@@ -236,6 +251,7 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "surface.js.array.length-index",
     "surface.js.array.sparse-delete-holes",
     "surface.js.math",
+    "surface.js.date",
     "surface.node.process",
     "surface.node.fs",
     "compat.any.dynamic-get",
@@ -259,13 +275,37 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "diagnostic.unsupported-selected-surface-operation",
     "diagnostic.strict-mode-slow-op",
     "target.shared.operation-contract",
+    "architecture.native-compilable.esm-only",
+    "architecture.native-compilable.no-unapproved-deps",
+    "architecture.target-pack.boundaries",
+    "architecture.target-pack.no-catch-all-semantics",
+    "architecture.target-pack.no-procedural-policy",
     "target.csharp.core-lang-intrinsics",
     "target.shared.ownership-placeholder",
     "target.rust.future-borrow-checker-boundary",
     "module.import.named",
+    "module.import.default",
+    "module.import.namespace",
+    "module.import.type-only",
+    "module.import.side-effect",
+    "module.export.named",
+    "module.export.default",
     "module.export.reexport",
+    "module.graph.source-files",
+    "module.package.exports-subpath",
+    "module.path-mapping",
+    "module.emit.multi-file",
+    "module.emit.top-level-order",
+    "type.utility",
     "type.conditional",
     "type.mapped",
+    "type.indexed-access",
+    "type.keyof",
+    "type.infer",
+    "type.template-literal",
+    "type.variadic-tuple",
+    "type.satisfies",
+    "type.as-const",
     "binding.object.rename-rest-default",
     "function.closure",
     "declaration.class.private-fields",
@@ -403,6 +443,10 @@ test("capability ledger validator rejects complete capabilities without proof", 
       .includes("complete capabilities must have reviewed evidence"),
   );
   assert.ok(
+    validateCapabilityLedgerEntry({ ...completeEntry, evidenceReview: "rubber-stamped" })
+      .includes("evidenceReview must be one of seeded, reviewed"),
+  );
+  assert.ok(
     validateCapabilityLedgerEntry({ ...completeEntry, oldEvidence: [] })
       .includes("complete capabilities must have oldEvidence"),
   );
@@ -513,6 +557,34 @@ test("complete capability proof references current positive and negative tests",
   }
 });
 
+test("capability ledger validator rejects old paths as complete current proof", () => {
+  const completeEntry = capabilityEntry({
+    capabilityId: "example.current-proof",
+    status: "complete",
+    evidenceReview: "reviewed",
+    positiveTests: ["old/positive.test.ts"],
+    negativeTests: ["old/negative.test.ts"],
+    oldEvidence: ["old/evidence.test.ts"],
+  });
+
+  assert.deepEqual(
+    validateCapabilityLedger([completeEntry], {
+      requiredIds: [],
+      oldEvidencePaths: [
+        "old/positive.test.ts",
+        "old/negative.test.ts",
+        "old/evidence.test.ts",
+      ],
+    }),
+    [
+      "example.current-proof: complete capabilities must have current positiveTests",
+      "example.current-proof: complete capabilities must have current negativeTests",
+      "example.current-proof: positiveTests must not reference old evidence paths",
+      "example.current-proof: negativeTests must not reference old evidence paths",
+    ],
+  );
+});
+
 test("old inventories map only to known capability ids", () => {
   const oldInventoryEntries = [
     ...oldEmitterPortInventory,
@@ -584,6 +656,116 @@ test("reviewed old inventory entries are represented by ledger oldEvidence", () 
       true,
       `${entry.oldPath} has reviewed old inventory mapping but no matching ledger oldEvidence`,
     );
+  }
+});
+
+test("host and module capabilities carry reviewed old inventory proof", () => {
+  const requiredOldEvidenceByCapability = new Map([
+    [
+      "host.project.module-graph",
+      [
+        "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+        "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+        "packages/frontend/src/program/entrypoint-scope.test.ts",
+        "packages/frontend/src/program/program-input-discovery.test.ts",
+        "packages/frontend/src/resolver/namespace.test.ts",
+        "test/fixtures/barrel-reexports/",
+        "test/fixtures/multi-file/",
+        "test/fixtures/multi-file-imports/",
+        "test/fixtures/multi-file-types/",
+        "test/fixtures/namespace-imports/",
+        "test/fixtures/source-package-basic/",
+        "test/fixtures/source-package-subpath/",
+        "test/fixtures/source-package-surface-mismatch/",
+        "test/fixtures/top-level-code/",
+      ],
+    ],
+    [
+      "host.project.package-path-resolution",
+      [
+        "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+        "packages/cli/src/commands/build-source-package.test.ts",
+        "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+        "packages/frontend/src/program/package-roots.test.ts",
+        "test/fixtures/source-package-basic/",
+        "test/fixtures/source-package-subpath/",
+        "test/fixtures/source-package-surface-mismatch/",
+      ],
+    ],
+    [
+      "host.project.top-level-initialization-order",
+      [
+        "packages/frontend/src/program/entrypoint-scope.test.ts",
+        "test/fixtures/barrel-reexports/",
+        "test/fixtures/module-const-array-mutation/",
+        "test/fixtures/top-level-code/",
+      ],
+    ],
+    [
+      "module.import.type-only",
+      [
+        "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+        "test/fixtures/import-type-erase/",
+        "test/fixtures/multi-file-types/",
+      ],
+    ],
+    [
+      "module.package.exports-subpath",
+      [
+        "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+        "packages/cli/src/commands/build-source-package.test.ts",
+        "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+        "packages/frontend/src/program/package-roots.test.ts",
+        "test/fixtures/source-package-basic/",
+        "test/fixtures/source-package-subpath/",
+        "test/fixtures/source-package-surface-mismatch/",
+      ],
+    ],
+  ]);
+  const capabilityById = new Map(capabilityLedger.map((entry) => [entry.capabilityId, entry]));
+  const oldEntriesByPath = new Map([
+    ...oldEmitterPortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldSuitePortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldProductUnitPortInventory.map((entry) => [entry.oldPath, entry]),
+  ]);
+
+  for (const [capabilityId, requiredOldPaths] of requiredOldEvidenceByCapability) {
+    const capability = capabilityById.get(capabilityId);
+    assert.notEqual(capability, undefined, capabilityId);
+    const oldEvidenceSet = new Set(capability.oldEvidence);
+
+    for (const oldPath of requiredOldPaths) {
+      assert.equal(oldEvidenceSet.has(oldPath), true, `${capabilityId} missing oldEvidence ${oldPath}`);
+      const oldEntry = oldEntriesByPath.get(oldPath);
+      assert.notEqual(oldEntry, undefined, `${capabilityId} references unknown old inventory path ${oldPath}`);
+      assert.equal(oldEntry.capabilityMappingStatus, "reviewed", `${oldPath} must be a reviewed mapping for ${capabilityId}`);
+      assert.equal(oldEntry.capabilityIds.includes(capabilityId), true, `${oldPath} is not bidirectionally mapped to ${capabilityId}`);
+    }
+  }
+});
+
+test("ledger oldEvidence paths are reviewed old inventory mappings", () => {
+  const oldEntriesByPath = new Map([
+    ...oldEmitterPortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldSuitePortInventory.map((entry) => [entry.oldPath, entry]),
+    ...oldProductUnitPortInventory.map((entry) => [entry.oldPath, entry]),
+  ]);
+
+  for (const entry of capabilityLedger) {
+    for (const oldEvidencePath of entry.oldEvidence) {
+      const oldEntry = oldEntriesByPath.get(oldEvidencePath);
+      assert.notEqual(oldEntry, undefined, `${entry.capabilityId} references old evidence without an inventory entry: ${oldEvidencePath}`);
+      assert.equal(
+        oldEntry.capabilityMappingStatus,
+        "reviewed",
+        `${entry.capabilityId} old evidence is not reviewed by ${oldEvidencePath}`,
+      );
+      assert.equal(
+        oldEntry.capabilityIds.includes(entry.capabilityId),
+        true,
+        `${entry.capabilityId} old evidence is not bidirectionally mapped by ${oldEvidencePath}`,
+      );
+    }
   }
 });
 

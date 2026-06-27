@@ -11,10 +11,10 @@ import {
   tsonicCoreLangModule,
 } from "./identity.js";
 
-export function providerExportDeclarationsForSourceModule(module: SourceSemanticsModule): readonly ProviderExportDeclaration[] {
+export function providerExportDeclarationsForSourceModule(sourceModule: SourceSemanticsModule): readonly ProviderExportDeclaration[] {
   return [
-    ...sourceSemanticsHelperDeclarations(module.moduleSpecifier),
-    ...module.exports.map(providerExportDeclarationForSourceSemantics),
+    ...sourceSemanticsHelperDeclarations(sourceModule.moduleSpecifier),
+    ...sourceModule.exports.map(providerExportDeclarationForSourceSemantics),
   ];
 }
 

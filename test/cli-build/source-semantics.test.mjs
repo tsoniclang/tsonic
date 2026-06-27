@@ -325,12 +325,19 @@ test("CLI emits reference type assertions through finalized C# conversion facts"
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly int intFromLiteral = 1000;/);
-  assert.match(generatedSource, /public static readonly byte byteFromLiteral = 255;/);
-  assert.match(generatedSource, /public static readonly short shortFromLiteral = 1000;/);
-  assert.match(generatedSource, /public static readonly long longFromLiteral = System\.Convert\.ToInt64\(1000000\);/);
-  assert.match(generatedSource, /public static readonly float floatFromLiteral = 1\.5F;/);
-  assert.match(generatedSource, /public static readonly double doubleFromLiteral = 1\.5;/);
+  assert.match(generatedSource, /public static readonly int intFromLiteral;/);
+  assert.match(generatedSource, /public static readonly byte byteFromLiteral;/);
+  assert.match(generatedSource, /public static readonly short shortFromLiteral;/);
+  assert.match(generatedSource, /public static readonly long longFromLiteral;/);
+  assert.match(generatedSource, /public static readonly float floatFromLiteral;/);
+  assert.match(generatedSource, /public static readonly double doubleFromLiteral;/);
+  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /intFromLiteral = 1000;/);
+  assert.match(generatedSource, /byteFromLiteral = 255;/);
+  assert.match(generatedSource, /shortFromLiteral = 1000;/);
+  assert.match(generatedSource, /longFromLiteral = System\.Convert\.ToInt64\(1000000\);/);
+  assert.match(generatedSource, /floatFromLiteral = 1\.5F;/);
+  assert.match(generatedSource, /doubleFromLiteral = 1\.5;/);
   assert.match(generatedSource, /Dog dog = \(Dog\)animal;/);
   assert.match(generatedSource, /return System\.Convert\.ToByte\(value\);/);
   assert.match(generatedSource, /return System\.Convert\.ToInt16\(value\);/);
@@ -623,6 +630,80 @@ test("CLI emits C# argument passing from neutral storage facts and C# aliases", 
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
+test("CLI rejects byref source markers without finalized storage facts", async () => {
+  const projectDirectory = resolve(tempRoot, "argument-passing-non-storage-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { out, ref, inref } from \"@tsonic/core/lang.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function invalid(value: int32): void {",
+      "  out(value + 1);",
+      "  ref(value + 1);",
+      "  inref(value + 1);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TSTS_SOURCE_SEMANTICS_0001/);
+  assert.match(build.stderr, /requires a storage expression/);
+  assert.match(build.stderr, /out/u);
+  assert.match(build.stderr, /ref/u);
+  assert.match(build.stderr, /inref/u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+
+test("CLI rejects neutral borrow and move markers before C# output", async () => {
+  const projectDirectory = resolve(tempRoot, "borrow-move-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedBorrowMoveRejected",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { borrow as sharedBorrow } from \"@tsonic/core/lang.js\";",
+      "import * as CoreLang from \"@tsonic/core/lang.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function use(value: int32): void {",
+      "  sharedBorrow(value);",
+      "  CoreLang.borrowMut(value);",
+      "  CoreLang.move(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TS9100135/);
+  assert.match(build.stderr, /C# target does not implement source flow marker/);
+  assert.match(build.stderr, /borrow/u);
+  assert.match(build.stderr, /borrowMut/u);
+  assert.match(build.stderr, /move/u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedBorrowMoveRejected.csproj")), false);
+});
+
 
 test("CLI emits C# pointer and function-pointer types from source marker facts", async () => {
   const projectDirectory = resolve(tempRoot, "pointer-function-pointer-types");
@@ -643,7 +724,7 @@ test("CLI emits C# pointer and function-pointer types from source marker facts",
     }, null, 2),
     "src/index.ts": [
       "import type { int32 } from \"@tsonic/core/types.js\";",
-      "import type { ptr, fnptr } from \"@tsonic/csharp/lang.js\";",
+      "import type { ptr, fnptr } from \"@tsonic/core/lang.js\";",
       "",
       "export class NativeSlots {",
       "  current: ptr<int32>;",

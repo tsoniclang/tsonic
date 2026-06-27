@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Cross-compiler benchmark harness: run TSTS, the pinned tsgo (native Go), and
-// official tsc on the same projects with --extendedDiagnostics, and report
-// per-phase time + memory side by side with TSTS÷tsgo and TSTS÷tsc ratios.
+// Cross-compiler benchmark harness: run TSTS, TS-Go v7, and official tsc on
+// the same projects with --extendedDiagnostics, and report per-phase time +
+// memory side by side with TSTS÷tsgo and TSTS÷tsc ratios.
 //
 // All three expose --extendedDiagnostics (Files/Lines/Parse/Bind/Check/Emit/
 // Memory) and --generateCpuProfile, so this is orchestration over built-ins.
@@ -14,8 +14,8 @@
 // corpus.json: { "projects": [ { "name": "zod", "cwd": "/abs/path", "args": ["-p","tsconfig.json","--noEmit"] }, ... ] }
 // Compiler paths (override via env):
 //   TSTS = node <repo>/packages/tsts/dist/src/cli/index.js   (computed)
-//   TSGO_BIN  (default /tmp/tsgo)        — skipped if missing
-//   TSC_BIN   (default <repo>/node_modules/.bin/tsc)
+//   TSGO_BIN  (default <repo>/node_modules/.bin/tsgo) — skipped if missing
+//   TSC_BIN   (default <repo>/node_modules/.bin/tsc)  — profiling baseline only
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, mkdirSync } from "node:fs";
 import { dirname, join, isAbsolute } from "node:path";
@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../../../..");
 const tstsCli = join(repoRoot, "packages/tsts/dist/src/cli/index.js");
-const tsgoBin = process.env.TSGO_BIN || "/tmp/tsgo";
+const tsgoBin = process.env.TSGO_BIN || join(repoRoot, "node_modules/.bin/tsgo");
 const tscBin = process.env.TSC_BIN || join(repoRoot, "node_modules/.bin/tsc");
 
 const COMPILERS = [

@@ -14,7 +14,7 @@ import type {
   ExtensionObservationRunOptions,
 } from "./observations.js";
 import { ExtensionObservationPoint } from "./observations.js";
-import type { ArgumentPassingMode, SourcePrimitiveKind } from "./facts.js";
+import type { ArgumentPassingMode, SourcePrimitiveKind, TargetBindingFact } from "./facts.js";
 
 export interface ExtensionEvidence {
   readonly message: string;
@@ -274,6 +274,7 @@ export interface ProviderExportDeclaration {
   readonly name: string;
   readonly kind: ProviderDeclarationKind;
   readonly targetIdentity?: TargetIdentity;
+  readonly targetBinding?: TargetBindingFact;
   readonly type?: ProviderTypeExpression;
   readonly typeParameters?: readonly ProviderTypeParameterDeclaration[];
   readonly extends?: readonly ProviderTypeExpression[];

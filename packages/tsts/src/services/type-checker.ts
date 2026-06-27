@@ -4,10 +4,13 @@ import type { Context } from "../go/context.js";
 import { Background } from "../go/context.js";
 import { Node_Expression } from "../internal/ast/ast.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
+import type { StringLiteralLike } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
+import { SourceFile_as_ast_HasFileName } from "../internal/ast/ast.js";
 import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
-import { Program_GetSourceFiles, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
+import { Program_GetResolvedModuleFromModuleSpecifier, Program_GetSourceFileForResolvedModule, Program_GetSourceFiles, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import type { Program } from "../internal/compiler/program.js";
+import { ResolvedModule_IsProviderVirtual, ResolvedModule_IsResolved } from "../internal/module/types.js";
 import {
   Checker_GetPropertyOfType,
   Checker_GetReturnTypeOfSignature,
@@ -65,6 +68,7 @@ export interface TypeCheckerQueries {
   readonly getConstantValue: (node: GoPtr<Node>, options?: TypeCheckerQueryOptions) => unknown;
   readonly typeToString: (type: GoPtr<Type>, options?: TypeCheckerQueryOptions) => string;
   readonly getModuleSymbolFromSpecifier: (moduleSpecifier: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
+  readonly getResolvedModuleSourceFile: (moduleSpecifier: GoPtr<Node>, options?: TypeCheckerQueryOptions) => GoPtr<SourceFile>;
   readonly getResolvedExternalModuleSymbol: (moduleSymbol: GoPtr<Symbol>, dontResolveAlias?: boolean, options?: TypeCheckerQueryOptions) => GoPtr<Symbol>;
   readonly getExportsOfModule: (moduleSymbol: GoPtr<Symbol>, options?: TypeCheckerQueryOptions) => readonly GoPtr<Symbol>[];
 }
@@ -113,11 +117,37 @@ export function createTypeCheckerQueries(program: GoPtr<Program>, defaultOptions
       withCheckerForSubject(program, type, defaultOptions, options, (checker) => Checker_TypeToString(checker, type)) ?? "",
     getModuleSymbolFromSpecifier: (moduleSpecifier, options = {}) =>
       withCheckerForNode(program, moduleSpecifier, defaultOptions, options, (checker) => Checker_resolveExternalModuleName(checker, moduleSpecifier, moduleSpecifier, true as bool)),
+    getResolvedModuleSourceFile: (moduleSpecifier, options = {}) =>
+      getResolvedModuleSourceFile(program, moduleSpecifier, defaultOptions, options),
     getResolvedExternalModuleSymbol: (moduleSymbol, dontResolveAlias = false, options = {}) =>
       withCheckerForSymbol(program, moduleSymbol, defaultOptions, options, (checker) => Checker_resolveExternalModuleSymbol(checker, moduleSymbol, dontResolveAlias as bool)),
     getExportsOfModule: (moduleSymbol, options = {}) =>
       withCheckerForSymbol(program, moduleSymbol, defaultOptions, options, (checker) => Checker_GetExportsOfModule(checker, moduleSymbol)) ?? [],
   };
+}
+
+function getResolvedModuleSourceFile(
+  program: GoPtr<Program>,
+  moduleSpecifier: GoPtr<Node>,
+  defaultOptions: TypeCheckerQueryOptions,
+  options: TypeCheckerQueryOptions,
+): GoPtr<SourceFile> {
+  if (program === undefined || moduleSpecifier === undefined) {
+    return undefined;
+  }
+  const sourceFile = options.sourceFile ?? defaultOptions.sourceFile ?? GetSourceFileOfNode(moduleSpecifier);
+  if (sourceFile === undefined) {
+    return undefined;
+  }
+  const resolvedModule = Program_GetResolvedModuleFromModuleSpecifier(
+    program,
+    SourceFile_as_ast_HasFileName(sourceFile),
+    moduleSpecifier as GoPtr<StringLiteralLike>,
+  );
+  if (!ResolvedModule_IsResolved(resolvedModule) || ResolvedModule_IsProviderVirtual(resolvedModule)) {
+    return undefined;
+  }
+  return Program_GetSourceFileForResolvedModule(program, resolvedModule!.ResolvedFileName);
 }
 
 function recordCheckedOperationForPublicQuery(

@@ -140,6 +140,62 @@ test("provider-backed virtual modules participate in normal program binding", ()
   assert.equal(consumer.getSelectedTargetCall(call), undefined);
 });
 
+test("provider-backed virtual modules resolve provider-internal dependency imports", () => {
+  let fs = FromMap(new Map<string, string>([
+    ["/src/index.ts", `
+      import { Widget } from "@example/dotnet/Example.js";
+
+      declare const widget: Widget;
+      widget.baseOnly();
+    `],
+    ["/src/tsconfig.json", JSON.stringify({
+      compilerOptions: {
+        noLib: true,
+        module: "esnext",
+        moduleResolution: "bundler",
+      },
+      files: ["index.ts"],
+    })],
+  ]), false as bool);
+  fs = WrapFS(fs);
+
+  const host = NewCompilerHost("/src", fs, LibPath(), undefined, undefined);
+  const [parsed, configErrors] = GetParsedCommandLineOfConfigFile("/src/tsconfig.json", {} as CompilerOptions, undefined, host as ParseConfigHost, undefined);
+  assert.equal((configErrors ?? []).length, 0);
+
+  const options = {
+    Config: parsed,
+    Host: host,
+  } satisfies ProgramOptions;
+  attachExtensionHost(options, {
+    activeTarget: "dotnet",
+    extensions: [providerDependencyExtension()],
+  });
+
+  const program = NewProgram(options);
+  const index = Program_GetSourceFile(program, "/src/index.ts");
+  assert.ok(index !== undefined);
+  assertCleanProgram(program, index);
+
+  const sourceFileNames = Program_GetSourceFiles(program).map((file) => SourceFile_FileName(file));
+  assert.ok(sourceFileNames.includes("tsts-provider://example/Example"));
+  assert.ok(sourceFileNames.includes("tsts-provider://example/Base"));
+
+  const exampleFile = Program_GetSourceFile(program, "tsts-provider://example/Example");
+  assert.ok(exampleFile !== undefined);
+  const resolvedDependency = Program_GetResolvedModule(program, SourceFile_as_ast_HasFileName(exampleFile), "tsts-provider://example-dependency/Base.js", ResolutionModeESM);
+  assert.equal(ResolvedModule_IsProviderVirtual(resolvedDependency), true);
+  assert.equal(resolvedDependency?.ProviderVirtual?.ProviderModuleId, "Base");
+
+  Program_BindSourceFiles(program);
+  const baseFile = Program_GetSourceFile(program, "tsts-provider://example/Base");
+  assert.ok(baseFile !== undefined);
+  const extensionHost = finalizeExtensionSemantics(options);
+  assert.ok(extensionHost !== undefined);
+  const consumer = createExtensionConsumerQueries(extensionHost, "emitter");
+  assert.equal(consumer.getVirtualDeclaration(baseFile)?.providerModuleId, "Base");
+});
+
 test("provider-backed virtual modules support alias and namespace import forms", () => {
   let fs = FromMap(new Map<string, string>([
     ["/src/index.ts", `
@@ -1725,6 +1781,97 @@ function dotnetProvider(specifier: string, reject: boolean): TargetBindingProvid
     },
     getTargetIdentity(symbol) {
       return symbol.moduleSpecifier === specifier && symbol.exportName === "SearchValues" ? targetIdentity : undefined;
+    },
+  };
+}
+
+function providerDependencyExtension(): CompilerExtension {
+  const dependencySpecifier = "tsts-provider://example-dependency/Base.js";
+  return {
+    identity: {
+      id: "example.provider-dependency-extension",
+      version: "1.0.0",
+      capabilityNamespace: "example-provider-dependency",
+    },
+    initialize(context) {
+      context.registerTargetBindingProvider({
+        identity: {
+          id: "example-provider-dependency",
+          version: "1.0.0",
+          target: "dotnet",
+          extensionContractVersion: TstsProviderContractVersion,
+          providerKind: "binding",
+        },
+        ownsModule(specifier, moduleContext) {
+          if (specifier === "@example/dotnet/Example.js") {
+            return { kind: "owned" };
+          }
+          return specifier === dependencySpecifier && moduleContext.containingFile?.startsWith("tsts-provider:") === true
+            ? { kind: "owned" }
+            : { kind: "unowned" };
+        },
+        resolveModule(specifier) {
+          return {
+            kind: "virtual",
+            moduleSpecifier: specifier,
+            virtualFileName: specifier === dependencySpecifier
+              ? "tsts-provider://example/Base"
+              : "tsts-provider://example/Example",
+            providerModuleId: specifier === dependencySpecifier ? "Base" : "Example",
+            ...(specifier === dependencySpecifier ? {} : { packageName: "@example/dotnet" }),
+          };
+        },
+        getDeclarationModel(resolution) {
+          if (resolution.moduleSpecifier === dependencySpecifier) {
+            return {
+              moduleSpecifier: resolution.moduleSpecifier,
+              providerModuleId: resolution.providerModuleId,
+              exports: [{
+                id: "Base",
+                name: "Base",
+                kind: "class",
+                targetIdentity: {
+                  target: "dotnet",
+                  id: "Example.Base",
+                  displayName: "Example.Base",
+                },
+                members: [{
+                  id: "baseOnly",
+                  name: "baseOnly",
+                  kind: "method",
+                  signatures: [{
+                    id: "baseOnly()",
+                    parameters: [],
+                    returnType: { kind: "void" },
+                  }],
+                }],
+              }],
+            };
+          }
+          return {
+            moduleSpecifier: resolution.moduleSpecifier,
+            providerModuleId: resolution.providerModuleId,
+            exports: [{
+              id: "Widget",
+              name: "Widget",
+              kind: "class",
+              targetIdentity: {
+                target: "dotnet",
+                id: "Example.Widget",
+                displayName: "Example.Widget",
+              },
+              extends: [{
+                kind: "provider-ref",
+                name: "Base",
+                moduleSpecifier: dependencySpecifier,
+              }],
+            }],
+          };
+        },
+        getTargetIdentity() {
+          return undefined;
+        },
+      });
     },
   };
 }

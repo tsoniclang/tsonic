@@ -123,6 +123,7 @@ export type TargetConstraint =
   | { readonly kind: "reference-type" }
   | { readonly kind: "constructible" }
   | { readonly kind: "unmanaged" }
+  | { readonly kind: "unsupported"; readonly target: string; readonly id: string; readonly reason: string; readonly value?: unknown }
   | { readonly kind: "copy" }
   | { readonly kind: "clone" }
   | { readonly kind: "default" }
@@ -136,12 +137,29 @@ export interface TargetTypeParameter {
   readonly variance?: "in" | "out" | "invariant" | "target-defined";
 }
 
+export type TargetParameterDefaultValue =
+  | { readonly kind: "null" }
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "source-primitive"; readonly name: SourcePrimitiveKind; readonly value: string | boolean }
+  | { readonly kind: "enum"; readonly value: string; readonly fieldName?: string }
+  | { readonly kind: "target-specific"; readonly target: string; readonly value?: unknown; readonly evidence?: readonly ExtensionEvidence[] };
+
+export interface TargetUnsupportedParameterDefaultValue {
+  readonly kind: "unsupported-default-value";
+  readonly id: string;
+  readonly parameterName: string;
+  readonly reason: string;
+  readonly evidence?: readonly ExtensionEvidence[];
+}
+
 export interface TargetParameter {
   readonly name: string;
   readonly type: TargetTypeRef;
   readonly passingMode: ArgumentPassingMode;
   readonly optional?: boolean;
   readonly paramsArray?: boolean;
+  readonly defaultValue?: TargetParameterDefaultValue;
+  readonly unsupportedDefaultValue?: TargetUnsupportedParameterDefaultValue;
   readonly attributes?: readonly TargetAttributeFact[];
   readonly unsupportedAttributes?: readonly TargetUnsupportedAttributeFact[];
 }
@@ -422,10 +440,7 @@ export const runtimeCarrierFactKey = defineExtensionFactKey<RuntimeCarrierFact>(
 export const targetConversionFactKey = defineExtensionFactKey<TargetConversionFact>({
   extensionId: "tsts.target-bindings",
   name: "targetConversion",
-  equals: (left, right) =>
-    optionalTargetTypeRefEquals(left.sourceType, right.sourceType) &&
-    optionalTargetTypeRefEquals(left.convertedType, right.convertedType) &&
-    optionalTargetOperationFactEquals(left.operation, right.operation),
+  equals: targetConversionFactEquals,
 });
 
 export const providerVirtualDeclarationFactKey = defineExtensionFactKey<ProviderVirtualDeclarationFact>({
@@ -548,6 +563,16 @@ function targetConversionOperatorArrayEquals(left: readonly TargetConversionOper
   return left.length === right.length && left.every((value, index) => targetConversionOperatorEquals(value, right[index]!));
 }
 
+function targetConversionFactEquals(left: TargetConversionFact, right: TargetConversionFact): boolean {
+  return optionalTargetTypeRefMatchesWhenPresent(left.sourceType, right.sourceType) &&
+    optionalTargetTypeRefEquals(left.convertedType, right.convertedType) &&
+    optionalTargetOperationFactEquals(left.operation, right.operation);
+}
+
+function optionalTargetTypeRefMatchesWhenPresent(left: TargetTypeRef | undefined, right: TargetTypeRef | undefined): boolean {
+  return left === undefined || right === undefined || targetTypeRefEquals(left, right);
+}
+
 function targetConversionOperatorEquals(left: TargetConversionOperatorFact, right: TargetConversionOperatorFact): boolean {
   return left.id === right.id
     && left.conversionKind === right.conversionKind
@@ -666,6 +691,8 @@ function targetConstraintEquals(left: TargetConstraint, right: TargetConstraint)
       return right.kind === "lifetime" && left.name === right.name;
     case "target-specific":
       return right.kind === "target-specific" && left.target === right.target && left.name === right.name && Object.is(left.value, right.value);
+    case "unsupported":
+      return right.kind === "unsupported" && left.target === right.target && left.id === right.id && left.reason === right.reason && Object.is(left.value, right.value);
     case "value-type":
     case "reference-type":
     case "constructible":

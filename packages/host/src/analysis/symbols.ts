@@ -43,6 +43,10 @@ export function getReferenceQueryNode(ast: AstReader, node: Node | undefined): N
   if (node === undefined) {
     return undefined;
   }
+  const parent = ast.parent(node);
+  if (parent !== undefined && ast.is.IsPropertyAccessExpression(parent) && ast.name(parent) === node) {
+    return parent;
+  }
   if (ast.is.IsIdentifier(node) ||
     ast.is.IsPrivateIdentifier(node) ||
     ast.is.IsPropertyAccessExpression(node) ||

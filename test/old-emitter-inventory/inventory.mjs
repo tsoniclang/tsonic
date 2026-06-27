@@ -650,6 +650,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.fail-closed-facts",
     "expression.nullish-optional",
+    "type.generic.provider-target-arguments",
     "operation.conversion.checked-target-conversion",
     "operation.operator.checked-target-operation",
   ]),
@@ -704,6 +705,8 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "declaration.class.fields",
     "declaration.class.inheritance",
     "declaration.class.methods",
+    "operation.member.provider-property",
+    "operation.property.provider-selected-member",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("collections/list-initializer/ListInitializer"),
@@ -714,6 +717,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "carrier.dictionary-record",
     "operation.construct.provider-selected-constructor",
     "operation.element.provider-indexer",
+    "operation.member.provider-indexer",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("extensions/linq/ExtensionMethods"),
@@ -723,6 +727,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.fail-closed-facts",
     "operation.call.provider-selected-method",
     "operation.member.no-name-guess",
+    "operation.property.provider-selected-member",
     "provider.virtual-module.target-identity",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
@@ -741,6 +746,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "backend.fail-closed-facts",
+    "operation.conversion.checked-target-conversion",
     "source.marker.field",
     "source.marker.struct",
     "source.primitive.numeric",
@@ -779,6 +785,78 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "operation.operator.checked-target-operation",
     "runtime.union.carrier",
   ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("attributes/comprehensive/Attributes"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "declaration.attributes",
+    "native.dotnet.attributes",
+    "source-core.lang.portable-intrinsics.attribute",
+    "source.marker.attribute",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("edge-cases/inline-object-param/InlineObjectParam"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.object-shape",
+    "expression.nullish-optional",
+    "expression.object-literal",
+    "operation.conversion.checked-target-conversion",
+    "operation.operator.checked-target-operation",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/anonymous-objects/AnonymousObjects"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.object-shape",
+    "declaration.generic-parameters",
+    "expression.object-literal",
+    "tsts.generic-inference",
+    "type.generic.provider-target-arguments",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/interfaces/Interfaces"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.object-shape",
+    "declaration.generic-parameters",
+    "tsts.generic-inference",
+    "type.generic.provider-target-arguments",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/tuples-arity/TuplesArity"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.tuple",
+    "declaration.generic-parameters",
+    "tsts.generic-inference",
+    "type.generic.provider-target-arguments",
+    "type.variadic-tuple",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "carrier.object-shape",
+    "declaration.generated-structural",
+    "expression.object-literal",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("lang/stackalloc/StackAlloc"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "native.dotnet.parameter-modes",
+    "source.marker.field",
+    "source.marker.struct",
+    "source.primitive.numeric",
+  ]),
 ]);
 
 const oldEmitterReplacementProofByOldPath = new Map([
@@ -800,6 +878,167 @@ const oldEmitterReplacementProofByOldPath = new Map([
     replacementCapabilityPath:
       "Current union/operator diagnostics replace the orphan in-operator golden: runtime union lowering requires explicit runtime.union.carrier facts, and missing finalized facts fail closed through backend.fail-closed-facts and diagnostic.missing-target-fact.",
   })],
+]);
+
+const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/interfaces/Interfaces"),
+  ], [
+    "carrier.object-shape",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("edge-cases/inline-object-param/InlineObjectParam"),
+    sourceCase("types/anonymous-objects/AnonymousObjects"),
+  ], [
+    "carrier.object-shape",
+    "expression.object-literal",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/constructor/User"),
+  ], [
+    "declaration.class.private-fields",
+    "native.dotnet.constructors",
+    "operation.construct.provider-selected-constructor",
+    "operation.constructor.provider-selected-target",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("collections/list-initializer/ListInitializer"),
+  ], [
+    "operation.construct.provider-selected-constructor",
+    "operation.constructor.provider-selected-target",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/static-members/MathHelper"),
+  ], [
+    "declaration.class.static-blocks",
+    "declaration.class.visibility",
+    "diagnostic.unsupported-target-operation",
+    "expression.assignment",
+    "expression.property-access",
+    "native.dotnet.member-fields-properties-events",
+    "native.dotnet.unsupported-diagnostics",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/basic/Person"),
+  ], [
+    "declaration.class.visibility",
+    "native.dotnet.member-fields-properties-events",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/pointers/PointerTypes"),
+  ], [
+    "diagnostic.unsupported-target-operation",
+    "native.dotnet.unsupported-diagnostics",
+    "source-core.lang.portable-intrinsics.fnptr",
+    "source-core.lang.portable-intrinsics.ptr",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("arrays/multidimensional/MultiDimensional"),
+  ], [
+    "expression.array-literal",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("arrays/double-array/DoubleArray"),
+  ], [
+    "expression.array-literal",
+    "operation.iteration.for-in.keys",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("arrays/basic/ArrayLiteral"),
+  ], [
+    "expression.array-literal",
+    "operation.iteration.for-in.keys",
+    "operation.iteration.for-of.sync",
+    "statement.loop",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/dictionaries/Dictionaries"),
+  ], [
+    "expression.element-access",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("extensions/system/Overlaps"),
+  ], [
+    "expression.property-access",
+    "native.dotnet.assembly-model",
+    "native.dotnet.constructors",
+    "native.dotnet.member-methods",
+    "operation.call.provider-argument-conversion",
+    "provider.virtual-module.overload-identity",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("functions/default-params/DefaultParams"),
+    sourceCase("functions/optional-callbacks/OptionalParams"),
+  ], [
+    "function.default-rest-optional-params",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/constants/ModuleConstants"),
+  ], [
+    "module.emit.top-level-order",
+    "statement.top-level",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("extensions/linq/ExtensionMethods"),
+  ], [
+    "native.dotnet.assembly-model",
+    "native.dotnet.member-methods",
+    "provider.virtual-module.overload-identity",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("attributes/basic/Attributes"),
+    sourceCase("attributes/comprehensive/Attributes"),
+    sourceCase("attributes/targets/Attributes"),
+  ], [
+    "native.dotnet.attributes",
+    "source-core.lang.portable-intrinsics.attribute",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/type-assertions/TypeAssertions"),
+  ], [
+    "native.dotnet.conversions",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/field-inference/Counter"),
+  ], [
+    "native.dotnet.member-fields-properties-events",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/generic-methods/MethodInGenericClass"),
+    sourceCase("classes/generic-methods/MethodInNonGenericClass"),
+  ], [
+    "native.dotnet.member-methods",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("classes/generic-inheritance/InheritanceChain"),
+    sourceCase("types/generic-interface-inheritance/InterfaceInheritance"),
+  ], [
+    "native.dotnet.type-model",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/expected-type-threading/VariableInit"),
+  ], [
+    "operation.call.provider-argument-conversion",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("structs/basic/Point"),
+  ], [
+    "source-core.lang.portable-intrinsics.field",
+    "source-core.lang.portable-intrinsics.struct",
+    "source-core.struct.field-facts",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("edge-cases/nested-scopes/NestedScopes"),
+  ], [
+    "statement.loop",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/generic-constraints/MultipleConstraints"),
+    sourceCase("types/generic-constraints/ObjectConstraint"),
+    sourceCase("types/generic-constraints/SingleConstraint"),
+  ], [
+    "type.generic.provider-target-constraints",
+  ]),
 ]);
 
 const oldEmitterOldEvidenceRole = "regression-evidence-only";
@@ -829,10 +1068,10 @@ function expectedOnlyCases(relativePaths) {
 }
 
 function withOldEmitterCapabilityProof(entry) {
-  const capabilityMappingStatus = entry.status === "deferred" ? "deferred-derived" : "reviewed";
-  const capabilityIds = entry.status === "deferred"
-    ? defaultOldEmitterCapabilityIds(entry)
-    : oldEmitterReviewedCapabilityIdsFor(entry);
+  const reviewedCapabilityIds = oldEmitterReviewedCapabilityIdsByOldPath.get(entry.oldPath);
+  const capabilityMappingStatus = reviewedCapabilityIds === undefined ? "deferred-derived" : "reviewed";
+  const baseCapabilityIds = reviewedCapabilityIds ?? oldEmitterDerivedCapabilityIdsFor(entry);
+  const capabilityIds = oldEmitterCapabilityIdsWithLedgerEvidence(entry, baseCapabilityIds);
   const replacementProof = entry.status === "invalid-stale-architecture"
     ? oldEmitterReplacementProofFor(entry)
     : undefined;
@@ -850,12 +1089,26 @@ function withOldEmitterCapabilityProof(entry) {
 }
 
 function freezeSortedStrings(values) {
-  return Object.freeze([...values].sort());
+  return Object.freeze([...new Set(values)].sort());
 }
 
 function reviewedOldEmitterCapabilityMapping(oldPaths, capabilityIds) {
   const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
   return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldEmitterLedgerEvidenceCapabilityMapping(oldPaths, capabilityIds) {
+  const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
+  return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldEmitterCapabilityIdsWithLedgerEvidence(entry, capabilityIds) {
+  const ledgerEvidenceCapabilityIds = oldEmitterLedgerEvidenceCapabilityIdsByOldPath.get(entry.oldPath);
+  if (ledgerEvidenceCapabilityIds === undefined) {
+    return capabilityIds;
+  }
+
+  return freezeSortedStrings([...capabilityIds, ...ledgerEvidenceCapabilityIds]);
 }
 
 function oldEmitterReviewedCapabilityIdsFor(entry) {
@@ -865,6 +1118,14 @@ function oldEmitterReviewedCapabilityIdsFor(entry) {
   }
 
   return capabilityIds;
+}
+
+function oldEmitterDerivedCapabilityIdsFor(entry) {
+  if (entry.status !== "deferred") {
+    return oldEmitterReviewedCapabilityIdsFor(entry);
+  }
+
+  return defaultOldEmitterCapabilityIds(entry);
 }
 
 function oldEmitterReplacementProofFor(entry) {
@@ -1129,10 +1390,6 @@ export function validateOldEmitterPortEntry(entry) {
     errors.push(`capabilityMappingStatus must be one of ${oldEmitterCapabilityMappingStatuses.join(", ")}`);
   }
 
-  if (entry.status === "deferred" && entry.capabilityMappingStatus !== "deferred-derived") {
-    errors.push("deferred entries must use deferred-derived capability mappings");
-  }
-
   if (entry.status !== "deferred" && entry.capabilityMappingStatus !== "reviewed") {
     errors.push("ported, replaced, and stale entries must use reviewed capability mappings");
   }
@@ -1180,8 +1437,11 @@ export function buildOldEmitterInventoryReport(historicalOldPaths, inventoryEntr
   const classifiedUnknownOldPathSet = new Set();
   const counts = createOldEmitterCounts(historicalPaths.length);
   const capabilityMappingCounts = createOldEmitterCapabilityMappingCounts();
+  const validationProofHoles = [];
 
   for (const entry of inventoryEntries) {
+    validationProofHoles.push(...oldEmitterInventoryValidationProofHoles(entry));
+
     if (!historicalPathSet.has(entry.oldPath)) {
       classifiedUnknownOldPathSet.add(entry.oldPath);
       continue;
@@ -1200,16 +1460,24 @@ export function buildOldEmitterInventoryReport(historicalOldPaths, inventoryEntr
 
   const unclassifiedOldPaths = historicalPaths.filter((oldPath) => !classifiedOldPathSet.has(oldPath));
   counts.unclassified = unclassifiedOldPaths.length;
-  const proofHoles = oldEmitterInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet);
+  const proofHoles = oldEmitterInventoryProofHoles(
+    unclassifiedOldPaths,
+    classifiedUnknownOldPathSet,
+    validationProofHoles,
+  );
 
   return Object.freeze({
     rules: Object.freeze({
       unclassifiedOldInventoryIsImpossible: true,
       classifiedInventoryPathsMustBeHistorical: true,
+      entriesMustPassValidation: true,
+      entriesRequireExplicitCapabilityIds: true,
+      staleEntriesRequireReplacementCapabilities: true,
     }),
     classificationStatus: proofHoles.length === 0 ? "complete" : "hole",
     counts: Object.freeze(counts),
     capabilityMappingCounts: Object.freeze(capabilityMappingCounts),
+    validationErrorCount: validationProofHoles.length,
     classifiedOldPaths: Object.freeze([...classifiedOldPathSet].sort()),
     classifiedUnknownOldPaths: Object.freeze([...classifiedUnknownOldPathSet].sort()),
     unclassifiedOldPaths: Object.freeze(unclassifiedOldPaths),
@@ -1217,8 +1485,20 @@ export function buildOldEmitterInventoryReport(historicalOldPaths, inventoryEntr
   });
 }
 
-function oldEmitterInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet) {
+function oldEmitterInventoryValidationProofHoles(entry) {
+  const oldPath = typeof entry?.oldPath === "string" && entry.oldPath.length > 0
+    ? entry.oldPath
+    : "<unknown>";
+  return validateOldEmitterPortEntry(entry).map((error) => Object.freeze({
+    oldPath,
+    proofHole: "old-inventory-validation",
+    error,
+  }));
+}
+
+function oldEmitterInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet, validationProofHoles) {
   return [
+    ...validationProofHoles,
     ...unclassifiedOldPaths.map((oldPath) => Object.freeze({
       oldPath,
       proofHole: "unclassified-old-inventory",

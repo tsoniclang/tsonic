@@ -38,12 +38,19 @@ function runGeneratedProject(projectDirectory, assemblyName) {
   return executed.stdout.replace(/\r\n/g, "\n");
 }
 
+function dotnetOutputAssemblyPath(projectDirectory, assemblyName) {
+  return resolve(projectDirectory, ".dotnet-test-artifacts/bin", `${assemblyName}.dll`);
+}
+
 function run(command, args) {
   return runInDirectory(repoRoot, command, args);
 }
 
 function runInDirectory(cwd, command, args) {
-  const result = spawnSync(command, args, {
+  const normalizedArgs = command === "dotnet"
+    ? dotnetArgsWithIsolatedArtifacts(cwd, args)
+    : args;
+  const result = spawnSync(command, normalizedArgs, {
     cwd,
     encoding: "utf8",
   });
@@ -54,9 +61,46 @@ function runInDirectory(cwd, command, args) {
   };
 }
 
+function dotnetArgsWithIsolatedArtifacts(cwd, args) {
+  if (args.some((arg) => arg.startsWith("/p:OutputPath=") || arg.startsWith("-p:OutputPath="))) {
+    return args;
+  }
+  const projectPath = dotnetProjectPath(cwd, args);
+  if (projectPath === undefined) {
+    return args;
+  }
+  const artifactsPath = resolve(dirname(projectPath), ".dotnet-test-artifacts");
+  const delimiterIndex = args.indexOf("--");
+  const propertyArg = `/p:OutputPath=${resolve(artifactsPath, "bin")}/`;
+  return delimiterIndex === -1
+    ? [...args, propertyArg]
+    : [
+        ...args.slice(0, delimiterIndex),
+        propertyArg,
+        ...args.slice(delimiterIndex),
+      ];
+}
+
+function dotnetProjectPath(cwd, args) {
+  if (args[0] === "run") {
+    const projectFlagIndex = args.findIndex((arg) => arg === "--project");
+    const projectPath = projectFlagIndex === -1 ? undefined : args[projectFlagIndex + 1];
+    return projectPath === undefined ? undefined : resolve(cwd, projectPath);
+  }
+  const projectPath = args.find((arg, index) =>
+    index > 0 &&
+    !arg.startsWith("-") &&
+    !arg.startsWith("/p:") &&
+    !arg.startsWith("/property:") &&
+    (arg.endsWith(".csproj") || arg.endsWith(".sln"))
+  );
+  return projectPath === undefined ? undefined : resolve(cwd, projectPath);
+}
+
 export {
   assert,
   csharpProjectPath,
+  dotnetOutputAssemblyPath,
   cliPath,
   existsSync,
   readFile,

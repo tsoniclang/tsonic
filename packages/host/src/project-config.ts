@@ -1,3 +1,4 @@
+import { getTargetIdValidationMessage, isValidTargetId, isValidTargetSurfaceId } from "@tsonic/target-api";
 import type { TargetSelection, TsonicProjectConfig } from "@tsonic/target-api";
 
 export function parseTsonicProjectConfig(value: unknown): TsonicProjectConfig {
@@ -28,6 +29,9 @@ function readTargets(value: unknown): readonly TargetSelection[] {
     }
     rejectUnknownTargetKeys(target, index);
     const id = readString(target, "id");
+    if (!isValidTargetId(id)) {
+      throw new Error(getTargetIdValidationMessage(`Target at index ${index} id '${id}'`));
+    }
     if (seen.has(id)) {
       throw new Error(`Project config target '${id}' is declared more than once. Use one target entry per target id.`);
     }
@@ -100,6 +104,9 @@ function readOptionalSurfaces(value: Readonly<Record<string, unknown>>, targetId
   return field.map((surface, index) => {
     if (typeof surface !== "string" || surface.length === 0) {
       throw new Error(`Target '${targetId}' surface at index ${index} must be a non-empty string.`);
+    }
+    if (!isValidTargetSurfaceId(surface)) {
+      throw new Error(getTargetIdValidationMessage(`Target '${targetId}' surface '${surface}'`));
     }
     if (seen.has(surface)) {
       throw new Error(`Target '${targetId}' surface '${surface}' is declared more than once.`);

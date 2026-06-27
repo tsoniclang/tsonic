@@ -124,6 +124,7 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 - Do not add “old-or-new format” readers, dual manifest normalizers, transitional format bridges, compatibility adapters, or branchy fallback loaders unless the maintainer explicitly approves that exact migration.
 - If an older first-party format is still accepted, treat it as technical debt to remove, not as a pattern to copy.
 - Prefer breaking stale assumptions and fixing the real architecture over keeping old paths alive.
+- Treat hardcoding as an architecture smell by default. Before keeping any concrete source/target name, prove it belongs in declarative policy, provider metadata, tests, or a documented exception; otherwise rethink the abstraction.
 
 ## Truth Over Heuristics (IMPORTANT)
 
@@ -131,6 +132,16 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 - If the compiler does not know something deterministically, it must fail with a real diagnostic rather than infer semantics from names, patterns, or partial metadata.
 - If a path or artifact is optional, discovery must prove it exists before reading it; do not probe and then silently recover.
 - Remove existing heuristic/native-compat code when touching that area unless the maintainer explicitly requests otherwise.
+
+## Generic Policy First (IMPORTANT)
+
+- Every product mechanism must be implemented at the most generic policy/fact/provider level that correctly fits the domain; do not solve repeated compiler/runtime patterns with one-off hardcoded branches.
+- Source or target names such as `Map`, `Set`, `Date`, `Array`, `fs`, `C#`, or `Rust` may appear in declarative policy, provider metadata, capability ledgers, and explicit exception definitions, but not as source-family algorithm branches in generic resolution paths.
+- This rule applies across all analysis layers, not only surfaces: source semantics, target type resolution, object-shape analysis, runtime-carrier lifecycle, operation providers, backend planning, compat/runtime lanes, tests, and capability ledgers.
+- Concrete source/target names are data. Generic algorithms consume selected TSTS declarations/signatures, provider metadata, finalized facts, source identities, and policy entries; they must not branch on source-family spellings or target member names.
+- When one case exposes a pattern, design the reusable policy engine or provider contract first, then express the case as data/policy over that mechanism.
+- Hardcoded special cases are allowed only as narrow policy exceptions with source identity, target identity, reason, required facts, diagnostics, positive and negative tests, and ledger evidence.
+- If existing code is hardcoded where a generic policy belongs, delete/rebuild it against the generic mechanism rather than extending the hardcoded path.
 
 ## Source Syntax Discipline (IMPORTANT)
 

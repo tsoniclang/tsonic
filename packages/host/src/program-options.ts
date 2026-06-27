@@ -8,7 +8,7 @@ import {
 import type { ProgramOptions } from "@tsonic/tsts";
 import type { TsonicProjectConfig } from "@tsonic/target-api";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { resolveProjectPaths } from "./project-paths.js";
 
 export interface CreateProgramOptionsInput {
@@ -26,7 +26,7 @@ export interface CreatedProgramOptions {
 export function createProgramOptionsForProject(input: CreateProgramOptionsInput): CreatedProgramOptions {
   const paths = resolveProjectPaths(input);
   const fileSystem = createInMemoryFileSystem({
-    files: collectProjectFiles(paths.projectRoot),
+    files: collectProjectFiles(paths.projectRoot, paths.outputRoot),
   });
   const host = createCompilerHost({
     currentDirectory: paths.projectRoot,
@@ -41,6 +41,7 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     "--moduleResolution",
     "nodenext",
     "--strict",
+    "--singleThreaded",
     "--preserveSymlinks",
     "--allowArbitraryExtensions",
     "--rootDir",
@@ -65,13 +66,16 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
   };
 }
 
-function collectProjectFiles(projectRoot: string): ReadonlyMap<string, string> {
+function collectProjectFiles(projectRoot: string, outputRoot: string): ReadonlyMap<string, string> {
   const files = new Map<string, string>();
-  visitDirectory(projectRoot, files);
+  visitDirectory(projectRoot, files, outputRoot);
   return files;
 }
 
-function visitDirectory(directory: string, files: Map<string, string>): void {
+function visitDirectory(directory: string, files: Map<string, string>, outputRoot: string): void {
+  if (pathIsWithinOrEqual(outputRoot, directory)) {
+    return;
+  }
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (shouldSkipEntry(entry.name)) {
       continue;
@@ -82,7 +86,7 @@ function visitDirectory(directory: string, files: Map<string, string>): void {
         visitNodeModulesDirectory(fullPath, files);
         continue;
       }
-      visitDirectory(fullPath, files);
+      visitDirectory(fullPath, files, outputRoot);
       continue;
     }
     if (!entry.isFile() || !isResolverInputFile(entry.name)) {
@@ -91,6 +95,12 @@ function visitDirectory(directory: string, files: Map<string, string>): void {
     const normalizedPath = fullPath.split("\\").join("/");
     files.set(normalizedPath, readFileSync(fullPath, "utf8"));
   }
+}
+
+function pathIsWithinOrEqual(parentPath: string, candidatePath: string): boolean {
+  const relativePath = relative(parentPath, candidatePath);
+  return relativePath === "" ||
+    (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 }
 
 function shouldSkipEntry(name: string): boolean {

@@ -4,6 +4,7 @@ import { Node_Body, Node_Members, Node_Statements, Node_Symbol, Node_Text, Sourc
 import { Node_Name } from "../internal/ast/spine.js";
 import { KindConstructor, KindIndexSignature, KindModuleDeclaration } from "../internal/ast/generated/kinds.js";
 import type { Symbol } from "../internal/ast/symbol.js";
+import { GetSymbolId } from "../internal/ast/utilities.js";
 import {
   canonicalIdentityFactKey,
   providerVirtualDeclarationFactKey,
@@ -255,10 +256,13 @@ function getProviderVirtualModuleEvidence(virtualModule: ProviderResolvedModule)
 }
 
 function getSymbolFactId(symbol: Symbol): string {
-  return `${symbol.Name}:${String(symbol.id)}`;
+  return `${symbol.Name}:${String(GetSymbolId(symbol))}`;
 }
 
 function getTargetBindingFact(virtualModule: ProviderResolvedModule, declaration: ProviderExportDeclaration): TargetBindingFact | undefined {
+  if (declaration.targetBinding !== undefined) {
+    return declaration.targetBinding;
+  }
   if (declaration.targetIdentity === undefined) {
     return undefined;
   }

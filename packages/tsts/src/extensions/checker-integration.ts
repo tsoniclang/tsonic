@@ -4,8 +4,8 @@ import type { Node } from "../internal/ast/ast.js";
 import { Node_Arguments, Node_Expression, Node_Symbol, Node_Text, Node_TypeArguments } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import { Node_Name } from "../internal/ast/spine.js";
-import { AsElementAccessExpression, AsForInOrOfStatement, AsPropertyAccessExpression } from "../internal/ast/generated/casts.js";
-import { KindElementAccessExpression, KindIdentifier, KindPrivateIdentifier, KindPropertyAccessExpression, KindQualifiedName } from "../internal/ast/generated/kinds.js";
+import { AsCallExpression, AsElementAccessExpression, AsForInOrOfStatement, AsPropertyAccessExpression } from "../internal/ast/generated/casts.js";
+import { KindCallExpression, KindElementAccessExpression, KindIdentifier, KindPrivateIdentifier, KindQualifiedName } from "../internal/ast/generated/kinds.js";
 import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
@@ -17,6 +17,7 @@ import { GetSourceFileOfNode, NodeIsSynthesized } from "../internal/ast/utilitie
 import { ExtensionObservationPoint } from "./observations.js";
 import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityObservationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
+import type { TargetParameter, TargetTypeRef } from "./facts.js";
 import type { ExtensionEvidence, ExtensionFactKey, ExtensionFactSubject, ExtensionHost } from "./host.js";
 import { getExtensionHost } from "./host.js";
 
@@ -42,6 +43,10 @@ const noCheckedOperationMapping: CheckedOperationMappingResult = {
   },
 };
 
+function isNoTargetCallMapping(result: CheckedCallMappingResult): bool {
+  return (result.selectedSignature.member.id === noCheckedCallMapping.selectedSignature.member.id) as bool;
+}
+
 export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProgram>, callExpression: GoPtr<Node>, sourceSelectedSignature?: GoPtr<Signature>): void {
   if (checker === undefined || callExpression === undefined || !isUserSourceOperationNode(callExpression)) {
     return;
@@ -56,14 +61,28 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   if (callee === undefined) {
     return;
   }
-  const calleeSymbols = getReferenceSymbols(checker, callee);
   const calleeAccess = AsPropertyAccessExpression(callee);
+  const calleeMemberName = calleeAccess?.name;
+  const selectedCalleeReference = calleeMemberName ?? callee;
   const calleeReceiver = calleeAccess?.Expression;
-  const calleeReceiverType = calleeReceiver === undefined ? undefined : Checker_GetTypeAtLocation(checker, calleeReceiver);
-  const calleeReceiverSymbols = getReferenceSymbols(checker, calleeReceiver);
   const sourceSelectedDeclaration = sourceSelectedSignature?.declaration;
   const sourceSelectedDeclarationContainer = sourceSelectedDeclaration?.Parent;
   const sourceSelectedContainerSymbol = sourceSelectedDeclarationContainer === undefined ? undefined : Node_Symbol(sourceSelectedDeclarationContainer);
+  const arguments_ = Node_Arguments(callExpression) ?? [];
+  if (!hasAnyExtensionOwnedSubject(extensionHost, [
+    callExpression,
+    callee,
+    calleeMemberName,
+    calleeReceiver,
+    ...arguments_,
+    sourceSelectedDeclaration,
+    sourceSelectedDeclarationContainer,
+    sourceSelectedContainerSymbol,
+  ])) {
+    return;
+  }
+  const calleeSymbols = getReferenceSymbols(checker, selectedCalleeReference);
+  const calleeReceiverSymbols = getReferenceSymbols(checker, calleeReceiver);
 
   const result = extensionHost.runObservation(
     ExtensionObservationPoint.mapCheckedCall,
@@ -74,13 +93,11 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
       ...(calleeSymbols.resolvedSymbol !== undefined ? { calleeResolvedSymbol: calleeSymbols.resolvedSymbol } : {}),
       ...(calleeSymbols.aliasedSymbol !== undefined ? { calleeAliasedSymbol: calleeSymbols.aliasedSymbol } : {}),
       ...(calleeReceiver !== undefined ? { calleeReceiver } : {}),
-      ...(calleeReceiverType !== undefined ? { calleeReceiverType } : {}),
-      ...(calleeReceiverType?.symbol !== undefined ? { calleeReceiverTypeSymbol: calleeReceiverType.symbol } : {}),
       ...(calleeReceiverSymbols.symbol !== undefined ? { calleeReceiverSymbol: calleeReceiverSymbols.symbol } : {}),
       ...(calleeReceiverSymbols.resolvedSymbol !== undefined ? { calleeReceiverResolvedSymbol: calleeReceiverSymbols.resolvedSymbol } : {}),
       ...(calleeReceiverSymbols.aliasedSymbol !== undefined ? { calleeReceiverAliasedSymbol: calleeReceiverSymbols.aliasedSymbol } : {}),
       ...(calleeAccess?.name !== undefined ? { calleePropertyName: Node_Text(calleeAccess.name) } : {}),
-      arguments: definedFactSubjects(Node_Arguments(callExpression) ?? []),
+      arguments: definedFactSubjects(arguments_),
       ...(sourceSelectedSignature !== undefined ? { sourceSelectedSignature } : {}),
       ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
       ...(sourceSelectedDeclarationContainer !== undefined ? { sourceSelectedDeclarationContainer } : {}),
@@ -96,8 +113,10 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
   if (result.kind !== "accept") {
     return;
   }
+  if (isNoTargetCallMapping(result.value)) {
+    return;
+  }
 
-  const arguments_ = Node_Arguments(callExpression) ?? [];
   const selectedSignature = recordExtensionTargetTypeArgumentMapping(extensionHost, callee, sourceSelectedSignature, result.value, arguments_);
   extensionHost.facts.set(callExpression, selectedTargetSignatureFactKey, selectedSignature, result.evidence ?? []);
   recordExtensionCallParameterModes(extensionHost, { ...result.value, selectedSignature }, arguments_);
@@ -106,6 +125,10 @@ export function recordExtensionCheckedCallMapping(checker: GoPtr<CheckerWithProg
 
 export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<CheckerWithProgram>, propertyAccessExpression: GoPtr<Node>, receiverType?: GoPtr<Type>): void {
   if (checker === undefined || propertyAccessExpression === undefined || !isUserSourceOperationNode(propertyAccessExpression)) {
+    return;
+  }
+
+  if (propertyAccessExpressionIsImmediateCallCallee(propertyAccessExpression)) {
     return;
   }
 
@@ -166,6 +189,12 @@ export function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<Check
   }
 
   extensionHost.facts.set(propertyAccessExpression, targetOperationFactKey, result.value.operation, result.evidence ?? []);
+}
+
+function propertyAccessExpressionIsImmediateCallCallee(propertyAccessExpression: Node): boolean {
+  const parent = propertyAccessExpression.Parent;
+  return parent?.Kind === KindCallExpression &&
+    AsCallExpression(parent)?.Expression === propertyAccessExpression;
 }
 
 export function recordExtensionCheckedElementAccessMapping(checker: GoPtr<CheckerWithProgram>, elementAccessExpression: GoPtr<Node>, receiverType?: GoPtr<Type>): void {
@@ -396,10 +425,46 @@ export function recordExtensionRuntimeCarrierFact(checker: GoPtr<CheckerWithProg
     carrier: result.value.carrier,
     ...(result.value.requiresAllocation !== undefined ? { requiresAllocation: result.value.requiresAllocation } : {}),
   };
-  extensionHost.facts.set(type, runtimeCarrierFactKey, fact, result.evidence ?? []);
+  const canAttachToSemanticType = runtimeCarrierCanAttachToSemanticType(fact.carrier);
+  if (canAttachToSemanticType) {
+    extensionHost.facts.set(type, runtimeCarrierFactKey, fact, result.evidence ?? []);
+  }
   setFactOnOptionalSubject(extensionHost, typeReference, runtimeCarrierFactKey, fact, result.evidence ?? []);
-  setFactOnOptionalSubject(extensionHost, symbol, runtimeCarrierFactKey, fact, result.evidence ?? []);
-  setFactOnOptionalSubject(extensionHost, type.symbol, runtimeCarrierFactKey, fact, result.evidence ?? []);
+  if (canAttachToSemanticType) {
+    setFactOnOptionalSubject(extensionHost, symbol, runtimeCarrierFactKey, fact, result.evidence ?? []);
+    setFactOnOptionalSubject(extensionHost, type.symbol, runtimeCarrierFactKey, fact, result.evidence ?? []);
+  }
+}
+
+function runtimeCarrierCanAttachToSemanticType(type: TargetTypeRef): bool {
+  return (type.kind === "target-named" &&
+    (type.typeArguments?.length ?? 0) === 0 &&
+    !targetTypeRefContainsSourcePrimitive(type)) as bool;
+}
+
+function targetTypeRefContainsSourcePrimitive(type: TargetTypeRef): bool {
+  switch (type.kind) {
+    case "source-primitive":
+      return true as bool;
+    case "target-named":
+      return type.typeArguments?.some((argument) => targetTypeRefContainsSourcePrimitive(argument)) === true as bool;
+    case "array":
+      return targetTypeRefContainsSourcePrimitive(type.element);
+    case "tuple":
+      return type.elements.some((element) => targetTypeRefContainsSourcePrimitive(element)) as bool;
+    case "pointer":
+      return targetTypeRefContainsSourcePrimitive(type.pointee);
+    case "function-pointer":
+      return (type.args.some((argument) => targetTypeRefContainsSourcePrimitive(argument)) ||
+        targetTypeRefContainsSourcePrimitive(type.result)) as bool;
+    case "associated-type":
+      return targetTypeRefContainsSourcePrimitive(type.owner);
+    case "type-parameter":
+    case "opaque":
+    case "lifetime":
+    case "target-specific":
+      return false as bool;
+  }
 }
 
 export function recordExtensionContextualTargetTypeFact(checker: GoPtr<CheckerWithProgram>, expression: GoPtr<Node>, contextualType: GoPtr<Type>): void {
@@ -576,18 +641,19 @@ function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, ca
     return;
   }
   const parameters = callResult.selectedSignature.member.parameters;
-  for (let index = 0; index < parameters.length; index++) {
-    const parameter = parameters[index];
+  for (let index = 0; index < arguments_.length; index++) {
+    const parameter = getTargetParameterForCallArgument(parameters, index);
     const argument = arguments_[index];
     if (parameter === undefined || argument === undefined) {
       continue;
     }
+    const target = getTargetConversionTypeForCallArgument(parameter);
     const result = extensionHost.runObservation(
       ExtensionObservationPoint.mapCheckedConversion,
       {
         expression: argument,
         source: argument,
-        target: parameter.type,
+        target,
         ...(extensionHost.activeTarget !== undefined ? { targetPlatform: extensionHost.activeTarget } : {}),
       },
       () => {
@@ -604,6 +670,21 @@ function recordExtensionCallArgumentConversions(extensionHost: ExtensionHost, ca
       ...(result.value.operation !== undefined ? { operation: result.value.operation } : {}),
     }, result.evidence ?? []);
   }
+}
+
+function getTargetParameterForCallArgument(parameters: readonly TargetParameter[], index: number): TargetParameter | undefined {
+  const parameter = parameters[index];
+  if (parameter !== undefined) {
+    return parameter;
+  }
+  const last = parameters[parameters.length - 1];
+  return last?.paramsArray === true ? last : undefined;
+}
+
+function getTargetConversionTypeForCallArgument(parameter: TargetParameter): TargetTypeRef {
+  return parameter.paramsArray === true && parameter.type.kind === "array"
+    ? parameter.type.element
+    : parameter.type;
 }
 
 function definedFactSubjects<T extends object>(subjects: readonly (T | undefined)[]): readonly ExtensionFactSubject[] {
@@ -628,7 +709,7 @@ function getReferenceSymbols(
   if (checker === undefined || node === undefined || !isReferenceSymbolQueryNode(node)) {
     return {};
   }
-  const symbol = Node_Symbol(node) ?? Checker_GetSymbolAtLocation(checker, node);
+  const symbol = Checker_GetSymbolAtLocation(checker, node) ?? Node_Symbol(node);
   const resolvedSymbol = Checker_getResolvedSymbolOrNil(checker, node);
   const aliasedSymbol = getAliasedSymbolIfAvailable(checker, resolvedSymbol ?? symbol);
   return {

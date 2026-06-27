@@ -182,7 +182,7 @@ test("CLI rejects direct C# bitwise operators on plain TypeScript number", async
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# binary operator emission requires a selected provider operator fact/);
+  assert.match(build.stderr, /C# bitwise operator '&' requires integral, enum, or explicit provider operator facts/);
 });
 
 
@@ -375,7 +375,7 @@ test("CLI rejects in-operator emission without selected provider operation facts
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# binary operator emission requires a selected provider operator fact/);
+  assert.match(build.stderr, /C# operator 'in' has no finalized provider target operation/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedInOperatorFacts.csproj")), false);
 });
 
@@ -660,7 +660,9 @@ test("CLI routes top-level for-of statements through the C# module entrypoint", 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   const generatedEntrypoint = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicEntrypoint.cs"), "utf8");
-  assert.match(generatedSource, /public static double total = 0;/);
+  assert.match(generatedSource, /public static double total;/);
+  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /total = 0;/);
   assert.match(generatedEntrypoint, /public static void Main\(\)/);
   assert.match(generatedEntrypoint, /Index\.__tsonic_module_init\(\);/);
   assert.match(generatedSource, /foreach \(double value in new double\[\] \{ 1, 2, 3 \}\)/);
@@ -1056,6 +1058,10 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
       "  return flag ? 1.5 : null;",
       "}",
       "",
+      "export function maybeNumberUndefined(flag: boolean): number | undefined {",
+      "  return flag ? 2.5 : undefined;",
+      "}",
+      "",
       "export function maybeBoolean(flag: boolean): boolean | null {",
       "  return flag ? true : null;",
       "}",
@@ -1065,6 +1071,10 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
       "}",
       "",
       "export function readBoolean(value: boolean | null, alternate: boolean): boolean {",
+      "  return value ?? alternate;",
+      "}",
+      "",
+      "export function readUndefined(value: number | undefined, alternate: number): number {",
       "  return value ?? alternate;",
       "}",
       "",
@@ -1081,13 +1091,17 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
   assert.match(generatedSource, /return flag \? 1\.5 : null;/);
+  assert.match(generatedSource, /public static double\? maybeNumberUndefined\(bool flag\)/);
+  assert.match(generatedSource, /return flag \? 2\.5 : null;/);
   assert.match(generatedSource, /public static bool\? maybeBoolean\(bool flag\)/);
   assert.match(generatedSource, /return flag \? true : null;/);
   assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);
   assert.match(generatedSource, /public static bool readBoolean\(bool\? value, bool alternate\)/);
   assert.match(generatedSource, /return value \?\? alternate;/);
+  assert.match(generatedSource, /public static double readUndefined\(double\? value, double alternate\)/);
   assert.match(generatedSource, /public static double read\(Box\? box, double defaultValue\)/);
   assert.match(generatedSource, /return box\?\.value \?\? defaultValue;/);
+  assert.doesNotMatch(generatedSource, /\bundefined\b/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNullableUnions.csproj"), "--nologo", "--v:minimal"]);
@@ -1423,7 +1437,7 @@ test("CLI rejects tuple dynamic indexes without finalized element facts", async 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Tuple element access requires a finalized numeric-literal index type before C# emission/);
+  assert.match(build.stderr, /Tuple element access requires a numeric-literal source index; non-literal tuple indexing needs finalized target element-access facts before C# emission/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleDynamicIndex.csproj")), false);
 });
 

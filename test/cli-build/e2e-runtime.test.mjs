@@ -21,9 +21,11 @@ test("CLI runs generated C# executable for provider Console hello world", async 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/modules/TsonicModule_1wfnqsm.cs"), "utf8");
-  assert.match(generatedSource, /public static void Main\(\)/);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /System\.Console\.WriteLine\("Hello from Tsonic E2E!"\);/);
+  const entrypointSource = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicEntrypoint.cs"), "utf8");
+  assert.match(entrypointSource, /public static void Main\(\)/);
+  assert.match(entrypointSource, /Index\.__tsonic_module_init\(\);/);
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Hello from Tsonic E2E!\n");
 });
 

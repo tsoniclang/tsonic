@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, dotnetOutputAssemblyPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 async function readGeneratedModuleSource(projectDirectory) {
   return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
@@ -42,6 +42,60 @@ test("CLI emits provider-owned static C# calls from selected TSTS target facts",
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderStaticCalls.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI does not fall back to file-backed packages for provider-owned .NET modules", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-file-backed-shadow");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderFileBackedShadow",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Convert } from \"@tsonic/dotnet/System.js\";",
+      "import type { uint8 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function toByte(value: number): uint8 {",
+      "  return Convert.toByte(value);",
+      "}",
+      "",
+    ].join("\n"),
+    "node_modules/@tsonic/dotnet/package.json": JSON.stringify({
+      name: "@tsonic/dotnet",
+      type: "module",
+      exports: {
+        "./System.js": "./System.ts",
+      },
+    }, null, 2),
+    "node_modules/@tsonic/dotnet/System.ts": [
+      "export const Convert = {",
+      "  toByte(value: number): number {",
+      "    return 255;",
+      "  },",
+      "};",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /return System\.Convert\.ToByte\(value\);/);
+  assert.doesNotMatch(generatedSource, /255|node_modules|Convert\.toByte|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderFileBackedShadow.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
@@ -134,6 +188,40 @@ test("CLI rejects JS array mutators on explicit provider-owned native .NET array
   assert.match(build.stdout + build.stderr, /push|does not exist|CSHARP_TARGET_MEMBER_NOT_FOUND/u);
 });
 
+test("CLI rejects length mutation on explicit provider-owned native .NET arrays", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-native-dotnet-array-reject-length-set");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderNativeDotnetArrayRejectLengthSet",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function invalid(values: DotNetArray<int32>): void {",
+      "  values.length = 3;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /Cannot assign to 'length' because it is a read-only property/u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderNativeDotnetArrayRejectLengthSet.csproj")), false);
+});
+
 
 test("CLI accepts provider-owned overloads discovered from .NET reflection", async () => {
   const projectDirectory = resolve(tempRoot, "provider-static-call-reflection-overload");
@@ -208,7 +296,7 @@ test("CLI resolves provider-owned modules from explicit target assembly referenc
   });
   const libraryBuild = run("dotnet", ["build", resolve(libraryDirectory, "Acme.Native.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(libraryBuild.status, 0, libraryBuild.stdout + libraryBuild.stderr);
-  const libraryAssembly = resolve(libraryDirectory, "bin/Debug/net10.0/Acme.Native.dll");
+  const libraryAssembly = dotnetOutputAssemblyPath(libraryDirectory, "Acme.Native");
   assert.equal(existsSync(libraryAssembly), true);
 
   const projectDirectory = resolve(tempRoot, "provider-explicit-assembly-reference");
@@ -349,6 +437,179 @@ test("CLI emits provider-owned System.Console and System.Math calls from .NET vi
   assert.doesNotMatch(generatedSource, /return Console\.|Console\.write|Math\.sqrt|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderConsoleMath.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits provider-owned optional parameters only from reflected default facts", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-optional-parameter-default");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderOptionalParameterDefault",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { ArgumentException } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export function validate(value: string): void {",
+      "  ArgumentException.throwIfNullOrEmpty(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /System\.ArgumentException\.ThrowIfNullOrEmpty\(value\);/);
+  assert.doesNotMatch(generatedSource, /throwIfNullOrEmpty|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderOptionalParameterDefault.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects omitted provider optional parameters without reflected default facts", async () => {
+  const libraryDirectory = resolve(tempRoot, "provider-optional-without-default-library");
+  await writeProject(libraryDirectory, {
+    "Acme.OptionalDefaults.csproj": [
+      "<Project Sdk=\"Microsoft.NET.Sdk\">",
+      "  <PropertyGroup>",
+      "    <TargetFramework>net10.0</TargetFramework>",
+      "    <ImplicitUsings>disable</ImplicitUsings>",
+      "    <Nullable>enable</Nullable>",
+      "  </PropertyGroup>",
+      "</Project>",
+      "",
+    ].join("\n"),
+    "OptionalSource.cs": [
+      "using System.Runtime.InteropServices;",
+      "",
+      "namespace Acme.OptionalDefaults;",
+      "",
+      "public static class OptionalSource",
+      "{",
+      "    public static void OptionalWithoutDefault([Optional] string value) { }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const libraryBuild = run("dotnet", ["build", resolve(libraryDirectory, "Acme.OptionalDefaults.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(libraryBuild.status, 0, libraryBuild.stdout + libraryBuild.stderr);
+  const libraryAssembly = dotnetOutputAssemblyPath(libraryDirectory, "Acme.OptionalDefaults");
+  assert.equal(existsSync(libraryAssembly), true);
+
+  const projectDirectory = resolve(tempRoot, "provider-optional-without-default-reject");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderOptionalWithoutDefaultReject",
+            references: {
+              assemblies: [{ include: "Acme.OptionalDefaults", hintPath: libraryAssembly }],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { OptionalSource } from \"@tsonic/dotnet/Acme.OptionalDefaults.js\";",
+      "",
+      "export function invalid(): void {",
+      "  OptionalSource.optionalWithoutDefault();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /CSHARP_TARGET_MEMBER_NOT_FOUND|optional|default/u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderOptionalWithoutDefaultReject.csproj")), false);
+});
+
+test("CLI emits provider-owned params-array arguments from reflected target facts", async () => {
+  const libraryDirectory = resolve(tempRoot, "provider-params-array-library");
+  await writeProject(libraryDirectory, {
+    "Acme.Params.csproj": [
+      "<Project Sdk=\"Microsoft.NET.Sdk\">",
+      "  <PropertyGroup>",
+      "    <TargetFramework>net10.0</TargetFramework>",
+      "    <ImplicitUsings>disable</ImplicitUsings>",
+      "    <Nullable>enable</Nullable>",
+      "  </PropertyGroup>",
+      "</Project>",
+      "",
+    ].join("\n"),
+    "ParamsSource.cs": [
+      "namespace Acme.Params;",
+      "",
+      "public static class ParamsSource",
+      "{",
+      "    public static string Join(string prefix, params int[] values)",
+      "        => prefix + \":\" + string.Join(\",\", values);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const libraryBuild = run("dotnet", ["build", resolve(libraryDirectory, "Acme.Params.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(libraryBuild.status, 0, libraryBuild.stdout + libraryBuild.stderr);
+  const libraryAssembly = dotnetOutputAssemblyPath(libraryDirectory, "Acme.Params");
+  assert.equal(existsSync(libraryAssembly), true);
+
+  const projectDirectory = resolve(tempRoot, "provider-params-array");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderParamsArray",
+            references: {
+              assemblies: [{ include: "Acme.Params", hintPath: libraryAssembly }],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { ParamsSource } from \"@tsonic/dotnet/Acme.Params.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function joined(first: int32, second: int32): string {",
+      "  return ParamsSource.join(\"n\", first, second);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /return Acme\.Params\.ParamsSource\.Join\("n", first, second\);/);
+  assert.doesNotMatch(generatedSource, /ParamsSource\.join|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderParamsArray.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
@@ -1300,7 +1561,7 @@ test("CLI enforces provider-backed generic interface constraints through TSTS de
   });
   const libraryBuild = run("dotnet", ["build", resolve(libraryDirectory, "Acme.Constraints.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(libraryBuild.status, 0, libraryBuild.stdout + libraryBuild.stderr);
-  const libraryAssembly = resolve(libraryDirectory, "bin/Debug/net10.0/Acme.Constraints.dll");
+  const libraryAssembly = dotnetOutputAssemblyPath(libraryDirectory, "Acme.Constraints");
   assert.equal(existsSync(libraryAssembly), true);
 
   const validProjectDirectory = resolve(tempRoot, "provider-generic-constraint-valid");

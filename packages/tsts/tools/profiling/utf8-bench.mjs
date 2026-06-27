@@ -15,7 +15,7 @@ const stringCompareDist = join(repoRoot, "packages/tsts/dist/src/internal/string
 const requiredDist = [utf8Dist, unicodeDist, coreDist, stringutilDist, stringCompareDist];
 for (const file of requiredDist) {
   if (!existsSync(file)) {
-    throw new Error(`Missing built TSTS artifact: ${file}. Run npx tsc -p packages/tsts/tsconfig.json first.`);
+    throw new Error(`Missing built TSTS artifact: ${file}. Run node_modules/.bin/tsgo -p packages/tsts/tsconfig.json --pretty false first.`);
   }
 }
 

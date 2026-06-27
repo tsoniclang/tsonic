@@ -321,6 +321,238 @@ const oldProductUnitPortedProofByOldPath = new Map([
   })],
 ]);
 
+const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/cli/src/commands/build.test.ts",
+  ], [
+    "backend.csharp.project-sdk-emit",
+    "host.config.project-load",
+    "host.package.composition",
+    "host.project.provider-composition",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+  ], [
+    "host.package.composition",
+    "host.project.package-discovery",
+    "host.project.package-path-resolution",
+    "module.package.exports-subpath",
+    "provider.module.no-file-backed-fallback",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/cli/src/commands/build-source-package.test.ts",
+  ], [
+    "host.package.composition",
+    "host.project.module-graph",
+    "host.project.package-path-resolution",
+    "module.emit.multi-file",
+    "module.package.exports-subpath",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+  ], [
+    "host.project.module-graph",
+    "module.export.default",
+    "module.export.named",
+    "module.export.reexport",
+    "module.graph.source-files",
+    "module.import.default",
+    "module.import.named",
+    "module.import.namespace",
+    "module.import.type-only",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+  ], [
+    "host.project.package-discovery",
+    "host.project.package-path-resolution",
+    "module.package.exports-subpath",
+    "provider.module.no-file-backed-fallback",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+  ], [
+    "host.graph.source-files",
+    "host.project.module-graph",
+    "module.graph.source-files",
+    "tsts.program.create-with-extensions",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/entrypoint-scope.test.ts",
+  ], [
+    "host.project.deterministic-output-paths",
+    "host.project.module-graph",
+    "host.project.top-level-initialization-order",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/package-roots.test.ts",
+  ], [
+    "host.project.package-discovery",
+    "host.project.package-path-resolution",
+    "module.package.exports-subpath",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/program/program-input-discovery.test.ts",
+  ], [
+    "host.graph.source-files",
+    "host.project.module-graph",
+    "module.graph.source-files",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/resolver/namespace.test.ts",
+  ], [
+    "host.project.module-graph",
+    "module.import.namespace",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/cli/src/surface/profiles.test.ts",
+  ], [
+    "host.config.surface-selection",
+    "host.project.surface-extension-composition",
+    "host.project.surface-selection",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.console",
+    "surface.node.fs-path-process",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/surface/profiles.test.ts",
+  ], [
+    "host.config.surface-selection",
+    "host.project.surface-extension-composition",
+    "host.project.surface-selection",
+    "runtime.csharp.js",
+    "surface.js.array-methods",
+    "surface.js.console",
+    "surface.node.fs-path-process",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
+  ], [
+    "source-core.target-alias-consumption",
+    "source.marker.attribute",
+    "source.marker.out-ref-inref",
+    "source.primitive.configured-type",
+    "source.primitive.numeric",
+    "tsts.no-target-overrides",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+  ], [
+    "source-core.lang.portable-intrinsics",
+    "source-core.lang.portable-intrinsics.attribute",
+    "source-core.lang.portable-intrinsics.field",
+    "source-core.lang.portable-intrinsics.inref",
+    "source-core.lang.portable-intrinsics.out",
+    "source-core.lang.portable-intrinsics.ref",
+    "source-core.module.single-owner",
+    "source-core.out.storage-binding",
+    "source-core.ref.parameter-mode",
+    "source-core.target-alias-consumption",
+    "source.marker.attribute",
+    "source.marker.field",
+    "source.marker.out-ref-inref",
+    "source.primitive.configured-type",
+    "source.primitive.numeric",
+    "target.csharp.core-lang-intrinsics",
+    "tsts.no-target-overrides",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.csharp.no-direct-semantic-string-output",
+    "backend.csharp.printer",
+    "backend.no-semantic-strings",
+  ]),
+]);
+
+const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+  ], [
+    "architecture.target-pack.no-procedural-policy",
+    "architecture.native-compilable.esm-only",
+    "architecture.native-compilable.no-unapproved-deps",
+    "architecture.target-pack.boundaries",
+    "architecture.target-pack.no-catch-all-semantics",
+    "analysis.abstraction.policy-enforcement",
+    "backend.csharp.ast-statement",
+    "backend.csharp.printer",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/cli/src/commands/restore-cases/runtime-dlls.test.ts",
+    "packages/cli/src/package-manifests/bindings-cases/runtime-overrides-and-validation.test.ts",
+  ], [
+    "backend.csharp.runtime-artifacts",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+  ], [
+    "carrier.any-tsvalue",
+    "compat.any.call-construct",
+    "compat.any.dynamic-set",
+    "compat.any.property",
+    "compat.any.typed-boundary-cast",
+    "compat.mode.compat",
+    "compat.mode.strict-native",
+    "compat.prototype-mutation",
+    "compat.proxy-eval-function-with",
+    "diagnostic.dynamic-strict-mode",
+    "diagnostic.missing-target-fact",
+    "diagnostic.strict-mode-slow-op",
+    "runtime.dynamic.carrier",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/cli/src/commands/restore.test.ts",
+  ], [
+    "diagnostic.missing-provider-fact",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/cli/src/package-manifests/bindings.test.ts",
+  ], [
+    "diagnostic.missing-provider-fact",
+    "provider.virtual-module.source-shape",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/lowering/plan-builders.test.ts",
+    "packages/frontend/src/validator-maximus-cases/feature-gating.test.ts",
+  ], [
+    "diagnostic.missing-target-fact",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
+  ], [
+    "expression.literal.bigint-regex-template",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+  ], [
+    "source-core.lang.portable-intrinsics",
+    "source-core.lang.portable-intrinsics.attribute",
+    "source-core.lang.portable-intrinsics.field",
+    "source-core.lang.portable-intrinsics.inref",
+    "source-core.lang.portable-intrinsics.out",
+    "source-core.lang.portable-intrinsics.ref",
+    "source-core.module.single-owner",
+    "source-core.out.storage-binding",
+    "source-core.ref.parameter-mode",
+    "source-core.target-alias-consumption",
+    "source.marker.field",
+    "source.primitive.configured-type",
+    "target.csharp.core-lang-intrinsics",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
+  ], [
+    "source-core.target-alias-consumption",
+    "source.primitive.configured-type",
+  ]),
+]);
+
 export const oldProductUnitPortInventory = Object.freeze(
   oldProductUnitHistoricalTestFileTuples.map(([oldPath, testDeclarations]) => withOldProductUnitCapabilityProof(oldPath, testDeclarations)),
 );
@@ -330,7 +562,7 @@ const oldProductUnitCapabilityMappingStatusSet = new Set(oldProductUnitCapabilit
 const oldProductUnitFeatureAreaSet = new Set(oldProductUnitFeatureAreas);
 
 function freezeSortedStrings(values) {
-  return Object.freeze([...values].sort());
+  return Object.freeze([...new Set(values)].sort());
 }
 
 function reviewedOldProductUnitStaleMappings(oldPaths, replacementCapabilityIds, replacementCapabilityPath) {
@@ -344,6 +576,25 @@ function reviewedOldProductUnitStaleMappings(oldPaths, replacementCapabilityIds,
   return oldPaths.map((oldPath) => [oldPath, proof]);
 }
 
+function reviewedOldProductUnitDeferredCapabilityMapping(oldPaths, capabilityIds) {
+  const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
+  return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldProductUnitLedgerEvidenceCapabilityMapping(oldPaths, capabilityIds) {
+  const frozenCapabilityIds = freezeSortedStrings(capabilityIds);
+  return oldPaths.map((oldPath) => [oldPath, frozenCapabilityIds]);
+}
+
+function oldProductUnitCapabilityIdsWithLedgerEvidence(oldPath, capabilityIds) {
+  const ledgerEvidenceCapabilityIds = oldProductUnitLedgerEvidenceCapabilityIdsByOldPath.get(oldPath);
+  if (ledgerEvidenceCapabilityIds === undefined) {
+    return capabilityIds;
+  }
+
+  return freezeSortedStrings([...capabilityIds, ...ledgerEvidenceCapabilityIds]);
+}
+
 function withOldProductUnitCapabilityProof(oldPath, testDeclarations) {
   const status = oldProductUnitStatusFor(oldPath);
   const staleProof = status === "invalid-stale-architecture"
@@ -352,6 +603,7 @@ function withOldProductUnitCapabilityProof(oldPath, testDeclarations) {
   const portedProof = status === "ported"
     ? oldProductUnitPortedProofFor(oldPath)
     : undefined;
+  const reviewedDeferredCapabilityIds = oldProductUnitReviewedDeferredCapabilityIdsByOldPath.get(oldPath);
 
   return Object.freeze({
     oldPath,
@@ -360,8 +612,16 @@ function withOldProductUnitCapabilityProof(oldPath, testDeclarations) {
     featureArea: oldProductUnitFeatureAreaFor(oldPath),
     owner: oldProductUnitOwnerFor(oldPath),
     oldEvidenceRole: oldProductUnitOldEvidenceRole,
-    capabilityMappingStatus: status === "deferred" ? "deferred-derived" : "reviewed",
-    capabilityIds: staleProof?.capabilityIds ?? portedProof?.capabilityIds ?? freezeSortedStrings(oldProductUnitCapabilityIdsFor(oldPath)),
+    capabilityMappingStatus: staleProof !== undefined || portedProof !== undefined || reviewedDeferredCapabilityIds !== undefined
+      ? "reviewed"
+      : "deferred-derived",
+    capabilityIds: oldProductUnitCapabilityIdsWithLedgerEvidence(
+      oldPath,
+      staleProof?.capabilityIds ??
+        portedProof?.capabilityIds ??
+        reviewedDeferredCapabilityIds ??
+        freezeSortedStrings(oldProductUnitCapabilityIdsFor(oldPath)),
+    ),
     ...(portedProof?.newPath === undefined ? {} : { newPath: portedProof.newPath }),
     reason: oldProductUnitReasonFor(oldPath),
     ...(staleProof === undefined ? {} : {
@@ -677,10 +937,6 @@ export function validateOldProductUnitPortEntry(entry) {
     errors.push(`capabilityMappingStatus must be one of ${oldProductUnitCapabilityMappingStatuses.join(", ")}`);
   }
 
-  if (entry.status === "deferred" && entry.capabilityMappingStatus !== "deferred-derived") {
-    errors.push("deferred entries must use deferred-derived capability mappings");
-  }
-
   if (entry.status !== "deferred" && entry.capabilityMappingStatus !== "reviewed") {
     errors.push("ported, replaced, and stale entries must use reviewed capability mappings");
   }
@@ -728,8 +984,11 @@ export function buildOldProductUnitInventoryReport(historicalOldPaths, inventory
   const classifiedUnknownOldPathSet = new Set();
   const counts = createOldProductUnitCounts(historicalPaths.length);
   const capabilityMappingCounts = createOldProductUnitCapabilityMappingCounts();
+  const validationProofHoles = [];
 
   for (const entry of inventoryEntries) {
+    validationProofHoles.push(...oldProductUnitInventoryValidationProofHoles(entry));
+
     if (!historicalPathSet.has(entry.oldPath)) {
       classifiedUnknownOldPathSet.add(entry.oldPath);
       continue;
@@ -748,16 +1007,24 @@ export function buildOldProductUnitInventoryReport(historicalOldPaths, inventory
 
   const unclassifiedOldPaths = historicalPaths.filter((oldPath) => !classifiedOldPathSet.has(oldPath));
   counts.unclassified = unclassifiedOldPaths.length;
-  const proofHoles = oldProductUnitInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet);
+  const proofHoles = oldProductUnitInventoryProofHoles(
+    unclassifiedOldPaths,
+    classifiedUnknownOldPathSet,
+    validationProofHoles,
+  );
 
   return Object.freeze({
     rules: Object.freeze({
       unclassifiedOldInventoryIsImpossible: true,
       classifiedInventoryPathsMustBeHistorical: true,
+      entriesMustPassValidation: true,
+      entriesRequireExplicitCapabilityIds: true,
+      staleEntriesRequireReplacementCapabilities: true,
     }),
     classificationStatus: proofHoles.length === 0 ? "complete" : "hole",
     counts: Object.freeze(counts),
     capabilityMappingCounts: Object.freeze(capabilityMappingCounts),
+    validationErrorCount: validationProofHoles.length,
     classifiedOldPaths: Object.freeze([...classifiedOldPathSet].sort()),
     classifiedUnknownOldPaths: Object.freeze([...classifiedUnknownOldPathSet].sort()),
     unclassifiedOldPaths: Object.freeze(unclassifiedOldPaths),
@@ -765,8 +1032,20 @@ export function buildOldProductUnitInventoryReport(historicalOldPaths, inventory
   });
 }
 
-function oldProductUnitInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet) {
+function oldProductUnitInventoryValidationProofHoles(entry) {
+  const oldPath = typeof entry?.oldPath === "string" && entry.oldPath.length > 0
+    ? entry.oldPath
+    : "<unknown>";
+  return validateOldProductUnitPortEntry(entry).map((error) => Object.freeze({
+    oldPath,
+    proofHole: "old-inventory-validation",
+    error,
+  }));
+}
+
+function oldProductUnitInventoryProofHoles(unclassifiedOldPaths, classifiedUnknownOldPathSet, validationProofHoles) {
   return [
+    ...validationProofHoles,
     ...unclassifiedOldPaths.map((oldPath) => Object.freeze({
       oldPath,
       proofHole: "unclassified-old-inventory",
