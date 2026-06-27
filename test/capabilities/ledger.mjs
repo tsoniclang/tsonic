@@ -3733,7 +3733,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.fs-path-process remains partial for default imports until TSTS provider virtual declarations support truthful default exports or default namespace-object aliases with identity propagation to selected members.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property access, and rejection of node:path/fs without the NodeJS surface. Remains partial until fs/path/process behavior is runtime-verified across the full old Node fixture matrix and all unsupported module members fail closed.",
+      "Reviewed partial proof: selected NodeJS surface facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property access, path.posix/path.win32 PathModule member facts, and rejection of node:path/fs without the NodeJS surface. Remains partial until provider-backed default imports are represented by TSTS source identities, fs/path/process behavior is runtime-verified across the full old Node fixture matrix, and all unsupported module members fail closed.",
   }),
   "surface.node.fs": Object.freeze({
     positiveTests: Object.freeze([
@@ -3751,7 +3751,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.fs remains partial until every supported node:fs and bare fs operation has selected-declaration target facts, every unsupported fs member has precise selected-surface diagnostics, and the old Node fixture matrix has runtime/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, existsSync/readFileSync/statSync/write-style target mappings, no-surface negative paths block Node-owned modules before artifact emission, and unsupported selected fs.watchFile fails closed without runtime fallback. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
+      "Reviewed partial proof: selected NodeJS surface facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, existsSync/readFileSync string and Buffer returns, statSync/fstatSync, readSync/writeSync Buffer descriptors, writeFileSync/appendFileSync Buffer writes, no-surface negative paths block Node-owned modules before artifact emission, and unsupported selected fs.watchFile fails closed without runtime fallback. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
   }),
   "surface.node.fs-stats-date": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3832,7 +3832,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls, Buffer instance length/toString, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt overload-family mapping, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. Remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
+      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), Buffer instance length/toString/copy/write/compare, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. Remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
@@ -3861,10 +3861,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "surface.node.url remains partial until live URLSearchParams semantics, URLPattern, url.format, urlToHttpOptions, open-object option carriers, runtime execution, and complete selected-surface diagnostics have closed carrier implementations or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
+      "surface.node.url remains partial until live URLSearchParams semantics, URLPattern, open-object url.format, urlToHttpOptions, open-object option carriers, runtime execution, and complete selected-surface diagnostics have closed carrier implementations or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
     ]),
     notes:
-      "Reviewed partial proof: selected node:url and bare url provider modules expose URL and module function declarations; closed URL constructor/properties/static methods and domain/file-path helpers map by selected provider declaration/signature identity to Tsonic.CSharp.Node.URL/url calls; open-object url.format, urlToHttpOptions, URL.searchParams live-mutation semantics, URLSearchParams operations, and URLPattern fail closed without reflection, dynamic dispatch, object dictionary projection, or generic runtime fallback.",
+      "Reviewed partial proof: selected node:url and bare url provider modules expose URL and module function declarations; closed URL constructor/properties/static methods, URL-as-base constructor/canParse/parse overloads, URL-only url.format, and domain/file-path helpers map by selected provider declaration/signature identity to Tsonic.CSharp.Node.URL/url calls; open-object url.format, urlToHttpOptions, URL.searchParams live-mutation semantics, URLSearchParams operations, and URLPattern fail closed without reflection, dynamic dispatch, object dictionary projection, or generic runtime fallback.",
   }),
   "backend.csharp.runtime-artifacts": Object.freeze({
     positiveTests: Object.freeze([
@@ -3923,7 +3923,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS surface tests build node:path/fs/crypto/os/process mappings through that reference, and a generated JS+Node executable runs node:path.join through the C# Node runtime. Remains partial until executable tests cover the old Node fixture matrix and all unsupported Node module members fail closed.",
+      "Reviewed partial proof: selected NodeJS surface runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS surface tests build node:path/fs/crypto/os/process mappings through that reference, closed fs Buffer descriptor/file helpers, crypto Buffer/Hash/Hmac helpers, and URL base-overload helpers are available as runtime-owned APIs, and a generated JS+Node executable runs node:path.join through the C# Node runtime. Remains partial until executable tests cover the old Node fixture matrix and all unsupported Node module members fail closed.",
   }),
   "runtime.no-reflection-semantics": Object.freeze({
     positiveTests: Object.freeze([
