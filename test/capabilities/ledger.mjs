@@ -1500,10 +1500,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "packages/source-core/src/source-extension.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "packages/source-core/src/source-extension.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
@@ -1569,7 +1571,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source.marker.out-ref-inref remains partial until every assignable storage form, non-storage diagnostic, call/constructor propagation path, mutation flow, and emitted parameter-mode AST path is proven.",
     ]),
     notes:
-      "Reviewed partial proof: imported and namespace out/ref/inref markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts for identifier, property, and element storage; unproven storage like out(value + 1) produces SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT; local and shadowed same-spelling functions do not create marker facts.",
+      "Reviewed partial proof: imported and namespace out/ref/inref markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts for identifier, property, and element storage; CLI evidence proves unproven storage like out(value + 1), ref(value + 1), and inref(value + 1) produces TSTS_SOURCE_SEMANTICS_0001 diagnostics before C# artifacts are emitted; local and shadowed same-spelling functions do not create marker facts.",
   }),
   "source.marker.field": Object.freeze({
     positiveTests: Object.freeze([
@@ -1666,10 +1668,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "packages/source-core/src/source-extension.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "packages/source-core/src/source-extension.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
@@ -1695,16 +1699,18 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.out.storage-binding remains partial until destructured, provider-owned, readonly/non-assignable, source-span, and every selected-target byref write path have closed positive and negative proof.",
     ]),
     notes:
-      "Reviewed partial proof: out(value), namespace out(box.field), and property storage record write-only byref facts, while out(value + 1) records the same marker shape but emits SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT because the argument is not assignable storage.",
+      "Reviewed partial proof: out(value), namespace out(box.field), and property storage record write-only byref facts, while CLI evidence proves out(value + 1) records no usable storage fact and emits TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted.",
   }),
   "source-core.ref.parameter-mode": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "packages/source-core/src/source-extension.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "packages/source-core/src/source-extension.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
@@ -1714,7 +1720,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.ref.parameter-mode remains partial until ref/inref facts are consumed by every call, constructor, delegate, provider overload, invalid readonly, source-span, and emitted target parameter path.",
     ]),
     notes:
-      "Reviewed partial proof: ref(value), inref(value), namespace ref(value), and element/property storage attach readwrite and readonly parameter-mode facts to proven storage; local and shadowed functions named like markers do not receive source-core parameter facts. Remaining proof must connect those facts through provider selection and C# AST emission.",
+      "Reviewed partial proof: ref(value), inref(value), namespace ref(value), and element/property storage attach readwrite and readonly parameter-mode facts to proven storage; CLI evidence proves ref(value + 1) and inref(value + 1) fail closed with TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted; local and shadowed functions named like markers do not receive source-core parameter facts. Remaining proof must connect every provider/delegate/constructor path through target-owned legality.",
   }),
   "source-core.struct.field-facts": Object.freeze({
     positiveTests: Object.freeze([
@@ -1858,6 +1864,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ],
     oldEvidence: [
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
@@ -1867,7 +1874,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.out remains partial until destructuring, provider-owned, readonly, source-span, and every selected-target byref write path have closed positive and negative proof.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records byref-writeonly-must-init only for aliased or namespaced imported core out markers and proven identifier/property storage; out(value + 1) reports SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT, invalid arity is rejected by TSTS checking, local/shadowed out calls do not attach facts, and C# provider calls consume the finalized fact as out value rather than by name.",
+      "Reviewed partial proof: TSTS/source-core records byref-writeonly-must-init only for aliased or namespaced imported core out markers and proven identifier/property storage; CLI evidence proves out(value + 1) reports TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted; invalid arity is rejected by TSTS checking, local/shadowed out calls do not attach facts, and C# provider calls consume the finalized fact as out value rather than by name.",
   }),
   "source-core.lang.portable-intrinsics.ref": coreLangIntrinsicEvidence({
     exportName: "ref",
@@ -1904,6 +1911,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ],
     oldEvidence: [
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
@@ -1913,7 +1921,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.ref remains partial until every mutable storage family, readonly rejection, provider overload, delegate, constructor, source-span, and target emission path has direct proof.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records byref-readwrite for imported ref aliases such as ref as refArg and namespace ref(value), while same-spelling local and shadowed functions do not receive marker facts. Non-storage arguments diagnose, invalid arity is rejected by TSTS checking, and remaining proof must cover target-owned legality.",
+      "Reviewed partial proof: TSTS/source-core records byref-readwrite for imported ref aliases such as ref as refArg and namespace ref(value), while same-spelling local and shadowed functions do not receive marker facts. CLI evidence proves non-storage ref(value + 1) diagnostics block C# artifacts, invalid arity is rejected by TSTS checking, and remaining proof must cover target-owned legality.",
   }),
   "source-core.lang.portable-intrinsics.inref": coreLangIntrinsicEvidence({
     exportName: "inref",
@@ -1949,6 +1957,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
       "packages/tsts/src/extensions/source-semantics.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ],
     oldEvidence: [
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
@@ -1958,7 +1967,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.inref remains partial until readonly storage, temporary expression rejection, provider overloads, delegates, constructors, source spans, and every selected target's immutable byref operation are proven.",
     ],
     notes:
-      "Reviewed partial proof: imported and namespace inref records byref-readonly on the call marker, does not place argument-passing facts on the storage expression itself, diagnoses non-storage expressions, rejects invalid arity through TSTS checking, and C# CLI emission uses in value only from finalized facts.",
+      "Reviewed partial proof: imported and namespace inref records byref-readonly on the call marker, does not place argument-passing facts on the storage expression itself, CLI evidence proves non-storage inref(value + 1) diagnostics block C# artifacts, invalid arity is rejected through TSTS checking, and C# CLI emission uses in value only from finalized facts.",
   }),
   "source-core.lang.portable-intrinsics.borrow": coreLangIntrinsicEvidence({
     exportName: "borrow",

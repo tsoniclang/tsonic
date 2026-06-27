@@ -630,6 +630,38 @@ test("CLI emits C# argument passing from neutral storage facts and C# aliases", 
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
+test("CLI rejects byref source markers without finalized storage facts", async () => {
+  const projectDirectory = resolve(tempRoot, "argument-passing-non-storage-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { out, ref, inref } from \"@tsonic/core/lang.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function invalid(value: int32): void {",
+      "  out(value + 1);",
+      "  ref(value + 1);",
+      "  inref(value + 1);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TSTS_SOURCE_SEMANTICS_0001/);
+  assert.match(build.stderr, /requires a storage expression/);
+  assert.match(build.stderr, /out/u);
+  assert.match(build.stderr, /ref/u);
+  assert.match(build.stderr, /inref/u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 
 test("CLI rejects neutral borrow and move markers before C# output", async () => {
   const projectDirectory = resolve(tempRoot, "borrow-move-rejected");
