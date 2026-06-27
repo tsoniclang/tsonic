@@ -1860,6 +1860,55 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI hard-rejects selected JS string exactness lanes without closed runtime facts", async () => {
+  const projectDirectory = resolve(tempRoot, "js-string-exactness-rejections");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStringExactnessRejections",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function matched(value: string, pattern: RegExp): RegExpMatchArray | null {",
+      "  return value.match(pattern);",
+      "}",
+      "",
+      "export function raw(template: TemplateStringsArray, value: string): string {",
+      "  return String.raw(template, value);",
+      "}",
+      "",
+      "export function all(value: string, pattern: RegExp): number {",
+      "  let count = 0;",
+      "  for (const _match of value.matchAll(pattern)) {",
+      "    count++;",
+      "  }",
+      "  return count;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.match'/);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.raw'/);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.matchAll'/);
+  assert.match(build.stderr, /RegExpMatchArray/);
+  assert.match(build.stderr, /template-object/);
+  assert.match(build.stderr, /iterator/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringExactnessRejections.csproj")), false);
+});
+
 test("CLI emits selected JS number toString facts through the C# JS runtime", async () => {
   const projectDirectory = resolve(tempRoot, "js-number-tostring");
   await writeProject(projectDirectory, {
