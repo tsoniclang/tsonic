@@ -2876,6 +2876,38 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current CLI proof renders spread only from finalized expected array facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, and does not revive old expected-type-threading logic inside Tsonic.",
   }),
+  "operation.spread.object": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "operation.spread.object remains partial until all object spread forms have complete proof: nested spreads, computed keys, accessor members, optional/readonly members, provider-native object copy facts, compat TsObject spread, and every old object-literal/rest/spread inventory item.",
+    ]),
+    notes:
+      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts and non-identifier spread expressions fail closed. CLI tests prove full object-shape spread and subset spread through generated C# projects, and reject spreads when any source member lacks a finalized target carrier or when single-evaluation lowering facts are absent.",
+  }),
+  "operation.spread.provider-target-copy": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "operation.spread.provider-target-copy remains partial until provider-native copy operations, generated adapter copy methods, compat object-carrier copy, and non-identifier single-evaluation copy plans are represented as finalized provider facts with positive and fail-closed tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: current provider-target copy evidence is restricted to structural object-shape member copy. The backend copies only between provider-proven source and target object-shape members with finalized target names and carriers; missing source facts, missing member carriers, and non-identifier source expressions diagnose instead of falling back to dictionary/object projection or source-name matching.",
+  }),
   "binding.array.fixed-rest-default": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
