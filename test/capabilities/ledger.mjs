@@ -562,11 +562,60 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: current host includes package.json only as TSTS resolver input, follows package exports/subpaths to source .ts/.mts files, and excludes package declarations/metadata from backend semantic input; provider-owned modules must enter through selected target/surface extensions, and package-root shim imports fail closed instead of being rescued by legacy package discovery.",
   }),
+  "host.project.module-graph": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "host.project.module-graph remains partial until every old module/source-package fixture and product unit path is explicitly mapped to current TSTS source graph behavior.",
+    ]),
+    notes:
+      "Reviewed partial proof: the host creates one semantic session from TSTS-resolved non-declaration source files; emitted C# includes entry-reachable relative and package-export source files, excludes orphan source files, excludes provider virtual files, and rejects missing module facts through TSTS diagnostics rather than backend rediscovery.",
+  }),
+  "host.project.package-path-resolution": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "host.project.package-path-resolution remains partial until every old source-package fixture and package path unit test is classified against provider-owned virtual modules or current TSTS package export resolution.",
+    ]),
+    notes:
+      "Reviewed partial proof: package exports/subpaths that resolve to concrete source files enter through the TSTS graph; declaration-only exports, package-root bootstrap imports, tsconfig path aliases, provider metadata JSON, and same-named file probes all fail closed before target artifact emission.",
+  }),
+  "host.project.top-level-initialization-order": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "host.project.top-level-initialization-order remains partial until cycles, export initialization edge cases, and every old module/top-level fixture have current runtime proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: runtime import and re-export dependencies are discovered from TSTS module declarations, type-only imports do not execute dependency modules, package-export source modules initialize before importers, orphan modules never initialize, and invalid module bindings stop before target artifacts are written.",
+  }),
   "module.graph.source-files": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/target-config.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -583,8 +632,10 @@ const reviewedCapabilityEvidence = Object.freeze({
   "module.import.named": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -602,6 +653,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
@@ -617,6 +669,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -634,6 +687,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -651,6 +705,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -665,8 +720,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "module.export.named": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
     ]),
-    negativeTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "test/fixtures/module-constants/",
     ]),
@@ -681,7 +739,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
     ]),
-    negativeTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
       "module.export.default remains partial until default class exports and every old default-export fixture form are mapped to current backend emission capabilities.",
@@ -694,7 +754,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
     ]),
-    negativeTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "test/fixtures/barrel-reexports/",
     ]),
