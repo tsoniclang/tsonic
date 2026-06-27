@@ -3597,7 +3597,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.js.console remains partial until every Console member has selected-declaration proof, closed argument carrier/conversion facts, runtime/toolchain coverage, and diagnostics for unsupported members.",
     ]),
     notes:
-      "Reviewed partial proof: selected JS Console declarations map only through the checked standard-library declaration identity; console property access defers to the selected call, foreign same-spelling declarations do not map, and console calls reject without finalized closed target facts and runtime-member-compatible argument shapes.",
+      "Reviewed partial proof: selected JS Console declarations map only through the checked standard-library declaration identity; console property access defers to the selected call, foreign same-spelling declarations do not map, and console calls reject without finalized closed target facts and runtime-member-compatible argument shapes. CLI evidence now emits log/error/warn/info/debug/trace/assert/time/timeLog/timeEnd/count/countReset/group/groupCollapsed/groupEnd/clear/dir/dirxml/table through Tsonic.CSharp.Js.console and dotnet-builds the generated project.",
   }),
   "surface.js.console-log": Object.freeze({
     positiveTests: Object.freeze([
@@ -3613,7 +3613,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.js.console-log remains partial until console.log argument conversion facts and runtime/toolchain coverage prove every supported source argument family.",
     ]),
     notes:
-      "Reviewed partial proof: console.log maps to Tsonic.CSharp.Js.console.log only from the selected bundled Console.log declaration and only when every argument has a finalized closed target fact; missing argument facts reject instead of boxing unknown values. Console shape validation is shared with assert/dirxml/timeLog-style members.",
+      "Reviewed partial proof: console.log maps to Tsonic.CSharp.Js.console.log only from the selected bundled Console.log declaration and only when every argument has a finalized closed target fact; missing argument facts reject instead of boxing unknown values. CLI evidence emits multi-argument console.log with closed string/number/bool facts and dotnet-builds the generated project. Console shape validation is shared with assert/dirxml/timeLog-style members.",
   }),
   "surface.js.math-json-regexp": Object.freeze({
     positiveTests: Object.freeze([
