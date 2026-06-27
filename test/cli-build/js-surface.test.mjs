@@ -198,6 +198,38 @@ test("CLI emits selected JS console calls through the C# JS runtime", async () =
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects console.log without selected JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "console-log-without-js-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedConsoleLogWithoutJsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function write(value: string): void {",
+      "  console.log(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.match(build.stderr, /callee node runtime carrier/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedConsoleLogWithoutJsSurface.csproj")), false);
+});
+
 test("CLI emits JSON.stringify from selected JS surface facts", async () => {
   const projectDirectory = resolve(tempRoot, "standard-json-stringify");
   await writeProject(projectDirectory, {

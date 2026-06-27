@@ -287,7 +287,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "partial", "target-provider"],
 
   ["surface.js.console", "JS console operations use selected JS surface facts", "partial", "surface-provider"],
-  ["surface.js.console-log", "console.log uses selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.console-log", "console.log uses selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.array-methods", "JS array methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "complete", "surface-provider"],
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
@@ -3661,20 +3661,94 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed partial proof: selected JS Console declarations map only through the checked standard-library declaration identity; console property access defers to the selected call, foreign same-spelling declarations do not map, and console calls reject without finalized closed target facts and runtime-member-compatible argument shapes. CLI evidence now emits log/error/warn/info/debug/trace/assert/time/timeLog/timeEnd/count/countReset/group/groupCollapsed/groupEnd/clear/dir/dirxml/table through Tsonic.CSharp.Js.console and dotnet-builds the generated project.",
   }),
   "surface.js.console-log": Object.freeze({
+    sourceExamples: Object.freeze([
+      "console.log(label, count, ok);",
+      "console.log(value);",
+    ]),
+    tstsDecision:
+      "TSTS validates console.log only when the selected JS surface supplies the bundled Console.log declaration; unselected or foreign same-spelling calls do not provide target facts.",
+    providerFacts: Object.freeze([
+      "selectedJsConsoleLogDeclaration",
+      "closedConsoleLogArgumentFacts",
+      "consoleLogTargetSignatureFact",
+      "consoleLogRuntimeMetadataRow",
+    ]),
+    backendContract:
+      "C# emits Tsonic.CSharp.Js.console.log only from finalized selected Console.log operation facts with closed argument carriers; it must not box unknown values, call System.Console directly, or recover from source spelling.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ConsoleTests.cs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.console-log remains partial until console.log argument conversion facts and runtime/toolchain coverage prove every supported source argument family.",
-    ]),
+    blockers: Object.freeze([]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "js-console-log-operation",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-console-log-declaration",
+          "closed-console-log-argument-target-facts",
+          "selected-console-log-target-signature",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-selected-js-surface",
+          "missing-console-log-declaration",
+          "missing-closed-console-log-argument",
+          "missing-selected-target-signature",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-console-log-declaration",
+          "closed-console-log-argument-target-facts",
+          "selected-console-log-target-signature",
+        ]),
+        operation: "emit-selected-js-console-log-operation",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "unsupported-console-log-argument",
+          "source-spelling-only",
+        ]),
+      },
+    }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ConsoleTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: console.log maps to Tsonic.CSharp.Js.console.log only from the selected bundled Console.log declaration and only when every argument has a finalized closed target fact; missing argument facts reject instead of boxing unknown values. CLI evidence emits multi-argument console.log with closed string/number/bool facts and dotnet-builds the generated project. Console shape validation is shared with assert/dirxml/timeLog-style members.",
+      "Reviewed proof: console.log maps to Tsonic.CSharp.Js.console.log only from the selected bundled Console.log declaration and only when every argument has finalized closed target facts. Missing argument facts reject in the surface provider instead of boxing unknown values. Without the selected JS surface, CLI evidence fails before artifact creation with a missing selected target signature diagnostic. Runtime evidence proves the Tsonic.CSharp.Js.console.log entrypoint accepts multiple closed argument carriers without throwing. CLI evidence emits multi-argument console.log with closed string/number/bool facts, dotnet-builds the generated project, and asserts no unsupported/invalid fallback output.",
   }),
   "surface.js.math-json-regexp": Object.freeze({
     positiveTests: Object.freeze([
