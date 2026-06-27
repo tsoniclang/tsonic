@@ -4133,6 +4133,30 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: target conversions are finalized as TSTS targetConversion facts, C# emission requires a matching C# target conversion operation fact, source assertion CLI coverage emits explicit System.Convert/cast output from finalized facts, provider conversion operators carry source and target type evidence, and mismatched, missing, or ambiguous conversion facts fail closed.",
   }),
+  "operation.operator.checked-target-operation": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/operators/nullish-coalescing/NullishCoalescing.ts",
+      "packages/targets/csharp/emitter/testcases/common/operators/optional-chaining/OptionalChaining.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/NullishCoalescing.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/TernaryTyping.ts",
+      "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
+    ]),
+    blockers: Object.freeze([
+      "operation.operator.checked-target-operation remains partial until every supported operator family has static-native or compat-runtime lane proof, every unsupported operator is hard-rejected with capability diagnostics, and old expected-type/operator fixtures are all covered by current CLI/runtime evidence.",
+    ]),
+    notes:
+      "Reviewed partial proof: binary, unary, nullish, and selected provider operators are emitted only from finalized TSTS/provider targetOperation facts; direct bitwise and generic type-parameter operators reject when facts are missing; in-operator and structural operators fail closed rather than backend-guessing from source spelling; nullish coalescing requires matching finalized operator result target type before Roslyn AST emission.",
+  }),
   "operation.iteration.for-of.sync": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
