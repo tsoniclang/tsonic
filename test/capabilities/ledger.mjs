@@ -3056,9 +3056,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
     ]),
     blockers: Object.freeze([
-      "analysis.abstraction.policy-enforcement remains partial until the C# target validator catches function-valued source-member providers, source-family provider-kind selectors, policy-shaped member tables, and source-name-built target member rows; every current finding must be burned down or represented as an explicit semantic exception with tests.",
-      "JS surface call/property/array/collection mapping must finish migration to lazy structural analysis plus declarative source identity, provider/runtime metadata, generic selectors, and finalized target operation facts.",
-      "NodeJS surface mapping must receive the same scanner coverage after JS surface cleanup so provider member tables cannot become a second source-family algorithm layer.",
+      "analysis.abstraction.policy-enforcement remains partial until the zero-finding C# target validator is proven across JS and NodeJS surface/provider modules, not just the recently burned-down JS call/property provider debt.",
+      "Lazy generic analysis services must cover source references, uses, mutations, property/element writes, calls, captures, escapes, and summaries before array/object/surface planning can be considered fully policy-driven.",
+      "NodeJS surface mapping must receive the same scanner coverage and old-inventory proof so provider member tables cannot become a second source-family algorithm layer.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "analysis-abstraction-policy-violation",
