@@ -19,6 +19,8 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
       ],
     }, null, 2),
     "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
       "export function normalize(value: number): number {",
       "  return Math.trunc(Math.abs(value));",
       "}",
@@ -51,6 +53,30 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
       "  return Math.sinh(value) + Math.cosh(value) + Math.tanh(value);",
       "}",
       "",
+      "export function inverseHyperbolic(value: number): number {",
+      "  return Math.asinh(value) + Math.acosh(value + 1) + Math.atanh(value / 2);",
+      "}",
+      "",
+      "export function rootsAndDeltas(value: number): number {",
+      "  return Math.cbrt(value) + Math.expm1(value) + Math.log1p(value) + Math.hypot(value, 3);",
+      "}",
+      "",
+      "export function rounding(value: number): number {",
+      "  return Math.ceil(value) + Math.floor(value) + Math.round(value) + Math.sign(value) + Math.fround(value);",
+      "}",
+      "",
+      "export function bitOps(left: int32, right: int32): int32 {",
+      "  return Math.imul(left, right) + Math.clz32(left);",
+      "}",
+      "",
+      "export function constants(): number {",
+      "  return Math.E + Math.PI + Math.LN2 + Math.LN10 + Math.LOG2E + Math.LOG10E + Math.SQRT1_2 + Math.SQRT2;",
+      "}",
+      "",
+      "export function sample(): number {",
+      "  return Math.random();",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -79,7 +105,20 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.exp\(value\) \+ Tsonic\.CSharp\.Js\.Math\.log\(value\) \+ Tsonic\.CSharp\.Js\.Math\.log10\(value\) \+ Tsonic\.CSharp\.Js\.Math\.log2\(value\)/);
   assert.match(generatedSource, /public static double hyperbolic\(double value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.sinh\(value\) \+ Tsonic\.CSharp\.Js\.Math\.cosh\(value\) \+ Tsonic\.CSharp\.Js\.Math\.tanh\(value\)/);
+  assert.match(generatedSource, /public static double inverseHyperbolic\(double value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.asinh\(value\) \+ Tsonic\.CSharp\.Js\.Math\.acosh\(value \+ 1\) \+ Tsonic\.CSharp\.Js\.Math\.atanh\(value \/ 2\)/);
+  assert.match(generatedSource, /public static double rootsAndDeltas\(double value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.cbrt\(value\) \+ Tsonic\.CSharp\.Js\.Math\.expm1\(value\) \+ Tsonic\.CSharp\.Js\.Math\.log1p\(value\) \+ Tsonic\.CSharp\.Js\.Math\.hypot\(value, 3\)/);
+  assert.match(generatedSource, /public static double rounding\(double value\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.ceil\(value\) \+ Tsonic\.CSharp\.Js\.Math\.floor\(value\) \+ Tsonic\.CSharp\.Js\.Math\.round\(value\) \+ Tsonic\.CSharp\.Js\.Math\.sign\(value\) \+ Tsonic\.CSharp\.Js\.Math\.fround\(value\)/);
+  assert.match(generatedSource, /public static int bitOps\(int left, int right\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.imul\(left, right\) \+ Tsonic\.CSharp\.Js\.Math\.clz32\(left\);/);
+  assert.match(generatedSource, /public static double constants\(\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Math\.E \+ Tsonic\.CSharp\.Js\.Math\.PI \+ Tsonic\.CSharp\.Js\.Math\.LN2 \+ Tsonic\.CSharp\.Js\.Math\.LN10 \+ Tsonic\.CSharp\.Js\.Math\.LOG2E \+ Tsonic\.CSharp\.Js\.Math\.LOG10E \+ Tsonic\.CSharp\.Js\.Math\.SQRT1_2 \+ Tsonic\.CSharp\.Js\.Math\.SQRT2/);
+  assert.match(generatedSource, /public static double sample\(\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.random\(\);/);
   assert.doesNotMatch(generatedSource, /return Math\./);
+  assert.doesNotMatch(generatedSource, /InvalidExpression|__unsupported|Reflection|GetProperty|GetMethod|dynamic/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardMathCalls.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
@@ -336,6 +375,38 @@ test("CLI rejects existing TypeScript JS built-ins without selected JS surface f
   assert.match(build.stderr, /C# property access 'toUpperCase' must be selected by TSTS\/provider facts before emission/);
   assert.match(build.stderr, /C# property access 'slice' must be selected by TSTS\/provider facts before emission/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingTypescriptJsBuiltinsWithoutJsSurface.csproj")), false);
+});
+
+test("CLI rejects Math without selected JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "math-without-js-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedMathWithoutJsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function roundDown(value: number): number {",
+      "  return Math.trunc(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.match(build.stderr, /callee node runtime carrier/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedMathWithoutJsSurface.csproj")), false);
 });
 
 test("CLI rejects unsupported JS expression carriers even when JS surface is selected", async () => {
