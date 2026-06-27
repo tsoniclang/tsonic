@@ -10,9 +10,11 @@ import { TokenToString } from "../internal/scanner/scanner.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import { Checker_GetPropertyOfType } from "../internal/checker/exports.js";
+import { Checker_GetAliasedSymbol, Checker_getResolvedSymbolOrNil } from "../internal/checker/checker/symbols.js";
 import { Checker_getApplicableIndexInfo } from "../internal/checker/checker/signatures.js";
 import { Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
 import { GetSourceFileOfNode, NodeIsSynthesized } from "../internal/ast/utilities.js";
+import { SymbolFlagsAlias } from "../internal/ast/generated/flags.js";
 import { ExtensionObservationPoint } from "./observations.js";
 import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationKind, CheckedOperationMappingResult, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ContextualTargetTypeRequest, ContextualTargetTypeResult, ExtensionFlowUseValidationRequest, ExtensionFlowUseValidationResult, ParameterPassingRequest, ParameterPassingResult, PostCheckAssignabilityObservationRequest, RuntimeCarrierFactRequest, RuntimeCarrierFactResult, TargetConstraintValidationRequest, TargetTypeArgumentMappingRequest, TargetTypeArgumentMappingResult } from "./observations.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
@@ -709,13 +711,35 @@ function getReferenceSymbols(
     return {};
   }
   const symbol = Node_Symbol(node);
-  const resolvedSymbol = undefined;
-  const aliasedSymbol = undefined;
+  const resolvedSymbol = getResolvedSymbolIfAlreadyAvailable(checker, node);
+  const aliasedSymbol = getAliasedSymbolIfAvailable(checker, resolvedSymbol ?? symbol);
   return {
     ...(symbol !== undefined ? { symbol } : {}),
     ...(resolvedSymbol !== undefined && resolvedSymbol !== symbol ? { resolvedSymbol } : {}),
     ...(aliasedSymbol !== undefined && aliasedSymbol !== symbol && aliasedSymbol !== resolvedSymbol ? { aliasedSymbol } : {}),
   };
+}
+
+function getResolvedSymbolIfAlreadyAvailable(checker: GoPtr<CheckerWithProgram>, node: GoPtr<Node>): GoPtr<Symbol> {
+  if (checker === undefined || node === undefined) {
+    return undefined;
+  }
+  try {
+    return Checker_getResolvedSymbolOrNil(checker, node);
+  } catch {
+    return undefined;
+  }
+}
+
+function getAliasedSymbolIfAvailable(checker: GoPtr<CheckerWithProgram>, symbol: GoPtr<Symbol>): GoPtr<Symbol> {
+  if (checker === undefined || symbol === undefined || (symbol.Flags & SymbolFlagsAlias) === 0) {
+    return undefined;
+  }
+  try {
+    return Checker_GetAliasedSymbol(checker, symbol);
+  } catch {
+    return undefined;
+  }
 }
 
 function isReferenceSymbolQueryNode(node: Node): boolean {
