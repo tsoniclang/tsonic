@@ -2992,10 +2992,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     blockers: Object.freeze([
-      "surface.js.array-methods remains partial until every Array constructor, length read/write, sparse slot, delete, hole-presence, mutation, callback, iterator, native-array-boundary, runtime artifact, and fail-closed unsupported lane is covered by sub-capability evidence.",
+      "surface.js.array-methods remains partial until every Array callback, iterator, immutable-copy method, native-array-boundary, CLI/toolchain output shape, runtime artifact, and fail-closed unsupported lane is covered by sub-capability evidence.",
     ]),
     notes:
-      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JS carriers only for full JS behavior. Covered length/index access, concat/includes/index/search/slice/join helpers, nullish-producing at/pop/shift/find/findLast value/reference helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, and array for-in. No-surface array mutators and sparse delete/length mutation fail closed without selected surface facts. Length/index reads are tracked under surface.js.array.length-index; sparse/delete/hole/length-mutation semantics remain partial under surface.js.array.sparse-delete-holes; Array constructor coverage is tracked under surface.js.array-constructor; explicit CLR arrays remain partial under native.dotnet.array.explicit.",
+      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JSArray<T> carriers only when sparse/full-JS facts require that lane. Covered length/index access, concat/includes/index/search/slice/join helpers, nullish-producing at/pop/shift/find/findLast value/reference helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, array for-in, full-JS JSArray helper rows for push/pop/shift/unshift/at/includes/index/search/join/slice/splice/reverse/fill/copyWithin/immutable-copy/keys/values/entries/callback methods, and runtime evidence that helper entrypoints preserve holes. No-surface array mutators and sparse delete/length mutation fail closed without selected surface facts. Length/index reads are tracked under surface.js.array.length-index; sparse/delete/hole/length-mutation semantics remain partial under surface.js.array.sparse-delete-holes; Array constructor coverage is tracked under surface.js.array-constructor; explicit CLR arrays remain partial under native.dotnet.array.explicit.",
   }),
   "surface.js.array-constructor": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3014,16 +3014,19 @@ const reviewedCapabilityEvidence = Object.freeze({
       "C# must emit Array construction only from finalized selected-surface constructor facts; it must not reinterpret type-only Array<T> usage as a CLR allocation or native array fallback.",
     positiveTests: Object.freeze([
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
-    negativeTests: Object.freeze([]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
     oldEvidence: Object.freeze([
       "test/fixtures/array-constructor/",
     ]),
     blockers: Object.freeze([
-      "surface.js.array-constructor remains partial because current proof is runtime-only; it still needs selected-surface CLI/provider proof for new Array<T>(size), no-surface/type-only Array constructor rejection, and exact diagnostics that do not lower to CLR arrays or dense List<T> by spelling.",
+      "surface.js.array-constructor remains partial until selected-surface CLI/toolchain proof for new Array<T>(size), no-surface/type-only Array constructor rejection, and diagnostics that do not lower to CLR arrays or dense List<T> by spelling are covered.",
     ]),
     notes:
-      "Reviewed partial proof: the C# JS runtime has current JSArray construction behavior, but the current source-to-source surface does not yet have explicit selected Array constructor facts or a focused no-surface Array constructor diagnostic. The old array-constructor fixture therefore remains blocker evidence, not completion proof.",
+      "Reviewed partial proof: the C# JS runtime has current JSArray construction behavior, and tsonic-csharp selected-surface provider tests map Array constructor calls only from selected Array constructor declarations plus closed JSArray<T> result carrier facts. Missing result carrier facts reject instead of allocating CLR arrays or dense List<T> by spelling. Remaining proof is CLI/toolchain and no-surface/type-only constructor diagnostics.",
   }),
   "surface.js.array.length-index": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3639,10 +3642,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/map-set-not-in-globals/",
     ]),
     blockers: Object.freeze([
-      "surface.js.map-set remains partial until no-surface Map/Set name-resolution diagnostics, Map.get nullish expected-target threading, Map/Set iterable constructor overloads, entries/values/size/delete/clear/forEach operations, and complete runtime/toolchain edge coverage are proven.",
+      "surface.js.map-set remains partial until no-surface Map/Set name-resolution diagnostics, Map.get nullish expected-target threading, Map/Set iterable constructor overloads, forEach CLI/toolchain operations, and exact generated diagnostics for unsupported selected patterns are proven.",
     ]),
     notes:
-      "Reviewed partial proof: current provider evidence maps selected Map/Set declarations, constructors, set/get/has/add calls, and collection iterator carriers without spelling fallback; current CLI/toolchain evidence compiles TypeScript new Map<string, int32>(), set/get/has, new Set<string>(), add/has, and Array.from(counts.keys()) to Tsonic.CSharp.Js.Map, Tsonic.CSharp.Js.Set, and Tsonic.CSharp.Js.Array.from, then dotnet-builds the generated C# project. Negative evidence rejects missing closed collection carrier facts in provider tests and asserts generated CLI output contains no InvalidExpression, __unsupported, dynamic/reflection, Dictionary/HashSet substitution, or unqualified Map/Set constructor spelling. The focused CLI proof intentionally keeps Map.get as int32 | undefined because Map.get(key) ?? fallback currently belongs to the separate nullish expected-target blocker. The old Map/Set fixtures stay mapped as regression evidence and blockers, not completion proof.",
+      "Reviewed partial proof: current provider evidence maps selected Map/Set declarations, constructors, set/get/has/delete/clear/keys/values/entries/add calls, size properties, and collection iterator carriers through compat-runtime policy metadata with js-same-value-zero equality semantics; no static-native Dictionary/HashSet carrier is selected by the normal JS surface. Current csharp-js runtime evidence proves insertion order, overwrite keeps order, delete/re-add order, NaN key/value equality, +0/-0 equality, null and JSUndefined keys/values when represented, and object keys/values by reference identity rather than structural Equals. Current CLI/toolchain evidence compiles TypeScript new Map<string, int32>(), set/get/has, new Set<string>(), add/has, and Array.from(counts.keys()) to Tsonic.CSharp.Js.Map, Tsonic.CSharp.Js.Set, and Tsonic.CSharp.Js.Array.from, then dotnet-builds the generated C# project. Negative evidence rejects missing closed collection carrier facts in provider tests and asserts generated CLI output contains no InvalidExpression, __unsupported, dynamic/reflection, Dictionary/HashSet substitution, or unqualified Map/Set constructor spelling. The focused CLI proof intentionally keeps Map.get as int32 | undefined because Map.get(key) ?? fallback currently belongs to the separate nullish expected-target blocker. The old Map/Set fixtures stay mapped as regression evidence and blockers, not completion proof.",
   }),
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
