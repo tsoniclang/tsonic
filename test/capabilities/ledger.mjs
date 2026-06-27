@@ -269,7 +269,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "partial", "surface-provider"],
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
-  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
+  ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "partial", "tests"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
@@ -3055,7 +3055,11 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
     ]),
-    blockers: Object.freeze([]),
+    blockers: Object.freeze([
+      "analysis.abstraction.policy-enforcement remains partial until the C# target validator catches function-valued source-member providers, source-family provider-kind selectors, policy-shaped member tables, and source-name-built target member rows; every current finding must be burned down or represented as an explicit semantic exception with tests.",
+      "JS surface call/property/array/collection mapping must finish migration to lazy structural analysis plus declarative source identity, provider/runtime metadata, generic selectors, and finalized target operation facts.",
+      "NodeJS surface mapping must receive the same scanner coverage after JS surface cleanup so provider member tables cannot become a second source-family algorithm layer.",
+    ]),
     laneClassification: freezeLaneClassification({
       patternKind: "analysis-abstraction-policy-violation",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -3091,7 +3095,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Complete proof: the C# target architecture guard scans product source for source-family branches, target-member source-name synthesis, procedural policy files, source-member id dispatch, executable policy hooks, provider-metadata selector functions, and collection metadata executable policies. The debt catalog is empty after JS/Node surface cleanup. Array-specific use discovery consumes generic lazy structural analysis records, collection metadata is declarative, JS/Node target members use explicit metadata rows, and source operation mapping routes through selected source identity plus generic selectors rather than source spelling.",
+      "Reviewed partial proof: the architecture guard already rejects direct source-member id branches, procedural policy filenames, ad hoc source-member matchers, target-member synthesis from source names, and local Node target-member identity maps. The capability remains partial because manual review found remaining JS surface source-family provider rows and policy-shaped member tables that must be scanner-enforced and burned down before the ledger may claim complete policy enforcement.",
   }),
   "architecture.native-compilable.esm-only": Object.freeze({
     sourceExamples: Object.freeze([
