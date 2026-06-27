@@ -24,9 +24,12 @@ test("lazy generic source analysis returns structural use records without source
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify(projectConfig, null, 2),
     "src/index.ts": [
-      "export async function analyze(xs: number[], sink: (value: number[]) => void, promise: Promise<number[]>): Promise<number[]> {",
+      "export async function analyze(xs: number[], rhs: number[], obj: { xs: number[] }, sink: (value: number[]) => void, promise: Promise<number[]>): Promise<number[]> {",
       "  const [first] = xs;",
+      "  let assigned = 0;",
+      "  [assigned] = rhs;",
       "  const clone = [...xs];",
+      "  const objectClone = { ...obj };",
       "  const awaited = await promise;",
       "  xs[0] = 1;",
       "  xs.length = 0;",
@@ -36,9 +39,14 @@ test("lazy generic source analysis returns structural use records without source
       "  }",
       "  captured();",
       "  void first;",
+      "  void assigned;",
       "  void clone;",
+      "  void objectClone;",
       "  void awaited;",
       "  return xs;",
+      "}",
+      "export function* generate(yielded: number[]) {",
+      "  yield yielded;",
       "}",
       "",
     ].join("\n"),
@@ -60,12 +68,21 @@ test("lazy generic source analysis returns structural use records without source
   const xsName = findParameterName(session.ast, sourceFile, "xs");
   assert.notEqual(xsName, undefined);
   const xsSymbol = session.checker.getSymbolAtLocation(xsName, { sourceFile });
+  const rhsName = findParameterName(session.ast, sourceFile, "rhs");
+  assert.notEqual(rhsName, undefined);
+  const rhsSymbol = session.checker.getSymbolAtLocation(rhsName, { sourceFile });
+  const objName = findParameterName(session.ast, sourceFile, "obj");
+  assert.notEqual(objName, undefined);
+  const objSymbol = session.checker.getSymbolAtLocation(objName, { sourceFile });
   const sinkName = findParameterName(session.ast, sourceFile, "sink");
   assert.notEqual(sinkName, undefined);
   const sinkSymbol = session.checker.getSymbolAtLocation(sinkName, { sourceFile });
   const promiseName = findParameterName(session.ast, sourceFile, "promise");
   assert.notEqual(promiseName, undefined);
   const promiseSymbol = session.checker.getSymbolAtLocation(promiseName, { sourceFile });
+  const yieldedName = findParameterName(session.ast, sourceFile, "yielded");
+  assert.notEqual(yieldedName, undefined);
+  const yieldedSymbol = session.checker.getSymbolAtLocation(yieldedName, { sourceFile });
   const analyzeName = findFunctionName(session.ast, sourceFile, "analyze");
   assert.notEqual(analyzeName, undefined);
   const analyzeFunction = session.ast.parent(analyzeName);
@@ -77,7 +94,10 @@ test("lazy generic source analysis returns structural use records without source
   const sinkCallsites = analysisInput.analysis.lazy.callsitesOf(sinkSymbol);
   const escapes = analysisInput.analysis.lazy.escapesOf(xsSymbol);
   const captures = analysisInput.analysis.lazy.capturesOf(xsSymbol);
+  const rhsUses = analysisInput.analysis.lazy.usesOf(rhsSymbol);
+  const objUses = analysisInput.analysis.lazy.usesOf(objSymbol);
   const promiseUses = analysisInput.analysis.lazy.usesOf(promiseSymbol);
+  const yieldedUses = analysisInput.analysis.lazy.usesOf(yieldedSymbol);
   const summary = analysisInput.analysis.lazy.summaryOf(analyzeFunction);
 
   assert.equal(analysisInput.analysis.lazy.elementWritesOn(xsSymbol).length, 1);
@@ -90,7 +110,10 @@ test("lazy generic source analysis returns structural use records without source
   assert.ok(uses.some((use) => use.operation === "spread" && use.access === "read"));
   assert.ok(uses.some((use) => use.operation === "argument" && use.argumentIndex === 0));
   assert.ok(uses.some((use) => use.operation === "return"));
+  assert.ok(rhsUses.some((use) => use.operation === "destructure" && use.operator === "="));
+  assert.ok(objUses.some((use) => use.operation === "spread" && use.access === "read"));
   assert.ok(promiseUses.some((use) => use.operation === "await" && use.access === "read"));
+  assert.ok(yieldedUses.some((use) => use.operation === "yield" && use.access === "read"));
   assert.equal(argumentFlows.length, 1);
   assert.equal(argumentFlows[0].argumentIndex, 0);
   assert.equal(sinkCallsites.length, 1);
