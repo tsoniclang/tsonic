@@ -282,7 +282,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "complete", "surface-provider"],
-  ["surface.node.process", "node:process uses selected Node surface facts", "partial", "surface-provider"],
+  ["surface.node.process", "node:process uses selected Node surface facts", "complete", "surface-provider"],
   ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
   ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "partial", "surface-provider"],
 
@@ -3631,19 +3631,33 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/arch.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/argv.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/chdir.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/cwd.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/env.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/execPath.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/exit.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/exitCode.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/kill.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/pid.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/platform.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/ppid.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/version.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/versions.tests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/chdir.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/kill.tests.cs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
-    blockers: Object.freeze([
-      "surface.node.process remains partial until cwd, argv, env, exit, pid, platform, version, ESM process import forms, unsupported members, and platform-specific runtime behavior all have selected-surface facts plus positive and fail-closed tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover bare process and node:process cwd(), argv, and platform target mappings through named and namespace import facts, and unselected Node modules fail during provider-aware resolution. Remains partial until process environment, exit, pid, version, and platform-specific behavior are covered through closed runtime facts.",
+      "Reviewed complete proof: selected NodeJS process facts cover process module imports, cwd/chdir/exit/kill calls, scalar metadata properties, exitCode reads, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, and no-surface fail-closed diagnostics. CLI/toolchain proof emits only finalized NodeJS surface operations, csharp-nodejs runtime tests cover platform/env/version/exit/kill behavior, and unsupported or unselected process use fails before fallback output.",
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([

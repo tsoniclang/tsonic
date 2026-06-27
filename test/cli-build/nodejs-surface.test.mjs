@@ -304,6 +304,76 @@ test("CLI emits NodeJS namespace imports from selected surface provider facts", 
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
+test("CLI emits expanded process operations from selected NodeJS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-process-expanded-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodeProcessExpanded",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import * as process from \"node:process\";",
+      "",
+      "export function processInfo(): string {",
+      "  const pathValue = process.env[\"PATH\"] ?? \"\";",
+      "  return process.arch + process.argv0 + process.execPath + process.platform + process.version + process.versions.node + process.versions.dotnet + pathValue + process.pid + process.ppid;",
+      "}",
+      "",
+      "export function currentExitCode(): number | null {",
+      "  return process.exitCode;",
+      "}",
+      "",
+      "export function changeDirectory(directory: string): void {",
+      "  process.chdir(directory);",
+      "}",
+      "",
+      "export function terminate(code?: number): void {",
+      "  process.exit(code);",
+      "}",
+      "",
+      "export function signalSelf(): boolean {",
+      "  return process.kill(process.pid, 0);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.env\["PATH"\] \?\? ""/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.arch/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.argv0/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.execPath/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.platform/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.version/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.versions\.node/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.versions\.dotnet/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.pid/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.ppid/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.exitCode;/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.chdir\(directory\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.exit\(code\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.kill\(Tsonic\.CSharp\.Node\.process\.pid, 0\);/);
+  assert.doesNotMatch(generatedSource, /return process\./);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeProcessExpanded.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits Buffer and crypto operations from selected NodeJS declaration facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-buffer-crypto-surface");
