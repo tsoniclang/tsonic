@@ -409,6 +409,38 @@ test("CLI rejects Math without selected JS surface facts", async () => {
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedMathWithoutJsSurface.csproj")), false);
 });
 
+test("CLI rejects Boolean methods without selected JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "boolean-without-js-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedBooleanWithoutJsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function asText(value: boolean): string {",
+      "  return value.toString();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
+  assert.match(build.stderr, /callee node runtime carrier/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedBooleanWithoutJsSurface.csproj")), false);
+});
+
 test("CLI rejects unsupported JS expression carriers even when JS surface is selected", async () => {
   const projectDirectory = resolve(tempRoot, "unsupported-js-expression-carrier");
   await writeProject(projectDirectory, {

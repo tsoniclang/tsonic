@@ -413,6 +413,10 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       "  return Buffer.isEncoding(\"utf8\");",
       "}",
       "",
+      "export function validEncodingText(): string {",
+      "  return Buffer.isEncoding(\"utf8\").toString();",
+      "}",
+      "",
       "export function copiedBufferCount(): number {",
       "  const source = Buffer.from(\"abc\");",
       "  const target = Buffer.alloc(8);",
@@ -466,6 +470,7 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.alloc\(3\)\.length;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.byteLength\("hello"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.isEncoding\("utf8"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.BooleanOps\.toString\(Tsonic\.CSharp\.Node\.Buffer\.isEncoding\("utf8"\)\);/);
   assert.match(generatedSource, /return source\.copy\(target\) \+ target\.write\("z"\) \+ Tsonic\.CSharp\.Node\.Buffer\.from\(source\)\.compare\(source\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomInt\(10\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomInt\(1, 10\);/);

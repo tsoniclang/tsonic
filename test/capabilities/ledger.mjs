@@ -3452,6 +3452,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/BooleanTests.cs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
@@ -3462,7 +3463,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-node-boolean-tostring/",
     ]),
     blockers: Object.freeze([
-      "surface.js.boolean-methods remains partial until Node-returned boolean chaining, Boolean object wrapper edge cases, missing-surface diagnostics, non-boolean receiver rejection, and complete fail-closed diagnostics when Boolean prototype facts are absent are proven with focused positive and negative coverage.",
+      "surface.js.boolean-methods remains partial until Boolean object wrapper edge cases and any wrapper-specific target carrier diagnostics are classified and proven with focused positive and negative coverage.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-boolean-method-operation",
@@ -3503,7 +3504,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: selected JS surface facts now cover Boolean.toString and Boolean.valueOf only from selected Boolean declaration identity plus closed bool receiver facts; C# JS runtime tests prove lowercase JavaScript boolean toString() and valueOf() behavior; the tsonic CLI test emits boolean toString/valueOf as Tsonic.CSharp.Js.BooleanOps calls and dotnet-builds the generated project. Remaining gaps are explicit missing-surface diagnostics, non-boolean receiver rejection, Node-returned boolean chaining, and Boolean object wrapper edge cases.",
+      "Reviewed partial proof: selected JS surface facts now cover Boolean.toString and Boolean.valueOf only from selected Boolean declaration identity plus closed bool receiver facts; C# JS runtime tests prove lowercase JavaScript boolean toString() and valueOf() behavior; the tsonic CLI test emits boolean toString/valueOf as Tsonic.CSharp.Js.BooleanOps calls and dotnet-builds the generated project. Negative evidence rejects Boolean methods without the JS surface, without closed bool receiver facts, and with non-boolean closed receivers. Node surface evidence proves a provider-returned boolean from Buffer.isEncoding chains through the JS BooleanOps.toString fact instead of native bool.ToString(). Remaining gap is Boolean object wrapper behavior and any wrapper-specific target carrier diagnostics.",
   }),
   "surface.js.number-methods": Object.freeze({
     sourceExamples: Object.freeze([
