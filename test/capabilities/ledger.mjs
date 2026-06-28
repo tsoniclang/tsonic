@@ -4223,10 +4223,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     blockers: Object.freeze([
-      "Static Buffer.compare remains blocked until TSTS provider virtual member attribution distinguishes static and instance members by member kind/signature/context, not source spelling alone. C# must not add ad-hoc Buffer.compare wiring, renames, or fallback behavior; re-enable only through ordinary provider metadata after the TSTS fix lands.",
+      "surface.node.buffer-crypto-os remains partial until the full Buffer/crypto/os old fixture matrix has CLI/toolchain/runtime proof and every unsupported member fails closed with precise selected-provider diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), Buffer instance length/toString/copy/write/compare, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. Static Buffer.compare is intentionally not C#-mapped because TSTS currently attributes provider virtual members by source spelling only and can collide static/instance compare; this capability remains partial until that upstream TSTS attribution fix lands, the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage, and unsupported members fail closed with precise diagnostics.",
+      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer instance length/toString/copy/write/compare, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. This capability remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
