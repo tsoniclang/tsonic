@@ -128,6 +128,139 @@ test("lazy generic source analysis returns structural use records without source
   assert.equal(uses.some((use) => "arrayClear" in use || "carrierLane" in use || "targetMember" in use), false);
 });
 
+test("lazy generic source analysis records declarations imports exports and construct sites structurally", async () => {
+  const projectDirectory = resolve(tempRoot, "structural-module-records");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/lib.ts": [
+      "export interface Shape {",
+      "  value: number;",
+      "}",
+      "export const localValue = 41;",
+      "export function makeValue(input: number): number {",
+      "  return input + 1;",
+      "}",
+      "export default class Box {",
+      "  value: number;",
+      "  constructor(value: number) {",
+      "    this.value = value;",
+      "  }",
+      "}",
+      "export { localValue as renamedValue };",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import Box, { makeValue, renamedValue, type Shape } from \"./lib.js\";",
+      "export { makeValue as exportedMakeValue } from \"./lib.js\";",
+      "export const used = makeValue(renamedValue);",
+      "export type UsedShape = Shape;",
+      "export default new Box(used);",
+      "",
+    ].join("\n"),
+  });
+
+  const project = parseTsonicProjectConfig(projectConfig);
+  const session = createTsonicSemanticSession({
+    programOptions: createProgramOptionsForProject({
+      project,
+      projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    }).programOptions,
+    project,
+    target: project.targets[0],
+    targetPack: createFakeTargetPack(),
+    selectedSurfaces: [],
+  });
+  const indexFile = session.sourceFiles.find((candidate) => session.ast.getFileName(candidate).endsWith("src/index.ts"));
+  const libFile = session.sourceFiles.find((candidate) => session.ast.getFileName(candidate).endsWith("src/lib.ts"));
+  assert.notEqual(indexFile, undefined);
+  assert.notEqual(libFile, undefined);
+
+  const makeValueImportName = findImportBindingName(session.ast, indexFile, "makeValue");
+  const shapeImportName = findImportBindingName(session.ast, indexFile, "Shape");
+  const boxImportName = findImportBindingName(session.ast, indexFile, "Box");
+  const usedName = findVariableName(session.ast, indexFile, "used");
+  const makeValueFunctionName = findFunctionName(session.ast, libFile, "makeValue");
+  assert.notEqual(makeValueImportName, undefined);
+  assert.notEqual(shapeImportName, undefined);
+  assert.notEqual(boxImportName, undefined);
+  assert.notEqual(usedName, undefined);
+  assert.notEqual(makeValueFunctionName, undefined);
+
+  const makeValueSymbol = session.checker.getSymbolAtLocation(makeValueImportName, { sourceFile: indexFile });
+  const shapeSymbol = session.checker.getSymbolAtLocation(shapeImportName, { sourceFile: indexFile });
+  const boxSymbol = session.checker.getSymbolAtLocation(boxImportName, { sourceFile: indexFile });
+  const usedSymbol = session.checker.getSymbolAtLocation(usedName, { sourceFile: indexFile });
+  const makeValueFunction = session.ast.parent(makeValueFunctionName);
+  assert.notEqual(makeValueSymbol, undefined);
+  assert.notEqual(shapeSymbol, undefined);
+  assert.notEqual(boxSymbol, undefined);
+  assert.notEqual(usedSymbol, undefined);
+  assert.notEqual(makeValueFunction, undefined);
+
+  const analysis = createFakeBackendInput(session, project).analysis.lazy;
+  assert.equal(typeof analysis.declarationsOf, "function");
+  assert.equal(typeof analysis.importsOf, "function");
+  assert.equal(typeof analysis.exportsOf, "function");
+  assert.equal(typeof analysis.constructSitesOf, "function");
+  assert.equal(typeof analysis.returnFlowOf, "function");
+
+  const makeValueImports = analysis.importsOf(makeValueSymbol);
+  const shapeImports = analysis.importsOf(shapeSymbol);
+  const usedDeclarations = analysis.declarationsOf(usedSymbol);
+  const usedExports = analysis.exportsOf(usedSymbol);
+  const makeValueCalls = analysis.callsitesOf(makeValueSymbol);
+  const boxConstructs = analysis.constructSitesOf(boxSymbol);
+  const returnFlows = analysis.returnFlowOf(makeValueFunction);
+  const shapeReferences = analysis.referencesOf(shapeSymbol);
+  const usedUses = analysis.usesOf(usedSymbol);
+
+  assert.strictEqual(analysis.importsOf(makeValueSymbol), makeValueImports);
+  assert.strictEqual(analysis.importsOf(shapeSymbol), shapeImports);
+  assert.strictEqual(analysis.declarationsOf(usedSymbol), usedDeclarations);
+  assert.strictEqual(analysis.exportsOf(usedSymbol), usedExports);
+  assert.strictEqual(analysis.referencesOf(shapeSymbol), shapeReferences);
+  assert.strictEqual(analysis.usesOf(usedSymbol), usedUses);
+
+  assert.deepEqual(
+    makeValueImports.map((record) => [record.importKind, record.importedName, record.localName, record.isTypeOnly, session.ast.text(record.moduleSpecifier)]),
+    [["named", "makeValue", "makeValue", false, "./lib.js"]],
+  );
+  assert.deepEqual(
+    shapeImports.map((record) => [record.importKind, record.importedName, record.localName, record.isTypeOnly]),
+    [["named", "Shape", "Shape", true]],
+  );
+  assert.deepEqual(usedDeclarations.map((record) => record.occurrence), ["value"]);
+  assert.deepEqual(usedExports.map((record) => [record.exportKind, record.exportedName, record.localName]), [["local", "used", "used"]]);
+  assert.equal(makeValueCalls.length, 1);
+  assert.equal(makeValueCalls[0].kind, "call");
+  assert.equal(makeValueCalls[0].arguments.length, 1);
+  assert.equal(boxConstructs.length, 1);
+  assert.equal(boxConstructs[0].kind, "construct");
+  assert.equal(boxConstructs[0].arguments.length, 1);
+  assert.equal(returnFlows.length, 1);
+  assert.equal(session.ast.kindName(returnFlows[0].returnStatement), "KindReturnStatement");
+  assert.ok(shapeReferences.some((reference) => reference.occurrence === "import"));
+  assert.ok(shapeReferences.some((reference) => reference.occurrence === "type"));
+  assert.ok(usedUses.some((use) => use.kind === "construct" || use.kind === "argument"));
+  assertNoPolicyConclusions([
+    ...makeValueImports,
+    ...shapeImports,
+    ...usedDeclarations,
+    ...usedExports,
+    ...makeValueCalls,
+    ...boxConstructs,
+    ...returnFlows,
+    ...shapeReferences,
+    ...usedUses,
+  ]);
+});
+
 async function writeProject(projectDirectory, files) {
   for (const [relativePath, text] of Object.entries(files)) {
     const outputPath = resolve(projectDirectory, relativePath);
@@ -189,6 +322,73 @@ function findFunctionName(ast, sourceFile, name) {
     stack.push(...ast.children(node));
   }
   return undefined;
+}
+
+function findVariableName(ast, sourceFile, name) {
+  const stack = [sourceFile];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === undefined) {
+      continue;
+    }
+    if (ast.is.IsVariableDeclaration(node)) {
+      const variableName = ast.name(node);
+      if (ast.text(variableName) === name) {
+        return variableName;
+      }
+    }
+    stack.push(...ast.children(node));
+  }
+  return undefined;
+}
+
+function findImportBindingName(ast, sourceFile, name) {
+  const stack = [sourceFile];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === undefined) {
+      continue;
+    }
+    if (ast.is.IsImportClause(node) || ast.is.IsImportSpecifier(node) || ast.is.IsNamespaceImport(node)) {
+      const importName = ast.name(node);
+      if (ast.text(importName) === name) {
+        return importName;
+      }
+    }
+    stack.push(...ast.children(node));
+  }
+  return undefined;
+}
+
+function assertNoPolicyConclusions(records) {
+  const forbiddenKeys = new Set([
+    "arrayClear",
+    "carrierLane",
+    "targetCarrier",
+    "targetMember",
+    "runtimeHelper",
+    "surfacePolicy",
+  ]);
+  const forbiddenValues = [
+    "array-clear",
+    "List<",
+    "Map.get",
+    "C#",
+    "runtime-helper",
+    "carrier",
+  ];
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record)) {
+      assert.equal(forbiddenKeys.has(key), false, `analysis record exposed policy key ${key}`);
+      if (typeof value === "string") {
+        assert.equal(
+          forbiddenValues.some((forbidden) => value.includes(forbidden)),
+          false,
+          `analysis record exposed policy value ${value}`,
+        );
+      }
+    }
+  }
 }
 
 function createFakeTargetPack(capture) {

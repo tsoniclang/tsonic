@@ -134,6 +134,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["tsts.generic-inference", "TSTS owns source generic inference", "partial", "tsts-api"],
   ["tsts.overload-resolution", "TSTS owns source overload resolution", "partial", "tsts-api"],
   ["tsts.consumer-queries", "Backends consume stable public TSTS queries", "partial", "tsts-api"],
+  ["tsts.package.public-root-artifact", "TSTS package is consumed as a root-only dist artifact", "complete", "tsts-api"],
   ["tsts.no-target-overrides", "Extensions cannot rescue invalid TypeScript", "complete", "tsts-api"],
   ["tsts.program.create-with-extensions", "Create TSTS compiler session with extensions", "partial", "tsts-api"],
   ["tsts.type-query.flow-narrowed-type", "Query flow-narrowed type at a source node", "partial", "tsts-api"],
@@ -144,7 +145,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["provider.virtual-module.source-shape", "Provider supplies source-visible virtual declarations", "partial", "target-provider"],
   ["provider.virtual-module.target-identity", "Provider attaches target identity to virtual declarations", "partial", "target-provider"],
   ["provider.virtual-module.constraints", "Provider supplies target constraints outside TS source shape", "partial", "target-provider"],
-  ["provider.virtual-module.overload-identity", "Provider supplies exact overload/member identity", "complete", "target-provider"],
+  ["provider.virtual-module.overload-identity", "Provider supplies exact overload/member identity", "partial", "target-provider"],
   ["provider.module.virtual-import", "Provider-backed virtual imports become compiler state", "partial", "target-provider"],
   ["provider.module.no-file-backed-fallback", "Provider module resolution has no declaration-file fallback", "complete", "target-provider"],
   ["provider.module.missing-provider-diagnostic", "Missing provider-owned modules produce diagnostics", "complete", "target-provider"],
@@ -305,7 +306,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "complete", "surface-provider"],
-  ["surface.node.process", "node:process uses selected Node surface facts", "complete", "surface-provider"],
+  ["surface.node.process", "node:process uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
   ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "partial", "surface-provider"],
 
@@ -1108,12 +1109,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "tsts.consumer-queries": Object.freeze({
     positiveTests: Object.freeze([
-      "packages/tsts/src/services/embedding-api.test.ts",
       "packages/source-core/src/source-extension.test.ts",
       "test/cli/surface-composition.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "packages/tsts/src/services/embedding-api.test.ts",
+      "test/cli/surface-composition.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1124,7 +1124,36 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Provider virtual declaration consumer queries do not yet expose a truthful default-export/default-alias contract, so provider-backed default imports such as import fs from 'node:fs' cannot be implemented without a TSTS API addition.",
     ]),
     notes:
-      "Reviewed partial proof: embedding/source-core tests use public TSTS consumer queries for facts and diagnostics, and host tests route compiler sessions through composed extensions instead of raw filesystem crawling. Remaining proof must be capability-specific per backend consumer.",
+      "Reviewed partial proof: source-core package tests import @tsonic/tsts only through the package root and use public consumer queries for facts and diagnostics; host tests route compiler sessions through composed extensions, prove the TSTS package is a root-only dist artifact, and keep backend source input on TSTS graph queries instead of raw filesystem crawling. Remaining proof must be capability-specific per backend consumer.",
+  }),
+  "tsts.package.public-root-artifact": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { createCompilerSession } from \"@tsonic/tsts\";",
+      "import type { AstReader, TypeCheckerQueries } from \"@tsonic/tsts\";",
+    ]),
+    tstsDecision:
+      "TSTS exposes the supported embedding surface from the package root; Tsonic product code must not consume checked-in TSTS source paths or package-internal subpaths.",
+    providerFacts: Object.freeze([
+      "publicTstsPackageRootExport",
+      "vendoredTstsDistArtifact",
+    ]),
+    backendContract:
+      "Host, source-core, target-api, and backends import @tsonic/tsts root exports only; generated declarations, vendored source trees, and internal subpath imports are not semantic input.",
+    positiveTests: Object.freeze([
+      "test/tsts-package-artifact.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/tsts-package-artifact.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+      "test/capability-ledger.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: root-package smoke imports @tsonic/tsts and @tsonic/tsts/index.js from the vendored package artifact, rejects internal dist/src and src subpath imports through package exports, asserts package scripts/source/tooling project files are absent, and verifies dist entrypoints plus bundled libs exist. Old TSTS source-program evidence is mapped to the current root-only TSTS package contract.",
   }),
   "tsts.type-query.flow-narrowed-type": Object.freeze({
     positiveTests: Object.freeze([
@@ -1143,11 +1172,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "tsts.no-target-overrides": Object.freeze({
     positiveTests: Object.freeze([
-      "packages/tsts/src/services/embedding-api.test.ts",
-      "packages/tsts/src/extensions/provider-program.test.ts",
+      "packages/source-core/src/source-extension.test.ts",
+      "test/cli/surface-composition.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "packages/tsts/src/services/embedding-api.test.ts",
+      "packages/source-core/src/source-extension.test.ts",
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1155,30 +1184,29 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator.test.ts",
     ]),
     notes:
-      "Reviewed proof: provider/extension observations can add facts after TS-Go accepts source, and TSTS diagnostics stop artifact emission when source TypeScript is invalid.",
+      "Reviewed proof: source-core and host tests use the public @tsonic/tsts package root to add facts after TS-Go accepts source, invalid source-core arity remains a TypeScript diagnostic rather than an extension rescue, and CLI TSTS diagnostics stop artifact emission when source TypeScript is invalid.",
   }),
   "tsts.program.create-with-extensions": Object.freeze({
     positiveTests: Object.freeze([
-      "packages/tsts/src/services/embedding-api.test.ts",
-      "packages/tsts/src/extensions/extension-host.test.ts",
+      "packages/source-core/src/source-extension.test.ts",
+      "test/cli/surface-composition.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "packages/tsts/src/extensions/extension-host.test.ts",
+      "packages/source-core/src/source-extension.test.ts",
+      "test/cli/surface-composition.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
       "tsts.program.create-with-extensions remains partial until old extension-host/frontend integration evidence is explicitly mapped in the old product unit inventory.",
     ]),
     notes:
-      "Reviewed proof: TSTS compiler sessions can be created with provider/source extensions through the public embedding path, extension attachment contributes compiler-visible facts, and malformed extension configuration is rejected before consumers run.",
+      "Reviewed partial proof: source-core tests create compiler sessions with extensions through public @tsonic/tsts root exports, host tests compose source-core, target-provider, and selected-surface extensions before semantic input reaches backends, and stale/unowned selected extension composition is rejected before consumers run.",
   }),
   "tsts.diagnostic.provider-sourced": Object.freeze({
     positiveTests: Object.freeze([
-      "packages/tsts/src/extensions/provider-program.test.ts",
       "packages/source-core/src/source-extension.test.ts",
     ]),
     negativeTests: Object.freeze([
-      "packages/tsts/src/extensions/provider-program.test.ts",
       "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([]),
@@ -1186,7 +1214,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "tsts.diagnostic.provider-sourced remains partial until old validator/source-extension diagnostics evidence is explicitly mapped in the old product unit inventory.",
     ]),
     notes:
-      "Reviewed proof: provider and source extensions surface diagnostics through standard TSTS diagnostics with deterministic codes, source spans, and no backend artifact fallback.",
+      "Reviewed partial proof: source-core extensions surface diagnostics through standard TSTS diagnostics with deterministic codes, source spans, and no backend artifact fallback while importing the TSTS API only from the package root. Provider-owned virtual-module diagnostics remain tracked in provider.module.* and diagnostic.missing-provider-fact.",
   }),
   "type.utility": Object.freeze({
     positiveTests: Object.freeze([
@@ -1633,10 +1661,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source.marker.attribute": Object.freeze({
     positiveTests: Object.freeze([
+      "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1653,10 +1682,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source.marker.defaultof": Object.freeze({
     positiveTests: Object.freeze([
+      "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "packages/tsts/src/extensions/source-semantics.test.ts",
+      "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1880,13 +1910,11 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     oldEvidence: [
@@ -1928,12 +1956,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     oldEvidence: [
@@ -1974,12 +2000,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     oldEvidence: [
@@ -2020,12 +2044,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
@@ -2065,12 +2087,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
@@ -2110,13 +2130,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
-      "packages/tsts/src/extensions/provider-program.test.ts",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
-      "packages/tsts/src/extensions/provider-program.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
@@ -2126,7 +2142,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.move remains partial until move assignment, post-move reads/writes, selected-target unsupported diagnostic breadth, and future Rust ownership proof are complete.",
     ],
     notes:
-      "Reviewed partial proof: TSTS/source-core records moved flow on aliased and namespace move calls plus the exact moved argument subject, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and provider-program tests show target validation can reject post-move use. C# remains explicit unsupported-target diagnostics, not silent marker erasure, and call mapping now rejects finalized move facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED while still rejecting missing FlowStateFact with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN.",
+      "Reviewed partial proof: source-core records moved flow on aliased and namespace move calls plus the exact moved argument subject, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, and avoids facts for local/shadowed same-spelling calls. C# remains explicit unsupported-target diagnostics, not silent marker erasure, and call mapping now rejects finalized move facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED while still rejecting missing FlowStateFact with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN. Post-move target validation proof is a blocker until it is represented by current package-root tests.",
   }),
   "source-core.lang.portable-intrinsics.struct": coreLangIntrinsicEvidence({
     exportName: "struct",
@@ -2157,13 +2173,11 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli-build/classes-value-types.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/classes-value-types.test.mjs",
     ],
     oldEvidence: [
@@ -2206,13 +2220,11 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli-build/classes-value-types.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/classes-value-types.test.mjs",
     ],
     oldEvidence: [
@@ -2256,12 +2268,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/provider-dotnet.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/provider-dotnet.test.mjs",
     ],
     oldEvidence: [
@@ -2304,12 +2314,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
     ],
     oldEvidence: [
       "test/fixtures/defaultof-intrinsic/",
@@ -2350,12 +2358,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
     ],
     oldEvidence: [
@@ -2400,12 +2406,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     positiveTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
-      "packages/tsts/src/extensions/source-semantics.test.ts",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
     ],
     oldEvidence: [
@@ -2733,8 +2737,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
       "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
     ]),
+    blockers: Object.freeze([
+      "Provider virtual function export declarations currently trigger upstream TSTS FACT_CONFLICT when export-level and signature-level virtual declaration facts are written on the same declaration subject. Tsonic consumes public selected declaration/signature facts and checker.getSignatureDeclaration, but must remain partial until upstream TSTS exposes non-conflicting signature identity for function exports.",
+    ]),
     notes:
-      "Reviewed proof: provider-owned overload identity is selected from exact declaration/signature facts, including same-spelling overload groups, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, selected JS/Node surface signatures, and selected signatures whose source argument facts would otherwise match sibling overloads. TSTS-selected provider identity is the proof boundary: exact selected signatures map only to the matching target member id and may not search sibling overloads; provider refinement is allowed only inside a proven overload group without source spelling lookup. Valid selected-signature target conversions remain explicit provider facts; missing selected identity, unsupported selected identities, ambiguous group refinement, contradictory generic argument facts, and unproven conversion facts fail closed.",
+      "Reviewed partial proof: provider-owned overload identity is selected from exact declaration/signature facts for .NET provider paths and direct surface cases, including same-spelling overload groups, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, and selected signatures whose source argument facts would otherwise match sibling overloads. TSTS-selected provider identity is the proof boundary: exact selected signatures map only to the matching target member id and may not search sibling overloads; provider refinement is allowed only inside a proven overload group without source spelling lookup. Completion is blocked for provider virtual function exports until upstream TSTS resolves export-vs-signature fact conflicts without Tsonic fallback.",
   }),
   "type.generic.provider-target-arguments": Object.freeze({
     positiveTests: Object.freeze([
@@ -3601,7 +3608,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     blockers: Object.freeze([
-      "surface.js.number-methods remains partial until radix-aware Number.prototype.toString(), toFixed(), toExponential(), toPrecision(), locale formatting, and NaN/Infinity/-0 formatting/runtime edge cases are implemented or deliberately rejected with focused positive and negative coverage.",
+      "surface.js.number-methods remains partial until radix-aware Number.prototype.toString(radix), exact -0 formatting/runtime edge cases, wrapper-object conversions, and every unsupported numeric formatting lane are implemented or deliberately rejected with focused positive and negative coverage.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-number-operation",
@@ -3642,7 +3649,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: tsonic-csharp surface-boundary evidence maps Number.toString/valueOf only from selected Number declaration identity plus closed number receiver facts, maps Object.toString delegation for closed number primitive receivers, rejects missing and non-number receiver facts, maps Number(value)/Number() primitive conversion from selected NumberConstructor declaration identity while rejecting new Number(value) wrapper construction without a closed wrapper carrier, and maps Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and Number constants only from selected NumberConstructor declarations. csharp-js runtime tests prove invariant toString/valueOf behavior, Number conversion no-argument/null/string/integral behavior, Number constants, and static predicate helpers for double/int/long and nullable integral receivers. The tsonic CLI test emits primitive number toString/valueOf, object-shape number property toString, int32 toString, Number(value)/Number(), Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and all current Number constants through selected C# JS runtime facts and dotnet-builds the generated project. Negative evidence rejects Number methods without the JS surface, without closed number receiver facts, with non-number closed receivers, and rejects new Number(value) wrapper construction. Remaining gaps are formatting-specific Number methods and full special-value runtime parity.",
+      "Reviewed partial proof: tsonic-csharp surface-boundary evidence maps Number.toString/valueOf only from selected Number declaration identity plus closed number receiver facts, maps Object.toString delegation for closed number primitive receivers, rejects missing and non-number receiver facts, maps Number(value)/Number() primitive conversion from selected NumberConstructor declaration identity while rejecting new Number(value) wrapper construction without a closed wrapper carrier, maps Number.toFixed/toExponential/toPrecision/toLocaleString from selected Number declaration identity plus closed receiver/argument facts, and maps Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and Number constants only from selected NumberConstructor declarations. csharp-js runtime tests prove invariant toString/valueOf behavior, Number conversion no-argument/null/string/integral behavior, Number constants, static predicate helpers for double/int/long and nullable integral receivers, formatting helpers, and invalid precision diagnostics. The tsonic CLI test emits primitive number toString/valueOf, object-shape number property toString, int32 toString, Number(value)/Number(), Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, Number.toFixed/toExponential/toPrecision/toLocaleString, and all current Number constants through selected C# JS runtime facts and dotnet-builds the generated project. Negative evidence rejects Number methods without the JS surface, without closed number receiver facts, with non-number closed receivers, and rejects new Number(value) wrapper construction. Remaining gaps are radix-aware Number.prototype.toString(radix), exact -0 formatting/runtime behavior, and wrapper-object carrier conversions.",
   }),
   "surface.js.console": Object.freeze({
     sourceExamples: Object.freeze([
@@ -4028,9 +4035,13 @@ const reviewedCapabilityEvidence = Object.freeze({
   "surface.js.object-runtime": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-json-typed-parse/",
@@ -4195,9 +4206,11 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/nodejs-surface.test.mjs",
       ],
     }),
-    blockers: Object.freeze([]),
+    blockers: Object.freeze([
+      "surface.node.process remains partial while upstream TSTS provider virtual function export declarations produce FACT_CONFLICT for selected function signatures. Tsonic must not map process calls/properties by source spelling; completion requires non-conflicting provider declaration/signature facts from TSTS and current passing surface-boundary proof.",
+    ]),
     notes:
-      "Reviewed complete proof: selected NodeJS process facts cover process module imports, cwd/chdir/exit/kill calls, scalar metadata properties, exitCode reads, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, and no-surface fail-closed diagnostics. CLI/toolchain proof emits only finalized NodeJS surface operations, csharp-nodejs runtime tests cover platform/env/version/exit/kill behavior, and unsupported or unselected process use fails before fallback output.",
+      "Reviewed partial proof: selected NodeJS process facts cover process module imports, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, runtime behavior tests, and no-surface fail-closed diagnostics. Completion remains blocked for function and selected provider-signature proof while upstream TSTS reports FACT_CONFLICT on provider virtual function export signature facts; Tsonic must keep consuming finalized facts only and must not add process source-name fallback.",
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([
@@ -4212,10 +4225,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     blockers: Object.freeze([
-      "Static Buffer.compare remains blocked until TSTS provider virtual member attribution distinguishes static and instance members by member kind/signature/context, not source spelling alone. C# must not add ad-hoc Buffer.compare wiring, renames, or fallback behavior; re-enable only through ordinary provider metadata after the TSTS fix lands.",
+      "surface.node.buffer-crypto-os remains partial until the full Buffer/crypto/os old fixture matrix has CLI/toolchain/runtime proof and every unsupported member fails closed with precise selected-provider diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), Buffer instance length/toString/copy/write/compare, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. Static Buffer.compare is intentionally not C#-mapped because TSTS currently attributes provider virtual members by source spelling only and can collide static/instance compare; this capability remains partial until that upstream TSTS attribution fix lands, the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage, and unsupported members fail closed with precise diagnostics.",
+      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer instance length/toString/copy/write/compare, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. This capability remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
@@ -4671,6 +4684,144 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: checked element access reaches the backend only through selected provider/surface indexer facts; backend emission stops after the primary missing C# operation diagnostic when the generic selected indexer fact is not enough, and emits Roslyn ElementAccessExpression only from finalized selected indexer facts.",
+  }),
+  "operation.await.promise-task": Object.freeze({
+    sourceExamples: Object.freeze([
+      "async function fetchData(): Promise<string> { return await getData(); }",
+      "const value = await taskLikeValue;",
+    ]),
+    tstsDecision:
+      "TSTS owns async function validity, await expression validity, contextual Promise result typing, flow typing, overload selection, and generic inference before Tsonic observes the checked source operation.",
+    providerFacts: Object.freeze([
+      "runtimeCarrierFact",
+      "selected source async return type",
+      "renderable target Task carrier",
+    ]),
+    backendContract:
+      "Backend emits AwaitExpression and async target AST only from finalized Promise/Task runtime-carrier facts; missing or mismatched awaited/result carriers produce diagnostics.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/async-cli-build.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/async/basic/AsyncFunction.ts",
+      "test/fixtures/async-basic/",
+      "test/fixtures/async-higher-order/",
+    ]),
+    blockers: Object.freeze([
+      "operation.await.promise-task remains partial until Promise chain/task interop fixtures, async interaction with selected JS surfaces, and every old async fixture that depends on await semantics have current positive and fail-closed proof.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "async-await",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-await-expression",
+          "awaited-expression-promise-task-carrier",
+          "await-result-carrier",
+          "renderable-target-ast",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-awaited-expression-carrier",
+          "missing-await-result-carrier",
+          "mismatched-await-result-carrier",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-await-expression",
+          "awaited-expression-promise-task-carrier",
+          "await-result-carrier",
+          "renderable-target-ast",
+        ]),
+        operation: "emit-await-target-ast",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-awaited-expression-carrier",
+          "missing-await-result-carrier",
+          "mismatched-await-result-carrier",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result; mismatched or missing facts fail closed; current CLI E2E proves basic awaited async calls and higher-order async delegate carriers through dotnet build/run.",
+  }),
+  "function.async": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export async function load(): Promise<string> { return \"ready\"; }",
+      "export async function createAsyncAdder(start: int32): Promise<(x: int32) => Promise<int32>> { return async (x: int32) => start + x; }",
+    ]),
+    tstsDecision:
+      "TSTS owns async declaration validity, source return type checking, contextual function types, generic inference, and nested async lambda typing before Tsonic maps Promise carriers to target Task carriers.",
+    providerFacts: Object.freeze([
+      "runtimeCarrierFact",
+      "selected async declaration return type",
+      "renderable target Task carrier",
+      "delegate carrier facts for returned async/sync functions",
+    ]),
+    backendContract:
+      "Backend emits async methods/lambdas and Task-returning signatures only from finalized Promise/Task and delegate carrier facts; missing facts are diagnostics.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/async-cli-build.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/async/basic/AsyncFunction.ts",
+      "packages/targets/csharp/emitter/testcases/common/functions/async-hof/AsyncReturningFunctions.ts",
+      "test/fixtures/async-basic/",
+      "test/fixtures/async-higher-order/",
+    ]),
+    blockers: Object.freeze([
+      "function.async remains partial until async object-literal returns, Promise constructor/then/reject behavior, Task interop, generators, and async+surface fixtures are covered by finalized facts, backend AST tests, and runtime/toolchain tests.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "async-await",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-async-declaration",
+          "promise-task-return-carrier",
+          "delegate-carrier-facts",
+          "renderable-target-ast",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-promise-task-return-carrier",
+          "missing-delegate-carrier",
+          "unrenderable-target-async-shape",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-async-declaration",
+          "promise-task-return-carrier",
+          "delegate-carrier-facts",
+          "renderable-target-ast",
+        ]),
+        operation: "emit-async-target-declaration",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-promise-task-return-carrier",
+          "missing-delegate-carrier",
+          "unrenderable-target-async-shape",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: async methods and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; current executable tests cover basic Promise<string>, nested Promise-returning delegates, async callbacks, and exact runtime output.",
   }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([
@@ -5772,15 +5923,19 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Selected but unsupported surface operations must reject with the owning surface diagnostic and must not defer to backend name lookup or emit placeholder calls.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-disallowed-js-builtins/",
     ]),
     blockers: Object.freeze([
-      "diagnostic.unsupported-selected-surface-operation remains partial until every selected JS/Node surface member without implementation has CLI/toolchain diagnostics, exact source spans, and no placeholder/runtime fallback.",
+      "diagnostic.unsupported-selected-surface-operation remains partial until every selected JS/Node surface member without implementation has exact source spans and no-placeholder/runtime-fallback proof across the full surface matrix.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "fail-closed-unsupported-selected-surface-operation",
@@ -5811,7 +5966,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: C# JS and NodeJS surface tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_SURFACE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Missing finalized surface facts remain separate deterministic missing-fact diagnostics instead of backend lookup, placeholder output, or source-name fallback. Completion requires the same fail-closed lane for every unsupported selected JS and Node surface member, exact source spans, and integrated CLI/toolchain no-artifact proof.",
+      "Reviewed partial proof: C# JS and NodeJS surface tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_SURFACE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Current CLI evidence hard-rejects selected JS String.match/String.raw/String.matchAll and JSON.stringify carrier gaps plus Node node:util/node:url/node:fs unsupported selected operations without project artifacts or reflection/dynamic fallback. Completion still requires the same fail-closed lane and source-span proof for every unsupported selected JS and Node surface member.",
   }),
   "diagnostic.unsupported-target-operation": Object.freeze({
     positiveTests: Object.freeze([
@@ -5853,10 +6008,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "diagnostic.ts-invalid-not-rescued": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
-      "packages/tsts/src/services/embedding-api.test.ts",
+      "packages/source-core/src/source-extension.test.ts",
     ]),
     negativeTests: Object.freeze([
-      "packages/tsts/src/services/embedding-api.test.ts",
+      "test/cli-build/target-config.test.mjs",
+      "packages/source-core/src/source-extension.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -5864,7 +6020,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/generic-validation.test.ts",
     ]),
     notes:
-      "Reviewed proof: invalid TypeScript remains invalid even when extensions/providers are present; target emission stops before artifact creation.",
+      "Reviewed proof: invalid TypeScript remains invalid even when extensions/providers are present through the public @tsonic/tsts package root; source-core invalid arity stays a TSTS diagnostic instead of being rescued by extension facts, and CLI TSTS diagnostics stop target artifact creation.",
   }),
   "target.csharp.source-flow-marker-contract": Object.freeze({
     positiveTests: Object.freeze([

@@ -1,6 +1,7 @@
 import type {
   AstReader,
   ExtensionFactSubject,
+  Signature,
   SourceFile,
   TypeCheckerQueries,
   TypeShapeQueries,
@@ -81,13 +82,13 @@ export function createTargetSourceAnalysisQueries(
       const signature = getResolvedSignatureForNode(subject, options);
       return signature === undefined
         ? undefined
-        : signature.parameters.map(getPrimaryDeclaration);
+        : checker.getSignatureParameters(signature).map((parameter) => getPrimaryDeclaration(checker, parameter));
     },
     getResolvedCallParameterTypes(subject, options) {
       const signature = getResolvedSignatureForNode(subject, options);
       return signature === undefined
         ? undefined
-        : signature.parameters.map((parameter) => checker.getTypeOfSymbol(parameter, options));
+        : checker.getSignatureParameters(signature).map((parameter) => checker.getTypeOfSymbol(parameter, options));
     },
     getEnumMemberConstant(subject, options) {
       const node = asNode(subject);
@@ -142,7 +143,7 @@ export function createTargetSourceAnalysisQueries(
   function getResolvedSignatureForNode(
     subject: ExtensionFactSubject | undefined,
     options: { readonly sourceFile: SourceFile },
-  ) {
+  ): Signature | undefined {
     const node = asNode(subject);
     return node === undefined ? undefined : checker.getResolvedSignature(node, options);
   }

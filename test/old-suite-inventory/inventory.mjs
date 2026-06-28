@@ -147,6 +147,24 @@ const oldSuitePortInventoryEntries = Object.freeze([
       "Ported as a current-architecture executable E2E covering nested generic class substitution through Wrapper<T>, int32 specialization, generated C# type arguments, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
+    oldPath: "test/fixtures/async-basic/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise carrier facts + C# backend planner",
+    reason:
+      "Ported as a current-architecture executable E2E covering async Promise<string> return facts, awaited source-owned async calls, Roslyn async method/await AST emission, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/async-higher-order/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise/delegate carrier facts + C# backend planner",
+    reason:
+      "Ported as a current-architecture executable E2E covering async functions returning sync delegates, async functions returning async delegates, async callback parameters, Task result facts, Func/Task C# AST output, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
     oldPath: "test/fixtures/extension-methods-system/",
     status: "deferred",
     featureArea: "native-provider",
@@ -589,9 +607,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "property-override-virtual",
   ], "csharp-backend", "TSTS declaration AST + C# declaration planner", "Valid behavior covers source declarations, class members, constructors, inheritance, attributes, modifiers, overrides, and virtual/protected shapes; port after declaration planner coverage is fixture-backed with C# AST output only."),
   ...deferredFixtures([
-    "async-basic",
     "async-bidirectional-generator",
-    "async-higher-order",
     "async-ops-uses-map",
     "async-union-object-literal-return",
     "bidirectional-generator",
@@ -799,6 +815,20 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "module.export.default",
     "toolchain.csharp.build-run",
     "tsts.generic-inference",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("async-basic"),
+    oldFixturePath("async-higher-order"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "carrier.function-delegate",
+    "function.async",
+    "host.package.composition",
+    "operation.await.promise-task",
+    "toolchain.csharp.build-run",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("import-type-erase"),
