@@ -4,6 +4,8 @@ node_modules/
 # Build output
 dist/
 packages/*/dist/
+!packages/tsts/dist/
+!packages/tsts/dist/**
 *.tsbuildinfo
 
 # Local compiler output

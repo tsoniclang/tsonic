@@ -395,7 +395,7 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
     }, null, 2),
     "src/index.ts": [
       "import { Buffer } from \"node:buffer\";",
-      "import { randomInt, getHashes } from \"node:crypto\";",
+      "import { createHash, createHmac, getHashes, randomBytes, randomFillSync, randomInt, timingSafeEqual } from \"node:crypto\";",
       "",
       "export function bufferText(): string {",
       "  return Buffer.from(\"hello\").toString();",
@@ -413,6 +413,16 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       "  return Buffer.isEncoding(\"utf8\");",
       "}",
       "",
+      "export function validEncodingText(): string {",
+      "  return Buffer.isEncoding(\"utf8\").toString();",
+      "}",
+      "",
+      "export function copiedBufferCount(): number {",
+      "  const source = Buffer.from(\"abc\");",
+      "  const target = Buffer.alloc(8);",
+      "  return source.copy(target) + target.write(\"z\") + Buffer.from(source).compare(source);",
+      "}",
+      "",
       "export function boundedRandom(): number {",
       "  return randomInt(10);",
       "}",
@@ -423,6 +433,30 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       "",
       "export function firstHash(): string {",
       "  return getHashes()[0];",
+      "}",
+      "",
+      "export function randomBufferLength(): number {",
+      "  return randomBytes(4).length;",
+      "}",
+      "",
+      "export function filledBufferLength(): number {",
+      "  return randomFillSync(Buffer.alloc(4)).length;",
+      "}",
+      "",
+      "export function digestHex(input: string): string {",
+      "  return createHash(\"sha256\").update(input).digest(\"hex\");",
+      "}",
+      "",
+      "export function digestBufferLength(input: string): number {",
+      "  return createHash(\"sha256\").update(Buffer.from(input)).digest().length;",
+      "}",
+      "",
+      "export function hmacHex(key: string, value: string): string {",
+      "  return createHmac(\"sha256\", Buffer.from(key)).update(value).digest(\"hex\");",
+      "}",
+      "",
+      "export function sameBuffer(): boolean {",
+      "  return timingSafeEqual(Buffer.from(\"aa\"), Buffer.from(\"aa\"));",
       "}",
       "",
     ].join("\n"),
@@ -436,9 +470,17 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.alloc\(3\)\.length;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.byteLength\("hello"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.isEncoding\("utf8"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.BooleanOps\.toString\(Tsonic\.CSharp\.Node\.Buffer\.isEncoding\("utf8"\)\);/);
+  assert.match(generatedSource, /return source\.copy\(target\) \+ target\.write\("z"\) \+ Tsonic\.CSharp\.Node\.Buffer\.from\(source\)\.compare\(source\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomInt\(10\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomInt\(1, 10\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.getHashes\(\)\[0\];/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomBytesBuffer\(4\)\.length;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomFillSync\(Tsonic\.CSharp\.Node\.Buffer\.alloc\(4\)\)\.length;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.createHash\("sha256"\)\.update\(input\)\.digest\("hex"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.createHash\("sha256"\)\.update\(Tsonic\.CSharp\.Node\.Buffer\.from\(input\)\)\.digestBuffer\(\)\.length;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.createHmac\("sha256", Tsonic\.CSharp\.Node\.Buffer\.from\(key\)\)\.update\(value\)\.digest\("hex"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.timingSafeEqual\(Tsonic\.CSharp\.Node\.Buffer\.from\("aa"\), Tsonic\.CSharp\.Node\.Buffer\.from\("aa"\)\);/);
   assert.doesNotMatch(generatedSource, /return Buffer\./);
   assert.doesNotMatch(generatedSource, /return randomInt\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -466,7 +508,8 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { statSync } from \"node:fs\";",
+      "import { Buffer } from \"node:buffer\";",
+      "import { fstatSync, openSync, readFileSync, readSync, statSync, writeFileSync, writeSync } from \"node:fs\";",
       "import { format, parse } from \"node:path\";",
       "import * as nodePath from \"node:path\";",
       "import * as nodeOs from \"node:os\";",
@@ -485,6 +528,28 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
       "  return stat.isFile() || stat.isDirectory() || stat.size > 0;",
       "}",
       "",
+      "export function readText(path: string): string {",
+      "  return readFileSync(path, \"utf8\");",
+      "}",
+      "",
+      "export function readBytes(path: string): string {",
+      "  return readFileSync(path).toString();",
+      "}",
+      "",
+      "export function writeBytes(path: string): void {",
+      "  writeFileSync(path, Buffer.from(\"x\"));",
+      "}",
+      "",
+      "export function descriptorSize(path: string): number {",
+      "  const fd = openSync(path, \"r\");",
+      "  return fstatSync(fd).size;",
+      "}",
+      "",
+      "export function descriptorRoundTrip(fd: number): number {",
+      "  const buffer = Buffer.alloc(8);",
+      "  return readSync(fd, buffer, 0, 1, 0) + writeSync(fd, buffer, 0, 1, 0);",
+      "}",
+      "",
       "export function processId(): number {",
       "  return nodeProcess.pid;",
       "}",
@@ -495,6 +560,10 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
       "",
       "export function surfaceSeparators(): string {",
       "  return nodePath.sep + nodeOs.EOL;",
+      "}",
+      "",
+      "export function variantPath(): string {",
+      "  return nodePath.posix.join(\"a\", \"b\") + nodePath.win32.sep;",
       "}",
       "",
     ].join("\n"),
@@ -508,9 +577,15 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.format\(Tsonic\.CSharp\.Node\.path\.parse\(path\)\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Stats stat = Tsonic\.CSharp\.Node\.fs\.statSync\(path\);/);
   assert.match(generatedSource, /return stat\.IsFile\(\) \|\| stat\.IsDirectory\(\) \|\| stat\.size > 0;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readFileSync\(path, "utf8"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readFileSync\(path\)\.toString\(\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeFileSync\(path, Tsonic\.CSharp\.Node\.Buffer\.from\("x"\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.fstatSync\(System\.Convert\.ToInt32\(fd\)\)\.size;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readSync\(System\.Convert\.ToInt32\(fd\), buffer, 0, 1, 0\) \+ Tsonic\.CSharp\.Node\.fs\.writeSync\(System\.Convert\.ToInt32\(fd\), buffer, 0, 1, 0\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.pid;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.argv\[0\];/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.sep \+ Tsonic\.CSharp\.Node\.os\.EOL;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.posix\.join\("a", "b"\) \+ Tsonic\.CSharp\.Node\.path\.win32\.sep;/);
   assert.doesNotMatch(generatedSource, /return statSync\(/);
   assert.doesNotMatch(generatedSource, /return parse\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -687,7 +762,7 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS surface could not map checked 'node:util' export 'format'/);
+  assert.match(build.stderr, /C# NodeJS surface hard-rejected selected call 'node:util' export 'format'/);
   assert.match(build.stderr, /System\.Object/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -712,7 +787,7 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { URL, domainToASCII, fileURLToPath, pathToFileURL } from \"node:url\";",
+      "import { URL, domainToASCII, fileURLToPath, format, pathToFileURL } from \"node:url\";",
       "import { resolve as bareResolve } from \"url\";",
       "",
       "export function href(input: string): string {",
@@ -720,8 +795,27 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
       "  return parsed.href;",
       "}",
       "",
+      "export function host(input: string): string {",
+      "  return new URL(input).host;",
+      "}",
+      "",
       "export function accepts(input: string): boolean {",
       "  return URL.canParse(input);",
+      "}",
+      "",
+      "export function acceptsRelative(input: string): boolean {",
+      "  const parsed = new URL(input);",
+      "  return URL.canParse(\"child\", parsed);",
+      "}",
+      "",
+      "export function childHost(input: string): string {",
+      "  const parsed = new URL(input);",
+      "  return new URL(\"child\", parsed).host;",
+      "}",
+      "",
+      "export function formatted(input: string): string {",
+      "  const parsed = new URL(input);",
+      "  return format(parsed);",
       "}",
       "",
       "export function roundTrip(path: string): string {",
@@ -745,7 +839,11 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /new Tsonic\.CSharp\.Node\.URL\(input\)/);
   assert.match(generatedSource, /return parsed\.href;/);
+  assert.match(generatedSource, /return new Tsonic\.CSharp\.Node\.URL\(input\)\.host;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.URL\.canParse\(input\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.URL\.canParse\("child", parsed\);/);
+  assert.match(generatedSource, /return new Tsonic\.CSharp\.Node\.URL\("child", parsed\)\.host;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.format\(parsed\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.fileURLToPath\(Tsonic\.CSharp\.Node\.url\.pathToFileURL\(path\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.domainToASCII\(domain\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.resolve\(from, to\);/);
@@ -771,11 +869,10 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { URL, format } from \"node:url\";",
+      "import { format } from \"node:url\";",
       "",
       "export function render(input: string): string {",
-      "  const parsed = new URL(input);",
-      "  return format(parsed);",
+      "  return format({ href: input });",
       "}",
       "",
     ].join("\n"),
@@ -783,7 +880,7 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS surface could not map checked 'node:url' export 'format'/);
+  assert.match(build.stderr, /C# NodeJS surface hard-rejected selected call 'node:url' export 'format'/);
   assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);

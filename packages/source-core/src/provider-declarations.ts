@@ -96,7 +96,8 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
           parameters: [],
           returnType: {
             kind: "provider-ref",
-            name: "__TsonicAttributeBuilder",
+            moduleSpecifier: tsonicCoreLangModule,
+            exportName: "__TsonicAttributeBuilder",
             typeArguments: [typeParameter],
           },
         }],
@@ -120,7 +121,8 @@ export function attributeBuilderDeclaration(): ProviderExportDeclaration {
   const ownerType: ProviderTypeExpression = { kind: "type-parameter", name: "TOwner" };
   const memberBuilder: ProviderTypeExpression = {
     kind: "provider-ref",
-    name: "__TsonicAttributeMemberBuilder",
+    moduleSpecifier: tsonicCoreLangModule,
+    exportName: "__TsonicAttributeMemberBuilder",
     typeArguments: [ownerType],
   };
   return {
@@ -144,7 +146,8 @@ export function attributeMemberBuilderDeclaration(): ProviderExportDeclaration {
   const ownerType: ProviderTypeExpression = { kind: "type-parameter", name: "TOwner" };
   const self: ProviderTypeExpression = {
     kind: "provider-ref",
-    name: "__TsonicAttributeMemberBuilder",
+    moduleSpecifier: tsonicCoreLangModule,
+    exportName: "__TsonicAttributeMemberBuilder",
     typeArguments: [ownerType],
   };
   return {

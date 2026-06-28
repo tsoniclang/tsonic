@@ -247,6 +247,7 @@ export function createLazyTargetSourceAnalysis(
     if (parent !== undefined && ast.is.IsPropertyAccessExpression(parent) && asAnalysisNode(getAnalysisNodeField(parent, "Expression")) === node) {
       const propertyNameNode = ast.name(parent);
       const call = parentIsCallCallee(parent);
+      const propertySymbol = checker.getSymbolAtLocation(parent, { sourceFile }) ?? safeGetResolvedSymbol(parent, sourceFile);
       return {
         ...reference,
         operation: call === undefined ? "property" : "call",
@@ -254,8 +255,8 @@ export function createLazyTargetSourceAnalysis(
         parent,
         expression: parent,
         propertyName: ast.text(propertyNameNode),
-        propertySymbol: checker.getSymbolAtLocation(parent, { sourceFile }) ?? checker.getResolvedSymbol(parent, { sourceFile }),
-        selectedDeclaration: primaryDeclaration(checker.getSymbolAtLocation(parent, { sourceFile }) ?? checker.getResolvedSymbol(parent, { sourceFile })),
+        propertySymbol,
+        selectedDeclaration: primaryDeclaration(propertySymbol),
         call,
       };
     }
@@ -365,7 +366,15 @@ export function createLazyTargetSourceAnalysis(
   }
 
   function getSymbolForReference(node: Node, sourceFile: SourceFile): Symbol | undefined {
-    return checker.getSymbolAtLocation(node, { sourceFile }) ?? checker.getResolvedSymbol(node, { sourceFile });
+    return checker.getSymbolAtLocation(node, { sourceFile }) ?? safeGetResolvedSymbol(node, sourceFile);
+  }
+
+  function safeGetResolvedSymbol(node: Node, sourceFile: SourceFile): Symbol | undefined {
+    try {
+      return checker.getResolvedSymbol(node, { sourceFile });
+    } catch {
+      return undefined;
+    }
   }
 
   function getSelectedSignatureDeclaration(node: Node, sourceFile: SourceFile): Node | undefined {

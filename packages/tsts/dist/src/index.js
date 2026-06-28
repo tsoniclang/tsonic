@@ -1,0 +1,10 @@
+export { CommandLine } from "./internal/execute/tsc.js";
+export { ExtensionConsumerQueries, ExtensionDiagnosticStore, ExtensionFactResolver, ExtensionFactStore, ExtensionHost, ExtensionHostDiagnosticCode, ExtensionLifecycleEvent, ExtensionObservationPoint, ProviderRegistry, TstsProviderContractVersion, acceptObservation, argumentPassingFactKey, associatedTypeFactKey, attachExtensionHost, attachExtensionHostToProgram, attributeFactKey, canonicalIdentityFactKey, contextualTargetTypeFactKey, constGenericFactKey, createExtensionConsumerQueries, createSourceSemanticsExtension, defaultValueFactKey, defineExtensionFactKey, deferObservation, fieldFactKey, finalizeExtensionSemantics, flowStateFactKey, functionPointerFactKey, getExtensionHost, hasExtensionHost, instantiatedTargetTypeFactKey, pointerFactKey, providerVirtualDeclarationFactKey, rejectObservation, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitive, sourcePrimitiveFactKey, structFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./extensions/index.js";
+export { ParseBuildCommandLine, ParseCommandLine } from "./internal/tsoptions/commandlineparser.js";
+export { barebonesLibContent, formatDiagnostics, transpile, transpileDeclaration, transpileModule } from "./services/transpile.js";
+export { createTypeCheckerQueries } from "./services/type-checker.js";
+export { createCompilerHost, createInMemoryFileSystem, getBundledLibraryPath, withBundledLibraries } from "./services/embedding-host.js";
+export { createAstReader } from "./services/ast-reader.js";
+export { createCompilerSession, createCompilerSessionFromFiles, createCompilerSessionFromProgram } from "./services/compiler-session.js";
+export { createTypeShapeQueries } from "./services/type-shape.js";
+//# sourceMappingURL=index.js.map

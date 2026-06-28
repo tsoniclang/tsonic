@@ -9,6 +9,5 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"],
-  "references": [{ "path": "../tsts" }]
+  "exclude": ["node_modules", "dist"]
 }

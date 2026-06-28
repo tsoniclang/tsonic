@@ -1,0 +1,27 @@
+import type { int, double, ulong } from "./scalars.js";
+export declare const E: double;
+export declare const Pi: double;
+export declare const MaxFloat64: double;
+export declare const SmallestNonzeroFloat64: double;
+export declare const MaxInt: int;
+export declare const MinInt: int;
+export declare const MaxInt32: int;
+export declare const MinInt32: int;
+export declare const MaxInt64: int;
+export declare const MinInt64: int;
+export declare function Abs(x: double): double;
+export declare function Ceil(x: double): double;
+export declare function Floor(x: double): double;
+export declare function Trunc(x: double): double;
+export declare function Copysign(f: double, sign: double): double;
+export declare function Inf(sign: int): double;
+export declare function NaN(): double;
+export declare function IsNaN(f: double): boolean;
+export declare function IsInf(f: double, sign: int): boolean;
+export declare function Log2(x: double): double;
+export declare function Pow(x: double, y: double): double;
+export declare function Mod(x: double, y: double): double;
+export declare function Min(x: double, y: double): double;
+export declare function Float64bits(f: double): ulong;
+export declare function Float64frombits(b: ulong): double;
+//# sourceMappingURL=math.d.ts.map

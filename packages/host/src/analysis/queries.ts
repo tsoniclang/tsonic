@@ -34,6 +34,16 @@ export function createTargetSourceAnalysisQueries(
   const lazy = createLazyTargetSourceAnalysis(ast, checker, sourceFiles);
   return {
     lazy,
+    getSymbolName(subject) {
+      const symbol = asSymbol(subject);
+      return symbol === undefined ? undefined : checker.getSymbolName(symbol);
+    },
+    getSymbolDeclarations(subject) {
+      const symbol = asSymbol(subject);
+      return symbol === undefined
+        ? []
+        : checker.getSymbolDeclarations(symbol).filter((declaration): declaration is NonNullable<typeof declaration> => declaration !== undefined);
+    },
     getSymbolAtLocation(subject, options) {
       const node = asNode(subject);
       return node === undefined ? undefined : getSymbolAtReferenceNode(ast, checker, node, options);
@@ -41,6 +51,12 @@ export function createTargetSourceAnalysisQueries(
     getResolvedSymbol(subject, options) {
       const node = asNode(subject);
       return node === undefined ? undefined : getResolvedSymbolForReferenceNode(ast, checker, node, options);
+    },
+    getTypeSymbol(type) {
+      return type === undefined ? undefined : checker.getTypeSymbol(type);
+    },
+    getTypeAliasSymbol(type) {
+      return type === undefined ? undefined : checker.getTypeAliasSymbol(type);
     },
     getTypeOfSymbol(subject, options) {
       const symbol = asSymbol(subject);

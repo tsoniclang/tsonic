@@ -4,10 +4,12 @@ import {
   capabilityLaneNames,
   capabilityLedger,
   capabilityOwners,
+  capabilitySurfaceEvidenceGateNames,
   capabilityStatuses,
   requiredCapabilityIds,
   validateCapabilityLedger,
   validateCapabilityLaneClassification,
+  validateCapabilityLedgerEntry,
 } from "./ledger.mjs";
 import {
   oldEmitterHistoricalCasePaths,
@@ -71,6 +73,7 @@ export function buildCapabilityCoverageReport({
       completeRequiresCurrentPositiveAndNegativeProof: true,
       completeParentOnlyProofIsHole: true,
       laneClassificationIsLedgerEnforced: true,
+      surfaceEvidenceIsLedgerEnforced: true,
       oldInventoryCoverageIsSeparatedByInventory: true,
       capabilityLedgerValidationIsEnforced: true,
     },
@@ -93,6 +96,7 @@ export function buildCapabilityCoverageReport({
     oldInventoryCoverage: oldInventoryCoverage(ledgerEntries, oldInventoryCoverageSources),
     ledgerValidation: ledgerValidationCoverage(ledgerEntries, ledgerRequiredCapabilityIds, classifiedOldEvidencePathSet),
     laneClassificationCoverage: laneClassificationCoverage(ledgerEntries, statuses, owners),
+    surfaceEvidenceCoverage: surfaceEvidenceCoverage(ledgerEntries, statuses, owners),
     completeCapabilityProofHoles,
   };
 }
@@ -524,6 +528,155 @@ function laneClassificationSummaryBucket() {
 function incrementLaneClassificationSummaryBucket(bucket, entry) {
   bucket.total += 1;
   bucket[entry.classificationStatus] += 1;
+  if (entry.proofHoles.length > 0) {
+    bucket.withProofHoles += 1;
+  }
+}
+
+function surfaceEvidenceCoverage(ledgerEntries, statuses, owners) {
+  const byCapability = ledgerEntries
+    .filter(surfaceEvidenceTrackedEntry)
+    .map(surfaceEvidenceCapabilityCoverage);
+
+  return {
+    rules: {
+      completeSurfaceCapabilitiesRequireGateEvidence: true,
+      gateNames: [...capabilitySurfaceEvidenceGateNames],
+      failClosedGatesRequireNegativeTests: true,
+      implementationGatesRequirePositiveTests: true,
+    },
+    summary: summarizeSurfaceEvidenceCoverage(byCapability, statuses, owners),
+    byCapability,
+    proofHoles: byCapability
+      .filter((entry) => entry.proofHoles.length > 0)
+      .map((entry) => ({
+        capabilityId: entry.capabilityId,
+        title: entry.title,
+        status: entry.status,
+        owner: entry.owner,
+        evidenceStatus: entry.evidenceStatus,
+        proofHoles: entry.proofHoles,
+      })),
+  };
+}
+
+function surfaceEvidenceTrackedEntry(entry) {
+  return isSurfaceEvidenceCapability(entry.capabilityId) ||
+    entry.surfaceEvidence !== undefined;
+}
+
+function surfaceEvidenceCapabilityCoverage(entry) {
+  const proofHoles = surfaceEvidenceProofHoles(entry);
+  const surfaceEvidence = isObjectRecord(entry.surfaceEvidence) ? entry.surfaceEvidence : null;
+
+  return {
+    capabilityId: entry.capabilityId,
+    title: entry.title,
+    status: entry.status,
+    owner: entry.owner,
+    evidenceStatus: surfaceEvidenceStatus(entry, proofHoles),
+    surfaceEvidence,
+    gateCoverage: surfaceEvidenceGateCoverage(surfaceEvidence),
+    proofHoles,
+  };
+}
+
+function surfaceEvidenceStatus(entry, proofHoles) {
+  if (!isSurfaceEvidenceCapability(entry.capabilityId)) {
+    return proofHoles.length > 0 ? "invalid" : "not-required";
+  }
+  if (entry.status !== "complete" && entry.surfaceEvidence === undefined) {
+    return "not-required";
+  }
+  if (entry.surfaceEvidence === undefined) {
+    return "missing";
+  }
+  if (proofHoles.length > 0) {
+    return "invalid";
+  }
+  return "covered";
+}
+
+function isSurfaceEvidenceCapability(capabilityId) {
+  return typeof capabilityId === "string" &&
+    (capabilityId.startsWith("surface.js") || capabilityId.startsWith("surface.node"));
+}
+
+function surfaceEvidenceProofHoles(entry) {
+  return validateCapabilityLedgerEntry(entry).filter(surfaceEvidenceValidationError);
+}
+
+function surfaceEvidenceValidationError(error) {
+  return error === "complete surface capabilities must have surfaceEvidence" ||
+    error.startsWith("surfaceEvidence");
+}
+
+function surfaceEvidenceGateCoverage(surfaceEvidence) {
+  return Object.fromEntries(capabilitySurfaceEvidenceGateNames.map((gateName) => [
+    gateName,
+    Array.isArray(surfaceEvidence?.[gateName]) ? [...surfaceEvidence[gateName]] : [],
+  ]));
+}
+
+function summarizeSurfaceEvidenceCoverage(entries, statuses, owners) {
+  const byEvidenceStatus = zeroCountRecord(["covered", "missing", "invalid", "not-required"]);
+  const byStatus = Object.fromEntries(statuses.map((status) => [status, surfaceEvidenceSummaryBucket()]));
+  const byOwner = Object.fromEntries(owners.map((owner) => [owner, surfaceEvidenceSummaryBucket()]));
+  const byGate = zeroCountRecord(capabilitySurfaceEvidenceGateNames);
+
+  for (const entry of entries) {
+    increment(byEvidenceStatus, entry.evidenceStatus);
+    if (byStatus[entry.status] === undefined) {
+      byStatus[entry.status] = surfaceEvidenceSummaryBucket();
+    }
+    if (byOwner[entry.owner] === undefined) {
+      byOwner[entry.owner] = surfaceEvidenceSummaryBucket();
+    }
+    incrementSurfaceEvidenceSummaryBucket(byStatus[entry.status], entry);
+    incrementSurfaceEvidenceSummaryBucket(byOwner[entry.owner], entry);
+
+    for (const gateName of capabilitySurfaceEvidenceGateNames) {
+      if (entry.gateCoverage[gateName].length > 0) {
+        byGate[gateName] += 1;
+      }
+    }
+  }
+
+  const withProofHoles = entries.filter((entry) => entry.proofHoles.length > 0).length;
+  return {
+    total: entries.length,
+    withSurfaceEvidence: entries.filter((entry) => entry.surfaceEvidence !== null).length,
+    coveredSurfaceEvidence: byEvidenceStatus.covered,
+    missingSurfaceEvidence: byEvidenceStatus.missing,
+    invalidSurfaceEvidence: byEvidenceStatus.invalid,
+    notRequiredSurfaceEvidence: byEvidenceStatus["not-required"],
+    withProofHoles,
+    proofStatus: withProofHoles === 0 ? "proven" : "hole",
+    byEvidenceStatus,
+    byStatus,
+    byOwner,
+    byGate,
+  };
+}
+
+function surfaceEvidenceSummaryBucket() {
+  return {
+    total: 0,
+    covered: 0,
+    missing: 0,
+    invalid: 0,
+    notRequired: 0,
+    withProofHoles: 0,
+  };
+}
+
+function incrementSurfaceEvidenceSummaryBucket(bucket, entry) {
+  bucket.total += 1;
+  if (entry.evidenceStatus === "not-required") {
+    bucket.notRequired += 1;
+  } else {
+    bucket[entry.evidenceStatus] += 1;
+  }
   if (entry.proofHoles.length > 0) {
     bucket.withProofHoles += 1;
   }

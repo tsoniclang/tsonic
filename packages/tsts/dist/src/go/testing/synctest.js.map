@@ -1,0 +1,1 @@
+{"version":3,"file":"synctest.js","sourceRoot":"","sources":["../../../../src/go/testing/synctest.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,CAAC,EAAE,MAAM,eAAe,CAAC;AAElC,MAAM,UAAU,IAAI,CAAC,EAAkB;IACrC,EAAE,CAAC,IAAI,CAAC,EAAE,CAAC,CAAC;AACd,CAAC;AAED,MAAM,UAAU,IAAI;IAClB,8EAA8E;AAChF,CAAC"}

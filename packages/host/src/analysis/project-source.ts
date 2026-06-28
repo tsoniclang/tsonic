@@ -179,7 +179,7 @@ function resolveRuntimeModuleDependency(
   if (moduleSpecifier === undefined) {
     return undefined;
   }
-  const resolvedSourceFile = checker.getResolvedModuleSourceFile(moduleSpecifier, { sourceFile });
+  const resolvedSourceFile = getResolvedRuntimeModuleSourceFile(ast, checker, moduleSpecifier, { sourceFile });
   if (!isProjectSourceFile(ast, resolvedSourceFile, sourceFiles)) {
     return undefined;
   }
@@ -191,12 +191,24 @@ function resolveRuntimeModuleDependency(
   };
 }
 
+function getResolvedRuntimeModuleSourceFile(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  moduleSpecifier: Node,
+  options: { readonly sourceFile: SourceFile },
+): SourceFile | undefined {
+  const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier, options);
+  const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(moduleSymbol, false, options) ?? moduleSymbol;
+  return ast.getSourceFile(getPrimaryDeclaration(resolvedModuleSymbol) ?? getPrimaryDeclaration(moduleSymbol));
+}
+
 function isTypeOnlyImportDeclaration(ast: AstReader, declaration: Node): boolean {
   const importClause = (declaration as { readonly ImportClause?: Node }).ImportClause;
   if (importClause === undefined) {
     return false;
   }
-  if (ast.kindNameFromKind((importClause as { readonly PhaseModifier?: unknown }).PhaseModifier as number | undefined) === "KindTypeKeyword") {
+  const phaseModifier = asNode((importClause as { readonly PhaseModifier?: unknown }).PhaseModifier);
+  if (phaseModifier !== undefined && ast.text(phaseModifier) === "type") {
     return true;
   }
   const name = ast.name(importClause);
@@ -385,20 +397,10 @@ function getProjectSourceBaseClassDeclaration(
 }
 
 function getBaseClassReferenceNode(ast: AstReader, classDeclaration: Node): Node | undefined {
-  const heritageClauses = ((classDeclaration as { readonly HeritageClauses?: { readonly Nodes?: readonly (Node | undefined)[] } }).HeritageClauses?.Nodes ?? []);
-  for (const heritageClauseNode of heritageClauses) {
-    const heritageClause = ast.as.AsHeritageClause(heritageClauseNode);
-    if (heritageClause === undefined) {
-      continue;
-    }
-    if (ast.kindNameFromKind(heritageClause?.Token) !== "KindExtendsKeyword") {
-      continue;
-    }
-    for (const heritageType of heritageClause.Types?.Nodes ?? []) {
-      const expression = ast.as.AsExpressionWithTypeArguments(heritageType)?.Expression;
-      if (expression !== undefined) {
-        return expression;
-      }
+  for (const heritageType of ast.extendsHeritageElements(classDeclaration)) {
+    const expression = ast.as.AsExpressionWithTypeArguments(heritageType)?.Expression;
+    if (expression !== undefined) {
+      return expression;
     }
   }
   return undefined;

@@ -1,0 +1,60 @@
+export declare const ByHandleFileInformation: unknown;
+export declare function CancelIoEx(...args: Array<unknown>): unknown;
+export declare function CloseHandle(...args: Array<unknown>): unknown;
+export declare function CreateEvent(...args: Array<unknown>): unknown;
+export declare function CreateFile(...args: Array<unknown>): unknown;
+export declare const ENABLE_VIRTUAL_TERMINAL_PROCESSING: unknown;
+export declare const ERROR_ACCESS_DENIED: unknown;
+export declare const ERROR_INVALID_PARAMETER: unknown;
+export declare const ERROR_NOTIFY_ENUM_DIR: unknown;
+export declare const ERROR_OPERATION_ABORTED: unknown;
+export declare const FILE_ACTION_ADDED: unknown;
+export declare const FILE_ACTION_MODIFIED: unknown;
+export declare const FILE_ACTION_REMOVED: unknown;
+export declare const FILE_ACTION_RENAMED_NEW_NAME: unknown;
+export declare const FILE_ACTION_RENAMED_OLD_NAME: unknown;
+export declare const FILE_ATTRIBUTE_DIRECTORY: unknown;
+export declare const FILE_ATTRIBUTE_REPARSE_POINT: unknown;
+export declare const FILE_FLAG_BACKUP_SEMANTICS: unknown;
+export declare const FILE_FLAG_OVERLAPPED: unknown;
+export declare const FILE_LIST_DIRECTORY: unknown;
+export declare const FILE_NOTIFY_CHANGE_DIR_NAME: unknown;
+export declare const FILE_NOTIFY_CHANGE_FILE_NAME: unknown;
+export declare const FILE_NOTIFY_CHANGE_LAST_WRITE: unknown;
+export declare const FILE_NOTIFY_CHANGE_SIZE: unknown;
+export declare const FILE_SHARE_DELETE: unknown;
+export declare const FILE_SHARE_READ: unknown;
+export declare const FILE_SHARE_WRITE: unknown;
+export declare const FILE_TYPE_CHAR: unknown;
+export declare const FileNotifyInformation: unknown;
+export declare function FindClose(...args: Array<unknown>): unknown;
+export declare function FindFirstFile(...args: Array<unknown>): unknown;
+export declare function FindNextFile(...args: Array<unknown>): unknown;
+export declare function GetConsoleMode(...args: Array<unknown>): unknown;
+export declare function GetFileAttributes(...args: Array<unknown>): unknown;
+export declare function GetFileAttributesEx(...args: Array<unknown>): unknown;
+export declare const GetFileExInfoStandard: unknown;
+export declare function GetFileInformationByHandle(...args: Array<unknown>): unknown;
+export declare function GetFileType(...args: Array<unknown>): unknown;
+export declare function GetFinalPathNameByHandle(...args: Array<unknown>): unknown;
+export declare function GetOverlappedResult(...args: Array<unknown>): unknown;
+export declare function GetStdHandle(...args: Array<unknown>): unknown;
+export interface Handle {
+    readonly __goFacadeName: "golang.org/x/sys/windows.Handle";
+}
+export declare const INFINITE: unknown;
+export declare const INVALID_FILE_ATTRIBUTES: unknown;
+export declare const InvalidHandle: unknown;
+export declare const OPEN_EXISTING: unknown;
+export interface Overlapped {
+    readonly __goFacadeName: "golang.org/x/sys/windows.Overlapped";
+}
+export declare function ReadDirectoryChanges(...args: Array<unknown>): unknown;
+export declare function SetConsoleMode(...args: Array<unknown>): unknown;
+export declare const STD_OUTPUT_HANDLE: unknown;
+export declare function UTF16PtrFromString(...args: Array<unknown>): unknown;
+export declare function UTF16ToString(...args: Array<unknown>): unknown;
+export declare function WaitForSingleObject(...args: Array<unknown>): unknown;
+export declare const Win32FileAttributeData: unknown;
+export declare const Win32finddata: unknown;
+//# sourceMappingURL=windows.d.ts.map

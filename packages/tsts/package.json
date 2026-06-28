@@ -9,24 +9,21 @@
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
+      "import": "./dist/src/index.js"
     },
     "./index.js": {
       "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
-    }
-  },
-  "scripts": {
-    "build": "../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false"
+      "import": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "tsts": "./dist/src/cli/index.js"
   },
   "files": [
-    "src/**/*.ts",
-    "tsonic.package.json",
-    "tsonic.json",
-    "README.md",
-    "LICENSE"
+    "dist/src/**/*.js",
+    "dist/src/**/*.js.map",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.d.ts.map"
   ]
 }

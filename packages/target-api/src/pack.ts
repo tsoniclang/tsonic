@@ -111,8 +111,12 @@ export interface TargetProjectSourceMethodDispatch {
 
 export interface TargetSourceAnalysisQueries {
   readonly lazy: TargetLazySourceAnalysis;
+  getSymbolName(symbol: ExtensionFactSubject | undefined): string | undefined;
+  getSymbolDeclarations(symbol: ExtensionFactSubject | undefined): readonly Node[];
   getSymbolAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Symbol | undefined;
   getResolvedSymbol(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Symbol | undefined;
+  getTypeSymbol(type: Type | undefined): Symbol | undefined;
+  getTypeAliasSymbol(type: Type | undefined): Symbol | undefined;
   getTypeOfSymbol(symbol: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
   getTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
   getTypeFromTypeNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;

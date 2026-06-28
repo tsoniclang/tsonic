@@ -10,7 +10,6 @@ if [[ ! -d "./node_modules" ]]; then
 fi
 
 PACKAGES=(
-  "packages/tsts"
   "packages/source-core"
   "packages/target-api"
   "packages/host"
