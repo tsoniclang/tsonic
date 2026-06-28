@@ -4685,6 +4685,144 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: checked element access reaches the backend only through selected provider/surface indexer facts; backend emission stops after the primary missing C# operation diagnostic when the generic selected indexer fact is not enough, and emits Roslyn ElementAccessExpression only from finalized selected indexer facts.",
   }),
+  "operation.await.promise-task": Object.freeze({
+    sourceExamples: Object.freeze([
+      "async function fetchData(): Promise<string> { return await getData(); }",
+      "const value = await taskLikeValue;",
+    ]),
+    tstsDecision:
+      "TSTS owns async function validity, await expression validity, contextual Promise result typing, flow typing, overload selection, and generic inference before Tsonic observes the checked source operation.",
+    providerFacts: Object.freeze([
+      "runtimeCarrierFact",
+      "selected source async return type",
+      "renderable target Task carrier",
+    ]),
+    backendContract:
+      "Backend emits AwaitExpression and async target AST only from finalized Promise/Task runtime-carrier facts; missing or mismatched awaited/result carriers produce diagnostics.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/async-cli-build.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/async/basic/AsyncFunction.ts",
+      "test/fixtures/async-basic/",
+      "test/fixtures/async-higher-order/",
+    ]),
+    blockers: Object.freeze([
+      "operation.await.promise-task remains partial until Promise chain/task interop fixtures, async interaction with selected JS surfaces, and every old async fixture that depends on await semantics have current positive and fail-closed proof.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "async-await",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-await-expression",
+          "awaited-expression-promise-task-carrier",
+          "await-result-carrier",
+          "renderable-target-ast",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-awaited-expression-carrier",
+          "missing-await-result-carrier",
+          "mismatched-await-result-carrier",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-await-expression",
+          "awaited-expression-promise-task-carrier",
+          "await-result-carrier",
+          "renderable-target-ast",
+        ]),
+        operation: "emit-await-target-ast",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-awaited-expression-carrier",
+          "missing-await-result-carrier",
+          "mismatched-await-result-carrier",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result; mismatched or missing facts fail closed; current CLI E2E proves basic awaited async calls and higher-order async delegate carriers through dotnet build/run.",
+  }),
+  "function.async": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export async function load(): Promise<string> { return \"ready\"; }",
+      "export async function createAsyncAdder(start: int32): Promise<(x: int32) => Promise<int32>> { return async (x: int32) => start + x; }",
+    ]),
+    tstsDecision:
+      "TSTS owns async declaration validity, source return type checking, contextual function types, generic inference, and nested async lambda typing before Tsonic maps Promise carriers to target Task carriers.",
+    providerFacts: Object.freeze([
+      "runtimeCarrierFact",
+      "selected async declaration return type",
+      "renderable target Task carrier",
+      "delegate carrier facts for returned async/sync functions",
+    ]),
+    backendContract:
+      "Backend emits async methods/lambdas and Task-returning signatures only from finalized Promise/Task and delegate carrier facts; missing facts are diagnostics.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/async-cli-build.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/async/basic/AsyncFunction.ts",
+      "packages/targets/csharp/emitter/testcases/common/functions/async-hof/AsyncReturningFunctions.ts",
+      "test/fixtures/async-basic/",
+      "test/fixtures/async-higher-order/",
+    ]),
+    blockers: Object.freeze([
+      "function.async remains partial until async object-literal returns, Promise constructor/then/reject behavior, Task interop, generators, and async+surface fixtures are covered by finalized facts, backend AST tests, and runtime/toolchain tests.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "async-await",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-async-declaration",
+          "promise-task-return-carrier",
+          "delegate-carrier-facts",
+          "renderable-target-ast",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-promise-task-return-carrier",
+          "missing-delegate-carrier",
+          "unrenderable-target-async-shape",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-async-declaration",
+          "promise-task-return-carrier",
+          "delegate-carrier-facts",
+          "renderable-target-ast",
+        ]),
+        operation: "emit-async-target-declaration",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-promise-task-return-carrier",
+          "missing-delegate-carrier",
+          "unrenderable-target-async-shape",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: async methods and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; current executable tests cover basic Promise<string>, nested Promise-returning delegates, async callbacks, and exact runtime output.",
+  }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
