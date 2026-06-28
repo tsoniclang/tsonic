@@ -145,7 +145,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["provider.virtual-module.source-shape", "Provider supplies source-visible virtual declarations", "partial", "target-provider"],
   ["provider.virtual-module.target-identity", "Provider attaches target identity to virtual declarations", "partial", "target-provider"],
   ["provider.virtual-module.constraints", "Provider supplies target constraints outside TS source shape", "partial", "target-provider"],
-  ["provider.virtual-module.overload-identity", "Provider supplies exact overload/member identity", "complete", "target-provider"],
+  ["provider.virtual-module.overload-identity", "Provider supplies exact overload/member identity", "partial", "target-provider"],
   ["provider.module.virtual-import", "Provider-backed virtual imports become compiler state", "partial", "target-provider"],
   ["provider.module.no-file-backed-fallback", "Provider module resolution has no declaration-file fallback", "complete", "target-provider"],
   ["provider.module.missing-provider-diagnostic", "Missing provider-owned modules produce diagnostics", "complete", "target-provider"],
@@ -306,7 +306,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "complete", "surface-provider"],
-  ["surface.node.process", "node:process uses selected Node surface facts", "complete", "surface-provider"],
+  ["surface.node.process", "node:process uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
   ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "partial", "surface-provider"],
 
@@ -2735,8 +2735,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
       "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
     ]),
+    blockers: Object.freeze([
+      "Provider virtual function export declarations currently trigger upstream TSTS FACT_CONFLICT when export-level and signature-level virtual declaration facts are written on the same declaration subject. Tsonic consumes public selected declaration/signature facts and checker.getSignatureDeclaration, but must remain partial until upstream TSTS exposes non-conflicting signature identity for function exports.",
+    ]),
     notes:
-      "Reviewed proof: provider-owned overload identity is selected from exact declaration/signature facts, including same-spelling overload groups, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, selected JS/Node surface signatures, and selected signatures whose source argument facts would otherwise match sibling overloads. TSTS-selected provider identity is the proof boundary: exact selected signatures map only to the matching target member id and may not search sibling overloads; provider refinement is allowed only inside a proven overload group without source spelling lookup. Valid selected-signature target conversions remain explicit provider facts; missing selected identity, unsupported selected identities, ambiguous group refinement, contradictory generic argument facts, and unproven conversion facts fail closed.",
+      "Reviewed partial proof: provider-owned overload identity is selected from exact declaration/signature facts for .NET provider paths and direct surface cases, including same-spelling overload groups, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, and selected signatures whose source argument facts would otherwise match sibling overloads. TSTS-selected provider identity is the proof boundary: exact selected signatures map only to the matching target member id and may not search sibling overloads; provider refinement is allowed only inside a proven overload group without source spelling lookup. Completion is blocked for provider virtual function exports until upstream TSTS resolves export-vs-signature fact conflicts without Tsonic fallback.",
   }),
   "type.generic.provider-target-arguments": Object.freeze({
     positiveTests: Object.freeze([
@@ -4201,9 +4204,11 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/nodejs-surface.test.mjs",
       ],
     }),
-    blockers: Object.freeze([]),
+    blockers: Object.freeze([
+      "surface.node.process remains partial while upstream TSTS provider virtual function export declarations produce FACT_CONFLICT for selected function signatures. Tsonic must not map process calls/properties by source spelling; completion requires non-conflicting provider declaration/signature facts from TSTS and current passing surface-boundary proof.",
+    ]),
     notes:
-      "Reviewed complete proof: selected NodeJS process facts cover process module imports, cwd/chdir/exit/kill calls, scalar metadata properties, exitCode reads, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, and no-surface fail-closed diagnostics. CLI/toolchain proof emits only finalized NodeJS surface operations, csharp-nodejs runtime tests cover platform/env/version/exit/kill behavior, and unsupported or unselected process use fails before fallback output.",
+      "Reviewed partial proof: selected NodeJS process facts cover process module imports, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, runtime behavior tests, and no-surface fail-closed diagnostics. Completion remains blocked for function and selected provider-signature proof while upstream TSTS reports FACT_CONFLICT on provider virtual function export signature facts; Tsonic must keep consuming finalized facts only and must not add process source-name fallback.",
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([
