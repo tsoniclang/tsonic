@@ -1,0 +1,180 @@
+import type { GoMap, GoPtr } from "../../go/compat.js";
+import type { Set } from "../collections/set.js";
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/unicodeproperties.go::varGroup::nonBinaryUnicodeProperties","kind":"varGroup","status":"implemented","sigHash":"5b11bb8921a496b5644a19bdebdf03711d65b16c9486cd010b8ab699ba53be5f","bodyHash":"56e5f2bcaafcf2022d0453039692b9d86522741553c59df075cdc4bb19096c91"}
+ *
+ * Go source:
+ * var nonBinaryUnicodeProperties = map[string]string{
+ * 	"General_Category":  "General_Category",
+ * 	"gc":                "General_Category",
+ * 	"Script":            "Script",
+ * 	"sc":                "Script",
+ * 	"Script_Extensions": "Script_Extensions",
+ * 	"scx":               "Script_Extensions",
+ * }
+ */
+export declare const nonBinaryUnicodeProperties: GoMap<string, string>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/unicodeproperties.go::varGroup::binaryUnicodeProperties","kind":"varGroup","status":"implemented","sigHash":"bb86e7b669417f64ef941e542566cf39218f5ba4f0da036611a8f92ba55ee558","bodyHash":"b6a5f5d2ebfbf9fd048ab087dfc620b2f3578cd176cc65d0bda5c45ab21f0c5e"}
+ *
+ * Go source:
+ * var binaryUnicodeProperties = collections.NewSetFromItems(
+ * 	"ASCII", "ASCII_Hex_Digit", "AHex", "Alphabetic", "Alpha", "Any", "Assigned",
+ * 	"Bidi_Control", "Bidi_C", "Bidi_Mirrored", "Bidi_M",
+ * 	"Case_Ignorable", "CI", "Cased",
+ * 	"Changes_When_Casefolded", "CWCF", "Changes_When_Casemapped", "CWCM",
+ * 	"Changes_When_Lowercased", "CWL", "Changes_When_NFKC_Casefolded", "CWKCF",
+ * 	"Changes_When_Titlecased", "CWT", "Changes_When_Uppercased", "CWU",
+ * 	"Dash", "Default_Ignorable_Code_Point", "DI", "Deprecated", "Dep",
+ * 	"Diacritic", "Dia",
+ * 	"Emoji", "Emoji_Component", "EComp", "Emoji_Modifier", "EMod",
+ * 	"Emoji_Modifier_Base", "EBase", "Emoji_Presentation", "EPres",
+ * 	"Extended_Pictographic", "ExtPict", "Extender", "Ext",
+ * 	"Grapheme_Base", "Gr_Base", "Grapheme_Extend", "Gr_Ext",
+ * 	"Hex_Digit", "Hex",
+ * 	"IDS_Binary_Operator", "IDSB", "IDS_Trinary_Operator", "IDST",
+ * 	"ID_Continue", "IDC", "ID_Start", "IDS",
+ * 	"Ideographic", "Ideo",
+ * 	"Join_Control", "Join_C",
+ * 	"Logical_Order_Exception", "LOE",
+ * 	"Lowercase", "Lower", "Math",
+ * 	"Noncharacter_Code_Point", "NChar",
+ * 	"Pattern_Syntax", "Pat_Syn", "Pattern_White_Space", "Pat_WS",
+ * 	"Quotation_Mark", "QMark",
+ * 	"Radical",
+ * 	"Regional_Indicator", "RI",
+ * 	"Sentence_Terminal", "STerm",
+ * 	"Soft_Dotted", "SD",
+ * 	"Terminal_Punctuation", "Term",
+ * 	"Unified_Ideograph", "UIdeo",
+ * 	"Uppercase", "Upper",
+ * 	"Variation_Selector", "VS",
+ * 	"White_Space", "space",
+ * 	"XID_Continue", "XIDC", "XID_Start", "XIDS",
+ * )
+ */
+export declare const binaryUnicodeProperties: GoPtr<Set<string>>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/unicodeproperties.go::varGroup::binaryUnicodePropertiesOfStrings","kind":"varGroup","status":"implemented","sigHash":"0516adf1efcb505a94c7418bb2b78cce189f73beb6784879829152f72970cb9d","bodyHash":"7751374f547cb991fb575a741c627e4a81490573e0c2cbac5a4d552078719d60"}
+ *
+ * Go source:
+ * var binaryUnicodePropertiesOfStrings = collections.NewSetFromItems(
+ * 	"Basic_Emoji", "Emoji_Keycap_Sequence", "RGI_Emoji_Modifier_Sequence",
+ * 	"RGI_Emoji_Flag_Sequence", "RGI_Emoji_Tag_Sequence",
+ * 	"RGI_Emoji_ZWJ_Sequence", "RGI_Emoji",
+ * )
+ */
+export declare const binaryUnicodePropertiesOfStrings: GoPtr<Set<string>>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/unicodeproperties.go::varGroup::scriptValues","kind":"varGroup","status":"implemented","sigHash":"a98be260db4bd526dc49858c20ff562d012401bc2ddf50fd0fc0c6caeac51998","bodyHash":"2f4072b31229b29780ba0d5962871b5d5542fe2ab4b49067a660426752e0378b"}
+ *
+ * Go source:
+ * var scriptValues = collections.NewSetFromItems(
+ * 	"Adlm", "Adlam", "Aghb", "Caucasian_Albanian", "Ahom", "Arab", "Arabic",
+ * 	"Armi", "Imperial_Aramaic", "Armn", "Armenian", "Avst", "Avestan",
+ * 	"Bali", "Balinese", "Bamu", "Bamum", "Bass", "Bassa_Vah", "Batk", "Batak",
+ * 	"Beng", "Bengali", "Bhks", "Bhaiksuki", "Bopo", "Bopomofo", "Brah", "Brahmi",
+ * 	"Brai", "Braille", "Bugi", "Buginese", "Buhd", "Buhid",
+ * 	"Cakm", "Chakma", "Cans", "Canadian_Aboriginal", "Cari", "Carian",
+ * 	"Cham", "Cher", "Cherokee", "Chrs", "Chorasmian",
+ * 	"Copt", "Coptic", "Qaac", "Cpmn", "Cypro_Minoan", "Cprt", "Cypriot",
+ * 	"Cyrl", "Cyrillic",
+ * 	"Deva", "Devanagari", "Diak", "Dives_Akuru", "Dogr", "Dogra",
+ * 	"Dsrt", "Deseret", "Dupl", "Duployan",
+ * 	"Egyp", "Egyptian_Hieroglyphs", "Elba", "Elbasan", "Elym", "Elymaic",
+ * 	"Ethi", "Ethiopic",
+ * 	"Geor", "Georgian", "Glag", "Glagolitic",
+ * 	"Gong", "Gunjala_Gondi", "Gonm", "Masaram_Gondi",
+ * 	"Goth", "Gothic", "Gran", "Grantha", "Grek", "Greek",
+ * 	"Gujr", "Gujarati", "Guru", "Gurmukhi",
+ * 	"Hang", "Hangul", "Hani", "Han", "Hano", "Hanunoo",
+ * 	"Hatr", "Hatran", "Hebr", "Hebrew",
+ * 	"Hira", "Hiragana", "Hluw", "Anatolian_Hieroglyphs",
+ * 	"Hmng", "Pahawh_Hmong", "Hmnp", "Nyiakeng_Puachue_Hmong",
+ * 	"Hrkt", "Katakana_Or_Hiragana",
+ * 	"Hung", "Old_Hungarian",
+ * 	"Ital", "Old_Italic",
+ * 	"Java", "Javanese",
+ * 	"Kali", "Kayah_Li", "Kana", "Katakana", "Kawi",
+ * 	"Khar", "Kharoshthi", "Khmr", "Khmer", "Khoj", "Khojki",
+ * 	"Kits", "Khitan_Small_Script", "Knda", "Kannada", "Kthi", "Kaithi",
+ * 	"Lana", "Tai_Tham", "Laoo", "Lao", "Latn", "Latin",
+ * 	"Lepc", "Lepcha", "Limb", "Limbu",
+ * 	"Lina", "Linear_A", "Linb", "Linear_B", "Lisu",
+ * 	"Lyci", "Lycian", "Lydi", "Lydian",
+ * 	"Mahj", "Mahajani", "Maka", "Makasar",
+ * 	"Mand", "Mandaic", "Mani", "Manichaean", "Marc", "Marchen",
+ * 	"Medf", "Medefaidrin", "Mend", "Mende_Kikakui",
+ * 	"Merc", "Meroitic_Cursive", "Mero", "Meroitic_Hieroglyphs",
+ * 	"Mlym", "Malayalam", "Modi", "Mong", "Mongolian",
+ * 	"Mroo", "Mro", "Mtei", "Meetei_Mayek", "Mult", "Multani",
+ * 	"Mymr", "Myanmar",
+ * 	"Nagm", "Nag_Mundari", "Nand", "Nandinagari",
+ * 	"Narb", "Old_North_Arabian", "Nbat", "Nabataean",
+ * 	"Newa", "Nkoo", "Nko", "Nshu", "Nushu",
+ * 	"Ogam", "Ogham", "Olck", "Ol_Chiki",
+ * 	"Orkh", "Old_Turkic", "Orya", "Oriya",
+ * 	"Osge", "Osage", "Osma", "Osmanya", "Ougr", "Old_Uyghur",
+ * 	"Palm", "Palmyrene", "Pauc", "Pau_Cin_Hau",
+ * 	"Perm", "Old_Permic", "Phag", "Phags_Pa",
+ * 	"Phli", "Inscriptional_Pahlavi", "Phlp", "Psalter_Pahlavi",
+ * 	"Phnx", "Phoenician", "Plrd", "Miao",
+ * 	"Prti", "Inscriptional_Parthian",
+ * 	"Rjng", "Rejang", "Rohg", "Hanifi_Rohingya",
+ * 	"Runr", "Runic",
+ * 	"Samr", "Samaritan", "Sarb", "Old_South_Arabian",
+ * 	"Saur", "Saurashtra", "Sgnw", "SignWriting",
+ * 	"Shaw", "Shavian", "Shrd", "Sharada",
+ * 	"Sidd", "Siddham", "Sind", "Khudawadi", "Sinh", "Sinhala",
+ * 	"Sogd", "Sogdian", "Sogo", "Old_Sogdian",
+ * 	"Sora", "Sora_Sompeng", "Soyo", "Soyombo",
+ * 	"Sund", "Sundanese", "Sylo", "Syloti_Nagri", "Syrc", "Syriac",
+ * 	"Tagb", "Tagbanwa", "Takr", "Takri",
+ * 	"Tale", "Tai_Le", "Talu", "New_Tai_Lue",
+ * 	"Taml", "Tamil", "Tang", "Tangut", "Tavt", "Tai_Viet",
+ * 	"Telu", "Telugu", "Tfng", "Tifinagh",
+ * 	"Tglg", "Tagalog", "Thaa", "Thaana", "Thai", "Tibt", "Tibetan",
+ * 	"Tirh", "Tirhuta", "Tnsa", "Tangsa", "Toto",
+ * 	"Ugar", "Ugaritic",
+ * 	"Vaii", "Vai", "Vith", "Vithkuqi",
+ * 	"Wara", "Warang_Citi", "Wcho", "Wancho",
+ * 	"Xpeo", "Old_Persian", "Xsux", "Cuneiform",
+ * 	"Yezi", "Yezidi", "Yiii", "Yi",
+ * 	"Zanb", "Zanabazar_Square",
+ * 	"Zinh", "Inherited", "Qaai",
+ * 	"Zyyy", "Common",
+ * 	"Zzzz", "Unknown",
+ * )
+ */
+export declare const scriptValues: GoPtr<Set<string>>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/unicodeproperties.go::varGroup::valuesOfNonBinaryUnicodeProperties","kind":"varGroup","status":"implemented","sigHash":"4a75a3b77bab206057a94b3e308fc2a66c877ad9072a6ea38d074a2d5cddce28","bodyHash":"e37da15992554553a309b6972e57ddb23c9040643afe75d9e10d067f83ab38f4"}
+ *
+ * Go source:
+ * var valuesOfNonBinaryUnicodeProperties = map[string]*collections.Set[string]{
+ * 	"General_Category": collections.NewSetFromItems(
+ * 		"C", "Other", "Cc", "Control", "cntrl", "Cf", "Format", "Cn", "Unassigned",
+ * 		"Co", "Private_Use", "Cs", "Surrogate",
+ * 		"L", "Letter", "LC", "Cased_Letter", "Ll", "Lowercase_Letter", "Lm", "Modifier_Letter",
+ * 		"Lo", "Other_Letter", "Lt", "Titlecase_Letter", "Lu", "Uppercase_Letter",
+ * 		"M", "Mark", "Combining_Mark", "Mc", "Spacing_Mark", "Me", "Enclosing_Mark",
+ * 		"Mn", "Nonspacing_Mark",
+ * 		"N", "Number", "Nd", "Decimal_Number", "digit", "Nl", "Letter_Number", "No", "Other_Number",
+ * 		"P", "Punctuation", "punct", "Pc", "Connector_Punctuation", "Pd", "Dash_Punctuation",
+ * 		"Pe", "Close_Punctuation", "Pf", "Final_Punctuation", "Pi", "Initial_Punctuation",
+ * 		"Po", "Other_Punctuation", "Ps", "Open_Punctuation",
+ * 		"S", "Symbol", "Sc", "Currency_Symbol", "Sk", "Modifier_Symbol",
+ * 		"Sm", "Math_Symbol", "So", "Other_Symbol",
+ * 		"Z", "Separator", "Zl", "Line_Separator", "Zp", "Paragraph_Separator",
+ * 		"Zs", "Space_Separator",
+ * 	),
+ * 	"Script": scriptValues,
+ * 	// The Script_Extensions property of a character contains one or more Script values.
+ * 	// See https://www.unicode.org/reports/tr24/#Script_Extensions
+ * 	// Here, since each Unicode property value expression only allows a single value,
+ * 	// its values can be considered the same as those of the Script property.
+ * 	"Script_Extensions": scriptValues,
+ * }
+ */
+export declare const valuesOfNonBinaryUnicodeProperties: GoMap<string, GoPtr<Set<string>>>;
+//# sourceMappingURL=unicodeproperties.d.ts.map

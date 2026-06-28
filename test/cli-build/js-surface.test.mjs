@@ -1,5 +1,11 @@
 import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
+function assertExternalCallNotMapped(stderr, memberName) {
+  assert.match(stderr, new RegExp(`C# target requires selected target facts for external TypeScript declaration call '${memberName}'`));
+  assert.match(stderr, /Missing selected target mapping/);
+  assert.doesNotMatch(stderr, /TS9000011/);
+}
+
 test("CLI emits standard Math calls from selected TSTS provider facts", async () => {
   const projectDirectory = resolve(tempRoot, "standard-math-calls");
   await writeProject(projectDirectory, {
@@ -231,8 +237,7 @@ test("CLI rejects console.log without selected JS surface facts", async () => {
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
-  assert.match(build.stderr, /callee node runtime carrier/);
+  assertExternalCallNotMapped(build.stderr, "log");
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedConsoleLogWithoutJsSurface.csproj")), false);
 });
 
@@ -450,6 +455,128 @@ test("CLI emits Map and Set operations from selected JS surface facts", async ()
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits extended Map and Set operations from selected JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "map-set-extended-surface-operations");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedMapSetExtendedSurfaceOperations",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function mapExtended(seed: int32): int32 {",
+      "  const source = new Map<string, int32>();",
+      "  source.set(\"alpha\", 1);",
+      "  source.set(\"beta\", 2);",
+      "  const copy = new Map<string, int32>(source.entries());",
+      "  copy.set(\"gamma\", seed);",
+      "  let total = copy.size;",
+      "  if (copy.delete(\"beta\")) {",
+      "    total = total + 10;",
+      "  }",
+      "  copy.forEach((value, key) => {",
+      "    total = total + value;",
+      "    if (key === \"alpha\") {",
+      "      total = total + 100;",
+      "    }",
+      "  });",
+      "  const values = Array.from(copy.values());",
+      "  const entries = Array.from(copy.entries());",
+      "  copy.clear();",
+      "  return total + values.length + entries.length + copy.size;",
+      "}",
+      "",
+      "export function setExtended(value: string): int32 {",
+      "  const source = new Set<string>();",
+      "  source.add(\"alpha\");",
+      "  source.add(\"beta\");",
+      "  const copy = new Set<string>(source.values());",
+      "  copy.add(value);",
+      "  let total = copy.size;",
+      "  if (copy.delete(\"beta\")) {",
+      "    total = total + 10;",
+      "  }",
+      "  copy.forEach((item) => {",
+      "    if (copy.has(item)) {",
+      "      total = total + 1;",
+      "    }",
+      "  });",
+      "  const keys = Array.from(copy.keys());",
+      "  const values = Array.from(copy.values());",
+      "  const entries = Array.from(copy.entries());",
+      "  copy.clear();",
+      "  return total + keys.length + values.length + entries.length + copy.size;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.Map<string, int>\(source\.entries\(\)\)/);
+  assert.match(generatedSource, /copy\.forEach\(/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.from\(copy\.values\(\)\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.from\(copy\.entries\(\)\)/);
+  assert.match(generatedSource, /copy\.clear\(\);/);
+  assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.Set<string>\(source\.values\(\)\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.from\(copy\.keys\(\)\)/);
+  assert.doesNotMatch(generatedSource, /InvalidExpression|__unsupported|Reflection|GetProperty|GetMethod|dynamic/);
+  assert.doesNotMatch(generatedSource, /System\.Collections\.Generic\.Dictionary|System\.Collections\.Generic\.HashSet/);
+  assert.doesNotMatch(generatedSource, /new Map|new Set|MapConstructor|SetConstructor/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedMapSetExtendedSurfaceOperations.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects Map and Set without selected JS surface declarations", async () => {
+  const projectDirectory = resolve(tempRoot, "map-set-without-js-surface");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedMapSetWithoutJsSurface",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function count(key: string): number {",
+      "  const counts = new Map<string, number>();",
+      "  const names = new Set<string>();",
+      "  counts.set(key, 1);",
+      "  names.add(key);",
+      "  return counts.size + names.size;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# property access 'size' must be selected by TSTS\/provider facts before emission/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedMapSetWithoutJsSurface.csproj")), false);
+});
+
 test("CLI rejects existing TypeScript JS built-ins without selected JS surface facts", async () => {
   const projectDirectory = resolve(tempRoot, "existing-typescript-js-builtins-without-js-surface");
   await writeProject(projectDirectory, {
@@ -516,8 +643,7 @@ test("CLI rejects Math without selected JS surface facts", async () => {
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
-  assert.match(build.stderr, /callee node runtime carrier/);
+  assertExternalCallNotMapped(build.stderr, "trunc");
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedMathWithoutJsSurface.csproj")), false);
 });
 
@@ -580,8 +706,7 @@ test("CLI rejects Boolean methods without selected JS surface facts", async () =
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
-  assert.match(build.stderr, /callee node runtime carrier/);
+  assertExternalCallNotMapped(build.stderr, "toString");
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedBooleanWithoutJsSurface.csproj")), false);
 });
 
@@ -612,8 +737,7 @@ test("CLI rejects Number methods without selected JS surface facts", async () =>
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# call emission requires a source-owned callable or a selected target signature fact/);
-  assert.match(build.stderr, /callee node runtime carrier/);
+  assertExternalCallNotMapped(build.stderr, "isFinite");
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberWithoutJsSurface.csproj")), false);
 });
 
@@ -636,8 +760,10 @@ test("CLI rejects unsupported JS expression carriers even when JS surface is sel
       ],
     }, null, 2),
     "src/index.ts": [
-      "export function stringifyRounded(value: number): string {",
-      "  return JSON.stringify(Math.trunc(value));",
+      "export function stringifyMap(value: number): string {",
+      "  const entries = new Map<string, number>();",
+      "  entries.set(\"value\", value);",
+      "  return JSON.stringify(entries);",
       "}",
       "",
     ].join("\n"),

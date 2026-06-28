@@ -1,0 +1,1 @@
+{"version":3,"file":"eintr_unix.d.ts","sourceRoot":"","sources":["../../../../../src/internal/vfs/osvfs/eintr_unix.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,OAAO,EAAE,MAAM,uBAAuB,CAAC;AAGrD;;;;;;;;;;;;GAYG;AACH,wBAAgB,aAAa,CAAC,CAAC,EAAE,EAAE,EAAE,MAAM,CAAC,CAAC,EAAE,OAAO,CAAC,GAAG,CAAC,CAAC,EAAE,OAAO,CAAC,CAQrE"}

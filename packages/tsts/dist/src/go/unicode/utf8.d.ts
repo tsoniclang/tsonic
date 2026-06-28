@@ -1,0 +1,35 @@
+import type { int } from "../scalars.js";
+import type { GoRune } from "../compat.js";
+export declare const RuneError: GoRune;
+export declare const RuneSelf: int;
+export declare const MaxRune: GoRune;
+export declare const UTFMax: int;
+export type StringByteView = {
+    ascii: boolean;
+    bytes?: Uint8Array;
+    hasSurrogate?: boolean;
+};
+export declare function GetStringByteView(s: string): StringByteView;
+export declare function StringByteLen(s: string): int;
+export declare function StringByteViewLen(s: string, view: StringByteView): int;
+export declare function StringByteAt(s: string, i: int): int;
+export declare function StringByteViewAt(s: string, view: StringByteView, i: int): int;
+export declare function StringByteSlice(s: string, start: int, end?: int): string;
+export declare function StringByteViewSlice(s: string, view: StringByteView, start: int, end?: int): string;
+export declare function StringByteViewHasPrefix(s: string, view: StringByteView, start: int, prefix: string): boolean;
+export declare function StringByteViewIndexByte(s: string, view: StringByteView, start: int, b: int): int;
+export declare function StringByteViewIndex(s: string, view: StringByteView, start: int, needle: string): int;
+export declare function StringByteViewUTF16Len(s: string, view: StringByteView, start: int, end: int): int;
+export declare function StringUtf8Bytes(s: string): Uint8Array;
+export declare function StringFromUtf8Bytes(bytes: Uint8Array): string;
+export declare function DecodeRuneInBytesAt(bytes: Uint8Array, i: int): [GoRune, int];
+export declare function DecodeLastRuneInBytesBefore(bytes: Uint8Array, end: int): [GoRune, int];
+export declare function DecodeRuneInString(s: string): [GoRune, int];
+export declare function DecodeRuneInStringAt(s: string, i: int): [GoRune, int];
+export declare function DecodeRuneInStringViewAt(s: string, view: StringByteView, i: int): [GoRune, int];
+export declare function DecodeLastRuneInString(s: string): [GoRune, int];
+export declare function DecodeLastRuneInStringBefore(s: string, end: int): [GoRune, int];
+export declare function DecodeLastRuneInStringViewBefore(s: string, view: StringByteView, end: int): [GoRune, int];
+export declare function RuneCountInString(s: string): int;
+export declare function RuneLen(r: GoRune): int;
+//# sourceMappingURL=utf8.d.ts.map

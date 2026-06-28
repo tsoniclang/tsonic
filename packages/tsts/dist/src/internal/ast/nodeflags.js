@@ -1,0 +1,116 @@
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/nodeflags.go::constGroup::NodeFlagsNone+NodeFlagsLet+NodeFlagsConst+NodeFlagsUsing+NodeFlagsReparsed+NodeFlagsSynthesized+NodeFlagsOptionalChain+NodeFlagsExportContext+NodeFlagsContainsThis+NodeFlagsHasImplicitReturn+NodeFlagsHasExplicitReturn+NodeFlagsDisallowInContext+NodeFlagsYieldContext+NodeFlagsDecoratorContext+NodeFlagsAwaitContext+NodeFlagsDisallowConditionalTypesContext+NodeFlagsThisNodeHasError+NodeFlagsJavaScriptFile+NodeFlagsThisNodeOrAnySubNodesHasError+NodeFlagsHasAsyncFunctions+NodeFlagsPossiblyContainsDynamicImport+NodeFlagsPossiblyContainsImportMeta+NodeFlagsHasJSDoc+NodeFlagsJSDoc+NodeFlagsAmbient+NodeFlagsInWithStatement+NodeFlagsJsonFile+NodeFlagsPossiblyContainsDeprecatedTag+NodeFlagsUnreachable+NodeFlagsReparserTransformedLiteral+NodeFlagsBlockScoped+NodeFlagsConstant+NodeFlagsAwaitUsing+NodeFlagsReachabilityCheckFlags+NodeFlagsReachabilityAndEmitFlags+NodeFlagsContextFlags+NodeFlagsTypeExcludesFlags+NodeFlagsPermanentlySetIncrementalFlags+NodeFlagsIdentifierHasExtendedUnicodeEscape+NodeFlagsIdentifierIsInJSDocNamespace+NodeFlagsNestedNamespace","kind":"constGroup","status":"implemented","sigHash":"5f7d883710e53a47dfde1d85856df1d169e7d7d185fe376ca9d16616b5713606","bodyHash":"62e4941f6289e84d8e3f5d52ca8d29377d26ad54eb24cd175f340a44de8043fb"}
+ *
+ * Go source:
+ * const (
+ * 	NodeFlagsNone                            NodeFlags = 0
+ * 	NodeFlagsLet                             NodeFlags = 1 << 0  // Variable declaration
+ * 	NodeFlagsConst                           NodeFlags = 1 << 1  // Variable declaration
+ * 	NodeFlagsUsing                           NodeFlags = 1 << 2  // Variable declaration
+ * 	NodeFlagsReparsed                        NodeFlags = 1 << 3  // Node was synthesized during parsing
+ * 	NodeFlagsSynthesized                     NodeFlags = 1 << 4  // Node was synthesized during transformation
+ * 	NodeFlagsOptionalChain                   NodeFlags = 1 << 5  // Chained MemberExpression rooted to a pseudo-OptionalExpression
+ * 	NodeFlagsExportContext                   NodeFlags = 1 << 6  // Export context (initialized by binding)
+ * 	NodeFlagsContainsThis                    NodeFlags = 1 << 7  // Interface contains references to "this"
+ * 	NodeFlagsHasImplicitReturn               NodeFlags = 1 << 8  // If function implicitly returns on one of codepaths (initialized by binding)
+ * 	NodeFlagsHasExplicitReturn               NodeFlags = 1 << 9  // If function has explicit reachable return on one of codepaths (initialized by binding)
+ * 	NodeFlagsDisallowInContext               NodeFlags = 1 << 10 // If node was parsed in a context where 'in-expressions' are not allowed
+ * 	NodeFlagsYieldContext                    NodeFlags = 1 << 11 // If node was parsed in the 'yield' context created when parsing a generator
+ * 	NodeFlagsDecoratorContext                NodeFlags = 1 << 12 // If node was parsed as part of a decorator
+ * 	NodeFlagsAwaitContext                    NodeFlags = 1 << 13 // If node was parsed in the 'await' context created when parsing an async function
+ * 	NodeFlagsDisallowConditionalTypesContext NodeFlags = 1 << 14 // If node was parsed in a context where conditional types are not allowed
+ * 	NodeFlagsThisNodeHasError                NodeFlags = 1 << 15 // If the parser encountered an error when parsing the code that created this node
+ * 	NodeFlagsJavaScriptFile                  NodeFlags = 1 << 16 // If node was parsed in a JavaScript
+ * 	NodeFlagsThisNodeOrAnySubNodesHasError   NodeFlags = 1 << 17 // If this node or any of its children had an error
+ * 	NodeFlagsHasAsyncFunctions               NodeFlags = 1 << 18 // If the file has async functions (initialized by binding)
+ * 	// NodeFlagsHasAggregatedChildData is deprecated. Use `subtreeFacts` instead.
+ *
+ * 	// These flags will be set when the parser encounters a dynamic import expression or 'import.meta' to avoid
+ * 	// walking the tree if the flags are not set. However, these flags are just a approximation
+ * 	// (hence why it's named "PossiblyContainsDynamicImport") because once set, the flags never get cleared.
+ * 	// During editing, if a dynamic import is removed, incremental parsing will *NOT* clear this flag.
+ * 	// This means that the tree will always be traversed during module resolution, or when looking for external module indicators.
+ * 	// However, the removal operation should not occur often and in the case of the
+ * 	// removal, it is likely that users will add the import anyway.
+ * 	// The advantage of this approach is its simplicity. For the case of batch compilation,
+ * 	// we guarantee that users won't have to pay the price of walking the tree if a dynamic import isn't used.
+ * 	NodeFlagsPossiblyContainsDynamicImport NodeFlags = 1 << 19
+ * 	NodeFlagsPossiblyContainsImportMeta    NodeFlags = 1 << 20
+ *
+ * 	NodeFlagsHasJSDoc                      NodeFlags = 1 << 21 // If node has preceding JSDoc comment(s)
+ * 	NodeFlagsJSDoc                         NodeFlags = 1 << 22 // If node was parsed inside jsdoc
+ * 	NodeFlagsAmbient                       NodeFlags = 1 << 23 // If node was inside an ambient context -- a declaration file, or inside something with the `declare` modifier.
+ * 	NodeFlagsInWithStatement               NodeFlags = 1 << 24 // If any ancestor of node was the `statement` of a WithStatement (not the `expression`)
+ * 	NodeFlagsJsonFile                      NodeFlags = 1 << 25 // If node was parsed in a Json
+ * 	NodeFlagsPossiblyContainsDeprecatedTag NodeFlags = 1 << 26 // Set during parse if comment text contains '@deprecated'; must confirm via JSDoc lookup
+ * 	NodeFlagsUnreachable                   NodeFlags = 1 << 27 // If node is unreachable according to the binder
+ * 	NodeFlagsReparserTransformedLiteral    NodeFlags = 1 << 28 // If node was transformed during parsing, making its' naive text source not match the AST
+ *
+ * 	NodeFlagsBlockScoped = NodeFlagsLet | NodeFlagsConst | NodeFlagsUsing
+ * 	NodeFlagsConstant    = NodeFlagsConst | NodeFlagsUsing
+ * 	NodeFlagsAwaitUsing  = NodeFlagsConst | NodeFlagsUsing // Variable declaration (NOTE: on a single node these flags would otherwise be mutually exclusive)
+ *
+ * 	NodeFlagsReachabilityCheckFlags   = NodeFlagsHasImplicitReturn | NodeFlagsHasExplicitReturn
+ * 	NodeFlagsReachabilityAndEmitFlags = NodeFlagsReachabilityCheckFlags | NodeFlagsHasAsyncFunctions
+ *
+ * 	// Parsing context flags
+ * 	NodeFlagsContextFlags NodeFlags = NodeFlagsDisallowInContext | NodeFlagsDisallowConditionalTypesContext | NodeFlagsYieldContext | NodeFlagsDecoratorContext | NodeFlagsAwaitContext | NodeFlagsJavaScriptFile | NodeFlagsInWithStatement | NodeFlagsAmbient
+ *
+ * 	// Exclude these flags when parsing a Type
+ * 	NodeFlagsTypeExcludesFlags NodeFlags = NodeFlagsYieldContext | NodeFlagsAwaitContext
+ *
+ * 	// Represents all flags that are potentially set once and
+ * 	// never cleared on SourceFiles which get re-used in between incremental parses.
+ * 	// See the comment above on `PossiblyContainsDynamicImport` and `PossiblyContainsImportMeta`.
+ * 	NodeFlagsPermanentlySetIncrementalFlags NodeFlags = NodeFlagsPossiblyContainsDynamicImport | NodeFlagsPossiblyContainsImportMeta
+ *
+ * 	// The following flags repurpose other NodeFlags as different meanings for Identifier nodes
+ * 	NodeFlagsIdentifierHasExtendedUnicodeEscape NodeFlags = NodeFlagsContainsThis      // Indicates whether the identifier contains an extended unicode escape sequence
+ * 	NodeFlagsIdentifierIsInJSDocNamespace       NodeFlags = NodeFlagsHasAsyncFunctions // Indicates the identifier is the innermost name of a JSDoc namespace declaration
+ *
+ * 	// The following flag repurposes other NodeFlags for ModuleDeclaration nodes
+ * 	NodeFlagsNestedNamespace NodeFlags = NodeFlagsOptionalChain // If ModuleDeclaration is a nested namespace (e.g. inner part of A.B.C)
+ * )
+ */
+export const NodeFlagsNone = 0;
+export const NodeFlagsLet = 1 << 0;
+export const NodeFlagsConst = 1 << 1;
+export const NodeFlagsUsing = 1 << 2;
+export const NodeFlagsReparsed = 1 << 3;
+export const NodeFlagsSynthesized = 1 << 4;
+export const NodeFlagsOptionalChain = 1 << 5;
+export const NodeFlagsExportContext = 1 << 6;
+export const NodeFlagsContainsThis = 1 << 7;
+export const NodeFlagsHasImplicitReturn = 1 << 8;
+export const NodeFlagsHasExplicitReturn = 1 << 9;
+export const NodeFlagsDisallowInContext = 1 << 10;
+export const NodeFlagsYieldContext = 1 << 11;
+export const NodeFlagsDecoratorContext = 1 << 12;
+export const NodeFlagsAwaitContext = 1 << 13;
+export const NodeFlagsDisallowConditionalTypesContext = 1 << 14;
+export const NodeFlagsThisNodeHasError = 1 << 15;
+export const NodeFlagsJavaScriptFile = 1 << 16;
+export const NodeFlagsThisNodeOrAnySubNodesHasError = 1 << 17;
+export const NodeFlagsHasAsyncFunctions = 1 << 18;
+export const NodeFlagsPossiblyContainsDynamicImport = 1 << 19;
+export const NodeFlagsPossiblyContainsImportMeta = 1 << 20;
+export const NodeFlagsHasJSDoc = 1 << 21;
+export const NodeFlagsJSDoc = 1 << 22;
+export const NodeFlagsAmbient = 1 << 23;
+export const NodeFlagsInWithStatement = 1 << 24;
+export const NodeFlagsJsonFile = 1 << 25;
+export const NodeFlagsPossiblyContainsDeprecatedTag = 1 << 26;
+export const NodeFlagsUnreachable = 1 << 27;
+export const NodeFlagsReparserTransformedLiteral = 1 << 28;
+export const NodeFlagsBlockScoped = NodeFlagsLet | NodeFlagsConst | NodeFlagsUsing;
+export const NodeFlagsConstant = NodeFlagsConst | NodeFlagsUsing;
+export const NodeFlagsAwaitUsing = NodeFlagsConst | NodeFlagsUsing;
+export const NodeFlagsReachabilityCheckFlags = NodeFlagsHasImplicitReturn | NodeFlagsHasExplicitReturn;
+export const NodeFlagsReachabilityAndEmitFlags = NodeFlagsReachabilityCheckFlags | NodeFlagsHasAsyncFunctions;
+export const NodeFlagsContextFlags = NodeFlagsDisallowInContext | NodeFlagsDisallowConditionalTypesContext | NodeFlagsYieldContext | NodeFlagsDecoratorContext | NodeFlagsAwaitContext | NodeFlagsJavaScriptFile | NodeFlagsInWithStatement | NodeFlagsAmbient;
+export const NodeFlagsTypeExcludesFlags = NodeFlagsYieldContext | NodeFlagsAwaitContext;
+export const NodeFlagsPermanentlySetIncrementalFlags = NodeFlagsPossiblyContainsDynamicImport | NodeFlagsPossiblyContainsImportMeta;
+export const NodeFlagsIdentifierHasExtendedUnicodeEscape = NodeFlagsContainsThis;
+export const NodeFlagsIdentifierIsInJSDocNamespace = NodeFlagsHasAsyncFunctions;
+export const NodeFlagsNestedNamespace = NodeFlagsOptionalChain;
+//# sourceMappingURL=nodeflags.js.map

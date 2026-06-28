@@ -1,0 +1,938 @@
+import type { bool, uint } from "../../../go/scalars.js";
+import type { GoMap, GoPtr, GoSlice } from "../../../go/compat.js";
+import type { Node } from "../../ast/spine.js";
+import type { SourceFile } from "../../ast/ast.js";
+import type { Block, ClassDeclaration, ExportAssignment, ForInOrOfStatement, ForStatement, VariableDeclaration, VariableDeclarationList, VariableStatement } from "../../ast/generated/data.js";
+import type { ExportSpecifierNode, Expression, ForInitializer, IdentifierNode, Statement, VariableDeclarationNode } from "../../ast/generated/unions.js";
+import type { TransformOptions } from "../chain.js";
+import type { Transformer } from "../transformer.js";
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::type::usingDeclarationTransformer","kind":"type","status":"implemented","sigHash":"c11288edbfe88aa16e8c945b427708e30a077c4eb0bdebe1f153d608e1a48b4a","bodyHash":"47d5d92ec15b175fe4faa8f2f3f9b3cdbd0f24a4759973c04156c2b95c3b2342"}
+ *
+ * Go source:
+ * usingDeclarationTransformer struct {
+ * 	transformers.Transformer
+ *
+ * 	exportBindings       map[string]*ast.ExportSpecifierNode
+ * 	exportBindingNames   []string
+ * 	exportVars           []*ast.VariableDeclarationNode
+ * 	defaultExportBinding *ast.IdentifierNode
+ * 	exportEqualsBinding  *ast.IdentifierNode
+ * }
+ */
+export interface usingDeclarationTransformer {
+    readonly __tsgoEmbedded0?: Transformer;
+    exportBindings: GoMap<string, GoPtr<ExportSpecifierNode>>;
+    exportBindingNames: GoSlice<string>;
+    exportVars: GoSlice<GoPtr<VariableDeclarationNode>>;
+    defaultExportBinding: GoPtr<IdentifierNode>;
+    exportEqualsBinding: GoPtr<IdentifierNode>;
+}
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::func::newUsingDeclarationTransformer","kind":"func","status":"implemented","sigHash":"4ee7638a696234bba634c87c82b6af3538595f8d73289a212f9617f1ecd507d9","bodyHash":"3e91cd537636c3fce6678bb5d11617218f13d0c2b876a8286d96485fb84e8f22"}
+ *
+ * Go source:
+ * func newUsingDeclarationTransformer(opts *transformers.TransformOptions) *transformers.Transformer {
+ * 	tx := &usingDeclarationTransformer{}
+ * 	return tx.NewTransformer(tx.visit, opts.Context)
+ * }
+ */
+export declare function newUsingDeclarationTransformer(opts: GoPtr<TransformOptions>): GoPtr<Transformer>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::type::usingKind","kind":"type","status":"implemented","sigHash":"bc3c4141be5dc6263c88473c07bd84f86ce4de8a839a9c0b7869e79c0b00cf5a","bodyHash":"2ca9ed38fce3bbf8730146254bb9d05b482256b52d07afcc0a83c1256a95a1bd"}
+ *
+ * Go source:
+ * usingKind uint
+ */
+export type usingKind = uint;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::constGroup::usingKindNone+usingKindSync+usingKindAsync","kind":"constGroup","status":"implemented","sigHash":"1feb19b35c70f9ee8bc2bb2cf1bfd18e7b26e90064c0a87e3146844f21febc56","bodyHash":"38def6799b23c2bbf55bcf4d79effe88e0dafe4d2822e8b2577d109cd1f208bf"}
+ *
+ * Go source:
+ * const (
+ * 	usingKindNone usingKind = iota
+ * 	usingKindSync
+ * 	usingKindAsync
+ * )
+ */
+export declare const usingKindNone: usingKind;
+export declare const usingKindSync: usingKind;
+export declare const usingKindAsync: usingKind;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.visit","kind":"method","status":"implemented","sigHash":"0ec45aa1a601652d7759164d8eb3367eebd1e558eac0943d6a242428bce4e58f","bodyHash":"98267ce09a3e7ad95b88b01a50c9364c00247c8dc92874e442b7a4e1eabe1982"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) visit(node *ast.Node) *ast.Node {
+ * 	if node.SubtreeFacts()&ast.SubtreeContainsUsing == 0 {
+ * 		return node
+ * 	}
+ *
+ * 	switch node.Kind {
+ * 	case ast.KindSourceFile:
+ * 		node = tx.visitSourceFile(node.AsSourceFile())
+ * 	case ast.KindBlock:
+ * 		node = tx.visitBlock(node.AsBlock())
+ * 	case ast.KindForStatement:
+ * 		node = tx.visitForStatement(node.AsForStatement())
+ * 	case ast.KindForOfStatement:
+ * 		node = tx.visitForOfStatement(node.AsForInOrOfStatement())
+ * 	default:
+ * 		node = tx.Visitor().VisitEachChild(node)
+ * 	}
+ * 	return node
+ * }
+ */
+export declare function usingDeclarationTransformer_visit(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<Node>): GoPtr<Node>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.visitSourceFile","kind":"method","status":"implemented","sigHash":"0f892a8bcc3d43aa052b0fc7ecc716ec3396e38da72f6893ba94487faae0b315","bodyHash":"12f491829abbf77d0d6434756f0d4c40cc4e0a511a2e25cc1411d07ed0fe9383"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) visitSourceFile(node *ast.SourceFile) *ast.Node {
+ * 	if node.IsDeclarationFile {
+ * 		return node.AsNode()
+ * 	}
+ *
+ * 	var visited *ast.SourceFileNode
+ * 	usingKind := getUsingKindOfStatements(node.Statements.Nodes)
+ * 	if usingKind != usingKindNone {
+ * 		// Imports and exports must stay at the top level. This means we must hoist all imports, exports, and
+ * 		// top-level function declarations and bindings out of the `try` statements we generate. For example:
+ * 		//
+ * 		// given:
+ * 		//
+ * 		//  import { w } from "mod";
+ * 		//  const x = expr1;
+ * 		//  using y = expr2;
+ * 		//  const z = expr3;
+ * 		//  export function f() {
+ * 		//    console.log(z);
+ * 		//  }
+ * 		//
+ * 		// produces:
+ * 		//
+ * 		//  import { x } from "mod";        // <-- preserved
+ * 		//  const x = expr1;                // <-- preserved
+ * 		//  var y, z;                       // <-- hoisted
+ * 		//  export function f() {           // <-- hoisted
+ * 		//    console.log(z);
+ * 		//  }
+ * 		//  const env_1 = { stack: [], error: void 0, hasError: false };
+ * 		//  try {
+ * 		//    y = __addDisposableResource(env_1, expr2, false);
+ * 		//    z = expr3;
+ * 		//  }
+ * 		//  catch (e_1) {
+ * 		//    env_1.error = e_1;
+ * 		//    env_1.hasError = true;
+ * 		//  }
+ * 		//  finally {
+ * 		//    __disposeResource(env_1);
+ * 		//  }
+ * 		//
+ * 		// In this transformation, we hoist `y`, `z`, and `f` to a new outer statement list while moving all other
+ * 		// statements in the source file into the `try` block, which is the same approach we use for System module
+ * 		// emit. Unlike System module emit, we attempt to preserve all statements prior to the first top-level
+ * 		// `using` to isolate the complexity of the transformed output to only where it is necessary.
+ * 		tx.EmitContext().StartVariableEnvironment()
+ *
+ * 		tx.exportBindings = make(map[string]*ast.ExportSpecifierNode)
+ * 		tx.exportVars = nil
+ *
+ * 		prologue, rest := tx.Factory().SplitStandardPrologue(node.Statements.Nodes)
+ * 		var topLevelStatements []*ast.Statement
+ * 		topLevelStatements = append(topLevelStatements, core.FirstResult(tx.Visitor().VisitSlice(prologue))...)
+ *
+ * 		// Collect and transform any leading statements up to the first `using` or `await using`. This preserves
+ * 		// the original statement order much as is possible.
+ *
+ * 		pos := 0
+ * 		for pos < len(rest) {
+ * 			statement := rest[pos]
+ * 			if getUsingKind(statement) != usingKindNone {
+ * 				if pos > 0 {
+ * 					topLevelStatements = append(topLevelStatements, core.FirstResult(tx.Visitor().VisitSlice(rest[:pos]))...)
+ * 				}
+ * 				break
+ * 			}
+ * 			pos++
+ * 		}
+ *
+ * 		if pos >= len(rest) {
+ * 			panic("Should have encountered at least one 'using' statement.")
+ * 		}
+ *
+ * 		// transform the rest of the body
+ * 		envBinding := tx.createEnvBinding()
+ * 		bodyStatements := tx.transformUsingDeclarations(rest[pos:], envBinding, &topLevelStatements)
+ *
+ * 		// add `export {}` declarations for any hoisted bindings.
+ * 		if len(tx.exportBindings) > 0 {
+ * 			exportSpecifiers := make([]*ast.ExportSpecifierNode, 0, len(tx.exportBindingNames))
+ * 			for _, name := range tx.exportBindingNames {
+ * 				specifier := tx.exportBindings[name]
+ * 				debug.Assert(specifier != nil, "Missing export binding for hoisted export name")
+ * 				exportSpecifiers = append(exportSpecifiers, specifier)
+ * 			}
+ * 			topLevelStatements = append(
+ * 				topLevelStatements,
+ * 				tx.Factory().NewExportDeclaration(
+ * 					nil,   /*modifiers* /
+ * 					false, /*isTypeOnly* /
+ * 					tx.Factory().NewNamedExports(
+ * 						tx.Factory().NewNodeList(
+ * 							exportSpecifiers,
+ * 						),
+ * 					),
+ * 					nil, /*moduleSpecifier* /
+ * 					nil, /*attributes* /
+ * 				),
+ * 			)
+ * 		}
+ *
+ * 		topLevelStatements = append(topLevelStatements, tx.EmitContext().EndVariableEnvironment()...)
+ * 		if len(tx.exportVars) > 0 {
+ * 			topLevelStatements = append(topLevelStatements, tx.Factory().NewVariableStatement(
+ * 				tx.Factory().NewModifierList([]*ast.Node{
+ * 					tx.Factory().NewModifier(ast.KindExportKeyword),
+ * 				}),
+ * 				tx.Factory().NewVariableDeclarationList(
+ * 					tx.Factory().NewNodeList(tx.exportVars),
+ * 					ast.NodeFlagsLet,
+ * 				),
+ * 			))
+ * 		}
+ * 		topLevelStatements = append(topLevelStatements, tx.createDownlevelUsingStatements(bodyStatements, envBinding, usingKind == usingKindAsync)...)
+ *
+ * 		if tx.exportEqualsBinding != nil {
+ * 			topLevelStatements = append(topLevelStatements, tx.Factory().NewExportAssignment(
+ * 				nil,  /*modifiers* /
+ * 				true, /*isExportEquals* /
+ * 				nil,  /*typeNode* /
+ * 				tx.exportEqualsBinding,
+ * 			))
+ * 		}
+ *
+ * 		visited = tx.Factory().UpdateSourceFile(node, tx.Factory().NewNodeList(topLevelStatements), node.EndOfFileToken)
+ * 	} else {
+ * 		visited = tx.Visitor().VisitEachChild(node.AsNode())
+ * 	}
+ * 	tx.EmitContext().AddEmitHelper(visited, tx.EmitContext().ReadEmitHelpers()...)
+ * 	tx.exportVars = nil
+ * 	tx.exportBindings = nil
+ * 	tx.exportBindingNames = nil
+ * 	tx.defaultExportBinding = nil
+ * 	tx.exportEqualsBinding = nil
+ * 	return visited
+ * }
+ */
+export declare function usingDeclarationTransformer_visitSourceFile(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<SourceFile>): GoPtr<Node>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.visitBlock","kind":"method","status":"implemented","sigHash":"1dde7e27f3055bb2167947cfdf7d5cf54f92b2b370eace58ff7bf173b2e2d8bf","bodyHash":"e400c6ef8e6332161aaff7f075f4d9214f80d8af8c7260d10beb75f0a44f5b49"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) visitBlock(node *ast.Block) *ast.Node {
+ * 	usingKind := getUsingKindOfStatements(node.Statements.Nodes)
+ * 	if usingKind != usingKindNone {
+ * 		prologue, rest := tx.Factory().SplitStandardPrologue(node.Statements.Nodes)
+ * 		envBinding := tx.createEnvBinding()
+ * 		statements := make([]*ast.Statement, 0, len(prologue)+2)
+ * 		statements = append(statements, core.FirstResult(tx.Visitor().VisitSlice(prologue))...)
+ * 		statements = append(statements, tx.createDownlevelUsingStatements(
+ * 			tx.transformUsingDeclarations(rest, envBinding, nil /*topLevelStatements* /),
+ * 			envBinding,
+ * 			usingKind == usingKindAsync,
+ * 		)...)
+ * 		statementList := tx.Factory().NewNodeList(statements)
+ * 		statementList.Loc = node.Statements.Loc
+ * 		return tx.Factory().UpdateBlock(node, statementList, node.MultiLine)
+ * 	}
+ * 	return tx.Visitor().VisitEachChild(node.AsNode())
+ * }
+ */
+export declare function usingDeclarationTransformer_visitBlock(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<Block>): GoPtr<Node>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.visitForStatement","kind":"method","status":"implemented","sigHash":"b03812826ee6392a57e3f903218bd4fdbf8682674be72f1f513291aed42acdcd","bodyHash":"7fef34f19ecabf35f7e947c01fc7f6edf8f14a2ad6352dc5979264bfa5477946"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) visitForStatement(node *ast.ForStatement) *ast.Node {
+ * 	if node.Initializer != nil && isUsingVariableDeclarationList(node.Initializer) {
+ * 		// given:
+ * 		//
+ * 		//  for (using x = expr; cond; incr) { ... }
+ * 		//
+ * 		// produces a shallow transformation to:
+ * 		//
+ * 		//  {
+ * 		//    using x = expr;
+ * 		//    for (; cond; incr) { ... }
+ * 		//  }
+ * 		//
+ * 		// before handing the shallow transformation back to the visitor for an in-depth transformation.
+ * 		return tx.Visitor().VisitNode(
+ * 			tx.Factory().NewBlock(tx.Factory().NewNodeList([]*ast.Statement{
+ * 				tx.Factory().NewVariableStatement(nil /*modifiers* /, node.Initializer),
+ * 				tx.Factory().UpdateForStatement(
+ * 					node,
+ * 					nil, /*initializer* /
+ * 					node.Condition,
+ * 					node.Incrementor,
+ * 					node.Statement,
+ * 				),
+ * 			}), false /*multiLine* /),
+ * 		)
+ * 	}
+ * 	return tx.Visitor().VisitEachChild(node.AsNode())
+ * }
+ */
+export declare function usingDeclarationTransformer_visitForStatement(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<ForStatement>): GoPtr<Node>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.visitForOfStatement","kind":"method","status":"implemented","sigHash":"38c80559a1cd8ee4ef613b695e184d4202876e40536cd842e37737e2acaa621f","bodyHash":"0bc493ee867e8010de3cead2a42726708ee1cc8d0c6a5d24418d6a9f82389847"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) visitForOfStatement(node *ast.ForInOrOfStatement) *ast.Node {
+ * 	if isUsingVariableDeclarationList(node.Initializer) {
+ * 		// given:
+ * 		//
+ * 		//  for (using x of y) { ... }
+ * 		//
+ * 		// produces a shallow transformation to:
+ * 		//
+ * 		//  for (const x_1 of y) {
+ * 		//    using x = x;
+ * 		//    ...
+ * 		//  }
+ * 		//
+ * 		// before handing the shallow transformation back to the visitor for an in-depth transformation.
+ * 		forInitializer := node.Initializer.AsVariableDeclarationList()
+ * 		forDecl := core.FirstOrNil(forInitializer.Declarations.Nodes)
+ * 		if forDecl == nil {
+ * 			forDecl = tx.Factory().NewVariableDeclaration(tx.Factory().NewTempVariable(), nil, nil, nil)
+ * 		}
+ *
+ * 		isAwaitUsing := getUsingKindOfVariableDeclarationList(forInitializer) == usingKindAsync
+ * 		temp := tx.Factory().NewGeneratedNameForNode(forDecl.Name())
+ * 		usingVar := tx.Factory().UpdateVariableDeclaration(forDecl.AsVariableDeclaration(), forDecl.Name(), nil /*exclamationToken* /, nil /*type* /, temp)
+ * 		usingVarList := tx.Factory().NewVariableDeclarationList(
+ * 			tx.Factory().NewNodeList([]*ast.Node{usingVar}),
+ * 			core.IfElse(isAwaitUsing, ast.NodeFlagsAwaitUsing, ast.NodeFlagsUsing),
+ * 		)
+ * 		usingVarStatement := tx.Factory().NewVariableStatement(nil /*modifiers* /, usingVarList)
+ * 		var statement *ast.Statement
+ * 		if ast.IsBlock(node.Statement) {
+ * 			statements := make([]*ast.Statement, 0, len(node.Statement.Statements())+1)
+ * 			statements = append(statements, usingVarStatement)
+ * 			statements = append(statements, node.Statement.Statements()...)
+ * 			statement = tx.Factory().UpdateBlock(
+ * 				node.Statement.AsBlock(),
+ * 				tx.Factory().NewNodeList(statements),
+ * 				node.Statement.AsBlock().MultiLine,
+ * 			)
+ * 		} else {
+ * 			statement = tx.Factory().NewBlock(
+ * 				tx.Factory().NewNodeList([]*ast.Statement{
+ * 					usingVarStatement,
+ * 					node.Statement,
+ * 				}),
+ * 				true, /*multiLine* /
+ * 			)
+ * 		}
+ * 		return tx.Visitor().VisitNode(
+ * 			tx.Factory().UpdateForInOrOfStatement(
+ * 				node,
+ * 				node.AwaitModifier,
+ * 				tx.Factory().NewVariableDeclarationList(
+ * 					tx.Factory().NewNodeList([]*ast.VariableDeclarationNode{
+ * 						tx.Factory().NewVariableDeclaration(temp, nil /*exclamationToken* /, nil /*type* /, nil),
+ * 					}),
+ * 					ast.NodeFlagsConst,
+ * 				),
+ * 				node.Expression,
+ * 				statement,
+ * 			),
+ * 		)
+ * 	}
+ * 	return tx.Visitor().VisitEachChild(node.AsNode())
+ * }
+ */
+export declare function usingDeclarationTransformer_visitForOfStatement(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<ForInOrOfStatement>): GoPtr<Node>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.transformUsingDeclarations","kind":"method","status":"implemented","sigHash":"e137108edef541b74d5b6b8689eeedf0b64de92d3ae43996f75c79b6238fa0f2","bodyHash":"9b861724387da300d39313e4a0ad9652495b5c3cc0087862e91145dffcb98634"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) transformUsingDeclarations(statementsIn []*ast.Statement, envBinding *ast.IdentifierNode, topLevelStatements *[]*ast.Statement) []*ast.Node {
+ * 	var statements []*ast.Statement
+ *
+ * 	hoist := func(node *ast.Statement) *ast.Statement {
+ * 		if topLevelStatements == nil {
+ * 			return node
+ * 		}
+ *
+ * 		switch node.Kind {
+ * 		case ast.KindImportDeclaration,
+ * 			ast.KindImportEqualsDeclaration,
+ * 			ast.KindExportDeclaration,
+ * 			ast.KindFunctionDeclaration:
+ * 			tx.hoistImportOrExportOrHoistedDeclaration(node, topLevelStatements)
+ * 			return nil
+ * 		case ast.KindExportAssignment:
+ * 			return tx.hoistExportAssignment(node.AsExportAssignment())
+ * 		case ast.KindClassDeclaration:
+ * 			return tx.hoistClassDeclaration(node.AsClassDeclaration())
+ * 		case ast.KindVariableStatement:
+ * 			return tx.hoistVariableStatement(node.AsVariableStatement())
+ * 		}
+ *
+ * 		return node
+ * 	}
+ *
+ * 	hoistOrAppendNode := func(node *ast.Node) {
+ * 		node = hoist(node)
+ * 		if node != nil {
+ * 			statements = append(statements, node)
+ * 		}
+ * 	}
+ *
+ * 	for _, statement := range statementsIn {
+ * 		usingKind := getUsingKind(statement)
+ * 		if usingKind != usingKindNone {
+ * 			varStatement := statement.AsVariableStatement()
+ * 			declarationList := varStatement.DeclarationList
+ * 			var declarations []*ast.VariableDeclarationNode
+ * 			for _, declaration := range declarationList.AsVariableDeclarationList().Declarations.Nodes {
+ * 				if !ast.IsIdentifier(declaration.Name()) {
+ * 					// Since binding patterns are a grammar error, we reset `declarations` so we don't process this as a `using`.
+ * 					declarations = nil
+ * 					break
+ * 				}
+ *
+ * 				// perform a shallow transform for any named evaluation
+ * 				if isNamedEvaluation(tx.EmitContext(), declaration) {
+ * 					declaration = transformNamedEvaluation(tx.EmitContext(), declaration, false /*ignoreEmptyStringLiteral* /, "" /*assignedName* /)
+ * 				}
+ *
+ * 				initializer := tx.Visitor().VisitNode(declaration.Initializer())
+ * 				if initializer == nil {
+ * 					initializer = tx.Factory().NewVoidZeroExpression()
+ * 				}
+ * 				declarations = append(declarations, tx.Factory().UpdateVariableDeclaration(
+ * 					declaration.AsVariableDeclaration(),
+ * 					declaration.Name(),
+ * 					nil, /*exclamationToken* /
+ * 					nil, /*type* /
+ * 					tx.Factory().NewAddDisposableResourceHelper(
+ * 						envBinding,
+ * 						initializer,
+ * 						usingKind == usingKindAsync,
+ * 					),
+ * 				))
+ * 			}
+ *
+ * 			// Only replace the statement if it was valid.
+ * 			if len(declarations) > 0 {
+ * 				varList := tx.Factory().NewVariableDeclarationList(tx.Factory().NewNodeList(declarations), ast.NodeFlagsConst)
+ * 				tx.EmitContext().SetOriginal(varList, declarationList)
+ * 				varList.Loc = declarationList.Loc
+ * 				hoistOrAppendNode(tx.Factory().UpdateVariableStatement(varStatement, nil /*modifiers* /, varList))
+ * 				continue
+ * 			}
+ * 		}
+ *
+ * 		if result := tx.visit(statement); result != nil {
+ * 			if result.Kind == ast.KindSyntaxList {
+ * 				for _, node := range result.AsSyntaxList().Children {
+ * 					hoistOrAppendNode(node)
+ * 				}
+ * 			} else {
+ * 				hoistOrAppendNode(result)
+ * 			}
+ * 		}
+ * 	}
+ * 	return statements
+ * }
+ */
+export declare function usingDeclarationTransformer_transformUsingDeclarations(receiver: GoPtr<usingDeclarationTransformer>, statementsIn: GoSlice<GoPtr<Statement>>, envBinding: GoPtr<IdentifierNode>, topLevelStatements: GoPtr<GoSlice<GoPtr<Statement>>>): GoSlice<GoPtr<Node>>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistImportOrExportOrHoistedDeclaration","kind":"method","status":"implemented","sigHash":"698df36df6048032bfa8ba30d851a32762b2512f5d9bd18169b3914b9b8255aa","bodyHash":"682e8669b392057aa443dc84016095878cd0d29b2cded30b5f4c24ef6966aa1b"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) hoistImportOrExportOrHoistedDeclaration(node *ast.Statement, topLevelStatements *[]*ast.Statement) {
+ * 	// NOTE: `node` has already been visited
+ * 	*topLevelStatements = append(*topLevelStatements, node)
+ * }
+ */
+export declare function usingDeclarationTransformer_hoistImportOrExportOrHoistedDeclaration(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<Statement>, topLevelStatements: GoPtr<GoSlice<GoPtr<Statement>>>): void;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistExportAssignment","kind":"method","status":"implemented","sigHash":"7f5edcf6fd63869fe6a3a2ed6e7320afe8aafc84dbe12cd2fca8a215c4847ce0","bodyHash":"03adc42d7960c6bec553f83eaaae8348ac250c33f4f72a6c912220fc2d717a4a"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) hoistExportAssignment(node *ast.ExportAssignment) *ast.Statement {
+ * 	if node.IsExportEquals {
+ * 		return tx.hoistExportEquals(node)
+ * 	} else {
+ * 		return tx.hoistExportDefault(node)
+ * 	}
+ * }
+ */
+export declare function usingDeclarationTransformer_hoistExportAssignment(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<ExportAssignment>): GoPtr<Statement>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistExportDefault","kind":"method","status":"implemented","sigHash":"ee67a3ba2153b028ea365e1a91613e0f32095b378be08884d552974a9d685f9c","bodyHash":"8234427be4928079ef1ce06ddd57bcfe5b112d66bcf5b49e8d456456e71922c8"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) hoistExportDefault(node *ast.ExportAssignment) *ast.Statement {
+ * 	// NOTE: `node` has already been visited
+ * 	if tx.defaultExportBinding != nil {
+ * 		// invalid case of multiple `export default` declarations. Don't assert here, just pass it through
+ * 		return node.AsNode()
+ * 	}
+ *
+ * 	// given:
+ * 	//
+ * 	//   export default expr;
+ * 	//
+ * 	// produces:
+ * 	//
+ * 	//   // top level
+ * 	//   var default_1;
+ * 	//   export { default_1 as default };
+ * 	//
+ * 	//   // body
+ * 	//   default_1 = expr;
+ *
+ * 	tx.defaultExportBinding = tx.Factory().NewUniqueNameEx("_default", printer.AutoGenerateOptions{Flags: printer.GeneratedIdentifierFlagsReservedInNestedScopes | printer.GeneratedIdentifierFlagsFileLevel | printer.GeneratedIdentifierFlagsOptimistic})
+ * 	tx.hoistBindingIdentifier(tx.defaultExportBinding /*isExport* /, true, tx.Factory().NewIdentifier("default"), node.AsNode())
+ *
+ * 	// give a class or function expression an assigned name, if needed.
+ * 	expression := node.Expression
+ * 	innerExpression := ast.SkipOuterExpressions(expression, ast.OEKAll)
+ * 	if isNamedEvaluation(tx.EmitContext(), innerExpression) {
+ * 		innerExpression = transformNamedEvaluation(tx.EmitContext(), innerExpression /*ignoreEmptyStringLiteral* /, false, "default")
+ * 		expression = tx.Factory().RestoreOuterExpressions(expression, innerExpression, ast.OEKAll)
+ * 	}
+ *
+ * 	assignment := tx.Factory().NewAssignmentExpression(tx.defaultExportBinding, expression)
+ * 	return tx.Factory().NewExpressionStatement(assignment)
+ * }
+ */
+export declare function usingDeclarationTransformer_hoistExportDefault(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<ExportAssignment>): GoPtr<Statement>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistExportEquals","kind":"method","status":"implemented","sigHash":"64e70f427c9b6355af53c6d971f82c17c56f4b98ceda60f5590ae934354150ed","bodyHash":"ee088ada485c866d8bc28ed04ae093b0a44954db32e46cdbf0119e8b5fdbfe37"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) hoistExportEquals(node *ast.ExportAssignment) *ast.Statement {
+ * 	// NOTE: `node` has already been visited
+ * 	if tx.exportEqualsBinding != nil {
+ * 		// invalid case of multiple `export default` declarations. Don't assert here, just pass it through
+ * 		return node.AsNode()
+ * 	}
+ *
+ * 	// given:
+ * 	//
+ * 	//   export = expr;
+ * 	//
+ * 	// produces:
+ * 	//
+ * 	//   // top level
+ * 	//   var default_1;
+ * 	//
+ * 	//   try {
+ * 	//       // body
+ * 	//       default_1 = expr;
+ * 	//   } ...
+ * 	//
+ * 	//   // top level suffix
+ * 	//   export = default_1;
+ *
+ * 	tx.exportEqualsBinding = tx.Factory().NewUniqueNameEx("_default", printer.AutoGenerateOptions{Flags: printer.GeneratedIdentifierFlagsReservedInNestedScopes | printer.GeneratedIdentifierFlagsFileLevel | printer.GeneratedIdentifierFlagsOptimistic})
+ * 	tx.EmitContext().AddVariableDeclaration(tx.exportEqualsBinding)
+ *
+ * 	// give a class or function expression an assigned name, if needed.
+ * 	assignment := tx.Factory().NewAssignmentExpression(tx.exportEqualsBinding, node.Expression)
+ * 	return tx.Factory().NewExpressionStatement(assignment)
+ * }
+ */
+export declare function usingDeclarationTransformer_hoistExportEquals(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<ExportAssignment>): GoPtr<Statement>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistClassDeclaration","kind":"method","status":"implemented","sigHash":"6385542115b382d175ac2fa6eb83c33a83583321ae920dea73c982ae2fa1f4e4","bodyHash":"e8db6edf436f51432c0cd5023d8b8fc9136c08db2260410f55d169c3467df1f3"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) hoistClassDeclaration(node *ast.ClassDeclaration) *ast.Statement {
+ * 	// NOTE: `node` has already been visited
+ * 	if node.Name() == nil && tx.defaultExportBinding != nil {
+ * 		// invalid case of multiple `export default` declarations. Don't assert here, just pass it through
+ * 		return node.AsNode()
+ * 	}
+ *
+ * 	isExported := ast.HasSyntacticModifier(node.AsNode(), ast.ModifierFlagsExport)
+ * 	isDefault := ast.HasSyntacticModifier(node.AsNode(), ast.ModifierFlagsDefault)
+ *
+ * 	// When hoisting a class declaration at the top level of a file containing a top-level `using` statement, we
+ * 	// must first convert it to a class expression so that we can hoist the binding outside of the `try`.
+ * 	expression := convertClassDeclarationToClassExpression(tx.EmitContext(), node)
+ * 	if node.Name() != nil {
+ * 		// given:
+ * 		//
+ * 		//  using x = expr;
+ * 		//  class C {}
+ * 		//
+ * 		// produces:
+ * 		//
+ * 		//  var x, C;
+ * 		//  const env_1 = { ... };
+ * 		//  try {
+ * 		//    x = __addDisposableResource(env_1, expr, false);
+ * 		//    C = class {};
+ * 		//  }
+ * 		//  catch (e_1) {
+ * 		//    env_1.error = e_1;
+ * 		//    env_1.hasError = true;
+ * 		//  }
+ * 		//  finally {
+ * 		//    __disposeResources(env_1);
+ * 		//  }
+ * 		//
+ * 		// If the class is exported, we also produce an `export { C };`
+ * 		tx.hoistBindingIdentifier(tx.Factory().GetLocalName(node.AsNode()), isExported && !isDefault, nil /*exportAlias* /, node.AsNode())
+ * 		expression = tx.Factory().NewAssignmentExpression(tx.Factory().GetDeclarationName(node.AsNode()), expression)
+ * 		tx.EmitContext().SetOriginal(expression, node.AsNode())
+ * 		tx.EmitContext().SetSourceMapRange(expression, node.Loc)
+ * 		tx.EmitContext().SetCommentRange(expression, node.Loc)
+ * 		if isNamedEvaluation(tx.EmitContext(), expression) {
+ * 			expression = transformNamedEvaluation(tx.EmitContext(), expression, false /*ignoreEmptyStringLiteral* /, "" /*assignedName* /)
+ * 		}
+ * 	}
+ *
+ * 	if isDefault && tx.defaultExportBinding == nil {
+ * 		// In the case of a default export, we create a temporary variable that we export as the default and then
+ * 		// assign to that variable.
+ * 		//
+ * 		// given:
+ * 		//
+ * 		//  using x = expr;
+ * 		//  export default class C {}
+ * 		//
+ * 		// produces:
+ * 		//
+ * 		//  export { default_1 as default };
+ * 		//  var x, C, default_1;
+ * 		//  const env_1 = { ... };
+ * 		//  try {
+ * 		//    x = __addDisposableResource(env_1, expr, false);
+ * 		//    default_1 = C = class {};
+ * 		//  }
+ * 		//  catch (e_1) {
+ * 		//    env_1.error = e_1;
+ * 		//    env_1.hasError = true;
+ * 		//  }
+ * 		//  finally {
+ * 		//    __disposeResources(env_1);
+ * 		//  }
+ * 		//
+ * 		// Though we will never reassign `default_1`, this most closely matches the specified runtime semantics.
+ * 		tx.defaultExportBinding = tx.Factory().NewUniqueNameEx("_default", printer.AutoGenerateOptions{Flags: printer.GeneratedIdentifierFlagsReservedInNestedScopes | printer.GeneratedIdentifierFlagsFileLevel | printer.GeneratedIdentifierFlagsOptimistic})
+ * 		tx.hoistBindingIdentifier(tx.defaultExportBinding /*isExport* /, true, tx.Factory().NewIdentifier("default"), node.AsNode())
+ * 		expression = tx.Factory().NewAssignmentExpression(tx.defaultExportBinding, expression)
+ * 		tx.EmitContext().SetOriginal(expression, node.AsNode())
+ * 		if isNamedEvaluation(tx.EmitContext(), expression) {
+ * 			expression = transformNamedEvaluation(tx.EmitContext(), expression /*ignoreEmptyStringLiteral* /, false, "default")
+ * 		}
+ * 	}
+ *
+ * 	return tx.Factory().NewExpressionStatement(expression)
+ * }
+ */
+export declare function usingDeclarationTransformer_hoistClassDeclaration(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<ClassDeclaration>): GoPtr<Statement>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistVariableStatement","kind":"method","status":"implemented","sigHash":"a4d152ddb307c0facca6478e050495ab3ed16092731aa895eb7fd126efa30037","bodyHash":"2132c1b93228c98bb224510eebfdd103ce44ab49ad4a8ab2c542cd0c374dea6d"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) hoistVariableStatement(node *ast.VariableStatement) *ast.Statement {
+ * 	// NOTE: `node` has already been visited
+ * 	var expressions []*ast.Expression
+ * 	isExported := ast.HasSyntacticModifier(node.AsNode(), ast.ModifierFlagsExport)
+ * 	for _, variable := range node.DeclarationList.AsVariableDeclarationList().Declarations.Nodes {
+ * 		tx.hoistBindingElement(variable, isExported, variable)
+ * 		if variable.Initializer() != nil {
+ * 			expressions = append(expressions, tx.hoistInitializedVariable(variable.AsVariableDeclaration()))
+ * 		}
+ * 	}
+ * 	if len(expressions) > 0 {
+ * 		statement := tx.Factory().NewExpressionStatement(tx.Factory().InlineExpressions(expressions))
+ * 		tx.EmitContext().SetOriginal(statement, node.AsNode())
+ * 		tx.EmitContext().SetCommentRange(statement, node.Loc)
+ * 		tx.EmitContext().SetSourceMapRange(statement, node.Loc)
+ * 		return statement
+ * 	}
+ * 	return nil
+ * }
+ */
+export declare function usingDeclarationTransformer_hoistVariableStatement(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<VariableStatement>): GoPtr<Statement>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistInitializedVariable","kind":"method","status":"implemented","sigHash":"f4462687c50a369280f8df2e41ce67dc40bffe0d67bb297a4a0cb7721f48b259","bodyHash":"7a8d9ccc699d736a907807f645f8476c71a22a19818215f170807663d73fda36"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) hoistInitializedVariable(node *ast.VariableDeclaration) *ast.Expression {
+ * 	// NOTE: `node` has already been visited
+ * 	if node.Initializer == nil {
+ * 		panic("Expected initializer")
+ * 	}
+ * 	var target *ast.Expression
+ * 	if ast.IsIdentifier(node.Name()) {
+ * 		target = node.Name().Clone(tx.Factory())
+ * 		tx.EmitContext().SetEmitFlags(target, tx.EmitContext().EmitFlags(target) & ^(printer.EFLocalName|printer.EFExportName))
+ * 	} else {
+ * 		target = transformers.ConvertBindingPatternToAssignmentPattern(tx.EmitContext(), node.Name().AsBindingPattern())
+ * 	}
+ *
+ * 	assignment := tx.Factory().NewAssignmentExpression(target, node.Initializer)
+ * 	tx.EmitContext().SetOriginal(assignment, node.AsNode())
+ * 	tx.EmitContext().SetCommentRange(assignment, node.Loc)
+ * 	tx.EmitContext().SetSourceMapRange(assignment, node.Loc)
+ * 	return assignment
+ * }
+ */
+export declare function usingDeclarationTransformer_hoistInitializedVariable(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<VariableDeclaration>): GoPtr<Expression>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistBindingElement","kind":"method","status":"implemented","sigHash":"0febb86655d86aedc8a682101212c07e33767756a2db50061fc91dc14b926f27","bodyHash":"3d1e9fd86b8d1365ceec6a506ee59da270684adacab11b79b8b475af56c2d85d"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) hoistBindingElement(node *ast.Node /*VariableDeclaration|BindingElement* /, isExportedDeclaration bool, original *ast.Node) {
+ * 	// NOTE: `node` has already been visited
+ * 	if ast.IsBindingPattern(node.Name()) {
+ * 		for _, element := range node.Name().Elements() {
+ * 			if element.Name() != nil {
+ * 				tx.hoistBindingElement(element, isExportedDeclaration, original)
+ * 			}
+ * 		}
+ * 	} else {
+ * 		tx.hoistBindingIdentifier(node.Name(), isExportedDeclaration, nil /*exportAlias* /, original)
+ * 	}
+ * }
+ */
+export declare function usingDeclarationTransformer_hoistBindingElement(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<Node>, isExportedDeclaration: bool, original: GoPtr<Node>): void;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.hoistBindingIdentifier","kind":"method","status":"implemented","sigHash":"53984d8c03f91be8d642184ebca420bf77d90f9f1a278295c8c2a3ea79b741c0","bodyHash":"3d80f03e6155d8e9a9e6243b41fe86a145dc3225fe3c9b6c1e0bb8ad57fba38f"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) hoistBindingIdentifier(node *ast.IdentifierNode, isExport bool, exportAlias *ast.IdentifierNode, original *ast.Node) {
+ * 	// NOTE: `node` has already been visited
+ * 	name := node
+ * 	if !transformers.IsGeneratedIdentifier(tx.EmitContext(), node) {
+ * 		name = name.Clone(tx.Factory())
+ * 	}
+ * 	if isExport {
+ * 		if exportAlias == nil && !transformers.IsLocalName(tx.EmitContext(), name) {
+ * 			varDecl := tx.Factory().NewVariableDeclaration(name, nil /*exclamationToken* /, nil /*type* /, nil /*initializer* /)
+ * 			if original != nil {
+ * 				tx.EmitContext().SetOriginal(varDecl, original)
+ * 			}
+ * 			tx.exportVars = append(tx.exportVars, varDecl)
+ * 			return
+ * 		}
+ *
+ * 		var localName *ast.ModuleExportName
+ * 		var exportName *ast.ModuleExportName
+ * 		if exportAlias != nil {
+ * 			localName = name
+ * 			exportName = exportAlias
+ * 		} else {
+ * 			exportName = name
+ * 		}
+ * 		specifier := tx.Factory().NewExportSpecifier( /*isTypeOnly* / false, localName, exportName)
+ * 		if original != nil {
+ * 			tx.EmitContext().SetOriginal(specifier, original)
+ * 		}
+ * 		if tx.exportBindings == nil {
+ * 			tx.exportBindings = make(map[string]*ast.ExportSpecifierNode)
+ * 		}
+ * 		if _, ok := tx.exportBindings[name.Text()]; !ok {
+ * 			tx.exportBindingNames = append(tx.exportBindingNames, name.Text())
+ * 		}
+ * 		tx.exportBindings[name.Text()] = specifier
+ * 	}
+ * 	tx.EmitContext().AddVariableDeclaration(name)
+ * }
+ */
+export declare function usingDeclarationTransformer_hoistBindingIdentifier(receiver: GoPtr<usingDeclarationTransformer>, node: GoPtr<IdentifierNode>, isExport: bool, exportAlias: GoPtr<IdentifierNode>, original: GoPtr<Node>): void;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.createEnvBinding","kind":"method","status":"implemented","sigHash":"07f6a9b02e58536d3781a66dfac125c12953d02016688b9b0efb4c1bef5aeeea","bodyHash":"01f263b1076dc8865f5d06d8a2a3b793894ca7d1a181ee7ea5fcceaa21a3efc6"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) createEnvBinding() *ast.IdentifierNode {
+ * 	return tx.Factory().NewUniqueName("env")
+ * }
+ */
+export declare function usingDeclarationTransformer_createEnvBinding(receiver: GoPtr<usingDeclarationTransformer>): GoPtr<IdentifierNode>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::method::usingDeclarationTransformer.createDownlevelUsingStatements","kind":"method","status":"implemented","sigHash":"47d3e63afdfe557e293701d2156c29250020e6e149bf45e3fe00371032dd5c1e","bodyHash":"c0ec58ac569feef5af9d1f7c03593c6a9d12fb4761a9d8fce2732c4a42b766d2"}
+ *
+ * Go source:
+ * func (tx *usingDeclarationTransformer) createDownlevelUsingStatements(bodyStatements []*ast.Node, envBinding *ast.IdentifierNode, async bool) []*ast.Statement {
+ * 	statements := make([]*ast.Statement, 0, 2)
+ *
+ * 	// produces:
+ * 	//
+ * 	//  const env_1 = { stack: [], error: void 0, hasError: false };
+ * 	//
+ * 	envObject := tx.Factory().NewObjectLiteralExpression(tx.Factory().NewNodeList([]*ast.Expression{
+ * 		tx.Factory().NewPropertyAssignment(nil /*modifiers* /, tx.Factory().NewIdentifier("stack"), nil /*postfixToken* /, nil /*typeNode* /, tx.Factory().NewArrayLiteralExpression(nil, false /*multiLine* /)),
+ * 		tx.Factory().NewPropertyAssignment(nil /*modifiers* /, tx.Factory().NewIdentifier("error"), nil /*postfixToken* /, nil /*typeNode* /, tx.Factory().NewVoidZeroExpression()),
+ * 		tx.Factory().NewPropertyAssignment(nil /*modifiers* /, tx.Factory().NewIdentifier("hasError"), nil /*postfixToken* /, nil /*typeNode* /, tx.Factory().NewFalseExpression()),
+ * 	}), false /*multiLine* /)
+ * 	envVar := tx.Factory().NewVariableDeclaration(envBinding, nil /*exclamationToken* /, nil /*typeNode* /, envObject)
+ * 	envVarList := tx.Factory().NewVariableDeclarationList(tx.Factory().NewNodeList([]*ast.VariableDeclarationNode{envVar}), ast.NodeFlagsConst)
+ * 	envVarStatement := tx.Factory().NewVariableStatement(nil /*modifiers* /, envVarList)
+ * 	statements = append(statements, envVarStatement)
+ *
+ * 	// when `async` is `false`, produces:
+ * 	//
+ * 	//  try {
+ * 	//    <bodyStatements>
+ * 	//  }
+ * 	//  catch (e_1) {
+ * 	//      env_1.error = e_1;
+ * 	//      env_1.hasError = true;
+ * 	//  }
+ * 	//  finally {
+ * 	//    __disposeResources(env_1);
+ * 	//  }
+ *
+ * 	// when `async` is `true`, produces:
+ * 	//
+ * 	//  try {
+ * 	//    <bodyStatements>
+ * 	//  }
+ * 	//  catch (e_1) {
+ * 	//      env_1.error = e_1;
+ * 	//      env_1.hasError = true;
+ * 	//  }
+ * 	//  finally {
+ * 	//    const result_1 = __disposeResources(env_1);
+ * 	//    if (result_1) {
+ * 	//      await result_1;
+ * 	//    }
+ * 	//  }
+ *
+ * 	// Unfortunately, it is necessary to use two properties to indicate an error because `throw undefined` is legal
+ * 	// JavaScript.
+ * 	tryBlock := tx.Factory().NewBlock(tx.Factory().NewNodeList(bodyStatements), true /*multiLine* /)
+ * 	bodyCatchBinding := tx.Factory().NewUniqueName("e")
+ * 	catchClause := tx.Factory().NewCatchClause(
+ * 		tx.Factory().NewVariableDeclaration(
+ * 			bodyCatchBinding,
+ * 			nil, /*exclamationToken* /
+ * 			nil, /*type* /
+ * 			nil, /*initializer* /
+ * 		),
+ * 		tx.Factory().NewBlock(tx.Factory().NewNodeList([]*ast.Statement{
+ * 			tx.Factory().NewExpressionStatement(
+ * 				tx.Factory().NewAssignmentExpression(
+ * 					tx.Factory().NewPropertyAccessExpression(envBinding, nil, tx.Factory().NewIdentifier("error"), ast.NodeFlagsNone),
+ * 					bodyCatchBinding,
+ * 				),
+ * 			),
+ * 			tx.Factory().NewExpressionStatement(
+ * 				tx.Factory().NewAssignmentExpression(
+ * 					tx.Factory().NewPropertyAccessExpression(envBinding, nil, tx.Factory().NewIdentifier("hasError"), ast.NodeFlagsNone),
+ * 					tx.Factory().NewTrueExpression(),
+ * 				),
+ * 			),
+ * 		}), true /*multiLine* /),
+ * 	)
+ *
+ * 	var finallyBlock *ast.BlockNode
+ * 	if async {
+ * 		result := tx.Factory().NewUniqueName("result")
+ * 		finallyBlock = tx.Factory().NewBlock(tx.Factory().NewNodeList([]*ast.Statement{
+ * 			tx.Factory().NewVariableStatement(
+ * 				nil, /*modifiers* /
+ * 				tx.Factory().NewVariableDeclarationList(tx.Factory().NewNodeList([]*ast.VariableDeclarationNode{
+ * 					tx.Factory().NewVariableDeclaration(
+ * 						result,
+ * 						nil, /*exclamationToken* /
+ * 						nil, /*type* /
+ * 						tx.Factory().NewDisposeResourcesHelper(envBinding),
+ * 					),
+ * 				}), ast.NodeFlagsConst),
+ * 			),
+ * 			tx.Factory().NewIfStatement(result, tx.Factory().NewExpressionStatement(tx.Factory().NewAwaitExpression(result)), nil /*elseStatement* /),
+ * 		}), true /*multiLine* /)
+ * 	} else {
+ * 		finallyBlock = tx.Factory().NewBlock(tx.Factory().NewNodeList([]*ast.Statement{
+ * 			tx.Factory().NewExpressionStatement(
+ * 				tx.Factory().NewDisposeResourcesHelper(envBinding),
+ * 			),
+ * 		}), true /*multiLine* /)
+ * 	}
+ *
+ * 	tryStatement := tx.Factory().NewTryStatement(tryBlock, catchClause, finallyBlock)
+ * 	statements = append(statements, tryStatement)
+ * 	return statements
+ * }
+ */
+export declare function usingDeclarationTransformer_createDownlevelUsingStatements(receiver: GoPtr<usingDeclarationTransformer>, bodyStatements: GoSlice<GoPtr<Node>>, envBinding: GoPtr<IdentifierNode>, async: bool): GoSlice<GoPtr<Statement>>;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::func::isUsingVariableDeclarationList","kind":"func","status":"implemented","sigHash":"d855d3b000d954422cab765f073b1716de272cb8db2615d7ca203e90941f5296","bodyHash":"26809ea13cefa4ff440bac658f30f2acb640387d73b5f6ee02379ad795948780"}
+ *
+ * Go source:
+ * func isUsingVariableDeclarationList(node *ast.ForInitializer) bool {
+ * 	return ast.IsVariableDeclarationList(node) && getUsingKindOfVariableDeclarationList(node.AsVariableDeclarationList()) != usingKindNone
+ * }
+ */
+export declare function isUsingVariableDeclarationList(node: GoPtr<ForInitializer>): bool;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::func::getUsingKindOfVariableDeclarationList","kind":"func","status":"implemented","sigHash":"cdb8d320d65ec73ec6e6a2f41527bb4aa226e0835997f2f9d3d5111753cf7147","bodyHash":"418b4c962905ee1195d5d8e8269182ec737d8b924bbd78213189a4707487c0ea"}
+ *
+ * Go source:
+ * func getUsingKindOfVariableDeclarationList(node *ast.VariableDeclarationList) usingKind {
+ * 	switch node.Flags & ast.NodeFlagsBlockScoped {
+ * 	case ast.NodeFlagsAwaitUsing:
+ * 		return usingKindAsync
+ * 	case ast.NodeFlagsUsing:
+ * 		return usingKindSync
+ * 	default:
+ * 		return usingKindNone
+ * 	}
+ * }
+ */
+export declare function getUsingKindOfVariableDeclarationList(node: GoPtr<VariableDeclarationList>): usingKind;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::func::getUsingKindOfVariableStatement","kind":"func","status":"implemented","sigHash":"744f2b6b395b397e2a115bccab0830e97acda6ebe0035913cdc1616f8b6b20c5","bodyHash":"0a5b8eacca6feb03b5a7994af6d998569553de9a14427ff8545b77f844a05785"}
+ *
+ * Go source:
+ * func getUsingKindOfVariableStatement(node *ast.VariableStatement) usingKind {
+ * 	return getUsingKindOfVariableDeclarationList(node.DeclarationList.AsVariableDeclarationList())
+ * }
+ */
+export declare function getUsingKindOfVariableStatement(node: GoPtr<VariableStatement>): usingKind;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::func::getUsingKind","kind":"func","status":"implemented","sigHash":"f5e6c0edffb37381cda6a2535956e599633b60e90ba206f9f02dbb02cd359595","bodyHash":"ba33cee7cfce24c08a7568990afa0215bc01657c42dc6ffe5b2143a9550f8139"}
+ *
+ * Go source:
+ * func getUsingKind(statement *ast.Node) usingKind {
+ * 	if ast.IsVariableStatement(statement) {
+ * 		return getUsingKindOfVariableStatement(statement.AsVariableStatement())
+ * 	}
+ * 	return usingKindNone
+ * }
+ */
+export declare function getUsingKind(statement: GoPtr<Node>): usingKind;
+/**
+ * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/using.go::func::getUsingKindOfStatements","kind":"func","status":"implemented","sigHash":"5af21f743c80ad3a07ab71d1b784d1b00d30511fc9f03e16c4ff7d9505027b47","bodyHash":"0d6cb25517c1643f058093093a0168dc5d9f0a6033e2a63fa1c31d007adb5d11"}
+ *
+ * Go source:
+ * func getUsingKindOfStatements(statements []*ast.Node) usingKind {
+ * 	result := usingKindNone
+ * 	for _, statement := range statements {
+ * 		usingKind := getUsingKind(statement)
+ * 		if usingKind == usingKindAsync {
+ * 			return usingKindAsync
+ * 		}
+ * 		if usingKind > result {
+ * 			result = usingKind
+ * 		}
+ * 	}
+ * 	return result
+ * }
+ */
+export declare function getUsingKindOfStatements(statements: GoSlice<GoPtr<Node>>): usingKind;
+//# sourceMappingURL=using.d.ts.map

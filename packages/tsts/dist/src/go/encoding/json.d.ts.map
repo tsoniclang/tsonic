@@ -1,0 +1,1 @@
+{"version":3,"file":"json.d.ts","sourceRoot":"","sources":["../../../../src/go/encoding/json.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,IAAI,EAAE,MAAM,eAAe,CAAC;AAC1C,OAAO,KAAK,EAAE,OAAO,EAAE,OAAO,EAAE,MAAM,cAAc,CAAC;AAIrD,wBAAgB,SAAS,CAAC,IAAI,EAAE,OAAO,CAAC,IAAI,CAAC,EAAE,GAAG,EAAE,OAAO,GAAG,OAAO,CAOpE"}

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 
@@ -17,23 +17,18 @@ import {
 const repoRoot = process.cwd();
 const tempRoot = resolve(repoRoot, ".temp/test-runs/host-surface-composition", `${Date.now()}-${process.pid}`);
 
-test("checked-in TSTS config uses explicit target selection", async () => {
-  const rawConfig = JSON.parse(await readFile(resolve(repoRoot, "packages/tsts/tsonic.json"), "utf8"));
-  assert.equal(rawConfig.output, undefined);
-  assert.equal(rawConfig.rootNamespace, undefined);
-
-  const project = parseTsonicProjectConfig(rawConfig);
-
-  assert.equal(project.entryPoint, "index.ts");
-  assert.equal(project.rootDir, "src");
-  assert.equal(project.outDir, "generated");
-  assert.deepEqual(project.targets.map((target) => target.id), ["csharp"]);
-  assert.deepEqual(project.targets[0].options, {
-    namespace: "Tsts",
-    assemblyName: "tsts",
-    outputType: "Library",
-    publishAot: false,
-  });
+test("vendored TSTS is a package artifact, not a checked-in source project", async () => {
+  await assert.rejects(
+    () => access(resolve(repoRoot, "packages/tsts/src")),
+    { code: "ENOENT" },
+  );
+  await assert.rejects(
+    () => access(resolve(repoRoot, "packages/tsts/tsonic.json")),
+    { code: "ENOENT" },
+  );
+  await access(resolve(repoRoot, "packages/tsts/package.json"));
+  await access(resolve(repoRoot, "packages/tsts/dist/src/index.js"));
+  await access(resolve(repoRoot, "packages/tsts/dist/src/internal/bundled/libs/lib.es2024.full.d.ts"));
 });
 
 test("host passes no selected surfaces to target provider when target requests none", () => {
