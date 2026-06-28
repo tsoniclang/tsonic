@@ -18,9 +18,9 @@ import type {
   TargetSourceUseOperation,
   TargetSourceUseRecord,
 } from "./types.js";
-export type HostSourceOccurrence = "value" | "type" | "namespace" | "import" | "export";
+export type LazySourceOccurrence = "value" | "type" | "namespace" | "import" | "export";
 
-export type HostSourceUseKind =
+export type LazySourceUseKind =
   | "read"
   | "write"
   | "compound-write"
@@ -44,23 +44,23 @@ export type HostSourceUseKind =
   | "escape"
   | "operator";
 
-export interface HostSourceReferenceRecord extends TargetSourceReferenceRecord {
+export interface LazySourceReferenceRecord extends TargetSourceReferenceRecord {
   readonly resolvedSymbol?: Symbol;
   readonly enclosingFunction?: Node;
   readonly enclosingDeclaration?: Node;
-  readonly occurrence: HostSourceOccurrence;
+  readonly occurrence: LazySourceOccurrence;
 }
 
-export interface HostSourceDeclarationRecord {
+export interface LazySourceDeclarationRecord {
   readonly symbol: Symbol;
   readonly sourceFile?: SourceFile;
   readonly node: Node;
-  readonly occurrence: HostSourceOccurrence;
+  readonly occurrence: LazySourceOccurrence;
   readonly enclosingFunction?: Node;
   readonly enclosingDeclaration?: Node;
 }
 
-export interface HostSourceImportRecord {
+export interface LazySourceImportRecord {
   readonly symbol: Symbol;
   readonly sourceFile: SourceFile;
   readonly declaration: Node;
@@ -73,7 +73,7 @@ export interface HostSourceImportRecord {
   readonly importedSymbol?: Symbol;
 }
 
-export interface HostSourceExportRecord {
+export interface LazySourceExportRecord {
   readonly symbol: Symbol;
   readonly sourceFile: SourceFile;
   readonly declaration: Node;
@@ -86,8 +86,8 @@ export interface HostSourceExportRecord {
   readonly exportedSymbol?: Symbol;
 }
 
-export interface HostSourceUseRecord extends TargetSourceUseRecord {
-  readonly kind: HostSourceUseKind;
+export interface LazySourceUseRecord extends TargetSourceUseRecord {
+  readonly kind: LazySourceUseKind;
   readonly base?: Node;
   readonly valueExpression?: Node;
   readonly elementArgument?: Node;
@@ -99,7 +99,7 @@ export interface HostSourceUseRecord extends TargetSourceUseRecord {
   readonly enclosingDeclaration?: Node;
 }
 
-export interface HostSourceCallsite extends TargetSourceCallsite {
+export interface LazySourceCallsite extends TargetSourceCallsite {
   readonly kind: "call" | "construct";
   readonly receiver?: Node;
   readonly propertyName?: string;
@@ -109,55 +109,55 @@ export interface HostSourceCallsite extends TargetSourceCallsite {
   readonly typeArguments: readonly Node[];
 }
 
-export interface HostReturnFlowRecord {
+export interface LazyReturnFlowRecord {
   readonly sourceFile?: SourceFile;
   readonly functionNode: Node;
   readonly returnStatement: Node;
   readonly expression?: Node;
 }
 
-export interface HostFunctionSummary extends TargetFunctionSummary {
-  readonly references: readonly HostSourceReferenceRecord[];
-  readonly calls: readonly HostSourceCallsite[];
-  readonly constructs: readonly HostSourceCallsite[];
+export interface LazyFunctionSummary extends TargetFunctionSummary {
+  readonly references: readonly LazySourceReferenceRecord[];
+  readonly calls: readonly LazySourceCallsite[];
+  readonly constructs: readonly LazySourceCallsite[];
   readonly returns: readonly Node[];
-  readonly returnFlows: readonly HostReturnFlowRecord[];
+  readonly returnFlows: readonly LazyReturnFlowRecord[];
 }
 
-export interface HostLazySourceAnalysis extends TargetLazySourceAnalysis {
-  declarationsOf(symbol: Symbol | undefined): readonly HostSourceDeclarationRecord[];
-  importsOf(symbol: Symbol | undefined): readonly HostSourceImportRecord[];
-  exportsOf(symbol: Symbol | undefined): readonly HostSourceExportRecord[];
-  referencesOf(symbol: Symbol | undefined): readonly HostSourceReferenceRecord[];
-  usesOf(symbol: Symbol | undefined): readonly HostSourceUseRecord[];
-  readsOf(symbol: Symbol | undefined): readonly HostSourceUseRecord[];
-  writesOf(symbol: Symbol | undefined): readonly HostSourceUseRecord[];
-  mutationsOf(symbol: Symbol | undefined): readonly HostSourceUseRecord[];
-  propertyReadsOn(symbol: Symbol | undefined): readonly HostSourceUseRecord[];
-  propertyWritesOn(symbol: Symbol | undefined): readonly HostSourceUseRecord[];
-  propertyCallsOn(symbol: Symbol | undefined): readonly HostSourceUseRecord[];
-  elementReadsOn(symbol: Symbol | undefined): readonly HostSourceUseRecord[];
-  elementWritesOn(symbol: Symbol | undefined): readonly HostSourceUseRecord[];
-  elementDeletesOn(symbol: Symbol | undefined): readonly HostSourceUseRecord[];
-  callsitesOf(functionSymbol: Symbol | undefined): readonly HostSourceCallsite[];
-  constructSitesOf(functionSymbol: Symbol | undefined): readonly HostSourceCallsite[];
-  returnFlowOf(functionNode: Node): readonly HostReturnFlowRecord[];
-  summaryOf(functionNode: Node): HostFunctionSummary;
+export interface LazyTargetSourceAnalysis extends TargetLazySourceAnalysis {
+  declarationsOf(symbol: Symbol | undefined): readonly LazySourceDeclarationRecord[];
+  importsOf(symbol: Symbol | undefined): readonly LazySourceImportRecord[];
+  exportsOf(symbol: Symbol | undefined): readonly LazySourceExportRecord[];
+  referencesOf(symbol: Symbol | undefined): readonly LazySourceReferenceRecord[];
+  usesOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  readsOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  writesOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  mutationsOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  propertyReadsOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  propertyWritesOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  propertyCallsOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  elementReadsOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  elementWritesOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  elementDeletesOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  callsitesOf(functionSymbol: Symbol | undefined): readonly LazySourceCallsite[];
+  constructSitesOf(functionSymbol: Symbol | undefined): readonly LazySourceCallsite[];
+  returnFlowOf(functionNode: Node): readonly LazyReturnFlowRecord[];
+  summaryOf(functionNode: Node): LazyFunctionSummary;
 }
 
 export function createLazyTargetSourceAnalysis(
   ast: AstReader,
   checker: TypeCheckerQueries,
   sourceFiles: readonly SourceFile[],
-): HostLazySourceAnalysis {
-  const referenceCache = new WeakMap<object, readonly HostSourceReferenceRecord[]>();
-  const declarationCache = new WeakMap<object, readonly HostSourceDeclarationRecord[]>();
-  const importCache = new WeakMap<object, readonly HostSourceImportRecord[]>();
-  const exportCache = new WeakMap<object, readonly HostSourceExportRecord[]>();
-  const useCache = new WeakMap<object, readonly HostSourceUseRecord[]>();
-  const callsiteCache = new WeakMap<object, readonly HostSourceCallsite[]>();
-  const functionSummaryCache = new WeakMap<object, HostFunctionSummary>();
-  const returnFlowCache = new WeakMap<object, readonly HostReturnFlowRecord[]>();
+): LazyTargetSourceAnalysis {
+  const referenceCache = new WeakMap<object, readonly LazySourceReferenceRecord[]>();
+  const declarationCache = new WeakMap<object, readonly LazySourceDeclarationRecord[]>();
+  const importCache = new WeakMap<object, readonly LazySourceImportRecord[]>();
+  const exportCache = new WeakMap<object, readonly LazySourceExportRecord[]>();
+  const useCache = new WeakMap<object, readonly LazySourceUseRecord[]>();
+  const callsiteCache = new WeakMap<object, readonly LazySourceCallsite[]>();
+  const functionSummaryCache = new WeakMap<object, LazyFunctionSummary>();
+  const returnFlowCache = new WeakMap<object, readonly LazyReturnFlowRecord[]>();
 
   return {
     declarationsOf(symbol) {
@@ -225,7 +225,7 @@ export function createLazyTargetSourceAnalysis(
     },
   };
 
-  function declarationsOf(symbol: Symbol | undefined): readonly HostSourceDeclarationRecord[] {
+  function declarationsOf(symbol: Symbol | undefined): readonly LazySourceDeclarationRecord[] {
     if (symbol === undefined) {
       return [];
     }
@@ -235,7 +235,7 @@ export function createLazyTargetSourceAnalysis(
     }
     const declarations = checker.getSymbolDeclarations(symbol)
       .filter((node): node is Node => node !== undefined)
-      .map((node): HostSourceDeclarationRecord => ({
+      .map((node): LazySourceDeclarationRecord => ({
         symbol,
         sourceFile: ast.getSourceFile(node),
         node,
@@ -247,7 +247,7 @@ export function createLazyTargetSourceAnalysis(
     return declarations;
   }
 
-  function importsOf(symbol: Symbol | undefined): readonly HostSourceImportRecord[] {
+  function importsOf(symbol: Symbol | undefined): readonly LazySourceImportRecord[] {
     if (symbol === undefined) {
       return [];
     }
@@ -255,7 +255,7 @@ export function createLazyTargetSourceAnalysis(
     if (cached !== undefined) {
       return cached;
     }
-    const imports: HostSourceImportRecord[] = [];
+    const imports: LazySourceImportRecord[] = [];
     for (const sourceFile of sourceFiles) {
       for (const statement of presentNodes(ast.statements(sourceFile))) {
         collectImportRecords(symbol, sourceFile, statement, imports);
@@ -265,7 +265,7 @@ export function createLazyTargetSourceAnalysis(
     return imports;
   }
 
-  function exportsOf(symbol: Symbol | undefined): readonly HostSourceExportRecord[] {
+  function exportsOf(symbol: Symbol | undefined): readonly LazySourceExportRecord[] {
     if (symbol === undefined) {
       return [];
     }
@@ -273,7 +273,7 @@ export function createLazyTargetSourceAnalysis(
     if (cached !== undefined) {
       return cached;
     }
-    const exportRecords: HostSourceExportRecord[] = [];
+    const exportRecords: LazySourceExportRecord[] = [];
     for (const sourceFile of sourceFiles) {
       visitSourceNodes(sourceFile, (node) => {
         collectExportRecords(symbol, sourceFile, node, exportRecords);
@@ -283,7 +283,7 @@ export function createLazyTargetSourceAnalysis(
     return exportRecords;
   }
 
-  function referencesOf(symbol: Symbol | undefined): readonly HostSourceReferenceRecord[] {
+  function referencesOf(symbol: Symbol | undefined): readonly LazySourceReferenceRecord[] {
     if (symbol === undefined) {
       return [];
     }
@@ -291,7 +291,7 @@ export function createLazyTargetSourceAnalysis(
     if (cached !== undefined) {
       return cached;
     }
-    const references: HostSourceReferenceRecord[] = [];
+    const references: LazySourceReferenceRecord[] = [];
     const seen = new Set<string>();
     for (const sourceFile of sourceFiles) {
       visitSourceNodes(sourceFile, (candidate) => {
@@ -323,7 +323,7 @@ export function createLazyTargetSourceAnalysis(
     return references;
   }
 
-  function usesOf(symbol: Symbol | undefined): readonly HostSourceUseRecord[] {
+  function usesOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[] {
     if (symbol === undefined) {
       return [];
     }
@@ -338,7 +338,7 @@ export function createLazyTargetSourceAnalysis(
     return uses;
   }
 
-  function callsitesOf(symbol: Symbol | undefined): readonly HostSourceCallsite[] {
+  function callsitesOf(symbol: Symbol | undefined): readonly LazySourceCallsite[] {
     if (symbol === undefined) {
       return [];
     }
@@ -346,7 +346,7 @@ export function createLazyTargetSourceAnalysis(
     if (cached !== undefined) {
       return cached;
     }
-    const callsites: HostSourceCallsite[] = [];
+    const callsites: LazySourceCallsite[] = [];
     for (const sourceFile of sourceFiles) {
       visitSourceNodes(sourceFile, (node) => {
         if (!ast.is.IsCallExpression(node) && !ast.is.IsNewExpression(node)) {
@@ -368,7 +368,7 @@ export function createLazyTargetSourceAnalysis(
       return [];
     }
     return usesOf(symbol)
-      .filter((use): use is HostSourceUseRecord & { readonly argumentIndex: number; readonly call: Node } =>
+      .filter((use): use is LazySourceUseRecord & { readonly argumentIndex: number; readonly call: Node } =>
         use.operation === "argument" && use.argumentIndex !== undefined && use.call !== undefined)
       .map((use) => ({
         symbol,
@@ -416,12 +416,12 @@ export function createLazyTargetSourceAnalysis(
       }));
   }
 
-  function returnFlowOf(functionNode: Node): readonly HostReturnFlowRecord[] {
+  function returnFlowOf(functionNode: Node): readonly LazyReturnFlowRecord[] {
     const cached = returnFlowCache.get(functionNode);
     if (cached !== undefined) {
       return cached;
     }
-    const returnFlows: HostReturnFlowRecord[] = [];
+    const returnFlows: LazyReturnFlowRecord[] = [];
     const sourceFile = ast.getSourceFile(functionNode);
     visitSourceNodes(functionNode, (node) => {
       const returnStatement = asReturnStatement(node);
@@ -439,15 +439,15 @@ export function createLazyTargetSourceAnalysis(
     return returnFlows;
   }
 
-  function summaryOf(functionNode: Node): HostFunctionSummary {
+  function summaryOf(functionNode: Node): LazyFunctionSummary {
     const cached = functionSummaryCache.get(functionNode);
     if (cached !== undefined) {
       return cached;
     }
     const sourceFile = ast.getSourceFile(functionNode);
-    const references: HostSourceReferenceRecord[] = [];
-    const calls: HostSourceCallsite[] = [];
-    const constructs: HostSourceCallsite[] = [];
+    const references: LazySourceReferenceRecord[] = [];
+    const calls: LazySourceCallsite[] = [];
+    const constructs: LazySourceCallsite[] = [];
     visitSourceNodes(functionNode, (node) => {
       if (sourceFile !== undefined) {
         const referenceNode = getReferenceNode(node);
@@ -494,7 +494,7 @@ export function createLazyTargetSourceAnalysis(
     symbol: Symbol,
     sourceFile: SourceFile,
     statement: Node,
-    imports: HostSourceImportRecord[],
+    imports: LazySourceImportRecord[],
   ): void {
     const importDeclaration = asImportDeclaration(statement);
     if (importDeclaration === undefined || importDeclaration.ModuleSpecifier === undefined) {
@@ -549,10 +549,10 @@ export function createLazyTargetSourceAnalysis(
     declaration: Node,
     binding: Node,
     moduleSpecifier: Node,
-    importKind: HostSourceImportRecord["importKind"],
+    importKind: LazySourceImportRecord["importKind"],
     importedName: string | undefined,
     isTypeOnly: boolean,
-    imports: HostSourceImportRecord[],
+    imports: LazySourceImportRecord[],
   ): void {
     const localSymbol = checker.getSymbolAtLocation(binding, { sourceFile });
     if (!symbolsMatch(localSymbol, requestedSymbol, sourceFile)) {
@@ -576,7 +576,7 @@ export function createLazyTargetSourceAnalysis(
     symbol: Symbol,
     sourceFile: SourceFile,
     node: Node,
-    exportRecords: HostSourceExportRecord[],
+    exportRecords: LazySourceExportRecord[],
   ): void {
     const exportDeclaration = asExportDeclaration(node);
     if (exportDeclaration !== undefined) {
@@ -626,7 +626,7 @@ export function createLazyTargetSourceAnalysis(
     sourceFile: SourceFile,
     declaration: Node,
     exportDeclaration: NonNullable<ReturnType<AstReader["as"]["AsExportDeclaration"]>>,
-    exportRecords: HostSourceExportRecord[],
+    exportRecords: LazySourceExportRecord[],
   ): void {
     const exportClause = exportDeclaration.ExportClause;
     if (exportClause === undefined) {
@@ -661,7 +661,7 @@ export function createLazyTargetSourceAnalysis(
     }
   }
 
-  function classifyReferenceUse(reference: HostSourceReferenceRecord): HostSourceUseRecord {
+  function classifyReferenceUse(reference: LazySourceReferenceRecord): LazySourceUseRecord {
     const node = reference.node;
     const sourceFile = reference.sourceFile;
     const parent = ast.parent(node);
@@ -768,10 +768,10 @@ export function createLazyTargetSourceAnalysis(
   }
 
   function createPropertyUse(
-    reference: HostSourceReferenceRecord,
+    reference: LazySourceReferenceRecord,
     propertyAccessNode: Node,
     propertyAccess: NonNullable<ReturnType<AstReader["as"]["AsPropertyAccessExpression"]>>,
-  ): HostSourceUseRecord {
+  ): LazySourceUseRecord {
     const call = parentIsCallCallee(propertyAccessNode);
     const access = getAccessKind(propertyAccessNode);
     const operator = getAssignmentOperatorForTarget(propertyAccessNode);
@@ -795,10 +795,10 @@ export function createLazyTargetSourceAnalysis(
   }
 
   function createElementUse(
-    reference: HostSourceReferenceRecord,
+    reference: LazySourceReferenceRecord,
     elementAccessNode: Node,
     elementAccess: NonNullable<ReturnType<AstReader["as"]["AsElementAccessExpression"]>>,
-  ): HostSourceUseRecord {
+  ): LazySourceUseRecord {
     const access = getAccessKind(elementAccessNode);
     const operator = getAssignmentOperatorForTarget(elementAccessNode);
     return {
@@ -811,7 +811,7 @@ export function createLazyTargetSourceAnalysis(
     };
   }
 
-  function createCallsite(symbol: Symbol | undefined, sourceFile: SourceFile, call: Node, callee: Node | undefined): HostSourceCallsite {
+  function createCallsite(symbol: Symbol | undefined, sourceFile: SourceFile, call: Node, callee: Node | undefined): LazySourceCallsite {
     const propertyAccess = asPropertyAccessExpression(callee);
     const selectedSignature = getSelectedSignature(call, sourceFile);
     return {
@@ -831,12 +831,12 @@ export function createLazyTargetSourceAnalysis(
   }
 
   function baseUse(
-    reference: HostSourceReferenceRecord,
+    reference: LazySourceReferenceRecord,
     operation: TargetSourceUseOperation,
     parent: Node | undefined,
     expression: Node | undefined,
     access: TargetSourceAccessKind = "read",
-  ): Omit<HostSourceUseRecord, "kind"> {
+  ): Omit<LazySourceUseRecord, "kind"> {
     return {
       ...reference,
       operation,
@@ -855,7 +855,7 @@ export function createLazyTargetSourceAnalysis(
     return parentIsWriteTarget(node) ? "write" : "read";
   }
 
-  function getPropertyUseKind(access: TargetSourceAccessKind, operator: string | undefined): HostSourceUseKind {
+  function getPropertyUseKind(access: TargetSourceAccessKind, operator: string | undefined): LazySourceUseKind {
     if (access === "delete") {
       return "property-delete";
     }
@@ -921,7 +921,7 @@ export function createLazyTargetSourceAnalysis(
     return node;
   }
 
-  function getReferenceOccurrence(node: Node): HostSourceOccurrence {
+  function getReferenceOccurrence(node: Node): LazySourceOccurrence {
     if (hasAncestor(node, (ancestor) => ast.is.IsImportDeclaration(ancestor) || ast.is.IsImportSpecifier(ancestor) || ast.is.IsImportClause(ancestor))) {
       return "import";
     }
@@ -931,7 +931,7 @@ export function createLazyTargetSourceAnalysis(
     return isTypeReferenceQuery(ast, node) ? "type" : "value";
   }
 
-  function getDeclarationOccurrence(node: Node): HostSourceOccurrence {
+  function getDeclarationOccurrence(node: Node): LazySourceOccurrence {
     if (hasAncestor(node, (ancestor) => ast.is.IsImportDeclaration(ancestor) || ast.is.IsImportSpecifier(ancestor) || ast.is.IsImportClause(ancestor))) {
       return "import";
     }
