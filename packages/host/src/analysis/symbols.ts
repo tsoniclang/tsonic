@@ -90,6 +90,9 @@ export function getAliasedSymbolIfAlias(
     : undefined;
 }
 
-export function getPrimaryDeclaration(symbol: Symbol | undefined): Node | undefined {
-  return symbol?.ValueDeclaration ?? symbol?.Declarations?.find((candidate): candidate is Node => candidate !== undefined);
+export function getPrimaryDeclaration(
+  checker: TypeCheckerQueries,
+  symbol: Symbol | undefined,
+): Node | undefined {
+  return checker.getSymbolDeclarations(symbol).find((candidate): candidate is Node => candidate !== undefined);
 }

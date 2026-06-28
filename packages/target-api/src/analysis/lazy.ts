@@ -379,7 +379,11 @@ export function createLazyTargetSourceAnalysis(
 
   function getSelectedSignatureDeclaration(node: Node, sourceFile: SourceFile): Node | undefined {
     const signature = checker.getResolvedSignature(node, { sourceFile });
-    return asAnalysisNode((signature as { readonly declaration?: unknown } | undefined)?.declaration);
+    return asAnalysisNode(checker.getSignatureDeclaration(signature));
+  }
+
+  function primaryDeclaration(symbol: Symbol | undefined): Node | undefined {
+    return checker.getSymbolDeclarations(symbol).find((declaration): declaration is Node => declaration !== undefined);
   }
 
   function parentIsCallCallee(node: Node): Node | undefined {
@@ -461,8 +465,4 @@ export function createLazyTargetSourceAnalysis(
     const kind = ast.kindName(node);
     return kind === "KindObjectBindingPattern" || kind === "KindArrayBindingPattern";
   }
-}
-
-function primaryDeclaration(symbol: Symbol | undefined): Node | undefined {
-  return symbol?.ValueDeclaration ?? symbol?.Declarations?.find((declaration): declaration is Node => declaration !== undefined);
 }

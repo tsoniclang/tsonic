@@ -116,7 +116,7 @@ export function createTargetFactQueries(
         ? undefined
         : checker.getReturnTypeOfSignature(signature, options);
       return carrierResolution(
-        getRuntimeCarrierForType(ast, types, facts, returnType, options),
+        getRuntimeCarrierForType(ast, checker, types, facts, returnType, options),
         "Call return runtime carrier resolved from TSTS-selected signature return type and provider/source-core facts.",
         signature === undefined
           ? "Call return runtime carrier requires a TSTS-selected call signature."
@@ -168,7 +168,7 @@ export function createTargetFactQueries(
       return carrierResolution(
         getRuntimeCarrier(facts, returnType) ??
           getRuntimeCarrier(facts, returnType?.symbol) ??
-          getRuntimeCarrierForType(ast, types, facts, returnType, options),
+          getRuntimeCarrierForType(ast, checker, types, facts, returnType, options),
         "Declaration return carrier resolved from TSTS-selected declaration signature return type facts.",
         signature === undefined
           ? "Declaration return carrier requires a TSTS-selected declaration signature."
@@ -191,7 +191,7 @@ export function createTargetFactQueries(
         parameter,
       );
     }
-    const declaration = getPrimaryDeclaration(parameter);
+    const declaration = getPrimaryDeclaration(checker, parameter);
     const declarationFile = ast.getSourceFile(declaration) ?? options.sourceFile;
     const declarationCarrier = declaration === undefined
       ? undefined

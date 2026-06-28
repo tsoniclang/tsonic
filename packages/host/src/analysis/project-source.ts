@@ -11,7 +11,7 @@ import type {
   TargetProjectSourceModuleDependency,
   TargetSourceAnalysisQueries,
 } from "@tsonic/target-api";
-import { asNode, asSymbol } from "./guards.js";
+import { asNode } from "./guards.js";
 import {
   getAliasedSymbolIfAlias,
   getPrimaryDeclaration,
@@ -32,7 +32,7 @@ export function getProjectSourceDeclarationForNode(
     return undefined;
   }
   const type = getSemanticTypeForNode(ast, checker, node, options);
-  return getProjectSourceDeclarationForType(ast, types, type, sourceFiles);
+  return getProjectSourceDeclarationForType(ast, checker, types, type, sourceFiles);
 }
 
 export function getProjectSourceReferenceForNode(
@@ -62,13 +62,13 @@ export function getProjectSourceReferenceForNode(
     ? []
     : [getAliasedSymbolIfAlias(checker, symbol, options), symbol]);
   for (const symbol of symbols) {
-    const reference = getProjectSourceReferenceForSymbol(ast, symbol, sourceFiles);
+    const reference = getProjectSourceReferenceForSymbol(ast, checker, symbol, sourceFiles);
     if (reference !== undefined) {
       return reference;
     }
   }
-  const declaration = getProjectSourceDeclarationForType(ast, types, getSemanticTypeForNode(ast, checker, node, options), sourceFiles);
-  const symbol = asSymbol((declaration as { readonly Symbol?: unknown } | undefined)?.Symbol);
+  const declaration = getProjectSourceDeclarationForType(ast, checker, types, getSemanticTypeForNode(ast, checker, node, options), sourceFiles);
+  const symbol = declaration === undefined ? undefined : checker.getSymbolAtLocation(declaration, options);
   const sourceFile = ast.getSourceFile(declaration);
   if (declaration !== undefined && symbol !== undefined && sourceFile !== undefined) {
     return { symbol, declaration, sourceFile };
@@ -78,13 +78,14 @@ export function getProjectSourceReferenceForNode(
 
 export function getProjectSourceReferenceForSymbol(
   ast: AstReader,
+  checker: TypeCheckerQueries,
   symbol: Symbol | undefined,
   sourceFiles: readonly SourceFile[],
 ): ReturnType<TargetSourceAnalysisQueries["getProjectSourceReferenceForNode"]> {
   if (symbol === undefined) {
     return undefined;
   }
-  const declaration = getPrimaryDeclaration(symbol);
+  const declaration = getPrimaryDeclaration(checker, symbol);
   if (declaration === undefined || !isProjectSourceDeclaration(ast, declaration, sourceFiles)) {
     return undefined;
   }
@@ -94,11 +95,12 @@ export function getProjectSourceReferenceForSymbol(
 
 export function getProjectSourceDeclarationForType(
   ast: AstReader,
+  checker: TypeCheckerQueries,
   types: TypeShapeQueries,
   type: Type | undefined,
   sourceFiles: readonly SourceFile[],
 ): Node | undefined {
-  const direct = getPrimaryDeclaration(type?.symbol);
+  const direct = getPrimaryDeclaration(checker, type?.symbol);
   if (isProjectSourceDeclaration(ast, direct, sourceFiles)) {
     return direct;
   }
@@ -108,7 +110,7 @@ export function getProjectSourceDeclarationForType(
   const nonNullish = types.getUnionOrIntersectionTypes(type)
     .filter((candidate) => !types.isNullish(candidate));
   return nonNullish.length === 1
-    ? getProjectSourceDeclarationForType(ast, types, nonNullish[0], sourceFiles)
+    ? getProjectSourceDeclarationForType(ast, checker, types, nonNullish[0], sourceFiles)
     : undefined;
 }
 
@@ -199,7 +201,7 @@ function getResolvedRuntimeModuleSourceFile(
 ): SourceFile | undefined {
   const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier, options);
   const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(moduleSymbol, false, options) ?? moduleSymbol;
-  return ast.getSourceFile(getPrimaryDeclaration(resolvedModuleSymbol) ?? getPrimaryDeclaration(moduleSymbol));
+  return ast.getSourceFile(getPrimaryDeclaration(checker, resolvedModuleSymbol) ?? getPrimaryDeclaration(checker, moduleSymbol));
 }
 
 function isTypeOnlyImportDeclaration(ast: AstReader, declaration: Node): boolean {
@@ -307,7 +309,7 @@ function methodOverridesBaseProjectSourceMethod(
     return false;
   }
   const baseSymbol = checker.getPropertyOfType(baseType, methodName, options);
-  const baseDeclaration = getPrimaryDeclaration(baseSymbol);
+  const baseDeclaration = getPrimaryDeclaration(checker, baseSymbol);
   return baseDeclaration !== undefined &&
     ast.is.IsMethodDeclaration(baseDeclaration) &&
     isProjectSourceDispatchMethod(ast, baseDeclaration, sourceFiles);
@@ -449,7 +451,7 @@ function getProjectSourceReferenceForNamespacePropertyAccess(
     propertySymbol,
   ];
   for (const candidate of candidates) {
-    const reference = getProjectSourceReferenceForSymbol(ast, candidate, sourceFiles);
+    const reference = getProjectSourceReferenceForSymbol(ast, checker, candidate, sourceFiles);
     if (reference !== undefined) {
       return reference;
     }
@@ -467,17 +469,17 @@ function getImportedProjectSourceReferenceForSymbol(
   if (symbol === undefined) {
     return undefined;
   }
-  for (const declaration of symbol.Declarations ?? []) {
+  for (const declaration of checker.getSymbolDeclarations(symbol)) {
     const imported = getImportedModuleExport(ast, checker, declaration, options);
     if (imported === undefined) {
       continue;
     }
     const alias = getAliasedSymbolIfAlias(checker, imported.symbol, { sourceFile: imported.sourceFile });
-    const candidates = ast.is.IsExportAssignment(getPrimaryDeclaration(imported.symbol))
+    const candidates = ast.is.IsExportAssignment(getPrimaryDeclaration(checker, imported.symbol))
       ? [imported.symbol, alias]
       : [alias, imported.symbol];
     for (const candidate of candidates) {
-      const reference = getProjectSourceReferenceForSymbol(ast, candidate, sourceFiles);
+      const reference = getProjectSourceReferenceForSymbol(ast, checker, candidate, sourceFiles);
       if (reference !== undefined) {
         return reference;
       }
@@ -506,7 +508,7 @@ function getImportedModuleExport(
   const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(moduleSymbol, false, options);
   const exportSymbol = checker.getExportsOfModule(resolvedModuleSymbol, options)
     .find((candidate) => candidate?.Name === exportName);
-  const sourceFile = ast.getSourceFile(exportSymbol?.ValueDeclaration ?? exportSymbol?.Declarations?.[0]);
+  const sourceFile = ast.getSourceFile(getPrimaryDeclaration(checker, exportSymbol));
   return exportSymbol === undefined || sourceFile === undefined ? undefined : { symbol: exportSymbol, sourceFile };
 }
 

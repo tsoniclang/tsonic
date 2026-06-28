@@ -81,7 +81,7 @@ export function createTargetSourceAnalysisQueries(
       const signature = getResolvedSignatureForNode(subject, options);
       return signature === undefined
         ? undefined
-        : signature.parameters.map(getPrimaryDeclaration);
+        : signature.parameters.map((parameter) => getPrimaryDeclaration(checker, parameter));
     },
     getResolvedCallParameterTypes(subject, options) {
       const signature = getResolvedSignatureForNode(subject, options);
