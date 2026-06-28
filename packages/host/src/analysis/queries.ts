@@ -1,14 +1,15 @@
 import type {
   AstReader,
   ExtensionFactSubject,
+  Signature,
   SourceFile,
   TypeCheckerQueries,
   TypeShapeQueries,
 } from "@tsonic/tsts";
 import type { TargetSourceAnalysisQueries } from "@tsonic/target-api";
 import {
-  createLazyTargetSourceAnalysis,
-} from "@tsonic/target-api";
+  createHostLazySourceAnalysis,
+} from "./lazy.js";
 import { asNode, asSymbol } from "./guards.js";
 import {
   getProjectSourceDeclarationForNode,
@@ -31,7 +32,7 @@ export function createTargetSourceAnalysisQueries(
   sourceFiles: readonly SourceFile[],
 ): TargetSourceAnalysisQueries {
   const projectSourceMethodDispatchCache = new WeakMap<object, ReturnType<TargetSourceAnalysisQueries["getProjectSourceMethodDispatch"]> | null>();
-  const lazy = createLazyTargetSourceAnalysis(ast, checker, sourceFiles);
+  const lazy = createHostLazySourceAnalysis(ast, checker, sourceFiles);
   return {
     lazy,
     getSymbolName(subject) {
@@ -81,13 +82,13 @@ export function createTargetSourceAnalysisQueries(
       const signature = getResolvedSignatureForNode(subject, options);
       return signature === undefined
         ? undefined
-        : signature.parameters.map((parameter) => getPrimaryDeclaration(checker, parameter));
+        : checker.getSignatureParameters(signature).map((parameter) => getPrimaryDeclaration(checker, parameter));
     },
     getResolvedCallParameterTypes(subject, options) {
       const signature = getResolvedSignatureForNode(subject, options);
       return signature === undefined
         ? undefined
-        : signature.parameters.map((parameter) => checker.getTypeOfSymbol(parameter, options));
+        : checker.getSignatureParameters(signature).map((parameter) => checker.getTypeOfSymbol(parameter, options));
     },
     getEnumMemberConstant(subject, options) {
       const node = asNode(subject);
@@ -142,7 +143,7 @@ export function createTargetSourceAnalysisQueries(
   function getResolvedSignatureForNode(
     subject: ExtensionFactSubject | undefined,
     options: { readonly sourceFile: SourceFile },
-  ) {
+  ): Signature | undefined {
     const node = asNode(subject);
     return node === undefined ? undefined : checker.getResolvedSignature(node, options);
   }
