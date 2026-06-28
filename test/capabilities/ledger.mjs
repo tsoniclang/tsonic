@@ -134,7 +134,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["tsts.generic-inference", "TSTS owns source generic inference", "partial", "tsts-api"],
   ["tsts.overload-resolution", "TSTS owns source overload resolution", "partial", "tsts-api"],
   ["tsts.consumer-queries", "Backends consume stable public TSTS queries", "partial", "tsts-api"],
-  ["tsts.package.public-root-artifact", "TSTS package is consumed as a root-only dist artifact", "partial", "tsts-api"],
+  ["tsts.package.public-root-artifact", "TSTS package is consumed as a root-only dist artifact", "complete", "tsts-api"],
   ["tsts.no-target-overrides", "Extensions cannot rescue invalid TypeScript", "complete", "tsts-api"],
   ["tsts.program.create-with-extensions", "Create TSTS compiler session with extensions", "partial", "tsts-api"],
   ["tsts.type-query.flow-narrowed-type", "Query flow-narrowed type at a source node", "partial", "tsts-api"],
@@ -1140,18 +1140,20 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Host, source-core, target-api, and backends import @tsonic/tsts root exports only; generated declarations, vendored source trees, and internal subpath imports are not semantic input.",
     positiveTests: Object.freeze([
+      "test/tsts-package-artifact.test.mjs",
       "test/cli/surface-composition.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/tsts-package-artifact.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/capability-ledger.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "tsts.package.public-root-artifact remains partial until package publishing/install smoke tests and old product-unit evidence are mapped to the root-only TSTS package contract.",
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current host tests assert packages/tsts/src and packages/tsts/tsonic.json are absent while package.json and dist artifacts exist, and capability-ledger validation rejects current proof paths or product imports that drift back to internal TSTS source/subpaths. This proves the worktree root-only package artifact contract, not npm publish/install behavior.",
+      "Reviewed proof: root-package smoke imports @tsonic/tsts and @tsonic/tsts/index.js from the vendored package artifact, rejects internal dist/src and src subpath imports through package exports, asserts package scripts/source/tooling project files are absent, and verifies dist entrypoints plus bundled libs exist. Old TSTS source-program evidence is mapped to the current root-only TSTS package contract.",
   }),
   "tsts.type-query.flow-narrowed-type": Object.freeze({
     positiveTests: Object.freeze([

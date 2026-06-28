@@ -376,6 +376,7 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
     "host.graph.source-files",
     "host.project.module-graph",
     "module.graph.source-files",
+    "tsts.package.public-root-artifact",
     "tsts.program.create-with-extensions",
   ]),
   ...reviewedOldProductUnitDeferredCapabilityMapping([

@@ -629,10 +629,12 @@ test("current TSTS evidence does not point at retired source-tree tests", () => 
     entry.capabilityId === "tsts.package.public-root-artifact"
   );
   assert.notEqual(publicRootArtifact, undefined);
-  assert.equal(publicRootArtifact.status, "partial");
+  assert.equal(publicRootArtifact.status, "complete");
+  assert.ok(publicRootArtifact.positiveTests.includes("test/tsts-package-artifact.test.mjs"));
   assert.ok(publicRootArtifact.positiveTests.includes("test/cli/surface-composition.test.mjs"));
+  assert.ok(publicRootArtifact.negativeTests.includes("test/tsts-package-artifact.test.mjs"));
   assert.ok(publicRootArtifact.negativeTests.includes("test/capability-ledger.test.mjs"));
-  assert.match(publicRootArtifact.notes, /root-only package artifact contract/);
+  assert.match(publicRootArtifact.notes, /root-package smoke imports @tsonic\/tsts/);
 });
 
 test("product code imports TSTS through the public package root only", () => {
