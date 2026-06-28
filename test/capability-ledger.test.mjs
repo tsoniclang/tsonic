@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import test from "node:test";
 import {
   capabilityCompatRuntimeCarriers,
@@ -271,6 +273,7 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "host.project.clean-rebuild",
     "host.project.top-level-initialization-order",
     "tsts.program.create-with-extensions",
+    "tsts.package.public-root-artifact",
     "tsts.type-query.flow-narrowed-type",
     "tsts.diagnostic.provider-sourced",
     "provider.module.virtual-import",
@@ -605,6 +608,49 @@ test("complete capability proof references current positive and negative tests",
       assert.equal(oldPathSet.has(negativeTest), false, `${entry.capabilityId} uses old evidence as negative proof: ${negativeTest}`);
     }
   }
+});
+
+test("current TSTS evidence does not point at retired source-tree tests", () => {
+  const staleCurrentEvidence = [];
+
+  for (const entry of capabilityLedger) {
+    for (const fieldName of ["positiveTests", "negativeTests"]) {
+      for (const testPath of entry[fieldName]) {
+        if (testPath.startsWith("packages/tsts/src/")) {
+          staleCurrentEvidence.push(`${entry.capabilityId}.${fieldName}: ${testPath}`);
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(staleCurrentEvidence, []);
+
+  const publicRootArtifact = capabilityLedger.find((entry) =>
+    entry.capabilityId === "tsts.package.public-root-artifact"
+  );
+  assert.notEqual(publicRootArtifact, undefined);
+  assert.equal(publicRootArtifact.status, "partial");
+  assert.ok(publicRootArtifact.positiveTests.includes("test/cli/surface-composition.test.mjs"));
+  assert.ok(publicRootArtifact.negativeTests.includes("test/capability-ledger.test.mjs"));
+  assert.match(publicRootArtifact.notes, /root-only package artifact contract/);
+});
+
+test("product code imports TSTS through the public package root only", () => {
+  const violations = [];
+  const scannedRoots = [
+    "packages/host/src",
+    "packages/source-core/src",
+    "packages/target-api/src",
+  ];
+
+  for (const sourceFile of scannedRoots.flatMap(sourceFilesUnder)) {
+    const text = readFileSync(sourceFile, "utf8");
+    for (const match of text.matchAll(/["'](@tsonic\/tsts\/[^"']+)["']/gu)) {
+      violations.push(`${relative(process.cwd(), sourceFile)}: ${match[1]}`);
+    }
+  }
+
+  assert.deepEqual(violations, []);
 });
 
 test("complete surface capabilities require fact/backend/runtime evidence gates", () => {
@@ -976,6 +1022,22 @@ function assertValidLaneBehavior(entry, fieldName, behavior) {
   assert.equal(typeof behavior, "object", `${entry.capabilityId} missing ${fieldName} lane behavior`);
   assert.equal(typeof behavior.lane, "string", `${entry.capabilityId} ${fieldName}.lane must be a string`);
   assert.equal(capabilityLaneSet.has(behavior.lane), true, `${entry.capabilityId} ${fieldName}.lane is invalid: ${behavior.lane}`);
+}
+
+function sourceFilesUnder(root) {
+  const absoluteRoot = join(process.cwd(), root);
+  const entries = readdirSync(absoluteRoot).sort();
+  const files = [];
+  for (const entry of entries) {
+    const absolutePath = join(absoluteRoot, entry);
+    const stats = statSync(absolutePath);
+    if (stats.isDirectory()) {
+      files.push(...sourceFilesUnder(relative(process.cwd(), absolutePath)));
+    } else if (/\.[cm]?tsx?$/u.test(entry)) {
+      files.push(absolutePath);
+    }
+  }
+  return files;
 }
 
 function capabilityEntry({
