@@ -39,6 +39,9 @@ export type {
   TargetSourceUseOperation,
   TargetSourceUseRecord,
 } from "./analysis/types.js";
+export {
+  createLazyTargetSourceAnalysis,
+} from "./analysis/lazy.js";
 export type {
   TargetBackend,
   TargetBackendContext,

@@ -17,12 +17,7 @@ import type {
   TargetSourceReferenceRecord,
   TargetSourceUseOperation,
   TargetSourceUseRecord,
-} from "@tsonic/target-api";
-import {
-  getAliasedSymbolIfAlias,
-  isTypeReferenceQuery,
-} from "./symbols.js";
-
+} from "./types.js";
 export type HostSourceOccurrence = "value" | "type" | "namespace" | "import" | "export";
 
 export type HostSourceUseKind =
@@ -150,7 +145,7 @@ export interface HostLazySourceAnalysis extends TargetLazySourceAnalysis {
   summaryOf(functionNode: Node): HostFunctionSummary;
 }
 
-export function createHostLazySourceAnalysis(
+export function createLazyTargetSourceAnalysis(
   ast: AstReader,
   checker: TypeCheckerQueries,
   sourceFiles: readonly SourceFile[],
@@ -1389,3 +1384,31 @@ const writeOperators = new Set([
   "||=",
   "??=",
 ]);
+
+const symbolFlagsAlias = 1 << 21;
+
+function getAliasedSymbolIfAlias(
+  checker: TypeCheckerQueries,
+  symbol: Symbol | undefined,
+  options: { readonly sourceFile: SourceFile },
+): Symbol | undefined {
+  return symbol !== undefined && (symbol.Flags & symbolFlagsAlias) !== 0
+    ? checker.getAliasedSymbol(symbol, options)
+    : undefined;
+}
+
+function isTypeReferenceQuery(ast: AstReader, node: Node): boolean {
+  if (ast.is.IsTypeReferenceNode(node) || ast.is.IsTypeAliasDeclaration(node) || ast.is.IsInterfaceDeclaration(node)) {
+    return true;
+  }
+  let parent = ast.parent(node);
+  let current: Node | undefined = node;
+  while (parent !== undefined && ast.is.IsQualifiedName(parent)) {
+    current = parent;
+    parent = ast.parent(parent);
+  }
+  if (parent === undefined || !ast.is.IsTypeReferenceNode(parent)) {
+    return false;
+  }
+  return ast.as.AsTypeReferenceNode(parent)?.TypeName === current;
+}

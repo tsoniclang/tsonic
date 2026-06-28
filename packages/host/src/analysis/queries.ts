@@ -8,8 +8,8 @@ import type {
 } from "@tsonic/tsts";
 import type { TargetSourceAnalysisQueries } from "@tsonic/target-api";
 import {
-  createHostLazySourceAnalysis,
-} from "./lazy.js";
+  createLazyTargetSourceAnalysis,
+} from "@tsonic/target-api";
 import { asNode, asSymbol } from "./guards.js";
 import {
   getProjectSourceDeclarationForNode,
@@ -32,7 +32,7 @@ export function createTargetSourceAnalysisQueries(
   sourceFiles: readonly SourceFile[],
 ): TargetSourceAnalysisQueries {
   const projectSourceMethodDispatchCache = new WeakMap<object, ReturnType<TargetSourceAnalysisQueries["getProjectSourceMethodDispatch"]> | null>();
-  const lazy = createHostLazySourceAnalysis(ast, checker, sourceFiles);
+  const lazy = createLazyTargetSourceAnalysis(ast, checker, sourceFiles);
   return {
     lazy,
     getSymbolName(subject) {
