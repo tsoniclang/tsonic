@@ -871,7 +871,7 @@ export class ExtensionHost {
     }
     #registerTargetSemanticProviderObservations(extensionId, provider) {
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.validateTargetConstraint, provider.validateTargetConstraint);
-        registerProviderObservation(this, extensionId, ExtensionObservationPoint.validatePostCheckAssignability, provider.validatePostCheckAssignability);
+        registerProviderObservation(this, extensionId, ExtensionObservationPoint.observePostCheckAssignability, provider.observePostCheckAssignability);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedCall, provider.mapCheckedCall);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget, provider.mapInferredSourceTypeArgumentsToTarget);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedPropertyAccess, provider.mapCheckedPropertyAccess);
@@ -1119,37 +1119,69 @@ function renderProviderDeclarationModel(model) {
 }
 function renderProviderImportDeclaration(declaration) {
     const typePrefix = declaration.typeOnly === true ? "type " : "";
+    const defaultImport = declaration.defaultImport;
     if (declaration.namespaceImport !== undefined) {
-        return `import ${typePrefix}* as ${declaration.namespaceImport} from ${JSON.stringify(declaration.moduleSpecifier)};`;
+        const defaultPrefix = defaultImport === undefined ? "" : `${defaultImport}, `;
+        return `import ${typePrefix}${defaultPrefix}* as ${declaration.namespaceImport} from ${JSON.stringify(declaration.moduleSpecifier)};`;
     }
     const namedImports = declaration.namedImports ?? [];
+    if (namedImports.length === 0 && defaultImport !== undefined) {
+        return `import ${typePrefix}${defaultImport} from ${JSON.stringify(declaration.moduleSpecifier)};`;
+    }
     const names = namedImports.map((request) => request.localName !== undefined && request.localName !== request.exportedName
         ? `${request.exportedName} as ${request.localName}`
         : request.exportedName).join(", ");
-    return `import ${typePrefix}{ ${names} } from ${JSON.stringify(declaration.moduleSpecifier)};`;
+    const defaultPrefix = defaultImport === undefined ? "" : `${defaultImport}, `;
+    return `import ${typePrefix}${defaultPrefix}{ ${names} } from ${JSON.stringify(declaration.moduleSpecifier)};`;
 }
 function renderProviderExportDeclaration(declaration) {
     const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? []);
+    const exportName = getProviderExportName(declaration);
+    const isDefault = exportName === "default" || declaration.exportKind === "default";
+    const canInlineDefault = isDefault && canRenderInlineDefaultProviderExport(declaration.kind);
+    const directNamedExport = !isDefault && exportName === declaration.name;
+    const declarationPrefix = directNamedExport
+        ? "export declare "
+        : canInlineDefault
+            ? "export default "
+            : "declare ";
+    const typePrefix = directNamedExport ? "export " : "";
+    const localTypePrefix = directNamedExport ? "export " : "";
+    let rendered;
     switch (declaration.kind) {
         case "class":
-            return `export declare class ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "class")} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+            rendered = `${declarationPrefix}class ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "class")} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+            break;
         case "interface":
-            return `export interface ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "interface")} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+            rendered = `${canInlineDefault ? "export default " : localTypePrefix}interface ${declaration.name}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "interface")} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+            break;
         case "function":
-            return renderProviderSignatures(declaration.name, declaration.signatures ?? [])
-                .map((signature) => `export declare function ${signature}`)
+            rendered = renderProviderSignatures(declaration.name, declaration.signatures ?? [])
+                .map((signature) => `${canInlineDefault ? "export default " : declarationPrefix}function ${signature}`)
                 .join("\n");
+            break;
         case "type":
-            return `export type ${declaration.name}${typeParameters} = ${renderProviderTypeExpression(declaration.type)};`;
+            rendered = `${typePrefix}type ${declaration.name}${typeParameters} = ${renderProviderTypeExpression(declaration.type)};`;
+            break;
         case "value":
-            return `export declare const ${declaration.name}: ${renderProviderTypeExpression(declaration.type)};`;
+            rendered = `${declarationPrefix}const ${declaration.name}: ${renderProviderTypeExpression(declaration.type)};`;
+            break;
         case "namespace":
-            return `export declare namespace ${declaration.name} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+            rendered = `${declarationPrefix}namespace ${declaration.name} {\n${renderProviderMembers(declaration.members ?? [])}\n}`;
+            break;
         case "enum":
-            return `export declare enum ${declaration.name} {\n${(declaration.members ?? []).map((member) => `  ${member.name},`).join("\n")}\n}`;
+            rendered = `${declarationPrefix}enum ${declaration.name} {\n${(declaration.members ?? []).map((member) => `  ${renderProviderPropertyName(member.name)},`).join("\n")}\n}`;
+            break;
         case "opaque":
-            return `export declare const ${declaration.name}: unique symbol;`;
+            rendered = `${declarationPrefix}const ${declaration.name}: unique symbol;`;
+            break;
     }
+    if (directNamedExport || canInlineDefault) {
+        return rendered;
+    }
+    return isDefault
+        ? `${rendered}\nexport default ${declaration.name};`
+        : `${rendered}\nexport { ${declaration.name} as ${exportName} };`;
 }
 function renderProviderHeritage(heritage, declarationKind) {
     const extendsTypes = heritage.filter((clause) => clause.kind === "extends").map((clause) => renderProviderTypeExpression(clause.type));
@@ -1168,19 +1200,55 @@ function renderProviderMember(member) {
     const staticPrefix = member.static === true ? "static " : "";
     const readonlyPrefix = member.readonly === true ? "readonly " : "";
     const optionalSuffix = member.optional === true ? "?" : "";
+    const name = renderProviderPropertyName(member.name);
     switch (member.kind) {
         case "constructor":
             return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }]).join("\n  ");
         case "method":
-            return renderProviderSignatures(member.name, member.signatures ?? []).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
+            return renderProviderSignatures(name, member.signatures ?? []).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
         case "property":
         case "field":
-            return `${staticPrefix}${readonlyPrefix}${member.name}${optionalSuffix}: ${renderProviderTypeExpression(member.type)};`;
+            return `${staticPrefix}${readonlyPrefix}${name}${optionalSuffix}: ${renderProviderTypeExpression(member.type)};`;
         case "indexer": {
             const signature = member.signatures[0];
             const parameter = signature.parameters[0];
             return `[${renderProviderParameter(parameter)}]: ${renderProviderTypeExpression(signature.returnType)};`;
         }
+    }
+}
+function canRenderInlineDefaultProviderExport(kind) {
+    return kind === "class" || kind === "interface" || kind === "function" || kind === "enum";
+}
+function getProviderExportName(declaration) {
+    return declaration.exportKind === "default" ? "default" : declaration.exportName ?? declaration.name;
+}
+function renderProviderPropertyName(name) {
+    if (typeof name === "string") {
+        return name;
+    }
+    switch (name.kind) {
+        case "identifier":
+            return name.text;
+        case "string-literal":
+            return JSON.stringify(name.text);
+        case "number-literal":
+            return JSON.stringify(name.value);
+        case "well-known-symbol":
+            return `[Symbol.${name.name}]`;
+    }
+}
+function getProviderPropertyNameText(name) {
+    if (typeof name === "string") {
+        return name;
+    }
+    switch (name.kind) {
+        case "identifier":
+        case "string-literal":
+            return name.text;
+        case "number-literal":
+            return String(name.value);
+        case "well-known-symbol":
+            return `Symbol.${name.name}`;
     }
 }
 function renderProviderSignatures(name, signatures) {
@@ -1239,9 +1307,12 @@ function renderProviderTypeExpression(type) {
         case "literal":
             return type.value === null ? "null" : JSON.stringify(type.value);
         case "provider-ref":
+            const providerRefName = type.namespaceImport === undefined
+                ? type.localName ?? type.exportName
+                : `${type.namespaceImport}.${type.exportName}`;
             return type.typeArguments === undefined || type.typeArguments.length === 0
-                ? type.exportName
-                : `${type.exportName}<${type.typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
+                ? providerRefName
+                : `${providerRefName}<${type.typeArguments.map(renderProviderTypeExpression).join(", ")}>`;
     }
 }
 function renderSourcePrimitiveType(name) {
@@ -1314,11 +1385,13 @@ function isValidProviderDeclarationModel(value, resolution) {
 }
 function isValidProviderImportDeclaration(value) {
     const hasNamespace = value.namespaceImport !== undefined;
+    const hasDefault = value.defaultImport !== undefined;
     const namedImports = value.namedImports ?? [];
     return value.moduleSpecifier.length > 0
+        && (value.defaultImport === undefined || isIdentifierText(value.defaultImport))
         && (value.namespaceImport === undefined || isIdentifierText(value.namespaceImport))
         && namedImports.every(isValidProviderRequestedExport)
-        && (hasNamespace || namedImports.length > 0)
+        && (hasDefault || hasNamespace || namedImports.length > 0)
         && !(hasNamespace && namedImports.length > 0);
 }
 function isValidProviderRequestedExport(value) {
@@ -1329,6 +1402,7 @@ function isValidProviderRequestedExport(value) {
 function isValidProviderExportDeclaration(value) {
     return value.id.length > 0
         && isIdentifierText(value.name)
+        && isValidProviderExportName(value)
         && hasRequiredProviderExportShape(value)
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
         && (value.typeParameters ?? []).every(isValidProviderTypeParameterDeclaration)
@@ -1337,6 +1411,19 @@ function isValidProviderExportDeclaration(value) {
         && (value.kind === "enum"
             ? (value.members ?? []).every(isValidProviderEnumMemberDeclaration)
             : (value.members ?? []).every(isValidProviderMemberDeclaration));
+}
+function isValidProviderExportName(value) {
+    const exportName = getProviderExportName(value);
+    if (value.exportKind !== undefined && value.exportKind !== "named" && value.exportKind !== "default") {
+        return false;
+    }
+    if (value.exportKind === "default" && value.exportName !== undefined && value.exportName !== "default") {
+        return false;
+    }
+    if (exportName !== "default" && !isIdentifierText(exportName)) {
+        return false;
+    }
+    return exportName !== "default" || value.kind !== "type" && value.kind !== "namespace";
 }
 function isValidProviderHeritageDeclaration(value) {
     return (value.kind === "extends" || value.kind === "implements")
@@ -1361,13 +1448,13 @@ function hasRequiredProviderExportShape(value) {
 }
 function isValidProviderMemberDeclaration(value) {
     return value.id.length > 0
-        && (value.kind === "constructor" || isIdentifierText(value.name))
+        && (value.kind === "constructor" || isValidProviderPropertyName(value.name))
         && hasRequiredProviderMemberShape(value)
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
         && (value.signatures ?? []).every(isValidProviderSignatureDeclaration);
 }
 function isValidProviderEnumMemberDeclaration(value) {
-    return value.id.length > 0 && isIdentifierText(value.name);
+    return value.id.length > 0 && isValidProviderPropertyName(value.name);
 }
 function hasRequiredProviderMemberShape(value) {
     switch (value.kind) {
@@ -1440,7 +1527,11 @@ function isValidProviderTypeExpression(value) {
             return true;
         case "provider-ref":
             return value.moduleSpecifier.length > 0
-                && isIdentifierText(value.exportName)
+                && (isIdentifierText(value.exportName) || value.exportName === "default")
+                && (value.localName === undefined || isIdentifierText(value.localName))
+                && (value.namespaceImport === undefined || isIdentifierText(value.namespaceImport))
+                && !(value.localName !== undefined && value.namespaceImport !== undefined)
+                && (value.exportName !== "default" || value.localName !== undefined || value.namespaceImport !== undefined)
                 && (value.typeArguments ?? []).every(isValidProviderTypeExpression);
         case "opaque":
             return value.id.length > 0
@@ -1450,6 +1541,41 @@ function isValidProviderTypeExpression(value) {
 }
 function isIdentifierText(text) {
     return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(text);
+}
+function isValidProviderPropertyName(name) {
+    if (typeof name === "string") {
+        return isIdentifierText(name);
+    }
+    switch (name.kind) {
+        case "identifier":
+            return isIdentifierText(name.text);
+        case "string-literal":
+            return name.text.length > 0;
+        case "number-literal":
+            return Number.isFinite(name.value);
+        case "well-known-symbol":
+            return isProviderWellKnownSymbolName(name.name);
+    }
+}
+function isProviderWellKnownSymbolName(name) {
+    switch (name) {
+        case "asyncIterator":
+        case "hasInstance":
+        case "isConcatSpreadable":
+        case "iterator":
+        case "match":
+        case "matchAll":
+        case "replace":
+        case "search":
+        case "species":
+        case "split":
+        case "toPrimitive":
+        case "toStringTag":
+        case "unscopables":
+            return true;
+        default:
+            return false;
+    }
 }
 function isKnownSourcePrimitive(name) {
     switch (name) {

@@ -1,5 +1,5 @@
 import { NewGoStructMap } from "../../go/compat.js";
-import { recordExtensionPostCheckAssignabilityValidation } from "../../extensions/checker-integration.js";
+import { recordExtensionPostCheckAssignabilityObservation } from "../../extensions/checker-integration.js";
 import { Node_Name } from "../ast/spine.js";
 import { Node_ModifierFlags } from "../ast/ast.js";
 import { NewDiagnosticChain, Diagnostic_SetRelatedInfo, Diagnostic_AddRelatedInfo } from "../ast/diagnostic.js";
@@ -889,7 +889,10 @@ export function Checker_reportDiagnostic(receiver, diagnostic, diagnosticOutput)
  */
 export function Checker_checkTypeAssignableToAndOptionallyElaborate(receiver, source, target, errorNode, expr, headMessage, diagnosticOutput) {
     const coreAssignable = Checker_checkTypeRelatedToAndOptionallyElaborate(receiver, source, target, receiver.assignableRelation, errorNode, expr, headMessage, diagnosticOutput);
-    return coreAssignable && recordExtensionPostCheckAssignabilityValidation(receiver, source, target, errorNode, expr, "assignment");
+    if (coreAssignable) {
+        recordExtensionPostCheckAssignabilityObservation(receiver, source, target, errorNode, expr, "assignment");
+    }
+    return coreAssignable;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/relater.go::method::Checker.checkTypeRelatedToAndOptionallyElaborate","kind":"method","status":"implemented","sigHash":"3be8c70b5de92c27dbd732a2715271d8d1f11bddde43258ac9bc64bddbe4f952","bodyHash":"4435d044edba7a4f83ee4486f165036629f497be74b0b8cb6bbfe4e8297943ee"}

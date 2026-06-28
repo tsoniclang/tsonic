@@ -28,6 +28,7 @@ test("vendored TSTS is a package artifact, not a checked-in source project", asy
   );
   await access(resolve(repoRoot, "packages/tsts/package.json"));
   await access(resolve(repoRoot, "packages/tsts/dist/src/index.js"));
+  await access(resolve(repoRoot, "packages/tsts/dist/src/internal/bundled/libs_generated.d.ts"));
   await access(resolve(repoRoot, "packages/tsts/dist/src/internal/bundled/libs/lib.es2024.full.d.ts"));
 });
 

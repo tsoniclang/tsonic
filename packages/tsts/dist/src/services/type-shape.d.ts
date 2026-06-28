@@ -3,7 +3,15 @@ import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Program } from "../internal/compiler/program.js";
 import type { Context } from "../go/context.js";
-import type { IndexInfo, Signature, Type } from "../internal/checker/types.js";
+import type { Signature, Type } from "../internal/checker/types.js";
+export interface TypeIndexInfo {
+    readonly keyType: GoPtr<Type>;
+    readonly valueType: GoPtr<Type>;
+    readonly readonly: boolean;
+    readonly declaration: GoPtr<Node>;
+    readonly symbol: GoPtr<Symbol>;
+    readonly components: readonly GoPtr<Node>[];
+}
 export interface TypeShapeQueryOptions {
     readonly context?: Context;
     readonly sourceFile?: GoPtr<SourceFile>;
@@ -36,7 +44,7 @@ export interface TypeShapeQueries {
     readonly getCallSignatures: (type: GoPtr<Type>, options?: TypeShapeQueryOptions) => readonly GoPtr<Signature>[];
     readonly getConstructSignatures: (type: GoPtr<Type>, options?: TypeShapeQueryOptions) => readonly GoPtr<Signature>[];
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>, options?: TypeShapeQueryOptions) => GoPtr<Type>;
-    readonly getIndexInfos: (type: GoPtr<Type>, options?: TypeShapeQueryOptions) => readonly GoPtr<IndexInfo>[];
+    readonly getIndexInfos: (type: GoPtr<Type>, options?: TypeShapeQueryOptions) => readonly TypeIndexInfo[];
     readonly getApparentType: (type: GoPtr<Type>, options?: TypeShapeQueryOptions) => GoPtr<Type>;
     readonly getWidenedType: (type: GoPtr<Type>, options?: TypeShapeQueryOptions) => GoPtr<Type>;
     readonly removeMissingOrUndefined: (type: GoPtr<Type>, options?: TypeShapeQueryOptions) => GoPtr<Type>;

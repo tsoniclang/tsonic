@@ -3,7 +3,7 @@ import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Kind } from "../internal/ast/generated/kinds.js";
 import * as casts from "../internal/ast/generated/casts.js";
 import * as predicates from "../internal/ast/generated/predicates.js";
-import type { ModifierFlags } from "../internal/ast/modifierflags.js";
+export type AstModifierKind = "public" | "private" | "protected" | "readonly" | "override" | "export" | "abstract" | "ambient" | "static" | "async" | "default" | "const";
 export interface AstReader {
     readonly kind: (node: GoPtr<Node>) => Kind | undefined;
     readonly kindName: (node: GoPtr<Node>) => string;
@@ -22,8 +22,14 @@ export interface AstReader {
     readonly elements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly properties: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly modifiers: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
-    readonly modifierFlags: (node: GoPtr<Node>) => ModifierFlags;
-    readonly hasModifier: (node: GoPtr<Node>, flags: ModifierFlags) => boolean;
+    readonly modifierFlags: (node: GoPtr<Node>) => number;
+    readonly hasModifier: (node: GoPtr<Node>, flags: number) => boolean;
+    readonly hasModifierKind: (node: GoPtr<Node>, kind: AstModifierKind) => boolean;
+    readonly heritageElements: (node: GoPtr<Node>, kind: "extends" | "implements") => readonly GoPtr<Node>[];
+    readonly extendsHeritageElements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
+    readonly implementsHeritageElements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
+    readonly isTypeOnlyImportDeclaration: (node: GoPtr<Node>) => boolean;
+    readonly isTypeOnlyImportOrExportDeclaration: (node: GoPtr<Node>) => boolean;
     readonly pos: (node: GoPtr<Node>) => number;
     readonly end: (node: GoPtr<Node>) => number;
     readonly getSourceFile: (node: GoPtr<Node>) => GoPtr<SourceFile>;

@@ -57,7 +57,7 @@ export interface ExtensionCompilerQueryContext {
 }
 export declare const ExtensionObservationPoint: {
     readonly validateTargetConstraint: "target.validateConstraint";
-    readonly validatePostCheckAssignability: "target.validatePostCheckAssignability";
+    readonly observePostCheckAssignability: "target.observePostCheckAssignability";
     readonly mapCheckedCall: "operation.mapCheckedCall";
     readonly mapInferredSourceTypeArgumentsToTarget: "operation.mapInferredSourceTypeArgumentsToTarget";
     readonly mapCheckedPropertyAccess: "operation.mapCheckedPropertyAccess";
@@ -79,7 +79,7 @@ export interface TargetConstraintValidationRequest {
     readonly constraint: TargetConstraint;
     readonly target?: string;
 }
-export interface PostCheckAssignabilityValidationRequest {
+export interface PostCheckAssignabilityObservationRequest {
     readonly source: ExtensionFactSubject;
     readonly target: ExtensionFactSubject;
     readonly relation?: "assignment" | "constraint" | "return" | "argument";
@@ -201,9 +201,9 @@ export interface ExtensionObservationMap {
         readonly request: TargetConstraintValidationRequest;
         readonly result: boolean;
     };
-    readonly [ExtensionObservationPoint.validatePostCheckAssignability]: {
-        readonly request: PostCheckAssignabilityValidationRequest;
-        readonly result: boolean;
+    readonly [ExtensionObservationPoint.observePostCheckAssignability]: {
+        readonly request: PostCheckAssignabilityObservationRequest;
+        readonly result: void;
     };
     readonly [ExtensionObservationPoint.mapCheckedCall]: {
         readonly request: CheckedCallMappingRequest;

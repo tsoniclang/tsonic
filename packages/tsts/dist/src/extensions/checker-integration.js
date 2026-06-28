@@ -263,13 +263,13 @@ export function recordExtensionContextualTargetTypeFact(checker, expression, con
         ...(result.value.targetType !== undefined ? { targetType: result.value.targetType } : {}),
     }, result.evidence ?? []);
 }
-export function recordExtensionPostCheckAssignabilityValidation(checker, source, target, errorNode, expression, relation) {
+export function recordExtensionPostCheckAssignabilityObservation(checker, source, target, errorNode, expression, relation) {
     if (checker === undefined || source === undefined || target === undefined) {
-        return true;
+        return;
     }
     const extensionHost = getExtensionHost(checker.program);
-    if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.validatePostCheckAssignability) === undefined) {
-        return true;
+    if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.observePostCheckAssignability) === undefined) {
+        return;
     }
     if (!hasExtensionOwnedSubject(extensionHost, source)
         && !hasExtensionOwnedSubject(extensionHost, target)
@@ -277,20 +277,16 @@ export function recordExtensionPostCheckAssignabilityValidation(checker, source,
         && !hasExtensionOwnedSubject(extensionHost, target?.symbol)
         && !hasExtensionOwnedSubject(extensionHost, errorNode)
         && !hasExtensionOwnedSubject(extensionHost, expression)) {
-        return true;
+        return;
     }
-    const result = extensionHost.runObservation(ExtensionObservationPoint.validatePostCheckAssignability, {
+    extensionHost.runObservation(ExtensionObservationPoint.observePostCheckAssignability, {
         source,
         target,
         ...(relation !== undefined ? { relation } : {}),
         ...(errorNode !== undefined ? { errorNode } : {}),
         ...(expression !== undefined ? { expression } : {}),
         ...(extensionHost.activeTarget !== undefined ? { targetPlatform: extensionHost.activeTarget } : {}),
-    }, () => true, { requireOwner: true });
-    if (result.kind !== "accept") {
-        return true;
-    }
-    return true;
+    }, () => undefined, { requireOwner: true });
 }
 export function recordExtensionFlowUseValidation(checker, useSite, symbol) {
     if (checker === undefined || useSite === undefined || symbol === undefined) {

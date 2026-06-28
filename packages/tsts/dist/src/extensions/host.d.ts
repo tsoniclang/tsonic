@@ -188,6 +188,21 @@ export interface ProviderModuleResolution {
     readonly evidence?: readonly ExtensionEvidence[];
 }
 export type ProviderDeclarationKind = "type" | "value" | "namespace" | "function" | "class" | "interface" | "enum" | "opaque";
+export type ProviderExportKind = "named" | "default";
+export type ProviderPropertyName = string | {
+    readonly kind: "identifier";
+    readonly text: string;
+} | {
+    readonly kind: "string-literal";
+    readonly text: string;
+} | {
+    readonly kind: "number-literal";
+    readonly value: number;
+} | {
+    readonly kind: "well-known-symbol";
+    readonly name: ProviderWellKnownSymbolName;
+};
+export type ProviderWellKnownSymbolName = "asyncIterator" | "hasInstance" | "isConcatSpreadable" | "iterator" | "match" | "matchAll" | "replace" | "search" | "species" | "split" | "toPrimitive" | "toStringTag" | "unscopables";
 export interface ProviderTypeParameterDeclaration {
     readonly name: string;
     readonly constraints?: readonly ProviderTypeExpression[];
@@ -249,6 +264,8 @@ export type ProviderTypeExpression = {
     readonly kind: "provider-ref";
     readonly moduleSpecifier: string;
     readonly exportName: string;
+    readonly localName?: string;
+    readonly namespaceImport?: string;
     readonly typeArguments?: readonly ProviderTypeExpression[];
 } | {
     readonly kind: "opaque";
@@ -273,7 +290,7 @@ export interface ProviderSignatureDeclaration {
 }
 export interface ProviderMemberDeclaration {
     readonly id: string;
-    readonly name: string;
+    readonly name: ProviderPropertyName;
     readonly kind: "method" | "constructor" | "property" | "field" | "indexer";
     readonly static?: boolean;
     readonly readonly?: boolean;
@@ -285,6 +302,8 @@ export interface ProviderMemberDeclaration {
 export interface ProviderExportDeclaration {
     readonly id: string;
     readonly name: string;
+    readonly exportName?: string;
+    readonly exportKind?: ProviderExportKind;
     readonly kind: ProviderDeclarationKind;
     readonly targetIdentity?: TargetIdentity;
     readonly type?: ProviderTypeExpression;
@@ -296,6 +315,7 @@ export interface ProviderExportDeclaration {
 }
 export interface ProviderImportDeclaration {
     readonly moduleSpecifier: string;
+    readonly defaultImport?: string;
     readonly namedImports?: readonly ProviderRequestedExport[];
     readonly namespaceImport?: string;
     readonly typeOnly?: boolean;
@@ -386,7 +406,7 @@ export interface TargetBindingProvider {
 export interface TargetSemanticProvider {
     readonly identity: ProviderIdentity;
     validateTargetConstraint?: ExtensionObservationHook<typeof ExtensionObservationPoint.validateTargetConstraint>;
-    validatePostCheckAssignability?: ExtensionObservationHook<typeof ExtensionObservationPoint.validatePostCheckAssignability>;
+    observePostCheckAssignability?: ExtensionObservationHook<typeof ExtensionObservationPoint.observePostCheckAssignability>;
     mapCheckedCall?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedCall>;
     mapInferredSourceTypeArgumentsToTarget?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget>;
     mapCheckedPropertyAccess?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedPropertyAccess>;

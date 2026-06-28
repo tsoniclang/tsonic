@@ -256,7 +256,6 @@ export function hasParameterlessConstruction(ast: AstReader, classDeclaration: N
 
 const modifierFlagsPrivate = 1 << 1;
 const modifierFlagsStatic = 1 << 8;
-const syntaxKindExtendsKeyword = 95;
 
 export function getProjectSourceMethodDispatch(
   ast: AstReader,
@@ -398,20 +397,10 @@ function getProjectSourceBaseClassDeclaration(
 }
 
 function getBaseClassReferenceNode(ast: AstReader, classDeclaration: Node): Node | undefined {
-  const heritageClauses = ((classDeclaration as { readonly HeritageClauses?: { readonly Nodes?: readonly (Node | undefined)[] } }).HeritageClauses?.Nodes ?? []);
-  for (const heritageClauseNode of heritageClauses) {
-    const heritageClause = ast.as.AsHeritageClause(heritageClauseNode);
-    if (heritageClause === undefined) {
-      continue;
-    }
-    if (heritageClause.Token !== syntaxKindExtendsKeyword) {
-      continue;
-    }
-    for (const heritageType of heritageClause.Types?.Nodes ?? []) {
-      const expression = ast.as.AsExpressionWithTypeArguments(heritageType)?.Expression;
-      if (expression !== undefined) {
-        return expression;
-      }
+  for (const heritageType of ast.extendsHeritageElements(classDeclaration)) {
+    const expression = ast.as.AsExpressionWithTypeArguments(heritageType)?.Expression;
+    if (expression !== undefined) {
+      return expression;
     }
   }
   return undefined;

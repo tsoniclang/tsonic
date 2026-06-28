@@ -1,6 +1,6 @@
 export const ExtensionObservationPoint = {
     validateTargetConstraint: "target.validateConstraint",
-    validatePostCheckAssignability: "target.validatePostCheckAssignability",
+    observePostCheckAssignability: "target.observePostCheckAssignability",
     mapCheckedCall: "operation.mapCheckedCall",
     mapInferredSourceTypeArgumentsToTarget: "operation.mapInferredSourceTypeArgumentsToTarget",
     mapCheckedPropertyAccess: "operation.mapCheckedPropertyAccess",
