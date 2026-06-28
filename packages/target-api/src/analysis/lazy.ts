@@ -16,10 +16,15 @@ import {
   visitAnalysisNodes,
 } from "./node-access.js";
 import type {
+  TargetArgumentFlowRecord,
   TargetFunctionSummary,
   TargetLazySourceAnalysis,
+  TargetReturnFlowRecord,
   TargetSourceCallsite,
   TargetSourceCaptureRecord,
+  TargetSourceDeclarationRecord,
+  TargetSourceExportRecord,
+  TargetSourceImportRecord,
   TargetSourceReferenceRecord,
   TargetSourceUseRecord,
 } from "./types.js";
@@ -29,22 +34,46 @@ export function createLazyTargetSourceAnalysis(
   checker: TypeCheckerQueries,
   sourceFiles: readonly SourceFile[],
 ): TargetLazySourceAnalysis {
+  const declarationsCache = new WeakMap<object, readonly TargetSourceDeclarationRecord[]>();
   const referencesCache = new WeakMap<object, readonly TargetSourceReferenceRecord[]>();
   const usesCache = new WeakMap<object, readonly TargetSourceUseRecord[]>();
+  const callsitesCache = new WeakMap<object, readonly TargetSourceCallsite[]>();
+  const constructSitesCache = new WeakMap<object, readonly TargetSourceCallsite[]>();
   const functionSummaryCache = new WeakMap<object, TargetFunctionSummary>();
 
   return {
     referencesOf(symbol) {
       return referencesOf(symbol);
     },
+    declarationsOf(symbol) {
+      return declarationsOf(symbol);
+    },
+    importsOf(symbol) {
+      return importsOf(symbol);
+    },
+    exportsOf(symbol) {
+      return exportsOf(symbol);
+    },
     usesOf(symbol) {
       return usesOf(symbol);
+    },
+    readsOf(symbol) {
+      return usesOf(symbol).filter((use) => use.access === "read");
+    },
+    writesOf(symbol) {
+      return usesOf(symbol).filter((use) => use.access === "write");
     },
     mutationsOf(symbol) {
       return usesOf(symbol).filter((use) => use.access === "write" || use.access === "delete");
     },
+    propertyReadsOn(symbol) {
+      return usesOf(symbol).filter((use) => use.operation === "property" && use.access === "read");
+    },
     propertyWritesOn(symbol) {
       return usesOf(symbol).filter((use) => use.operation === "property" && use.access === "write");
+    },
+    elementReadsOn(symbol) {
+      return usesOf(symbol).filter((use) => use.operation === "element" && use.access === "read");
     },
     elementWritesOn(symbol) {
       return usesOf(symbol).filter((use) => use.operation === "element" && use.access === "write");
@@ -52,21 +81,14 @@ export function createLazyTargetSourceAnalysis(
     callsitesOf(symbol) {
       return callsitesOf(symbol);
     },
+    constructSitesOf(symbol) {
+      return constructSitesOf(symbol);
+    },
     argumentFlowOf(symbol) {
-      if (symbol === undefined) {
-        return [];
-      }
-      return usesOf(symbol)
-        .filter((use): use is TargetSourceUseRecord & { readonly argumentIndex: number; readonly call: Node } =>
-          use.operation === "argument" && use.argumentIndex !== undefined && use.call !== undefined)
-        .map((use) => ({
-          symbol,
-          sourceFile: use.sourceFile,
-          argument: use.node,
-          call: use.call,
-          argumentIndex: use.argumentIndex,
-          selectedSignatureDeclaration: getSelectedSignatureDeclaration(use.call, use.sourceFile),
-        }));
+      return argumentFlowOf(symbol);
+    },
+    returnFlowOf(symbol) {
+      return returnFlowOf(symbol);
     },
     escapesOf(symbol) {
       if (symbol === undefined) {
@@ -89,6 +111,28 @@ export function createLazyTargetSourceAnalysis(
       return summaryOf(functionNode);
     },
   };
+
+  function declarationsOf(symbol: Symbol | undefined): readonly TargetSourceDeclarationRecord[] {
+    if (symbol === undefined) {
+      return [];
+    }
+    const cached = declarationsCache.get(symbol);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const declarations = checker.getSymbolDeclarations(symbol)
+      .flatMap((declaration) => {
+        if (declaration === undefined) {
+          return [];
+        }
+        const sourceFile = ast.getSourceFile(declaration);
+        return sourceFile === undefined
+          ? []
+          : [{ symbol, sourceFile, declaration, name: safeName(declaration) }];
+      });
+    declarationsCache.set(symbol, declarations);
+    return declarations;
+  }
 
   function referencesOf(symbol: Symbol | undefined): readonly TargetSourceReferenceRecord[] {
     if (symbol === undefined) {
@@ -130,9 +174,75 @@ export function createLazyTargetSourceAnalysis(
     return uses;
   }
 
-  function callsitesOf(symbol: Symbol | undefined): readonly TargetSourceCallsite[] {
+  function importsOf(symbol: Symbol | undefined): readonly TargetSourceImportRecord[] {
     if (symbol === undefined) {
       return [];
+    }
+    return declarationsOf(symbol)
+      .map((declaration) => importRecordForDeclaration(declaration))
+      .filter((record): record is TargetSourceImportRecord => record !== undefined);
+  }
+
+  function exportsOf(symbol: Symbol | undefined): readonly TargetSourceExportRecord[] {
+    if (symbol === undefined) {
+      return [];
+    }
+    const exports: TargetSourceExportRecord[] = [];
+    const seen = new Set<string>();
+    for (const declaration of declarationsOf(symbol)) {
+      const exportNode = exportedDeclarationAncestor(declaration.declaration);
+      if (exportNode === undefined) {
+        continue;
+      }
+      pushExportRecord(exports, seen, {
+        symbol,
+        sourceFile: declaration.sourceFile,
+        exportNode,
+        node: declaration.declaration,
+        name: declaration.name,
+        moduleSpecifier: getModuleSpecifier(exportNode),
+        exportKind: safeHasModifierKind(exportNode, "default") ? "default" : "declaration",
+        isTypeOnly: safeIsTypeOnlyImportOrExportDeclaration(exportNode),
+      });
+    }
+    for (const reference of referencesOf(symbol)) {
+      const exportNode = nearestExportDeclaration(reference.node);
+      if (exportNode === undefined) {
+        continue;
+      }
+      pushExportRecord(exports, seen, {
+        symbol,
+        sourceFile: reference.sourceFile,
+        exportNode,
+        node: reference.node,
+        name: reference.node,
+        moduleSpecifier: getModuleSpecifier(exportNode),
+        exportKind: "named",
+        isTypeOnly: safeIsTypeOnlyImportOrExportDeclaration(exportNode) || hasTypeOnlyAncestor(reference.node, exportNode),
+      });
+    }
+    return exports;
+  }
+
+  function callsitesOf(symbol: Symbol | undefined): readonly TargetSourceCallsite[] {
+    return callSitesOfKind(symbol, "call", callsitesCache);
+  }
+
+  function constructSitesOf(symbol: Symbol | undefined): readonly TargetSourceCallsite[] {
+    return callSitesOfKind(symbol, "construct", constructSitesCache);
+  }
+
+  function callSitesOfKind(
+    symbol: Symbol | undefined,
+    kind: "call" | "construct",
+    cache: WeakMap<object, readonly TargetSourceCallsite[]>,
+  ): readonly TargetSourceCallsite[] {
+    if (symbol === undefined) {
+      return [];
+    }
+    const cached = cache.get(symbol);
+    if (cached !== undefined) {
+      return cached;
     }
     const callsites: TargetSourceCallsite[] = [];
     for (const sourceFile of sourceFiles) {
@@ -140,7 +250,7 @@ export function createLazyTargetSourceAnalysis(
         continue;
       }
       visitAnalysisNodes(ast, sourceFile, (node) => {
-        if (!ast.is.IsCallExpression(node) && !ast.is.IsNewExpression(node)) {
+        if (callExpressionKind(node) !== kind) {
           return;
         }
         const callee = asAnalysisNode(getAnalysisNodeField(node, "Expression"));
@@ -152,6 +262,7 @@ export function createLazyTargetSourceAnalysis(
           return;
         }
         callsites.push({
+          kind,
           symbol,
           sourceFile,
           call: node,
@@ -160,7 +271,41 @@ export function createLazyTargetSourceAnalysis(
         });
       });
     }
+    cache.set(symbol, callsites);
     return callsites;
+  }
+
+  function argumentFlowOf(symbol: Symbol | undefined): readonly TargetArgumentFlowRecord[] {
+    if (symbol === undefined) {
+      return [];
+    }
+    return usesOf(symbol)
+      .filter((use): use is TargetSourceUseRecord & { readonly argumentIndex: number; readonly call: Node } =>
+        use.operation === "argument" && use.argumentIndex !== undefined && use.call !== undefined)
+      .map((use) => ({
+        symbol,
+        sourceFile: use.sourceFile,
+        argument: use.node,
+        call: use.call,
+        argumentIndex: use.argumentIndex,
+        selectedSignatureDeclaration: getSelectedSignatureDeclaration(use.call, use.sourceFile),
+      }));
+  }
+
+  function returnFlowOf(symbol: Symbol | undefined): readonly TargetReturnFlowRecord[] {
+    if (symbol === undefined) {
+      return [];
+    }
+    return usesOf(symbol)
+      .filter((use): use is TargetSourceUseRecord & { readonly parent: Node } =>
+        use.operation === "return" && use.parent !== undefined)
+      .map((use) => ({
+        symbol,
+        sourceFile: use.sourceFile,
+        value: use.node,
+        returnStatement: use.parent,
+        functionNode: nearestFunctionLike(use.parent),
+      }));
   }
 
   function capturesOf(symbol: Symbol | undefined): readonly TargetSourceCaptureRecord[] {
@@ -186,6 +331,7 @@ export function createLazyTargetSourceAnalysis(
     }
     const references: TargetSourceReferenceRecord[] = [];
     const calls: TargetSourceCallsite[] = [];
+    const constructs: TargetSourceCallsite[] = [];
     const returns: Node[] = [];
     const sourceFile = ast.getSourceFile(functionNode);
     if (sourceFile === undefined) {
@@ -193,6 +339,7 @@ export function createLazyTargetSourceAnalysis(
         functionNode,
         references,
         calls,
+        constructs,
         returns,
       };
       functionSummaryCache.set(functionNode, summary);
@@ -206,15 +353,25 @@ export function createLazyTargetSourceAnalysis(
         }
       }
       if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
+        const kind = callExpressionKind(node);
+        if (kind === undefined) {
+          return;
+        }
         const callee = asAnalysisNode(getAnalysisNodeField(node, "Expression"));
         const symbol = callee === undefined ? undefined : getSymbolForReference(callee, sourceFile);
-        calls.push({
+        const callsite = {
+          kind,
           symbol,
           sourceFile,
           call: node,
           callee,
           selectedSignatureDeclaration: getSelectedSignatureDeclaration(node, sourceFile),
-        });
+        };
+        if (kind === "construct") {
+          constructs.push(callsite);
+        } else {
+          calls.push(callsite);
+        }
       }
       if (ast.kindName(node) === "KindReturnStatement") {
         returns.push(node);
@@ -225,6 +382,7 @@ export function createLazyTargetSourceAnalysis(
       sourceFile,
       references,
       calls,
+      constructs,
       returns,
     };
     functionSummaryCache.set(functionNode, summary);
@@ -244,20 +402,32 @@ export function createLazyTargetSourceAnalysis(
         expression: parent,
       };
     }
+    const directCall = parentCallOrConstruct(node);
+    if (parent !== undefined && directCall !== undefined) {
+      return {
+        ...reference,
+        operation: directCall.kind,
+        access: "read",
+        parent,
+        expression: parent,
+        call: directCall.node,
+        selectedDeclaration: getSelectedSignatureDeclaration(directCall.node, sourceFile),
+      };
+    }
     if (parent !== undefined && ast.is.IsPropertyAccessExpression(parent) && asAnalysisNode(getAnalysisNodeField(parent, "Expression")) === node) {
       const propertyNameNode = ast.name(parent);
-      const call = parentIsCallCallee(parent);
+      const call = parentCallOrConstruct(parent);
       const propertySymbol = checker.getSymbolAtLocation(parent, { sourceFile }) ?? safeGetResolvedSymbol(parent, sourceFile);
       return {
         ...reference,
-        operation: call === undefined ? "property" : "call",
+        operation: call === undefined ? "property" : call.kind,
         access: isDeleteOperand(parent) ? "delete" : parentIsWriteTarget(parent) ? "write" : "read",
         parent,
         expression: parent,
         propertyName: ast.text(propertyNameNode),
         propertySymbol,
         selectedDeclaration: primaryDeclaration(propertySymbol),
-        call,
+        call: call?.node,
       };
     }
     if (parent !== undefined && ast.is.IsCallExpression(parent) && getAnalysisNodeList(getAnalysisNodeField(parent, "Arguments")).includes(node)) {
@@ -386,13 +556,23 @@ export function createLazyTargetSourceAnalysis(
     return checker.getSymbolDeclarations(symbol).find((declaration): declaration is Node => declaration !== undefined);
   }
 
-  function parentIsCallCallee(node: Node): Node | undefined {
+  function parentCallOrConstruct(node: Node): { readonly kind: "call" | "construct"; readonly node: Node } | undefined {
     const parent = ast.parent(node);
-    return parent !== undefined &&
-      (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) &&
-      asAnalysisNode(getAnalysisNodeField(parent, "Expression")) === node
-      ? parent
-      : undefined;
+    if (parent === undefined || asAnalysisNode(getAnalysisNodeField(parent, "Expression")) !== node) {
+      return undefined;
+    }
+    const kind = callExpressionKind(parent);
+    return kind === undefined ? undefined : { kind, node: parent };
+  }
+
+  function callExpressionKind(node: Node): "call" | "construct" | undefined {
+    if (ast.is.IsCallExpression(node)) {
+      return "call";
+    }
+    if (ast.is.IsNewExpression(node)) {
+      return "construct";
+    }
+    return undefined;
   }
 
   function parentIsWriteTarget(node: Node): boolean {
@@ -464,5 +644,124 @@ export function createLazyTargetSourceAnalysis(
     }
     const kind = ast.kindName(node);
     return kind === "KindObjectBindingPattern" || kind === "KindArrayBindingPattern";
+  }
+
+  function importRecordForDeclaration(declaration: TargetSourceDeclarationRecord): TargetSourceImportRecord | undefined {
+    const importDeclaration = nearestAncestorMatching(declaration.declaration, (node) => ast.is.IsImportDeclaration(node));
+    if (importDeclaration === undefined) {
+      return undefined;
+    }
+    return {
+      ...declaration,
+      importDeclaration,
+      moduleSpecifier: getModuleSpecifier(importDeclaration),
+      importKind: importKindOf(declaration.declaration, importDeclaration),
+      isTypeOnly: safeIsTypeOnlyImportDeclaration(importDeclaration) || hasTypeOnlyAncestor(declaration.declaration, importDeclaration),
+    };
+  }
+
+  function importKindOf(declaration: Node, importDeclaration: Node): "default" | "named" | "namespace" {
+    if (hasAncestorMatching(declaration, importDeclaration, (node) => ast.is.IsNamespaceImport(node))) {
+      return "namespace";
+    }
+    if (hasAncestorMatching(declaration, importDeclaration, (node) => ast.is.IsImportSpecifier(node))) {
+      return "named";
+    }
+    return "default";
+  }
+
+  function exportedDeclarationAncestor(declaration: Node): Node | undefined {
+    let current: Node | undefined = declaration;
+    while (current !== undefined) {
+      if (safeHasModifierKind(current, "export") || safeHasModifierKind(current, "default")) {
+        return current;
+      }
+      current = ast.parent(current);
+    }
+    return undefined;
+  }
+
+  function nearestExportDeclaration(node: Node): Node | undefined {
+    return nearestAncestorMatching(node, (candidate) => ast.is.IsExportDeclaration(candidate));
+  }
+
+  function nearestAncestorMatching(node: Node, predicate: (node: Node) => boolean): Node | undefined {
+    let current: Node | undefined = node;
+    while (current !== undefined) {
+      if (predicate(current)) {
+        return current;
+      }
+      current = ast.parent(current);
+    }
+    return undefined;
+  }
+
+  function hasAncestorMatching(node: Node, stopAt: Node, predicate: (node: Node) => boolean): boolean {
+    let current: Node | undefined = node;
+    while (current !== undefined) {
+      if (predicate(current)) {
+        return true;
+      }
+      if (current === stopAt) {
+        return false;
+      }
+      current = ast.parent(current);
+    }
+    return false;
+  }
+
+  function hasTypeOnlyAncestor(node: Node, stopAt: Node): boolean {
+    return hasAncestorMatching(node, stopAt, (candidate) =>
+      safeIsTypeOnlyImportOrExportDeclaration(candidate) ||
+      (candidate as { readonly IsTypeOnly?: boolean }).IsTypeOnly === true);
+  }
+
+  function getModuleSpecifier(node: Node): Node | undefined {
+    return asAnalysisNode(getAnalysisNodeField(node, "ModuleSpecifier"));
+  }
+
+  function pushExportRecord(
+    exports: TargetSourceExportRecord[],
+    seen: Set<string>,
+    record: TargetSourceExportRecord,
+  ): void {
+    const key = `${ast.getFileName(record.sourceFile)}:${ast.pos(record.exportNode)}:${ast.pos(record.node)}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    exports.push(record);
+  }
+
+  function safeName(node: Node): Node | undefined {
+    try {
+      return asAnalysisNode(ast.name(node));
+    } catch {
+      return undefined;
+    }
+  }
+
+  function safeHasModifierKind(node: Node, kind: "export" | "default"): boolean {
+    try {
+      return ast.hasModifierKind(node, kind);
+    } catch {
+      return false;
+    }
+  }
+
+  function safeIsTypeOnlyImportDeclaration(node: Node): boolean {
+    try {
+      return ast.isTypeOnlyImportDeclaration(node);
+    } catch {
+      return false;
+    }
+  }
+
+  function safeIsTypeOnlyImportOrExportDeclaration(node: Node): boolean {
+    try {
+      return ast.isTypeOnlyImportOrExportDeclaration(node);
+    } catch {
+      return false;
+    }
   }
 }

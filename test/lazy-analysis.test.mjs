@@ -23,14 +23,29 @@ test("lazy generic source analysis returns structural use records without source
   };
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/lib.ts": [
+      "export class ImportedBox {",
+      "  value = 1;",
+      "}",
+      "export const exportedValue = 41;",
+      "",
+    ].join("\n"),
     "src/index.ts": [
+      "import { ImportedBox, exportedValue } from \"./lib.js\";",
+      "export { exportedValue as renamedValue };",
+      "export class LocalBox {",
+      "  value = 1;",
+      "}",
       "export async function analyze(xs: number[], rhs: number[], obj: { xs: number[] }, sink: (value: number[]) => void, promise: Promise<number[]>): Promise<number[]> {",
       "  const [first] = xs;",
+      "  const item = xs[0];",
       "  let assigned = 0;",
       "  [assigned] = rhs;",
       "  const clone = [...xs];",
       "  const objectClone = { ...obj };",
       "  const awaited = await promise;",
+      "  const importedBox = new ImportedBox();",
+      "  const localBox = new LocalBox();",
       "  xs[0] = 1;",
       "  xs.length = 0;",
       "  const captured = () => xs.length;",
@@ -43,6 +58,9 @@ test("lazy generic source analysis returns structural use records without source
       "  void clone;",
       "  void objectClone;",
       "  void awaited;",
+      "  void importedBox.value;",
+      "  void localBox.value;",
+      "  void item;",
       "  return xs;",
       "}",
       "export function* generate(yielded: number[]) {",
@@ -65,6 +83,8 @@ test("lazy generic source analysis returns structural use records without source
   });
   const sourceFile = session.sourceFiles.find((candidate) => session.ast.getFileName(candidate).endsWith("src/index.ts"));
   assert.notEqual(sourceFile, undefined);
+  const libSourceFile = session.sourceFiles.find((candidate) => session.ast.getFileName(candidate).endsWith("src/lib.ts"));
+  assert.notEqual(libSourceFile, undefined);
   const xsName = findParameterName(session.ast, sourceFile, "xs");
   assert.notEqual(xsName, undefined);
   const xsSymbol = session.checker.getSymbolAtLocation(xsName, { sourceFile });
@@ -77,6 +97,18 @@ test("lazy generic source analysis returns structural use records without source
   const sinkName = findParameterName(session.ast, sourceFile, "sink");
   assert.notEqual(sinkName, undefined);
   const sinkSymbol = session.checker.getSymbolAtLocation(sinkName, { sourceFile });
+  const importedBoxName = findImportBindingName(session.ast, sourceFile, "ImportedBox");
+  assert.notEqual(importedBoxName, undefined);
+  const importedBoxSymbol = session.checker.getSymbolAtLocation(importedBoxName, { sourceFile });
+  const importedValueName = findImportBindingName(session.ast, sourceFile, "exportedValue");
+  assert.notEqual(importedValueName, undefined);
+  const importedValueSymbol = session.checker.getSymbolAtLocation(importedValueName, { sourceFile });
+  const localBoxName = findClassName(session.ast, sourceFile, "LocalBox");
+  assert.notEqual(localBoxName, undefined);
+  const localBoxSymbol = session.checker.getSymbolAtLocation(localBoxName, { sourceFile });
+  const exportedValueName = findVariableName(session.ast, libSourceFile, "exportedValue");
+  assert.notEqual(exportedValueName, undefined);
+  const exportedValueSymbol = session.checker.getSymbolAtLocation(exportedValueName, { sourceFile: libSourceFile });
   const promiseName = findParameterName(session.ast, sourceFile, "promise");
   assert.notEqual(promiseName, undefined);
   const promiseSymbol = session.checker.getSymbolAtLocation(promiseName, { sourceFile });
@@ -92,6 +124,9 @@ test("lazy generic source analysis returns structural use records without source
   const uses = analysisInput.analysis.lazy.usesOf(xsSymbol);
   const argumentFlows = analysisInput.analysis.lazy.argumentFlowOf(xsSymbol);
   const sinkCallsites = analysisInput.analysis.lazy.callsitesOf(sinkSymbol);
+  const importedConstructSites = analysisInput.analysis.lazy.constructSitesOf(importedBoxSymbol);
+  const localConstructSites = analysisInput.analysis.lazy.constructSitesOf(localBoxSymbol);
+  const returnFlows = analysisInput.analysis.lazy.returnFlowOf(xsSymbol);
   const escapes = analysisInput.analysis.lazy.escapesOf(xsSymbol);
   const captures = analysisInput.analysis.lazy.capturesOf(xsSymbol);
   const rhsUses = analysisInput.analysis.lazy.usesOf(rhsSymbol);
@@ -99,12 +134,20 @@ test("lazy generic source analysis returns structural use records without source
   const promiseUses = analysisInput.analysis.lazy.usesOf(promiseSymbol);
   const yieldedUses = analysisInput.analysis.lazy.usesOf(yieldedSymbol);
   const summary = analysisInput.analysis.lazy.summaryOf(analyzeFunction);
+  const importedBoxImports = analysisInput.analysis.lazy.importsOf(importedBoxSymbol);
+  const importedValueExports = analysisInput.analysis.lazy.exportsOf(importedValueSymbol);
+  const localBoxExports = analysisInput.analysis.lazy.exportsOf(localBoxSymbol);
+  const libraryValueExports = analysisInput.analysis.lazy.exportsOf(exportedValueSymbol);
 
+  assert.equal(analysisInput.analysis.lazy.elementReadsOn(xsSymbol).length, 1);
   assert.equal(analysisInput.analysis.lazy.elementWritesOn(xsSymbol).length, 1);
+  assert.equal(analysisInput.analysis.lazy.propertyReadsOn(xsSymbol).filter((use) => use.propertyName === "length").length, 1);
   assert.deepEqual(
     analysisInput.analysis.lazy.propertyWritesOn(xsSymbol).map((use) => [use.propertyName, use.access]),
     [["length", "write"]],
   );
+  assert.equal(analysisInput.analysis.lazy.writesOf(xsSymbol).filter((use) => use.operation === "property" || use.operation === "element").length, 2);
+  assert.ok(analysisInput.analysis.lazy.readsOf(xsSymbol).some((use) => use.operation === "return"));
   assert.ok(uses.some((use) => use.operation === "iteration" && use.access === "read"));
   assert.ok(uses.some((use) => use.operation === "destructure" && use.access === "read"));
   assert.ok(uses.some((use) => use.operation === "spread" && use.access === "read"));
@@ -117,14 +160,28 @@ test("lazy generic source analysis returns structural use records without source
   assert.equal(argumentFlows.length, 1);
   assert.equal(argumentFlows[0].argumentIndex, 0);
   assert.equal(sinkCallsites.length, 1);
+  assert.equal(sinkCallsites[0].kind, "call");
   assert.equal(session.ast.text(sinkCallsites[0].callee), "sink");
+  assert.equal(importedConstructSites.length, 1);
+  assert.equal(importedConstructSites[0].kind, "construct");
+  assert.equal(localConstructSites.length, 1);
+  assert.equal(returnFlows.length, 1);
+  assert.equal(session.ast.kindName(returnFlows[0].functionNode), "KindFunctionDeclaration");
   assert.ok(escapes.some((escape) => escape.operation === "argument"));
   assert.ok(escapes.some((escape) => escape.operation === "return"));
   assert.equal(captures.length, 1);
   assert.equal(session.ast.kindName(captures[0].functionNode), "KindArrowFunction");
   assert.equal(summary.returns.length, 1);
   assert.equal(summary.calls.length, 2);
+  assert.equal(summary.constructs.length, 2);
   assert.ok(summary.references.length >= uses.length);
+  assert.deepEqual(importedBoxImports.map((record) => [record.importKind, record.isTypeOnly]), [["named", false]]);
+  assert.equal(importedValueExports.length, 1);
+  assert.equal(importedValueExports[0].exportKind, "named");
+  assert.equal(localBoxExports.length, 1);
+  assert.equal(localBoxExports[0].exportKind, "declaration");
+  assert.equal(libraryValueExports.length, 1);
+  assert.equal(libraryValueExports[0].exportKind, "declaration");
   assert.equal(uses.some((use) => "arrayClear" in use || "carrierLane" in use || "targetMember" in use), false);
 });
 
@@ -184,6 +241,60 @@ function findFunctionName(ast, sourceFile, name) {
       const functionName = ast.name(node);
       if (ast.text(functionName) === name) {
         return functionName;
+      }
+    }
+    stack.push(...ast.children(node));
+  }
+  return undefined;
+}
+
+function findClassName(ast, sourceFile, name) {
+  const stack = [sourceFile];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === undefined) {
+      continue;
+    }
+    if (ast.is.IsClassDeclaration(node)) {
+      const className = ast.name(node);
+      if (ast.text(className) === name) {
+        return className;
+      }
+    }
+    stack.push(...ast.children(node));
+  }
+  return undefined;
+}
+
+function findVariableName(ast, sourceFile, name) {
+  const stack = [sourceFile];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === undefined) {
+      continue;
+    }
+    if (ast.is.IsVariableDeclaration(node)) {
+      const variableName = ast.name(node);
+      if (ast.text(variableName) === name) {
+        return variableName;
+      }
+    }
+    stack.push(...ast.children(node));
+  }
+  return undefined;
+}
+
+function findImportBindingName(ast, sourceFile, name) {
+  const stack = [sourceFile];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === undefined) {
+      continue;
+    }
+    if (ast.is.IsImportSpecifier(node)) {
+      const importedName = ast.name(node);
+      if (ast.text(importedName) === name) {
+        return importedName;
       }
     }
     stack.push(...ast.children(node));
