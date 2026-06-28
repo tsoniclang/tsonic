@@ -2232,6 +2232,10 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
       "  return Number.MAX_VALUE + Number.MIN_VALUE + Number.MIN_SAFE_INTEGER + Number.POSITIVE_INFINITY + Number.NEGATIVE_INFINITY + Number.NaN + Number.EPSILON;",
       "}",
       "",
+      "export function formatted(value: number, digits: int32, locale: string): string {",
+      "  return value.toFixed(digits) + value.toExponential(digits) + value.toPrecision(digits) + value.toLocaleString(locale);",
+      "}",
+      "",
       "export function converted(text: string, count: int32): number {",
       "  return Number(text) + Number(count) + Number();",
       "}",
@@ -2260,6 +2264,10 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.NEGATIVE_INFINITY/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.NaN/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.EPSILON/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toFixed\(value, digits\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toExponential\(value, digits\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toPrecision\(value, digits\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toLocaleString\(value, locale\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(text\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(count\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(\)/);
