@@ -289,19 +289,19 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["surface.js.console", "JS console operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.console-log", "console.log uses selected JS surface facts", "complete", "surface-provider"],
-  ["surface.js.array-methods", "JS array methods use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.array-methods", "JS array methods use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "complete", "surface-provider"],
-  ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
-  ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
+  ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "complete", "surface-provider"],
+  ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "complete", "surface-provider"],
   ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
-  ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.string-methods", "JS string methods use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods and conversion calls use selected JS surface facts", "complete", "surface-provider"],
-  ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
-  ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
-  ["surface.js.map-set", "Map and Set use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "complete", "surface-provider"],
+  ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "complete", "surface-provider"],
+  ["surface.js.map-set", "Map and Set use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
-  ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
@@ -3005,7 +3005,29 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed partial proof: CLI evidence compiles ordinary source int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads, List<int> for dense mutation and array returns, and a JSArray<int> local only for delete/hole semantics. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
   }),
   "surface.js.array-methods": Object.freeze({
+    sourceExamples: Object.freeze([
+      "values.includes(value)",
+      "values.indexOf(value, start)",
+      "values.at(index) ?? fallback",
+      "values.map((value, index, source) => value + index)",
+      "Array.from(values)",
+      "Array.of(left, right)",
+    ]),
+    tstsDecision:
+      "TSTS validates the JavaScript Array declarations, selected member/signature, callback contextual types, overload, generic substitution, and result source type. The JS surface maps only from that selected declaration/signature identity plus finalized receiver/argument carrier facts.",
+    providerFacts: Object.freeze([
+      "selectedJsArrayMemberDeclaration",
+      "selectedJsArrayMemberSignature",
+      "arrayReceiverCarrierFact",
+      "arrayArgumentCarrierFact",
+      "arrayCallbackSignatureFact",
+      "arrayResultCarrierFact",
+      "selectedTargetSignatureFact",
+    ]),
+    backendContract:
+      "C# emits Array helpers only from finalized selected target operation facts. It must not rediscover Array members from source names, infer callback arity in the backend, choose List/JSArray/native-array carriers from TS spelling, or emit unsupported/fallback calls when facts are missing.",
     positiveTests: Object.freeze([
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
@@ -3021,11 +3043,35 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-array-from-map-keys/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.array-methods remains partial until every Array callback, iterator, immutable-copy method, native-array-boundary, CLI/toolchain output shape, runtime artifact, and fail-closed unsupported lane is covered by sub-capability evidence.",
-    ]),
+    blockers: Object.freeze([]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JSArray<T> carriers only when sparse/full-JS facts require that lane. Covered length/index access, concat/includes/index/search/slice/join helpers, nullish-producing at/pop/shift/find/findLast value/reference helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, array for-in, full-JS JSArray helper rows for push/pop/shift/unshift/at/includes/index/search/join/slice/splice/reverse/fill/copyWithin/immutable-copy/keys/values/entries/callback methods, and runtime evidence that helper entrypoints preserve holes. No-surface array mutators and sparse delete/length mutation fail closed without selected surface facts. Length/index reads are tracked under surface.js.array.length-index; sparse/delete/hole/length-mutation semantics remain partial under surface.js.array.sparse-delete-holes; Array constructor coverage is tracked under surface.js.array-constructor; explicit CLR arrays remain partial under native.dotnet.array.explicit.",
+      "Reviewed proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, and closed JSArray<T> carriers only when sparse/full-JS facts require that lane. Current provider tests prove selected declaration/signature identity for concat, Array.from/of/isArray, at, map, push, iterator/copy methods, full-JS JSArray members, callback arities, and fail-closed missing receiver/argument facts. CLI tests dotnet-build length/index, concat/includes/index/search/slice/join helpers, nullish-producing at/pop/shift/find/findLast value/reference helpers, callback methods, destructuring/rest, spread, Array.from, Array.of, Array.isArray, sparse delete, and length mutation. Runtime tests prove SameValueZero includes, strict indexOf/lastIndexOf, nullish at/pop/shift/find/findLast, immutable-copy methods, callbacks, iterators, and hole preservation for JSArray carriers. Array for-in remains tracked separately by operation.iteration.for-in.keys. No-surface array mutators and sparse operations fail closed before artifact emission. Explicit CLR arrays remain tracked separately under native.dotnet.array.explicit.",
   }),
   "surface.js.array-constructor": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3098,6 +3144,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# length/index emission uses Count, Length, or indexer only from selected array operation facts; missing receiver, declaration, or index facts fail before emission.",
     positiveTests: Object.freeze([
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
@@ -3113,9 +3160,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-index-dotnet/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.array.length-index remains partial until length assignment/truncation/growth, readonly vs mutable receiver policies, native-array length bridges, every integer conversion lane, and runtime behavior are proven or rejected with exact diagnostics.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-array-length-index-operation",
       possibleLanes: Object.freeze(["static-native", "compat-runtime", "hard-reject"]),
@@ -3160,8 +3205,35 @@ const reviewedCapabilityEvidence = Object.freeze({
         ]),
       },
     }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+        "test/cli-build/e2e-runtime-language.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+        "test/cli-build/e2e-runtime-language.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS surface Array.length and element access map only from the standard-library declaration plus finalized array receiver carrier facts; provider tests defer when the declaration or carrier is absent, reject non-integral indexes, and finalize source-level element operation facts from carrier evidence before backend emission. CLI tests emit IReadOnlyList<T>.Count/List indexer, JSArray<T>.setLength for full-JS length mutation, and native byte[].Length only when selected facts exist, and reject native array length or element access without those facts.",
+      "Reviewed proof: selected JS surface Array.length and element access map only from the standard-library declaration plus finalized array receiver carrier facts. Provider tests defer when the declaration or carrier is absent, reject non-integral indexes, finalize source-level element operation facts from carrier evidence, and prove value-producing length assignment as JSArray.setLength when full-JS carrier facts are present. CLI tests emit IReadOnlyList<T>.Count, List<T> indexers, JSArray<T>.length/setLength, native byte[].Length only when explicit native-array facts exist, and reject native or no-surface length/index access without selected facts. Runtime tests prove JSArray length truncation, growth with holes, negative at indexes, out-of-range undefined/nullish carriers, delete-created holes, and dense helper behavior.",
   }),
   "surface.js.array.sparse-delete-holes": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3191,9 +3263,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/array-constructor/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.array.sparse-delete-holes remains partial until supported sparse array construction, supported hole-presence operators, iteration over holes, JSON/stringification interactions, assignment-value-position length mutation, and complete fail-closed diagnostics across native CLR and dense List carriers are proven.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-array-sparse-hole-semantics",
       possibleLanes: Object.freeze(["compat-runtime", "hard-reject"]),
@@ -3225,8 +3295,31 @@ const reviewedCapabilityEvidence = Object.freeze({
         ]),
       },
     }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/provider-dotnet.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS surface delete and Array.length mutation on TypeScript arrays now require a closed JSArray carrier and emit JSArray.deleteAt/setLength through finalized operation facts, while no-surface sparse operations reject before emission. Surface-boundary tests classify `index in values` as requiring the full-JS carrier before the unsupported operator fails closed, and sparse array literal elisions produce an exact planner diagnostic before dense lowering can compact holes. Runtime JSArray tests prove hole preservation across callbacks, search, copying, concat, flat, and flatMap. Remaining supported sparse/hole runtime lanes stay blocked rather than approximated with List<T>, IReadOnlyList<T>, or CLR T[].",
+      "Reviewed proof: selected JS surface delete and Array.length mutation on TypeScript arrays require a closed JSArray carrier and emit JSArray.deleteAt/setLength only through finalized operation facts. No-surface sparse operations reject before artifact emission. Surface-boundary tests classify `index in values` as requiring the full-JS carrier before unsupported operator diagnostics, prove assignment-value-position length mutation facts, and reject missing carriers. CLI tests dotnet-build sparse delete plus length mutation through JSArray and reject delete/length mutation without selected JS facts. Runtime JSArray tests prove hole creation, length truncation/growth, hole-vs-default distinction, callbacks skipping holes, search semantics over holes, copying, concat, flat, flatMap, at returning JSUndefined for holes/out-of-range, and includes treating holes as undefined while indexOf skips them. Dense List<T>, IReadOnlyList<T>, and CLR T[] carriers do not approximate sparse/delete/hole semantics; missing facts are hard rejects.",
   }),
   "analysis.abstraction.policy-enforcement": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3447,8 +3540,30 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed proof: the C# architecture validator now has an explicit procedural-policy-file rule. The negative test proves final-forbidden filenames are rejected, while the positive side proves renamed final modules such as target-selection.ts, array-use-rules.ts, member-providers.ts, receiver-facts.ts, and source-identity.ts are accepted. This closes the policy-file loophole instead of treating renamed procedural policy as compliant.",
   }),
   "surface.js.string-methods": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const upper = value.trim().toUpperCase();",
+      "const parts = value.split(\",\");",
+      "const converted = String(value);",
+      "const wrapper = new String(value);",
+    ]),
+    tstsDecision:
+      "TSTS validates string primitive member access, StringConstructor call/construct signatures, and selected JS surface declarations. The JS surface provider may only map those selected declarations/signatures after closed receiver or argument facts exist.",
+    providerFacts: Object.freeze([
+      "selectedJsStringDeclaration",
+      "selectedJsStringConstructorDeclaration",
+      "closedStringReceiverFact",
+      "closedStringConversionArgumentFact",
+      "selectedStringTargetSignature",
+      "stringArrayReturnCarrierFact",
+      "unsupportedStringExactnessDiagnosticFact",
+      "unsupportedStringWrapperDiagnosticFact",
+    ]),
+    backendContract:
+      "C# emits selected System.String/runtime-helper/Globals.String calls only from finalized JS string operation facts. String.raw, match, matchAll, wrapper construction, source-spelling selection, and native string fallbacks without selected facts are diagnostics.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -3460,8 +3575,92 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-string-array-returns/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
+    blockers: Object.freeze([]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "js-string-method-or-conversion",
+      possibleLanes: Object.freeze(["static-native", "compat-runtime", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-string-prototype-declaration",
+          "selected-js-string-constructor-declaration",
+          "closed-string-receiver-target-type",
+          "closed-string-conversion-argument-target-type",
+          "selected-string-target-signature",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-selected-js-surface",
+          "missing-string-prototype-declaration",
+          "missing-string-constructor-declaration",
+          "missing-closed-string-receiver",
+          "missing-closed-string-conversion-argument",
+          "missing-selected-target-signature",
+          "unsupported-string-exactness-lane",
+          "unsupported-string-wrapper-carrier",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-string-prototype-declaration",
+          "selected-js-string-constructor-declaration",
+          "closed-string-receiver-target-type",
+          "closed-string-conversion-argument-target-type",
+          "selected-string-target-signature",
+        ]),
+        operation: "emit-selected-js-string-method-or-conversion",
+      },
+      compat: {
+        lane: "compat-runtime",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-surface-runtime",
+          "closed-js-string-helper-fact",
+          "string-array-return-carrier-fact",
+        ]),
+        runtimeCarrier: "SelectedSurfaceRuntime",
+        operation: "emit-selected-js-string-runtime-helper",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "receiver-not-closed-string",
+          "conversion-argument-not-closed",
+          "unsupported-string-exactness-lane",
+          "string-wrapper-carrier-not-exposed",
+          "source-spelling-only",
+        ]),
+      },
+    }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, selected string instance/helper calls including trim/toUpperCase chaining, normalize/locale case/localeCompare/search/well-formed helpers, split returning the selected JS surface List<string> array-return ABI, Object.toString delegation for closed string primitive receivers, and fail-closed rejection without closed string receiver facts. Runtime tests prove the corresponding Tsonic.CSharp.Js.String helpers; CLI evidence dotnet-builds selected string calls through runtime helpers. String.raw, match, and matchAll are explicitly hard-rejected through selected source identities until template-object, RegExp coercion, RegExpMatchArray, iterator, group, and lastIndex semantics have closed runtime facts. Remains partial until String.raw/match/matchAll exact lanes and String object wrapper/constructor surface conversions have positive and negative runtime coverage.",
+      "Reviewed proof: selected JS surface facts cover string element access, code-point for-of, selected string instance/helper calls including trim/toUpperCase chaining, normalize/locale case/localeCompare/search/well-formed helpers, split returning the selected JS surface List<string> array-return ABI, Object.toString delegation for closed string primitive receivers, and fail-closed rejection without closed string receiver facts. String(value) and zero-argument String() now map only from selected StringConstructor call identity plus closed conversion argument facts to Tsonic.CSharp.Js.Globals.String, with runtime tests proving explicit undefined/null conversion remains distinct from the zero-argument empty string result. new String(value) is deliberately hard-rejected until an explicit wrapper-object carrier exists, so wrapper construction never falls back to object/dynamic/native string semantics. String.raw, match, and matchAll are explicitly hard-rejected through selected source identities until template-object, RegExp coercion, RegExpMatchArray, iterator, group, and lastIndex semantics have closed runtime facts. CLI evidence dotnet-builds selected string calls and conversions through finalized facts and asserts no InvalidExpression, __unsupported, dynamic/reflection, or source-spelling fallback appears in generated output.",
   }),
   "surface.js.boolean-methods": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3579,9 +3778,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "export function fromNumber(value: number): string { return value.toString(); }",
       "const root: { count: number } = { count: 2 }; return root.count.toString();",
       "export function fromPrimitive(value: int32): string { return value.toString(); }",
+      "export function fromPrimitiveRadix(value: int32, radix: int32): string { return value.toString(radix); }",
       "export function fromStatic(value: number): boolean { return Number.isFinite(value) && Number.isInteger(value); }",
       "export function fromParsed(value: string): number { return Number.parseFloat(value) + Number.MAX_SAFE_INTEGER; }",
       "export function converted(value: string): number { return Number(value) + Number(); }",
+      "export function locale(value: number, locale: string): string { return value.toLocaleString(locale); }",
+      "export function wrapper(value: number): Number { return new Number(value); }",
     ]),
     tstsDecision:
       "TSTS validates Number primitive member calls, Number static calls, and Number static properties against selected JS surface declarations; the surface provider must prove selected Number declarations plus closed receiver or argument facts before target facts are finalized.",
@@ -3589,8 +3791,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "selectedJsNumberDeclaration",
       "numberPrimitiveReceiverFact",
       "numberToStringOperationFact",
+      "numberIntegralRadixToStringOperationFact",
       "numberStaticOperationFact",
       "numberStaticPropertyFact",
+      "numberLocaleFormattingUnsupportedDiagnosticFact",
+      "numberWrapperUnsupportedDiagnosticFact",
       "selectedTargetSignatureFact",
     ]),
     backendContract:
@@ -3598,6 +3803,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NumberTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -3607,9 +3813,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.number-methods remains partial until radix-aware Number.prototype.toString(radix), exact -0 formatting/runtime edge cases, wrapper-object conversions, and every unsupported numeric formatting lane are implemented or deliberately rejected with focused positive and negative coverage.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-number-operation",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -3626,6 +3830,8 @@ const reviewedCapabilityEvidence = Object.freeze({
           "missing-number-declaration",
           "missing-closed-number-receiver-or-argument",
           "missing-selected-target-signature-or-property",
+          "unsupported-number-locale-formatting-lane",
+          "unsupported-number-wrapper-carrier",
         ]),
       },
       staticNative: {
@@ -3643,13 +3849,39 @@ const reviewedCapabilityEvidence = Object.freeze({
         reasons: Object.freeze([
           "missing-required-facts",
           "unsupported-number-operation",
+          "unsupported-number-locale-formatting-lane",
+          "number-wrapper-carrier-not-exposed",
           "receiver-or-argument-not-closed-number",
           "source-spelling-only",
         ]),
       },
     }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NumberTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: tsonic-csharp surface-boundary evidence maps Number.toString/valueOf only from selected Number declaration identity plus closed number receiver facts, maps Object.toString delegation for closed number primitive receivers, rejects missing and non-number receiver facts, maps Number(value)/Number() primitive conversion from selected NumberConstructor declaration identity while rejecting new Number(value) wrapper construction without a closed wrapper carrier, maps Number.toFixed/toExponential/toPrecision/toLocaleString from selected Number declaration identity plus closed receiver/argument facts, and maps Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and Number constants only from selected NumberConstructor declarations. csharp-js runtime tests prove invariant toString/valueOf behavior, Number conversion no-argument/null/string/integral behavior, Number constants, static predicate helpers for double/int/long and nullable integral receivers, formatting helpers, and invalid precision diagnostics. The tsonic CLI test emits primitive number toString/valueOf, object-shape number property toString, int32 toString, Number(value)/Number(), Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, Number.toFixed/toExponential/toPrecision/toLocaleString, and all current Number constants through selected C# JS runtime facts and dotnet-builds the generated project. Negative evidence rejects Number methods without the JS surface, without closed number receiver facts, with non-number closed receivers, and rejects new Number(value) wrapper construction. Remaining gaps are radix-aware Number.prototype.toString(radix), exact -0 formatting/runtime behavior, and wrapper-object carrier conversions.",
+      "Reviewed proof: tsonic-csharp surface-boundary evidence maps Number.toString/valueOf only from selected Number declaration identity plus closed number receiver facts, maps integral Number.toString(radix) only from selected Number declaration identity plus closed int32 receiver/radix facts, rejects radix formatting for non-integral number receiver facts, maps Object.toString delegation for closed number primitive receivers, rejects missing and non-number receiver facts, maps Number(value)/Number() primitive conversion from selected NumberConstructor declaration identity while rejecting new Number(value) wrapper construction without a closed wrapper carrier, maps Number.toFixed/toExponential/toPrecision from selected Number declaration identity plus closed receiver/argument facts, hard-rejects Number.toLocaleString until closed Intl.NumberFormat-compatible locale/options facts and runtime metadata exist, and maps Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and Number constants only from selected NumberConstructor declarations. csharp-js runtime tests prove invariant toString/valueOf behavior, exact -0 toString output, integral radix toString behavior and invalid radix diagnostics, Number conversion no-argument/null/string/integral behavior, Number constants, static predicate helpers for double/int/long and nullable integral receivers, formatting helpers, and invalid precision diagnostics. The tsonic CLI test emits primitive number toString/valueOf, integral int32 toString(radix), object-shape number property toString, int32 toString, Number(value)/Number(), Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, Number.toFixed/toExponential/toPrecision, and all current Number constants through selected C# JS runtime facts and dotnet-builds the generated project. Negative evidence rejects Number methods without the JS surface, without closed number receiver facts, with non-number closed receivers, rejects Number.toString(radix) for non-integral number receiver facts, rejects Number.toLocaleString without exact Intl facts, and rejects new Number(value) wrapper construction. Generated output is asserted free of InvalidExpression, __unsupported, dynamic/reflection, CLR ToString fallback, and source-spelling selection.",
   }),
   "surface.js.console": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3837,11 +4069,37 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed proof: console.log maps to Tsonic.CSharp.Js.console.log only from the selected bundled Console.log declaration and only when every argument has finalized closed target facts. Missing argument facts reject in the surface provider instead of boxing unknown values. Without the selected JS surface, CLI evidence fails before artifact creation with a missing selected target signature diagnostic. Runtime evidence proves the Tsonic.CSharp.Js.console.log entrypoint accepts multiple closed argument carriers without throwing. CLI evidence emits multi-argument console.log with closed string/number/bool facts, dotnet-builds the generated project, and asserts no unsupported/invalid fallback output.",
   }),
   "surface.js.math-json-regexp": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const encoded = JSON.stringify(JSON.parse(text));",
+      "const matched = /user:/i.test(input);",
+      "return Math.max(values.length, 1);",
+    ]),
+    tstsDecision:
+      "TSTS validates Math, JSON, and RegExp source operations only through selected JS standard-library declarations; unselected, foreign, or unsupported same-spelling declarations do not provide target facts.",
+    providerFacts: Object.freeze([
+      "selectedJsMathDeclarationFact",
+      "selectedJsJsonDeclarationFact",
+      "selectedJsRegExpDeclarationFact",
+      "closedJsonCarrierFact",
+      "closedRegExpReceiverCarrierFact",
+      "surfaceTargetOperationFact",
+    ]),
+    backendContract:
+      "C# emits Tsonic.CSharp.Js.Math, JSON, and RegExp runtime operations only from finalized selected-surface operation facts with closed numeric, string, JSON-value, or RegExp carrier evidence; missing facts must diagnose before artifact creation.",
+    runtimeContract:
+      "The C# JS runtime implements closed Math functions/constants, JSON parse/stringify carriers, RegExp construction/literals/test/exec/properties, and rejects open CLR object serialization instead of using reflection or dynamic fallback.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/RegExpTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -3851,12 +4109,41 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-inline-stringify/",
       "test/fixtures/json-native-typed-stringify/",
     ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/RegExpTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations including zero-argument max/min JS semantics, RegExp literal/constructor/test/property carriers with C# build coverage, and JSON parse/stringify direct surface facts with closed TsValue carriers. Remains partial until nested JSON carrier flow and every RegExp operation have selected-surface facts and runtime/toolchain tests; Map and Set are tracked separately by surface.js.map-set; Date is tracked separately by surface.js.date.",
+      "Reviewed proof: Math maps selected standard-library methods/constants through provider metadata to Tsonic.CSharp.Js.Math, including zero-argument max/min semantics, current-library rejection for f16round, closed numeric-argument validation, CLI emission, dotnet build, and runtime tests. JSON maps selected JSON.parse and JSON.stringify through closed carrier facts only: primitive stringify, JSObject/JSArray/TsValue stringify, nested JSON.stringify(JSON.parse(value)) carrier propagation before finalization, rejection when JSON carriers are missing or mutated away, runtime round-trip tests, and rejection of open CLR object serialization. RegExp maps selected constructor/literal/test/exec/toString/source/flags/global/hasIndices/ignoreCase/multiline/dotAll/unicode/unicodeSets/sticky/lastIndex operations through closed RegExp carriers with provider and runtime tests; missing receiver facts reject without source-spelling fallback. CLI evidence emits and builds Math, JSON, and RegExp runtime operations and asserts no unsupported/invalid/dynamic/reflection fallback output. Map and Set are tracked separately by surface.js.map-set; Date is tracked separately by surface.js.date.",
   }),
   "surface.js.map-set": Object.freeze({
     sourceExamples: Object.freeze([
       "const counts = new Map<string, number>(); counts.set(\"alpha\", 1);",
+      "counts.get(key) ?? fallback;",
       "const names = new Set<string>(); names.add(\"alpha\");",
       "const keys = Array.from(counts.keys());",
     ]),
@@ -3932,12 +4219,33 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
       "test/fixtures/map-set-not-in-globals/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.map-set remains partial until no-surface Map/Set name-resolution diagnostics, Map.get nullish expected-target threading, Map/Set iterable constructor overloads, entries/values/size/delete/clear/forEach operations, and complete runtime/toolchain edge coverage are proven.",
-      "surface.js.map-set cannot be complete until evidence proves each operation's selected static-native versus compat-runtime lane, rejects missing finalized lane facts, and records that Dictionary<K,V>, HashSet<T>, and Map<K,V> where K : notnull with CLR equality do not claim full JS Map/Set compatibility.",
-    ]),
+    blockers: Object.freeze([]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MapTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/SetTests.cs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: current provider evidence maps selected Map/Set declarations, constructors, set/get/has/delete/clear/keys/values/entries/add calls, size properties, and collection iterator carriers through compat-runtime policy metadata with js-same-value-zero equality semantics; no static-native Dictionary/HashSet carrier is selected by the normal JS surface. Current csharp-js runtime evidence proves insertion order, overwrite keeps order, delete/re-add order, NaN key/value equality, +0/-0 equality, null and JSUndefined keys/values when represented, and object keys/values by reference identity rather than structural Equals. Current CLI/toolchain evidence compiles TypeScript new Map<string, int32>(), set/get/has, new Set<string>(), add/has, and Array.from(counts.keys()) to Tsonic.CSharp.Js.Map, Tsonic.CSharp.Js.Set, and Tsonic.CSharp.Js.Array.from, then dotnet-builds the generated C# project. Negative evidence rejects missing closed collection carrier facts in provider tests and asserts generated CLI output contains no InvalidExpression, __unsupported, dynamic/reflection, Dictionary/HashSet substitution, or unqualified Map/Set constructor spelling. The lane ledger distinguishes static-native Map/Set from compat-runtime Map/Set, requires SameValueZero/equality metadata for full JS compatibility, and forces missing lane facts or unsupported selected operations into hard-reject diagnostics rather than CLR Dictionary/HashSet fallback. The focused CLI proof intentionally keeps Map.get as int32 | undefined because Map.get(key) ?? fallback currently belongs to the separate nullish expected-target blocker. The old Map/Set fixtures stay mapped as regression evidence and blockers, not completion proof.",
+      "Reviewed proof: current provider evidence maps selected Map/Set declarations, empty and iterable constructors, set/get/has/delete/clear/keys/values/entries/add/forEach calls, size properties, and collection iterator carriers through compat-runtime policy metadata with js-same-value-zero equality semantics; no static-native Dictionary/HashSet carrier is selected by the normal JS surface. Current csharp-js runtime evidence proves constructor overloads, size, set/add chaining, get/has/delete/clear, keys/values/entries, forEach callback shapes, insertion order, overwrite keeps order, delete/re-add order, NaN key/value equality, +0/-0 equality, null and JSUndefined keys/values when represented, object keys/values by reference identity rather than structural Equals, and typed Map.get helper behavior that preserves zero while distinguishing missing keys for value-type nullish paths. Current CLI/toolchain evidence compiles TypeScript new Map<string, int32>(), set/get/has/delete/clear/forEach/entries/values/size, new Map(source.entries()), new Set(source.values()), new Set<string>(), add/has/delete/clear/forEach/keys/values/entries/size, and Array.from(counts.keys()) to Tsonic.CSharp.Js.Map, Tsonic.CSharp.Js.Set, and Tsonic.CSharp.Js.Array.from, then dotnet-builds the generated C# projects. Negative evidence rejects no-surface Map/Set declarations before artifact emission, rejects missing closed collection carrier facts in provider tests, and asserts generated CLI output contains no InvalidExpression, __unsupported, dynamic/reflection, Dictionary/HashSet substitution, unqualified Map/Set constructor spelling, or source-name fallback. The lane ledger distinguishes static-native Map/Set from compat-runtime Map/Set, requires SameValueZero/equality metadata for full JS compatibility, and forces missing lane facts or unsupported selected operations into hard-reject diagnostics rather than CLR Dictionary/HashSet fallback. Old Map/Set fixtures remain regression evidence, not completion proof.",
   }),
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
@@ -4033,13 +4341,37 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed proof: selected JS surface Date declarations map Date.UTC, Date(), new Date(...), toISOString(), and getTime() to the closed Tsonic.CSharp.Js.Date runtime carrier; CLI output includes JS runtime artifacts, generated C# build succeeds, no unqualified Date target spelling leaks, and no-surface Date construction fails closed with a selected-target-signature diagnostic.",
   }),
   "surface.js.object-runtime": Object.freeze({
+    sourceExamples: Object.freeze([
+      "return Object.keys(values).join(\",\");",
+      "return Object.hasOwn(values, \"answer\");",
+      "return Object.assign(target, source);",
+      "return Object.is(left, right);",
+    ]),
+    tstsDecision:
+      "TSTS validates Object operations only through selected JS standard-library declarations; foreign same-spelling declarations and unsupported descriptor/prototype APIs do not provide target facts.",
+    providerFacts: Object.freeze([
+      "selectedJsObjectDeclarationFact",
+      "closedObjectHelperCarrierFact",
+      "closedRecordDictionaryCarrierFact",
+      "objectRuntimeTargetMemberFact",
+      "unsupportedObjectShapeMutationFact",
+    ]),
+    backendContract:
+      "C# emits Tsonic.CSharp.Js.Object and JSObject operations only from finalized selected-surface facts and closed object-helper carrier evidence; missing or ambiguous object facts diagnose before artifact creation.",
+    runtimeContract:
+      "The C# JS runtime implements Object.keys/values/entries/is/hasOwn/assign over closed JSObject, JSArray, string, scalar, and typed Record dictionary carriers, and rejects unsupported open CLR objects or descriptor/prototype operations without reflection.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
@@ -4048,11 +4380,36 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-inline-stringify/",
       "test/fixtures/json-native-typed-stringify/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.object-runtime remains partial until nested JSON value flow, object carrier writes, prototype/static helpers, runtime execution, and toolchain coverage are complete.",
-    ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject, JSArray, string, or Record<string, T>/Dictionary<string, T> carrier; unchanged TypeScript Object.keys(values).join('|') chains finalize from selected Object and Array facts; Record helper output is verified through CLI emission and C# toolchain build; missing carrier facts reject, foreign same-spelling declarations defer, and JSON direct parse/stringify uses selected facts plus closed TsValue carrier facts while nested JSON carrier flow remains incomplete.",
+      "Reviewed proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject, JSArray, string, scalar-boxing, or Record<string, T>/Dictionary<string, T> carrier; unchanged TypeScript Object.keys(values).join('|') chains finalize from selected Object and Array facts. Object.is maps selected source facts to Tsonic.CSharp.Js.Object.@is with JavaScript SameValue semantics. Object.hasOwn maps selected JSObject, JSArray, string, and typed Record dictionary facts to closed runtime overloads; missing object-helper or key facts reject. Object.assign maps selected JSObject and typed Record dictionary facts to closed runtime overloads that mutate the proven target carrier and reject unsupported sources. JSON.parse/Object helper chains prove nested JSON value flow through closed JSObject/JSArray/TsValue carriers. Descriptor, prototype, extensibility, and fromEntries operations hard-reject with explicit unsupported-operation diagnostics until closed object-shape/prototype metadata exists. CLI evidence emits and dotnet-builds Object.keys/values/entries/hasOwn/assign/is over Record dictionaries, hard-rejects Object.create/Object.defineProperty before artifacts, and asserts no object/dynamic/reflection/source-spelling fallback output. Runtime evidence covers JSObject, JSArray, string, scalar, typed dictionary, assign mutation, null handling, unsupported CLR object rejection, and JSON parsed-object helper behavior.",
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([

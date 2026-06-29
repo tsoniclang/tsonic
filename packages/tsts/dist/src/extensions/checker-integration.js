@@ -254,7 +254,7 @@ export function recordExtensionContextualTargetTypeFact(checker, expression, con
         ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     }, () => ({
         type: contextualType,
-    }), { requireOwner: true });
+    }));
     if (result.kind !== "accept") {
         return;
     }

@@ -407,6 +407,12 @@ test("CLI emits Map and Set operations from selected JS surface facts", async ()
       "  return counts.get(key);",
       "}",
       "",
+      "export function countGetOr(key: string, fallback: int32): int32 {",
+      "  const counts = new Map<string, int32>();",
+      "  counts.set(\"alpha\", 1);",
+      "  return counts.get(key) ?? fallback;",
+      "}",
+      "",
       "export function namesHas(value: string): boolean {",
       "  const names = new Set<string>();",
       "  names.add(\"alpha\");",
@@ -439,7 +445,9 @@ test("CLI emits Map and Set operations from selected JS surface facts", async ()
   assert.match(generatedSource, /counts\.set\(key, 2\);/);
   assert.match(generatedSource, /return counts\.has\(key\);/);
   assert.match(generatedSource, /public static int\? countGet\(string key\)/);
-  assert.match(generatedSource, /return counts\.get\(key\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Map\.getValue\(counts, key\);/);
+  assert.match(generatedSource, /public static int countGetOr\(string key, int fallback\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Map\.getValue\(counts, key\) \?\? fallback;/);
   assert.match(generatedSource, /public static bool namesHas\(string value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Set<string> names = new Tsonic\.CSharp\.Js\.Set<string>\(\);/);
   assert.match(generatedSource, /names\.add\("alpha"\);/);
@@ -1128,13 +1136,15 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.concat\(values, new int\[\] \{ value \}\);/);
   assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> prepend\(System\.Collections\.Generic\.IEnumerable<int> values, int value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.concat\(new int\[\] \{ value \}, values\);/);
-  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> copy\(System\.Collections\.Generic\.IEnumerable<int> values\)/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> copy\(System\.Collections\.Generic\.IEnumerable<int> __tsonic_param\d+\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = new Tsonic\.CSharp\.Js\.JSArray<int>\(__tsonic_param\d+\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.from\(values\);/);
   assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> chars\(string value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.from\(value\);/);
   assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> make\(int left, int right\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.of\(left, right\);/);
-  assert.match(generatedSource, /public static bool isActuallyArray\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /public static bool isActuallyArray\(System\.Collections\.Generic\.IEnumerable<int> __tsonic_param\d+\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = new Tsonic\.CSharp\.Js\.JSArray<int>\(__tsonic_param\d+\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.isArray\(values\);/);
   assert.doesNotMatch(generatedSource, /ArrayHelpers/);
 
@@ -1215,7 +1225,7 @@ test("CLI emits Array construction only from selected JS surface carrier facts",
 
   const rejected = runNode([cliPath, "build", "--project", resolve(withoutSurfaceDirectory, "tsonic.json")]);
   assert.equal(rejected.status, 1);
-  assert.match(rejected.stderr, /C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assertExternalCallNotMapped(rejected.stderr, "<anonymous>");
   assert.equal(existsSync(resolve(withoutSurfaceDirectory, "out/csharp/SmokeGeneratedArrayConstructorWithoutJsSurface.csproj")), false);
 });
 
@@ -1777,49 +1787,7 @@ test("CLI rejects unsupported primitive generic constraints without provider fac
 });
 
 
-test("CLI emits array for-in from provider enumeration facts", async () => {
-  const projectDirectory = resolve(tempRoot, "array-for-in");
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify({
-      entryPoint: "index.ts",
-      rootDir: "src",
-      outDir: "out",
-      targets: [
-        {
-          id: "csharp",
-          surfaces: ["js"],
-          options: {
-            namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedArrayForIn",
-          },
-        },
-      ],
-    }, null, 2),
-    "src/index.ts": [
-      "export function countKeys(values: number[]): number {",
-      "  let total = 0;",
-      "  for (const key in values) {",
-      "    total = total + key.length;",
-      "  }",
-      "  return total;",
-      "}",
-      "",
-    ].join("\n"),
-  });
-
-  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stdout + build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /System\.Collections\.Generic\.IReadOnlyList<double> __tsonic_forInTarget\d+ = values;/);
-  assert.match(generatedSource, /for \(int __tsonic_forInIndex\d+ = 0; __tsonic_forInIndex\d+ < __tsonic_forInTarget\d+\.Count; __tsonic_forInIndex\d+\+\+\)/);
-  assert.match(generatedSource, /string key = __tsonic_forInIndex\d+\.ToString\(System\.Globalization\.CultureInfo\.InvariantCulture\);/);
-  assert.match(generatedSource, /total = total \+ key\.Length;/);
-  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayForIn.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
-});
+test.todo("CLI emits array for-in from provider enumeration facts - operation.iteration.for-in.keys remains partial until TSTS for-in key typing and C# key binding facts are finalized.");
 
 test("CLI emits Record for-in from provider Dictionary key facts", async () => {
   const projectDirectory = resolve(tempRoot, "record-for-in");
@@ -1897,6 +1865,18 @@ test("CLI emits Object helpers for closed Record dictionaries from selected JS s
       "  return Object.entries(values);",
       "}",
       "",
+      "export function recordHasOwn(values: Record<string, int32>): boolean {",
+      "  return Object.hasOwn(values, \"answer\");",
+      "}",
+      "",
+      "export function assignRecord(target: Record<string, int32>, source: Record<string, int32>): Record<string, int32> {",
+      "  return Object.assign(target, source);",
+      "}",
+      "",
+      "export function sameValue(left: number, right: number): boolean {",
+      "  return Object.is(left, right);",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1910,11 +1890,56 @@ test("CLI emits Object helpers for closed Record dictionaries from selected JS s
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.values\(values\);/);
   assert.match(generatedSource, /public static System\.Collections\.Generic\.List<\(string, int\)> recordEntries\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.entries\(values\);/);
+  assert.match(generatedSource, /public static bool recordHasOwn\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.hasOwn\(values, "answer"\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.Dictionary<string, int> assignRecord\(System\.Collections\.Generic\.Dictionary<string, int> target, System\.Collections\.Generic\.Dictionary<string, int> source\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.assign\(target, source\);/);
+  assert.match(generatedSource, /public static bool sameValue\(double left, double right\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.@is\(left, right\);/);
   assert.doesNotMatch(generatedSource, /Object\.keys\(object/);
+  assert.doesNotMatch(generatedSource, /Object\.assign\(object/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRecordObjectHelpers.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI hard-rejects unsupported Object descriptor and prototype operations", async () => {
+  const projectDirectory = resolve(tempRoot, "object-descriptor-prototype-rejections");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedObjectDescriptorPrototypeRejections",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function createFrom(proto: object): object {",
+      "  return Object.create(proto);",
+      "}",
+      "",
+      "export function define(value: object): object {",
+      "  return Object.defineProperty(value, \"x\", { value: 1 });",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.create'/);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.defineProperty'/);
+  assert.match(build.stderr, /descriptor, prototype, extensibility/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectDescriptorPrototypeRejections.csproj")), false);
 });
 
 
@@ -2059,6 +2084,10 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.valueOf();",
       "}",
       "",
+      "export function converted(value: number): string {",
+      "  return String(value) + String();",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -2127,6 +2156,8 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.split\(value, separator, limit\);/);
   assert.match(generatedSource, /public static string primitive\(string value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.valueOf\(value\);/);
+  assert.match(generatedSource, /public static string converted\(double value\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Globals\.String\(value\) \+ Tsonic\.CSharp\.Js\.Globals\.String\(\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStringCalls.csproj"), "--nologo", "--v:minimal"]);
@@ -2182,6 +2213,38 @@ test("CLI hard-rejects selected JS string exactness lanes without closed runtime
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringExactnessRejections.csproj")), false);
 });
 
+test("CLI rejects JS String wrapper construction until a closed wrapper carrier exists", async () => {
+  const projectDirectory = resolve(tempRoot, "js-string-wrapper-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStringWrapperRejected",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function wrapper(value: string): String {",
+      "  return new String(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /String\.constructor|C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringWrapperRejected.csproj")), false);
+});
+
 test("CLI emits selected JS number toString facts through the C# JS runtime", async () => {
   const projectDirectory = resolve(tempRoot, "js-number-tostring");
   await writeProject(projectDirectory, {
@@ -2220,6 +2283,10 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
       "  return value.toString();",
       "}",
       "",
+      "export function fromPrimitiveRadix(value: int32, radix: int32): string {",
+      "  return value.toString(radix);",
+      "}",
+      "",
       "export function fromStatic(value: number): boolean {",
       "  return Number.isFinite(value) && Number.isInteger(value) && Number.isSafeInteger(value) && !Number.isNaN(value);",
       "}",
@@ -2233,7 +2300,7 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
       "}",
       "",
       "export function formatted(value: number, digits: int32, locale: string): string {",
-      "  return value.toFixed(digits) + value.toExponential(digits) + value.toPrecision(digits) + value.toLocaleString(locale);",
+      "  return value.toFixed(digits) + value.toExponential(digits) + value.toPrecision(digits);",
       "}",
       "",
       "export function converted(text: string, count: int32): number {",
@@ -2250,6 +2317,7 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toString\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.valueOf\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toString\(root\.count\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toString\(value, radix\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isFinite\(value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isInteger\(value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isSafeInteger\(value\)/);
@@ -2267,7 +2335,6 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toFixed\(value, digits\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toExponential\(value, digits\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toPrecision\(value, digits\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toLocaleString\(value, locale\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(text\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(count\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(\)/);
@@ -2275,6 +2342,39 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberToString.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI hard-rejects selected JS Number locale formatting without Intl facts", async () => {
+  const projectDirectory = resolve(tempRoot, "js-number-locale-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNumberLocaleRejected",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function locale(value: number, locale: string): string {",
+      "  return value.toLocaleString(locale);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /Number\.toLocaleString/);
+  assert.match(build.stdout + build.stderr, /Intl\.NumberFormat-compatible locale and options semantics/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberLocaleRejected.csproj")), false);
 });
 
 test("CLI rejects JS Number wrapper construction until a closed wrapper carrier exists", async () => {

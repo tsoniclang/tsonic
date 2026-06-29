@@ -123,7 +123,10 @@ test("Map and Set ledger row distinguishes native and compat runtime lanes", () 
   assert.ok(classification.compat.requiredFacts.includes("JS SameValueZero equality metadata"));
   assert.ok(classification.hardReject.reasons.includes("clr-equality-not-full-js-compat"));
   assert.ok(classification.hardReject.reasons.includes("unsupported-selected-map-set-operation"));
-  assert.match(entry.blockers.join("\n"), /Dictionary<K,V>, HashSet<T>, and Map<K,V> where K : notnull/u);
+  assert.equal(entry.status, "complete");
+  assert.deepEqual(entry.blockers, []);
+  assert.match(entry.notes, /Dictionary\/HashSet carrier is selected by the normal JS surface/u);
+  assert.match(entry.notes, /Dictionary\/HashSet substitution/u);
 });
 
 test("capability ledger validator rejects incomplete Map and Set lane evidence", () => {

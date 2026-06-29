@@ -67,11 +67,13 @@ function recordProviderVirtualModuleFacts(extensionHost, file, virtualModule) {
             canonicalSymbolId: getSymbolFactId(symbol),
         }, evidence);
         extensionHost.facts.set(symbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration), evidence);
-        for (const exportDeclaration of symbol.Declarations ?? []) {
-            if (exportDeclaration === undefined) {
-                continue;
+        if (declaration.signatures === undefined || declaration.signatures.length === 0) {
+            for (const exportDeclaration of symbol.Declarations ?? []) {
+                if (exportDeclaration === undefined) {
+                    continue;
+                }
+                extensionHost.facts.set(exportDeclaration, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration), evidence);
             }
-            extensionHost.facts.set(exportDeclaration, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration), evidence);
         }
         const targetBinding = getTargetBindingFact(virtualModule, declaration);
         if (targetBinding !== undefined) {

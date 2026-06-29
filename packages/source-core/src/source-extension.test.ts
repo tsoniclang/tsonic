@@ -428,7 +428,7 @@ test("source-core records abstract struct, field, attribute, and default facts",
 
   const attributeFact = sourceCoreFacts(session).getAttributeFact(propertyCallExpression(session, sourceFile, "add"));
   assert.equal(attributeFact?.attributeName, "RouteAttribute");
-  assert.equal(typeReferenceName(session, attributeFact?.target as Node | undefined), "User");
+  assert.equal(session.ast.text(attributeFact?.target as Node | undefined), "RouteAttribute");
   assert.equal(attributeFact?.arguments?.length, 1);
 
   const extensionHost = session.finalizeExtensions();
@@ -964,7 +964,7 @@ function nodeFactSubject(subject: object | undefined): Node | undefined {
 }
 
 function sourceCoreFacts(session: CompilerSession) {
-  const extensionHost = session.extensionHost;
+  const extensionHost = session.finalizeExtensions();
   assert.ok(extensionHost !== undefined, "Expected source-core extension host.");
   return createExtensionConsumerQueries(extensionHost, "source-core-test");
 }

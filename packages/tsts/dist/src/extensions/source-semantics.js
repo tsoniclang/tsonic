@@ -1,7 +1,7 @@
 import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node_Initializer, Node_ModuleSpecifier, Node_Parameters, Node_PropertyName, Node_Properties, Node_Statements, Node_Symbol, Node_Text, Node_TypeArguments, Node_TypeParameters, } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
-import { KindCallExpression, KindExportDeclaration, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
+import { KindCallExpression, KindExportDeclaration, KindIdentifier, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { IsFunctionLike, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 import { ExtensionLifecycleEvent } from "./host.js";
@@ -174,6 +174,9 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, callEx
         case "out":
         case "ref":
         case "inref": {
+            if (!hasMarkerArgumentCount(callExpression, 1)) {
+                return;
+            }
             const argument = (Node_Arguments(callExpression) ?? [])[0];
             if (argument === undefined) {
                 return;
@@ -182,6 +185,9 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, callEx
             return;
         }
         case "borrow": {
+            if (!hasMarkerArgumentCount(callExpression, 1)) {
+                return;
+            }
             const argument = (Node_Arguments(callExpression) ?? [])[0];
             if (argument === undefined) {
                 return;
@@ -190,6 +196,9 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, callEx
             return;
         }
         case "borrowMut": {
+            if (!hasMarkerArgumentCount(callExpression, 1)) {
+                return;
+            }
             const argument = (Node_Arguments(callExpression) ?? [])[0];
             if (argument === undefined) {
                 return;
@@ -198,6 +207,9 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, callEx
             return;
         }
         case "move": {
+            if (!hasMarkerArgumentCount(callExpression, 1)) {
+                return;
+            }
             const argument = (Node_Arguments(callExpression) ?? [])[0];
             if (argument === undefined) {
                 return;
@@ -206,18 +218,36 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, callEx
             return;
         }
         case "field":
+            if (!hasMarkerArgumentCount(callExpression, 0) || !hasMarkerTypeArgumentCount(callExpression, 1)) {
+                return;
+            }
             recordFieldMarker(facts, callExpression, evidence);
             return;
         case "struct":
+            if (!hasMarkerArgumentCount(callExpression, 1)) {
+                return;
+            }
             recordStructMarker(facts, callExpression, evidence);
             return;
         case "attribute":
+            if (!hasMarkerTypeArgumentCount(callExpression, 1)) {
+                return;
+            }
             recordAttributeMarker(facts, callExpression, evidence);
             return;
         case "defaultof":
+            if (!hasMarkerArgumentCount(callExpression, 0) || !hasMarkerTypeArgumentCount(callExpression, 1)) {
+                return;
+            }
             recordDefaultValueMarker(facts, callExpression, evidence);
             return;
     }
+}
+function hasMarkerArgumentCount(callExpression, count) {
+    return (Node_Arguments(callExpression) ?? []).length === count;
+}
+function hasMarkerTypeArgumentCount(callExpression, count) {
+    return (Node_TypeArguments(callExpression) ?? []).length === count;
 }
 function recordArgumentPassingMarker(facts, diagnostics, extensionId, callExpression, target, marker, evidence) {
     const fact = {
@@ -257,18 +287,22 @@ function recordFieldMarker(facts, callExpression, evidence) {
         return;
     }
     const propertyAssignment = callExpression?.Parent?.Kind === KindPropertyAssignment ? callExpression.Parent : undefined;
-    const nameNode = propertyAssignment === undefined ? undefined : (Node_Name(propertyAssignment) ?? Node_PropertyName(propertyAssignment));
-    const name = Node_Text(nameNode);
+    if (propertyAssignment === undefined) {
+        return;
+    }
+    const nameNode = Node_Name(propertyAssignment) ?? Node_PropertyName(propertyAssignment);
+    const name = getStaticSourceSemanticsNameText(nameNode);
+    if (name === undefined) {
+        return;
+    }
     const fact = {
         name,
         type: fieldType,
     };
     facts.set(callExpression, fieldFactKey, fact, evidence);
-    if (propertyAssignment !== undefined) {
-        facts.set(propertyAssignment, fieldFactKey, fact, evidence);
-        if (nameNode !== undefined) {
-            facts.set(nameNode, fieldFactKey, fact, evidence);
-        }
+    facts.set(propertyAssignment, fieldFactKey, fact, evidence);
+    if (nameNode !== undefined) {
+        facts.set(nameNode, fieldFactKey, fact, evidence);
     }
 }
 function recordStructMarker(facts, callExpression, evidence) {
@@ -391,6 +425,9 @@ function recordSourceSemanticsTypeMarker(facts, typeReference, typeName, marker)
     const typeArguments = Node_TypeArguments(typeReference) ?? [];
     const evidence = createMarkerEvidence(marker.exportName);
     if (marker.marker === "ptr") {
+        if (typeArguments.length !== 1) {
+            return;
+        }
         const pointee = typeArguments[0];
         if (pointee === undefined) {
             return;
@@ -402,6 +439,9 @@ function recordSourceSemanticsTypeMarker(facts, typeReference, typeName, marker)
         };
         facts.set(typeReference, pointerFactKey, fact, evidence);
         facts.set(typeName, pointerFactKey, fact, evidence);
+        return;
+    }
+    if (typeArguments.length !== 2) {
         return;
     }
     const result = typeArguments[1];
@@ -440,26 +480,42 @@ function resolveSourceSemanticsMarkerFromImportIndex(node, markersByLocalName, n
     }
     if (node.Kind === KindPropertyAccessExpression) {
         const receiver = AsPropertyAccessExpression(node)?.Expression;
-        const receiverName = Node_Text(receiver);
+        const receiverName = getIdentifierText(receiver);
+        if (receiverName === undefined) {
+            return undefined;
+        }
         const namespaceBinding = namespacesByLocalName.get(receiverName);
         if (namespaceBinding === undefined || isImportBindingShadowed(receiver, receiverName)) {
             return undefined;
         }
-        const propertyName = Node_Text(Node_Name(node));
+        const propertyName = getStaticSourceSemanticsNameText(Node_Name(node));
+        if (propertyName === undefined) {
+            return undefined;
+        }
         const marker = getModuleMarker(namespaceBinding.moduleIdentity, capability, propertyName);
         return marker;
     }
     if (node.Kind === KindQualifiedName) {
         const qualifiedName = AsQualifiedName(node);
-        const leftName = Node_Text(qualifiedName?.Left);
+        const leftName = getIdentifierText(qualifiedName?.Left);
+        if (leftName === undefined) {
+            return undefined;
+        }
         const namespaceBinding = namespacesByLocalName.get(leftName);
         if (namespaceBinding === undefined || isImportBindingShadowed(qualifiedName?.Left, leftName)) {
             return undefined;
         }
-        const marker = getModuleMarker(namespaceBinding.moduleIdentity, capability, Node_Text(qualifiedName?.Right));
+        const exportName = getIdentifierText(qualifiedName?.Right);
+        if (exportName === undefined) {
+            return undefined;
+        }
+        const marker = getModuleMarker(namespaceBinding.moduleIdentity, capability, exportName);
         return marker;
     }
-    const localName = Node_Text(node);
+    const localName = getIdentifierText(node);
+    if (localName === undefined) {
+        return undefined;
+    }
     const binding = markersByLocalName.get(localName);
     return binding !== undefined && !isImportBindingShadowed(node, localName) ? binding.marker : undefined;
 }
@@ -644,6 +700,19 @@ function isImportBindingShadowed(node, localName) {
 }
 function declarationListContainsName(declarations, localName) {
     return declarations.some((declaration) => Node_Text(Node_Name(declaration)) === localName);
+}
+function getIdentifierText(node) {
+    return node?.Kind === KindIdentifier ? Node_Text(node) : undefined;
+}
+function getStaticSourceSemanticsNameText(node) {
+    switch (node?.Kind) {
+        case KindIdentifier:
+        case KindStringLiteral:
+        case KindNumericLiteral:
+            return Node_Text(node);
+        default:
+            return undefined;
+    }
 }
 function resolveQualifiedPrimitiveReference(facts, typeName, modules) {
     const qualifiedName = AsQualifiedName(typeName);
