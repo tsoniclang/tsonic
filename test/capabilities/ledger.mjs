@@ -2561,7 +2561,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.struct remains partial until methods, constructors, generic value shapes, target layout diagnostics, source spans, future target proof, and all emitted target AST paths are proven.",
     ],
     notes:
-      "Reviewed partial proof: struct({ x: field<int32>() }) and namespace lang.struct({ x: lang.field<int32>() }) record valueType struct facts from finalized field facts; source-core package tests prove finalized owner facts on the struct variable, string/numeric static field names, non-field member diagnostics, member ordering, and nested struct type evidence. Local same-spelling struct functions do not attach source-core facts. C# CLI tests emit public structs only from those facts, preserve field order, build nested struct fields, and fail closed for duplicate or unproven value-type members.",
+      "Reviewed proof: struct({ x: field<int32>() }) and namespace lang.struct({ x: lang.field<int32>() }) record valueType struct facts only from finalized field facts; source-core package tests prove finalized owner facts on the struct variable, string/numeric static field names, non-field member diagnostics, member ordering, nested struct type evidence, and local/shadowed no-guessing. C# CLI tests emit public structs only from those facts, preserve field order, build nested struct fields, and fail closed for duplicate or unproven value-type members before target artifacts are produced.",
   }),
   "source-core.lang.portable-intrinsics.field": coreLangIntrinsicEvidence({
     exportName: "field",
@@ -2606,10 +2606,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/struct-basic/",
     ],
     blockers: [
-      "source-core.lang.portable-intrinsics.field remains partial until target mutability/accessibility, source spans, future target proof, and every emitted field AST path are proven.",
+      "source-core.lang.portable-intrinsics.field remains partial until target mutability/accessibility, source spans, future target proof, and every emitted field AST path is proven.",
     ],
     notes:
-      "Reviewed partial proof: field<int32>() and namespace lang.field<int32>() attach field facts only from explicit type evidence and proven static field-containing contexts, including struct property assignments, class property initializers, identifier/string/numeric static names, and nested struct type queries. Local/shadowed same-spelling field functions do not attach facts. field() without type evidence, orphan field<int32>(), TSTS duplicate object-literal names, and non-field struct members produce deterministic diagnostics instead of inferred target fields; C# CLI tests emit class and struct fields from finalized facts and build them.",
+      "Reviewed proof: field<int32>() and namespace lang.field<int32>() attach field facts only from explicit type evidence and proven static field-containing contexts, including struct property assignments, class property initializers, identifier/string/numeric static names, and nested struct type queries. Local/shadowed same-spelling field functions do not attach facts. field() without type evidence, orphan field<int32>(), TSTS duplicate object-literal names, and non-field struct members produce deterministic diagnostics instead of inferred target fields; C# CLI tests emit class and struct fields from finalized facts and build them.",
   }),
   "source-core.lang.portable-intrinsics.attribute": coreLangIntrinsicEvidence({
     exportName: "attribute",
