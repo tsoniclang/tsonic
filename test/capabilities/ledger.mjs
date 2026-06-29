@@ -717,7 +717,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.member-methods", ".NET provider models methods, overloads, extension methods, and generic methods", "partial", "target-provider"],
   ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "partial", "target-provider"],
   ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "complete", "target-provider"],
-  ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "partial", "target-provider"],
+  ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "complete", "target-provider"],
   ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "complete", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "partial", "target-provider"],
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
@@ -2952,7 +2952,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities; provider contract tests reject invalid passing modes/rest placement before conversion and reflection-tool default-value evidence uses stable parameter indexes. CLI provider tests prove omitted optional target arguments emit only when a deterministic reflected default exists, reject omitted optional arguments without reflected defaults, and emit reflected params-array extra arguments from selected target facts. Unsupported default values carry deterministic parameter identity/evidence, unsupported pointer parameter source shapes and wrong optional/params arities reject. Remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path; provider virtual declaration parameter passing still depends on upstream TSTS public contract support for non-by-value provider parameters.",
+      "Reviewed proof: .NET provider modeling preserves by-value, out, ref, in, optional, supported default-value, unsupported default-value, and params-array parameter facts across raw reflection models, provider declaration models, target bindings, extension receivers, constructors, and reflected signature identities. Provider contract tests reject invalid passing modes, malformed params-array placement/type/passing, default values on non-optional parameters, and mixed supported/unsupported defaults before declaration conversion. CLI provider tests prove omitted optional target arguments emit only when a deterministic reflected default exists, reject omitted optional arguments without reflected defaults, and emit reflected params-array extra arguments from selected target facts. Unsupported default values carry deterministic parameter identity and evidence without becoming source-visible defaults. This closes the .NET provider-model parameter-mode contract; provider-owned call emission breadth remains tracked separately by operation.call.provider-parameter-mode.",
   }),
   "native.dotnet.array.explicit": Object.freeze({
     sourceExamples: Object.freeze([
