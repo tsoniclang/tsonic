@@ -5220,7 +5220,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: for-in key enumeration is selected by generic iteration metadata rows after TSTS accepts the source operation. JS surface indexable/string keys use index-key facts, object-shape keys use object-shape facts, and provider collections use key-collection facts. Missing facts, wrong iteration kinds/lowerings, non-string index keys, non-string dictionary keys, and ambiguous selector rows fail closed instead of falling back to syntax or source-name inference.",
+      "Reviewed proof: for-in key enumeration is selected by generic iteration metadata rows after TSTS accepts the source operation. JS surface indexable/string keys use index-key facts, object-shape keys use object-shape facts, and provider collections use key-collection facts. Current CLI/toolchain evidence includes generated runtime execution for object-shape for-in. Missing facts, wrong iteration kinds/lowerings, non-string index keys, non-string dictionary keys, and ambiguous selector rows fail closed instead of falling back to syntax or source-name inference.",
   }),
   "operation.iteration.provider-target": Object.freeze({
     positiveTests: Object.freeze([
@@ -5240,7 +5240,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: provider-target iteration now flows through one generic iteration selector, finalized targetIteration facts, and a backend required-fact gateway. Current evidence covers provider foreach, JS string code-point iteration, index-key iteration, object-shape keys, and provider Dictionary.Keys key collection emission. Missing, wrong-kind, wrong-lowering, unsupported key shape, and ambiguous row cases produce deterministic diagnostics instead of backend inference.",
+      "Reviewed proof: provider-target iteration now flows through one generic iteration selector, finalized targetIteration facts, and a backend required-fact gateway. Current evidence covers provider foreach, JS string code-point iteration, index-key iteration, object-shape keys, provider Dictionary.Keys key collection emission, and generated runtime execution for one for-of and one for-in case. Missing, wrong-kind, wrong-lowering, unsupported key shape, and ambiguous row cases produce deterministic diagnostics instead of backend inference.",
   }),
   "operation.destructure.array-object": Object.freeze({
     positiveTests: Object.freeze([
