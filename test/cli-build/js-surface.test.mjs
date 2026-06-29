@@ -2067,6 +2067,10 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.valueOf();",
       "}",
       "",
+      "export function converted(value: number): string {",
+      "  return String(value) + String();",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -2135,6 +2139,8 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.split\(value, separator, limit\);/);
   assert.match(generatedSource, /public static string primitive\(string value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.valueOf\(value\);/);
+  assert.match(generatedSource, /public static string converted\(double value\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Globals\.String\(value\) \+ Tsonic\.CSharp\.Js\.Globals\.String\(\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStringCalls.csproj"), "--nologo", "--v:minimal"]);
@@ -2188,6 +2194,38 @@ test("CLI hard-rejects selected JS string exactness lanes without closed runtime
   assert.match(build.stderr, /template-object/);
   assert.match(build.stderr, /iterator/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringExactnessRejections.csproj")), false);
+});
+
+test("CLI rejects JS String wrapper construction until a closed wrapper carrier exists", async () => {
+  const projectDirectory = resolve(tempRoot, "js-string-wrapper-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStringWrapperRejected",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function wrapper(value: string): String {",
+      "  return new String(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /String\.constructor|C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringWrapperRejected.csproj")), false);
 });
 
 test("CLI emits selected JS number toString facts through the C# JS runtime", async () => {

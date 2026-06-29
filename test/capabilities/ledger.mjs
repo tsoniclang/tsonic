@@ -294,7 +294,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
   ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
   ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
-  ["surface.js.string-methods", "JS string methods use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.string-methods", "JS string methods use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods and conversion calls use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
@@ -3447,8 +3447,30 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed proof: the C# architecture validator now has an explicit procedural-policy-file rule. The negative test proves final-forbidden filenames are rejected, while the positive side proves renamed final modules such as target-selection.ts, array-use-rules.ts, member-providers.ts, receiver-facts.ts, and source-identity.ts are accepted. This closes the policy-file loophole instead of treating renamed procedural policy as compliant.",
   }),
   "surface.js.string-methods": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const upper = value.trim().toUpperCase();",
+      "const parts = value.split(\",\");",
+      "const converted = String(value);",
+      "const wrapper = new String(value);",
+    ]),
+    tstsDecision:
+      "TSTS validates string primitive member access, StringConstructor call/construct signatures, and selected JS surface declarations. The JS surface provider may only map those selected declarations/signatures after closed receiver or argument facts exist.",
+    providerFacts: Object.freeze([
+      "selectedJsStringDeclaration",
+      "selectedJsStringConstructorDeclaration",
+      "closedStringReceiverFact",
+      "closedStringConversionArgumentFact",
+      "selectedStringTargetSignature",
+      "stringArrayReturnCarrierFact",
+      "unsupportedStringExactnessDiagnosticFact",
+      "unsupportedStringWrapperDiagnosticFact",
+    ]),
+    backendContract:
+      "C# emits selected System.String/runtime-helper/Globals.String calls only from finalized JS string operation facts. String.raw, match, matchAll, wrapper construction, source-spelling selection, and native string fallbacks without selected facts are diagnostics.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -3460,8 +3482,92 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-string-array-returns/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
+    blockers: Object.freeze([]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "js-string-method-or-conversion",
+      possibleLanes: Object.freeze(["static-native", "compat-runtime", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-string-prototype-declaration",
+          "selected-js-string-constructor-declaration",
+          "closed-string-receiver-target-type",
+          "closed-string-conversion-argument-target-type",
+          "selected-string-target-signature",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-selected-js-surface",
+          "missing-string-prototype-declaration",
+          "missing-string-constructor-declaration",
+          "missing-closed-string-receiver",
+          "missing-closed-string-conversion-argument",
+          "missing-selected-target-signature",
+          "unsupported-string-exactness-lane",
+          "unsupported-string-wrapper-carrier",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-js-string-prototype-declaration",
+          "selected-js-string-constructor-declaration",
+          "closed-string-receiver-target-type",
+          "closed-string-conversion-argument-target-type",
+          "selected-string-target-signature",
+        ]),
+        operation: "emit-selected-js-string-method-or-conversion",
+      },
+      compat: {
+        lane: "compat-runtime",
+        requiredFacts: Object.freeze([
+          "selected-js-surface",
+          "selected-surface-runtime",
+          "closed-js-string-helper-fact",
+          "string-array-return-carrier-fact",
+        ]),
+        runtimeCarrier: "SelectedSurfaceRuntime",
+        operation: "emit-selected-js-string-runtime-helper",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-required-facts",
+          "receiver-not-closed-string",
+          "conversion-argument-not-closed",
+          "unsupported-string-exactness-lane",
+          "string-wrapper-carrier-not-exposed",
+          "source-spelling-only",
+        ]),
+      },
+    }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover string element access, code-point for-of, selected string instance/helper calls including trim/toUpperCase chaining, normalize/locale case/localeCompare/search/well-formed helpers, split returning the selected JS surface List<string> array-return ABI, Object.toString delegation for closed string primitive receivers, and fail-closed rejection without closed string receiver facts. Runtime tests prove the corresponding Tsonic.CSharp.Js.String helpers; CLI evidence dotnet-builds selected string calls through runtime helpers. String.raw, match, and matchAll are explicitly hard-rejected through selected source identities until template-object, RegExp coercion, RegExpMatchArray, iterator, group, and lastIndex semantics have closed runtime facts. Remains partial until String.raw/match/matchAll exact lanes and String object wrapper/constructor surface conversions have positive and negative runtime coverage.",
+      "Reviewed proof: selected JS surface facts cover string element access, code-point for-of, selected string instance/helper calls including trim/toUpperCase chaining, normalize/locale case/localeCompare/search/well-formed helpers, split returning the selected JS surface List<string> array-return ABI, Object.toString delegation for closed string primitive receivers, and fail-closed rejection without closed string receiver facts. String(value) and zero-argument String() now map only from selected StringConstructor call identity plus closed conversion argument facts to Tsonic.CSharp.Js.Globals.String, with runtime tests proving explicit undefined/null conversion remains distinct from the zero-argument empty string result. new String(value) is deliberately hard-rejected until an explicit wrapper-object carrier exists, so wrapper construction never falls back to object/dynamic/native string semantics. String.raw, match, and matchAll are explicitly hard-rejected through selected source identities until template-object, RegExp coercion, RegExpMatchArray, iterator, group, and lastIndex semantics have closed runtime facts. CLI evidence dotnet-builds selected string calls and conversions through finalized facts and asserts no InvalidExpression, __unsupported, dynamic/reflection, or source-spelling fallback appears in generated output.",
   }),
   "surface.js.boolean-methods": Object.freeze({
     sourceExamples: Object.freeze([
