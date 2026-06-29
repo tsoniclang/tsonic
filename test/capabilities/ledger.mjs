@@ -1436,12 +1436,14 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-performance.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-performance.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1452,15 +1454,17 @@ const reviewedCapabilityEvidence = Object.freeze({
       "provider.virtual-module.no-fallback remains partial until every provider-owned module failure mode has current CLI/toolchain coverage and precise diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; selected .NET modules win over shadow package files, missing provider facts remain diagnostics/blockers, unsliced .NET provider module/declaration requests fail before provider loading instead of silently widening to a broad import, and sliced requests fail closed when a requested export is not provider-proven.",
+      "Reviewed partial proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; selected .NET modules win over shadow package files, missing provider facts remain diagnostics/blockers, unsliced .NET provider module/declaration requests fail before provider loading instead of silently widening to a broad import, sliced requests fail closed when a requested export is not provider-proven, and requested unsupported exports now produce provider-evidence diagnostics rather than generic missing-export diagnostics.",
   }),
   "provider.virtual-module.source-shape": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-performance.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-performance.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
@@ -1472,15 +1476,17 @@ const reviewedCapabilityEvidence = Object.freeze({
       "provider.virtual-module.source-shape remains partial until all source-visible shape families, inherited declarations, target-only omissions, unsupported exports, and selected surface modules are proven end to end.",
     ]),
     notes:
-      "Reviewed partial proof: reflected .NET declarations produce source-visible provider shapes for classes, delegates, properties, methods, constructors, overloads, inherited members, and explicit unsupported omissions; dependency declarations are resolved through exact requested export slices; sliced System imports expose only requested declarations such as Convert instead of broad unrelated namespaces such as System.Xml or System.ComponentModel; unsupported by-ref delegate returns remain target-only instead of leaking fake source declarations.",
+      "Reviewed partial proof: reflected .NET declarations produce source-visible provider shapes for classes, delegates, properties, methods, constructors, overloads, inherited members, native CLR arrays, attributes, and explicit unsupported omissions; dependency declarations are resolved through exact requested export slices; sliced System imports expose only requested declarations such as Convert instead of broad unrelated namespaces such as System.Xml or System.ComponentModel; canonical raw provider refs must carry moduleSpecifier/exportName before TSTS virtual declaration conversion; unsupported by-ref delegate returns remain target-only instead of leaking fake source declarations.",
   }),
   "provider.virtual-module.target-identity": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1491,7 +1497,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "provider.virtual-module.target-identity remains partial until target identity proof covers all assembly-qualified collisions, inherited member origins, explicit references, unsupported exports, and selected surface modules.",
     ]),
     notes:
-      "Reviewed partial proof: provider virtual declarations carry assembly-qualified target identities into TSTS facts and C# emission, including inherited .NET members and reflected overloads; selected operations emit from these identities rather than source spelling.",
+      "Reviewed partial proof: provider virtual declarations carry assembly-qualified target identities into TSTS facts and C# emission, including inherited .NET members, reflected overloads, static/instance method identity, constructor identity, native CLR array identity, and fully qualified provider refs; selected operations emit from these identities rather than source spelling.",
   }),
   "provider.module.no-file-backed-fallback": Object.freeze({
     positiveTests: Object.freeze([
@@ -2440,9 +2446,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.type-model": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2451,16 +2459,18 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/generic-nested-substitution/",
     ]),
     notes:
-      "Reviewed partial proof: .NET reflection exposes source-visible and target-only type models for classes, structs, interfaces, enums, delegates, generic type parameters, cross-namespace provider refs, unique nested CLR types, type families, base types, implemented contracts, and assembly-qualified target identities. Negative proof keeps ambiguous type families out of source declarations while retaining target-only bindings and unsupported-export evidence. Remains partial until same-source-name type-family source declarations, assembly alias/version selection, and every unsupported type-ref conversion path has an end-to-end diagnostic.",
+      "Reviewed partial proof: .NET reflection exposes source-visible and target-only type models for classes, structs, interfaces, enums, delegates, generic type parameters, cross-namespace provider refs, unique nested CLR types, type families, base types, implemented contracts, native CLR arrays, and assembly-qualified target identities. Provider model contract tests reject legacy/incomplete provider refs and malformed primitive/type-parameter refs before virtual declaration conversion. Negative proof keeps ambiguous type families out of source declarations while retaining target-only bindings and unsupported-export evidence. Remains partial until same-source-name type-family source declarations, assembly alias/version selection, and every unsupported type-ref conversion path has an end-to-end diagnostic.",
   }),
   "native.dotnet.member-methods": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
@@ -2473,14 +2483,16 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/extension-methods-system/",
     ]),
     notes:
-      "Reviewed partial proof: .NET provider records reflected methods, overload groups, generic method arity, extension receiver passing, receiver/out parameter metadata, and selected-signature identity; provider selection maps calls from exact selected provider declaration/signature identity, rejects missing identity, rejects ambiguous same-spelling selections, and does not search target members outside the selected overload group. Remains partial until all extension-method discovery inputs, inherited overload surfaces, optional generic method type-argument proofs, and unsupported method families have complete end-to-end diagnostics.",
+      "Reviewed partial proof: .NET provider records reflected methods, overload groups, generic method arity, extension receiver passing, receiver/out parameter metadata, static/instance identity, selected-signature identity, and operator signature ids that include return type when CLR overloads require it; provider selection maps calls from exact selected provider declaration/signature identity, rejects missing identity, rejects ambiguous same-spelling selections, and does not search target members outside the selected overload group. Remains partial until all extension-method discovery inputs, inherited overload surfaces, optional generic method type-argument proofs, and unsupported method families have complete end-to-end diagnostics.",
   }),
   "native.dotnet.member-fields-properties-events": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
@@ -2490,15 +2502,17 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed partial proof: .NET provider records reflected properties, fields, numeric indexers, generic Dictionary indexers, enum fields, static/instance target facts, and event target facts; selected property and field access maps only from selected provider member identity, selected events reject until explicit source event semantics exist, and source declaration conversion omits events plus unsupported/non-source-shaped members while target bindings retain deterministic facts. Remains partial until event subscription semantics, property setter writes, field writes, inherited member projection, and emitted-source/runtime coverage are complete.",
+      "Reviewed partial proof: .NET provider records reflected properties, fields, numeric indexers, generic Dictionary indexers, enum fields, static/instance target facts, and event target facts; provider contract tests prove SDK Dictionary indexer metadata is present without Dictionary-specific analysis branches; selected property and field access maps only from selected provider member identity, selected events reject until explicit source event semantics exist, and source declaration conversion omits events plus unsupported/non-source-shaped members while target bindings retain deterministic facts. Remains partial until event subscription semantics, property setter writes, field writes, inherited member projection, and emitted-source/runtime coverage are complete.",
   }),
   "native.dotnet.constructors": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
@@ -2509,7 +2523,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/generic-nested-substitution/",
     ]),
     notes:
-      "Reviewed proof: .NET provider records public reflected constructors as constructor members with exact signature ids, excludes non-public constructors from raw/source/target models, preserves constructor overload groups, array-literal element metadata, cross-namespace parameter provider refs, optional/default/params/byref facts, and selected constructor identity; source conversion omits constructor-named non-constructor members, records unsupported constructor signatures instead of dropping them, and CLI/provider-selection tests prove provider-owned new expressions and selected unsupported constructor diagnostics end to end.",
+      "Reviewed proof: .NET provider records public reflected constructors as constructor members with exact signature ids, excludes non-public constructors from raw/source/target models, preserves constructor overload groups, array-literal element metadata, cross-namespace parameter provider refs, optional/default/params/byref facts, CLSCompliantAttribute constructor metadata, and selected constructor identity; source conversion omits constructor-named non-constructor members, records unsupported constructor signatures instead of dropping them, and CLI/provider-selection tests prove provider-owned new expressions and selected unsupported constructor diagnostics end to end.",
   }),
   "native.dotnet.constraints": Object.freeze({
     positiveTests: Object.freeze([
@@ -2546,6 +2560,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.parameter-modes": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
@@ -2553,6 +2568,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
@@ -2562,7 +2578,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities; CLI provider tests prove omitted optional target arguments emit only when a deterministic reflected default exists, reject omitted optional arguments without reflected defaults, and emit reflected params-array extra arguments from selected target facts. Unsupported default values carry deterministic parameter identity/evidence, unsupported pointer parameter source shapes and wrong optional/params arities reject. Remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path.",
+      "Reviewed partial proof: external-current C# tests preserve out, ref, in, optional, default-value, and params-array facts across declaration models, function source shapes, extension receivers, constructors, and reflected signature identities; provider contract tests reject invalid passing modes/rest placement before conversion and reflection-tool default-value evidence uses stable parameter indexes. CLI provider tests prove omitted optional target arguments emit only when a deterministic reflected default exists, reject omitted optional arguments without reflected defaults, and emit reflected params-array extra arguments from selected target facts. Unsupported default values carry deterministic parameter identity/evidence, unsupported pointer parameter source shapes and wrong optional/params arities reject. Remains partial until mutated/missing parameter-mode facts and provider-owned call emission cover every method, constructor, indexer, and delegate path; provider virtual declaration parameter passing still depends on upstream TSTS public contract support for non-by-value provider parameters.",
   }),
   "native.dotnet.array.explicit": Object.freeze({
     sourceExamples: Object.freeze([
@@ -2583,12 +2599,14 @@ const reviewedCapabilityEvidence = Object.freeze({
       "C# emission may use T[] element access and Length only from finalized provider/native-array facts; assignment to native-array length must remain a read-only diagnostic, and normal source T[] stays TypeScript Array<T> semantics instead of becoming explicit CLR Array<T> by spelling.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
@@ -2599,7 +2617,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/readonly-array-property-mutation/",
     ]),
     blockers: Object.freeze([
-      "native.dotnet.array.explicit remains partial until covariance, returned CLR arrays from broad BCL APIs, native-array public ABI boundaries, ranked-array rejection breadth, and runtime/toolchain behavior across the full provider matrix are proven; explicit Array<T> source shape, construction, element assignment, read-only length, index access, mutator rejection, and selected-fact C# emission already have current proof.",
+      "native.dotnet.array.explicit remains partial until covariance, returned CLR arrays from broad BCL APIs, native-array public ABI boundaries, ranked-array rejection breadth, and runtime/toolchain behavior across the full provider matrix are proven; explicit Array<T> source shape, construction, element assignment, read-only length, index access, mutator rejection, target-id lookup without prior System.js broad load, and selected-fact C# emission already have current proof.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "dotnet-native-array-carrier",
@@ -2636,15 +2654,17 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, and selected member/indexer facts; CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, and rejects JS mutators such as push plus length assignment on explicit native arrays. Completion still requires covariance, returned CLR arrays from broad BCL APIs, native-array ABI boundaries, and ranked-array rejection coverage across the full provider matrix.",
+      "Reviewed partial proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, target-id lookup through the synthetic provider module index, and selected member/indexer facts; CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, and rejects JS mutators such as push plus length assignment on explicit native arrays. Completion still requires covariance, returned CLR arrays from broad BCL APIs, native-array ABI boundaries, and ranked-array rejection coverage across the full provider matrix.",
   }),
   "native.dotnet.attributes": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/attributes/basic/Attributes.ts",
@@ -2652,7 +2672,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/attributes/targets/Attributes.ts",
     ]),
     notes:
-      "Reviewed partial proof: .NET reflection records target/provider attributes on types, constructors, methods, properties, fields, parameters, and returns; target binding facts preserve constructor identity, constructor/named arguments, enum/type/array/source-primitive values, placement, and evidence; unsupported attribute values are recorded as unsupported attribute facts instead of being dropped. Remains partial until source-authored attribute markers are wired end to end into C# declaration emission.",
+      "Reviewed partial proof: .NET reflection records target/provider attributes on types, constructors, methods, properties, fields, parameters, and returns; provider contract proof covers CLSCompliantAttribute base refs and constructor metadata through SDK virtual declarations; target binding facts preserve constructor identity, constructor/named arguments, enum/type/array/source-primitive values, placement, and evidence; unsupported attribute values are recorded as unsupported attribute facts instead of being dropped. Remains partial until source-authored attribute markers are wired end to end into C# declaration emission.",
   }),
   "declaration.class.visibility": Object.freeze({
     positiveTests: Object.freeze([
@@ -2739,10 +2759,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
     ]),
     blockers: Object.freeze([
-      "Provider virtual function export declarations currently trigger upstream TSTS FACT_CONFLICT when export-level and signature-level virtual declaration facts are written on the same declaration subject. Tsonic consumes public selected declaration/signature facts and checker.getSignatureDeclaration, but must remain partial until upstream TSTS exposes non-conflicting signature identity for function exports.",
+      "provider.virtual-module.overload-identity remains partial until selected declaration/signature identity coverage spans every provider-owned package family, default/function exports, semantic exception rows, unsupported overload diagnostics, and runtime/toolchain paths beyond the current .NET/JS-surface proof matrix.",
     ]),
     notes:
-      "Reviewed partial proof: provider-owned overload identity is selected from exact declaration/signature facts for .NET provider paths and direct surface cases, including same-spelling overload groups, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, and selected signatures whose source argument facts would otherwise match sibling overloads. TSTS-selected provider identity is the proof boundary: exact selected signatures map only to the matching target member id and may not search sibling overloads; provider refinement is allowed only inside a proven overload group without source spelling lookup. Completion is blocked for provider virtual function exports until upstream TSTS resolves export-vs-signature fact conflicts without Tsonic fallback.",
+      "Reviewed partial proof: provider-owned overload identity is selected from exact declaration/signature facts for .NET provider paths and direct surface cases, including same-spelling overload groups, static/instance identity, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, return-type-distinguished CLR operator signatures, and selected signatures whose source argument facts would otherwise match sibling overloads. TSTS-selected provider identity is the proof boundary: exact selected signatures map only to the matching target member id and may not search sibling overloads; provider refinement is allowed only inside a proven overload group without source spelling lookup.",
   }),
   "type.generic.provider-target-arguments": Object.freeze({
     positiveTests: Object.freeze([
