@@ -513,7 +513,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["provider.module.missing-provider-diagnostic", "Missing provider-owned modules produce diagnostics", "complete", "target-provider"],
 
   ["source-core.module.single-owner", "@tsonic/core source modules are owned once by the source-core provider, not replicated by target packs", "complete", "source-core-provider"],
-  ["source-core.target-alias-consumption", "Target packs consume source-core facts and add target-specific aliases without redefining portable core contracts", "partial", "target-provider"],
+  ["source-core.target-alias-consumption", "Target packs consume source-core facts and add target-specific aliases without redefining portable core contracts", "complete", "target-provider"],
   ["source.primitive.numeric", "Neutral source numeric primitives attach facts", "partial", "source-core-provider"],
   ["source.primitive.char-bool", "Neutral char and bool primitives attach facts", "partial", "source-core-provider"],
   ["source.primitive.configured-type", "Configured source primitive aliases map to canonical facts", "partial", "source-core-provider"],
@@ -5108,16 +5108,18 @@ const reviewedCapabilityEvidence = Object.freeze({
   "source-core.target-alias-consumption": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: C# target aliases live under @tsonic/csharp/* and map to canonical source-core primitive and marker facts such as int32, int64, uint8, out, ref, field, attribute, defaultof, ptr, and fnptr without redefining @tsonic/core/* modules. Remains partial until every C# alias has direct CLI proof and future targets prove their alias modules consume the same source-core facts.",
+      "Reviewed proof: C# target aliases live under @tsonic/csharp/* and map to canonical source-core primitive and marker facts without redefining @tsonic/core/* modules. C# unit tests prove bool, char, int32, int64, uint8, out, ref, inref, field, attribute, defaultof, ptr, and fnptr aliases resolve to canonical source-core facts while same-spelling local and wrong-module imports do not. CLI proof now covers every current C# primitive alias (bool, byte, char, decimal, double, float, int, long, nint, nuint, sbyte, short, uint, ulong, ushort), plus C# marker aliases for struct, field, defaultof, out, ref, inref, ptr, and fnptr, with wrong-module negative coverage. Future target packs must prove their alias modules consume source-core facts before registration; they do not keep the current C# alias-consumption contract partial.",
   }),
   "expression.literal.null-undefined": Object.freeze({
     positiveTests: Object.freeze([
