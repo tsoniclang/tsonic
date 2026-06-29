@@ -521,7 +521,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source.marker.field", "field marker attaches storage facts", "partial", "source-core-provider"],
   ["source.marker.struct", "struct marker attaches value-type source facts", "partial", "source-core-provider"],
   ["source.marker.attribute", "attribute marker attaches target attribute facts", "partial", "source-core-provider"],
-  ["source.marker.defaultof", "defaultof marker attaches target default facts", "partial", "source-core-provider"],
+  ["source.marker.defaultof", "defaultof marker attaches target default facts", "complete", "source-core-provider"],
   ["source.marker.ptr-fnptr", "pointer and function-pointer markers attach target-validated facts", "partial", "source-core-provider"],
   ["source.marker.borrow-move", "borrow, borrowMut, and move markers attach target-validated flow facts", "partial", "source-core-provider"],
   ["source-core.out.storage-binding", "out marker resolves to assignable storage", "partial", "source-core-provider"],
@@ -1999,10 +1999,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
@@ -2067,11 +2069,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/defaultof-intrinsic/",
     ]),
-    blockers: Object.freeze([
-      "source.marker.defaultof remains partial until default facts cover primitive, struct, nullable, reference, provider generic, and emitted target-default expression cases.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: defaultof<char>() and defaultof<int32>() attach default-value facts whose type is the finalized source type node, including finalized owner facts on variable declarations. Missing explicit default type evidence now fails closed with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE through direct, alias, and namespace imports without local/shadowed name guessing. Old defaultof-intrinsic coverage remains regression evidence for future backend emission, not proof that every target default lane is complete.",
+      "Reviewed proof: defaultof<T>() attaches default-value facts whose type is the finalized source type node, including finalized owner facts on variable declarations. Source-core tests cover primitives, direct/alias/namespace imports, local/shadowed no-guessing, and missing explicit default type evidence through direct, alias, and namespace imports. CLI/toolchain proof emits target default expressions for primitive, source struct, reference class, nullable reference, and provider generic types, and rejects defaultof() before C# artifacts with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE.",
   }),
   "source.marker.ptr-fnptr": Object.freeze({
     positiveTests: Object.freeze([
@@ -2695,15 +2695,16 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     negativeTests: [
       "packages/source-core/src/source-extension.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ],
     oldEvidence: [
       "test/fixtures/defaultof-intrinsic/",
     ],
     blockers: [
-      "source-core.lang.portable-intrinsics.defaultof remains partial until primitives, structs, nullable/reference types, provider generics, invalid type evidence, source spans, and every selected target default-expression path are proven.",
+      "source-core.lang.portable-intrinsics.defaultof remains partial until future target packs prove implementation or explicit rejection of default-value facts; current Slice 4 closes C# target proof under source.marker.defaultof only.",
     ],
     notes:
-      "Reviewed partial proof: defaultof<char>(), defaultof<int32>(), and namespace lang.defaultof<bool>() attach default-value facts from explicit type evidence and finalize owner facts on variable declarations, while local/shadowed same-spelling defaultof functions do not attach facts. defaultof() fails with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE through direct, alias, and namespace imports, and C# emits default(int) only after consuming finalized facts.",
+      "Reviewed proof: defaultof<char>(), defaultof<int32>(), namespace lang.defaultof<bool>(), and aliased defaultof imports attach neutral default-value facts only from explicit source type evidence and finalize owner facts on variable declarations, while local/shadowed same-spelling defaultof functions do not attach facts. defaultof() fails closed with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE through direct, alias, namespace, and CLI paths. C# emits Roslyn target default expressions only after consuming finalized facts, with CLI/toolchain proof for primitive, source struct, reference class, nullable reference, and provider generic target types.",
   }),
   "source-core.lang.portable-intrinsics.ptr": coreLangIntrinsicEvidence({
     exportName: "ptr",

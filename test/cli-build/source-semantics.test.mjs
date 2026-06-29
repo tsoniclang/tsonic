@@ -618,9 +618,19 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { defaultof } from \"@tsonic/core/lang.js\";",
+      "import { defaultof, field, struct } from \"@tsonic/core/lang.js\";",
       "import { defaultof as csharpDefaultof } from \"@tsonic/csharp/lang.js\";",
-      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import type { bool, int32 } from \"@tsonic/core/types.js\";",
+      "import type { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
+      "",
+      "export class User {",
+      "  name: string = \"\";",
+      "}",
+      "",
+      "export const Point = struct({",
+      "  x: field<int32>(),",
+      "  ok: field<bool>(),",
+      "});",
       "",
       "export function zero(): int32 {",
       "  return defaultof<int32>();",
@@ -628,6 +638,22 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
       "",
       "export function csharpZero(): int32 {",
       "  return csharpDefaultof<int32>();",
+      "}",
+      "",
+      "export function emptyUser(): User {",
+      "  return defaultof<User>();",
+      "}",
+      "",
+      "export function emptyList(): List<int32> {",
+      "  return defaultof<List<int32>>();",
+      "}",
+      "",
+      "export function emptyMaybeUser(): User | null {",
+      "  return defaultof<User | null>();",
+      "}",
+      "",
+      "export function emptyPoint(): typeof Point {",
+      "  return defaultof<typeof Point>();",
       "}",
       "",
     ].join("\n"),
@@ -639,12 +665,48 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return default\(int\);/);
   assert.match(generatedSource, /public static int csharpZero\(\)/);
+  assert.match(generatedSource, /public class User/);
+  assert.match(generatedSource, /public struct Point/);
+  assert.match(generatedSource, /public static User emptyUser\(\)/);
+  assert.match(generatedSource, /return default\(User\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> emptyList\(\)/);
+  assert.match(generatedSource, /return default\(System\.Collections\.Generic\.List<int>\);/);
+  assert.match(generatedSource, /public static User\? emptyMaybeUser\(\)/);
+  assert.match(generatedSource, /return default\(User\?\);/);
+  assert.match(generatedSource, /public static Point emptyPoint\(\)/);
+  assert.match(generatedSource, /return default\(Point\);/);
   assert.doesNotMatch(generatedSource, /defaultof/);
   assert.doesNotMatch(generatedSource, /defaultof/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaults.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects defaultof without explicit source type evidence before C# output", async () => {
+  const projectDirectory = resolve(tempRoot, "default-value-missing-type-evidence");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { defaultof } from \"@tsonic/core/lang.js\";",
+      "",
+      "export function invalid(): unknown {",
+      "  return defaultof();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TSONIC_SOURCE_CORE_9901106/);
+  assert.match(build.stderr, /defaultof<T>\(\) requires explicit type evidence/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 
