@@ -297,7 +297,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods and conversion calls use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "complete", "surface-provider"],
-  ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.map-set", "Map and Set use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
@@ -3976,11 +3976,37 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed proof: console.log maps to Tsonic.CSharp.Js.console.log only from the selected bundled Console.log declaration and only when every argument has finalized closed target facts. Missing argument facts reject in the surface provider instead of boxing unknown values. Without the selected JS surface, CLI evidence fails before artifact creation with a missing selected target signature diagnostic. Runtime evidence proves the Tsonic.CSharp.Js.console.log entrypoint accepts multiple closed argument carriers without throwing. CLI evidence emits multi-argument console.log with closed string/number/bool facts, dotnet-builds the generated project, and asserts no unsupported/invalid fallback output.",
   }),
   "surface.js.math-json-regexp": Object.freeze({
+    sourceExamples: Object.freeze([
+      "const encoded = JSON.stringify(JSON.parse(text));",
+      "const matched = /user:/i.test(input);",
+      "return Math.max(values.length, 1);",
+    ]),
+    tstsDecision:
+      "TSTS validates Math, JSON, and RegExp source operations only through selected JS standard-library declarations; unselected, foreign, or unsupported same-spelling declarations do not provide target facts.",
+    providerFacts: Object.freeze([
+      "selectedJsMathDeclarationFact",
+      "selectedJsJsonDeclarationFact",
+      "selectedJsRegExpDeclarationFact",
+      "closedJsonCarrierFact",
+      "closedRegExpReceiverCarrierFact",
+      "surfaceTargetOperationFact",
+    ]),
+    backendContract:
+      "C# emits Tsonic.CSharp.Js.Math, JSON, and RegExp runtime operations only from finalized selected-surface operation facts with closed numeric, string, JSON-value, or RegExp carrier evidence; missing facts must diagnose before artifact creation.",
+    runtimeContract:
+      "The C# JS runtime implements closed Math functions/constants, JSON parse/stringify carriers, RegExp construction/literals/test/exec/properties, and rejects open CLR object serialization instead of using reflection or dynamic fallback.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/RegExpTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -3990,8 +4016,36 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-inline-stringify/",
       "test/fixtures/json-native-typed-stringify/",
     ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/RegExpTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected JS surface facts cover Math runtime method/property operations including zero-argument max/min JS semantics, RegExp literal/constructor/test/property carriers with C# build coverage, and JSON parse/stringify direct surface facts with closed TsValue carriers. Remains partial until nested JSON carrier flow and every RegExp operation have selected-surface facts and runtime/toolchain tests; Map and Set are tracked separately by surface.js.map-set; Date is tracked separately by surface.js.date.",
+      "Reviewed proof: Math maps selected standard-library methods/constants through provider metadata to Tsonic.CSharp.Js.Math, including zero-argument max/min semantics, current-library rejection for f16round, closed numeric-argument validation, CLI emission, dotnet build, and runtime tests. JSON maps selected JSON.parse and JSON.stringify through closed carrier facts only: primitive stringify, JSObject/JSArray/TsValue stringify, nested JSON.stringify(JSON.parse(value)) carrier propagation before finalization, rejection when JSON carriers are missing or mutated away, runtime round-trip tests, and rejection of open CLR object serialization. RegExp maps selected constructor/literal/test/exec/toString/source/flags/global/hasIndices/ignoreCase/multiline/dotAll/unicode/unicodeSets/sticky/lastIndex operations through closed RegExp carriers with provider and runtime tests; missing receiver facts reject without source-spelling fallback. CLI evidence emits and builds Math, JSON, and RegExp runtime operations and asserts no unsupported/invalid/dynamic/reflection fallback output. Map and Set are tracked separately by surface.js.map-set; Date is tracked separately by surface.js.date.",
   }),
   "surface.js.map-set": Object.freeze({
     sourceExamples: Object.freeze([
