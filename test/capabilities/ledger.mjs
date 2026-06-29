@@ -518,15 +518,15 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source.primitive.char-bool", "Neutral char and bool primitives attach facts", "complete", "source-core-provider"],
   ["source.primitive.configured-type", "Configured source primitive aliases map to canonical facts", "complete", "source-core-provider"],
   ["source.marker.out-ref-inref", "out, ref, and inref markers attach storage facts", "partial", "source-core-provider"],
-  ["source.marker.field", "field marker attaches storage facts", "partial", "source-core-provider"],
-  ["source.marker.struct", "struct marker attaches value-type source facts", "partial", "source-core-provider"],
+  ["source.marker.field", "field marker attaches storage facts", "complete", "source-core-provider"],
+  ["source.marker.struct", "struct marker attaches value-type source facts", "complete", "source-core-provider"],
   ["source.marker.attribute", "attribute marker attaches target attribute facts", "partial", "source-core-provider"],
   ["source.marker.defaultof", "defaultof marker attaches target default facts", "complete", "source-core-provider"],
   ["source.marker.ptr-fnptr", "pointer and function-pointer markers attach target-validated facts", "partial", "source-core-provider"],
   ["source.marker.borrow-move", "borrow, borrowMut, and move markers attach target-validated flow facts", "partial", "source-core-provider"],
   ["source-core.out.storage-binding", "out marker resolves to assignable storage", "partial", "source-core-provider"],
   ["source-core.ref.parameter-mode", "ref and inref markers resolve to parameter passing facts", "partial", "source-core-provider"],
-  ["source-core.struct.field-facts", "struct and field markers combine into value-shape facts", "partial", "source-core-provider"],
+  ["source-core.struct.field-facts", "struct and field markers combine into value-shape facts", "complete", "source-core-provider"],
   ["source-core.flow.borrow-move-facts", "borrow and move source facts require explicit target behavior", "partial", "source-core-provider"],
   ["source-core.lang.portable-intrinsics", "@tsonic/core/lang.js intrinsics require portable facts and per-target implementation or rejection", "partial", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.out", "out intrinsic attaches neutral write-only byref storage facts", "partial", "source-core-provider"],
@@ -2011,30 +2011,28 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
       "test/fixtures/struct-basic/",
     ]),
-    blockers: Object.freeze([
-      "source.marker.field remains partial until field markers cover all valid containing declarations, invalid orphan/duplicate/member-name forms, target accessibility/mutability facts, and emitted field AST output.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: field<int32>() and field<bool>() inside struct() attach finalized field facts with identifier, string-literal, and numeric static names plus source-primitive type facts, and local/shadowed same-spelling field functions do not attach facts. Missing explicit field type evidence reports SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE from direct, alias, and namespace imports. C# evidence proves orphan field<int32>() fails closed with SOURCE_SEMANTICS_FIELD_TARGET_NOT_PROVEN instead of inferring a declaration from spelling.",
+      "Reviewed proof: field<T>() attaches finalized field facts only from @tsonic/core/lang.js identity, explicit type evidence, and a proven static field-containing context. Source-core unit proof covers struct fields, class-property field contexts, identifier/string/numeric static names, member ordering, nested struct type evidence, local/shadowed no-guessing, missing type evidence, orphan field rejection, TSTS duplicate-name rejection, and non-field struct-shape diagnostics. CLI/toolchain proof emits C# class and struct fields from finalized facts, builds those artifacts, and rejects invalid duplicate/non-field shapes before target artifacts are created.",
   }),
   "source.marker.struct": Object.freeze({
     positiveTests: Object.freeze([
       "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/classes-value-types.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/classes-value-types.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
       "test/fixtures/struct-basic/",
     ]),
-    blockers: Object.freeze([
-      "source.marker.struct remains partial until struct value-shape facts cover methods, constructors, generics, nested structs, invalid non-field members, and C# struct declaration/build output.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: struct({ x: field<int32>(), ok: field<bool>() }) records a valueType struct fact whose fields are finalized field facts, preserves static field ordering/names, and finalizes the same struct fact on the owning variable declaration. Local same-spelling struct functions do not attach facts; old interface-extends-struct evidence is treated only as regression history for the final struct()/field() source shape.",
+      "Reviewed proof: struct({ ... }) records a valueType struct fact whose fields are exactly finalized field facts from static object-literal field assignments, preserves source member ordering, finalizes the owner variable declaration, supports nested struct type evidence through typeof, and rejects non-field shorthand/raw members while relying on TSTS for duplicate object-literal names. Source-core identity tests prove direct, alias, namespace, local, and shadowed forms do not guess by source spelling. CLI/toolchain proof emits public C# structs from finalized facts, preserves field order including nested struct fields, builds the target project, and rejects invalid shapes before C# artifacts are emitted.",
   }),
   "source.marker.attribute": Object.freeze({
     positiveTests: Object.freeze([
@@ -2163,11 +2161,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
       "test/fixtures/struct-basic/",
     ]),
-    blockers: Object.freeze([
-      "source-core.struct.field-facts remains partial until struct/field facts cover duplicate fields, non-field expressions, member ordering, target mutability/accessibility, nested value shapes, and generated C# struct output.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: struct facts collect only finalized field facts from the struct object literal, preserve field names x/ok plus string/numeric static names and source-primitive type facts, and finalize owner facts on the struct variable declaration. C# evidence rejects orphan field markers without a proven target field context.",
+      "Reviewed proof: source-core combines struct and field markers into value-shape facts only when each field has explicit type evidence and a static field-containing context. Unit proof covers non-field expressions, member ordering, nested struct type evidence, orphan field rejection, class-vs-struct field context, and local/shadowed no-guessing. C# CLI/toolchain proof emits class fields and value-type struct fields from those facts, preserves member order, renders nested struct field types, builds the result, and fails closed for duplicate or non-field shapes before target artifacts are produced.",
   }),
   "source-core.flow.borrow-move-facts": Object.freeze({
     positiveTests: Object.freeze([
@@ -2562,10 +2558,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/struct-basic/",
     ],
     blockers: [
-      "source-core.lang.portable-intrinsics.struct remains partial until duplicate fields, non-field members, methods, constructors, generics, nested structs, target layout diagnostics, and all emitted target AST paths are proven.",
+      "source-core.lang.portable-intrinsics.struct remains partial until methods, constructors, generic value shapes, target layout diagnostics, source spans, future target proof, and all emitted target AST paths are proven.",
     ],
     notes:
-      "Reviewed partial proof: struct({ x: field<int32>() }) and namespace lang.struct({ x: lang.field<int32>() }) record valueType struct facts from finalized field facts; source-core package tests also prove finalized owner facts on the struct variable and string/numeric static field names. Local same-spelling struct functions do not attach source-core facts. C# CLI tests emit public struct only from those facts. Invalid value-type members without field facts fail closed.",
+      "Reviewed partial proof: struct({ x: field<int32>() }) and namespace lang.struct({ x: lang.field<int32>() }) record valueType struct facts from finalized field facts; source-core package tests prove finalized owner facts on the struct variable, string/numeric static field names, non-field member diagnostics, member ordering, and nested struct type evidence. Local same-spelling struct functions do not attach source-core facts. C# CLI tests emit public structs only from those facts, preserve field order, build nested struct fields, and fail closed for duplicate or unproven value-type members.",
   }),
   "source-core.lang.portable-intrinsics.field": coreLangIntrinsicEvidence({
     exportName: "field",
@@ -2610,10 +2606,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/struct-basic/",
     ],
     blockers: [
-      "source-core.lang.portable-intrinsics.field remains partial until orphan fields, duplicate fields, class-vs-struct context, target mutability/accessibility, source spans, and every emitted field AST path are proven.",
+      "source-core.lang.portable-intrinsics.field remains partial until target mutability/accessibility, source spans, future target proof, and every emitted field AST path are proven.",
     ],
     notes:
-      "Reviewed partial proof: field<int32>() and namespace lang.field<int32>() attach field facts only from explicit type evidence and proven static property-assignment context, including identifier, string-literal, and numeric field names; local/shadowed same-spelling field functions do not attach facts. field() without type evidence through direct, alias, and namespace imports and non-field struct members produce deterministic diagnostics instead of inferred target fields.",
+      "Reviewed partial proof: field<int32>() and namespace lang.field<int32>() attach field facts only from explicit type evidence and proven static field-containing contexts, including struct property assignments, class property initializers, identifier/string/numeric static names, and nested struct type queries. Local/shadowed same-spelling field functions do not attach facts. field() without type evidence, orphan field<int32>(), TSTS duplicate object-literal names, and non-field struct members produce deterministic diagnostics instead of inferred target fields; C# CLI tests emit class and struct fields from finalized facts and build them.",
   }),
   "source-core.lang.portable-intrinsics.attribute": coreLangIntrinsicEvidence({
     exportName: "attribute",

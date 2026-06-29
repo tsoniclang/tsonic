@@ -415,7 +415,8 @@ test("source-core records abstract struct, field, attribute, and default facts",
     }
 
     const defaultChar = defaultof<char>();
-    const Point = struct({ x: field<int32>(), ok: field<bool>(), ignored: localField<int32>() });
+    const Point = struct({ x: field<int32>(), ok: field<bool>() });
+    const ignored = localField<int32>();
     attribute<User>().add(RouteAttribute, "user");
   `, {
     "/src/local.ts": "export function field<T>(): T { throw new Error('local field'); }",
@@ -467,7 +468,8 @@ test("source-core records structural, attribute, and default facts from core nam
     };
 
     const defaultBool = lang.defaultof<bool>();
-    const Point = lang.struct({ id: lang.field<int32>(), skipped: local.field<int32>() });
+    const Point = lang.struct({ id: lang.field<int32>() });
+    const skipped = local.field<int32>();
     lang.attribute<User>().add(RouteAttribute);
     const fakeDefault = local.defaultof<bool>();
     const Fake = local.struct({ id: local.field<int32>() });
@@ -786,6 +788,74 @@ test("source-core finalizes struct and default owner facts with static field nam
   const structCall = callExpression(session, sourceFile, "struct");
   assert.deepEqual(facts.getStructFact(structCall)?.fields?.map((field) => field.name), ["display-name", "2"]);
   assert.deepEqual(facts.getStructFact(variableDeclaration(session, sourceFile, "Shape"))?.fields?.map((field) => field.name), ["display-name", "2"]);
+});
+
+test("source-core validates non-field struct shape members", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import { field, struct } from "@tsonic/core/lang.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    const shorthand = 1;
+    const Broken = struct({ ok: field<bool>(), raw: 1, shorthand });
+  `);
+
+  session.ensureBound();
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  assert.deepEqual(extensionHost.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort(), [
+    "SOURCE_SEMANTICS_STRUCT_FIELD_NOT_PROVEN",
+  ]);
+
+  const facts = extensionFacts(extensionHost);
+  assert.deepEqual(facts.getStructFact(callExpression(session, sourceFile, "struct"))?.fields?.map((field) => field.name), ["ok"]);
+  assert.equal(facts.getFieldFact(callExpression(session, sourceFile, "field"))?.name, "ok");
+});
+
+test("source-core records class and struct field contexts while rejecting orphan field markers", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import { field, struct } from "@tsonic/core/lang.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    class Counter {
+      value = field<int32>();
+    }
+    const Shape = struct({ enabled: field<bool>() });
+    const orphan = field<int32>();
+  `);
+
+  session.ensureBound();
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  assert.deepEqual(extensionHost.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+    "SOURCE_SEMANTICS_FIELD_CONTEXT_NOT_PROVEN",
+  ]);
+
+  const facts = extensionFacts(extensionHost);
+  assert.equal(facts.getFieldFact(callExpression(session, sourceFile, "field", 0))?.name, "value");
+  assert.equal(facts.getFieldFact(callExpression(session, sourceFile, "field", 1))?.name, "enabled");
+  assert.equal(facts.getFieldFact(callExpression(session, sourceFile, "field", 2)), undefined);
+  assert.deepEqual(facts.getStructFact(callExpression(session, sourceFile, "struct"))?.fields?.map((field) => field.name), ["enabled"]);
+});
+
+test("source-core preserves member ordering and nested struct type evidence", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import { field, struct } from "@tsonic/core/lang.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    const Inner = struct({ value: field<int32>() });
+    const Outer = struct({
+      first: field<int32>(),
+      inner: field<typeof Inner>(),
+      enabled: field<bool>(),
+    });
+  `);
+
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  const facts = extensionFacts(extensionHost);
+  assert.deepEqual(facts.getStructFact(callExpression(session, sourceFile, "struct", 0))?.fields?.map((field) => field.name), ["value"]);
+  assert.deepEqual(facts.getStructFact(callExpression(session, sourceFile, "struct", 1))?.fields?.map((field) => field.name), ["first", "inner", "enabled"]);
+  assert.equal(session.ast.kindName(facts.getFieldFact(callExpression(session, sourceFile, "field", 2))?.type as Node | undefined), "KindTypeQuery");
 });
 
 test("source-core records ptr and fnptr facts from aliases and namespaces without local marker guessing", () => {

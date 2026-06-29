@@ -3,6 +3,7 @@ import {
   canonicalIdentityFactKey,
   createSourceSemanticsExtension,
   ExtensionLifecycleEvent,
+  fieldFactKey,
 } from "@tsonic/tsts";
 import type {
   AstReader,
@@ -11,6 +12,7 @@ import type {
   ExtensionEvidence,
   ExtensionFactSubject,
   ExtensionFactStore,
+  FieldFact,
   Node,
   SourceFileBoundLifecycleRequest,
   TypeCheckerQueries,
@@ -43,6 +45,7 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
       sourceSemantics.initialize?.(context);
       context.registerLifecycleHook<SourceFileBoundLifecycleRequest>(ExtensionLifecycleEvent.afterSourceFileBound, (request, lifecycleContext): void => {
         recordTsonicAttributeBuilderFacts(request, lifecycleContext.compiler.ast, lifecycleContext.host.facts);
+        recordTsonicStructFieldFactsAndDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.compiler.checker, lifecycleContext.host.facts, lifecycleContext.host.diagnostics);
         recordTsonicMissingTypeEvidenceDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.compiler.checker, lifecycleContext.host.facts, lifecycleContext.host.diagnostics);
       });
     },
@@ -78,6 +81,38 @@ const missingTypeEvidenceDiagnostics = {
     message: "field<T>() requires explicit field type evidence.",
   },
 } as const;
+
+const structFieldDiagnostics = {
+  duplicateField: {
+    extensionCode: "SOURCE_SEMANTICS_STRUCT_DUPLICATE_FIELD",
+    numericCode: 9901107,
+    message: "struct(...) field shape contains a duplicate static field name.",
+  },
+  fieldContext: {
+    extensionCode: "SOURCE_SEMANTICS_FIELD_CONTEXT_NOT_PROVEN",
+    numericCode: 9901108,
+    message: "field<T>() requires a proven static field-containing context.",
+  },
+  structMember: {
+    extensionCode: "SOURCE_SEMANTICS_STRUCT_FIELD_NOT_PROVEN",
+    numericCode: 9901109,
+    message: "struct(...) field shape members require finalized field<T>() facts.",
+  },
+} as const;
+
+type DiagnosticSink = {
+  append(diagnostic: {
+    readonly extensionId: string;
+    readonly extensionCode: string;
+    readonly numericCode: number;
+    readonly publicCode?: string;
+    readonly category: "error";
+    readonly message: string;
+    readonly nodeOrSpan?: unknown;
+    readonly evidence?: readonly ExtensionEvidence[];
+    readonly identity?: string;
+  }): void;
+};
 
 function recordTsonicAttributeBuilderFacts(
   request: SourceFileBoundLifecycleRequest,
@@ -117,24 +152,113 @@ function recordTsonicAttributeBuilderFacts(
   });
 }
 
+function recordTsonicStructFieldFactsAndDiagnostics(
+  request: SourceFileBoundLifecycleRequest,
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  facts: ExtensionFactStore,
+  diagnostics: DiagnosticSink,
+): void {
+  const sourceFile = request.sourceFile as Node | undefined;
+  visitSourceFile(sourceFile, ast, (node): void => {
+    if (!ast.is.IsCallExpression(node) || ast.typeArguments(node).length === 0) {
+      return;
+    }
+    const callee = ast.as.AsCallExpression(node)?.Expression;
+    if (resolveSourceCoreLangExportName(callee, ast, checker, facts) === "field") {
+      recordSourceCoreFieldContextFact(node, ast, facts, diagnostics);
+    }
+  });
+  visitSourceFile(sourceFile, ast, (node): void => {
+    if (!ast.is.IsCallExpression(node)) {
+      return;
+    }
+    const callee = ast.as.AsCallExpression(node)?.Expression;
+    if (resolveSourceCoreLangExportName(callee, ast, checker, facts) === "struct") {
+      validateSourceCoreStructShape(node, ast, facts, diagnostics);
+    }
+  });
+}
+
+function recordSourceCoreFieldContextFact(
+  callExpression: Node,
+  ast: AstReader,
+  facts: ExtensionFactStore,
+  diagnostics: DiagnosticSink,
+): void {
+  if (facts.get<FieldFact>(callExpression, fieldFactKey) !== undefined) {
+    return;
+  }
+  const fieldType = ast.typeArguments(callExpression)[0];
+  if (fieldType === undefined) {
+    return;
+  }
+  const context = fieldContainingContext(callExpression, ast);
+  if (context === undefined) {
+    appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.fieldContext, callExpression, [
+      { message: "Source-core field marker was not the initializer of a static field declaration or struct-shape property." },
+    ]);
+    return;
+  }
+  const fact = {
+    name: context.name,
+    type: fieldType,
+  } satisfies FieldFact;
+  const evidence = [{ message: "Tsonic source-core field fact from proven static field-containing context." }];
+  facts.set(callExpression, fieldFactKey, fact, evidence);
+  facts.set(context.owner, fieldFactKey, fact, evidence);
+  if (context.nameNode !== undefined) {
+    facts.set(context.nameNode, fieldFactKey, fact, evidence);
+  }
+}
+
+function validateSourceCoreStructShape(
+  callExpression: Node,
+  ast: AstReader,
+  facts: ExtensionFactStore,
+  diagnostics: DiagnosticSink,
+): void {
+  const shape = ast.arguments(callExpression)[0];
+  if (shape === undefined || !ast.is.IsObjectLiteralExpression(shape)) {
+    return;
+  }
+  const seenFields = new Map<string, Node>();
+  for (const property of ast.properties(shape)) {
+    if (property === undefined || !ast.is.IsPropertyAssignment(property)) {
+      appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.structMember, property ?? shape, [
+        { message: "Struct shape member is not a property assignment with a field<T>() initializer." },
+      ]);
+      continue;
+    }
+    const nameNode = ast.name(property);
+    const name = staticSourcePropertyName(nameNode, ast);
+    const initializer = ast.as.AsPropertyAssignment(property)?.Initializer;
+    const field = facts.get<FieldFact>(property, fieldFactKey) ??
+      facts.get<FieldFact>(initializer, fieldFactKey) ??
+      facts.get<FieldFact>(nameNode, fieldFactKey);
+    if (name === undefined || field === undefined) {
+      appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.structMember, property, [
+        { message: "Struct shape property lacks finalized field name/type evidence.", details: { hasStaticName: name !== undefined, hasFieldFact: field !== undefined } },
+      ]);
+      continue;
+    }
+    const previous = seenFields.get(name);
+    if (previous !== undefined) {
+      appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.duplicateField, property, [
+        { message: "Duplicate static struct field name.", details: { name } },
+      ]);
+      continue;
+    }
+    seenFields.set(name, property);
+  }
+}
+
 function recordTsonicMissingTypeEvidenceDiagnostics(
   request: SourceFileBoundLifecycleRequest,
   ast: AstReader,
   checker: TypeCheckerQueries,
   facts: ExtensionFactStore,
-  diagnostics: {
-    append(diagnostic: {
-      readonly extensionId: string;
-      readonly extensionCode: string;
-      readonly numericCode: number;
-      readonly publicCode?: string;
-      readonly category: "error";
-      readonly message: string;
-      readonly nodeOrSpan?: unknown;
-      readonly evidence?: readonly ExtensionEvidence[];
-      readonly identity?: string;
-    }): void;
-  },
+  diagnostics: DiagnosticSink,
 ): void {
   const sourceFile = request.sourceFile as Node | undefined;
   visitSourceFile(sourceFile, ast, (node): void => {
@@ -158,6 +282,25 @@ function recordTsonicMissingTypeEvidenceDiagnostics(
       evidence: [{ message: "Tsonic source-core marker requires explicit type evidence.", details: { marker } }],
       identity: `source-core-missing-type-evidence:${marker}:${String((node as { readonly id?: unknown }).id ?? "unknown")}`,
     });
+  });
+}
+
+function appendStructFieldDiagnostic(
+  diagnostics: DiagnosticSink,
+  diagnostic: typeof structFieldDiagnostics[keyof typeof structFieldDiagnostics],
+  node: Node,
+  evidence: readonly ExtensionEvidence[],
+): void {
+  diagnostics.append({
+    extensionId: tsonicCoreSourceExtensionId,
+    extensionCode: diagnostic.extensionCode,
+    numericCode: diagnostic.numericCode,
+    publicCode: `TSONIC_SOURCE_CORE_${diagnostic.numericCode}`,
+    category: "error",
+    message: diagnostic.message,
+    nodeOrSpan: node,
+    evidence,
+    identity: `source-core-struct-field:${diagnostic.extensionCode}:${String((node as { readonly id?: unknown }).id ?? "unknown")}`,
   });
 }
 
@@ -232,16 +375,75 @@ function staticExpressionName(node: Node, ast: AstReader): string {
   return ast.text(ast.name(node) ?? node);
 }
 
+function fieldContainingContext(
+  callExpression: Node,
+  ast: AstReader,
+): { readonly owner: Node; readonly nameNode: Node | undefined; readonly name: string } | undefined {
+  const parent = ast.parent(callExpression);
+  if (parent === undefined) {
+    return undefined;
+  }
+  const propertyAssignment = ast.is.IsPropertyAssignment(parent)
+    ? ast.as.AsPropertyAssignment(parent)
+    : undefined;
+  if (propertyAssignment?.Initializer === callExpression) {
+    const nameNode = ast.name(parent);
+    const name = staticSourcePropertyName(nameNode, ast);
+    return name === undefined ? undefined : { owner: parent, nameNode, name };
+  }
+  const propertyDeclaration = ast.is.IsPropertyDeclaration(parent)
+    ? ast.as.AsPropertyDeclaration(parent)
+    : undefined;
+  if (propertyDeclaration?.Initializer === callExpression) {
+    const nameNode = ast.name(parent);
+    const name = staticSourcePropertyName(nameNode, ast);
+    return name === undefined ? undefined : { owner: parent, nameNode, name };
+  }
+  return undefined;
+}
+
+function staticSourcePropertyName(node: Node | undefined, ast: AstReader): string | undefined {
+  if (node === undefined) {
+    return undefined;
+  }
+  switch (ast.kindName(node)) {
+    case "KindIdentifier":
+    case "KindStringLiteral":
+    case "KindNumericLiteral":
+      return ast.text(node);
+    case "KindComputedPropertyName": {
+      const expression = ast.as.AsComputedPropertyName(node)?.Expression;
+      if (expression === undefined) {
+        return undefined;
+      }
+      switch (ast.kindName(expression)) {
+        case "KindStringLiteral":
+        case "KindNumericLiteral":
+          return ast.text(expression);
+        default:
+          return undefined;
+      }
+    }
+    default:
+      return undefined;
+  }
+}
+
 function visitSourceFile(
   node: Node | undefined,
   ast: AstReader,
   visitor: (node: Node) => void,
+  seen: Set<Node> = new Set(),
 ): void {
   if (node === undefined) {
     return;
   }
+  if (seen.has(node)) {
+    return;
+  }
+  seen.add(node);
   visitor(node);
   for (const child of ast.children(node)) {
-    visitSourceFile(child ?? undefined, ast, visitor);
+    visitSourceFile(child ?? undefined, ast, visitor, seen);
   }
 }
