@@ -253,7 +253,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["function.default-rest-optional-params", "Default, rest, and optional params use target parameter facts", "partial", "target-provider"],
   ["function.closure", "Closures preserve captured variables and mutation", "partial", "csharp-backend"],
   ["function.higher-order", "Higher-order functions use delegate/function carriers", "partial", "csharp-backend"],
-  ["function.delegate-carrier", "Delegate carriers are selected by target facts", "partial", "target-provider"],
+  ["function.delegate-carrier", "Delegate carriers are selected by target facts", "complete", "target-provider"],
   ["function.this-binding", "this binding follows TSTS source decisions and target facts", "partial", "tsts-api"],
   ["function.async", "Async functions map Promise to target task facts", "partial", "target-provider"],
 
@@ -5820,6 +5820,21 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: current CLI emits TypeScript rest, default, and optional callable parameters from finalized C# carriers, while external-current C# provider tests enforce optional/params arity and reject omitted provider optional arguments when the reflected target default is missing or unsupported; remains partial until source-function negative coverage proves missing parameter facts fail closed.",
+  }),
+  "function.delegate-carrier": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/functions/delegates/ActionFunc.ts",
+    ]),
+    notes:
+      "Reviewed proof: .NET provider delegate declarations keep real provider target identity while carrying csharpDelegateSignature metadata only when reflected sourceShape.kind is function; unsupported target-only delegates do not fabricate signatures. Lambda and object-shape method planning consume finalized delegate signature facts from selected provider/runtime carriers, including selected call parameter target refs, and fail closed when a renderable target type lacks delegate signature metadata. This closes the delegate-carrier selection contract only; broader callable behavior such as closures, async, optional callback source semantics, and function arrays remain tracked by their own rows.",
   }),
   "operation.member.no-name-guess": Object.freeze({
     positiveTests: Object.freeze([

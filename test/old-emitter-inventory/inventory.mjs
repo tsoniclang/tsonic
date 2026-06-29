@@ -882,6 +882,11 @@ const oldEmitterReplacementProofByOldPath = new Map([
 
 const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("functions/delegates/ActionFunc"),
+  ], [
+    "function.delegate-carrier",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("types/interfaces/Interfaces"),
   ], [
     "carrier.object-shape",
