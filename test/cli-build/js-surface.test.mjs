@@ -1905,6 +1905,18 @@ test("CLI emits Object helpers for closed Record dictionaries from selected JS s
       "  return Object.entries(values);",
       "}",
       "",
+      "export function recordHasOwn(values: Record<string, int32>): boolean {",
+      "  return Object.hasOwn(values, \"answer\");",
+      "}",
+      "",
+      "export function assignRecord(target: Record<string, int32>, source: Record<string, int32>): Record<string, int32> {",
+      "  return Object.assign(target, source);",
+      "}",
+      "",
+      "export function sameValue(left: number, right: number): boolean {",
+      "  return Object.is(left, right);",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1918,11 +1930,56 @@ test("CLI emits Object helpers for closed Record dictionaries from selected JS s
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.values\(values\);/);
   assert.match(generatedSource, /public static System\.Collections\.Generic\.List<\(string, int\)> recordEntries\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.entries\(values\);/);
+  assert.match(generatedSource, /public static bool recordHasOwn\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.hasOwn\(values, "answer"\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.Dictionary<string, int> assignRecord\(System\.Collections\.Generic\.Dictionary<string, int> target, System\.Collections\.Generic\.Dictionary<string, int> source\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.assign\(target, source\);/);
+  assert.match(generatedSource, /public static bool sameValue\(double left, double right\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.@is\(left, right\);/);
   assert.doesNotMatch(generatedSource, /Object\.keys\(object/);
+  assert.doesNotMatch(generatedSource, /Object\.assign\(object/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRecordObjectHelpers.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI hard-rejects unsupported Object descriptor and prototype operations", async () => {
+  const projectDirectory = resolve(tempRoot, "object-descriptor-prototype-rejections");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedObjectDescriptorPrototypeRejections",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function createFrom(proto: object): object {",
+      "  return Object.create(proto);",
+      "}",
+      "",
+      "export function define(value: object): object {",
+      "  return Object.defineProperty(value, \"x\", { value: 1 });",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.create'/);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.defineProperty'/);
+  assert.match(build.stderr, /descriptor, prototype, extensibility/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectDescriptorPrototypeRejections.csproj")), false);
 });
 
 

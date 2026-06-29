@@ -301,7 +301,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.map-set", "Map and Set use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
-  ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
@@ -4248,13 +4248,37 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed proof: selected JS surface Date declarations map Date.UTC, Date(), new Date(...), toISOString(), and getTime() to the closed Tsonic.CSharp.Js.Date runtime carrier; CLI output includes JS runtime artifacts, generated C# build succeeds, no unqualified Date target spelling leaks, and no-surface Date construction fails closed with a selected-target-signature diagnostic.",
   }),
   "surface.js.object-runtime": Object.freeze({
+    sourceExamples: Object.freeze([
+      "return Object.keys(values).join(\",\");",
+      "return Object.hasOwn(values, \"answer\");",
+      "return Object.assign(target, source);",
+      "return Object.is(left, right);",
+    ]),
+    tstsDecision:
+      "TSTS validates Object operations only through selected JS standard-library declarations; foreign same-spelling declarations and unsupported descriptor/prototype APIs do not provide target facts.",
+    providerFacts: Object.freeze([
+      "selectedJsObjectDeclarationFact",
+      "closedObjectHelperCarrierFact",
+      "closedRecordDictionaryCarrierFact",
+      "objectRuntimeTargetMemberFact",
+      "unsupportedObjectShapeMutationFact",
+    ]),
+    backendContract:
+      "C# emits Tsonic.CSharp.Js.Object and JSObject operations only from finalized selected-surface facts and closed object-helper carrier evidence; missing or ambiguous object facts diagnose before artifact creation.",
+    runtimeContract:
+      "The C# JS runtime implements Object.keys/values/entries/is/hasOwn/assign over closed JSObject, JSArray, string, scalar, and typed Record dictionary carriers, and rejects unsupported open CLR objects or descriptor/prototype operations without reflection.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
@@ -4263,11 +4287,36 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/json-native-inline-stringify/",
       "test/fixtures/json-native-typed-stringify/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.object-runtime remains partial until nested JSON value flow, object carrier writes, prototype/static helpers, runtime execution, and toolchain coverage are complete.",
-    ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "../tsonic-csharp/test/js-surface-completion.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject, JSArray, string, or Record<string, T>/Dictionary<string, T> carrier; unchanged TypeScript Object.keys(values).join('|') chains finalize from selected Object and Array facts; Record helper output is verified through CLI emission and C# toolchain build; missing carrier facts reject, foreign same-spelling declarations defer, and JSON direct parse/stringify uses selected facts plus closed TsValue carrier facts while nested JSON carrier flow remains incomplete.",
+      "Reviewed proof: Object.keys, Object.values, and Object.entries map from selected standard-library Object declarations only when finalized argument facts prove a closed JSObject, JSArray, string, scalar-boxing, or Record<string, T>/Dictionary<string, T> carrier; unchanged TypeScript Object.keys(values).join('|') chains finalize from selected Object and Array facts. Object.is maps selected source facts to Tsonic.CSharp.Js.Object.@is with JavaScript SameValue semantics. Object.hasOwn maps selected JSObject, JSArray, string, and typed Record dictionary facts to closed runtime overloads; missing object-helper or key facts reject. Object.assign maps selected JSObject and typed Record dictionary facts to closed runtime overloads that mutate the proven target carrier and reject unsupported sources. JSON.parse/Object helper chains prove nested JSON value flow through closed JSObject/JSArray/TsValue carriers. Descriptor, prototype, extensibility, and fromEntries operations hard-reject with explicit unsupported-operation diagnostics until closed object-shape/prototype metadata exists. CLI evidence emits and dotnet-builds Object.keys/values/entries/hasOwn/assign/is over Record dictionaries, hard-rejects Object.create/Object.defineProperty before artifacts, and asserts no object/dynamic/reflection/source-spelling fallback output. Runtime evidence covers JSObject, JSArray, string, scalar, typed dictionary, assign mutation, null handling, unsupported CLR object rejection, and JSON parsed-object helper behavior.",
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
