@@ -84,6 +84,14 @@ test("source-core virtual module provider owns only neutral core modules", () =>
   ]);
   assert.equal(declarationModel.exports.some((entry) => entry.name === "int"), false);
 
+  const typesResolution = assertVirtualModuleResolution(provider.resolveModule(tsonicCoreTypesModule, {}));
+  assert.equal(typesResolution.providerModuleId, tsonicCoreTypesModule);
+  const typesDeclarationModel = assertProviderDeclarationModel(provider.getDeclarationModel(typesResolution), tsonicCoreTypesModule);
+  assert.deepEqual(typesDeclarationModel.exports.map((entry) => entry.name), [
+    ...expectedSourceCorePrimitiveFacts.map((entry) => entry.exportName),
+  ]);
+  assert.equal(typesDeclarationModel.exports.some((entry) => entry.name === "out"), false);
+
   const unownedResolution = provider.resolveModule("@tsonic/csharp/lang.js", {});
   assert.equal(assertExtensionDiagnostic(unownedResolution).extensionCode, "TSONIC_SOURCE_CORE_MODULE_UNOWNED");
 });
@@ -637,6 +645,66 @@ test("source-core reports missing evidence diagnostics through namespace marker 
   assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "lang.defaultof")), undefined);
 });
 
+test("source-core reports alias missing-evidence diagnostics without local or shadowed name guesses", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import { attribute as coreAttribute, defaultof as coreDefaultof, field as coreField } from "@tsonic/core/lang.js";
+    import * as lang from "@tsonic/core/lang.js";
+    import { attribute as localAttribute, defaultof as localDefaultof, field as localField } from "./local.js";
+
+    coreField();
+    coreAttribute();
+    coreDefaultof();
+    localField();
+    localAttribute();
+    localDefaultof();
+
+    function shadow(
+      coreField: () => unknown,
+      coreAttribute: () => unknown,
+      coreDefaultof: () => unknown,
+      lang: {
+        field(): unknown;
+        attribute(): unknown;
+        defaultof(): unknown;
+      },
+    ) {
+      coreField();
+      coreAttribute();
+      coreDefaultof();
+      lang.field();
+      lang.attribute();
+      lang.defaultof();
+    }
+  `, {
+    "/src/local.ts": [
+      "export function field<T>(): T { throw new Error('local field'); }",
+      "export function attribute<T>(): { add(attribute: object): void } { return { add(_attribute: object): void {} }; }",
+      "export function defaultof<T>(): T { throw new Error('local default'); }",
+    ].join("\n"),
+  });
+
+  session.ensureBound();
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  assert.deepEqual(extensionHost.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort(), [
+    "SOURCE_SEMANTICS_MISSING_ATTRIBUTE_TARGET_EVIDENCE",
+    "SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE",
+    "SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE",
+  ]);
+  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "coreField", 0)), undefined);
+  assert.equal(extensionFacts(extensionHost).getAttributeFact(callExpression(session, sourceFile, "coreAttribute", 0)), undefined);
+  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "coreDefaultof", 0)), undefined);
+  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "localField")), undefined);
+  assert.equal(extensionFacts(extensionHost).getAttributeFact(callExpression(session, sourceFile, "localAttribute")), undefined);
+  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "localDefaultof")), undefined);
+  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "coreField", 1)), undefined);
+  assert.equal(extensionFacts(extensionHost).getAttributeFact(callExpression(session, sourceFile, "coreAttribute", 1)), undefined);
+  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "coreDefaultof", 1)), undefined);
+  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "lang.field")), undefined);
+  assert.equal(extensionFacts(extensionHost).getAttributeFact(callExpression(session, sourceFile, "lang.attribute")), undefined);
+  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "lang.defaultof")), undefined);
+});
+
 test("source-core virtual declarations leave invalid arity to TypeScript checking", () => {
   const { session, sourceFile } = createSourceCoreSession(`
     import { out, borrow as shared, borrowMut as mutable, move as moved } from "@tsonic/core/lang.js";
@@ -690,6 +758,36 @@ test("source-core virtual declarations leave invalid arity to TypeScript checkin
   assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "fnptr", 0), functionPointerFactKey), undefined);
 });
 
+test("source-core finalizes struct and default owner facts with static field names", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import { defaultof, field, struct } from "@tsonic/core/lang.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    const zero = defaultof<int32>();
+    const Shape = struct({ "display-name": field<int32>(), 2: field<bool>() });
+  `);
+
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  const facts = extensionFacts(extensionHost);
+
+  const defaultCall = callExpression(session, sourceFile, "defaultof");
+  assert.equal(facts.getDefaultValueFact(variableDeclaration(session, sourceFile, "zero"))?.type, facts.getDefaultValueFact(defaultCall)?.type);
+  assert.equal(typeReferenceName(session, facts.getDefaultValueFact(variableDeclaration(session, sourceFile, "zero"))?.type as Node | undefined), "int32");
+
+  const fieldFacts = [
+    facts.getFieldFact(callExpression(session, sourceFile, "field", 0)),
+    facts.getFieldFact(callExpression(session, sourceFile, "field", 1)),
+  ];
+  assert.deepEqual(fieldFacts.map((fact) => fact?.name), ["display-name", "2"]);
+  assert.equal(session.extensionHost?.facts.get(fieldFacts[0]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
+  assert.equal(session.extensionHost?.facts.get(fieldFacts[1]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "bool");
+
+  const structCall = callExpression(session, sourceFile, "struct");
+  assert.deepEqual(facts.getStructFact(structCall)?.fields?.map((field) => field.name), ["display-name", "2"]);
+  assert.deepEqual(facts.getStructFact(variableDeclaration(session, sourceFile, "Shape"))?.fields?.map((field) => field.name), ["display-name", "2"]);
+});
+
 test("source-core records ptr and fnptr facts from aliases and namespaces without local marker guessing", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
     import type { ptr as pointer, fnptr as functionPointer } from "@tsonic/core/lang.js";
@@ -740,13 +838,59 @@ test("source-core records ptr and fnptr facts from aliases and namespaces withou
   assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
 });
 
+test("source-core records fnptr tuple and scalar parameter facts", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import type { fnptr as callback, ptr as pointer } from "@tsonic/core/lang.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    type NoArgs = callback<[], bool>;
+    type OneArg = callback<int32, bool>;
+    type PointerArg = callback<[pointer<int32>], pointer<bool>>;
+  `);
+
+  const noArgsFact = session.extensionHost?.facts.get(typeReference(session, sourceFile, "callback", 0), functionPointerFactKey);
+  assert.equal(noArgsFact?.parameters.length, 0);
+  assert.equal(typeReferenceName(session, nodeFactSubject(noArgsFact?.result)), "bool");
+
+  const oneArgFact = session.extensionHost?.facts.get(typeReference(session, sourceFile, "callback", 1), functionPointerFactKey);
+  assert.equal(oneArgFact?.parameters.length, 1);
+  assert.equal(typeReferenceName(session, nodeFactSubject(oneArgFact?.parameters[0])), "int32");
+  assert.equal(typeReferenceName(session, nodeFactSubject(oneArgFact?.result)), "bool");
+
+  const pointerArgFact = session.extensionHost?.facts.get(typeReference(session, sourceFile, "callback", 2), functionPointerFactKey);
+  assert.equal(pointerArgFact?.parameters.length, 1);
+  assert.equal(session.extensionHost?.facts.get(nodeFactSubject(pointerArgFact?.parameters[0]), pointerFactKey)?.unsafeRequired, true);
+  assert.equal(session.extensionHost?.facts.get(nodeFactSubject(pointerArgFact?.result), pointerFactKey)?.unsafeRequired, true);
+});
+
+test("source-core does not attach type marker facts to shadowed generic type names", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import type { fnptr as callback, ptr as pointer } from "@tsonic/core/lang.js";
+    import type * as lang from "@tsonic/core/lang.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    function shadowPointer<pointer>(): pointer<int32> { throw new Error("shadowed pointer"); }
+    function shadowCallback<callback>(): callback<[int32], bool> { throw new Error("shadowed callback"); }
+    function shadowNamespacePointer<lang>(): lang.ptr<int32> { throw new Error("shadowed namespace pointer"); }
+    function shadowNamespaceCallback<lang>(): lang.fnptr<[int32], bool> { throw new Error("shadowed namespace callback"); }
+  `);
+
+  const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
+  assert.ok(diagnostics.length > 0);
+  session.ensureBound();
+  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "pointer"), pointerFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "callback"), functionPointerFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "lang.ptr"), pointerFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "lang.fnptr"), functionPointerFactKey), undefined);
+});
+
 function assertVirtualModuleResolution(value: ProviderModuleResolution | ExtensionDiagnostic): ProviderModuleResolution {
   assert.equal((value as { readonly kind?: string }).kind, "virtual");
   return value as ProviderModuleResolution;
 }
 
-function assertProviderDeclarationModel(value: ProviderDeclarationModel | ExtensionDiagnostic): ProviderDeclarationModel {
-  assert.equal((value as { readonly moduleSpecifier?: string }).moduleSpecifier, tsonicCoreLangModule);
+function assertProviderDeclarationModel(value: ProviderDeclarationModel | ExtensionDiagnostic, moduleSpecifier = tsonicCoreLangModule): ProviderDeclarationModel {
+  assert.equal((value as { readonly moduleSpecifier?: string }).moduleSpecifier, moduleSpecifier);
   return value as ProviderDeclarationModel;
 }
 

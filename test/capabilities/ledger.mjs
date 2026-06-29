@@ -1633,9 +1633,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source.marker.field": Object.freeze({
     positiveTests: Object.freeze([
+      "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1647,13 +1649,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source.marker.field remains partial until field markers cover all valid containing declarations, invalid orphan/duplicate/member-name forms, target accessibility/mutability facts, and emitted field AST output.",
     ]),
     notes:
-      "Reviewed partial proof: field<int32>() and field<bool>() inside struct() attach finalized field facts with names and source-primitive type facts; orphan field<int32>() fails closed with SOURCE_SEMANTICS_FIELD_TARGET_NOT_PROVEN instead of inferring a declaration from spelling.",
+      "Reviewed partial proof: field<int32>() and field<bool>() inside struct() attach finalized field facts with identifier, string-literal, and numeric static names plus source-primitive type facts, and local/shadowed same-spelling field functions do not attach facts. Missing explicit field type evidence reports SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE from direct, alias, and namespace imports. C# evidence proves orphan field<int32>() fails closed with SOURCE_SEMANTICS_FIELD_TARGET_NOT_PROVEN instead of inferring a declaration from spelling.",
   }),
   "source.marker.struct": Object.freeze({
     positiveTests: Object.freeze([
+      "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1664,7 +1668,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source.marker.struct remains partial until struct value-shape facts cover methods, constructors, generics, nested structs, invalid non-field members, and C# struct declaration/build output.",
     ]),
     notes:
-      "Reviewed partial proof: struct({ x: field<int32>(), ok: field<bool>() }) records a valueType struct fact whose fields are the finalized field facts; old interface-extends-struct evidence is treated only as regression history for the final struct()/field() source shape.",
+      "Reviewed partial proof: struct({ x: field<int32>(), ok: field<bool>() }) records a valueType struct fact whose fields are finalized field facts, preserves static field ordering/names, and finalizes the same struct fact on the owning variable declaration. Local same-spelling struct functions do not attach facts; old interface-extends-struct evidence is treated only as regression history for the final struct()/field() source shape.",
   }),
   "source.marker.attribute": Object.freeze({
     positiveTests: Object.freeze([
@@ -1703,7 +1707,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source.marker.defaultof remains partial until default facts cover primitive, struct, nullable, reference, provider generic, and emitted target-default expression cases.",
     ]),
     notes:
-      "Reviewed partial proof: defaultof<char>() attaches a default-value fact whose type is the finalized source type node. Missing explicit default type evidence now fails closed with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE. Old defaultof-intrinsic coverage remains regression evidence for future backend emission, not proof that every target default lane is complete.",
+      "Reviewed partial proof: defaultof<char>() and defaultof<int32>() attach default-value facts whose type is the finalized source type node, including finalized owner facts on variable declarations. Missing explicit default type evidence now fails closed with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE through direct, alias, and namespace imports without local/shadowed name guessing. Old defaultof-intrinsic coverage remains regression evidence for future backend emission, not proof that every target default lane is complete.",
   }),
   "source.marker.ptr-fnptr": Object.freeze({
     positiveTests: Object.freeze([
@@ -1722,7 +1726,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source.marker.ptr-fnptr remains partial until pointer/function-pointer facts cover explicit mutability variants, non-arity invalid type-argument forms, provider pointer boundaries, source spans, and all selected-target diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: neutral ptr<int32> and fnptr<[int32, bool], char> aliases plus core namespace marker imports attach pointer and function-pointer facts with target-defined mutability, unsafe requirements, parameter/result type nodes, and target-default ABI; local same-spelling markers do not attach facts, invalid arity is rejected by TSTS checking, C# CLI emits unsafe pointer/function-pointer output from finalized neutral facts, and .NET provider tests prove unsupported pointer signatures are target diagnostics instead of source declarations.",
+      "Reviewed partial proof: neutral ptr<int32>, fnptr<[int32, bool], char>, fnptr<[], bool>, and scalar-argument fnptr<int32, bool> aliases plus core namespace marker imports attach pointer and function-pointer facts with target-defined mutability, unsafe requirements, parameter/result type nodes, and target-default ABI. Local same-spelling markers and function-generic shadowed type names do not attach facts, invalid arity is rejected by TSTS checking, C# CLI emits unsafe pointer/function-pointer output from finalized neutral facts, and .NET provider tests prove unsupported pointer signatures are target diagnostics instead of source declarations.",
   }),
   "source.marker.borrow-move": Object.freeze({
     positiveTests: Object.freeze([
@@ -1784,9 +1788,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source-core.struct.field-facts": Object.freeze({
     positiveTests: Object.freeze([
+      "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -1797,7 +1803,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.struct.field-facts remains partial until struct/field facts cover duplicate fields, non-field expressions, member ordering, target mutability/accessibility, nested value shapes, and generated C# struct output.",
     ]),
     notes:
-      "Reviewed partial proof: struct facts collect only finalized field facts from the struct object literal, preserve field names x/ok and source-primitive type facts, and reject orphan field markers without a proven target field context.",
+      "Reviewed partial proof: struct facts collect only finalized field facts from the struct object literal, preserve field names x/ok plus string/numeric static names and source-primitive type facts, and finalize owner facts on the struct variable declaration. C# evidence rejects orphan field markers without a proven target field context.",
   }),
   "source-core.flow.borrow-move-facts": Object.freeze({
     positiveTests: Object.freeze([
@@ -1887,7 +1893,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core-owned module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove direct provider-owned facts for every current intrinsic, alias and namespace import facts for storage, flow, struct, field, attribute, defaultof, ptr, and fnptr markers, invalid arity rejection through TSTS checking, fail-closed missing storage/type evidence, no-name-guessing for local/shadowed markers, and fail-closed unsupported local barrel re-export imports that attach no portable facts; CLI and C# tests prove selected target implementation/rejection for current paths. Completion requires every child intrinsic to have full per-target implementation or explicit rejection evidence, including positive direct re-export/barrel source forms once TSTS exposes stable canonical re-export identity.",
+      "Reviewed partial proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core-owned module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove direct provider-owned facts for every current intrinsic, alias and namespace import facts for storage, flow, struct, field, attribute, defaultof, ptr, and fnptr markers, invalid arity rejection through TSTS checking, fail-closed missing storage/type evidence through direct/alias/namespace imports, finalized owner facts for struct/defaultof, no-name-guessing for local/shadowed markers including type-marker generic shadowing, and fail-closed unsupported local barrel re-export imports that attach no portable facts; CLI and C# tests prove selected target implementation/rejection for current paths. Completion requires every child intrinsic to have full per-target implementation or explicit rejection evidence, including positive direct re-export/barrel source forms once TSTS exposes stable canonical re-export identity.",
   }),
   "source-core.lang.portable-intrinsics.out": coreLangIntrinsicEvidence({
     exportName: "out",
@@ -2195,7 +2201,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.struct remains partial until duplicate fields, non-field members, methods, constructors, generics, nested structs, target layout diagnostics, and all emitted target AST paths are proven.",
     ],
     notes:
-      "Reviewed partial proof: struct({ x: field<int32>() }) and namespace lang.struct({ x: lang.field<int32>() }) record valueType struct facts from finalized field facts; local same-spelling struct functions do not attach source-core facts. C# CLI tests emit public struct only from those facts. Invalid value-type members without field facts fail closed.",
+      "Reviewed partial proof: struct({ x: field<int32>() }) and namespace lang.struct({ x: lang.field<int32>() }) record valueType struct facts from finalized field facts; source-core package tests also prove finalized owner facts on the struct variable and string/numeric static field names. Local same-spelling struct functions do not attach source-core facts. C# CLI tests emit public struct only from those facts. Invalid value-type members without field facts fail closed.",
   }),
   "source-core.lang.portable-intrinsics.field": coreLangIntrinsicEvidence({
     exportName: "field",
@@ -2243,7 +2249,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.field remains partial until orphan fields, duplicate fields, class-vs-struct context, target mutability/accessibility, source spans, and every emitted field AST path are proven.",
     ],
     notes:
-      "Reviewed partial proof: field<int32>() and namespace lang.field<int32>() attach field facts only from explicit type evidence and proven containing context; local same-spelling field functions do not attach facts. field() without type evidence and non-field struct members produce deterministic diagnostics instead of inferred target fields.",
+      "Reviewed partial proof: field<int32>() and namespace lang.field<int32>() attach field facts only from explicit type evidence and proven static property-assignment context, including identifier, string-literal, and numeric field names; local/shadowed same-spelling field functions do not attach facts. field() without type evidence through direct, alias, and namespace imports and non-field struct members produce deterministic diagnostics instead of inferred target fields.",
   }),
   "source-core.lang.portable-intrinsics.attribute": coreLangIntrinsicEvidence({
     exportName: "attribute",
@@ -2333,7 +2339,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.defaultof remains partial until primitives, structs, nullable/reference types, provider generics, invalid type evidence, source spans, and every selected target default-expression path are proven.",
     ],
     notes:
-      "Reviewed partial proof: defaultof<char>(), defaultof<int32>(), and namespace lang.defaultof<bool>() attach default-value facts from explicit type evidence, while local same-spelling defaultof functions do not attach facts. defaultof() fails with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE, and C# emits default(int) only after consuming finalized facts.",
+      "Reviewed partial proof: defaultof<char>(), defaultof<int32>(), and namespace lang.defaultof<bool>() attach default-value facts from explicit type evidence and finalize owner facts on variable declarations, while local/shadowed same-spelling defaultof functions do not attach facts. defaultof() fails with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE through direct, alias, and namespace imports, and C# emits default(int) only after consuming finalized facts.",
   }),
   "source-core.lang.portable-intrinsics.ptr": coreLangIntrinsicEvidence({
     exportName: "ptr",
@@ -2379,7 +2385,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.ptr remains partial until explicit mutability variants, non-arity invalid type forms, unsafe project settings, provider pointer boundaries, source spans, and all target diagnostics are proven.",
     ],
     notes:
-      "Reviewed partial proof: aliased ptr<int32>, namespace lang.ptr<int32>, and nested ptr facts attach target-defined mutability plus unsafe-required evidence; local same-spelling ptr aliases do not attach pointer facts; invalid arity is rejected by TSTS checking; and C# CLI emits int* with AllowUnsafeBlocks only from finalized facts. Unsupported pointer shapes remain target diagnostics.",
+      "Reviewed partial proof: aliased ptr<int32>, namespace lang.ptr<int32>, and nested ptr facts attach target-defined mutability plus unsafe-required evidence; local same-spelling ptr aliases and function-generic shadowed pointer names do not attach pointer facts; invalid arity is rejected by TSTS checking; and C# CLI emits int* with AllowUnsafeBlocks only from finalized facts. Unsupported pointer shapes remain target diagnostics.",
   }),
   "source-core.lang.portable-intrinsics.fnptr": coreLangIntrinsicEvidence({
     exportName: "fnptr",
@@ -2427,7 +2433,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "source-core.lang.portable-intrinsics.fnptr remains partial until non-arity invalid Args/Result forms, ABI/calling convention facts, provider boundaries, source spans, and all selected-target diagnostics are proven.",
     ],
     notes:
-      "Reviewed partial proof: source-semantics records fnptr parameter/result type facts from aliased and namespace core type marker imports, rejects local same-spelling aliases, relies on TSTS checking for invalid arity, and C# CLI emits delegate* output with AllowUnsafeBlocks only from finalized neutral facts. Complete target ABI diagnostics remain open.",
+      "Reviewed partial proof: source-semantics records fnptr parameter/result type facts from aliased and namespace core type marker imports, including empty tuple, tuple, scalar, pointer-parameter, and pointer-result forms; it rejects local same-spelling aliases and function-generic shadowed callback names, relies on TSTS checking for invalid arity, and C# CLI emits delegate* output with AllowUnsafeBlocks only from finalized neutral facts. Complete target ABI diagnostics remain open.",
   }),
   "native.dotnet.assembly-model": Object.freeze({
     positiveTests: Object.freeze([
@@ -4729,7 +4735,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: source-core package tests prove the source-core virtual module provider owns only @tsonic/core/types.js and @tsonic/core/lang.js, rejects unowned @tsonic/csharp/* resolution, and exposes portable lang.js exports without target alias names. External C# tests prove the C# source alias provider explicitly returns unowned for both portable core modules and owns only @tsonic/csharp/types.js and @tsonic/csharp/lang.js. Remains partial until every target pack proves the same non-redefinition boundary.",
+      "Reviewed partial proof: source-core package tests prove the source-core virtual module provider owns only @tsonic/core/types.js and @tsonic/core/lang.js, rejects unowned @tsonic/csharp/* resolution, exposes portable lang.js marker exports without primitive/target alias names, and exposes types.js primitive exports without lang marker names. External C# tests prove the C# source alias provider explicitly returns unowned for both portable core modules and owns only @tsonic/csharp/types.js and @tsonic/csharp/lang.js. Remains partial until every target pack proves the same non-redefinition boundary.",
   }),
   "source-core.target-alias-consumption": Object.freeze({
     positiveTests: Object.freeze([
