@@ -7,13 +7,9 @@ import type {
   TypeCheckerQueries,
 } from "@tsonic/tsts";
 import type {
-  TargetArgumentFlowRecord,
-  TargetFunctionSummary,
   TargetLazySourceAnalysis,
   TargetSourceAccessKind,
   TargetSourceCallsite,
-  TargetSourceCaptureRecord,
-  TargetSourceEscapeRecord,
   TargetSourceReferenceRecord,
   TargetSourceUseOperation,
   TargetSourceUseRecord,
@@ -40,8 +36,6 @@ export type LazySourceUseKind =
   | "iteration"
   | "spread"
   | "destructure"
-  | "capture"
-  | "escape"
   | "operator";
 
 export interface LazySourceReferenceRecord extends TargetSourceReferenceRecord {
@@ -49,41 +43,6 @@ export interface LazySourceReferenceRecord extends TargetSourceReferenceRecord {
   readonly enclosingFunction?: Node;
   readonly enclosingDeclaration?: Node;
   readonly occurrence: LazySourceOccurrence;
-}
-
-export interface LazySourceDeclarationRecord {
-  readonly symbol: Symbol;
-  readonly sourceFile?: SourceFile;
-  readonly node: Node;
-  readonly occurrence: LazySourceOccurrence;
-  readonly enclosingFunction?: Node;
-  readonly enclosingDeclaration?: Node;
-}
-
-export interface LazySourceImportRecord {
-  readonly symbol: Symbol;
-  readonly sourceFile: SourceFile;
-  readonly declaration: Node;
-  readonly binding: Node;
-  readonly moduleSpecifier: Node;
-  readonly importKind: "default" | "named" | "namespace";
-  readonly importedName?: string;
-  readonly localName: string;
-  readonly isTypeOnly: boolean;
-  readonly importedSymbol?: Symbol;
-}
-
-export interface LazySourceExportRecord {
-  readonly symbol: Symbol;
-  readonly sourceFile: SourceFile;
-  readonly declaration: Node;
-  readonly node: Node;
-  readonly exportKind: "local" | "named" | "default" | "assignment";
-  readonly exportedName: string;
-  readonly localName?: string;
-  readonly moduleSpecifier?: Node;
-  readonly isTypeOnly: boolean;
-  readonly exportedSymbol?: Symbol;
 }
 
 export interface LazySourceUseRecord extends TargetSourceUseRecord {
@@ -109,25 +68,7 @@ export interface LazySourceCallsite extends TargetSourceCallsite {
   readonly typeArguments: readonly Node[];
 }
 
-export interface LazyReturnFlowRecord {
-  readonly sourceFile?: SourceFile;
-  readonly functionNode: Node;
-  readonly returnStatement: Node;
-  readonly expression?: Node;
-}
-
-export interface LazyFunctionSummary extends TargetFunctionSummary {
-  readonly references: readonly LazySourceReferenceRecord[];
-  readonly calls: readonly LazySourceCallsite[];
-  readonly constructs: readonly LazySourceCallsite[];
-  readonly returns: readonly Node[];
-  readonly returnFlows: readonly LazyReturnFlowRecord[];
-}
-
 export interface LazyTargetSourceAnalysis extends TargetLazySourceAnalysis {
-  declarationsOf(symbol: Symbol | undefined): readonly LazySourceDeclarationRecord[];
-  importsOf(symbol: Symbol | undefined): readonly LazySourceImportRecord[];
-  exportsOf(symbol: Symbol | undefined): readonly LazySourceExportRecord[];
   referencesOf(symbol: Symbol | undefined): readonly LazySourceReferenceRecord[];
   usesOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
   readsOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
@@ -135,14 +76,13 @@ export interface LazyTargetSourceAnalysis extends TargetLazySourceAnalysis {
   mutationsOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
   propertyReadsOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
   propertyWritesOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
-  propertyCallsOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
   elementReadsOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
   elementWritesOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
-  elementDeletesOn(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
   callsitesOf(functionSymbol: Symbol | undefined): readonly LazySourceCallsite[];
   constructSitesOf(functionSymbol: Symbol | undefined): readonly LazySourceCallsite[];
-  returnFlowOf(functionNode: Node): readonly LazyReturnFlowRecord[];
-  summaryOf(functionNode: Node): LazyFunctionSummary;
+  awaitsOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  forInSitesOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
+  bindingUsesOf(symbol: Symbol | undefined): readonly LazySourceUseRecord[];
 }
 
 export function createLazyTargetSourceAnalysis(
@@ -151,24 +91,12 @@ export function createLazyTargetSourceAnalysis(
   sourceFiles: readonly SourceFile[],
 ): LazyTargetSourceAnalysis {
   const referenceCache = new WeakMap<object, readonly LazySourceReferenceRecord[]>();
-  const declarationCache = new WeakMap<object, readonly LazySourceDeclarationRecord[]>();
-  const importCache = new WeakMap<object, readonly LazySourceImportRecord[]>();
-  const exportCache = new WeakMap<object, readonly LazySourceExportRecord[]>();
   const useCache = new WeakMap<object, readonly LazySourceUseRecord[]>();
+  const filteredUseCache = new WeakMap<object, Map<string, readonly LazySourceUseRecord[]>>();
   const callsiteCache = new WeakMap<object, readonly LazySourceCallsite[]>();
-  const functionSummaryCache = new WeakMap<object, LazyFunctionSummary>();
-  const returnFlowCache = new WeakMap<object, readonly LazyReturnFlowRecord[]>();
+  const filteredCallsiteCache = new WeakMap<object, Map<string, readonly LazySourceCallsite[]>>();
 
   return {
-    declarationsOf(symbol) {
-      return declarationsOf(symbol);
-    },
-    importsOf(symbol) {
-      return importsOf(symbol);
-    },
-    exportsOf(symbol) {
-      return exportsOf(symbol);
-    },
     referencesOf(symbol) {
       return referencesOf(symbol);
     },
@@ -176,112 +104,42 @@ export function createLazyTargetSourceAnalysis(
       return usesOf(symbol);
     },
     readsOf(symbol) {
-      return usesOf(symbol).filter((use) => use.access === "read");
+      return filteredUses(symbol, "reads", (use) => use.access === "read");
     },
     writesOf(symbol) {
-      return usesOf(symbol).filter((use) => use.access === "write");
+      return filteredUses(symbol, "writes", (use) => use.access === "write");
     },
     mutationsOf(symbol) {
-      return usesOf(symbol).filter((use) => use.access === "write" || use.access === "delete");
+      return filteredUses(symbol, "mutations", (use) => use.access === "write" || use.access === "delete");
     },
     propertyReadsOn(symbol) {
-      return usesOf(symbol).filter((use) => use.operation === "property" && use.access === "read");
+      return filteredUses(symbol, "propertyReads", (use) => use.operation === "property" && use.access === "read");
     },
     propertyWritesOn(symbol) {
-      return usesOf(symbol).filter((use) => use.operation === "property" && use.access === "write");
-    },
-    propertyCallsOn(symbol) {
-      return usesOf(symbol).filter((use) => use.kind === "property-call");
+      return filteredUses(symbol, "propertyWrites", (use) => use.operation === "property" && use.access === "write");
     },
     elementReadsOn(symbol) {
-      return usesOf(symbol).filter((use) => use.operation === "element" && use.access === "read");
+      return filteredUses(symbol, "elementReads", (use) => use.operation === "element" && use.access === "read");
     },
     elementWritesOn(symbol) {
-      return usesOf(symbol).filter((use) => use.operation === "element" && use.access === "write");
-    },
-    elementDeletesOn(symbol) {
-      return usesOf(symbol).filter((use) => use.operation === "element" && use.access === "delete");
+      return filteredUses(symbol, "elementWrites", (use) => use.operation === "element" && use.access === "write");
     },
     callsitesOf(symbol) {
-      return callsitesOf(symbol).filter((callsite) => callsite.kind === "call");
+      return filteredCallsites(symbol, "calls", (callsite) => callsite.kind === "call");
     },
     constructSitesOf(symbol) {
-      return callsitesOf(symbol).filter((callsite) => callsite.kind === "construct");
+      return filteredCallsites(symbol, "constructs", (callsite) => callsite.kind === "construct");
     },
-    argumentFlowOf(symbol) {
-      return argumentFlowOf(symbol);
+    awaitsOf(symbol) {
+      return filteredUses(symbol, "awaits", (use) => use.operation === "await");
     },
-    escapesOf(symbol) {
-      return escapesOf(symbol);
+    forInSitesOf(symbol) {
+      return filteredUses(symbol, "forInSites", (use) => use.operation === "iteration" && use.iterationKind === "for-in");
     },
-    capturesOf(symbol) {
-      return capturesOf(symbol);
-    },
-    returnFlowOf(functionNode) {
-      return returnFlowOf(functionNode);
-    },
-    summaryOf(functionNode) {
-      return summaryOf(functionNode);
+    bindingUsesOf(symbol) {
+      return filteredUses(symbol, "bindingUses", (use) => use.operation === "destructure");
     },
   };
-
-  function declarationsOf(symbol: Symbol | undefined): readonly LazySourceDeclarationRecord[] {
-    if (symbol === undefined) {
-      return [];
-    }
-    const cached = declarationCache.get(symbol);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const declarations = checker.getSymbolDeclarations(symbol)
-      .filter((node): node is Node => node !== undefined)
-      .map((node): LazySourceDeclarationRecord => ({
-        symbol,
-        sourceFile: ast.getSourceFile(node),
-        node,
-        occurrence: getDeclarationOccurrence(node),
-        enclosingFunction: nearestFunctionLike(node),
-        enclosingDeclaration: nearestDeclaration(node),
-      }));
-    declarationCache.set(symbol, declarations);
-    return declarations;
-  }
-
-  function importsOf(symbol: Symbol | undefined): readonly LazySourceImportRecord[] {
-    if (symbol === undefined) {
-      return [];
-    }
-    const cached = importCache.get(symbol);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const imports: LazySourceImportRecord[] = [];
-    for (const sourceFile of sourceFiles) {
-      for (const statement of presentNodes(ast.statements(sourceFile))) {
-        collectImportRecords(symbol, sourceFile, statement, imports);
-      }
-    }
-    importCache.set(symbol, imports);
-    return imports;
-  }
-
-  function exportsOf(symbol: Symbol | undefined): readonly LazySourceExportRecord[] {
-    if (symbol === undefined) {
-      return [];
-    }
-    const cached = exportCache.get(symbol);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const exportRecords: LazySourceExportRecord[] = [];
-    for (const sourceFile of sourceFiles) {
-      visitSourceNodes(sourceFile, (node) => {
-        collectExportRecords(symbol, sourceFile, node, exportRecords);
-      });
-    }
-    exportCache.set(symbol, exportRecords);
-    return exportRecords;
-  }
 
   function referencesOf(symbol: Symbol | undefined): readonly LazySourceReferenceRecord[] {
     if (symbol === undefined) {
@@ -338,6 +196,28 @@ export function createLazyTargetSourceAnalysis(
     return uses;
   }
 
+  function filteredUses(
+    symbol: Symbol | undefined,
+    key: string,
+    predicate: (use: LazySourceUseRecord) => boolean,
+  ): readonly LazySourceUseRecord[] {
+    if (symbol === undefined) {
+      return [];
+    }
+    let symbolCache = filteredUseCache.get(symbol);
+    if (symbolCache === undefined) {
+      symbolCache = new Map();
+      filteredUseCache.set(symbol, symbolCache);
+    }
+    const cached = symbolCache.get(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const filtered = usesOf(symbol).filter(predicate);
+    symbolCache.set(key, filtered);
+    return filtered;
+  }
+
   function callsitesOf(symbol: Symbol | undefined): readonly LazySourceCallsite[] {
     if (symbol === undefined) {
       return [];
@@ -363,302 +243,26 @@ export function createLazyTargetSourceAnalysis(
     return callsites;
   }
 
-  function argumentFlowOf(symbol: Symbol | undefined): readonly TargetArgumentFlowRecord[] {
+  function filteredCallsites(
+    symbol: Symbol | undefined,
+    key: string,
+    predicate: (callsite: LazySourceCallsite) => boolean,
+  ): readonly LazySourceCallsite[] {
     if (symbol === undefined) {
       return [];
     }
-    return usesOf(symbol)
-      .filter((use): use is LazySourceUseRecord & { readonly argumentIndex: number; readonly call: Node } =>
-        use.operation === "argument" && use.argumentIndex !== undefined && use.call !== undefined)
-      .map((use) => ({
-        symbol,
-        sourceFile: use.sourceFile,
-        argument: use.node,
-        call: use.call,
-        argumentIndex: use.argumentIndex,
-        selectedSignatureDeclaration: use.selectedSignatureDeclaration,
-      }));
-  }
-
-  function escapesOf(symbol: Symbol | undefined): readonly TargetSourceEscapeRecord[] {
-    if (symbol === undefined) {
-      return [];
+    let symbolCache = filteredCallsiteCache.get(symbol);
+    if (symbolCache === undefined) {
+      symbolCache = new Map();
+      filteredCallsiteCache.set(symbol, symbolCache);
     }
-    return usesOf(symbol)
-      .filter((use) =>
-        use.operation === "return" ||
-        use.operation === "argument" ||
-        use.operation === "property" ||
-        use.operation === "element" ||
-        use.kind === "property-call")
-      .map((use) => ({
-        symbol,
-        sourceFile: use.sourceFile,
-        node: use.node,
-        operation: use.operation,
-        via: use.parent,
-      }));
-  }
-
-  function capturesOf(symbol: Symbol | undefined): readonly TargetSourceCaptureRecord[] {
-    if (symbol === undefined) {
-      return [];
-    }
-    const declarationFunction = nearestFunctionLike(primaryDeclaration(symbol));
-    return referencesOf(symbol)
-      .map((reference) => ({ reference, functionNode: nearestFunctionLike(reference.node) }))
-      .filter((entry) => entry.functionNode !== undefined && entry.functionNode !== declarationFunction)
-      .map((entry) => ({
-        symbol,
-        sourceFile: entry.reference.sourceFile,
-        node: entry.reference.node,
-        functionNode: entry.functionNode as Node,
-      }));
-  }
-
-  function returnFlowOf(functionNode: Node): readonly LazyReturnFlowRecord[] {
-    const cached = returnFlowCache.get(functionNode);
+    const cached = symbolCache.get(key);
     if (cached !== undefined) {
       return cached;
     }
-    const returnFlows: LazyReturnFlowRecord[] = [];
-    const sourceFile = ast.getSourceFile(functionNode);
-    visitSourceNodes(functionNode, (node) => {
-      const returnStatement = asReturnStatement(node);
-      if (returnStatement === undefined) {
-        return;
-      }
-      returnFlows.push({
-        sourceFile,
-        functionNode,
-        returnStatement: node,
-        expression: returnStatement.Expression,
-      });
-    });
-    returnFlowCache.set(functionNode, returnFlows);
-    return returnFlows;
-  }
-
-  function summaryOf(functionNode: Node): LazyFunctionSummary {
-    const cached = functionSummaryCache.get(functionNode);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const sourceFile = ast.getSourceFile(functionNode);
-    const references: LazySourceReferenceRecord[] = [];
-    const calls: LazySourceCallsite[] = [];
-    const constructs: LazySourceCallsite[] = [];
-    visitSourceNodes(functionNode, (node) => {
-      if (sourceFile !== undefined) {
-        const referenceNode = getReferenceNode(node);
-        if (referenceNode !== undefined) {
-          const symbol = getSymbolForReference(referenceNode, sourceFile);
-          if (symbol !== undefined) {
-            references.push({
-              symbol,
-              resolvedSymbol: symbol,
-              sourceFile,
-              node: referenceNode,
-              enclosingFunction: nearestFunctionLike(referenceNode),
-              enclosingDeclaration: nearestDeclaration(referenceNode),
-              occurrence: getReferenceOccurrence(referenceNode),
-            });
-          }
-        }
-      }
-      if (sourceFile !== undefined && (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node))) {
-        const callee = getCallExpressionNode(node);
-        const callsite = createCallsite(callee === undefined ? undefined : getSymbolForReference(callee, sourceFile), sourceFile, node, callee);
-        if (callsite.kind === "construct") {
-          constructs.push(callsite);
-        } else {
-          calls.push(callsite);
-        }
-      }
-    });
-    const returnFlows = returnFlowOf(functionNode);
-    const summary = {
-      functionNode,
-      sourceFile,
-      references,
-      calls,
-      constructs,
-      returns: returnFlows.map((flow) => flow.returnStatement),
-      returnFlows,
-    };
-    functionSummaryCache.set(functionNode, summary);
-    return summary;
-  }
-
-  function collectImportRecords(
-    symbol: Symbol,
-    sourceFile: SourceFile,
-    statement: Node,
-    imports: LazySourceImportRecord[],
-  ): void {
-    const importDeclaration = asImportDeclaration(statement);
-    if (importDeclaration === undefined || importDeclaration.ModuleSpecifier === undefined) {
-      return;
-    }
-    const importClauseNode = importDeclaration.ImportClause;
-    if (importClauseNode === undefined) {
-      return;
-    }
-    const importClause = asImportClause(importClauseNode);
-    if (importClause === undefined) {
-      return;
-    }
-    const typeOnlyDeclaration = ast.isTypeOnlyImportDeclaration(statement);
-    if (importClause.name !== undefined) {
-      pushImportRecord(symbol, sourceFile, statement, importClause.name, importDeclaration.ModuleSpecifier, "default", "default", typeOnlyDeclaration, imports);
-    }
-    const namedBindings = importClause.NamedBindings;
-    if (namedBindings === undefined) {
-      return;
-    }
-    const namespaceImport = asNamespaceImport(namedBindings);
-    if (namespaceImport !== undefined && namespaceImport.name !== undefined) {
-      pushImportRecord(symbol, sourceFile, statement, namespaceImport.name, importDeclaration.ModuleSpecifier, "namespace", undefined, typeOnlyDeclaration, imports);
-      return;
-    }
-    if (asNamedImports(namedBindings) === undefined) {
-      return;
-    }
-    for (const specifier of presentNodes(ast.elements(namedBindings))) {
-      const importSpecifier = asImportSpecifier(specifier);
-      if (importSpecifier === undefined || importSpecifier.name === undefined) {
-        continue;
-      }
-      pushImportRecord(
-        symbol,
-        sourceFile,
-        statement,
-        importSpecifier.name,
-        importDeclaration.ModuleSpecifier,
-        "named",
-        textOf(importSpecifier.PropertyName ?? importSpecifier.name),
-        typeOnlyDeclaration || importSpecifier.IsTypeOnly,
-        imports,
-      );
-    }
-  }
-
-  function pushImportRecord(
-    requestedSymbol: Symbol,
-    sourceFile: SourceFile,
-    declaration: Node,
-    binding: Node,
-    moduleSpecifier: Node,
-    importKind: LazySourceImportRecord["importKind"],
-    importedName: string | undefined,
-    isTypeOnly: boolean,
-    imports: LazySourceImportRecord[],
-  ): void {
-    const localSymbol = checker.getSymbolAtLocation(binding, { sourceFile });
-    if (!symbolsMatch(localSymbol, requestedSymbol, sourceFile)) {
-      return;
-    }
-    imports.push({
-      symbol: requestedSymbol,
-      importedSymbol: getAliasedSymbolIfAlias(checker, localSymbol, { sourceFile }),
-      sourceFile,
-      declaration,
-      binding,
-      moduleSpecifier,
-      importKind,
-      importedName,
-      localName: textOf(binding),
-      isTypeOnly,
-    });
-  }
-
-  function collectExportRecords(
-    symbol: Symbol,
-    sourceFile: SourceFile,
-    node: Node,
-    exportRecords: LazySourceExportRecord[],
-  ): void {
-    const exportDeclaration = asExportDeclaration(node);
-    if (exportDeclaration !== undefined) {
-      collectNamedExportRecords(symbol, sourceFile, node, exportDeclaration, exportRecords);
-      return;
-    }
-    const exportAssignment = asExportAssignment(node);
-    if (exportAssignment !== undefined && !exportAssignment.IsExportEquals && exportAssignment.Expression !== undefined) {
-      const exportedSymbol = getSymbolForReference(exportAssignment.Expression, sourceFile);
-      if (symbolsMatch(exportedSymbol, symbol, sourceFile)) {
-        exportRecords.push({
-          symbol,
-          exportedSymbol,
-          sourceFile,
-          declaration: node,
-          node: exportAssignment.Expression,
-          exportKind: "assignment",
-          exportedName: "default",
-          isTypeOnly: false,
-        });
-      }
-      return;
-    }
-    const exportedDeclaration = getDirectExportDeclaration(node);
-    if (exportedDeclaration === undefined) {
-      return;
-    }
-    const name = ast.name(exportedDeclaration);
-    if (name === undefined || !symbolsMatch(checker.getSymbolAtLocation(name, { sourceFile }), symbol, sourceFile)) {
-      return;
-    }
-    exportRecords.push({
-      symbol,
-      exportedSymbol: checker.getSymbolAtLocation(name, { sourceFile }),
-      sourceFile,
-      declaration: exportedDeclaration,
-      node: name,
-      exportKind: ast.hasModifierKind(exportedDeclaration, "default") ? "default" : "local",
-      exportedName: ast.hasModifierKind(exportedDeclaration, "default") ? "default" : textOf(name),
-      localName: textOf(name),
-      isTypeOnly: isTypeDeclaration(exportedDeclaration),
-    });
-  }
-
-  function collectNamedExportRecords(
-    symbol: Symbol,
-    sourceFile: SourceFile,
-    declaration: Node,
-    exportDeclaration: NonNullable<ReturnType<AstReader["as"]["AsExportDeclaration"]>>,
-    exportRecords: LazySourceExportRecord[],
-  ): void {
-    const exportClause = exportDeclaration.ExportClause;
-    if (exportClause === undefined) {
-      return;
-    }
-    const namedExports = asNamedExports(exportClause);
-    if (namedExports === undefined) {
-      return;
-    }
-    for (const specifier of presentNodes(ast.elements(exportClause))) {
-      const exportSpecifier = asExportSpecifier(specifier);
-      if (exportSpecifier === undefined || exportSpecifier.name === undefined) {
-        continue;
-      }
-      const exportedSymbol = checker.getSymbolAtLocation(exportSpecifier.name, { sourceFile });
-      if (!symbolsMatch(exportedSymbol, symbol, sourceFile)) {
-        continue;
-      }
-      const localNode = exportSpecifier.PropertyName ?? exportSpecifier.name;
-      exportRecords.push({
-        symbol,
-        exportedSymbol,
-        sourceFile,
-        declaration,
-        node: exportSpecifier.name,
-        exportKind: "named",
-        exportedName: textOf(exportSpecifier.name),
-        localName: textOf(localNode),
-        moduleSpecifier: exportDeclaration.ModuleSpecifier,
-        isTypeOnly: exportDeclaration.IsTypeOnly || exportSpecifier.IsTypeOnly,
-      });
-    }
+    const filtered = callsitesOf(symbol).filter(predicate);
+    symbolCache.set(key, filtered);
+    return filtered;
   }
 
   function classifyReferenceUse(reference: LazySourceReferenceRecord): LazySourceUseRecord {
@@ -865,39 +469,6 @@ export function createLazyTargetSourceAnalysis(
     return "property-read";
   }
 
-  function collectDirectExportDeclaration(node: Node): Node | undefined {
-    if (ast.hasModifierKind(node, "export")) {
-      return node;
-    }
-    if (!ast.is.IsVariableDeclaration(node)) {
-      return undefined;
-    }
-    const declarationList = ast.parent(node);
-    const variableStatement = declarationList === undefined ? undefined : ast.parent(declarationList);
-    return variableStatement !== undefined && ast.is.IsVariableStatement(variableStatement) && ast.hasModifierKind(variableStatement, "export")
-      ? node
-      : undefined;
-  }
-
-  function getDirectExportDeclaration(node: Node): Node | undefined {
-    const declaration = collectDirectExportDeclaration(node);
-    if (declaration === undefined) {
-      return undefined;
-    }
-    return ast.is.IsFunctionDeclaration(declaration) ||
-      ast.is.IsClassDeclaration(declaration) ||
-      ast.is.IsInterfaceDeclaration(declaration) ||
-      ast.is.IsTypeAliasDeclaration(declaration) ||
-      ast.is.IsEnumDeclaration(declaration) ||
-      ast.is.IsVariableDeclaration(declaration)
-      ? declaration
-      : undefined;
-  }
-
-  function isTypeDeclaration(node: Node): boolean {
-    return ast.is.IsInterfaceDeclaration(node) || ast.is.IsTypeAliasDeclaration(node);
-  }
-
   function getReferenceNode(node: Node): Node | undefined {
     if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsQualifiedName(node)) {
       return node;
@@ -929,16 +500,6 @@ export function createLazyTargetSourceAnalysis(
       return "export";
     }
     return isTypeReferenceQuery(ast, node) ? "type" : "value";
-  }
-
-  function getDeclarationOccurrence(node: Node): LazySourceOccurrence {
-    if (hasAncestor(node, (ancestor) => ast.is.IsImportDeclaration(ancestor) || ast.is.IsImportSpecifier(ancestor) || ast.is.IsImportClause(ancestor))) {
-      return "import";
-    }
-    if (hasAncestor(node, (ancestor) => ast.is.IsExportDeclaration(ancestor) || ast.is.IsExportSpecifier(ancestor))) {
-      return "export";
-    }
-    return isTypeDeclaration(node) ? "type" : "value";
   }
 
   function symbolsMatch(candidate: Symbol | undefined, requested: Symbol, sourceFile: SourceFile): boolean {
@@ -1169,42 +730,6 @@ export function createLazyTargetSourceAnalysis(
 
   function getBinaryOperatorText(operatorToken: Node | undefined): string | undefined {
     return operatorToken === undefined ? undefined : operatorTextByKindName(ast.kindName(operatorToken));
-  }
-
-  function asImportDeclaration(node: Node | undefined): ReturnType<AstReader["as"]["AsImportDeclaration"]> {
-    return node !== undefined && ast.is.IsImportDeclaration(node) ? ast.as.AsImportDeclaration(node) : undefined;
-  }
-
-  function asImportClause(node: Node | undefined): ReturnType<AstReader["as"]["AsImportClause"]> {
-    return node !== undefined && ast.is.IsImportClause(node) ? ast.as.AsImportClause(node) : undefined;
-  }
-
-  function asNamespaceImport(node: Node | undefined): ReturnType<AstReader["as"]["AsNamespaceImport"]> {
-    return node !== undefined && ast.is.IsNamespaceImport(node) ? ast.as.AsNamespaceImport(node) : undefined;
-  }
-
-  function asNamedImports(node: Node | undefined): ReturnType<AstReader["as"]["AsNamedImports"]> {
-    return node !== undefined && ast.is.IsNamedImports(node) ? ast.as.AsNamedImports(node) : undefined;
-  }
-
-  function asImportSpecifier(node: Node | undefined): ReturnType<AstReader["as"]["AsImportSpecifier"]> {
-    return node !== undefined && ast.is.IsImportSpecifier(node) ? ast.as.AsImportSpecifier(node) : undefined;
-  }
-
-  function asExportDeclaration(node: Node | undefined): ReturnType<AstReader["as"]["AsExportDeclaration"]> {
-    return node !== undefined && ast.is.IsExportDeclaration(node) ? ast.as.AsExportDeclaration(node) : undefined;
-  }
-
-  function asExportAssignment(node: Node | undefined): ReturnType<AstReader["as"]["AsExportAssignment"]> {
-    return node !== undefined && ast.is.IsExportAssignment(node) ? ast.as.AsExportAssignment(node) : undefined;
-  }
-
-  function asNamedExports(node: Node | undefined): ReturnType<AstReader["as"]["AsNamedExports"]> {
-    return node !== undefined && ast.is.IsNamedExports(node) ? ast.as.AsNamedExports(node) : undefined;
-  }
-
-  function asExportSpecifier(node: Node | undefined): ReturnType<AstReader["as"]["AsExportSpecifier"]> {
-    return node !== undefined && ast.is.IsExportSpecifier(node) ? ast.as.AsExportSpecifier(node) : undefined;
   }
 
   function asPropertyAccessExpression(node: Node | undefined): ReturnType<AstReader["as"]["AsPropertyAccessExpression"]> {

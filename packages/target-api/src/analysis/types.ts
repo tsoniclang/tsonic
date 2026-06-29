@@ -44,8 +44,6 @@ export type TargetSourceUseKind =
   | "iteration"
   | "spread"
   | "destructure"
-  | "capture"
-  | "escape"
   | "operator";
 
 export interface TargetSourceReferenceRecord {
@@ -56,45 +54,6 @@ export interface TargetSourceReferenceRecord {
   readonly occurrence?: TargetSourceOccurrence;
   readonly enclosingFunction?: Node;
   readonly enclosingDeclaration?: Node;
-}
-
-export interface TargetSourceDeclarationRecord {
-  readonly symbol: Symbol;
-  readonly sourceFile?: SourceFile;
-  readonly node: Node;
-  readonly occurrence?: TargetSourceOccurrence;
-  readonly enclosingFunction?: Node;
-  readonly enclosingDeclaration?: Node;
-}
-
-export type TargetSourceImportKind = "default" | "named" | "namespace";
-
-export interface TargetSourceImportRecord {
-  readonly symbol: Symbol;
-  readonly sourceFile: SourceFile;
-  readonly declaration: Node;
-  readonly binding: Node;
-  readonly moduleSpecifier: Node;
-  readonly importKind: TargetSourceImportKind;
-  readonly importedName?: string;
-  readonly localName: string;
-  readonly isTypeOnly: boolean;
-  readonly importedSymbol?: Symbol;
-}
-
-export type TargetSourceExportKind = "local" | "named" | "default" | "assignment";
-
-export interface TargetSourceExportRecord {
-  readonly symbol: Symbol;
-  readonly sourceFile: SourceFile;
-  readonly declaration: Node;
-  readonly node: Node;
-  readonly exportKind: TargetSourceExportKind;
-  readonly exportedName: string;
-  readonly localName?: string;
-  readonly moduleSpecifier?: Node;
-  readonly isTypeOnly: boolean;
-  readonly exportedSymbol?: Symbol;
 }
 
 export interface TargetSourceUseRecord extends TargetSourceReferenceRecord {
@@ -136,52 +95,8 @@ export interface TargetSourceCallsite {
   readonly typeArguments?: readonly Node[];
 }
 
-export interface TargetArgumentFlowRecord {
-  readonly symbol: Symbol;
-  readonly sourceFile: SourceFile;
-  readonly argument: Node;
-  readonly call: Node;
-  readonly argumentIndex: number;
-  readonly selectedSignatureDeclaration?: Node;
-}
-
-export interface TargetReturnFlowRecord {
-  readonly sourceFile?: SourceFile;
-  readonly functionNode: Node;
-  readonly returnStatement: Node;
-  readonly expression?: Node;
-}
-
-export interface TargetSourceEscapeRecord {
-  readonly symbol: Symbol;
-  readonly sourceFile: SourceFile;
-  readonly node: Node;
-  readonly operation: TargetSourceUseOperation;
-  readonly via?: Node;
-}
-
-export interface TargetSourceCaptureRecord {
-  readonly symbol: Symbol;
-  readonly sourceFile: SourceFile;
-  readonly node: Node;
-  readonly functionNode: Node;
-}
-
-export interface TargetFunctionSummary {
-  readonly functionNode: Node;
-  readonly sourceFile?: SourceFile;
-  readonly references: readonly TargetSourceReferenceRecord[];
-  readonly calls: readonly TargetSourceCallsite[];
-  readonly constructs: readonly TargetSourceCallsite[];
-  readonly returns: readonly Node[];
-  readonly returnFlows?: readonly TargetReturnFlowRecord[];
-}
-
 export interface TargetLazySourceAnalysis {
   referencesOf(symbol: Symbol | undefined): readonly TargetSourceReferenceRecord[];
-  declarationsOf(symbol: Symbol | undefined): readonly TargetSourceDeclarationRecord[];
-  importsOf(symbol: Symbol | undefined): readonly TargetSourceImportRecord[];
-  exportsOf(symbol: Symbol | undefined): readonly TargetSourceExportRecord[];
   usesOf(symbol: Symbol | undefined): readonly TargetSourceUseRecord[];
   readsOf(symbol: Symbol | undefined): readonly TargetSourceUseRecord[];
   writesOf(symbol: Symbol | undefined): readonly TargetSourceUseRecord[];
@@ -192,9 +107,7 @@ export interface TargetLazySourceAnalysis {
   elementWritesOn(symbol: Symbol | undefined): readonly TargetSourceUseRecord[];
   callsitesOf(functionSymbol: Symbol | undefined): readonly TargetSourceCallsite[];
   constructSitesOf(functionSymbol: Symbol | undefined): readonly TargetSourceCallsite[];
-  argumentFlowOf(symbol: Symbol | undefined): readonly TargetArgumentFlowRecord[];
-  returnFlowOf(functionNode: Node): readonly TargetReturnFlowRecord[];
-  escapesOf(symbol: Symbol | undefined): readonly TargetSourceEscapeRecord[];
-  capturesOf(symbol: Symbol | undefined): readonly TargetSourceCaptureRecord[];
-  summaryOf(functionNode: Node): TargetFunctionSummary;
+  awaitsOf(symbol: Symbol | undefined): readonly TargetSourceUseRecord[];
+  forInSitesOf(symbol: Symbol | undefined): readonly TargetSourceUseRecord[];
+  bindingUsesOf(symbol: Symbol | undefined): readonly TargetSourceUseRecord[];
 }
