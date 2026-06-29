@@ -556,10 +556,13 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.fail-closed-facts",
     "carrier.function-delegate",
+    "declaration.function",
+    "expression.lambda",
     "function.arrow",
     "function.closure",
     "function.declaration",
     "function.higher-order",
+    "statement.return",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("types/constants/ModuleConstants"),
@@ -578,10 +581,13 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.fail-closed-facts",
     "carrier.function-delegate",
     "carrier.null-undefined",
+    "declaration.function",
+    "expression.lambda",
     "function.arrow",
     "function.closure",
     "function.declaration",
     "function.higher-order",
+    "statement.return",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("types/generic-constraints/MultipleConstraints"),
@@ -653,6 +659,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "type.generic.provider-target-arguments",
     "operation.conversion.checked-target-conversion",
     "operation.operator.checked-target-operation",
+    "statement.return",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("operators/nullish-coalescing/NullishCoalescing"),
@@ -902,6 +909,13 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
     sourceCase("types/interfaces/Interfaces"),
   ], [
     "carrier.object-shape",
+    "declaration.interface",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/generic-interface-inheritance/InterfaceInheritance"),
+  ], [
+    "declaration.heritage",
+    "declaration.interface",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("edge-cases/inline-object-param/InlineObjectParam"),
@@ -913,6 +927,7 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("classes/constructor/User"),
   ], [
+    "declaration.class.constructor",
     "declaration.class.private-fields",
     "native.dotnet.constructors",
     "operation.construct.provider-selected-constructor",
@@ -1080,6 +1095,8 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
     sourceCase("classes/generic-inheritance/InheritanceChain"),
     sourceCase("types/generic-interface-inheritance/InterfaceInheritance"),
   ], [
+    "declaration.heritage",
+    "declaration.interface",
     "native.dotnet.type-model",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
@@ -1104,6 +1121,9 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
     sourceCase("types/generic-constraints/ObjectConstraint"),
     sourceCase("types/generic-constraints/SingleConstraint"),
   ], [
+    "diagnostic.target-constraint",
+    "native.dotnet.constraints",
+    "provider.virtual-module.constraints",
     "type.generic.provider-target-constraints",
   ]),
 ]);

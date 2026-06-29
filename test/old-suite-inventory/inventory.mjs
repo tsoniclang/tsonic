@@ -1463,6 +1463,17 @@ const oldSuiteReplacementProofByOldPath = new Map([
 
 const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("generic-interface-inheritance"),
+  ], [
+    "declaration.heritage",
+    "declaration.interface",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("interface-with-functions"),
+  ], [
+    "declaration.interface",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("dotnet-test-command"),
   ], [
     "backend.csharp.project-sdk-emit",
@@ -1757,6 +1768,9 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
     oldFixturePath("generic-constraints-single"),
     oldFixturePath("generic-multiple-constraints"),
   ], [
+    "diagnostic.target-constraint",
+    "native.dotnet.constraints",
+    "provider.virtual-module.constraints",
     "type.generic.provider-target-constraints",
   ]),
 ]);
