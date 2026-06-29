@@ -556,7 +556,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["type.assertion", "Type assertions consume TSTS type facts and target casts", "complete", "tsts-api"],
   ["type.non-null-assertion", "Non-null assertions consume TSTS nullable facts", "partial", "tsts-api"],
   ["type.generic.provider-target-arguments", "Map TSTS-inferred type arguments to target type arguments", "partial", "target-provider"],
-  ["type.generic.provider-target-constraints", "Validate provider target generic constraints", "partial", "target-provider"],
+  ["type.generic.provider-target-constraints", "Validate provider target generic constraints", "complete", "target-provider"],
 
   ["operation.call.provider-selected-method", "Provider-owned calls emit from selected signature facts", "complete", "target-provider"],
   ["operation.call.provider-argument-conversion", "Provider-owned calls record target argument conversion facts", "partial", "target-provider"],
@@ -1898,19 +1898,21 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/assignability-boundary.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "provider.virtual-module.constraints remains partial until all reflected constraint families, inherited generic substitutions, source-level provider diagnostics, and CLI/toolchain paths are covered; current proof covers target-only declaration preservation and selected C# target constraint validation but not the full provider matrix.",
+      "provider.virtual-module.constraints remains partial because no reviewed old provider-virtual constraint inventory exists yet; current proof closes the implementation matrix but still needs explicit old-inventory replacement mapping before this provider-virtual parent can be counted complete.",
     ]),
     notes:
-      "Reviewed partial proof: provider virtual declarations keep target-only generic constraints out of source-visible TypeScript shapes while retaining full reflected target binding facts for backend/provider consumers, including C# notnull as a target-specific constraint and unsupported target-only constraints as deterministic rejected target facts. The C# semantic provider validates those constraints only from finalized target facts after TSTS has accepted source syntax, and source primitive constraints are accepted only when reflected primitive target bindings prove the exact implemented contract and type arguments. Old TypeScript constraint fixtures are not mapped here because they prove source generic declarations, not provider-owned virtual-module constraints.",
+      "Reviewed strengthened proof: provider virtual declarations keep target-only generic constraints out of source-visible TypeScript shapes while retaining full reflected target binding facts for backend/provider consumers, including C# notnull as a target-specific constraint and unsupported target-only constraints as deterministic rejected target facts. The C# semantic provider validates those constraints only from finalized target facts after TSTS has accepted source syntax, and source primitive constraints are accepted only when reflected primitive target bindings prove the exact implemented contract and type arguments. CLI/toolchain proof uses a real reflected .NET assembly to validate class/new/interface, generic-method, struct, unmanaged, and notnull constraints, and invalid provider constraint violations fail closed before C# artifacts are emitted.",
   }),
   "source.primitive.numeric": Object.freeze({
     positiveTests: Object.freeze([
@@ -2885,15 +2887,22 @@ const reviewedCapabilityEvidence = Object.freeze({
   "native.dotnet.constraints": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "native.dotnet.constraints remains partial because no reviewed old .NET-provider constraint inventory exists yet; current proof closes reflected constraint behavior but still needs explicit old-inventory replacement mapping before this native provider parent can be counted complete.",
+    ]),
     notes:
-      "Reviewed partial proof: .NET reflection records class, struct, new, unmanaged, notnull, interface, base-class, generic-method, variance, and unsupported constraints as target facts with assembly-qualified target identities, keeps those target-only constraints out of source declarations, maps notnull to C# target-specific constraint facts, and maps unsupported constraints to fail-closed target diagnostics. The C# semantic provider accepts or rejects generic constraints from finalized target binding facts instead of changing TSTS source assignability, including exact reflected primitive contract facts for source primitives such as int32. Remains partial until full base-vs-interface substitution evidence and broader source-level provider constraint diagnostics are complete.",
+      "Reviewed strengthened proof: .NET reflection records class, struct, new, unmanaged, notnull, interface, base-class, generic-method, variance, and unsupported constraints as target facts with assembly-qualified target identities, keeps those target-only constraints out of source declarations, maps notnull to C# target-specific constraint facts, and maps unsupported constraints to fail-closed target diagnostics. The C# semantic provider accepts or rejects generic constraints from finalized target binding facts instead of changing TSTS source assignability, including exact reflected primitive contract facts for source primitives such as int32. CLI/toolchain proof with a real reflected assembly exercises valid class/new/interface, generic-method, struct, unmanaged, and notnull target constraints plus invalid fail-closed diagnostics before C# artifact emission.",
   }),
   "native.dotnet.conversions": Object.freeze({
     positiveTests: Object.freeze([
@@ -3148,6 +3157,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
     ]),
@@ -3157,6 +3167,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -3168,7 +3179,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/generic-constraints-object-struct/",
     ]),
     notes:
-      "Reviewed partial proof: source and provider generic constraints render only from finalized target constraint facts, primitive constraint failures produce diagnostics, C# provider target constraints are accepted only when finalized value/reference/constructible/unmanaged/notnull/implemented-contract facts prove them, source primitive implemented-contract constraints require reflected primitive binding evidence with exact type-argument equality, unsupported provider constraints reject from explicit target facts, reflected notnull type references produce source-level C# target diagnostics after TSTS accepts the source syntax, and old generic-constraint emitter/fixture coverage is mapped as evidence. Remains partial until every reflected constraint form has end-to-end CLI/toolchain tests.",
+      "Reviewed proof: source and provider generic constraints render only from finalized target constraint facts, primitive constraint failures produce diagnostics, C# provider target constraints are accepted only when finalized value/reference/constructible/unmanaged/notnull/implemented-contract facts prove them, source primitive implemented-contract constraints require reflected primitive binding evidence with exact type-argument equality, unsupported provider constraints reject from explicit target facts, reflected notnull type references produce source-level C# target diagnostics after TSTS accepts the source syntax, and old generic-constraint emitter/fixture coverage is mapped as evidence. Real .NET CLI/toolchain proof covers class/new/interface, generic-method, struct, unmanaged, and notnull constraints, including invalid target arguments that fail closed without C# artifacts.",
   }),
   "declaration.generic-parameters": Object.freeze({
     positiveTests: Object.freeze([
