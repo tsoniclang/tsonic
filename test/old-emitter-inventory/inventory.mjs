@@ -940,12 +940,14 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("arrays/double-array/DoubleArray"),
   ], [
+    "diagnostic.missing-iteration-fact",
     "expression.array-literal",
     "operation.iteration.for-in.keys",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("arrays/basic/ArrayLiteral"),
   ], [
+    "diagnostic.missing-iteration-fact",
     "expression.array-literal",
     "operation.iteration.for-in.keys",
     "operation.iteration.for-of.sync",
