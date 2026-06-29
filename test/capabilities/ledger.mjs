@@ -722,7 +722,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "partial", "target-provider"],
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
   ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "partial", "target-provider"],
-  ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "partial", "target-provider"],
+  ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "complete", "target-provider"],
   ...slice4DotnetProviderContractRows.map((row) => [row.capabilityId, row.title, "complete", "target-provider"]),
 
   ["diagnostic.missing-target-fact", "Missing target facts produce deterministic diagnostics", "partial", "target-provider"],
@@ -5195,10 +5195,16 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
     ]),
@@ -5207,7 +5213,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed partial proof: reflection provider records unsupported constructor/property/indexer/field/method/operator/event members instead of silently dropping static interface members, generic static members, multi-parameter indexers, pointer signatures, ranked CLR arrays, by-reference returns, generic operators, pointer-source conversion operators, unsupported generic constraints, and unsupported default parameter values; unsupported target-only type refs now fail closed during source-shape conversion for pointers, function pointers, ranked arrays, nested provider refs, and opaque source shapes; selected unsupported member/constraint identities become fail-closed target diagnostics instead of generic not-found errors. Remains partial until every attribute/default-value omission path has explicit provider diagnostics.",
+      "Reviewed proof: reflection provider records unsupported constructor/property/indexer/field/method/operator/event members instead of silently dropping static interface members, generic static members, multi-parameter indexers, pointer signatures, ranked CLR arrays, by-reference returns, generic operators, pointer-source conversion operators, unsupported generic constraints, unsupported attributes, and unsupported default parameter values. Unsupported target-only type refs fail closed during source-shape conversion for pointers, function pointers, ranked arrays, nested provider refs, and opaque source shapes. Unsupported attributes and unsupported defaults remain explicit raw/provider/target facts while omitted from source-visible declarations, and selected unsupported member/constraint identities become fail-closed target diagnostics instead of generic not-found errors.",
   }),
   "operation.call.provider-selected-method": Object.freeze({
     positiveTests: Object.freeze([
