@@ -298,7 +298,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.boolean-methods", "JS Boolean primitive methods and conversion calls use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
-  ["surface.js.map-set", "Map and Set use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.map-set", "Map and Set use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "partial", "surface-provider"],
@@ -4072,12 +4072,33 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
       "test/fixtures/map-set-not-in-globals/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.map-set remains partial until no-surface Map/Set name-resolution diagnostics, Map/Set iterable constructor overloads, entries/values/size/delete/clear/forEach operations, and complete runtime/toolchain edge coverage are proven.",
-      "surface.js.map-set cannot be complete until evidence proves each operation's selected static-native versus compat-runtime lane, rejects missing finalized lane facts, and records that Dictionary<K,V>, HashSet<T>, and Map<K,V> where K : notnull with CLR equality do not claim full JS Map/Set compatibility.",
-    ]),
+    blockers: Object.freeze([]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MapTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/SetTests.cs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: current provider evidence maps selected Map/Set declarations, constructors, set/get/has/delete/clear/keys/values/entries/add calls, size properties, and collection iterator carriers through compat-runtime policy metadata with js-same-value-zero equality semantics; no static-native Dictionary/HashSet carrier is selected by the normal JS surface. Current csharp-js runtime evidence proves insertion order, overwrite keeps order, delete/re-add order, NaN key/value equality, +0/-0 equality, null and JSUndefined keys/values when represented, object keys/values by reference identity rather than structural Equals, and typed Map.get helper behavior that preserves zero while distinguishing missing keys for value-type nullish paths. Current CLI/toolchain evidence compiles TypeScript new Map<string, int32>(), set/get/has, get(key) ?? fallback, new Set<string>(), add/has, and Array.from(counts.keys()) to Tsonic.CSharp.Js.Map, Tsonic.CSharp.Js.Set, and Tsonic.CSharp.Js.Array.from, then dotnet-builds the generated C# project. Negative evidence rejects missing closed collection carrier facts in provider tests and asserts generated CLI output contains no InvalidExpression, __unsupported, dynamic/reflection, Dictionary/HashSet substitution, or unqualified Map/Set constructor spelling. The lane ledger distinguishes static-native Map/Set from compat-runtime Map/Set, requires SameValueZero/equality metadata for full JS compatibility, and forces missing lane facts or unsupported selected operations into hard-reject diagnostics rather than CLR Dictionary/HashSet fallback. The old Map/Set fixtures stay mapped as regression evidence and blockers, not completion proof.",
+      "Reviewed proof: current provider evidence maps selected Map/Set declarations, empty and iterable constructors, set/get/has/delete/clear/keys/values/entries/add/forEach calls, size properties, and collection iterator carriers through compat-runtime policy metadata with js-same-value-zero equality semantics; no static-native Dictionary/HashSet carrier is selected by the normal JS surface. Current csharp-js runtime evidence proves constructor overloads, size, set/add chaining, get/has/delete/clear, keys/values/entries, forEach callback shapes, insertion order, overwrite keeps order, delete/re-add order, NaN key/value equality, +0/-0 equality, null and JSUndefined keys/values when represented, object keys/values by reference identity rather than structural Equals, and typed Map.get helper behavior that preserves zero while distinguishing missing keys for value-type nullish paths. Current CLI/toolchain evidence compiles TypeScript new Map<string, int32>(), set/get/has/delete/clear/forEach/entries/values/size, new Map(source.entries()), new Set(source.values()), new Set<string>(), add/has/delete/clear/forEach/keys/values/entries/size, and Array.from(counts.keys()) to Tsonic.CSharp.Js.Map, Tsonic.CSharp.Js.Set, and Tsonic.CSharp.Js.Array.from, then dotnet-builds the generated C# projects. Negative evidence rejects no-surface Map/Set declarations before artifact emission, rejects missing closed collection carrier facts in provider tests, and asserts generated CLI output contains no InvalidExpression, __unsupported, dynamic/reflection, Dictionary/HashSet substitution, unqualified Map/Set constructor spelling, or source-name fallback. The lane ledger distinguishes static-native Map/Set from compat-runtime Map/Set, requires SameValueZero/equality metadata for full JS compatibility, and forces missing lane facts or unsupported selected operations into hard-reject diagnostics rather than CLR Dictionary/HashSet fallback. Old Map/Set fixtures remain regression evidence, not completion proof.",
   }),
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
