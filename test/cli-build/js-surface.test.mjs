@@ -2283,7 +2283,7 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
       "}",
       "",
       "export function formatted(value: number, digits: int32, locale: string): string {",
-      "  return value.toFixed(digits) + value.toExponential(digits) + value.toPrecision(digits) + value.toLocaleString(locale);",
+      "  return value.toFixed(digits) + value.toExponential(digits) + value.toPrecision(digits);",
       "}",
       "",
       "export function converted(text: string, count: int32): number {",
@@ -2318,7 +2318,6 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toFixed\(value, digits\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toExponential\(value, digits\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toPrecision\(value, digits\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toLocaleString\(value, locale\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(text\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(count\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(\)/);
@@ -2326,6 +2325,39 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberToString.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI hard-rejects selected JS Number locale formatting without Intl facts", async () => {
+  const projectDirectory = resolve(tempRoot, "js-number-locale-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNumberLocaleRejected",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function locale(value: number, locale: string): string {",
+      "  return value.toLocaleString(locale);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /Number\.toLocaleString/);
+  assert.match(build.stdout + build.stderr, /Intl\.NumberFormat-compatible locale and options semantics/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberLocaleRejected.csproj")), false);
 });
 
 test("CLI rejects JS Number wrapper construction until a closed wrapper carrier exists", async () => {

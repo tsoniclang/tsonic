@@ -296,7 +296,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods and conversion calls use selected JS surface facts", "complete", "surface-provider"],
-  ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.number-methods", "JS Number primitive and static operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.math-json-regexp", "Math, JSON, and RegExp use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.map-set", "Map and Set use selected JS surface facts", "partial", "surface-provider"],
   ["surface.js.math", "Math operations use selected JS surface facts", "complete", "surface-provider"],
@@ -3689,6 +3689,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "export function fromStatic(value: number): boolean { return Number.isFinite(value) && Number.isInteger(value); }",
       "export function fromParsed(value: string): number { return Number.parseFloat(value) + Number.MAX_SAFE_INTEGER; }",
       "export function converted(value: string): number { return Number(value) + Number(); }",
+      "export function locale(value: number, locale: string): string { return value.toLocaleString(locale); }",
+      "export function wrapper(value: number): Number { return new Number(value); }",
     ]),
     tstsDecision:
       "TSTS validates Number primitive member calls, Number static calls, and Number static properties against selected JS surface declarations; the surface provider must prove selected Number declarations plus closed receiver or argument facts before target facts are finalized.",
@@ -3699,6 +3701,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "numberIntegralRadixToStringOperationFact",
       "numberStaticOperationFact",
       "numberStaticPropertyFact",
+      "numberLocaleFormattingUnsupportedDiagnosticFact",
+      "numberWrapperUnsupportedDiagnosticFact",
       "selectedTargetSignatureFact",
     ]),
     backendContract:
@@ -3706,6 +3710,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NumberTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -3715,9 +3720,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.number-methods remains partial until exact -0 formatting/runtime edge cases, wrapper-object conversions, and every unsupported numeric formatting lane are implemented or deliberately rejected with focused positive and negative coverage.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-number-operation",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -3734,6 +3737,8 @@ const reviewedCapabilityEvidence = Object.freeze({
           "missing-number-declaration",
           "missing-closed-number-receiver-or-argument",
           "missing-selected-target-signature-or-property",
+          "unsupported-number-locale-formatting-lane",
+          "unsupported-number-wrapper-carrier",
         ]),
       },
       staticNative: {
@@ -3751,13 +3756,39 @@ const reviewedCapabilityEvidence = Object.freeze({
         reasons: Object.freeze([
           "missing-required-facts",
           "unsupported-number-operation",
+          "unsupported-number-locale-formatting-lane",
+          "number-wrapper-carrier-not-exposed",
           "receiver-or-argument-not-closed-number",
           "source-spelling-only",
         ]),
       },
     }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NumberTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: tsonic-csharp surface-boundary evidence maps Number.toString/valueOf only from selected Number declaration identity plus closed number receiver facts, maps integral Number.toString(radix) only from selected Number declaration identity plus closed int32 receiver/radix facts, rejects radix formatting for non-integral number receiver facts, maps Object.toString delegation for closed number primitive receivers, rejects missing and non-number receiver facts, maps Number(value)/Number() primitive conversion from selected NumberConstructor declaration identity while rejecting new Number(value) wrapper construction without a closed wrapper carrier, maps Number.toFixed/toExponential/toPrecision/toLocaleString from selected Number declaration identity plus closed receiver/argument facts, and maps Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and Number constants only from selected NumberConstructor declarations. csharp-js runtime tests prove invariant toString/valueOf behavior, integral radix toString behavior and invalid radix diagnostics, Number conversion no-argument/null/string/integral behavior, Number constants, static predicate helpers for double/int/long and nullable integral receivers, formatting helpers, and invalid precision diagnostics. The tsonic CLI test emits primitive number toString/valueOf, integral int32 toString(radix), object-shape number property toString, int32 toString, Number(value)/Number(), Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, Number.toFixed/toExponential/toPrecision/toLocaleString, and all current Number constants through selected C# JS runtime facts and dotnet-builds the generated project. Negative evidence rejects Number methods without the JS surface, without closed number receiver facts, with non-number closed receivers, rejects Number.toString(radix) for non-integral number receiver facts, and rejects new Number(value) wrapper construction. Remaining gaps are exact -0 formatting/runtime behavior, wrapper-object carrier conversions, and unsupported numeric formatting lanes.",
+      "Reviewed proof: tsonic-csharp surface-boundary evidence maps Number.toString/valueOf only from selected Number declaration identity plus closed number receiver facts, maps integral Number.toString(radix) only from selected Number declaration identity plus closed int32 receiver/radix facts, rejects radix formatting for non-integral number receiver facts, maps Object.toString delegation for closed number primitive receivers, rejects missing and non-number receiver facts, maps Number(value)/Number() primitive conversion from selected NumberConstructor declaration identity while rejecting new Number(value) wrapper construction without a closed wrapper carrier, maps Number.toFixed/toExponential/toPrecision from selected Number declaration identity plus closed receiver/argument facts, hard-rejects Number.toLocaleString until closed Intl.NumberFormat-compatible locale/options facts and runtime metadata exist, and maps Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, and Number constants only from selected NumberConstructor declarations. csharp-js runtime tests prove invariant toString/valueOf behavior, exact -0 toString output, integral radix toString behavior and invalid radix diagnostics, Number conversion no-argument/null/string/integral behavior, Number constants, static predicate helpers for double/int/long and nullable integral receivers, formatting helpers, and invalid precision diagnostics. The tsonic CLI test emits primitive number toString/valueOf, integral int32 toString(radix), object-shape number property toString, int32 toString, Number(value)/Number(), Number.isFinite/isInteger/isSafeInteger/isNaN, Number.parseFloat, radix Number.parseInt, Number.toFixed/toExponential/toPrecision, and all current Number constants through selected C# JS runtime facts and dotnet-builds the generated project. Negative evidence rejects Number methods without the JS surface, without closed number receiver facts, with non-number closed receivers, rejects Number.toString(radix) for non-integral number receiver facts, rejects Number.toLocaleString without exact Intl facts, and rejects new Number(value) wrapper construction. Generated output is asserted free of InvalidExpression, __unsupported, dynamic/reflection, CLR ToString fallback, and source-spelling selection.",
   }),
   "surface.js.console": Object.freeze({
     sourceExamples: Object.freeze([
