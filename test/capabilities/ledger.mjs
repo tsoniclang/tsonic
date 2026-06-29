@@ -207,9 +207,9 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.element.provider-indexer", "Element access emits from selected indexer or carrier facts", "complete", "target-provider"],
   ["operation.operator.checked-target-operation", "Operators emit from checked target operation facts", "partial", "target-provider"],
   ["operation.conversion.checked-target-conversion", "Target conversions are explicit facts", "complete", "target-provider"],
-  ["operation.iteration.for-of.sync", "for-of emits only with sync iteration facts", "partial", "target-provider"],
-  ["operation.iteration.for-in.keys", "for-in emits only with key enumeration facts", "partial", "target-provider"],
-  ["operation.iteration.provider-target", "Iteration maps to provider target iteration facts", "partial", "target-provider"],
+  ["operation.iteration.for-of.sync", "for-of emits only with sync iteration facts", "complete", "target-provider"],
+  ["operation.iteration.for-in.keys", "for-in emits only with key enumeration facts", "complete", "target-provider"],
+  ["operation.iteration.provider-target", "Iteration maps to provider target iteration facts", "complete", "target-provider"],
   ["operation.array.literal", "Array literals choose target carrier from facts", "partial", "target-provider"],
   ["operation.spread.array", "Array spread emits from iterable/spread facts", "partial", "target-provider"],
   ["operation.spread.object", "Object spread emits from object-shape facts", "partial", "target-provider"],
@@ -361,6 +361,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "partial", "target-provider"],
 
   ["diagnostic.missing-target-fact", "Missing target facts produce deterministic diagnostics", "partial", "target-provider"],
+  ["diagnostic.missing-iteration-fact", "Missing iteration facts produce deterministic diagnostics", "complete", "target-provider"],
   ["diagnostic.missing-provider-fact", "Missing provider facts produce deterministic diagnostics", "partial", "target-provider"],
   ["diagnostic.unsupported-surface", "Unsupported selected surfaces produce diagnostics", "partial", "surface-provider"],
   ["diagnostic.unsupported-selected-surface-operation", "Unsupported selected surface operations fail closed with provider diagnostics", "partial", "surface-provider"],
@@ -4958,19 +4959,22 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "operation.iteration.for-of.sync": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/iteration-facts.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
     ]),
-    blockers: Object.freeze([
-      "operation.iteration.for-of.sync remains partial until destructuring iteration, async iteration policy, CLI execution, and old fixture parity are proven.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: for-of emits Roslyn loop AST only from finalized targetIteration facts. Provider foreach, selected JS string code-point iteration, missing-fact diagnostics, and wrong-kind/wrong-lowering rejections are covered; destructuring, async, and runtime/toolchain iteration coverage remain open.",
+      "Reviewed proof: for-of maps through the generic iteration selector and emits Roslyn foreach or string code-point loops only from finalized targetIteration facts. Missing facts, wrong iteration kinds, wrong lowerings, and ambiguous selector rows fail closed before backend emission. Current CLI/toolchain evidence covers array and JS-surface for-of execution; async iteration remains outside this sync capability.",
   }),
   "operation.property.provider-selected-member": Object.freeze({
     positiveTests: Object.freeze([
@@ -5200,11 +5204,13 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "operation.iteration.for-in.keys": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/iteration-facts.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
@@ -5212,21 +5218,19 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
       "packages/targets/csharp/emitter/testcases/common/arrays/double-array/DoubleArray.ts",
     ]),
-    blockers: Object.freeze([
-      "operation.iteration.for-in.keys remains partial until provider-native keyed collections, destructuring keys, async interaction policy, runtime execution, precise source spans, and every old for-in fixture have current positive and fail-closed proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: for-in emission is driven by finalized C# targetIteration facts recorded only after TSTS accepts for-in. JS surface array/string for-in uses index-key facts, object-shape for-in uses object-shape key facts, and Record<string, T> for-in uses provider-owned Dictionary.Keys facts. Missing facts, wrong iteration kinds/lowerings, unsupported selected surface targets, and non-string key facts fail closed instead of falling back to syntax or source-name inference.",
+      "Reviewed proof: for-in key enumeration is selected by generic iteration metadata rows after TSTS accepts the source operation. JS surface indexable/string keys use index-key facts, object-shape keys use object-shape facts, and provider collections use key-collection facts. Missing facts, wrong iteration kinds/lowerings, non-string index keys, non-string dictionary keys, and ambiguous selector rows fail closed instead of falling back to syntax or source-name inference.",
   }),
   "operation.iteration.provider-target": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/arrays.test.mjs",
-      "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/iteration-facts.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
@@ -5234,11 +5238,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
       "packages/targets/csharp/emitter/testcases/common/arrays/double-array/DoubleArray.ts",
     ]),
-    blockers: Object.freeze([
-      "operation.iteration.provider-target remains partial until every selected target iteration family has CLI/toolchain positive proof and missing/wrong-kind/unsupported targetIteration facts reject with capability-specific diagnostics across arrays, strings, records, provider collections, object shapes, and future async iteration policy.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current array, JS surface, and object-shape CLI tests plus C# statement/surface tests prove iteration is not syntax-lowered directly. for-of and for-in require finalized targetIteration facts after TSTS accepts the source operation; JS arrays, strings, object-shape keys, Record/Dictionary keys, and standard array foreach emit from selected provider/surface facts, while missing or wrong iteration facts fail closed.",
+      "Reviewed proof: provider-target iteration now flows through one generic iteration selector, finalized targetIteration facts, and a backend required-fact gateway. Current evidence covers provider foreach, JS string code-point iteration, index-key iteration, object-shape keys, and provider Dictionary.Keys key collection emission. Missing, wrong-kind, wrong-lowering, unsupported key shape, and ambiguous row cases produce deterministic diagnostics instead of backend inference.",
   }),
   "operation.destructure.array-object": Object.freeze({
     positiveTests: Object.freeze([
@@ -6164,6 +6166,71 @@ const reviewedCapabilityEvidence = Object.freeze({
     }),
     notes:
       "Reviewed partial proof: current tests reject standalone typeof without a selected typeof operator fact, native array length without JS/provider length facts, structural operators without selected target facts, backend missing-fact diagnostics before artifact/toolchain handoff, and old unknown/object/in-operator assumptions as missing-fact replacements. This proves fail-closed behavior for selected holes, not exhaustive missing-fact coverage.",
+  }),
+  "diagnostic.missing-iteration-fact": Object.freeze({
+    sourceExamples: Object.freeze([
+      "for (const value of values) { consume(value); }",
+      "for (const key in value) { consume(key); }",
+    ]),
+    tstsDecision:
+      "TSTS owns source iteration validity. C# emission requires a finalized targetIteration fact proving the target iteration kind, element/key carrier, and renderable target lowering.",
+    providerFacts: Object.freeze([
+      "csharpTargetIterationFact",
+      "selected source iteration operation",
+      "renderable target lowering",
+      "closed element or key carrier",
+    ]),
+    backendContract:
+      "Backend for-of and for-in emission calls the required iteration-fact gateway. Missing facts, wrong source iteration kind, wrong lowering, or ambiguous selector rows produce deterministic diagnostics and no fallback syntax lowering.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
+      "packages/targets/csharp/emitter/testcases/common/arrays/double-array/DoubleArray.ts",
+    ]),
+    blockers: Object.freeze([]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "fail-closed-missing-iteration-fact",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-target-iteration-fact",
+          "wrong-iteration-kind",
+          "unrenderable-target-iteration-lowering",
+          "ambiguous-iteration-metadata",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-iteration",
+          "target-iteration-fact",
+          "closed element/key carrier",
+          "renderable target lowering",
+        ]),
+        operation: "emit-target-iteration-from-facts",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-target-iteration-fact",
+          "wrong-iteration-kind",
+          "unrenderable-target-iteration-lowering",
+          "ambiguous-iteration-metadata",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed proof: generic iteration selector tests prove accept/defer/ambiguous behavior; statement planner tests prove missing and wrong-kind facts fail closed; surface tests prove JS/provider iteration facts are recorded only from selected metadata rows. The backend has one required iteration-fact gateway, so for-of and for-in cannot fall through to syntax-based emission.",
   }),
   "diagnostic.missing-provider-fact": Object.freeze({
     sourceExamples: Object.freeze([
