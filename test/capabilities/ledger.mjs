@@ -512,7 +512,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["provider.module.no-file-backed-fallback", "Provider module resolution has no declaration-file fallback", "complete", "target-provider"],
   ["provider.module.missing-provider-diagnostic", "Missing provider-owned modules produce diagnostics", "complete", "target-provider"],
 
-  ["source-core.module.single-owner", "@tsonic/core source modules are owned once by the source-core provider, not replicated by target packs", "partial", "source-core-provider"],
+  ["source-core.module.single-owner", "@tsonic/core source modules are owned once by the source-core provider, not replicated by target packs", "complete", "source-core-provider"],
   ["source-core.target-alias-consumption", "Target packs consume source-core facts and add target-specific aliases without redefining portable core contracts", "partial", "target-provider"],
   ["source.primitive.numeric", "Neutral source numeric primitives attach facts", "partial", "source-core-provider"],
   ["source.primitive.char-bool", "Neutral char and bool primitives attach facts", "partial", "source-core-provider"],
@@ -5103,7 +5103,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: source-core package tests prove the source-core virtual module provider owns only @tsonic/core/types.js and @tsonic/core/lang.js, rejects unowned @tsonic/csharp/* resolution, exposes portable lang.js marker exports without primitive/target alias names, and exposes types.js primitive exports without lang marker names. External C# tests prove the C# source alias provider explicitly returns unowned for both portable core modules and owns only @tsonic/csharp/types.js and @tsonic/csharp/lang.js. Remains partial until every target pack proves the same non-redefinition boundary.",
+      "Reviewed proof: source-core package tests prove the source-core virtual module provider owns only @tsonic/core/types.js and @tsonic/core/lang.js, rejects unowned @tsonic/csharp/* resolution, exposes portable lang.js marker exports without primitive/target alias names, and exposes types.js primitive exports without lang marker names. External C# tests prove the current C# target alias provider explicitly returns unowned for both portable core modules and owns only @tsonic/csharp/types.js and @tsonic/csharp/lang.js. CLI proof builds unchanged source importing both neutral core and C# alias modules without redefining either provider's ownership boundary. Future target packs must add their own alias-consumption evidence before being registered; they do not keep the current source-core single-owner contract partial.",
   }),
   "source-core.target-alias-consumption": Object.freeze({
     positiveTests: Object.freeze([
