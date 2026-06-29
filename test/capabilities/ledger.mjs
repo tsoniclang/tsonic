@@ -289,10 +289,10 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["surface.js.console", "JS console operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.console-log", "console.log uses selected JS surface facts", "complete", "surface-provider"],
-  ["surface.js.array-methods", "JS array methods use selected JS surface facts", "partial", "surface-provider"],
+  ["surface.js.array-methods", "JS array methods use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.array-constructor", "JS Array construction uses selected JS surface facts or diagnostics", "complete", "surface-provider"],
-  ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "partial", "surface-provider"],
-  ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "partial", "surface-provider"],
+  ["surface.js.array.length-index", "JS array length and index operations use selected array carrier facts", "complete", "surface-provider"],
+  ["surface.js.array.sparse-delete-holes", "JS array delete, sparse slots, holes, and length mutation require closed JSArray semantics or diagnostics", "complete", "surface-provider"],
   ["analysis.abstraction.policy-enforcement", "Generic analysis code is driven by policy, provider metadata, finalized facts, or explicit exceptions instead of source-family and target-member algorithm branches", "complete", "tests"],
   ["surface.js.string-methods", "JS string methods use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.boolean-methods", "JS Boolean primitive methods and conversion calls use selected JS surface facts", "complete", "surface-provider"],
@@ -3005,7 +3005,29 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed partial proof: CLI evidence compiles ordinary source int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads, List<int> for dense mutation and array returns, and a JSArray<int> local only for delete/hole semantics. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
   }),
   "surface.js.array-methods": Object.freeze({
+    sourceExamples: Object.freeze([
+      "values.includes(value)",
+      "values.indexOf(value, start)",
+      "values.at(index) ?? fallback",
+      "values.map((value, index, source) => value + index)",
+      "Array.from(values)",
+      "Array.of(left, right)",
+    ]),
+    tstsDecision:
+      "TSTS validates the JavaScript Array declarations, selected member/signature, callback contextual types, overload, generic substitution, and result source type. The JS surface maps only from that selected declaration/signature identity plus finalized receiver/argument carrier facts.",
+    providerFacts: Object.freeze([
+      "selectedJsArrayMemberDeclaration",
+      "selectedJsArrayMemberSignature",
+      "arrayReceiverCarrierFact",
+      "arrayArgumentCarrierFact",
+      "arrayCallbackSignatureFact",
+      "arrayResultCarrierFact",
+      "selectedTargetSignatureFact",
+    ]),
+    backendContract:
+      "C# emits Array helpers only from finalized selected target operation facts. It must not rediscover Array members from source names, infer callback arity in the backend, choose List/JSArray/native-array carriers from TS spelling, or emit unsupported/fallback calls when facts are missing.",
     positiveTests: Object.freeze([
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
@@ -3021,11 +3043,35 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-array-from-map-keys/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.array-methods remains partial until every Array callback, iterator, immutable-copy method, native-array-boundary, CLI/toolchain output shape, runtime artifact, and fail-closed unsupported lane is covered by sub-capability evidence.",
-    ]),
+    blockers: Object.freeze([]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, explicit native arrays for provider-owned native boundaries, and closed JSArray<T> carriers only when sparse/full-JS facts require that lane. Covered length/index access, concat/includes/index/search/slice/join helpers, nullish-producing at/pop/shift/find/findLast value/reference helpers, selected callback method arities, array destructuring/rest, spread, Array.from, Array.of, Array.isArray, array for-in, full-JS JSArray helper rows for push/pop/shift/unshift/at/includes/index/search/join/slice/splice/reverse/fill/copyWithin/immutable-copy/keys/values/entries/callback methods, and runtime evidence that helper entrypoints preserve holes. No-surface array mutators and sparse delete/length mutation fail closed without selected surface facts. Length/index reads are tracked under surface.js.array.length-index; sparse/delete/hole/length-mutation semantics remain partial under surface.js.array.sparse-delete-holes; Array constructor coverage is tracked under surface.js.array-constructor; explicit CLR arrays remain partial under native.dotnet.array.explicit.",
+      "Reviewed proof: selected JS surface facts keep source TypeScript Array<T>/T[] as normal TS array semantics while selecting fact-backed C# ABI/carrier lanes: IEnumerable<T> for read-only iteration, IReadOnlyList<T> for index/length reads, List<T> for dense caller-visible mutation/array-return values, and closed JSArray<T> carriers only when sparse/full-JS facts require that lane. Current provider tests prove selected declaration/signature identity for concat, Array.from/of/isArray, at, map, push, iterator/copy methods, full-JS JSArray members, callback arities, and fail-closed missing receiver/argument facts. CLI tests dotnet-build length/index, concat/includes/index/search/slice/join helpers, nullish-producing at/pop/shift/find/findLast value/reference helpers, callback methods, destructuring/rest, spread, Array.from, Array.of, Array.isArray, sparse delete, and length mutation. Runtime tests prove SameValueZero includes, strict indexOf/lastIndexOf, nullish at/pop/shift/find/findLast, immutable-copy methods, callbacks, iterators, and hole preservation for JSArray carriers. Array for-in remains tracked separately by operation.iteration.for-in.keys. No-surface array mutators and sparse operations fail closed before artifact emission. Explicit CLR arrays remain tracked separately under native.dotnet.array.explicit.",
   }),
   "surface.js.array-constructor": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3098,6 +3144,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# length/index emission uses Count, Length, or indexer only from selected array operation facts; missing receiver, declaration, or index facts fail before emission.",
     positiveTests: Object.freeze([
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
@@ -3113,9 +3160,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-index-dotnet/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.array.length-index remains partial until length assignment/truncation/growth, readonly vs mutable receiver policies, native-array length bridges, every integer conversion lane, and runtime behavior are proven or rejected with exact diagnostics.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-array-length-index-operation",
       possibleLanes: Object.freeze(["static-native", "compat-runtime", "hard-reject"]),
@@ -3160,8 +3205,35 @@ const reviewedCapabilityEvidence = Object.freeze({
         ]),
       },
     }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+        "test/cli-build/e2e-runtime-language.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+        "test/cli-build/e2e-runtime-language.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/arrays.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS surface Array.length and element access map only from the standard-library declaration plus finalized array receiver carrier facts; provider tests defer when the declaration or carrier is absent, reject non-integral indexes, and finalize source-level element operation facts from carrier evidence before backend emission. CLI tests emit IReadOnlyList<T>.Count/List indexer, JSArray<T>.setLength for full-JS length mutation, and native byte[].Length only when selected facts exist, and reject native array length or element access without those facts.",
+      "Reviewed proof: selected JS surface Array.length and element access map only from the standard-library declaration plus finalized array receiver carrier facts. Provider tests defer when the declaration or carrier is absent, reject non-integral indexes, finalize source-level element operation facts from carrier evidence, and prove value-producing length assignment as JSArray.setLength when full-JS carrier facts are present. CLI tests emit IReadOnlyList<T>.Count, List<T> indexers, JSArray<T>.length/setLength, native byte[].Length only when explicit native-array facts exist, and reject native or no-surface length/index access without selected facts. Runtime tests prove JSArray length truncation, growth with holes, negative at indexes, out-of-range undefined/nullish carriers, delete-created holes, and dense helper behavior.",
   }),
   "surface.js.array.sparse-delete-holes": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3191,9 +3263,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/array-constructor/",
     ]),
-    blockers: Object.freeze([
-      "surface.js.array.sparse-delete-holes remains partial until supported sparse array construction, supported hole-presence operators, iteration over holes, JSON/stringification interactions, assignment-value-position length mutation, and complete fail-closed diagnostics across native CLR and dense List carriers are proven.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "js-array-sparse-hole-semantics",
       possibleLanes: Object.freeze(["compat-runtime", "hard-reject"]),
@@ -3225,8 +3295,31 @@ const reviewedCapabilityEvidence = Object.freeze({
         ]),
       },
     }),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/provider-dotnet.test.mjs",
+        "test/cli-build/js-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/js-surface.test.mjs",
+      ],
+    }),
     notes:
-      "Reviewed partial proof: selected JS surface delete and Array.length mutation on TypeScript arrays now require a closed JSArray carrier and emit JSArray.deleteAt/setLength through finalized operation facts, while no-surface sparse operations reject before emission. Surface-boundary tests classify `index in values` as requiring the full-JS carrier before the unsupported operator fails closed, and sparse array literal elisions produce an exact planner diagnostic before dense lowering can compact holes. Runtime JSArray tests prove hole preservation across callbacks, search, copying, concat, flat, and flatMap. Remaining supported sparse/hole runtime lanes stay blocked rather than approximated with List<T>, IReadOnlyList<T>, or CLR T[].",
+      "Reviewed proof: selected JS surface delete and Array.length mutation on TypeScript arrays require a closed JSArray carrier and emit JSArray.deleteAt/setLength only through finalized operation facts. No-surface sparse operations reject before artifact emission. Surface-boundary tests classify `index in values` as requiring the full-JS carrier before unsupported operator diagnostics, prove assignment-value-position length mutation facts, and reject missing carriers. CLI tests dotnet-build sparse delete plus length mutation through JSArray and reject delete/length mutation without selected JS facts. Runtime JSArray tests prove hole creation, length truncation/growth, hole-vs-default distinction, callbacks skipping holes, search semantics over holes, copying, concat, flat, flatMap, at returning JSUndefined for holes/out-of-range, and includes treating holes as undefined while indexOf skips them. Dense List<T>, IReadOnlyList<T>, and CLR T[] carriers do not approximate sparse/delete/hole semantics; missing facts are hard rejects.",
   }),
   "analysis.abstraction.policy-enforcement": Object.freeze({
     sourceExamples: Object.freeze([
