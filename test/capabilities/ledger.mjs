@@ -502,13 +502,13 @@ const baseCapabilityDefinitions = Object.freeze([
   ["tsts.type-query.flow-narrowed-type", "Query flow-narrowed type at a source node", "partial", "tsts-api"],
   ["tsts.diagnostic.provider-sourced", "Surface provider diagnostics through TSTS diagnostics", "partial", "tsts-api"],
 
-  ["provider.virtual-module.ownership", "Provider explicitly owns module specifiers", "partial", "target-provider"],
-  ["provider.virtual-module.no-fallback", "Provider-owned module failure has no file fallback", "partial", "target-provider"],
-  ["provider.virtual-module.source-shape", "Provider supplies source-visible virtual declarations", "partial", "target-provider"],
-  ["provider.virtual-module.target-identity", "Provider attaches target identity to virtual declarations", "partial", "target-provider"],
+  ["provider.virtual-module.ownership", "Provider explicitly owns module specifiers", "complete", "target-provider"],
+  ["provider.virtual-module.no-fallback", "Provider-owned module failure has no file fallback", "complete", "target-provider"],
+  ["provider.virtual-module.source-shape", "Provider supplies source-visible virtual declarations", "complete", "target-provider"],
+  ["provider.virtual-module.target-identity", "Provider attaches target identity to virtual declarations", "complete", "target-provider"],
   ["provider.virtual-module.constraints", "Provider supplies target constraints outside TS source shape", "partial", "target-provider"],
-  ["provider.virtual-module.overload-identity", "Provider supplies exact overload/member identity", "partial", "target-provider"],
-  ["provider.module.virtual-import", "Provider-backed virtual imports become compiler state", "partial", "target-provider"],
+  ["provider.virtual-module.overload-identity", "Provider supplies exact overload/member identity", "complete", "target-provider"],
+  ["provider.module.virtual-import", "Provider-backed virtual imports become compiler state", "complete", "target-provider"],
   ["provider.module.no-file-backed-fallback", "Provider module resolution has no declaration-file fallback", "complete", "target-provider"],
   ["provider.module.missing-provider-diagnostic", "Missing provider-owned modules produce diagnostics", "complete", "target-provider"],
 
@@ -1771,11 +1771,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/cli/src/package-manifests/bindings.test.ts",
       "packages/cli/src/commands/restore.test.ts",
     ]),
-    blockers: Object.freeze([
-      "provider.module.virtual-import remains partial until provider virtual imports cover every reflected namespace, explicit assembly reference, provider-owned module alias, selected surface module, and missing-provider diagnostic path through CLI/toolchain tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: .NET provider imports such as @tsonic/dotnet/System.js and @tsonic/dotnet/System.Reflection.js become TSTS compiler virtual modules, including cross-module inherited member refs whose provider-ref module ownership is preserved instead of rewritten to the inheriting base module. Sliced imports and encoded dependency modules now preserve requested export slices through declaration-model loading instead of upgrading dependencies to broad namespace imports.",
+      "Reviewed proof: .NET provider imports such as @tsonic/dotnet/System.js and @tsonic/dotnet/System.Reflection.js become TSTS compiler virtual modules, including cross-module inherited member refs whose provider-ref module ownership is preserved instead of rewritten to the inheriting base module. Sliced imports and encoded dependency modules now preserve requested export slices through declaration-model loading instead of upgrading dependencies to broad namespace imports.",
   }),
   "provider.virtual-module.ownership": Object.freeze({
     positiveTests: Object.freeze([
@@ -1793,11 +1791,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/cli/src/commands/add-deps.test.ts",
       "packages/cli/src/commands/restore.test.ts",
     ]),
-    blockers: Object.freeze([
-      "provider.virtual-module.ownership remains partial until every target and surface provider has explicit ownership tests for owned, unowned, rejected, missing, and unsupported module specifiers.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: C# target and selected surface providers explicitly own their virtual module specifiers, unselected providers do not rescue imports, and target packs without providers fail before backend emission instead of falling back to package files.",
+      "Reviewed proof: C# target and selected surface providers explicitly own their virtual module specifiers, unselected providers do not rescue imports, and target packs without providers fail before backend emission instead of falling back to package files.",
   }),
   "provider.virtual-module.no-fallback": Object.freeze({
     positiveTests: Object.freeze([
@@ -1818,11 +1814,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/cli/src/package-manifests/bindings.test.ts",
       "packages/cli/src/commands/restore.test.ts",
     ]),
-    blockers: Object.freeze([
-      "provider.virtual-module.no-fallback remains partial until every provider-owned module failure mode has current CLI/toolchain coverage and precise diagnostics.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; selected .NET modules win over shadow package files, missing provider facts remain diagnostics/blockers, unsliced .NET provider module/declaration requests fail before provider loading instead of silently widening to a broad import, sliced requests fail closed when a requested export is not provider-proven, and requested unsupported exports now produce provider-evidence diagnostics rather than generic missing-export diagnostics.",
+      "Reviewed proof: provider-owned virtual modules have no generated declaration, metadata JSON, package-root shim, or file-backed compatibility lane; selected .NET modules win over shadow package files, missing provider facts remain diagnostics/blockers, unsliced .NET provider module/declaration requests fail before provider loading instead of silently widening to a broad import, sliced requests fail closed when a requested export is not provider-proven, and requested unsupported exports now produce provider-evidence diagnostics rather than generic missing-export diagnostics.",
   }),
   "provider.virtual-module.source-shape": Object.freeze({
     positiveTests: Object.freeze([
@@ -1840,11 +1834,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/cli/src/package-manifests/bindings.test.ts",
     ]),
-    blockers: Object.freeze([
-      "provider.virtual-module.source-shape remains partial until all source-visible shape families, inherited declarations, target-only omissions, unsupported exports, and selected surface modules are proven end to end.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: reflected .NET declarations produce source-visible provider shapes for classes, delegates, properties, methods, constructors, overloads, inherited members, native CLR arrays, attributes, and explicit unsupported omissions; dependency declarations are resolved through exact requested export slices; sliced System imports expose only requested declarations such as Convert instead of broad unrelated namespaces such as System.Xml or System.ComponentModel; canonical raw provider refs must carry moduleSpecifier/exportName before TSTS virtual declaration conversion; unsupported by-ref delegate returns remain target-only instead of leaking fake source declarations.",
+      "Reviewed proof: reflected .NET declarations produce source-visible provider shapes for classes, delegates, properties, methods, constructors, overloads, inherited members, native CLR arrays, attributes, and explicit unsupported omissions; dependency declarations are resolved through exact requested export slices; sliced System imports expose only requested declarations such as Convert instead of broad unrelated namespaces such as System.Xml or System.ComponentModel; canonical raw provider refs must carry moduleSpecifier/exportName before TSTS virtual declaration conversion; unsupported by-ref delegate returns remain target-only instead of leaking fake source declarations.",
   }),
   "provider.virtual-module.target-identity": Object.freeze({
     positiveTests: Object.freeze([
@@ -1861,11 +1853,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/cli/src/package-manifests/bindings.test.ts",
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
     ]),
-    blockers: Object.freeze([
-      "provider.virtual-module.target-identity remains partial until target identity proof covers all assembly-qualified collisions, inherited member origins, explicit references, unsupported exports, and selected surface modules.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider virtual declarations carry assembly-qualified target identities into TSTS facts and C# emission, including inherited .NET members, reflected overloads, static/instance method identity, constructor identity, native CLR array identity, and fully qualified provider refs; selected operations emit from these identities rather than source spelling.",
+      "Reviewed proof: provider virtual declarations carry assembly-qualified target identities into TSTS facts and C# emission, including inherited .NET members, reflected overloads, static/instance method identity, constructor identity, native CLR array identity, and fully qualified provider refs; selected operations emit from these identities rather than source spelling.",
   }),
   "provider.module.no-file-backed-fallback": Object.freeze({
     positiveTests: Object.freeze([
@@ -3125,11 +3115,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
       "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
     ]),
-    blockers: Object.freeze([
-      "provider.virtual-module.overload-identity remains partial until selected declaration/signature identity coverage spans every provider-owned package family, default/function exports, semantic exception rows, unsupported overload diagnostics, and runtime/toolchain paths beyond the current .NET/JS-surface proof matrix.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider-owned overload identity is selected from exact declaration/signature facts for .NET provider paths and direct surface cases, including same-spelling overload groups, static/instance identity, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, return-type-distinguished CLR operator signatures, and selected signatures whose source argument facts would otherwise match sibling overloads. TSTS-selected provider identity is the proof boundary: exact selected signatures map only to the matching target member id and may not search sibling overloads; provider refinement is allowed only inside a proven overload group without source spelling lookup.",
+      "Reviewed proof: provider-owned overload identity is selected from exact declaration/signature facts for .NET provider paths and direct surface cases, including same-spelling overload groups, static/instance identity, assembly-qualified duplicate source names, generic method arity, byref parameter modes, optional/params arity, constructors, indexers, extension receivers, return-type-distinguished CLR operator signatures, and selected signatures whose source argument facts would otherwise match sibling overloads. TSTS-selected provider identity is the proof boundary: exact selected signatures map only to the matching target member id and may not search sibling overloads; provider refinement is allowed only inside a proven overload group without source spelling lookup.",
   }),
   "type.generic.provider-target-arguments": Object.freeze({
     positiveTests: Object.freeze([
