@@ -614,7 +614,7 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["function.declaration", "Function declarations emit target methods/functions", "partial", "csharp-backend"],
   ["function.arrow", "Arrow functions emit target lambdas/delegates", "partial", "csharp-backend"],
-  ["function.default-rest-optional-params", "Default, rest, and optional params use target parameter facts", "partial", "target-provider"],
+  ["function.default-rest-optional-params", "Default, rest, and optional params use target parameter facts", "complete", "target-provider"],
   ["function.closure", "Closures preserve captured variables and mutation", "partial", "csharp-backend"],
   ["function.higher-order", "Higher-order functions use delegate/function carriers", "partial", "csharp-backend"],
   ["function.delegate-carrier", "Delegate carriers are selected by target facts", "complete", "target-provider"],
@@ -6169,6 +6169,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/functions/default-params/DefaultParams.ts",
@@ -6176,7 +6177,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/optional-function-params/",
     ]),
     notes:
-      "Reviewed partial proof: current CLI emits TypeScript rest, default, and optional callable parameters from finalized C# carriers, while external-current C# provider tests enforce optional/params arity and reject omitted provider optional arguments when the reflected target default is missing or unsupported; remains partial until source-function negative coverage proves missing parameter facts fail closed.",
+      "Reviewed proof: current CLI emits TypeScript rest parameters as C# params arrays and literal TypeScript default parameters as C# optional parameters from finalized C# parameter carriers, while rejecting non-literal source defaults without emitting a target project. External-current C# provider tests enforce optional/params arity, preserve reflected default and unsupported-default evidence as target metadata, reject omitted provider optional arguments when the reflected target default is missing or unsupported, and prevent provider defaults from becoming source syntax fallbacks. Old default/optional/rest fixture evidence is mapped to the current parameter-fact contract rather than legacy lowering.",
   }),
   "function.delegate-carrier": Object.freeze({
     positiveTests: Object.freeze([
