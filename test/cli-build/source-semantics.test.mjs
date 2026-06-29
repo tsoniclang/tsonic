@@ -25,16 +25,25 @@ test("CLI resolves neutral source primitives through provider modules", async ()
       ],
     }, null, 2),
     "src/index.ts": [
-      "import type { int32, int128, nativeInt, float64, float16, bool, char, decimal } from \"@tsonic/core/types.js\";",
+      "import type { bool, char, decimal, float16, float32, float64, int8, int16, int32, int64, int128, nativeInt, nativeUint, uint8, uint16, uint32, uint64, uint128 } from \"@tsonic/core/types.js\";",
       "",
       "export function choose(flag: bool, left: int32, right: int32): int32 {",
       "  return flag ? left : right;",
       "}",
       "",
+      "export function keepInt8(value: int8): int8 { return value; }",
+      "export function keepUint8(value: uint8): uint8 { return value; }",
+      "export function keepInt16(value: int16): int16 { return value; }",
+      "export function keepUint16(value: uint16): uint16 { return value; }",
+      "export function keepInt32(value: int32): int32 { return value; }",
+      "export function keepUint32(value: uint32): uint32 { return value; }",
+      "export function keepInt64(value: int64): int64 { return value; }",
+      "export function keepUint64(value: uint64): uint64 { return value; }",
       "export function scale(value: float64): float64 {",
       "  return value * 2;",
       "}",
       "",
+      "export function keepFloat32(value: float32): float32 { return value; }",
       "export function firstChar(value: char): char {",
       "  return value;",
       "}",
@@ -47,7 +56,15 @@ test("CLI resolves neutral source primitives through provider modules", async ()
       "  return value;",
       "}",
       "",
+      "export function keepNativeUnsigned(value: nativeUint): nativeUint {",
+      "  return value;",
+      "}",
+      "",
       "export function keepInt128(value: int128): int128 {",
+      "  return value;",
+      "}",
+      "",
+      "export function keepUint128(value: uint128): uint128 {",
       "  return value;",
       "}",
       "",
@@ -67,11 +84,22 @@ test("CLI resolves neutral source primitives through provider modules", async ()
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int choose\(bool flag, int left, int right\)/);
+  assert.match(generatedSource, /public static sbyte keepInt8\(sbyte value\)/);
+  assert.match(generatedSource, /public static byte keepUint8\(byte value\)/);
+  assert.match(generatedSource, /public static short keepInt16\(short value\)/);
+  assert.match(generatedSource, /public static ushort keepUint16\(ushort value\)/);
+  assert.match(generatedSource, /public static int keepInt32\(int value\)/);
+  assert.match(generatedSource, /public static uint keepUint32\(uint value\)/);
+  assert.match(generatedSource, /public static long keepInt64\(long value\)/);
+  assert.match(generatedSource, /public static ulong keepUint64\(ulong value\)/);
   assert.match(generatedSource, /public static double scale\(double value\)/);
+  assert.match(generatedSource, /public static float keepFloat32\(float value\)/);
   assert.match(generatedSource, /public static char firstChar\(char value\)/);
   assert.match(generatedSource, /public static decimal keepDecimal\(decimal value\)/);
   assert.match(generatedSource, /public static nint keepNative\(nint value\)/);
+  assert.match(generatedSource, /public static nuint keepNativeUnsigned\(nuint value\)/);
   assert.match(generatedSource, /public static Int128 keepInt128\(Int128 value\)/);
+  assert.match(generatedSource, /public static UInt128 keepUint128\(UInt128 value\)/);
   assert.match(generatedSource, /public static Half keepFloat16\(Half value\)/);
   assert.match(generatedSource, /public static System\.Numerics\.BigInteger keepBig\(System\.Numerics\.BigInteger value\)/);
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedNeutral.csproj"), "utf8");

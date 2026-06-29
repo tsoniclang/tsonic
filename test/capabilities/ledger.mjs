@@ -514,9 +514,9 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["source-core.module.single-owner", "@tsonic/core source modules are owned once by the source-core provider, not replicated by target packs", "complete", "source-core-provider"],
   ["source-core.target-alias-consumption", "Target packs consume source-core facts and add target-specific aliases without redefining portable core contracts", "complete", "target-provider"],
-  ["source.primitive.numeric", "Neutral source numeric primitives attach facts", "partial", "source-core-provider"],
-  ["source.primitive.char-bool", "Neutral char and bool primitives attach facts", "partial", "source-core-provider"],
-  ["source.primitive.configured-type", "Configured source primitive aliases map to canonical facts", "partial", "source-core-provider"],
+  ["source.primitive.numeric", "Neutral source numeric primitives attach facts", "complete", "source-core-provider"],
+  ["source.primitive.char-bool", "Neutral char and bool primitives attach facts", "complete", "source-core-provider"],
+  ["source.primitive.configured-type", "Configured source primitive aliases map to canonical facts", "complete", "source-core-provider"],
   ["source.marker.out-ref-inref", "out, ref, and inref markers attach storage facts", "partial", "source-core-provider"],
   ["source.marker.field", "field marker attaches storage facts", "partial", "source-core-provider"],
   ["source.marker.struct", "struct marker attaches value-type source facts", "partial", "source-core-provider"],
@@ -1937,29 +1937,27 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
     ]),
-    blockers: Object.freeze([
-      "source.primitive.numeric remains partial until every neutral numeric width, decimal/native alias, numeric literal flow, assertion/conversion boundary, and backend carrier emission has positive and negative proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: @tsonic/core/types.js exposes neutral bool, char, int8 through uint128, nativeInt/nativeUint, float16/32/64, and decimal without C# alias names; source-core package tests prove every primitive export carries exact width, sign, runtimeBase, and module identity through direct, aliased, and namespace imports, while same-spelling local imports and aliases do not create source-primitive facts.",
+      "Reviewed proof: @tsonic/core/types.js exposes every neutral numeric primitive without C# alias names: int8/uint8, int16/uint16, int32/uint32, int64/uint64, int128/uint128, nativeInt/nativeUint, float16/float32/float64, and decimal. Source-core package tests prove every export carries exact width, sign, runtimeBase, and module identity through direct, aliased, and namespace imports, while same-spelling local imports and aliases do not create source-primitive facts. C# source-semantics tests prove neutral numeric aliases remain source-core facts and source primitive assertions use explicit C# conversion facts. CLI/toolchain proof emits every neutral numeric primitive to its C# carrier and dotnet-builds the result, with local TypeScript aliases proving no name-based primitive guessing.",
   }),
   "source.primitive.char-bool": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "packages/source-core/src/source-extension.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "packages/source-core/src/source-extension.test.ts",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/char-primitive/",
     ]),
-    blockers: Object.freeze([
-      "source.primitive.char-bool remains partial until char literal/Rune interop, bool flow through operators/calls, backend carrier emission, and invalid char/bool source forms have positive and negative proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: neutral bool and char imports attach source-primitive facts with boolean and string runtime bases, char width/sign data is preserved, bool field facts flow through struct field collection, and source-core package tests prove direct/alias/namespace imports plus local same-spelling no-guessing behavior. Old char-primitive coverage is broader than the current backend proof and remains regression evidence only.",
+      "Reviewed proof: neutral bool and char imports attach source-primitive facts with boolean and string runtime bases, char width/sign data is preserved, bool field facts flow through struct field collection, and source-core package tests prove direct/alias/namespace imports plus local same-spelling no-guessing behavior. CLI/toolchain proof emits bool and char carriers, ternary bool flow, char literals/defaults/escapes, and rejects invalid multi-code-unit char literals before artifact emission.",
   }),
   "source.primitive.configured-type": Object.freeze({
     positiveTests: Object.freeze([
@@ -1974,11 +1972,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
     ]),
-    blockers: Object.freeze([
-      "source.primitive.configured-type remains partial until all target-configured primitive aliases, invalid alias declarations, namespace imports, re-exports, and no-guessing shadow cases are covered.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: configured @tsonic/csharp primitive aliases are source-visible only through selected provider modules and map to canonical facts such as int32, int64, and uint8; neutral @tsonic/core exports intentionally omit C# alias spellings; public CLI proof shows local TypeScript aliases to number emit as number/double instead of guessed configured primitive facts.",
+      "Reviewed proof: configured @tsonic/csharp primitive aliases are source-visible only through the selected C# provider module and map to canonical source-core facts for every current C# alias: bool, byte, char, decimal, double, float, int, long, nint, nuint, sbyte, short, uint, ulong, and ushort. Unit proof covers direct and namespace imports plus local no-guessing; source-core proof shows neutral @tsonic/core exports intentionally omit C# alias spellings. CLI/toolchain proof emits every configured C# alias to its target carrier, rejects C# alias spellings imported from neutral core modules, and proves local TypeScript aliases to number emit as number/double instead of guessed configured primitive facts. Local barrel re-exports remain unsupported by design and attach no facts; they do not define the configured alias consumption contract.",
   }),
   "source.marker.out-ref-inref": Object.freeze({
     positiveTests: Object.freeze([
