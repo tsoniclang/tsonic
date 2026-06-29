@@ -407,6 +407,12 @@ test("CLI emits Map and Set operations from selected JS surface facts", async ()
       "  return counts.get(key);",
       "}",
       "",
+      "export function countGetOr(key: string, fallback: int32): int32 {",
+      "  const counts = new Map<string, int32>();",
+      "  counts.set(\"alpha\", 1);",
+      "  return counts.get(key) ?? fallback;",
+      "}",
+      "",
       "export function namesHas(value: string): boolean {",
       "  const names = new Set<string>();",
       "  names.add(\"alpha\");",
@@ -439,7 +445,9 @@ test("CLI emits Map and Set operations from selected JS surface facts", async ()
   assert.match(generatedSource, /counts\.set\(key, 2\);/);
   assert.match(generatedSource, /return counts\.has\(key\);/);
   assert.match(generatedSource, /public static int\? countGet\(string key\)/);
-  assert.match(generatedSource, /return counts\.get\(key\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Map\.getValue\(counts, key\);/);
+  assert.match(generatedSource, /public static int countGetOr\(string key, int fallback\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Map\.getValue\(counts, key\) \?\? fallback;/);
   assert.match(generatedSource, /public static bool namesHas\(string value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Set<string> names = new Tsonic\.CSharp\.Js\.Set<string>\(\);/);
   assert.match(generatedSource, /names\.add\("alpha"\);/);
