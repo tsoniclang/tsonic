@@ -82,12 +82,7 @@ function fileLoader_resolveProviderVirtualModule(receiver, extensionHost, module
         OriginalPath: "",
         Extension: ResolvedModuleExtensionProviderVirtual,
         ResolvedUsingTsExtension: false,
-        PackageId: {
-            Name: result.module.resolution.packageName ?? "",
-            SubModuleName: "",
-            Version: result.module.resolution.packageVersion ?? "",
-            PeerDependencies: "",
-        },
+        PackageId: fileLoader_getProviderVirtualPackageId(result.module.resolution),
         IsExternalLibraryImport: true,
         AlternateResult: "",
         ProviderVirtual: {
@@ -97,6 +92,28 @@ function fileLoader_resolveProviderVirtualModule(receiver, extensionHost, module
             ModuleSpecifier: result.module.resolution.moduleSpecifier,
         },
     };
+}
+function fileLoader_getProviderVirtualPackageId(resolution) {
+    const packageName = resolution.packageName ?? "";
+    if (packageName === "") {
+        return { Name: "", SubModuleName: "", Version: "", PeerDependencies: "" };
+    }
+    return {
+        Name: packageName,
+        SubModuleName: fileLoader_getProviderVirtualSubModuleName(packageName, resolution.moduleSpecifier),
+        Version: resolution.packageVersion ?? "",
+        PeerDependencies: "",
+    };
+}
+function fileLoader_getProviderVirtualSubModuleName(packageName, moduleSpecifier) {
+    if (moduleSpecifier === packageName) {
+        return "";
+    }
+    const packagePrefix = `${packageName}/`;
+    if (strings.HasPrefix(moduleSpecifier, packagePrefix)) {
+        return moduleSpecifier.slice(packagePrefix.length);
+    }
+    return moduleSpecifier;
 }
 function fileLoader_getProviderImportSlice(moduleSpecifier, importSite) {
     if (importSite === undefined) {

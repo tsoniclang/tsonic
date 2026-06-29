@@ -137,7 +137,7 @@ export function attributeBuilderDeclaration(): ProviderExportDeclaration {
       ], { kind: "void" }),
       memberSelector("__TsonicAttributeBuilder.property", "property", ownerType, memberBuilder),
       memberSelector("__TsonicAttributeBuilder.method", "method", ownerType, memberBuilder),
-      methodMember("__TsonicAttributeBuilder.constructor", "constructor", [], memberBuilder),
+      callablePropertyMember("__TsonicAttributeBuilder.constructor", "constructor", [], memberBuilder),
     ],
   };
 }
@@ -202,5 +202,23 @@ function methodMember(
       parameters,
       returnType,
     }],
+  };
+}
+
+function callablePropertyMember(
+  id: string,
+  name: string,
+  parameters: readonly ProviderParameterDeclaration[],
+  returnType: ProviderTypeExpression,
+) {
+  return {
+    id,
+    name,
+    kind: "property" as const,
+    type: {
+      kind: "function" as const,
+      parameters,
+      returnType,
+    },
   };
 }
