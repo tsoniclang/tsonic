@@ -2228,6 +2228,10 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
       "  return value.toString();",
       "}",
       "",
+      "export function fromPrimitiveRadix(value: int32, radix: int32): string {",
+      "  return value.toString(radix);",
+      "}",
+      "",
       "export function fromStatic(value: number): boolean {",
       "  return Number.isFinite(value) && Number.isInteger(value) && Number.isSafeInteger(value) && !Number.isNaN(value);",
       "}",
@@ -2258,6 +2262,7 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toString\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.valueOf\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toString\(root\.count\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toString\(value, radix\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isFinite\(value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isInteger\(value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isSafeInteger\(value\)/);
