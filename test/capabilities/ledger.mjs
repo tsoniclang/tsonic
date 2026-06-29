@@ -94,6 +94,368 @@ const coreLangIntrinsicCoverageByCapabilityId = new Map(
 );
 const coreLangIntrinsicSourceKindSet = new Set(["call-marker", "type-marker"]);
 const coreLangUnsupportedTargetBehaviorSet = new Set(["deterministic-diagnostic"]);
+const slice4DotnetProviderContractPositiveTests = Object.freeze([
+  "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
+  "../tsonic-csharp/test/dotnet-provider.test.mjs",
+]);
+const slice4DotnetProviderContractNegativeTests = Object.freeze([
+  "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
+  "../tsonic-csharp/test/dotnet-provider.test.mjs",
+]);
+const slice4DotnetProviderContractOldEvidence = Object.freeze([
+  "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+  "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
+]);
+const slice4DotnetProviderContractRows = Object.freeze([
+  {
+    capabilityId: "native.dotnet.contract.provider-ref-qualification",
+    title: ".NET provider refs are fully qualified before TSTS declaration conversion",
+    notes:
+      "Reviewed proof: raw .NET provider refs that reach sourceShape, heritage, signatures, or target declarations must carry moduleSpecifier/exportName and must not use the legacy name-only shape. Provider-model and TSTS declaration-model contract tests reject incomplete provider refs before virtual declaration conversion; reflected CLSCompliantAttribute proves the valid base provider-ref shape.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.assembly-qualified-target-id",
+    title: ".NET provider target identities are assembly-qualified where assemblies are known",
+    notes:
+      "Reviewed proof: .NET provider contracts reject metadataName-only target identities when assembly facts exist, assembly identity tests prove duplicate Shared.Widget declarations do not first-win by source name, and target binding lookup does not accept metadata-only identities.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.unsupported-export-evidence",
+    title: ".NET unsupported exports preserve deterministic target evidence",
+    notes:
+      "Reviewed proof: requested unsupported exports return DOTNET_PROVIDER_REQUESTED_EXPORT_UNSUPPORTED with sourceName, targetId/metadataName or targetIds/metadataNames, and reason evidence, instead of collapsing to a generic missing export or silently omitting the declaration.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.unsupported-type-family-evidence",
+    title: ".NET unsupported type families identify every rejected target identity",
+    notes:
+      "Reviewed proof: unsupported type-family exports must carry matching targetIds and metadataNames arrays, non-empty reason evidence, and assembly references when present; contract tests reject holes before provider declaration conversion.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.signature-return-type",
+    title: ".NET callable provider signatures carry explicit return metadata",
+    notes:
+      "Reviewed proof: provider declaration and raw model contracts require non-constructor source-callable signatures to carry explicit returnType and reject invalid callable source declarations before TSTS consumes them.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.parameter-passing-mode-values",
+    title: ".NET provider parameters use a closed passing-mode enum",
+    notes:
+      "Reviewed proof: .NET provider contracts accept only by-value, byref-readonly, byref-readwrite, and byref-writeonly-must-init passing modes; invalid modes are deterministic provider-model diagnostics, not backend guesses.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.params-array-shape",
+    title: ".NET params-array facts require final by-value array parameters",
+    notes:
+      "Reviewed proof: provider contracts reject params/rest parameters that are not final, not by-value, or not array-typed, and reflected Console.WriteLine/fixture params signatures preserve the target paramsArray facts consumed by selection.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.default-value-optional-only",
+    title: ".NET default parameter values only appear on optional parameters",
+    notes:
+      "Reviewed proof: provider contracts reject defaultValue on non-optional parameters; reflection tests prove supported default values remain target metadata only and source virtual declarations expose optionality without fabricating source default expressions.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.unsupported-default-exclusive",
+    title: ".NET unsupported defaults are exclusive provider evidence",
+    notes:
+      "Reviewed proof: provider contracts reject parameters that carry both supported and unsupported defaults, and unsupported default tests prove DateTime defaults remain unsupported provider evidence without source-visible defaults.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.type-parameter-identity",
+    title: ".NET generic type parameters have stable names and variance contracts",
+    notes:
+      "Reviewed proof: provider contracts reject missing/duplicate type parameter names and unsupported variance values; reflected List<T>, Dictionary<TKey,TValue>, delegates, and constraint fixtures preserve generic arity and stable names across raw model, declaration model, and target bindings.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.constraint-evidence",
+    title: ".NET generic constraints remain provider target facts",
+    notes:
+      "Reviewed proof: reflected constraints are preserved as target facts and kept out of source virtual declarations; invalid constraint metadata is contract-diagnosed and unsupported constraints carry deterministic target-only evidence.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.event-unsupported-evidence",
+    title: ".NET source-visible events require explicit unsupported evidence",
+    notes:
+      "Reviewed proof: events are retained as target facts but rejected as source-visible members unless matching unsupported event evidence exists, preventing silent event omission or fake source event semantics.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.native-array-source-shape",
+    title: ".NET explicit native Array<T> source shape is provider-owned",
+    notes:
+      "Reviewed proof: explicit @tsonic/dotnet Array<T> is discoverable by provider target id, carries provider-ref return shapes for Array.create<T>(), and does not alter ordinary TypeScript T[] semantics.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.delegate-source-shape",
+    title: ".NET delegates expose source callable shells only with function sourceShape",
+    notes:
+      "Reviewed proof: reflected delegates preserve real provider target identity and attach csharpDelegateSignature only when sourceShape.kind is function; unsupported pointer/byref delegates remain target-only and do not fabricate callable source shells.",
+  },
+  {
+    capabilityId: "native.dotnet.contract.target-binding-index",
+    title: ".NET target bindings are indexed by provider target identity",
+    notes:
+      "Reviewed proof: provider invariant scans require every reflected supported and target-only type declaration to have a matching target binding by targetId; metadataName-only lookup is not accepted for provider semantics.",
+  },
+  {
+    capabilityId: "provider.virtual-module.contract.export-identity",
+    title: "Provider virtual exports preserve stable declaration identity",
+    notes:
+      "Reviewed proof: .NET virtual declaration models validate export ids, export names, targetIdentity, and duplicate export names before TSTS binding; unsupported exports diagnose with provider evidence rather than file fallback.",
+  },
+  {
+    capabilityId: "provider.virtual-module.contract.member-signature-identity",
+    title: "Provider virtual members and signatures preserve selected identity",
+    notes:
+      "Reviewed proof: provider declaration-model contracts require unique member ids and signature ids, and provider-selection tests consume exact selected declaration/signature identity without sibling overload fallback or source spelling search.",
+  },
+  {
+    capabilityId: "provider.virtual-module.contract.dependency-provider-ref-slice",
+    title: "Provider dependency refs keep module ownership across slices",
+    notes:
+      "Reviewed proof: declaration-model dependency refs are qualified through provider dependency module specifiers, dependency slices resolve through provider virtual files, and cross-module inherited refs keep owning module identity.",
+  },
+  {
+    capabilityId: "provider.virtual-module.contract.unsliced-request-rejection",
+    title: "Provider declaration requests reject implicit broad imports",
+    notes:
+      "Reviewed proof: .NET provider declaration loading requires requestedExports or explicit broadImport, rejects unsliced declaration-model requests, and does not silently widen to broad namespace imports.",
+  },
+  {
+    capabilityId: "diagnostic.provider-contract-invalid",
+    title: "Invalid provider metadata produces structured deterministic diagnostics",
+    notes:
+      "Reviewed proof: provider-model and declaration-model contract violations return structured DOTNET_PROVIDER_* diagnostics with path/value evidence before TSTS declaration conversion or backend planning.",
+  },
+]);
+const slice4SourceCoreContractPositiveTests = Object.freeze([
+  "packages/source-core/src/source-extension.test.ts",
+  "../tsonic-csharp/test/source-semantics.test.mjs",
+  "../tsonic-csharp/test/core-lang-planner.test.mjs",
+]);
+const slice4SourceCoreContractNegativeTests = Object.freeze([
+  "packages/source-core/src/source-extension.test.ts",
+  "../tsonic-csharp/test/source-semantics.test.mjs",
+  "../tsonic-csharp/test/core-lang-planner.test.mjs",
+]);
+const slice4SourceCoreCommonOldEvidence = Object.freeze([
+  "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
+]);
+const slice4SourceCoreFieldOldEvidence = Object.freeze([
+  ...slice4SourceCoreCommonOldEvidence,
+  "packages/targets/csharp/emitter/testcases/common/classes/field-marker/FieldMarker.ts",
+]);
+const slice4SourceCoreStructOldEvidence = Object.freeze([
+  ...slice4SourceCoreCommonOldEvidence,
+  "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
+]);
+const slice4SourceCoreAttributeOldEvidence = Object.freeze([
+  ...slice4SourceCoreCommonOldEvidence,
+  "packages/targets/csharp/emitter/testcases/common/attributes/basic/Attributes.ts",
+]);
+const slice4SourceCorePointerOldEvidence = Object.freeze([
+  ...slice4SourceCoreCommonOldEvidence,
+  "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
+]);
+const slice4SourceCoreContractRows = Object.freeze([
+  {
+    capabilityId: "source-core.contract.module-ownership",
+    title: "Source-core owns portable core modules exactly once",
+    notes:
+      "Reviewed proof: @tsonic/core/lang.js and @tsonic/core/types.js are owned by the source-core provider, while C# aliases do not own or redefine those portable modules.",
+  },
+  {
+    capabilityId: "source-core.contract.target-alias-nonownership",
+    title: "Target aliases consume source-core facts without redefining core contracts",
+    notes:
+      "Reviewed proof: C# target aliases map to target facts after source-core primitive/marker facts exist, and source-semantics tests prove C# alias provider does not own portable core modules.",
+  },
+  {
+    capabilityId: "source-core.contract.storage-marker-alias",
+    title: "Storage markers preserve facts through imports, aliases, and namespaces",
+    notes:
+      "Reviewed proof: out/ref/inref facts are recorded from direct, aliased, and namespace imports by provider identity rather than source spelling.",
+  },
+  {
+    capabilityId: "source-core.contract.storage-marker-no-local-guess",
+    title: "Storage markers do not attach facts to local or shadowed names",
+    notes:
+      "Reviewed proof: same-spelling local functions, declared local modules, and shadowed marker names receive no storage facts and do not become backend parameter-mode evidence.",
+  },
+  {
+    capabilityId: "source-core.contract.non-storage-diagnostics",
+    title: "Byref source markers reject non-storage expressions deterministically",
+    notes:
+      "Reviewed proof: out/ref/inref calls on non-storage expressions produce source-core diagnostics and do not produce selected target argument facts for C# emission.",
+  },
+  {
+    capabilityId: "source-core.contract.struct-field-owner-finalization",
+    title: "Struct and default facts finalize owner evidence",
+    oldEvidence: slice4SourceCoreStructOldEvidence,
+    notes:
+      "Reviewed proof: struct and default owner facts are finalized from static source AST evidence, including non-identifier field names, without backend inference.",
+  },
+  {
+    capabilityId: "source-core.contract.field-type-evidence-required",
+    title: "Field markers require explicit type evidence",
+    oldEvidence: slice4SourceCoreFieldOldEvidence,
+    notes:
+      "Reviewed proof: field() without explicit type evidence is diagnosed for direct, namespace, and alias forms; no FieldFact is attached by spelling or fallback.",
+  },
+  {
+    capabilityId: "source-core.contract.attribute-type-evidence-required",
+    title: "Attribute markers require explicit type evidence",
+    oldEvidence: slice4SourceCoreAttributeOldEvidence,
+    notes:
+      "Reviewed proof: attribute() without explicit type evidence is diagnosed for direct, namespace, and alias forms; C# attribute emission consumes finalized attribute facts only.",
+  },
+  {
+    capabilityId: "source-core.contract.defaultof-type-evidence-required",
+    title: "defaultof markers require explicit type evidence",
+    notes:
+      "Reviewed proof: defaultof() without explicit type evidence is diagnosed for direct, namespace, and alias forms; C# default expression emission consumes finalized target-default facts only.",
+  },
+  {
+    capabilityId: "source-core.contract.ptr-type-marker-evidence",
+    title: "ptr type markers attach pointer facts only from provider-owned type references",
+    oldEvidence: slice4SourceCorePointerOldEvidence,
+    notes:
+      "Reviewed proof: ptr<T> facts are recorded from direct, alias, and namespace imports, including nested pointer forms, and shadowed local type aliases receive no pointer facts.",
+  },
+  {
+    capabilityId: "source-core.contract.fnptr-type-marker-evidence",
+    title: "fnptr type markers attach function-pointer facts only from provider-owned type references",
+    oldEvidence: slice4SourceCorePointerOldEvidence,
+    notes:
+      "Reviewed proof: fnptr<TArgs,TReturn> facts are recorded from direct, alias, namespace, tuple, and scalar parameter forms, while invalid arity remains a TSTS diagnostic and no source-core fact is attached.",
+  },
+  {
+    capabilityId: "source-core.contract.type-marker-shadowing",
+    title: "Pointer type markers are shadow-safe",
+    oldEvidence: slice4SourceCorePointerOldEvidence,
+    notes:
+      "Reviewed proof: local generic type aliases and shadowed namespace generic type names do not receive ptr/fnptr facts even when the source spelling matches portable marker names.",
+  },
+  {
+    capabilityId: "source.marker.contract.out-ref-inref-facts",
+    title: "out/ref/inref marker facts are neutral source facts",
+    notes:
+      "Reviewed proof: source-core records neutral argument-passing and storage facts for out/ref/inref without C# policy, and C# consumes those facts only after selected provider signatures require the modes.",
+  },
+  {
+    capabilityId: "source.marker.contract.attribute-facts",
+    title: "attribute marker facts are neutral source facts",
+    oldEvidence: slice4SourceCoreAttributeOldEvidence,
+    notes:
+      "Reviewed proof: source-core records attribute application facts from explicit source evidence, and C# validates placement/arguments instead of source-core hardcoding C# attributes.",
+  },
+  {
+    capabilityId: "source.marker.contract.struct-field-facts",
+    title: "struct and field marker facts are neutral value-shape facts",
+    oldEvidence: slice4SourceCoreStructOldEvidence,
+    notes:
+      "Reviewed proof: source-core records struct/field facts as portable value-shape evidence, while C# target semantics map those facts to C# value-type carriers only from finalized facts.",
+  },
+  {
+    capabilityId: "source.marker.contract.ptr-fnptr-facts",
+    title: "ptr and fnptr marker facts are neutral pointer type facts",
+    oldEvidence: slice4SourceCorePointerOldEvidence,
+    notes:
+      "Reviewed proof: source-core records ptr/fnptr type facts without target lowering; C# planner renders pointer/function-pointer AST only from finalized nested type facts.",
+  },
+  {
+    capabilityId: "target.csharp.core-lang.out-ref-inref-fact-consumption",
+    title: "C# consumes out/ref/inref only from finalized marker facts",
+    notes:
+      "Reviewed proof: C# source semantics records selected out/ref/inref parameter-mode facts from source-core markers and rejects local/shadowed markers without consuming source spelling.",
+  },
+  {
+    capabilityId: "target.csharp.core-lang.struct-field-carrier",
+    title: "C# maps struct/field facts to value-type carriers",
+    oldEvidence: slice4SourceCoreStructOldEvidence,
+    notes:
+      "Reviewed proof: C# source semantics maps source-core struct declarations to one named value-type carrier and preserves field facts without old TypeScript-only inheritance markers.",
+  },
+  {
+    capabilityId: "target.csharp.core-lang.attribute-application",
+    title: "C# maps attribute facts to C# attribute applications",
+    oldEvidence: slice4SourceCoreAttributeOldEvidence,
+    notes:
+      "Reviewed proof: C# attribute tests consume finalized AttributeFact data for class/member/parameter/return placement and reject unsupported target specifiers deterministically.",
+  },
+  {
+    capabilityId: "target.csharp.core-lang.ptr-fnptr-rendering",
+    title: "C# renders ptr/fnptr only from finalized source-core type facts",
+    oldEvidence: slice4SourceCorePointerOldEvidence,
+    notes:
+      "Reviewed proof: C# planner emits pointer and function-pointer target AST from finalized ptr/fnptr facts and fails closed for unproven type-marker evidence.",
+  },
+]);
+const slice4ProviderCallContractPositiveTests = Object.freeze([
+  "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+  "../tsonic-csharp/test/provider-selection.test.mjs",
+  "../tsonic-csharp/test/call-operation-facts.test.mjs",
+]);
+const slice4ProviderCallContractNegativeTests = Object.freeze([
+  "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+  "../tsonic-csharp/test/provider-selection.test.mjs",
+  "../tsonic-csharp/test/call-operation-facts.test.mjs",
+]);
+const slice4ProviderCallContractOldEvidence = Object.freeze([
+  "packages/targets/csharp/emitter/testcases/common/functions/default-params/DefaultParams.ts",
+  "packages/targets/csharp/emitter/testcases/common/functions/optional-callbacks/OptionalParams.ts",
+  "test/fixtures/param-modifiers/",
+]);
+const slice4ProviderCallContractRows = Object.freeze([
+  {
+    capabilityId: "operation.call.provider.parameter-mode.byref-marker-consumption",
+    title: "Provider calls consume out/ref/inref only from finalized marker facts",
+    notes:
+      "Reviewed proof: selected provider call facts carry reflected byref passing modes, and argument emission requires finalized source marker/storage facts rather than parameter names or byref spelling.",
+  },
+  {
+    capabilityId: "operation.call.provider.parameter-mode.mutated-fact-rejection",
+    title: "Provider call emission rejects mutated parameter-mode facts",
+    notes:
+      "Reviewed proof: call-operation fact tests reject mutated receiver, parameter-passing, selected-member, and unsupported passing-mode facts before C# emission can fall back to syntax or target member lookup.",
+  },
+  {
+    capabilityId: "operation.call.provider.parameter-mode.params-array-arity",
+    title: "Provider params-array calls use selected params metadata for arity",
+    notes:
+      "Reviewed proof: optional-params tests preserve reflected params-array facts, selection accepts extra arguments only through paramsArray metadata, and contract tests reject invalid params-array shapes.",
+  },
+  {
+    capabilityId: "operation.call.provider.parameter-mode.optional-default-arity",
+    title: "Provider optional parameters use reflected defaults for omitted arguments",
+    notes:
+      "Reviewed proof: selected target-member identity accepts omitted optional arguments only when deterministic reflected default metadata exists and rejects optional-without-default omission.",
+  },
+  {
+    capabilityId: "operation.call.provider.parameter-mode.unsupported-default-rejection",
+    title: "Provider optional parameters with unsupported defaults fail closed",
+    notes:
+      "Reviewed proof: unsupported default parameter values remain target evidence, source declarations do not expose fake defaults, and selection rejects omitted arguments when the selected default is unsupported.",
+  },
+  {
+    capabilityId: "function.default-rest-optional-params.provider-defaults",
+    title: "Provider default parameters are target metadata, not source syntax defaults",
+    notes:
+      "Reviewed proof: reflected default metadata is retained only in target facts, source virtual declarations expose optional parameters without defaultValue expressions, and backend selection consumes target defaults.",
+  },
+  {
+    capabilityId: "function.default-rest-optional-params.provider-params-array",
+    title: "Provider rest/params parameters are final by-value array target facts",
+    notes:
+      "Reviewed proof: params-array facts survive raw model, declaration model, target binding, and selected call arity checks, and malformed params metadata is rejected by the provider contract validator.",
+  },
+  {
+    capabilityId: "function.default-rest-optional-params.provider-unsupported-defaults",
+    title: "Unsupported provider defaults remain diagnostics, not source defaults",
+    notes:
+      "Reviewed proof: unsupported defaults carry parameter identity/reason evidence and do not become source defaults or backend omission fallbacks.",
+  },
+]);
 
 const baseCapabilityDefinitions = Object.freeze([
   ["host.config.project-load", "Load current tsonic project config", "partial", "tsonic-host"],
@@ -179,6 +541,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source-core.lang.portable-intrinsics.defaultof", "defaultof intrinsic attaches neutral target-default value facts", "partial", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.ptr", "ptr intrinsic attaches neutral pointer type facts", "partial", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.fnptr", "fnptr intrinsic attaches neutral function-pointer type facts", "partial", "source-core-provider"],
+  ...slice4SourceCoreContractRows.map((row) => [row.capabilityId, row.title, "complete", row.capabilityId.startsWith("target.csharp.") ? "target-provider" : "source-core-provider"]),
 
   ["type.utility", "Utility types are consumed from TSTS results", "partial", "tsts-api"],
   ["type.conditional", "Conditional types are consumed from TSTS results", "partial", "tsts-api"],
@@ -198,6 +561,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.call.provider-selected-method", "Provider-owned calls emit from selected signature facts", "complete", "target-provider"],
   ["operation.call.provider-argument-conversion", "Provider-owned calls record target argument conversion facts", "partial", "target-provider"],
   ["operation.call.provider-parameter-mode", "Provider-owned calls record parameter mode facts", "partial", "target-provider"],
+  ...slice4ProviderCallContractRows.map((row) => [row.capabilityId, row.title, "complete", row.capabilityId.startsWith("function.") ? "target-provider" : "target-provider"]),
   ["operation.construct.provider-selected-constructor", "Provider-owned constructors emit from selected constructor facts", "complete", "target-provider"],
   ["operation.constructor.provider-selected-target", "Constructors map to selected target constructor facts", "complete", "target-provider"],
   ["operation.property.provider-selected-member", "Provider-owned property access emits from selected member facts", "complete", "target-provider"],
@@ -359,6 +723,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
   ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "partial", "target-provider"],
   ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "partial", "target-provider"],
+  ...slice4DotnetProviderContractRows.map((row) => [row.capabilityId, row.title, "complete", "target-provider"]),
 
   ["diagnostic.missing-target-fact", "Missing target facts produce deterministic diagnostics", "partial", "target-provider"],
   ["diagnostic.missing-iteration-fact", "Missing iteration facts produce deterministic diagnostics", "complete", "target-provider"],
@@ -400,6 +765,9 @@ const baseCapabilityDefinitions = Object.freeze([
 export const requiredCapabilityIds = Object.freeze(baseCapabilityDefinitions.map(([capabilityId]) => capabilityId));
 
 const reviewedCapabilityEvidence = Object.freeze({
+  ...slice4DotnetProviderContractEvidence(),
+  ...slice4SourceCoreContractEvidence(),
+  ...slice4ProviderCallContractEvidence(),
   "host.config.project-load": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
@@ -6708,6 +7076,48 @@ function capabilityDefaults(capabilityId, owner) {
     providerFacts: [],
     backendContract: "Consumers fail closed when capability evidence is absent.",
   };
+}
+
+function slice4DotnetProviderContractEvidence() {
+  return Object.fromEntries(
+    slice4DotnetProviderContractRows.map((row) => [
+      row.capabilityId,
+      Object.freeze({
+        positiveTests: slice4DotnetProviderContractPositiveTests,
+        negativeTests: slice4DotnetProviderContractNegativeTests,
+        oldEvidence: slice4DotnetProviderContractOldEvidence,
+        notes: row.notes,
+      }),
+    ]),
+  );
+}
+
+function slice4SourceCoreContractEvidence() {
+  return Object.fromEntries(
+    slice4SourceCoreContractRows.map((row) => [
+      row.capabilityId,
+      Object.freeze({
+        positiveTests: slice4SourceCoreContractPositiveTests,
+        negativeTests: slice4SourceCoreContractNegativeTests,
+        oldEvidence: row.oldEvidence ?? slice4SourceCoreCommonOldEvidence,
+        notes: row.notes,
+      }),
+    ]),
+  );
+}
+
+function slice4ProviderCallContractEvidence() {
+  return Object.fromEntries(
+    slice4ProviderCallContractRows.map((row) => [
+      row.capabilityId,
+      Object.freeze({
+        positiveTests: slice4ProviderCallContractPositiveTests,
+        negativeTests: slice4ProviderCallContractNegativeTests,
+        oldEvidence: slice4ProviderCallContractOldEvidence,
+        notes: row.notes,
+      }),
+    ]),
+  );
 }
 
 function laneClassificationDefaults(capabilityId, owner) {
