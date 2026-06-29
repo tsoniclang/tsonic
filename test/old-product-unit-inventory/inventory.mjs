@@ -456,6 +456,7 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
     "source.marker.out-ref-inref",
     "source.primitive.configured-type",
     "source.primitive.numeric",
+    "target.csharp.source-flow-marker-contract",
     "target.csharp.core-lang-intrinsics",
     "tsts.no-target-overrides",
   ]),
@@ -544,6 +545,7 @@ const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
     "source-core.target-alias-consumption",
     "source.marker.field",
     "source.primitive.configured-type",
+    "target.csharp.source-flow-marker-contract",
     "target.csharp.core-lang-intrinsics",
   ]),
   ...oldProductUnitLedgerEvidenceCapabilityMapping([

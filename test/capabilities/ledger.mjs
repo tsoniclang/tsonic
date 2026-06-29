@@ -354,7 +354,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "partial", "target-provider"],
   ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "complete", "target-provider"],
   ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "partial", "target-provider"],
-  ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "partial", "target-provider"],
+  ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "complete", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "partial", "target-provider"],
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
   ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "partial", "target-provider"],
@@ -385,7 +385,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["architecture.target-pack.boundaries", "Target pack packages keep provider, surfaces, backend, runtime, and toolchain as explicit modules", "complete", "tests"],
   ["architecture.target-pack.no-catch-all-semantics", "Target packs avoid catch-all semantic blobs and hidden source-family helpers", "complete", "tests"],
   ["architecture.target-pack.no-procedural-policy", "Policy files are declarative data, generic selectors, or explicit exception records only", "complete", "tests"],
-  ["target.csharp.source-flow-marker-contract", "C# explicitly implements or rejects portable source flow markers", "partial", "target-provider"],
+  ["target.csharp.source-flow-marker-contract", "C# explicitly implements or rejects portable source flow markers", "complete", "target-provider"],
   ["target.csharp.core-lang-intrinsics", "C# implements or rejects every portable @tsonic/core/lang.js intrinsic from finalized facts", "partial", "target-provider"],
   ["target.shared.ownership-placeholder", "Shared contracts preserve future ownership facts", "not-started", "rust-future"],
   ["target.rust.future-borrow-checker-boundary", "Rust borrow/move remains provider diagnostic plus rustc authority", "not-started", "rust-future"],
@@ -6469,16 +6469,17 @@ const reviewedCapabilityEvidence = Object.freeze({
   "target.csharp.source-flow-marker-contract": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "target.csharp.source-flow-marker-contract remains partial until C# explicitly covers every portable source-flow marker with implemented or unsupported diagnostics through unit, CLI, and toolchain tests.",
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: C# currently rejects borrow, borrowMut, and move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED from finalized TSTS flow facts. This is the explicit target contract until C# has a defined non-erased implementation.",
+      "Reviewed proof: C# explicitly rejects borrow, borrowMut, and move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED from finalized TSTS flow facts in unit and CLI paths. The markers are not erased, guessed, or lowered through fallback behavior.",
   }),
   "target.csharp.core-lang-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
