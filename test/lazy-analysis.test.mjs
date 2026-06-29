@@ -31,6 +31,10 @@ test("lazy generic source analysis returns structural use records without source
       "  const clone = [...xs];",
       "  const objectClone = { ...obj };",
       "  const awaited = await promise;",
+      "  for (const key in obj) {",
+      "    void key;",
+      "  }",
+      "  const elementValue = obj[\"xs\"];",
       "  xs[0] = 1;",
       "  xs.length = 0;",
       "  const captured = () => xs.length;",
@@ -43,6 +47,7 @@ test("lazy generic source analysis returns structural use records without source
       "  void clone;",
       "  void objectClone;",
       "  void awaited;",
+      "  void elementValue;",
       "  return xs;",
       "}",
       "export function* generate(yielded: number[]) {",
@@ -83,24 +88,24 @@ test("lazy generic source analysis returns structural use records without source
   const yieldedName = findParameterName(session.ast, sourceFile, "yielded");
   assert.notEqual(yieldedName, undefined);
   const yieldedSymbol = session.checker.getSymbolAtLocation(yieldedName, { sourceFile });
-  const analyzeName = findFunctionName(session.ast, sourceFile, "analyze");
-  assert.notEqual(analyzeName, undefined);
-  const analyzeFunction = session.ast.parent(analyzeName);
-  assert.notEqual(analyzeFunction, undefined);
-
   const analysisInput = createFakeBackendInput(session, project);
   const uses = analysisInput.analysis.lazy.usesOf(xsSymbol);
-  const argumentFlows = analysisInput.analysis.lazy.argumentFlowOf(xsSymbol);
   const sinkCallsites = analysisInput.analysis.lazy.callsitesOf(sinkSymbol);
-  const escapes = analysisInput.analysis.lazy.escapesOf(xsSymbol);
-  const captures = analysisInput.analysis.lazy.capturesOf(xsSymbol);
   const rhsUses = analysisInput.analysis.lazy.usesOf(rhsSymbol);
   const objUses = analysisInput.analysis.lazy.usesOf(objSymbol);
   const promiseUses = analysisInput.analysis.lazy.usesOf(promiseSymbol);
   const yieldedUses = analysisInput.analysis.lazy.usesOf(yieldedSymbol);
-  const summary = analysisInput.analysis.lazy.summaryOf(analyzeFunction);
+  const awaits = analysisInput.analysis.lazy.awaitsOf(promiseSymbol);
+  const forInSites = analysisInput.analysis.lazy.forInSitesOf(objSymbol);
+  const bindingUses = analysisInput.analysis.lazy.bindingUsesOf(xsSymbol);
 
   assert.equal(analysisInput.analysis.lazy.elementWritesOn(xsSymbol).length, 1);
+  assert.strictEqual(analysisInput.analysis.lazy.readsOf(xsSymbol), analysisInput.analysis.lazy.readsOf(xsSymbol));
+  assert.strictEqual(analysisInput.analysis.lazy.writesOf(xsSymbol), analysisInput.analysis.lazy.writesOf(xsSymbol));
+  assert.strictEqual(analysisInput.analysis.lazy.mutationsOf(xsSymbol), analysisInput.analysis.lazy.mutationsOf(xsSymbol));
+  assert.strictEqual(analysisInput.analysis.lazy.awaitsOf(promiseSymbol), awaits);
+  assert.strictEqual(analysisInput.analysis.lazy.forInSitesOf(objSymbol), forInSites);
+  assert.strictEqual(analysisInput.analysis.lazy.bindingUsesOf(xsSymbol), bindingUses);
   assert.deepEqual(
     analysisInput.analysis.lazy.propertyWritesOn(xsSymbol).map((use) => [use.propertyName, use.access]),
     [["length", "write"]],
@@ -112,23 +117,36 @@ test("lazy generic source analysis returns structural use records without source
   assert.ok(uses.some((use) => use.operation === "return"));
   assert.ok(rhsUses.some((use) => use.operation === "destructure" && use.operator === "="));
   assert.ok(objUses.some((use) => use.operation === "spread" && use.access === "read"));
+  assert.ok(objUses.some((use) => use.operation === "element" && use.access === "read"));
+  assert.equal(forInSites.length, 1);
+  assert.equal(forInSites[0].iterationKind, "for-in");
   assert.ok(promiseUses.some((use) => use.operation === "await" && use.access === "read"));
+  assert.equal(awaits.length, 1);
+  assert.equal(awaits[0].operation, "await");
   assert.ok(yieldedUses.some((use) => use.operation === "yield" && use.access === "read"));
-  assert.equal(argumentFlows.length, 1);
-  assert.equal(argumentFlows[0].argumentIndex, 0);
+  assert.equal(bindingUses.length, 1);
+  assert.equal(bindingUses[0].operation, "destructure");
   assert.equal(sinkCallsites.length, 1);
   assert.equal(session.ast.text(sinkCallsites[0].callee), "sink");
-  assert.ok(escapes.some((escape) => escape.operation === "argument"));
-  assert.ok(escapes.some((escape) => escape.operation === "return"));
-  assert.equal(captures.length, 1);
-  assert.equal(session.ast.kindName(captures[0].functionNode), "KindArrowFunction");
-  assert.equal(summary.returns.length, 1);
-  assert.equal(summary.calls.length, 2);
-  assert.ok(summary.references.length >= uses.length);
-  assert.equal(uses.some((use) => "arrayClear" in use || "carrierLane" in use || "targetMember" in use), false);
+  assert.equal("argumentFlowOf" in analysisInput.analysis.lazy, false);
+  assert.equal("returnFlowOf" in analysisInput.analysis.lazy, false);
+  assert.equal("escapesOf" in analysisInput.analysis.lazy, false);
+  assert.equal("capturesOf" in analysisInput.analysis.lazy, false);
+  assert.equal("summaryOf" in analysisInput.analysis.lazy, false);
+  assertNoPolicyConclusions([
+    ...uses,
+    ...rhsUses,
+    ...objUses,
+    ...promiseUses,
+    ...yieldedUses,
+    ...awaits,
+    ...forInSites,
+    ...bindingUses,
+    ...sinkCallsites,
+  ]);
 });
 
-test("lazy generic source analysis records declarations imports exports and construct sites structurally", async () => {
+test("lazy generic source analysis records import/export references and construct sites structurally", async () => {
   const projectDirectory = resolve(tempRoot, "structural-module-records");
   const projectConfig = {
     entryPoint: "index.ts",
@@ -185,77 +203,50 @@ test("lazy generic source analysis records declarations imports exports and cons
   const shapeImportName = findImportBindingName(session.ast, indexFile, "Shape");
   const boxImportName = findImportBindingName(session.ast, indexFile, "Box");
   const usedName = findVariableName(session.ast, indexFile, "used");
-  const makeValueFunctionName = findFunctionName(session.ast, libFile, "makeValue");
   assert.notEqual(makeValueImportName, undefined);
   assert.notEqual(shapeImportName, undefined);
   assert.notEqual(boxImportName, undefined);
   assert.notEqual(usedName, undefined);
-  assert.notEqual(makeValueFunctionName, undefined);
 
   const makeValueSymbol = session.checker.getSymbolAtLocation(makeValueImportName, { sourceFile: indexFile });
   const shapeSymbol = session.checker.getSymbolAtLocation(shapeImportName, { sourceFile: indexFile });
   const boxSymbol = session.checker.getSymbolAtLocation(boxImportName, { sourceFile: indexFile });
   const usedSymbol = session.checker.getSymbolAtLocation(usedName, { sourceFile: indexFile });
-  const makeValueFunction = session.ast.parent(makeValueFunctionName);
   assert.notEqual(makeValueSymbol, undefined);
   assert.notEqual(shapeSymbol, undefined);
   assert.notEqual(boxSymbol, undefined);
   assert.notEqual(usedSymbol, undefined);
-  assert.notEqual(makeValueFunction, undefined);
 
   const analysis = createFakeBackendInput(session, project).analysis.lazy;
-  assert.equal(typeof analysis.declarationsOf, "function");
-  assert.equal(typeof analysis.importsOf, "function");
-  assert.equal(typeof analysis.exportsOf, "function");
+  assert.equal(typeof analysis.referencesOf, "function");
+  assert.equal(typeof analysis.usesOf, "function");
   assert.equal(typeof analysis.constructSitesOf, "function");
-  assert.equal(typeof analysis.returnFlowOf, "function");
 
-  const makeValueImports = analysis.importsOf(makeValueSymbol);
-  const shapeImports = analysis.importsOf(shapeSymbol);
-  const usedDeclarations = analysis.declarationsOf(usedSymbol);
-  const usedExports = analysis.exportsOf(usedSymbol);
   const makeValueCalls = analysis.callsitesOf(makeValueSymbol);
   const boxConstructs = analysis.constructSitesOf(boxSymbol);
-  const returnFlows = analysis.returnFlowOf(makeValueFunction);
   const shapeReferences = analysis.referencesOf(shapeSymbol);
   const usedUses = analysis.usesOf(usedSymbol);
+  const makeValueReferences = analysis.referencesOf(makeValueSymbol);
 
-  assert.strictEqual(analysis.importsOf(makeValueSymbol), makeValueImports);
-  assert.strictEqual(analysis.importsOf(shapeSymbol), shapeImports);
-  assert.strictEqual(analysis.declarationsOf(usedSymbol), usedDeclarations);
-  assert.strictEqual(analysis.exportsOf(usedSymbol), usedExports);
   assert.strictEqual(analysis.referencesOf(shapeSymbol), shapeReferences);
   assert.strictEqual(analysis.usesOf(usedSymbol), usedUses);
+  assert.strictEqual(analysis.referencesOf(makeValueSymbol), makeValueReferences);
 
-  assert.deepEqual(
-    makeValueImports.map((record) => [record.importKind, record.importedName, record.localName, record.isTypeOnly, session.ast.text(record.moduleSpecifier)]),
-    [["named", "makeValue", "makeValue", false, "./lib.js"]],
-  );
-  assert.deepEqual(
-    shapeImports.map((record) => [record.importKind, record.importedName, record.localName, record.isTypeOnly]),
-    [["named", "Shape", "Shape", true]],
-  );
-  assert.deepEqual(usedDeclarations.map((record) => record.occurrence), ["value"]);
-  assert.deepEqual(usedExports.map((record) => [record.exportKind, record.exportedName, record.localName]), [["local", "used", "used"]]);
   assert.equal(makeValueCalls.length, 1);
   assert.equal(makeValueCalls[0].kind, "call");
   assert.equal(makeValueCalls[0].arguments.length, 1);
   assert.equal(boxConstructs.length, 1);
   assert.equal(boxConstructs[0].kind, "construct");
   assert.equal(boxConstructs[0].arguments.length, 1);
-  assert.equal(returnFlows.length, 1);
-  assert.equal(session.ast.kindName(returnFlows[0].returnStatement), "KindReturnStatement");
+  assert.ok(makeValueReferences.some((reference) => reference.occurrence === "import"));
+  assert.ok(makeValueReferences.some((reference) => reference.occurrence === "value"));
   assert.ok(shapeReferences.some((reference) => reference.occurrence === "import"));
   assert.ok(shapeReferences.some((reference) => reference.occurrence === "type"));
   assert.ok(usedUses.some((use) => use.kind === "construct" || use.kind === "argument"));
   assertNoPolicyConclusions([
-    ...makeValueImports,
-    ...shapeImports,
-    ...usedDeclarations,
-    ...usedExports,
     ...makeValueCalls,
     ...boxConstructs,
-    ...returnFlows,
+    ...makeValueReferences,
     ...shapeReferences,
     ...usedUses,
   ]);
@@ -299,24 +290,6 @@ function findParameterName(ast, sourceFile, name) {
       const parameterName = ast.name(node);
       if (ast.text(parameterName) === name) {
         return parameterName;
-      }
-    }
-    stack.push(...ast.children(node));
-  }
-  return undefined;
-}
-
-function findFunctionName(ast, sourceFile, name) {
-  const stack = [sourceFile];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (node === undefined) {
-      continue;
-    }
-    if (ast.is.IsFunctionDeclaration(node)) {
-      const functionName = ast.name(node);
-      if (ast.text(functionName) === name) {
-        return functionName;
       }
     }
     stack.push(...ast.children(node));
@@ -371,8 +344,16 @@ function assertNoPolicyConclusions(records) {
   ]);
   const forbiddenValues = [
     "array-clear",
+    "Dictionary.Keys",
+    "JSArray",
     "List<",
     "Map.get",
+    "Node fs",
+    "Buffer",
+    "Date",
+    "Map",
+    "Promise",
+    "Set",
     "C#",
     "runtime-helper",
     "carrier",
