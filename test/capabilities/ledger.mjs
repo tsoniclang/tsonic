@@ -2220,7 +2220,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.conditional remains partial until distributive/non-distributive conditionals, generic constraints, provider virtual types, source-core primitives, nested conditions, and negative assignability proof are covered through current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: conditional type aliases resolve through TSTS, including tuple-head extraction, provider generic element inference over List<T>, nested conditional aliases over provider elements, and invalid assignment to the resolved conditional result stops before backend artifacts are produced. Source-core primitive facts through arbitrary conditional transformations remain unproven and must not silently collapse to C# number defaults.",
+      "Reviewed partial proof: conditional type aliases resolve through TSTS, including tuple-head extraction, provider generic element inference over List<T>, nested conditional aliases over provider elements, and invalid assignment to the resolved conditional result stops before backend artifacts are produced. When conditional/infer transforms contain source-core primitive evidence that TSTS erases to a plain TypeScript primitive, C# type emission now fails closed with sourcePrimitive evidence instead of collapsing int32-style facts to C# double.",
   }),
   "type.mapped": Object.freeze({
     positiveTests: Object.freeze([
@@ -2276,7 +2276,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.infer remains partial until nested infer positions, rest tuple inference, callable return/parameter inference, provider generic types, source-core primitive aliases, and failing inference branches are covered.",
     ]),
     notes:
-      "Reviewed partial proof: infer in conditional tuple positions and provider generic element extraction resolves through TSTS to selected source results, and backend emission consumes the resolved source/provider shape without implementing infer semantics. Source-core primitive facts through arbitrary infer transformations remain unproven and must not be treated as complete target evidence.",
+      "Reviewed partial proof: infer in conditional tuple positions and provider generic element extraction resolves through TSTS to selected source results, and backend emission consumes the resolved source/provider shape without implementing infer semantics. Source-core primitive facts through arbitrary infer transformations are not treated as complete target evidence: if explicit primitive evidence is lost during TSTS-only type computation, C# emission reports a deterministic primitive-preservation diagnostic instead of guessing a fallback carrier.",
   }),
   "type.template-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -2306,7 +2306,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.variadic-tuple remains partial until variadic tuple evidence covers readonly tuples, labels, optional/rest elements, generic inference across calls, spreads, destructuring, and every old tuple arity fixture through current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: variadic tuple type aliases are resolved by TSTS into concrete tuples consumed by the C# backend as value tuples, tuple element access emits from finalized element facts, readonly tuple expressions erase from target output, and incompatible tuple arity is rejected by TSTS before backend artifacts are produced. Source-core primitive facts through variadic tuple transformations remain unproven and must not be overclaimed.",
+      "Reviewed partial proof: variadic tuple type aliases are resolved by TSTS into concrete tuples consumed by the C# backend as value tuples, tuple element access emits from finalized element facts, readonly tuple expressions erase from target output, and incompatible tuple arity is rejected by TSTS before backend artifacts are produced. Variadic tuple transforms containing source-core primitive evidence now fail closed when no target primitive fact survives the transformation, so the backend cannot overclaim int32-style evidence as plain C# double.",
   }),
   "type.satisfies": Object.freeze({
     positiveTests: Object.freeze([

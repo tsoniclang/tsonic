@@ -523,6 +523,23 @@ test("CLI consumes advanced type forms across source-core primitives and provide
     "export function value(input: Missing): Missing { return input; }",
     "",
   ], /TS2339: Property 'missing' does not exist on type 'Required<UserShape>'/);
+
+  await assertRejected("advanced-type-source-primitive-erasure-negative", "SmokeGeneratedAdvancedTypeSourcePrimitiveErasureNegative", [
+    "import type { int32 } from \"@tsonic/core/types.js\";",
+    "import { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
+    "",
+    "type ProviderElement<T> = T extends List<infer Element> ? Element : never;",
+    "type TupleHead<T> = T extends readonly [infer Head, ...readonly unknown[]] ? Head : never;",
+    "",
+    "export function fromProvider(values: List<int32>): ProviderElement<List<int32>> {",
+    "  return values[0];",
+    "}",
+    "",
+    "export function fromTuple(value: TupleHead<readonly [int32, string]>): TupleHead<readonly [int32, string]> {",
+    "  return value;",
+    "}",
+    "",
+  ], /requires transformed source-core primitive type syntax to preserve explicit target primitive evidence/);
 });
 
 test("CLI consumes TSTS non-null assertion results without backend nullability inference", async () => {

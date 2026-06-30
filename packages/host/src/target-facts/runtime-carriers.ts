@@ -122,7 +122,9 @@ export function getRuntimeCarrierFromDeclaredFactGraph(
       nextSeen,
     );
     if (aliasCarrier !== undefined) {
-      return aliasCarrier;
+      return typeSyntaxContainsSourcePrimitiveEvidence(ast, checker, facts, node, options) && !targetTypeRefContainsSourcePrimitive(aliasCarrier)
+        ? undefined
+        : aliasCarrier;
     }
     const type = getSemanticTypeForNode(ast, checker, node, options);
     const binding = facts.getTargetBindingFact(type) ?? facts.getTargetBindingFact(type?.symbol);
@@ -468,7 +470,9 @@ function getRuntimeCarrierFromTypeAliasFactGraph(
     }
     const semanticCarrier = getRuntimeCarrierForSemanticType(ast, checker, types, facts, typeNode, declarationOptions);
     if (semanticCarrier !== undefined) {
-      return semanticCarrier;
+      return typeSyntaxContainsSourcePrimitiveEvidence(ast, checker, facts, typeNode, declarationOptions)
+        ? undefined
+        : semanticCarrier;
     }
   }
   return undefined;
@@ -484,8 +488,14 @@ function getTargetTypeRefFromDeclaredTypeNode(
   sourceFiles: readonly SourceFile[],
   seen: ReadonlySet<Node>,
 ): TargetTypeRef | undefined {
-  return getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles, seen) ??
-    getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
+  const declaredCarrier = getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles, seen);
+  if (declaredCarrier !== undefined) {
+    return declaredCarrier;
+  }
+  const semanticCarrier = getRuntimeCarrierForSemanticType(ast, checker, types, facts, node, options);
+  return semanticCarrier !== undefined && typeSyntaxContainsSourcePrimitiveEvidence(ast, checker, facts, node, options)
+    ? undefined
+    : semanticCarrier;
 }
 
 function instantiateDirectTypeReferenceCarrierFromSyntax(
@@ -517,6 +527,39 @@ function instantiateDirectTypeReferenceCarrierFromSyntax(
 
 function discardSourcePrimitiveSemanticCarrier(type: TargetTypeRef | undefined): TargetTypeRef | undefined {
   return type === undefined || targetTypeRefContainsSourcePrimitive(type) ? undefined : type;
+}
+
+function typeSyntaxContainsSourcePrimitiveEvidence(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  facts: ExtensionConsumerQueries,
+  node: Node,
+  options: { readonly sourceFile: SourceFile },
+): boolean {
+  let found = false;
+  const visit = (current: Node | undefined): void => {
+    if (current === undefined || found) {
+      return;
+    }
+    if (getRuntimeCarrier(facts, current)?.kind === "source-primitive") {
+      found = true;
+      return;
+    }
+    const symbol = getSymbolAtReferenceNode(ast, checker, current, options);
+    const resolvedSymbol = getResolvedSymbolForReferenceNode(ast, checker, current, options);
+    if (
+      getRuntimeCarrier(facts, symbol)?.kind === "source-primitive" ||
+      getRuntimeCarrier(facts, resolvedSymbol)?.kind === "source-primitive"
+    ) {
+      found = true;
+      return;
+    }
+    ast.forEachChild(current, (child): void => {
+      visit(child);
+    });
+  };
+  visit(node);
+  return found;
 }
 
 export function targetTypeRefContainsSourcePrimitive(type: TargetTypeRef): boolean {
