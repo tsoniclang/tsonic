@@ -1,4 +1,4 @@
-import type { CompilerExtension } from "@tsonic/tsts";
+import type { CompilerExtension, RequiredProviderModuleSpec } from "@tsonic/tsts";
 import { createTsonicCoreSourceExtension } from "@tsonic/source-core";
 import type {
   TargetProvider,
@@ -90,6 +90,37 @@ export function requireTargetProvider(targetPack: TargetPack, target: TargetSele
 
 export function getMissingTargetProviderMessage(target: TargetSelection): string {
   return `target '${target.id}' does not declare a provider; Tsonic requires provider-composed TSTS facts before backend emission`;
+}
+
+export function getTargetRequiredProviderModules(
+  targetPack: TargetPack,
+  target: TargetSelection,
+  selectedPackages?: readonly TargetProviderPackageImplementation[],
+): readonly RequiredProviderModuleSpec[] {
+  const selectedPackageIds = new Set((selectedPackages ?? getSelectedProviderPackageImplementations(targetPack, target))
+    .map((providerPackage) => providerPackage.id));
+  const specs: RequiredProviderModuleSpec[] = [];
+  for (const ownership of targetPack.provider?.moduleOwnership ?? []) {
+    specs.push({
+      specifierPrefix: ownership.specifierPrefix,
+      ...(ownership.providerId === undefined ? {} : { providerId: ownership.providerId }),
+      target: target.id,
+      message: ownership.message ??
+        `target '${target.id}' provider must own provider module prefix '${ownership.specifierPrefix}' before it can be imported`,
+    });
+  }
+  for (const providerPackage of targetPack.packages ?? []) {
+    const packageSelected = selectedPackageIds.has(providerPackage.id);
+    for (const ownership of providerPackage.moduleOwnership ?? []) {
+      specs.push({
+        specifierPrefix: ownership.specifierPrefix,
+        ...(ownership.providerId === undefined ? {} : { providerId: ownership.providerId }),
+        target: target.id,
+        message: ownership.message ?? getProviderPackageModuleOwnershipMessage(target, providerPackage, ownership.specifierPrefix, packageSelected),
+      });
+    }
+  }
+  return specs;
 }
 
 export function getSelectedSurfaceImplementations(
@@ -224,4 +255,15 @@ function formatSurfaceIds(surfaces: readonly TargetSurfaceImplementation[]): str
 
 function formatProviderPackageIds(providerPackages: readonly TargetProviderPackageImplementation[]): string {
   return providerPackages.map((providerPackage) => providerPackage.id).join(",");
+}
+
+function getProviderPackageModuleOwnershipMessage(
+  target: TargetSelection,
+  providerPackage: TargetProviderPackageImplementation,
+  specifierPrefix: string,
+  packageSelected: boolean,
+): string {
+  return packageSelected
+    ? `target '${target.id}' selected provider package '${providerPackage.id}' must own provider module prefix '${specifierPrefix}' before it can be imported`
+    : `target '${target.id}' provider package '${providerPackage.id}' must be selected to import provider module prefix '${specifierPrefix}'`;
 }

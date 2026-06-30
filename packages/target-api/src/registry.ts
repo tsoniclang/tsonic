@@ -16,6 +16,9 @@ export function createTargetRegistry(packs: readonly TargetPack[]): TargetRegist
     if (byId.has(pack.id)) {
       throw new Error(`Duplicate target pack '${pack.id}'.`);
     }
+    for (const ownership of pack.provider?.moduleOwnership ?? []) {
+      validateProviderModuleOwnershipPrefix(`Target pack '${pack.id}' provider module ownership prefix`, ownership.specifierPrefix);
+    }
     const packageIds = new Set<string>();
     for (const providerPackage of pack.packages ?? []) {
       if (!isValidTargetProviderPackageId(providerPackage.id)) {
@@ -29,6 +32,12 @@ export function createTargetRegistry(packs: readonly TargetPack[]): TargetRegist
         if (!isValidTargetProviderPackageId(requiredPackageId)) {
           throw new Error(getTargetIdValidationMessage(`Target pack '${pack.id}' provider package '${providerPackage.id}' required package id '${requiredPackageId}'`));
         }
+      }
+      for (const ownership of providerPackage.moduleOwnership ?? []) {
+        validateProviderModuleOwnershipPrefix(
+          `Target pack '${pack.id}' provider package '${providerPackage.id}' module ownership prefix`,
+          ownership.specifierPrefix,
+        );
       }
     }
     for (const surface of pack.surfaces ?? []) {
@@ -49,4 +58,16 @@ export function createTargetRegistry(packs: readonly TargetPack[]): TargetRegist
       return byId.get(id);
     },
   };
+}
+
+function validateProviderModuleOwnershipPrefix(subject: string, prefix: string): void {
+  if (
+    prefix.length === 0 ||
+    prefix.trim() !== prefix ||
+    prefix.startsWith(".") ||
+    prefix.includes("\\") ||
+    prefix.includes("\0")
+  ) {
+    throw new Error(`${subject} '${prefix}' must be a non-empty bare/package/URL-style ESM specifier prefix, not a relative or filesystem path.`);
+  }
 }

@@ -136,10 +136,13 @@ function recordUnsupportedTsonicCoreLangReExportDiagnostics(
   if (sourceFile === undefined) {
     return;
   }
+  let exportDeclarationIndex = 0;
   for (const statement of ast.statements(sourceFile)) {
     if (statement === undefined || !ast.is.IsExportDeclaration(statement)) {
       continue;
     }
+    const statementIdentity = exportDeclarationIndex;
+    exportDeclarationIndex += 1;
     const moduleSpecifier = ast.as.AsExportDeclaration(statement)?.ModuleSpecifier;
     if (moduleSpecifier === undefined || ast.text(moduleSpecifier) !== tsonicCoreLangModule) {
       continue;
@@ -163,7 +166,7 @@ function recordUnsupportedTsonicCoreLangReExportDiagnostics(
           exportedNames,
         },
       }],
-      identity: `source-core-lang-reexport:${String((statement as { readonly id?: unknown }).id ?? "unknown")}`,
+      identity: `source-core-lang-reexport:${statementIdentity}:${exportedNames.join(",")}`,
     });
   }
 }

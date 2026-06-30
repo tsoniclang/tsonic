@@ -304,6 +304,16 @@ test("CLI consumes TSTS utility, conditional, infer, keyof, indexed-access, and 
     "type Formatter = (name: Name, count: NumericOnly) => TextOnly;",
     "type PairArgs = Parameters<Formatter>;",
     "type PairResult = Awaited<Promise<ReturnType<Formatter>>>;",
+    "class UtilityBox {",
+    "  name: Name;",
+    "  count: Count;",
+    "  constructor(name: Name, count: Count) {",
+    "    this.name = name;",
+    "    this.count = count;",
+    "  }",
+    "}",
+    "type BoxArgs = ConstructorParameters<typeof UtilityBox>;",
+    "type BoxInstance = InstanceType<typeof UtilityBox>;",
     "",
     "export function readName(value: FirstName, count: Count, label: OptionalName): PairResult {",
     "  const args: PairArgs = [value, count];",
@@ -317,6 +327,13 @@ test("CLI consumes TSTS utility, conditional, infer, keyof, indexed-access, and 
     "  return value;",
     "}",
     "",
+    "export function describeBox(args: BoxArgs): PairResult {",
+    "  const box: BoxInstance = new UtilityBox(args[0], args[1]);",
+    "  const name: Name = args[0];",
+    "  const count: Count = args[1];",
+    "  return `${box.name}:${box.count}:${name}:${count}`;",
+    "}",
+    "",
   ]);
 
   assert.match(generatedSource, /public static string readName\(string value, double count, string label\)/);
@@ -326,7 +343,14 @@ test("CLI consumes TSTS utility, conditional, infer, keyof, indexed-access, and 
   assert.match(generatedSource, /double readonlyCount = args\.Item2;/);
   assert.match(generatedSource, /bool flag = true;/);
   assert.match(generatedSource, /return value;/);
-  assert.doesNotMatch(generatedSource, /Required|Partial|Readonly|Pick|Omit|Record|Exclude|Extract|NonNullable|ReturnType|Parameters|Awaited|keyof|infer|Copy|FirstName|Flagged/);
+  assert.match(generatedSource, /public class UtilityBox/);
+  assert.match(generatedSource, /public UtilityBox\(string name, double count\)/);
+  assert.match(generatedSource, /public static string describeBox\(\(string, double\) args\)/);
+  assert.match(generatedSource, /UtilityBox box = new UtilityBox\(args\.Item1, args\.Item2\);/);
+  assert.match(generatedSource, /string name = args\.Item1;/);
+  assert.match(generatedSource, /double count = args\.Item2;/);
+  assert.match(generatedSource, /return \$"\{box\.name\}:\{box\.count\}:\{name\}:\{count\}";/);
+  assert.doesNotMatch(generatedSource, /Required|Partial|Readonly|Pick|Omit|Record|Exclude|Extract|NonNullable|ReturnType|Parameters|ConstructorParameters|InstanceType|Awaited|keyof|infer|Copy|FirstName|Flagged|BoxArgs|BoxInstance/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   await assertRejected("advanced-type-operators-negative", "SmokeGeneratedAdvancedTypeOperatorsNegative", [
@@ -350,6 +374,23 @@ test("CLI consumes TSTS utility, conditional, infer, keyof, indexed-access, and 
     "export function value(): boolean { return bad; }",
     "",
   ], /TS2322: Type 'string' is not assignable to type 'boolean'/);
+
+  await assertRejected("constructor-utility-negative", "SmokeGeneratedConstructorUtilityNegative", [
+    "class UtilityBox {",
+    "  name: string;",
+    "  count: number;",
+    "  constructor(name: string, count: number) {",
+    "    this.name = name;",
+    "    this.count = count;",
+    "  }",
+    "}",
+    "type BoxArgs = ConstructorParameters<typeof UtilityBox>;",
+    "type BoxInstance = InstanceType<typeof UtilityBox>;",
+    "const args: BoxArgs = [\"Ada\"];",
+    "const box: BoxInstance = new UtilityBox(\"Ada\", \"seven\");",
+    "export function value(): string { return `${args[0]}:${box.name}`; }",
+    "",
+  ], /TS2322: Type '\[string\]' is not assignable to type '\[name: string, count: number\]'|TS2345: Argument of type 'string' is not assignable to parameter of type 'number'/);
 });
 
 test("CLI consumes TSTS non-null assertion results without backend nullability inference", async () => {

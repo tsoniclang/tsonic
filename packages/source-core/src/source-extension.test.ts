@@ -587,6 +587,7 @@ test("source-core rejects unsupported local barrel re-exports without attaching 
   session.ensureBound();
   assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
   ]);
 
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "out")), undefined);
@@ -604,6 +605,40 @@ test("source-core rejects unsupported local barrel re-exports without attaching 
   assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add")), undefined);
   assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
   assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
+});
+
+test("source-core rejects renamed and namespace local barrels without preserving source-core identity", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import { writeOut, CoreLang } from "./barrel.js";
+    import type { Pointer, Callback } from "./barrel.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    let value = 0;
+    writeOut(value);
+    CoreLang.out(value);
+    type ValuePointer = Pointer<int32>;
+    type ValueCallback = Callback<[int32], bool>;
+  `, {
+    "/src/barrel.ts": [
+      "export { out as writeOut } from '@tsonic/core/lang.js';",
+      "export type { ptr as Pointer, fnptr as Callback } from '@tsonic/core/lang.js';",
+      "export * as CoreLang from '@tsonic/core/lang.js';",
+    ].join("\n"),
+  });
+
+  session.ensureBound();
+  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+  ]);
+
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "writeOut")), undefined);
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "CoreLang.out")), undefined);
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "Pointer"), pointerFactKey), undefined);
+  assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "Callback"), functionPointerFactKey), undefined);
 });
 
 test("source-core rejects unsupported export-star barrels for portable lang intrinsics", () => {

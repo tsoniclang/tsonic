@@ -30,6 +30,12 @@ export interface TargetProviderContext {
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
 }
 
+export interface TargetProviderModuleOwnership {
+  readonly specifierPrefix: string;
+  readonly providerId?: string;
+  readonly message?: string;
+}
+
 export interface TargetProviderPackageContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
@@ -192,6 +198,7 @@ export interface TargetToolchain {
 export interface TargetProvider {
   readonly id: string;
   readonly displayName: string;
+  readonly moduleOwnership?: readonly TargetProviderModuleOwnership[];
   createExtensions(context: TargetProviderContext): readonly CompilerExtension[];
   runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
 }
@@ -200,6 +207,7 @@ export interface TargetProviderPackageImplementation {
   readonly id: TargetProviderPackageId;
   readonly displayName: string;
   readonly requiredPackages?: readonly TargetProviderPackageId[];
+  readonly moduleOwnership?: readonly TargetProviderModuleOwnership[];
   createExtensions(context: TargetProviderPackageContext): readonly CompilerExtension[];
   runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
 }

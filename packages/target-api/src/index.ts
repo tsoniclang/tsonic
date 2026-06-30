@@ -51,6 +51,7 @@ export type {
   TargetProvider,
   TargetProviderPackageContext,
   TargetProviderPackageImplementation,
+  TargetProviderModuleOwnership,
   TargetProviderContext,
   TargetProjectSourceModuleDependency,
   TargetRuntimeContributionContext,

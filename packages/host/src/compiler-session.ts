@@ -27,7 +27,7 @@ import type {
 import { createTargetSourceAnalysisQueries } from "./analysis/queries.js";
 import { forceDiagnostics } from "./diagnostics.js";
 import { createTargetFactQueries } from "./target-facts/queries.js";
-import { createTargetCompilerExtensions } from "./target/extensions.js";
+import { createTargetCompilerExtensions, getTargetRequiredProviderModules } from "./target/extensions.js";
 export {
   collectTstsDiagnostics,
 } from "./diagnostics.js";
@@ -41,6 +41,7 @@ export type {
 export {
   createTargetCompilerExtensions,
   getSelectedSurfaceImplementations,
+  getTargetRequiredProviderModules,
 } from "./target/extensions.js";
 export type {
   CreateTargetCompilerExtensionsOptions,
@@ -69,12 +70,13 @@ export interface CreateTsonicSemanticSessionOptions {
 }
 
 export function createTsonicSemanticSession(options: CreateTsonicSemanticSessionOptions): TsonicSemanticSession {
-  const { extensions } = createTargetCompilerExtensions(options);
+  const { extensions, selectedPackages } = createTargetCompilerExtensions(options);
   const compiler = createCompilerSession({
     programOptions: options.programOptions,
     extensionHostOptions: {
       activeTarget: options.target.id,
       extensions,
+      requiredProviderModules: getTargetRequiredProviderModules(options.targetPack, options.target, selectedPackages),
     },
   });
   if (compiler.program === undefined) {

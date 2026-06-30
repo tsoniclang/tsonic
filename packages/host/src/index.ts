@@ -7,6 +7,7 @@ export {
   createTargetCompilerExtensions,
   createTsonicSemanticSession,
   getSelectedSurfaceImplementations,
+  getTargetRequiredProviderModules,
 } from "./compiler-session.js";
 export type {
   CollectedTargetRuntimeContributions,

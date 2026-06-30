@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 
 import {
+  collectTstsDiagnostics,
   compileProject,
   createProgramOptionsForProject,
   createTsonicSemanticSession,
@@ -13,6 +14,10 @@ import {
 import {
   createTargetRegistry,
 } from "../../packages/target-api/dist/index.js";
+import {
+  providerVirtualDeclarationFactKey,
+  TstsProviderContractVersion,
+} from "@tsonic/tsts";
 
 const repoRoot = process.cwd();
 const tempRoot = resolve(repoRoot, ".temp/test-runs/host-surface-composition", `${Date.now()}-${process.pid}`);
@@ -112,6 +117,201 @@ test("host composes selected provider packages between target provider and surfa
     "surface-extension:js:target=demo:surfaces=js",
   ]);
   assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target", "package-acme", "package-helpers", "surface-js"]);
+});
+
+test("host composes selected provider packages as provider-owned virtual modules", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeVirtualProviderPackage("acme", {
+        events,
+        moduleOwnership: [
+          { specifierPrefix: "@acme/native/" },
+          { specifierPrefix: "@acme/alias/" },
+        ],
+      }),
+    ],
+  });
+  const projectDirectory = resolve(tempRoot, "selected-provider-package-virtual-modules");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo", packages: ["acme"] }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "import defaultValue from \"@acme/native/default.js\";",
+      "import { named as renamed } from \"@acme/native/named.js\";",
+      "import * as native from \"@acme/native/namespace.js\";",
+      "import { named as aliasNamed } from \"@acme/alias/aliased.js\";",
+      "export const result = `${defaultValue}:${renamed}:${native.named}:${aliasNamed}`;",
+      "",
+    ].join("\n"),
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
+  const virtualFacts = session.compiler.getSourceFiles()
+    .filter((sourceFile) => sourceFile !== undefined && session.ast.getFileName(sourceFile).startsWith("tsts-provider://"))
+    .map((sourceFile) => session.facts.getFact(sourceFile, providerVirtualDeclarationFactKey))
+    .filter((fact) => fact !== undefined)
+    .map((fact) => ({
+      providerId: fact.providerId,
+      moduleSpecifier: fact.moduleSpecifier,
+      providerModuleId: fact.providerModuleId,
+    }))
+    .sort((left, right) => left.moduleSpecifier.localeCompare(right.moduleSpecifier));
+
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(virtualFacts, [
+    {
+      providerId: "acme-provider",
+      moduleSpecifier: "@acme/alias/aliased.js",
+      providerModuleId: "@acme/alias/aliased.js",
+    },
+    {
+      providerId: "acme-provider",
+      moduleSpecifier: "@acme/native/default.js",
+      providerModuleId: "@acme/native/default.js",
+    },
+    {
+      providerId: "acme-provider",
+      moduleSpecifier: "@acme/native/named.js",
+      providerModuleId: "@acme/native/named.js",
+    },
+    {
+      providerId: "acme-provider",
+      moduleSpecifier: "@acme/native/namespace.js",
+      providerModuleId: "@acme/native/namespace.js",
+    },
+  ]);
+  assert.deepEqual(events.filter((event) => event.startsWith("provider-resolve:")), [
+    "provider-resolve:acme:@acme/native/default.js:default:default",
+    "provider-resolve:acme:@acme/native/named.js:named:named as renamed",
+    "provider-resolve:acme:@acme/native/namespace.js:namespace:*",
+    "provider-resolve:acme:@acme/alias/aliased.js:named:named as aliasNamed",
+  ]);
+});
+
+test("host reports unselected provider package modules without file fallback", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeVirtualProviderPackage("acme", {
+        events,
+        moduleOwnership: [
+          { specifierPrefix: "@acme/native/" },
+        ],
+      }),
+    ],
+  });
+  const projectDirectory = resolve(tempRoot, "unselected-provider-package-virtual-module");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": "import { named } from \"@acme/native/named.js\";\nexport const result = named;\n",
+    "node_modules/@acme/native/package.json": JSON.stringify({
+      name: "@acme/native",
+      type: "module",
+      exports: {
+        "./named.js": "./named.ts",
+      },
+    }, null, 2),
+    "node_modules/@acme/native/named.ts": "export const named = 12345;\n",
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
+
+  assert.equal(events.some((event) => event.startsWith("package-extension:acme")), false);
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
+  assert.equal(
+    diagnostics.some((diagnostic) =>
+      /provider package 'acme' must be selected to import provider module prefix '@acme\/native\/'/.test(diagnostic.message)
+    ),
+    true,
+  );
+});
+
+test("host reports duplicate selected provider package module owners", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeVirtualProviderPackage("acme", {
+        events,
+        moduleOwnership: [{ specifierPrefix: "@acme/shared/" }],
+      }),
+      createFakeVirtualProviderPackage("helpers", {
+        events,
+        moduleOwnership: [{ specifierPrefix: "@acme/shared/" }],
+      }),
+    ],
+  });
+  const projectDirectory = resolve(tempRoot, "duplicate-provider-package-module-owner");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo", packages: ["acme", "helpers"] }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": "import { named } from \"@acme/shared/named.js\";\nexport const result = named;\n",
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
+
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
+  assert.equal(
+    diagnostics.some((diagnostic) =>
+      /Multiple target binding providers claim module '@acme\/shared\/named\.js': acme-provider, helpers-provider/.test(diagnostic.message)
+    ),
+    true,
+  );
+});
+
+test("host reports selected provider package unsupported modules as provider diagnostics", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeVirtualProviderPackage("acme", {
+        events,
+        moduleOwnership: [{ specifierPrefix: "@acme/native/" }],
+      }),
+    ],
+  });
+  const projectDirectory = resolve(tempRoot, "unsupported-provider-package-module");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo", packages: ["acme"] }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": "import { named } from \"@acme/native/unsupported.js\";\nexport const result = named;\n",
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
+
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
+  assert.equal(
+    diagnostics.some((diagnostic) =>
+      /Provider package 'acme' does not support module '@acme\/native\/unsupported\.js'/.test(diagnostic.message)
+    ),
+    true,
+    JSON.stringify(diagnostics.map((diagnostic) => diagnostic.message), null, 2),
+  );
+  assert.equal(events.some((event) => event.startsWith("provider-resolve:acme:@acme/native/unsupported.js:")), true);
 });
 
 test("host composes target provider extensions before selected surface extensions", () => {
@@ -426,6 +626,30 @@ test("target registry rejects unsafe pack, provider package, and required surfac
       }),
     ]),
     /required package id '\.\.\/core' must match/,
+  );
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], {
+        providerModuleOwnership: [
+          { specifierPrefix: "../native/" },
+        ],
+      }),
+    ]),
+    /provider module ownership prefix '\.\.\/native\/' must be a non-empty bare\/package\/URL-style ESM specifier prefix/,
+  );
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], {
+        packages: [
+          createFakeProviderPackage("native", {
+            moduleOwnership: [
+              { specifierPrefix: "./native/" },
+            ],
+          }),
+        ],
+      }),
+    ]),
+    /provider package 'native' module ownership prefix '\.\/native\/' must be a non-empty bare\/package\/URL-style ESM specifier prefix/,
   );
 });
 
@@ -1000,6 +1224,20 @@ async function compileFakeProject(name, targetPack, targetSelection) {
   });
 }
 
+function createSemanticSession(projectDirectory, projectConfig, targetPack) {
+  const project = parseTsonicProjectConfig(projectConfig);
+  const programOptions = createProgramOptionsForProject({
+    project,
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+  }).programOptions;
+  return createTsonicSemanticSession({
+    programOptions,
+    project,
+    target: project.targets[0],
+    targetPack,
+  });
+}
+
 async function writeProject(projectDirectory, files) {
   for (const [relativePath, text] of Object.entries(files)) {
     const outputPath = resolve(projectDirectory, relativePath);
@@ -1031,6 +1269,7 @@ function createFakeTargetPack(events, options = {}) {
           provider: {
             id: "demo-provider",
             displayName: "Demo Provider",
+            ...((options.providerModuleOwnership ?? []).length > 0 ? { moduleOwnership: options.providerModuleOwnership } : {}),
             createExtensions(context) {
               events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
               return options.targetExtension === undefined ? [] : [options.targetExtension];
@@ -1078,6 +1317,7 @@ function createFakeProviderPackage(id, options = {}) {
     id,
     displayName: `${id} Provider Package`,
     ...((options.requiredPackages ?? []).length > 0 ? { requiredPackages: options.requiredPackages } : {}),
+    ...((options.moduleOwnership ?? []).length > 0 ? { moduleOwnership: options.moduleOwnership } : {}),
     createExtensions(context) {
       options.events?.push(`package-extension:${id}:target=${context.target.id}:packages=${context.selectedPackages.map((providerPackage) => providerPackage.id).join(",")}`);
       assert.equal(context.package.id, id);
@@ -1091,6 +1331,121 @@ function createFakeProviderPackage(id, options = {}) {
       };
     },
   };
+}
+
+function createFakeVirtualProviderPackage(id, options = {}) {
+  const moduleOwnership = options.moduleOwnership ?? [{ specifierPrefix: `@${id}/native/` }];
+  return createFakeProviderPackage(id, {
+    ...options,
+    moduleOwnership,
+    extension: {
+      identity: {
+        id: `${id}-extension`,
+        version: "1.0.0",
+        capabilityNamespace: `test.${id}`,
+      },
+      composition: {
+        kind: "target",
+        target: "demo",
+      },
+      initialize(context) {
+        context.registerTargetBindingProvider(createFakeVirtualBindingProvider(id, moduleOwnership, options.events));
+      },
+    },
+  });
+}
+
+function createFakeVirtualBindingProvider(id, moduleOwnership, events) {
+  return {
+    identity: {
+      id: `${id}-provider`,
+      version: "1.0.0",
+      target: "demo",
+      extensionContractVersion: TstsProviderContractVersion,
+      providerKind: "binding",
+      displayName: `${id} fake provider`,
+    },
+    ownsModule(specifier) {
+      return moduleOwnership.some((ownership) => specifier.startsWith(ownership.specifierPrefix))
+        ? {
+            kind: "owned",
+            evidence: [{ message: `${id} provider package owns ${specifier}` }],
+          }
+        : { kind: "unowned" };
+    },
+    resolveModule(specifier, context) {
+      const slice = context.importSlice;
+      events?.push(`provider-resolve:${id}:${specifier}:${slice?.kind ?? "unknown"}:${formatImportSliceExports(slice)}`);
+      if (specifier.endsWith("/unsupported.js")) {
+        return {
+          extensionId: `${id}-provider`,
+          extensionCode: "ACME_PROVIDER_UNSUPPORTED_MODULE",
+          numericCode: 9910001,
+          publicCode: "ACME_PROVIDER_9910001",
+          category: "error",
+          message: `Provider package '${id}' does not support module '${specifier}'.`,
+          source: `${id}-provider`,
+          identity: `${id}:unsupported:${specifier}`,
+        };
+      }
+      return {
+        kind: "virtual",
+        moduleSpecifier: specifier,
+        virtualFileName: `tsts-provider://${id}/${encodeURIComponent(specifier)}.d.ts`,
+        providerModuleId: specifier,
+        packageName: `@${id}/native`,
+        packageVersion: "1.0.0",
+        evidence: [{ message: `${id} provider package resolved ${specifier}` }],
+      };
+    },
+    getDeclarationModel(resolution) {
+      return {
+        moduleSpecifier: resolution.moduleSpecifier,
+        providerModuleId: resolution.providerModuleId,
+        exports: [
+          {
+            id: "defaultValue",
+            name: "defaultValue",
+            exportKind: "default",
+            kind: "value",
+            type: { kind: "string" },
+            targetIdentity: { target: "demo", id: `${id}.DefaultValue`, displayName: `${id}.DefaultValue` },
+          },
+          {
+            id: "named",
+            name: "named",
+            kind: "value",
+            type: { kind: "number" },
+            targetIdentity: { target: "demo", id: `${id}.Named`, displayName: `${id}.Named` },
+          },
+        ],
+        evidence: [{ message: `${id} provider package declaration model` }],
+      };
+    },
+    getTargetIdentity(symbol) {
+      return {
+        target: "demo",
+        id: `${id}:${symbol.moduleSpecifier}:${symbol.exportName ?? "module"}:${symbol.memberName ?? ""}:${symbol.signatureId ?? ""}`,
+      };
+    },
+  };
+}
+
+function formatImportSliceExports(slice) {
+  if (slice === undefined) {
+    return "none";
+  }
+  if (slice.kind === "namespace") {
+    return "*";
+  }
+  if (slice.kind === "default") {
+    return "default";
+  }
+  return (slice.requestedExports ?? [])
+    .map((requestedExport) => requestedExport.localName === undefined
+      ? requestedExport.exportedName
+      : `${requestedExport.exportedName} as ${requestedExport.localName}`)
+    .join(",");
 }
 
 function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {
