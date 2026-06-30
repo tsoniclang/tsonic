@@ -710,8 +710,8 @@ test("CLI rejects defaultof without explicit source type evidence before C# outp
 });
 
 
-test("CLI emits C# argument passing from neutral storage facts and C# aliases", async () => {
-  const projectDirectory = resolve(tempRoot, "argument-passing-facts");
+test("CLI rejects byref source markers for source-owned by-value call parameters", async () => {
+  const projectDirectory = resolve(tempRoot, "argument-passing-source-owned-by-value-rejected");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -724,29 +724,27 @@ test("CLI emits C# argument passing from neutral storage facts and C# aliases", 
       "import { out, ref, inref } from \"@tsonic/csharp/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
-      "export function consume(a: int32, b: int32, c: int32): void {",
+      "export function consume(a: int32): void {",
       "}",
       "",
       "export function pass(value: int32): void {",
-      "  consume(writeonlyRef(value), readwriteRef(value), readonlyRef(value));",
-      "  consume(out(value), ref(value), inref(value));",
+      "  consume(writeonlyRef(value));",
+      "  consume(readwriteRef(value));",
+      "  consume(readonlyRef(value));",
+      "  consume(out(value));",
+      "  consume(ref(value));",
+      "  consume(inref(value));",
       "}",
       "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /consume\(out value, ref value, in value\);/);
-  assert.doesNotMatch(generatedSource, /out\(value\)/);
-  assert.doesNotMatch(generatedSource, /ref\(value\)/);
-  assert.doesNotMatch(generatedSource, /inref\(value\)/);
-  assert.doesNotMatch(generatedSource, /writeonlyRef/);
-  assert.doesNotMatch(generatedSource, /readwriteRef/);
-  assert.doesNotMatch(generatedSource, /readonlyRef/);
-  assert.doesNotMatch(generatedSource, /__unsupported/);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Finalized argument-passing fact 'byref-writeonly-must-init' does not match the selected call parameter mode 'by-value'/);
+  assert.match(build.stderr, /Finalized argument-passing fact 'byref-readwrite' does not match the selected call parameter mode 'by-value'/);
+  assert.match(build.stderr, /Finalized argument-passing fact 'byref-readonly' does not match the selected call parameter mode 'by-value'/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects byref source markers without finalized storage facts", async () => {

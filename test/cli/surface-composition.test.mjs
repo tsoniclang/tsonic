@@ -5,6 +5,7 @@ import test from "node:test";
 
 import {
   collectTstsDiagnostics,
+  compileTargetFromSemanticSession,
   compileProject,
   createProgramOptionsForProject,
   createTsonicSemanticSession,
@@ -15,7 +16,10 @@ import {
   createTargetRegistry,
 } from "../../packages/target-api/dist/index.js";
 import {
+  ExtensionLifecycleEvent,
   providerVirtualDeclarationFactKey,
+  runtimeCarrierFactKey,
+  targetOperationFactKey,
   TstsProviderContractVersion,
 } from "@tsonic/tsts";
 
@@ -194,6 +198,146 @@ test("host composes selected provider packages as provider-owned virtual modules
     "provider-resolve:acme:@acme/alias/aliased.js:named:named as aliasNamed",
   ]);
 });
+
+test("non-C# target backend consumes portable operation and carrier facts without target helper facts", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    targetExtension: createPortableOperationFactsExtension(),
+    onBackend(input) {
+      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("src/index.ts"));
+      assert.notEqual(sourceFile, undefined);
+      const expression = findBinaryExpression(input.ast, sourceFile);
+      const operation = input.facts.mustFact(expression, targetOperationFactKey, "neutral backend expression emission");
+      const carrier = input.targetFacts.resolveRuntimeCarrier(expression);
+      assert.deepEqual(operation, {
+        operationId: "acme.neutral.operator.add",
+        operationKind: "operator",
+        targetOperation: "add",
+        resultType: { kind: "source-primitive", name: "float64" },
+      });
+      assert.deepEqual(carrier, {
+        kind: "resolved",
+        carrier: { kind: "source-primitive", name: "float64" },
+        evidence: [
+          {
+            message: "Runtime carrier resolved from an explicit provider/source-core fact.",
+            subject: expression,
+          },
+        ],
+      });
+      events.push("backend-consumed-portable-operation-facts");
+    },
+  });
+  const projectDirectory = resolve(tempRoot, "portable-operation-contract-positive");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "export const result = 1 + 2;",
+      "",
+    ].join("\n"),
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const project = parseTsonicProjectConfig(projectConfig);
+  const result = compileTargetFromSemanticSession(session, project, project.targets[0], targetPack, fakePaths(projectDirectory));
+
+  assert.deepEqual(collectTstsDiagnostics(session, projectDirectory), []);
+  assert.deepEqual(result.diagnostics, []);
+  assert.equal(events.includes("backend-consumed-portable-operation-facts"), true);
+});
+
+test("non-C# target backend fails closed when portable operation facts are missing", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("src/index.ts"));
+      assert.notEqual(sourceFile, undefined);
+      const expression = findBinaryExpression(input.ast, sourceFile);
+      const operation = input.facts.requireFact(expression, targetOperationFactKey, "neutral backend expression emission");
+      const carrier = input.targetFacts.resolveRuntimeCarrier(expression);
+      assert.equal(operation, undefined);
+      assert.equal(carrier.kind, "missing");
+      return {
+        artifacts: [],
+        diagnostics: [
+          {
+            code: "DEMO_MISSING_PORTABLE_OPERATION_FACT",
+            message: `neutral backend expression emission requires portable targetOperation facts; ${carrier.reason}`,
+          },
+        ],
+      };
+    },
+  });
+  const projectDirectory = resolve(tempRoot, "portable-operation-contract-negative");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "export const result = 1 + 2;",
+      "",
+    ].join("\n"),
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const project = parseTsonicProjectConfig(projectConfig);
+  const result = compileTargetFromSemanticSession(session, project, project.targets[0], targetPack, fakePaths(projectDirectory));
+
+  assert.match(
+    collectTstsDiagnostics(session, projectDirectory).map((diagnostic) => diagnostic.message).join("\n"),
+    /requires extension fact 'tsts\.target-bindings:targetOperation'/,
+  );
+  assert.equal(result.artifacts.length, 0);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "DEMO_MISSING_PORTABLE_OPERATION_FACT");
+  assert.match(result.diagnostics[0].message, /neutral backend expression emission/);
+  assert.match(result.diagnostics[0].message, /Runtime carrier fact is missing/);
+});
+
+function createPortableOperationFactsExtension() {
+  return {
+    name: "portable-operation-facts-test-extension",
+    identity: {
+      id: "portable-operation-facts-test-extension",
+      version: "1.0.0",
+      capabilityNamespace: "test.portable-operation-facts",
+    },
+    initialize(context) {
+      context.registerLifecycleHook(ExtensionLifecycleEvent.afterSourceFileBound, (request, lifecycleContext) => {
+        const compiler = lifecycleContext.compiler;
+        const sourceFile = request.sourceFile;
+        if (sourceFile === undefined || sourceFile.IsDeclarationFile || !compiler.ast.getFileName(sourceFile).endsWith("src/index.ts")) {
+          return;
+        }
+        const expression = findBinaryExpression(compiler.ast, sourceFile);
+        const carrier = { kind: "source-primitive", name: "float64" };
+        if (lifecycleContext.host.facts.get(expression, targetOperationFactKey) === undefined) {
+          lifecycleContext.host.facts.set(expression, targetOperationFactKey, {
+            operationId: "acme.neutral.operator.add",
+            operationKind: "operator",
+            targetOperation: "add",
+            resultType: carrier,
+          }, [{ message: "Neutral test target operation fact from TSTS-accepted binary expression." }]);
+        }
+        if (lifecycleContext.host.facts.get(expression, runtimeCarrierFactKey) === undefined) {
+          lifecycleContext.host.facts.set(expression, runtimeCarrierFactKey, {
+            carrier,
+          }, [{ message: "Neutral test runtime carrier fact from TSTS-accepted binary expression." }]);
+        }
+      });
+    },
+  };
+}
 
 test("host reports unselected provider package modules without file fallback", async () => {
   const events = [];
@@ -1363,6 +1507,33 @@ function findVariableInitializer(ast, sourceFile, variableName) {
   }
 }
 
+function findBinaryExpression(ast, sourceFile) {
+  let expression;
+  visit(sourceFile);
+  assert.notEqual(expression, undefined);
+  return expression;
+
+  function visit(node) {
+    if (expression !== undefined) {
+      return;
+    }
+    if (ast.is.IsBinaryExpression(node)) {
+      expression = node;
+      return;
+    }
+    ast.forEachChild(node, visit);
+  }
+}
+
+function fakePaths(projectDirectory) {
+  return {
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    projectRoot: projectDirectory,
+    outputRoot: resolve(projectDirectory, "out"),
+    targetOutputRoot: resolve(projectDirectory, "out/demo"),
+  };
+}
+
 function createRegistry(targetPack) {
   return {
     packs: [targetPack],
@@ -1405,7 +1576,10 @@ function createFakeTargetPack(events, options = {}) {
     createBackend() {
       return {
         compile(input) {
-          options.onBackend?.(input);
+          const result = options.onBackend?.(input);
+          if (result !== undefined) {
+            return result;
+          }
           events.push(`backend:${input.target.id}`);
           return {
             artifacts: options.backendArtifacts ?? [],

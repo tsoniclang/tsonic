@@ -7756,22 +7756,24 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Backends must not emit provider helpers from target-specific facts alone, source member spelling, or semantic strings; missing portable operation/carrier facts must produce deterministic diagnostics.",
     positiveTests: Object.freeze([
+      "../tsonic/test/cli/surface-composition.test.mjs",
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
       "../tsonic-csharp/test/source-owned-call-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic/test/cli/surface-composition.test.mjs",
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "target.shared.operation-contract remains partial until a non-C# target consumes the same portable targetOperation/selectedSignature/runtimeCarrier facts and rejects target-specific helper-only facts with equivalent diagnostics.",
+      "target.shared.operation-contract remains partial until non-C# target proof also covers selectedTargetSignature facts and rejects target-specific helper-only facts with equivalent diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: C# call/property/element/operator expression tests now prove portable operation or carrier facts are required before C# helper facts can drive emission. This is kept partial because current executable evidence is single-target C# evidence rather than cross-target shared-contract evidence.",
+      "Reviewed partial proof: C# call/property/element/operator expression tests prove portable operation or carrier facts are required before C# helper facts can drive emission, and host surface-composition tests now prove a neutral non-C# target backend consumes targetOperation/runtimeCarrier facts and fails closed when they are missing. This is kept partial because selectedTargetSignature cross-target proof and helper-only rejection remain open.",
   }),
   "diagnostic.unsupported-surface": Object.freeze({
     sourceExamples: Object.freeze([
