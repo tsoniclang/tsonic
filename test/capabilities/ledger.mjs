@@ -718,7 +718,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "partial", "target-provider"],
   ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "complete", "target-provider"],
   ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "complete", "target-provider"],
-  ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "partial", "target-provider"],
+  ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "complete", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "complete", "target-provider"],
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
   ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "partial", "target-provider"],
@@ -3657,18 +3657,21 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/dotnet-provider-attributes.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-attributes.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/attributes/basic/Attributes.ts",
       "packages/targets/csharp/emitter/testcases/common/attributes/comprehensive/Attributes.ts",
       "packages/targets/csharp/emitter/testcases/common/attributes/targets/Attributes.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: .NET reflection records target/provider attributes on types, constructors, methods, properties, fields, parameters, and returns; provider contract proof covers CLSCompliantAttribute base refs and constructor metadata through SDK virtual declarations; target binding facts preserve constructor identity, constructor/named arguments, enum/type/array/source-primitive values, placement, and evidence; unsupported attribute values are recorded as unsupported attribute facts instead of being dropped. Remains partial until source-authored attribute markers are wired end to end into C# declaration emission.",
+      "Reviewed proof: .NET reflection records target/provider attributes on types, constructors, methods, properties, fields, parameters, and returns; provider contract proof covers CLSCompliantAttribute base refs and constructor metadata through SDK virtual declarations; target binding facts preserve constructor identity, constructor/named arguments, enum/type/array/source-primitive values, placement, and evidence; unsupported attribute values are recorded as unsupported attribute facts instead of being dropped. Source-authored attribute markers are wired end to end through source-core attribute facts, provider target identity, C# declaration emission, deterministic diagnostics for missing provider facts and unsupported explicit target specifiers, and dotnet build proof for generated class, constructor, parameter, field, property, method, return, and method-parameter attributes.",
   }),
   "declaration.class.abstract": Object.freeze({
     positiveTests: Object.freeze([
