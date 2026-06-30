@@ -1039,6 +1039,105 @@ test("host gives backends the TSTS source graph instead of the raw project file 
   ]);
 });
 
+test("host exposes TSTS flow-narrowed source types to backend analysis queries", async () => {
+  const events = [];
+  const narrowedTypes = {};
+  const projectDirectory = resolve(tempRoot, "tsts-flow-narrowed-analysis-query");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("/src/index.ts"));
+      assert.ok(sourceFile !== undefined);
+      const narrowedText = findVariableInitializer(input.ast, sourceFile, "narrowedText");
+      const narrowedNumber = findVariableInitializer(input.ast, sourceFile, "narrowedNumber");
+      narrowedTypes.text = input.analysis.describeTypeAtLocation(narrowedText, { sourceFile });
+      narrowedTypes.number = input.analysis.describeTypeAtLocation(narrowedNumber, { sourceFile });
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "export function describe(value: string | number | null): string {",
+      "  if (typeof value === \"string\") {",
+      "    const narrowedText = value;",
+      "    return narrowedText;",
+      "  }",
+      "  if (value !== null) {",
+      "    const narrowedNumber = value;",
+      "    return `${narrowedNumber}`;",
+      "  }",
+      "  return \"none\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(narrowedTypes, {
+    text: "string",
+    number: "number",
+  });
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=",
+    "provider-runtime:demo",
+    "backend:demo",
+    "toolchain:demo:artifacts=",
+  ]);
+});
+
+test("host rejects invalid flow-narrowed source before backend analysis runs", async () => {
+  const events = [];
+  const projectDirectory = resolve(tempRoot, "tsts-flow-narrowed-analysis-query-negative");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend() {
+      assert.fail("Backend must not run after TSTS source diagnostics.");
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "export function invalid(value: string | number): number {",
+      "  if (typeof value === \"string\") {",
+      "    const bad: number = value;",
+      "    return bad;",
+      "  }",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
+  assert.equal(result.diagnostics.some((diagnostic) => /TS2322: Type 'string' is not assignable to type 'number'/.test(diagnostic.message)), true);
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=",
+  ]);
+  assert.deepEqual(result.targets[0].compileResult.artifacts, []);
+});
+
 test("host source graph follows relative ESM import and export edges through TSTS", async () => {
   const events = [];
   let backendProjectSourceFiles = [];
@@ -1243,6 +1342,24 @@ async function writeProject(projectDirectory, files) {
     const outputPath = resolve(projectDirectory, relativePath);
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, text, "utf8");
+  }
+}
+
+function findVariableInitializer(ast, sourceFile, variableName) {
+  let initializer;
+  visit(sourceFile);
+  assert.ok(initializer !== undefined, `Missing initializer for variable '${variableName}'.`);
+  return initializer;
+
+  function visit(node) {
+    if (initializer !== undefined) {
+      return;
+    }
+    if (ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === variableName) {
+      initializer = ast.as.AsVariableDeclaration(node)?.Initializer;
+      return;
+    }
+    ast.forEachChild(node, visit);
   }
 }
 

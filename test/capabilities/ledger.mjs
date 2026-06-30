@@ -3731,6 +3731,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/call-operation-lifecycle.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -3746,7 +3747,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.generic.provider-target-arguments remains partial until provider-owned constructors, indexers, delegates, extension calls, inherited generic members, and every old generic call fixture have current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: C# provider call facts close selected generic target members from TSTS-selected source signatures and proven target argument facts, reject unresolved or contradictory selected generic facts, and CLI module tests prove imported/re-exported generic source calls emit explicit C# generic arguments from TSTS-selected declarations. Backend type rendering still requires finalized target argument facts and fails closed without them.",
+      "Reviewed partial proof: C# provider call facts close selected generic target members from TSTS-selected source signatures and proven target argument facts, reject unresolved or contradictory selected generic facts, and CLI module/type-form tests prove imported/re-exported generic source calls plus utility/alias-projected provider generic types emit explicit C# generic arguments from TSTS-selected declarations. Receiver node carrier facts are preferred over erased semantic TypeScript number shapes when source-core primitive aliases carry more target evidence; backend type rendering still requires finalized target argument facts and fails closed without them.",
   }),
   "type.generic.provider-target-constraints": Object.freeze({
     positiveTests: Object.freeze([
@@ -6416,16 +6417,19 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
       "expression.conditional remains partial until focused backend/unit negatives prove branch expected-type threading, object-shape branch carriers, provider-owned branch conversions, nullable branches, and unsupported branch carriers fail closed without relying on runtime-heavy Slice 8 behavior.",
     ]),
     notes:
-      "Reviewed partial proof: conditional expressions currently thread the enclosing expected target type into both branches and CLI/toolchain tests prove ternary primitives, nullable/nullish branches, nested ternaries, and object-shape branches. The row stays partial because focused missing-fact unit coverage is not yet exhaustive.",
+      "Reviewed partial proof: conditional expressions currently thread the enclosing expected target type into both branches and CLI/toolchain tests prove ternary primitives, nullable/nullish branches, nested ternaries, and object-shape branches. C# planner unit tests prove conditional emission now requires a finalized bool condition carrier and consumes that carrier without falling back to TypeScript truthiness. The row stays partial because focused missing-fact unit coverage is not yet exhaustive.",
   }),
   "statement.switch": Object.freeze({
     positiveTests: Object.freeze([

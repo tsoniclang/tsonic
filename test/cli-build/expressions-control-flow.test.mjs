@@ -229,6 +229,38 @@ test("CLI rejects TypeScript truthiness in C# control-flow conditions without bo
 });
 
 
+test("CLI rejects TypeScript truthiness in conditional expressions without bool facts", async () => {
+  const projectDirectory = resolve(tempRoot, "truthy-conditional-expression");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedTruthyConditionalExpression",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function choose(value: number): number {",
+      "  return value ? 1 : 2;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Conditional expression condition requires a finalized C# bool runtime carrier/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTruthyConditionalExpression.csproj")), false);
+});
+
+
 test("CLI emits C# switch defaults and literal fallthrough labels", async () => {
   const projectDirectory = resolve(tempRoot, "literal-switch-fallthrough");
   await writeProject(projectDirectory, {
@@ -1472,7 +1504,7 @@ test("CLI rejects tuple dynamic indexes without finalized element facts", async 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Tuple element access requires a numeric-literal source index; non-literal tuple indexing needs finalized target element-access facts before C# emission/);
+  assert.match(build.stderr, /C# source tuple element access requires a statically proven non-negative integer tuple index from TSTS literal or constant facts/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleDynamicIndex.csproj")), false);
 });
 

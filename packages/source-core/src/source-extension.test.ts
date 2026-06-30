@@ -585,10 +585,13 @@ test("source-core rejects unsupported local barrel re-exports without attaching 
   });
 
   session.ensureBound();
-  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+  const reexportDiagnostics = session.extensionHost?.diagnostics.all() ?? [];
+  assert.deepEqual(reexportDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
   ]);
+  assert.deepEqual(reexportDiagnostics.map((diagnostic) => diagnostic.numericCode), [9901110, 9901110]);
+  assert.equal(reexportDiagnostics.every((diagnostic) => diagnostic.nodeOrSpan !== undefined), true);
 
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "out")), undefined);
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "ref")), undefined);
@@ -775,13 +778,23 @@ test("source-core reports alias missing-evidence diagnostics without local or sh
 
 test("source-core virtual declarations leave invalid arity to TypeScript checking", () => {
   const { session, sourceFile } = createSourceCoreSession(`
-    import { out, borrow as shared, borrowMut as mutable, move as moved } from "@tsonic/core/lang.js";
+    import { inref, out, ref as passRef, borrow as shared, borrowMut as mutable, move as moved } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
     import type { ptr, fnptr } from "@tsonic/core/lang.js";
 
     let value = 1;
     out();
     out(value, value);
+    passRef();
+    passRef(value, value);
+    inref();
+    inref(value, value);
+    lang.out();
+    lang.out(value, value);
+    lang.ref();
+    lang.ref(value, value);
+    lang.inref();
+    lang.inref(value, value);
     shared();
     shared(value, value);
     mutable();
@@ -810,6 +823,16 @@ test("source-core virtual declarations leave invalid arity to TypeScript checkin
   session.ensureBound();
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out", 0), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "passRef", 0), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "passRef", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "inref", 0), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "inref", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.out", 0), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.out", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.ref", 0), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.ref", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.inref", 0), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.inref", 1), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 0), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "mutable", 0), flowStateFactKey), undefined);
