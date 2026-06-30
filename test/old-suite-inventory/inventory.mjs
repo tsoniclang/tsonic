@@ -1701,6 +1701,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
     oldFixturePath("core-intrinsics-provenance"),
   ], [
     "source-core.lang.portable-intrinsics",
+    "source-core.lang.portable-intrinsics.move",
     "target.csharp.core-lang-intrinsics",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([

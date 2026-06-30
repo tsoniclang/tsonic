@@ -517,24 +517,24 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source.primitive.numeric", "Neutral source numeric primitives attach facts", "complete", "source-core-provider"],
   ["source.primitive.char-bool", "Neutral char and bool primitives attach facts", "complete", "source-core-provider"],
   ["source.primitive.configured-type", "Configured source primitive aliases map to canonical facts", "complete", "source-core-provider"],
-  ["source.marker.out-ref-inref", "out, ref, and inref markers attach storage facts", "partial", "source-core-provider"],
+  ["source.marker.out-ref-inref", "out, ref, and inref markers attach storage facts", "complete", "source-core-provider"],
   ["source.marker.field", "field marker attaches storage facts", "complete", "source-core-provider"],
   ["source.marker.struct", "struct marker attaches value-type source facts", "complete", "source-core-provider"],
   ["source.marker.attribute", "attribute marker attaches target attribute facts", "complete", "source-core-provider"],
   ["source.marker.defaultof", "defaultof marker attaches target default facts", "complete", "source-core-provider"],
   ["source.marker.ptr-fnptr", "pointer and function-pointer markers attach target-validated facts", "complete", "source-core-provider"],
   ["source.marker.borrow-move", "borrow, borrowMut, and move markers attach target-validated flow facts", "partial", "source-core-provider"],
-  ["source-core.out.storage-binding", "out marker resolves to assignable storage", "partial", "source-core-provider"],
-  ["source-core.ref.parameter-mode", "ref and inref markers resolve to parameter passing facts", "partial", "source-core-provider"],
+  ["source-core.out.storage-binding", "out marker resolves to assignable storage", "complete", "source-core-provider"],
+  ["source-core.ref.parameter-mode", "ref and inref markers resolve to parameter passing facts", "complete", "source-core-provider"],
   ["source-core.struct.field-facts", "struct and field markers combine into value-shape facts", "complete", "source-core-provider"],
   ["source-core.flow.borrow-move-facts", "borrow and move source facts require explicit target behavior", "partial", "source-core-provider"],
   ["source-core.lang.portable-intrinsics", "@tsonic/core/lang.js intrinsics require portable facts and per-target implementation or rejection", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.out", "out intrinsic attaches neutral write-only byref storage facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.ref", "ref intrinsic attaches neutral read-write byref storage facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.inref", "inref intrinsic attaches neutral read-only byref storage facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.out", "out intrinsic attaches neutral write-only byref storage facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.ref", "ref intrinsic attaches neutral read-write byref storage facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.inref", "inref intrinsic attaches neutral read-only byref storage facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.borrow", "borrow intrinsic attaches neutral shared-borrow flow facts", "partial", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.borrow-mut", "borrowMut intrinsic attaches neutral mutable-borrow flow facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.move", "move intrinsic attaches neutral moved-value flow facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.move", "move intrinsic attaches neutral moved-value flow facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.struct", "struct intrinsic attaches neutral value-type shape facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.field", "field intrinsic attaches neutral field facts from explicit type evidence", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.attribute", "attribute intrinsic attaches neutral attribute application facts", "complete", "source-core-provider"],
@@ -2594,11 +2594,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ]),
-    blockers: Object.freeze([
-      "source.marker.out-ref-inref remains partial until every assignable storage form, non-storage diagnostic, call/constructor propagation path, mutation flow, and emitted parameter-mode AST path is proven.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: imported and namespace out/ref/inref markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts for identifier, property, and element storage; CLI evidence proves unproven storage like out(value + 1), ref(value + 1), and inref(value + 1) produces TSTS_SOURCE_SEMANTICS_0001 diagnostics before C# artifacts are emitted; local and shadowed same-spelling functions do not create marker facts.",
+      "Reviewed proof: imported, aliased, and namespace out/ref/inref markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts only from @tsonic/core/lang.js identity and proven identifier/property/element storage. Source-core tests prove local and shadowed same-spelling functions do not create marker facts. C# provider tests prove selected method, constructor, indexer, extension receiver, optional/default, params-array, and mutated-fact paths consume those facts rather than source spelling. CLI evidence proves unproven storage like out(value + 1), ref(value + 1), and inref(value + 1) produces TSTS_SOURCE_SEMANTICS_0001 diagnostics before C# artifacts are emitted.",
   }),
   "source.marker.field": Object.freeze({
     positiveTests: Object.freeze([
@@ -2728,11 +2726,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ]),
-    blockers: Object.freeze([
-      "source-core.out.storage-binding remains partial until destructured, provider-owned, readonly/non-assignable, source-span, and every selected-target byref write path have closed positive and negative proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: out(value), namespace out(box.field), and property storage record write-only byref facts, while CLI evidence proves out(value + 1) records no usable storage fact and emits TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted.",
+      "Reviewed proof: out(value), aliased out(value), namespace out(box.field), and element/property storage record write-only byref facts only when TSTS/source-core proves the target expression is storage. Provider selection tests prove methods, constructors, indexers, extension overloads, and mutated selected-operation facts require the finalized byref-writeonly-must-init fact before C# operation facts are emitted. CLI evidence proves out(value + 1) records no usable storage fact and emits TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted.",
   }),
   "source-core.ref.parameter-mode": Object.freeze({
     positiveTests: Object.freeze([
@@ -2749,11 +2745,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ]),
-    blockers: Object.freeze([
-      "source-core.ref.parameter-mode remains partial until ref/inref facts are consumed by every call, constructor, delegate, provider overload, invalid readonly, source-span, and emitted target parameter path.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: ref(value), inref(value), namespace ref(value), and element/property storage attach readwrite and readonly parameter-mode facts to proven storage; CLI evidence proves ref(value + 1) and inref(value + 1) fail closed with TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted; local and shadowed functions named like markers do not receive source-core parameter facts. Remaining proof must connect every provider/delegate/constructor path through target-owned legality.",
+      "Reviewed proof: ref(value), inref(value), aliases, namespace markers, and element/property storage attach readwrite and readonly parameter-mode facts to proven storage only. Provider selection tests prove methods, constructors, indexers, extension overloads, default/optional/params paths, and mutated selected-operation facts consume finalized parameter-mode facts and reject missing/mismatched facts. CLI evidence proves ref(value + 1) and inref(value + 1) fail closed with TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted; local and shadowed functions named like markers do not receive source-core parameter facts.",
   }),
   "source-core.struct.field-facts": Object.freeze({
     positiveTests: Object.freeze([
@@ -2901,11 +2895,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.out remains partial until destructuring, provider-owned, readonly, source-span, and every selected-target byref write path have closed positive and negative proof.",
-    ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: TSTS/source-core records byref-writeonly-must-init only for aliased or namespaced imported core out markers and proven identifier/property storage; CLI evidence proves out(value + 1) reports TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted; invalid arity is rejected by TSTS checking, local/shadowed out calls do not attach facts, and C# provider calls consume the finalized fact as out value rather than by name.",
+      "Reviewed proof: TSTS/source-core records byref-writeonly-must-init only for direct, aliased, or namespaced imported core out markers over proven identifier/property/element storage. Invalid arity is rejected by TSTS checking, local/shadowed out calls do not attach facts, and CLI evidence proves out(value + 1) reports TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted. C# provider method, constructor, indexer, extension overload, optional/default, params-array, and mutated-fact tests consume the finalized fact as out storage rather than by source name.",
   }),
   "source-core.lang.portable-intrinsics.ref": coreLangIntrinsicEvidence({
     exportName: "ref",
@@ -2946,11 +2938,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.ref remains partial until every mutable storage family, readonly rejection, provider overload, delegate, constructor, source-span, and target emission path has direct proof.",
-    ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: TSTS/source-core records byref-readwrite for imported ref aliases such as ref as refArg and namespace ref(value), while same-spelling local and shadowed functions do not receive marker facts. CLI evidence proves non-storage ref(value + 1) diagnostics block C# artifacts, invalid arity is rejected by TSTS checking, and remaining proof must cover target-owned legality.",
+      "Reviewed proof: TSTS/source-core records byref-readwrite for direct, aliased, and namespaced imported ref markers only over proven storage, while same-spelling local and shadowed functions do not receive marker facts. CLI evidence proves non-storage ref(value + 1) diagnostics block C# artifacts and invalid arity is rejected by TSTS checking. C# provider tests prove selected byref methods, constructors, indexers, extension overloads, default/optional/params paths, and mutated-fact cases require finalized readwrite parameter facts before target emission.",
   }),
   "source-core.lang.portable-intrinsics.inref": coreLangIntrinsicEvidence({
     exportName: "inref",
@@ -2990,11 +2980,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.inref remains partial until readonly storage, temporary expression rejection, provider overloads, delegates, constructors, source spans, and every selected target's immutable byref operation are proven.",
-    ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: imported and namespace inref records byref-readonly on the call marker, does not place argument-passing facts on the storage expression itself, CLI evidence proves non-storage inref(value + 1) diagnostics block C# artifacts, invalid arity is rejected through TSTS checking, and C# CLI emission uses in value only from finalized facts.",
+      "Reviewed proof: imported, aliased, and namespace inref records byref-readonly on the call marker only when the argument is proven storage; it does not place argument-passing facts on unrelated expressions. CLI evidence proves non-storage inref(value + 1) diagnostics block C# artifacts and invalid arity is rejected through TSTS checking. C# provider tests prove immutable byref emission for selected provider paths consumes finalized inref facts and rejects missing or mismatched parameter-mode evidence.",
   }),
   "source-core.lang.portable-intrinsics.borrow": coreLangIntrinsicEvidence({
     exportName: "borrow",
@@ -3117,12 +3105,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
     ],
-    oldEvidence: [],
-    blockers: [
-      "source-core.lang.portable-intrinsics.move remains partial until move assignment, post-move reads/writes, selected-target unsupported diagnostic breadth, and future Rust ownership proof are complete.",
+    oldEvidence: [
+      "test/fixtures/core-intrinsics-provenance/",
     ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: source-core records moved flow on aliased and namespace move calls plus the exact moved argument subject, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, and avoids facts for local/shadowed same-spelling calls. C# remains explicit unsupported-target diagnostics, not silent marker erasure, and call mapping now rejects finalized move facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED while still rejecting missing FlowStateFact with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN. Post-move target validation proof is a blocker until it is represented by current package-root tests.",
+      "Reviewed proof: source-core records moved flow on direct, aliased, and namespace move calls plus the exact moved argument subject, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, and avoids facts for local/shadowed same-spelling calls. C# has explicit target-owned behavior for the current product scope: finalized move facts are rejected with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of being erased as identity calls, while missing FlowStateFact still rejects with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN. Future Rust ownership validation is tracked separately and does not redefine the current C# rejection contract.",
   }),
   "source-core.lang.portable-intrinsics.struct": coreLangIntrinsicEvidence({
     exportName: "struct",
