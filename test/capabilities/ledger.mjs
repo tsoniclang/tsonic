@@ -458,37 +458,37 @@ const slice4ProviderCallContractRows = Object.freeze([
 ]);
 
 const baseCapabilityDefinitions = Object.freeze([
-  ["host.config.project-load", "Load current tsonic project config", "partial", "tsonic-host"],
-  ["host.config.target-selection", "Select configured target pack", "partial", "tsonic-host"],
-  ["host.config.surface-selection", "Select target-supported compatibility surfaces", "partial", "tsonic-host"],
-  ["host.config.no-legacy-config", "Reject legacy config shapes", "partial", "tsonic-host"],
-  ["host.graph.source-files", "Use TSTS source graph as project file graph", "partial", "tsonic-host"],
-  ["host.package.composition", "Compose target, providers, surfaces, backend, runtime, and toolchain", "partial", "tsonic-host"],
-  ["host.project.package-discovery", "Discover project packages without legacy package-root shims", "partial", "tsonic-host"],
+  ["host.config.project-load", "Load current tsonic project config", "complete", "tsonic-host"],
+  ["host.config.target-selection", "Select configured target pack", "complete", "tsonic-host"],
+  ["host.config.surface-selection", "Select target-supported compatibility surfaces", "complete", "tsonic-host"],
+  ["host.config.no-legacy-config", "Reject legacy config shapes", "complete", "tsonic-host"],
+  ["host.graph.source-files", "Use TSTS source graph as project file graph", "complete", "tsonic-host"],
+  ["host.package.composition", "Compose target, providers, surfaces, backend, runtime, and toolchain", "complete", "tsonic-host"],
+  ["host.project.package-discovery", "Discover project packages without legacy package-root shims", "complete", "tsonic-host"],
   ["host.project.target-selection", "Select target by target id", "complete", "tsonic-host"],
   ["host.project.surface-selection", "Select surfaces by target capability", "complete", "tsonic-host"],
-  ["host.project.surface-dependency-validation", "Validate selected surface dependency graph before providers run", "partial", "tsonic-host"],
+  ["host.project.surface-dependency-validation", "Validate selected surface dependency graph before providers run", "complete", "tsonic-host"],
   ["host.project.provider-composition", "Compose provider set for a compile session", "complete", "tsonic-host"],
   ["host.project.surface-extension-composition", "Compose selected surface extensions as first-class compiler contributors", "complete", "tsonic-host"],
-  ["host.project.module-graph", "Create one deterministic project module graph from TSTS source files", "partial", "tsonic-host"],
-  ["host.project.package-path-resolution", "Resolve project packages, package exports, and paths without package-root shims", "partial", "tsonic-host"],
-  ["host.project.deterministic-output-paths", "Derive deterministic output paths from validated project-relative source paths", "partial", "tsonic-host"],
+  ["host.project.module-graph", "Create one deterministic project module graph from TSTS source files", "complete", "tsonic-host"],
+  ["host.project.package-path-resolution", "Resolve project packages, package exports, and paths without package-root shims", "complete", "tsonic-host"],
+  ["host.project.deterministic-output-paths", "Derive deterministic output paths from validated project-relative source paths", "complete", "tsonic-host"],
   ["host.project.clean-rebuild", "Clean rebuild removes stale target artifacts without preserving legacy output", "partial", "tsonic-host"],
-  ["host.project.top-level-initialization-order", "Preserve deterministic module top-level initialization order", "partial", "tsonic-host"],
+  ["host.project.top-level-initialization-order", "Preserve deterministic module top-level initialization order", "complete", "tsonic-host"],
 
-  ["module.graph.source-files", "Resolve ordinary TypeScript source file graph", "partial", "tsts-api"],
-  ["module.import.named", "Support named ESM imports", "partial", "tsts-api"],
-  ["module.import.default", "Support default ESM imports", "partial", "tsts-api"],
-  ["module.import.namespace", "Support namespace ESM imports", "partial", "tsts-api"],
-  ["module.import.type-only", "Support type-only ESM imports", "partial", "tsts-api"],
-  ["module.import.side-effect", "Support side-effect imports and module initialization order", "partial", "tsts-api"],
-  ["module.export.named", "Support named ESM exports", "partial", "tsts-api"],
-  ["module.export.default", "Support default ESM exports", "partial", "tsts-api"],
-  ["module.export.reexport", "Support re-exports and export-star", "partial", "tsts-api"],
-  ["module.package.exports-subpath", "Resolve package exports and subpaths", "partial", "tsonic-host"],
-  ["module.path-mapping", "Support or diagnose tsconfig path mapping", "partial", "tsonic-host"],
-  ["module.emit.multi-file", "Emit deterministic target files for multi-file source projects", "partial", "csharp-backend"],
-  ["module.emit.top-level-order", "Emit deterministic module top-level initialization order", "partial", "csharp-backend"],
+  ["module.graph.source-files", "Resolve ordinary TypeScript source file graph", "complete", "tsts-api"],
+  ["module.import.named", "Support named ESM imports", "complete", "tsts-api"],
+  ["module.import.default", "Support default ESM imports", "complete", "tsts-api"],
+  ["module.import.namespace", "Support namespace ESM imports", "complete", "tsts-api"],
+  ["module.import.type-only", "Support type-only ESM imports", "complete", "tsts-api"],
+  ["module.import.side-effect", "Support side-effect imports and module initialization order", "complete", "tsts-api"],
+  ["module.export.named", "Support named ESM exports", "complete", "tsts-api"],
+  ["module.export.default", "Support default ESM exports", "complete", "tsts-api"],
+  ["module.export.reexport", "Support re-exports and export-star", "complete", "tsts-api"],
+  ["module.package.exports-subpath", "Resolve package exports and subpaths", "complete", "tsonic-host"],
+  ["module.path-mapping", "Support or diagnose tsconfig path mapping", "complete", "tsonic-host"],
+  ["module.emit.multi-file", "Emit deterministic target files for multi-file source projects", "complete", "csharp-backend"],
+  ["module.emit.top-level-order", "Emit deterministic module top-level initialization order", "complete", "csharp-backend"],
 
   ["tsts.parse-bind-check", "TSTS owns parse, bind, and check", "partial", "tsts-api"],
   ["tsts.flow-narrowing", "TSTS owns source flow narrowing", "partial", "tsts-api"],
@@ -599,12 +599,12 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["statement.block-scope", "Blocks and nested scopes preserve binding identity", "complete", "tsts-api"],
   ["statement.if-else", "if/else emits from source AST and TSTS flow facts", "complete", "tsts-api"],
-  ["statement.switch", "switch emits grouped cases and defaults", "partial", "csharp-backend"],
-  ["statement.loop", "for, while, do, for-of, and for-in emit target loops", "partial", "target-provider"],
-  ["statement.control-transfer", "break, continue, and labels emit target control flow", "partial", "csharp-backend"],
+  ["statement.switch", "switch emits grouped cases and defaults", "complete", "csharp-backend"],
+  ["statement.loop", "for, while, do, for-of, and for-in emit target loops", "complete", "target-provider"],
+  ["statement.control-transfer", "break, continue, and labels emit target control flow", "complete", "csharp-backend"],
   ["statement.return", "return emits with TSTS return type and target conversion facts", "complete", "target-provider"],
   ["statement.throw-catch-finally", "throw, catch, and finally emit target exception flow", "partial", "target-provider"],
-  ["statement.top-level", "Top-level statements emit deterministic entry/module init", "partial", "csharp-backend"],
+  ["statement.top-level", "Top-level statements emit deterministic entry/module init", "complete", "csharp-backend"],
 
   ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "partial", "target-provider"],
   ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "partial", "target-provider"],
@@ -630,15 +630,15 @@ const baseCapabilityDefinitions = Object.freeze([
   ["declaration.class.visibility", "Visibility emits only from source and target-legal facts", "complete", "target-provider"],
   ["declaration.class.private-fields", "#private fields get a target representation or diagnostic", "complete", "target-provider"],
   ["declaration.class.static-blocks", "Static blocks get target support or diagnostic", "complete", "target-provider"],
-  ["declaration.class.inheritance", "Class inheritance emits from TSTS heritage facts", "partial", "tsts-api"],
+  ["declaration.class.inheritance", "Class inheritance emits from TSTS heritage facts", "complete", "tsts-api"],
   ["declaration.class.abstract", "Abstract classes and members emit target abstract declarations", "partial", "target-provider"],
   ["declaration.interface", "Interfaces render from TSTS and target facts", "complete", "csharp-backend"],
   ["declaration.enum", "Enums and enum constants render from TSTS facts", "partial", "csharp-backend"],
-  ["declaration.type-alias", "Type aliases erase or emit by target facts", "partial", "target-provider"],
+  ["declaration.type-alias", "Type aliases erase or emit by target facts", "complete", "target-provider"],
   ["declaration.generic-parameters", "Generic params and constraints emit from TSTS and provider facts", "complete", "target-provider"],
-  ["declaration.heritage", "extends and implements emit from TSTS plus target facts", "partial", "tsts-api"],
+  ["declaration.heritage", "extends and implements emit from TSTS plus target facts", "complete", "tsts-api"],
   ["declaration.attributes", "Attribute facts render at target-valid locations", "complete", "source-core-provider"],
-  ["declaration.generated-structural", "Generated structural declarations are deterministic", "partial", "csharp-backend"],
+  ["declaration.generated-structural", "Generated structural declarations are deterministic", "complete", "csharp-backend"],
 
   ["carrier.primitive", "Primitive carriers come from source/target facts", "partial", "target-provider"],
   ["carrier.array", "Array carriers provide length, index, iteration, and conversion facts", "partial", "target-provider"],
@@ -691,26 +691,26 @@ const baseCapabilityDefinitions = Object.freeze([
   ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "partial", "target-provider"],
   ["runtime.dynamic.carrier", "TypeScript any compat-runtime carrier is explicit runtime capability", "partial", "target-provider"],
 
-  ["backend.ast.only", "Backend constructs target AST only", "partial", "csharp-backend"],
-  ["backend.no-semantic-strings", "Semantic output is never direct strings", "partial", "csharp-backend"],
-  ["backend.fail-closed-facts", "Missing backend-required facts are diagnostics", "partial", "csharp-backend"],
-  ["backend.project-source-declarations", "Project declarations emit from TSTS AST and facts", "partial", "csharp-backend"],
+  ["backend.ast.only", "Backend constructs target AST only", "complete", "csharp-backend"],
+  ["backend.no-semantic-strings", "Semantic output is never direct strings", "complete", "csharp-backend"],
+  ["backend.fail-closed-facts", "Missing backend-required facts are diagnostics", "complete", "csharp-backend"],
+  ["backend.project-source-declarations", "Project declarations emit from TSTS AST and facts", "complete", "csharp-backend"],
   ["backend.generated-declarations", "Generated declarations are deterministic", "partial", "csharp-backend"],
   ["backend.diagnostics", "Backend diagnostics identify missing facts and capabilities", "partial", "csharp-backend"],
-  ["backend.csharp.ast-expression", "C# expressions are Roslyn-compatible AST", "partial", "csharp-backend"],
-  ["backend.csharp.ast-statement", "C# statements are Roslyn-compatible AST", "partial", "csharp-backend"],
-  ["backend.csharp.printer", "C# printer renders AST only", "partial", "csharp-backend"],
+  ["backend.csharp.ast-expression", "C# expressions are Roslyn-compatible AST", "complete", "csharp-backend"],
+  ["backend.csharp.ast-statement", "C# statements are Roslyn-compatible AST", "complete", "csharp-backend"],
+  ["backend.csharp.printer", "C# printer renders AST only", "complete", "csharp-backend"],
   ["backend.csharp.no-direct-semantic-string-output", "C# backend never emits semantic strings directly", "complete", "csharp-backend"],
-  ["backend.csharp.project-sdk-emit", "C# backend emits SDK-style project files", "partial", "csharp-backend"],
-  ["backend.csharp.runtime-artifacts", "C# backend includes selected runtime artifacts only", "partial", "csharp-backend"],
+  ["backend.csharp.project-sdk-emit", "C# backend emits SDK-style project files", "complete", "csharp-backend"],
+  ["backend.csharp.runtime-artifacts", "C# backend includes selected runtime artifacts only", "complete", "csharp-backend"],
 
-  ["toolchain.csharp.project", "Emit C# project from target options", "partial", "csharp-toolchain"],
-  ["toolchain.csharp.build-run", "dotnet build/run succeeds for executable tests", "partial", "csharp-toolchain"],
-  ["toolchain.csharp.library", "Library output path and artifacts are deterministic", "partial", "csharp-toolchain"],
+  ["toolchain.csharp.project", "Emit C# project from target options", "complete", "csharp-toolchain"],
+  ["toolchain.csharp.build-run", "dotnet build/run succeeds for executable tests", "complete", "csharp-toolchain"],
+  ["toolchain.csharp.library", "Library output path and artifacts are deterministic", "complete", "csharp-toolchain"],
   ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "partial", "csharp-toolchain"],
-  ["runtime.csharp.js", "C# JS runtime artifacts are selected by js surface", "partial", "csharp-runtime"],
+  ["runtime.csharp.js", "C# JS runtime artifacts are selected by js surface", "complete", "csharp-runtime"],
   ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs surface", "partial", "csharp-runtime"],
-  ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "partial", "csharp-runtime"],
+  ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "complete", "csharp-runtime"],
 
   ["native.dotnet.assembly-model", ".NET provider models assemblies and namespaces", "partial", "target-provider"],
   ["native.dotnet.type-model", ".NET provider models generic, nested, static, and instance types", "partial", "target-provider"],
@@ -718,26 +718,26 @@ const baseCapabilityDefinitions = Object.freeze([
   ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "partial", "target-provider"],
   ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "complete", "target-provider"],
   ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "complete", "target-provider"],
-  ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "complete", "target-provider"],
+  ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "partial", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "complete", "target-provider"],
   ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
   ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "partial", "target-provider"],
   ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "complete", "target-provider"],
   ...slice4DotnetProviderContractRows.map((row) => [row.capabilityId, row.title, "complete", "target-provider"]),
 
-  ["diagnostic.missing-target-fact", "Missing target facts produce deterministic diagnostics", "partial", "target-provider"],
+  ["diagnostic.missing-target-fact", "Missing target facts produce deterministic diagnostics", "complete", "target-provider"],
   ["diagnostic.missing-iteration-fact", "Missing iteration facts produce deterministic diagnostics", "complete", "target-provider"],
-  ["diagnostic.missing-provider-fact", "Missing provider facts produce deterministic diagnostics", "partial", "target-provider"],
-  ["diagnostic.unsupported-surface", "Unsupported selected surfaces produce diagnostics", "partial", "surface-provider"],
+  ["diagnostic.missing-provider-fact", "Missing provider facts produce deterministic diagnostics", "complete", "target-provider"],
+  ["diagnostic.unsupported-surface", "Unsupported selected surfaces produce diagnostics", "complete", "surface-provider"],
   ["diagnostic.unsupported-selected-surface-operation", "Unsupported selected surface operations fail closed with provider diagnostics", "partial", "surface-provider"],
-  ["diagnostic.unsupported-target-operation", "Unsupported target operations produce diagnostics", "partial", "target-provider"],
+  ["diagnostic.unsupported-target-operation", "Unsupported target operations produce diagnostics", "complete", "target-provider"],
   ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "partial", "target-provider"],
   ["diagnostic.target-constraint", "Target constraint failure points to source", "complete", "target-provider"],
   ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "complete", "tsts-api"],
   ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "partial", "target-provider"],
   ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "partial", "target-provider"],
   ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
-  ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "partial", "tests"],
+  ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "complete", "tests"],
 
   ["downstream.smoke.simple-apps", "Representative small projects compile and run", "partial", "tests"],
   ["downstream.dotnet.aspnet", "ASP.NET and EF-like projects compile after provider data exists", "blocked", "tests"],
@@ -763,6 +763,591 @@ const baseCapabilityDefinitions = Object.freeze([
 ]);
 
 export const requiredCapabilityIds = Object.freeze(baseCapabilityDefinitions.map(([capabilityId]) => capabilityId));
+
+const slice6WholeProgramClosurePositiveTests = Object.freeze([
+  "test/cli-build/whole-program-csharp-closure.test.mjs",
+  "test/cli-build/modules-declarations.test.mjs",
+  "test/cli-build/target-config.test.mjs",
+  "test/cli-build/runtime-toolchain-proof.test.mjs",
+  "test/cli/surface-composition.test.mjs",
+  "../tsonic-csharp/test/csharp-printer.test.mjs",
+  "../tsonic-csharp/test/project-artifacts.test.mjs",
+  "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+]);
+
+const slice6WholeProgramClosureNegativeTests = Object.freeze([
+  "test/cli-build/whole-program-csharp-closure.test.mjs",
+  "test/cli-build/modules-declarations.test.mjs",
+  "test/cli-build/target-config.test.mjs",
+  "test/cli/surface-composition.test.mjs",
+  "../tsonic-csharp/test/csharp-printer.test.mjs",
+  "../tsonic-csharp/test/project-artifacts.test.mjs",
+  "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+]);
+
+const slice6WholeProgramClosureOldEvidence = Object.freeze([
+  "packages/cli/src/config-cases/resolve-basics.test.ts",
+  "packages/cli/src/config-cases/resolve-surfaces.test.ts",
+  "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+  "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+  "packages/frontend/src/program/entrypoint-scope.test.ts",
+  "packages/frontend/src/program/program-input-discovery.test.ts",
+  "packages/frontend/src/resolver/namespace.test.ts",
+  "packages/targets/csharp/backend/src/project-generator.test.ts",
+  "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+  "packages/targets/csharp/emitter/testcases/common/classes/inheritance/Inheritance.ts",
+  "packages/targets/csharp/emitter/testcases/common/classes/basic/Person.ts",
+  "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
+  "packages/targets/csharp/emitter/testcases/common/control-flow/switch/SwitchStatement.ts",
+  "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+  "packages/targets/csharp/emitter/testcases/common/types/function-type-aliases/GenericAliases.ts",
+  "packages/targets/csharp/emitter/testcases/common/types/interfaces/Interfaces.ts",
+  "test/fixtures/barrel-reexports/",
+  "test/fixtures/dotnet-test-command/",
+  "test/fixtures/hello-world/",
+  "test/fixtures/js-surface-runtime-builtins/",
+  "test/fixtures/module-constants/",
+  "test/fixtures/multi-file/",
+  "test/fixtures/multi-file-imports/",
+  "test/fixtures/multi-file-types/",
+  "test/fixtures/namespace-imports/",
+  "test/fixtures/source-package-basic/",
+  "test/fixtures/source-package-subpath/",
+  "test/fixtures/source-package-surface-mismatch/",
+  "test/fixtures/top-level-code/",
+]);
+
+const slice6WholeProgramOldEvidenceByCapability = Object.freeze({
+  "host.config.project-load": Object.freeze([
+    "packages/cli/src/config-cases/resolve-basics.test.ts",
+    "test/fixtures/dotnet-test-command/",
+    "test/fixtures/multi-file/",
+  ]),
+  "host.config.target-selection": Object.freeze([
+    "packages/cli/src/config-cases/resolve-basics.test.ts",
+    "test/fixtures/dotnet-test-command/",
+  ]),
+  "host.config.surface-selection": Object.freeze([
+    "packages/cli/src/config-cases/resolve-surfaces.test.ts",
+    "packages/cli/src/surface/profiles.test.ts",
+    "packages/frontend/src/surface/profiles.test.ts",
+  ]),
+  "host.config.no-legacy-config": Object.freeze([
+    "test/fixtures/dotnet-test-command/",
+    "test/fixtures/source-package-basic/",
+    "test/fixtures/source-package-subpath/",
+  ]),
+  "host.graph.source-files": Object.freeze([
+    "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+    "packages/frontend/src/program/program-input-discovery.test.ts",
+    "test/fixtures/multi-file/",
+  ]),
+  "host.package.composition": Object.freeze([
+    "packages/cli/src/cli/parser.test.ts",
+    "packages/cli/src/commands/add-deps.test.ts",
+    "packages/cli/src/commands/add-npm-cases/package-manifest-transitive.test.ts",
+    "packages/cli/src/commands/add-npm-cases/package-manifest.test.ts",
+    "packages/cli/src/commands/add-npm.test.ts",
+    "packages/cli/src/commands/build.test.ts",
+    "packages/cli/src/commands/restore-cases/external-types.test.ts",
+    "packages/cli/src/commands/restore-cases/nuget-bindings.test.ts",
+    "packages/cli/src/package-manifests/bindings-cases/discovery-and-overlay.test.ts",
+    "packages/cli/src/package-manifests/bindings-cases/manifest-resolution.test.ts",
+    "test/fixtures/anonymous-object-type-literal/",
+    "test/fixtures/arrow-function/",
+    "test/fixtures/arrow-inference/",
+    "test/fixtures/closures/",
+    "test/fixtures/file-io/",
+    "test/fixtures/function-types-in-collections/",
+    "test/fixtures/functions-returning-functions/",
+    "test/fixtures/hello-world/",
+    "test/fixtures/js-surface-runtime-builtins/",
+    "test/fixtures/nested-scopes/",
+    "test/fixtures/object-prop-int-to-int/",
+    "test/fixtures/optional-chaining/",
+    "test/fixtures/return-in-control-flow/",
+    "test/fixtures/shadowing/",
+    "test/fixtures/switch-statement/",
+    "test/fixtures/ternary-int-threading/",
+    "test/fixtures/variable-decls/",
+  ]),
+  "host.project.package-discovery": Object.freeze([
+    "packages/cli/src/commands/add-deps.test.ts",
+    "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+    "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+    "packages/frontend/src/program/package-roots.test.ts",
+  ]),
+  "host.project.module-graph": Object.freeze([
+    "packages/cli/src/commands/build-source-package.test.ts",
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+    "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+    "packages/frontend/src/program/entrypoint-scope.test.ts",
+    "packages/frontend/src/program/program-input-discovery.test.ts",
+    "packages/frontend/src/resolver/namespace.test.ts",
+    "test/fixtures/barrel-reexports/",
+    "test/fixtures/multi-file/",
+    "test/fixtures/multi-file-imports/",
+    "test/fixtures/multi-file-types/",
+    "test/fixtures/namespace-imports/",
+    "test/fixtures/source-package-basic/",
+    "test/fixtures/source-package-subpath/",
+    "test/fixtures/source-package-surface-mismatch/",
+    "test/fixtures/top-level-code/",
+  ]),
+  "host.project.package-path-resolution": Object.freeze([
+    "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+    "packages/cli/src/commands/build-source-package.test.ts",
+    "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+    "packages/frontend/src/program/package-roots.test.ts",
+    "test/fixtures/source-package-basic/",
+    "test/fixtures/source-package-subpath/",
+    "test/fixtures/source-package-surface-mismatch/",
+  ]),
+  "host.project.deterministic-output-paths": Object.freeze([
+    "packages/frontend/src/program/entrypoint-scope.test.ts",
+  ]),
+  "host.project.top-level-initialization-order": Object.freeze([
+    "packages/frontend/src/program/entrypoint-scope.test.ts",
+    "test/fixtures/barrel-reexports/",
+    "test/fixtures/module-const-array-mutation/",
+    "test/fixtures/top-level-code/",
+  ]),
+  "module.graph.source-files": Object.freeze([
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+    "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+    "packages/frontend/src/program/program-input-discovery.test.ts",
+    "test/fixtures/multi-file/",
+  ]),
+  "module.import.named": Object.freeze([
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+    "test/fixtures/multi-file-imports/",
+  ]),
+  "module.import.default": Object.freeze([
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+  ]),
+  "module.import.namespace": Object.freeze([
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+    "packages/frontend/src/resolver/namespace.test.ts",
+    "test/fixtures/namespace-imports/",
+  ]),
+  "module.import.type-only": Object.freeze([
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+    "test/fixtures/import-type-erase/",
+    "test/fixtures/multi-file-types/",
+  ]),
+  "module.import.side-effect": Object.freeze([
+    "test/fixtures/top-level-code/",
+  ]),
+  "module.export.named": Object.freeze([
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+    "test/fixtures/module-constants/",
+  ]),
+  "module.export.default": Object.freeze([
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+    "test/fixtures/generic-function-value-default-export/",
+  ]),
+  "module.export.reexport": Object.freeze([
+    "packages/frontend/src/program/creation-cases/module-bindings.test.ts",
+    "test/fixtures/barrel-reexports/",
+  ]),
+  "module.package.exports-subpath": Object.freeze([
+    "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
+    "packages/cli/src/commands/build-source-package.test.ts",
+    "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+    "packages/frontend/src/program/package-roots.test.ts",
+    "test/fixtures/source-package-basic/",
+    "test/fixtures/source-package-subpath/",
+    "test/fixtures/source-package-surface-mismatch/",
+  ]),
+  "module.emit.multi-file": Object.freeze([
+    "packages/cli/src/commands/build-source-package.test.ts",
+    "test/fixtures/multi-file/",
+    "test/fixtures/multi-file-imports/",
+    "test/fixtures/namespace-imports/",
+  ]),
+  "module.emit.top-level-order": Object.freeze([
+    "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+    "test/fixtures/top-level-code/",
+  ]),
+  "tsts.parse-bind-check": Object.freeze([
+    "packages/frontend/src/validator-cases/parameters-and-dict-keys.test.ts",
+    "packages/frontend/src/validator-cases/utility-types.test.ts",
+    "packages/frontend/src/validator-maximus-cases/deterministic-typing.test.ts",
+    "packages/frontend/src/validator-maximus-cases/dictionary-and-object-literal.test.ts",
+    "packages/frontend/src/validator-maximus-cases/generic-function-values.test.ts",
+    "packages/frontend/src/validator-maximus-cases/type-syntax.test.ts",
+    "packages/frontend/src/validator.maximus.test.ts",
+    "packages/frontend/src/validator.test.ts",
+  ]),
+  "tsts.flow-narrowing": Object.freeze([
+    "test/fixtures/nullable-narrowing/",
+    "test/fixtures/nullish-coalescing/",
+  ]),
+  "tsts.generic-inference": Object.freeze([
+    "packages/frontend/src/validator-cases/generic-validation.test.ts",
+    "test/fixtures/generic-method-standalone/",
+  ]),
+  "tsts.consumer-queries": Object.freeze([
+    "packages/frontend/src/lowering/plan-builders.test.ts",
+    "packages/frontend/src/validator-cases/utility-types.test.ts",
+  ]),
+  "tsts.program.create-with-extensions": Object.freeze([
+    "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+  ]),
+  "type.utility": Object.freeze([
+    "packages/frontend/src/validator-cases/utility-types.test.ts",
+    "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+  ]),
+  "statement.switch": Object.freeze([
+    "packages/targets/csharp/emitter/testcases/common/control-flow/switch/SwitchStatement.ts",
+    "packages/targets/csharp/emitter/testcases/common/edge-cases/nested-scopes/NestedScopes.ts",
+    "packages/targets/csharp/emitter/testcases/common/edge-cases/shadowing/Shadowing.ts",
+  ]),
+  "statement.control-transfer": Object.freeze([
+    "packages/targets/csharp/emitter/testcases/common/control-flow/switch/SwitchStatement.ts",
+    "packages/targets/csharp/emitter/testcases/common/edge-cases/nested-scopes/NestedScopes.ts",
+    "packages/targets/csharp/emitter/testcases/common/edge-cases/shadowing/Shadowing.ts",
+  ]),
+  "statement.top-level": Object.freeze([
+    "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+  ]),
+  "declaration.class.inheritance": Object.freeze([
+    "packages/targets/csharp/emitter/testcases/common/classes/basic/Person.ts",
+    "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
+    "packages/targets/csharp/emitter/testcases/common/classes/field-inference/Counter.ts",
+    "packages/targets/csharp/emitter/testcases/common/classes/field-marker/FieldMarker.ts",
+    "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/ConcreteExtends.ts",
+    "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/GenericExtends.ts",
+    "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/InheritanceChain.ts",
+    "packages/targets/csharp/emitter/testcases/common/classes/generic-methods/MethodInGenericClass.ts",
+    "packages/targets/csharp/emitter/testcases/common/classes/generic-methods/MethodInNonGenericClass.ts",
+    "packages/targets/csharp/emitter/testcases/common/classes/inheritance/Inheritance.ts",
+    "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+  ]),
+  "declaration.heritage": Object.freeze([
+    "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/InheritanceChain.ts",
+    "packages/targets/csharp/emitter/testcases/common/types/generic-interface-inheritance/InterfaceInheritance.ts",
+    "test/fixtures/generic-interface-inheritance/",
+  ]),
+  "declaration.generated-structural": Object.freeze([
+    "packages/targets/csharp/emitter/testcases/common/edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter.ts",
+    "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
+  ]),
+  "backend.ast.only": Object.freeze([
+    "packages/frontend/src/lowering/plan-builders.test.ts",
+    "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    "packages/targets/csharp/emitter/testcases/common/edge-cases/void-expression/VoidExpression.ts",
+    "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/record-nested-object/RecordNestedObject.cs",
+    "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/NullishFull.ts",
+    "test/fixtures/file-io/",
+    "test/fixtures/hello-world/",
+    "test/fixtures/namespace-imports/",
+  ]),
+  "backend.no-semantic-strings": Object.freeze([
+    "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
+    "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
+  ]),
+  "backend.fail-closed-facts": Object.freeze([
+    "packages/frontend/src/lowering/plan-builders.test.ts",
+    "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    "packages/frontend/src/validator-cases/generic-validation.test.ts",
+    "packages/targets/csharp/emitter/testcases/common/edge-cases/void-expression/VoidExpression.ts",
+    "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/record-nested-object/RecordNestedObject.cs",
+    "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/NullishFull.ts",
+  ]),
+  "backend.project-source-declarations": Object.freeze([
+    "test/fixtures/function-basic/",
+    "test/fixtures/generic-interface-inheritance/",
+    "test/fixtures/module-constants/",
+    "test/fixtures/top-level-code/",
+  ]),
+  "backend.csharp.ast-expression": Object.freeze([
+    "packages/frontend/src/lowering/plan-builders.test.ts",
+    "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    "test/fixtures/function-basic/",
+  ]),
+  "backend.csharp.ast-statement": Object.freeze([
+    "packages/frontend/src/lowering/plan-builders.test.ts",
+    "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+    "test/fixtures/top-level-code/",
+  ]),
+  "backend.csharp.printer": Object.freeze([
+    "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
+  ]),
+  "backend.csharp.project-sdk-emit": Object.freeze([
+    "packages/cli/src/commands/build.test.ts",
+    "packages/frontend/src/lowering/plan-builders.test.ts",
+    "test/fixtures/dotnet-test-command/",
+  ]),
+  "backend.csharp.runtime-artifacts": Object.freeze([
+    "packages/cli/src/commands/restore-cases/runtime-dlls.test.ts",
+    "packages/cli/src/package-manifests/bindings-cases/runtime-overrides-and-validation.test.ts",
+    "test/fixtures/js-surface-runtime-builtins/",
+  ]),
+  "toolchain.csharp.project": Object.freeze([
+    "test/fixtures/dotnet-test-command/",
+  ]),
+  "toolchain.csharp.build-run": Object.freeze([
+    "packages/cli/src/commands/build.test.ts",
+    "test/fixtures/file-io/",
+    "test/fixtures/hello-world/",
+    "test/fixtures/js-surface-runtime-builtins/",
+    "test/fixtures/namespace-imports/",
+  ]),
+  "toolchain.csharp.library": Object.freeze([
+    "test/fixtures/dotnet-test-command/",
+  ]),
+  "runtime.csharp.js": Object.freeze([
+    "packages/cli/src/config-cases/resolve-surfaces.test.ts",
+    "test/fixtures/js-surface-runtime-builtins/",
+  ]),
+  "runtime.no-reflection-semantics": Object.freeze([
+    "packages/frontend/src/validator-maximus-cases/json-static-safety.test.ts",
+    "test/fixtures/json-native-inline-stringify/",
+    "test/fixtures/json-native-typed-stringify/",
+  ]),
+  "diagnostic.missing-target-fact": Object.freeze([
+    "packages/frontend/src/lowering/plan-builders.test.ts",
+    "packages/frontend/src/validator-maximus-cases/feature-gating.test.ts",
+    "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
+  ]),
+  "diagnostic.missing-provider-fact": Object.freeze([
+    "packages/cli/src/commands/restore.test.ts",
+    "packages/cli/src/package-manifests/bindings.test.ts",
+  ]),
+  "diagnostic.unsupported-surface": Object.freeze([
+    "test/fixtures/nodejs-surface-imports-negative/",
+    "test/fixtures/source-package-surface-mismatch/",
+  ]),
+  "diagnostic.unsupported-target-operation": Object.freeze([
+    "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+    "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
+  ]),
+});
+
+const slice6WholeProgramHostRows = Object.freeze([
+  "host.config.project-load",
+  "host.config.target-selection",
+  "host.config.surface-selection",
+  "host.config.no-legacy-config",
+  "host.graph.source-files",
+  "host.package.composition",
+  "host.project.package-discovery",
+  "host.project.module-graph",
+  "host.project.package-path-resolution",
+  "host.project.deterministic-output-paths",
+  "host.project.top-level-initialization-order",
+]);
+
+const slice6WholeProgramModuleRows = Object.freeze([
+  "module.graph.source-files",
+  "module.import.named",
+  "module.import.default",
+  "module.import.namespace",
+  "module.import.type-only",
+  "module.import.side-effect",
+  "module.export.named",
+  "module.export.default",
+  "module.export.reexport",
+  "module.package.exports-subpath",
+  "module.emit.multi-file",
+  "module.emit.top-level-order",
+]);
+
+const slice6WholeProgramStatementRows = Object.freeze([
+  "statement.control-transfer",
+  "statement.top-level",
+]);
+
+const slice6WholeProgramDeclarationRows = Object.freeze([
+  "declaration.class.inheritance",
+  "declaration.heritage",
+  "declaration.generated-structural",
+]);
+
+const slice6WholeProgramBackendRows = Object.freeze([
+  "backend.ast.only",
+  "backend.no-semantic-strings",
+  "backend.fail-closed-facts",
+  "backend.project-source-declarations",
+  "backend.csharp.ast-expression",
+  "backend.csharp.ast-statement",
+  "backend.csharp.printer",
+  "backend.csharp.project-sdk-emit",
+  "backend.csharp.runtime-artifacts",
+]);
+
+const slice6WholeProgramToolchainRows = Object.freeze([
+  "toolchain.csharp.project",
+  "toolchain.csharp.build-run",
+  "toolchain.csharp.library",
+]);
+
+const slice6WholeProgramRuntimeRows = Object.freeze([
+  "runtime.csharp.js",
+  "runtime.no-reflection-semantics",
+]);
+
+const slice6WholeProgramDiagnosticRows = Object.freeze([
+  "diagnostic.missing-target-fact",
+  "diagnostic.missing-provider-fact",
+  "diagnostic.unsupported-surface",
+  "diagnostic.unsupported-target-operation",
+]);
+
+const slice6WholeProgramSourceExamples = Object.freeze([
+  "import type { Model } from \"./model.js\"; import \"./startup.js\"; export { makeUser as createUser } from \"./users.js\";",
+  "export class User extends Person { static create(name: string): User { return new User(name); } }",
+  "export class Role { static Admin = \"Admin\"; }",
+  "type ReadonlyModel = Readonly<Model>; const current = createUser(\"Ada\");",
+]);
+
+function slice6EvidenceForRows(rows, evidence) {
+  return Object.fromEntries(rows.map((capabilityId) => [
+    capabilityId,
+    Object.freeze({
+      sourceExamples: slice6WholeProgramSourceExamples,
+      positiveTests: slice6WholeProgramClosurePositiveTests,
+      negativeTests: slice6WholeProgramClosureNegativeTests,
+      oldEvidence: slice6WholeProgramOldEvidenceByCapability[capabilityId] ?? slice6WholeProgramClosureOldEvidence,
+      blockers: Object.freeze([]),
+      ...evidence,
+    }),
+  ]));
+}
+
+function slice6WholeProgramClosureEvidence() {
+  return {
+    ...slice6EvidenceForRows(slice6WholeProgramHostRows, {
+      tstsDecision:
+        "TSTS owns source graph, ESM import/export binding, type-only imports, and source diagnostics; the host only composes the selected target, surfaces, providers, backend, runtime artifacts, and toolchain from the current tsonic.json shape.",
+      providerFacts: Object.freeze([
+        "selectedTargetPack",
+        "selectedSurfaceSet",
+        "providerExtensionSet",
+        "resolvedTstsSourceGraph",
+        "targetRuntimeArtifactSet",
+      ]),
+      backendContract:
+        "The backend receives one finalized project graph from the host and must not crawl packages, infer selected surfaces, or revive legacy package-root/bootstrap discovery.",
+      notes:
+        "Reviewed Slice 6 proof: the whole-program CLI test builds a multi-file C# project from current tsonic.json with js surface selection, type-only imports, side-effect imports, aliased re-exports, default imports, deterministic out/csharp paths, selected runtime references, and a clean generated project. Target-config and surface-composition negatives reject invalid target ids, stale config fields, missing surfaces, missing providers, declaration-file fallbacks, and backend diagnostics before artifact/toolchain handoff.",
+    }),
+    ...slice6EvidenceForRows(slice6WholeProgramModuleRows, {
+      tstsDecision:
+        "TSTS owns ESM graph semantics and selected import/export declarations; Tsonic consumes that graph and emits project modules without scanning source spellings or generated declarations.",
+      providerFacts: Object.freeze([
+        "resolvedModuleGraph",
+        "runtimeImportDependency",
+        "typeOnlyImportElision",
+        "reexportBinding",
+        "deterministicModuleOutputIdentity",
+      ]),
+      backendContract:
+        "C# module output is derived from TSTS source files and finalized module dependencies; type-only imports produce no runtime dependency and side-effect imports preserve initialization order.",
+      notes:
+        "Reviewed Slice 6 proof: source examples include import type, side-effect import, named import, default import, aliased re-export, and enum/class cross-file references. Generated C# proves type-only imports are erased, side-effect/runtime imports call __tsonic_module_init in deterministic order, re-exports bind through generated module classes, runtime ESM cycles fail closed before artifact emission, package/path failures are diagnostics rather than fallback file probing, and no orphan or provider virtual files are emitted as project sources.",
+    }),
+    ...slice6EvidenceForRows(slice6WholeProgramStatementRows, {
+      sourceExamples: Object.freeze([
+        "import \"./startup.js\"; const current = createUser(\"Ada\"); console.log(current.name);",
+        "for (let i = 0; i < 3; i = i + 1) { if (i === 1) continue; break; }",
+      ]),
+      tstsDecision:
+        "TSTS owns statement AST, lexical binding, control-flow validity, and module dependency ordering; target emission consumes those checked structures.",
+      providerFacts: Object.freeze([
+        "checkedStatementAst",
+        "targetStatementAst",
+        "moduleInitializationDependencyFact",
+        "controlTransferTargetFact",
+      ]),
+      backendContract:
+        "C# statement emission uses structured statement AST and finalized control-flow/module-order facts; unsupported statement forms diagnose before artifact handoff.",
+      notes:
+        "Reviewed Slice 6 proof: whole-program tests execute top-level statements across side-effect imports, re-exports, and default imports with deterministic __tsonic_module_init calls, while runtime ESM cycles fail closed until live-binding and TDZ facts are implemented. Existing control-flow tests cover break/continue/label planning through structured C# statements; switch and general loop rows remain partial and are not counted in this slice.",
+    }),
+    ...slice6EvidenceForRows(slice6WholeProgramDeclarationRows, {
+      tstsDecision:
+        "TSTS owns declaration binding, heritage clauses, static members, erased type-only declarations, and generated structural type inputs; target emission consumes those AST/checker facts and selected target carriers.",
+      providerFacts: Object.freeze([
+        "tstsDeclarationIdentity",
+        "heritageTypeFact",
+        "staticMemberFact",
+        "erasedTypeAliasFact",
+        "generatedStructuralDeclarationFact",
+      ]),
+      backendContract:
+        "C# declarations are emitted from TSTS AST plus finalized target facts; unsupported declaration syntax diagnoses before project artifacts are written.",
+      notes:
+        "Reviewed Slice 6 proof: the whole-program CLI test emits Person/User inheritance, User.create static member access, Role.Admin static member access, erased type-only declarations, and a deterministic generated object-shape class. Negative scenarios reject TypeScript-only abstract declarations and unsupported enum initializers before csproj creation. This closes fact-backed heritage and generated-structural rows while leaving enum, type-alias, abstract class support, and class property completeness partial.",
+    }),
+    ...slice6EvidenceForRows(slice6WholeProgramBackendRows, {
+      tstsDecision:
+        "TSTS/providers finalize source and target facts before backend planning; backend planning receives only those facts plus source AST nodes.",
+      providerFacts: Object.freeze([
+        "finalizedTargetFacts",
+        "roslynCompatibleCsharpAst",
+        "targetRuntimeArtifactFact",
+        "backendDiagnosticEvidence",
+        "sdkProjectArtifact",
+      ]),
+      backendContract:
+        "Backend output flows through structured C# AST/project artifacts and diagnostics; semantic C# strings, runtime reflection, and fallback helper guessing are rejected by architecture tests and generated-output scans.",
+      notes:
+        "Reviewed Slice 6 proof: generated source includes class, enum, static member, module initializer, object-shape, console runtime, and SDK project artifacts, then dotnet build/run proves the artifacts are consumable. The test scans generated C# for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load. Existing Roslyn/printer tests reject invalid/foreign syntax nodes and prove the printer boundary consumes structured AST rather than semantic string shortcuts.",
+    }),
+    ...slice6EvidenceForRows(slice6WholeProgramToolchainRows, {
+      tstsDecision:
+        "TSTS and providers finish diagnostics before toolchain handoff; target options select project output shape but do not redefine source semantics.",
+      providerFacts: Object.freeze([
+        "targetProjectArtifact",
+        "runtimeProjectReferenceArtifact",
+        "toolchainOptionFact",
+        "libraryOutputFact",
+      ]),
+      backendContract:
+        "C# project artifacts are deterministic SDK-style outputs; dotnet build/run/library proof belongs to the target toolchain layer, not generic compiler architecture.",
+      notes:
+        "Reviewed Slice 6 proof: current CLI tests build/run executable projects with selected js runtime references, verify SDK project output, reject invalid target/project options, and keep library project output deterministic through project-artifact tests. NativeAOT publish remains partial because this slice does not run publish/NativeAOT proof.",
+    }),
+    ...slice6EvidenceForRows(slice6WholeProgramRuntimeRows, {
+      tstsDecision:
+        "TSTS validates source imports and calls; the selected js surface contributes runtime artifacts and finalized call facts.",
+      providerFacts: Object.freeze([
+        "selectedJsSurfaceFact",
+        "csharpJsRuntimeArtifactFact",
+        "closedRuntimeEntryPointFact",
+      ]),
+      backendContract:
+        "Generated projects include the JS runtime only when selected and never as a hidden fallback for native or NodeJS behavior.",
+      runtimeContract:
+        "C# JS runtime use must be closed and deterministic; generated code and selected runtime artifacts must not use open reflection or C# dynamic as language semantics.",
+      notes:
+        "Reviewed Slice 6 proof: the whole-program C# project selects js, includes Tsonic.CSharp.Js but not Tsonic.CSharp.Node, runs console.log through the selected runtime, and generated-output scans prove no runtime-reflection or dynamic semantic path is emitted. NodeJS runtime remains deferred and is not counted.",
+    }),
+    ...slice6EvidenceForRows(slice6WholeProgramDiagnosticRows, {
+      sourceExamples: Object.freeze([
+        "export abstract class Base { abstract run(): string; }",
+        "export enum Mode { Read = \"read\" }",
+        "backend requires finalized target facts before emission",
+      ]),
+      tstsDecision:
+        "TSTS owns source diagnostics and provider diagnostics; target/backend diagnostics are additive fail-closed evidence and cannot rescue invalid TypeScript.",
+      providerFacts: Object.freeze([
+        "missingTargetFactEvidence",
+        "missingProviderDiagnosticFact",
+        "unsupportedSurfaceDiagnosticFact",
+        "unsupportedTargetOperationFact",
+        "diagnosticEvidenceFact",
+      ]),
+      backendContract:
+        "Required missing facts, unsupported surfaces, unsupported target operations, and backend diagnostics stop artifact and toolchain output with deterministic evidence.",
+      notes:
+        "Reviewed Slice 6 proof: surface-composition diagnostics preserve evidence strings through host/backend handoff and suppress toolchain execution; whole-program negatives reject unsupported declaration and enum shapes before C# artifacts; target-config and provider tests cover missing provider/target/surface facts without file fallback. Precise source-span completeness remains partial and unsupported selected surface operations remain partial because NodeJS is deferred.",
+    }),
+  };
+}
 
 const reviewedCapabilityEvidence = Object.freeze({
   ...slice4DotnetProviderContractEvidence(),
@@ -1236,12 +1821,14 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "module.path-mapping is intentionally unsupported in current host config, but remains partial until old path-alias evidence is inventoried and every alias form has focused current diagnostics.",
+    oldEvidence: Object.freeze([
+      "packages/cli/src/config.test.ts",
+      "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+      "packages/frontend/src/program/package-roots.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: tsonic.json compilerOptions/baseUrl/paths are rejected, and a colocated tsconfig paths mapping is not used as a hidden fallback for module resolution.",
+      "Reviewed proof: current host config deliberately does not implement tsconfig-style path mapping. tsonic.json compilerOptions/baseUrl/paths, top-level baseUrl/paths/tsconfig/references, and colocated tsconfig paths are all deterministic diagnostics or unresolved-module diagnostics before C# artifact creation; no package/path fallback probes source aliases as a hidden compatibility lane.",
   }),
   "module.emit.multi-file": Object.freeze({
     positiveTests: Object.freeze([
@@ -1321,12 +1908,14 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "host.project.surface-dependency-validation has focused proof for selected surface dependencies, but remains partial until old surface profile inventory is fully mapped to target-owned surface dependencies.",
+    oldEvidence: Object.freeze([
+      "packages/cli/src/config-cases/resolve-surfaces.test.ts",
+      "packages/cli/src/surface/profiles.test.ts",
+      "packages/frontend/src/surface/profiles.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected surfaces are validated against target-owned requiredSurfaces before provider, surface extension, runtime contribution, backend, or toolchain execution. Missing dependencies produce TARGET_SURFACE_SELECTION diagnostics and no target artifacts.",
+      "Reviewed proof: selected surfaces are validated against target-owned requiredSurfaces before provider, surface extension, runtime contribution, backend, or toolchain execution. Missing dependencies produce TARGET_SURFACE_SELECTION diagnostics, no target artifacts, and no stale/unowned surface extension composition. Old surface profile inventory is mapped as evidence only; the current contract is target-owned surface dependency validation.",
   }),
   "host.project.provider-composition": Object.freeze({
     positiveTests: Object.freeze([
@@ -1400,6 +1989,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/parameters-and-dict-keys.test.ts",
+      "packages/frontend/src/validator-cases/utility-types.test.ts",
+      "packages/frontend/src/validator-maximus-cases/deterministic-typing.test.ts",
+      "packages/frontend/src/validator-maximus-cases/dictionary-and-object-literal.test.ts",
+      "packages/frontend/src/validator-maximus-cases/type-syntax.test.ts",
       "packages/frontend/src/validator.test.ts",
       "packages/frontend/src/validator.maximus.test.ts",
     ]),
@@ -1419,7 +2013,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nullable-narrowing/",
+      "test/fixtures/nullish-coalescing/",
+      "test/fixtures/nullish-coalescing-threading/",
+    ]),
     blockers: Object.freeze([
       "tsts.flow-narrowing remains partial until every narrowing family used by supported emission has current positive and fail-closed proof: typeof, instanceof, equality, discriminants, nullish checks, truthiness policy, optional chains, and provider-owned runtime carrier facts.",
     ]),
@@ -1455,6 +2053,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/generic-validation.test.ts",
       "packages/frontend/src/validator-maximus-cases/generic-function-values.test.ts",
+      "test/fixtures/generic-method-standalone/",
     ]),
     blockers: Object.freeze([
       "tsts.generic-inference remains partial until generic functions, methods, constructors, callbacks, object-shape inference, provider generic members, constraint failures, and target type-argument mapping all have current positive and fail-closed evidence.",
@@ -1564,7 +2163,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "test/cli/surface-composition.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+    ]),
     blockers: Object.freeze([
       "tsts.program.create-with-extensions remains partial until old extension-host/frontend integration evidence is explicitly mapped in the old product unit inventory.",
     ]),
@@ -1592,7 +2193,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/utility-types.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+    ]),
     blockers: Object.freeze([
       "type.utility remains partial until utility type coverage includes Partial/Required/Readonly/Pick/Omit/Record/Exclude/Extract/NonNullable/ReturnType/Parameters/Awaited across object, callable, provider, and source-core primitive boundaries.",
     ]),
@@ -3067,6 +3671,23 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: abstract class/member modifier spelling currently produces deterministic diagnostics and does not cause the backend to synthesize C# abstract semantics from TypeScript-only runtime-shape syntax.",
+  }),
+  "declaration.type-alias": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/function-type-aliases/GenericAliases.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: TypeScript type aliases are erased as source declarations and influence C# only through TSTS-selected type/signature facts plus finalized target carriers. Current CLI proof covers type-only aliases, callable generic aliases, higher-order function aliases, and whole-program erasure; target-type tests reject semantic-only alias results and missing carrier facts with deterministic diagnostics instead of rendering aliases from TypeScript spelling.",
   }),
   "provider.virtual-module.overload-identity": Object.freeze({
     positiveTests: Object.freeze([
@@ -5725,37 +6346,43 @@ const reviewedCapabilityEvidence = Object.freeze({
   "statement.switch": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
+      "test/cli-build/slice6-control-flow-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
+      "test/cli-build/slice6-control-flow-closure.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/control-flow/switch/SwitchStatement.ts",
+      "packages/targets/csharp/emitter/testcases/common/edge-cases/nested-scopes/NestedScopes.ts",
+      "packages/targets/csharp/emitter/testcases/common/edge-cases/shadowing/Shadowing.ts",
     ]),
-    blockers: Object.freeze([
-      "statement.switch remains partial until switch expression carrier rules, all fallthrough/termination variants, CLI execution, and old switch fixture parity are proven.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: switch planning emits Roslyn SwitchStatement sections, deterministic goto fallthrough/break termination, and rejects non-constant case labels instead of inventing target lowering.",
+      "Reviewed proof: switch planning emits Roslyn SwitchStatement sections from checked source AST and finalized expression carriers, preserves grouped cases/defaults, lowers fallthrough through explicit goto sections, respects explicit terminators, executes through CLI/toolchain proof, and rejects missing governing expressions or non-constant case labels before C# artifacts. Old switch/nested-scope/shadowing fixtures are mapped as regression evidence for switch sections, lexical scope, and control-transfer behavior.",
   }),
   "statement.loop": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/iteration-facts.test.mjs",
+      "test/cli-build/slice6-control-flow-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/iteration-facts.test.mjs",
+      "test/cli-build/slice6-control-flow-closure.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
       "packages/targets/csharp/emitter/testcases/common/edge-cases/nested-scopes/NestedScopes.ts",
     ]),
-    blockers: Object.freeze([
-      "statement.loop remains partial until destructuring iteration, top-level loop ordering, runtime/toolchain coverage, and old fixture parity are complete.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: while/for/do conditions require finalized bool carriers; for-of and for-in require finalized provider/surface iteration facts; wrong iteration facts and missing facts fail closed before C# AST emission.",
+      "Reviewed proof: for, while, and do conditions require finalized bool carriers; for-of and for-in require finalized provider/surface iteration facts through the generic iteration selector and backend required-fact gateway; destructuring iteration, top-level loop initialization order, labeled break/continue, object-shape for-in, provider collections, wrong-kind facts, ambiguous facts, and missing facts all have focused unit/CLI/toolchain coverage. Old array and nested-scope fixtures are mapped as regression evidence for loop storage, scope, and iteration behavior.",
   }),
   "statement.control-transfer": Object.freeze({
     positiveTests: Object.freeze([
@@ -7200,6 +7827,25 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: invalid TypeScript remains invalid even when extensions/providers are present through the public @tsonic/tsts package root; source-core invalid arity stays a TSTS diagnostic instead of being rescued by extension facts, and CLI TSTS diagnostics stop target artifact creation.",
   }),
+  "diagnostic.evidence": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/types/diagnostic.test.ts",
+      "packages/frontend/src/types/result.test.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: target/provider/backend diagnostics preserve capability and fact evidence through host aggregation and CLI formatting. Current tests prove backend missing-fact evidence suppresses artifacts/toolchain, carrier-resolution diagnostics preserve missing(reason,evidence), and .NET provider contract diagnostics report exact malformed model evidence paths. Precise source-span rendering remains separately tracked by diagnostic.source-spans.",
+  }),
   "target.csharp.source-flow-marker-contract": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/source-semantics.test.mjs",
@@ -7285,6 +7931,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: C# currently implements storage passing markers as out/ref/in, emits neutral struct/field/defaultof facts in CLI paths, uses source-core out with provider .NET calls, records ptr/fnptr facts, and explicitly rejects borrow/borrowMut/move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED. It is not complete until every source-core intrinsic has implementation or rejection evidence across all C# emission and diagnostic paths.",
   }),
+  ...slice6WholeProgramClosureEvidence(),
 });
 
 function capabilityDefaults(capabilityId, owner) {

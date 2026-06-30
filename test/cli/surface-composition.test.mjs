@@ -521,6 +521,10 @@ test("host suppresses backend artifacts and toolchain when backend reports error
         category: "error",
         message: "backend requires finalized target facts before emission",
         source: "demo-backend",
+        evidence: [
+          "required fact: selected-target-operation",
+          "capability: diagnostic.missing-target-fact",
+        ],
       },
     ],
   });
@@ -537,6 +541,10 @@ test("host suppresses backend artifacts and toolchain when backend reports error
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].code, "MISSING_FACT");
   assert.equal(result.diagnostics[0].category, "error");
+  assert.deepEqual(result.diagnostics[0].evidence, [
+    "required fact: selected-target-operation",
+    "capability: diagnostic.missing-target-fact",
+  ]);
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
   assert.equal(result.targets[0].compileResult.diagnostics.length, 1);
   assert.equal(events.some((event) => event.startsWith("toolchain:")), false);

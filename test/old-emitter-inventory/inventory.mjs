@@ -901,6 +901,11 @@ const oldEmitterReplacementProofByOldPath = new Map([
 
 const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/function-type-aliases/GenericAliases"),
+  ], [
+    "declaration.type-alias",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("functions/delegates/ActionFunc"),
   ], [
     "function.delegate-carrier",
