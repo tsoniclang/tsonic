@@ -1,4 +1,6 @@
 import type { ExtensionEvidence, ExtensionFactSubject } from "./host.js";
+export type { ArgumentPassingMode } from "./argument-passing.js";
+import type { ArgumentPassingMode } from "./argument-passing.js";
 export type ExtensionCanonicalIdentityKind = "module" | "package" | "export" | "local-alias" | "symbol" | "type" | "signature" | "instantiated-type";
 export type ExtensionImportKind = "type" | "value" | "namespace" | "unknown";
 export type SourcePrimitiveKind = "bool" | "char" | "int8" | "uint8" | "int16" | "uint16" | "int32" | "uint32" | "int64" | "uint64" | "native-int" | "native-uint" | "float16" | "float32" | "float64" | "decimal" | "int128" | "uint128";
@@ -12,7 +14,6 @@ export interface ExtensionCanonicalIdentity {
     readonly importKind?: ExtensionImportKind;
     readonly canonicalSymbolId?: string;
 }
-export type ArgumentPassingMode = "by-value" | "byref-readonly" | "byref-readwrite" | "byref-writeonly-must-init" | "borrow-shared" | "borrow-mut" | "move";
 export type SourcePointerMutability = "readonly" | "readwrite" | "target-defined";
 export interface SourcePrimitiveFact {
     readonly kind: SourcePrimitiveKind;

@@ -3,6 +3,7 @@ import { createAstReader } from "../services/ast-reader.js";
 import { createTypeCheckerQueries } from "../services/type-checker.js";
 import { createTypeShapeQueries } from "../services/type-shape.js";
 import { ExtensionObservationPoint } from "./observations.js";
+import { isArgumentPassingMode } from "./argument-passing.js";
 export const ExtensionHostDiagnosticCode = {
     factConflict: 9000001,
     duplicateExtension: 9000002,
@@ -1512,6 +1513,7 @@ function isValidProviderSignatureDeclaration(value) {
 function isValidProviderParameterDeclaration(value) {
     return isIdentifierText(value.name)
         && isValidProviderTypeExpression(value.type)
+        && (value.passingMode === undefined || isArgumentPassingMode(value.passingMode))
         && (value.defaultType === undefined || isValidProviderTypeExpression(value.defaultType));
 }
 function isValidProviderTypeParameterDeclaration(value) {

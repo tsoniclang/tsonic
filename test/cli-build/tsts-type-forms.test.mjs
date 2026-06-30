@@ -45,6 +45,64 @@ async function assertRejected(projectName, assemblyName, sourceLines, expectedDi
   return build.stderr;
 }
 
+test("CLI consumes TSTS source meaning for narrowing, contextual typing, generic inference, and overloads", async () => {
+  const { generatedSource } = await assertBuilds("tsts-source-meaning-positive", "SmokeGeneratedTstsSourceMeaning", [
+    "function id<T>(value: T): T {",
+    "  return value;",
+    "}",
+    "",
+    "export function describe(kind: \"left\" | \"right\"): string {",
+    "  const rounded: number = 2;",
+    "  if (kind === \"left\") {",
+    "    const transform: (input: \"left\") => string = (input) => `L:${input}:${rounded}`;",
+    "    const selected = transform(kind);",
+    "    return selected;",
+    "  }",
+    "  return \"R\";",
+    "}",
+    "",
+  ]);
+
+  assert.match(generatedSource, /public static T id<T>\(T value\)/);
+  assert.match(generatedSource, /public static string describe\(string kind\)/);
+  assert.match(generatedSource, /double rounded = 2;/);
+  assert.match(generatedSource, /if \(kind == "left"\)/);
+  assert.match(generatedSource, /Func<string, string> transform = \(string input\) => \$"L:\{input\}:\{rounded\}";/);
+  assert.match(generatedSource, /string selected = transform\(kind\);/);
+  assert.match(generatedSource, /return "R";/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  await assertRejected("tsts-source-meaning-negative", "SmokeGeneratedTstsSourceMeaningNegative", [
+    "function choose(value: \"left\"): \"L\";",
+    "function choose(value: \"right\"): \"R\";",
+    "function choose(value: \"left\" | \"right\"): \"L\" | \"R\" {",
+    "  if (value === \"left\") {",
+    "    return \"L\";",
+    "  }",
+    "  return \"R\";",
+    "}",
+    "const bad: \"R\" = choose(\"left\");",
+    "export function value(): string { return bad; }",
+    "",
+  ], /TS2322: Type '"L"' is not assignable to type '"R"'/);
+
+  await assertRejected("tsts-generic-inference-negative", "SmokeGeneratedTstsGenericInferenceNegative", [
+    "function pair<T>(left: T, right: T): T {",
+    "  return left;",
+    "}",
+    "const bad: string = pair(1, 2);",
+    "export function value(): string { return bad; }",
+    "",
+  ], /TS2322: Type 'number' is not assignable to type 'string'/);
+
+  await assertRejected("tsts-bind-diagnostic-negative", "SmokeGeneratedTstsBindDiagnosticNegative", [
+    "export function value(): number {",
+    "  return missingValue;",
+    "}",
+    "",
+  ], /TS2304: Cannot find name 'missingValue'/);
+});
+
 test("CLI consumes TSTS template literal type results and rejects incompatible literals", async () => {
   const { generatedSource } = await assertBuilds("template-literal-type-positive", "SmokeGeneratedTemplateLiteralTypes", [
     "type EventKind = \"created\" | \"deleted\";",
@@ -153,34 +211,70 @@ test("CLI consumes TSTS as-const literal readonly results and rejects readonly w
 
 test("CLI consumes TSTS utility, conditional, infer, keyof, indexed-access, and mapped type results", async () => {
   const { generatedSource } = await assertBuilds("advanced-type-operators-positive", "SmokeGeneratedAdvancedTypeOperators", [
-    "type Source = { name: string; count: number };",
+    "type Source = { name?: string; count: number; active: boolean };",
+    "type Complete = Required<Source>;",
     "type Copy<T> = { [K in keyof T]: T[K] };",
-    "type Name = Copy<Source>[\"name\"];",
+    "type Flagged<T> = { [K in keyof T as `${K & string}Flag`]-?: boolean };",
+    "type Name = Copy<Complete>[\"name\"];",
+    "type Count = Pick<Complete, \"count\">[\"count\"];",
+    "type HiddenName = NonNullable<Omit<Complete, \"count\" | \"active\">[\"name\"]>;",
+    "type ReadonlyCount = Readonly<Complete>[\"count\"];",
+    "type OptionalName = NonNullable<Partial<Complete>[\"name\"]>;",
+    "type NameFlag = Flagged<Complete>[\"nameFlag\"];",
     "type First<T> = T extends readonly [infer Head, ...unknown[]] ? Head : never;",
     "type FirstName = First<[Name, number]>;",
+    "type NumericOnly = Exclude<string | number | boolean, string | boolean>;",
     "type TextOnly = Extract<string | number | boolean, string>;",
+    "type Primary = Record<\"primary\" | \"fallback\", TextOnly>[\"primary\"];",
+    "type Formatter = (name: Name, count: NumericOnly) => TextOnly;",
+    "type PairArgs = Parameters<Formatter>;",
+    "type PairResult = Awaited<Promise<ReturnType<Formatter>>>;",
     "",
-    "export function readName(value: FirstName): TextOnly {",
+    "export function readName(value: FirstName, count: Count, label: OptionalName): PairResult {",
+    "  const args: PairArgs = [value, count];",
+    "  const primary: Primary = label;",
+    "  const hidden: HiddenName = args[0];",
+    "  const readonlyCount: ReadonlyCount = args[1];",
+    "  const flag: NameFlag = true;",
+    "  if (flag) {",
+    "    return `${primary}:${hidden}:${readonlyCount}`;",
+    "  }",
     "  return value;",
     "}",
     "",
   ]);
 
-  assert.match(generatedSource, /public static string readName\(string value\)/);
+  assert.match(generatedSource, /public static string readName\(string value, double count, string label\)/);
+  assert.match(generatedSource, /\(string, double\) args = \(value, count\);/);
+  assert.match(generatedSource, /string primary = label;/);
+  assert.match(generatedSource, /string hidden = args\.Item1;/);
+  assert.match(generatedSource, /double readonlyCount = args\.Item2;/);
+  assert.match(generatedSource, /bool flag = true;/);
   assert.match(generatedSource, /return value;/);
-  assert.doesNotMatch(generatedSource, /Extract|keyof|infer|Copy|FirstName/);
+  assert.doesNotMatch(generatedSource, /Required|Partial|Readonly|Pick|Omit|Record|Exclude|Extract|NonNullable|ReturnType|Parameters|Awaited|keyof|infer|Copy|FirstName|Flagged/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   await assertRejected("advanced-type-operators-negative", "SmokeGeneratedAdvancedTypeOperatorsNegative", [
-    "type Source = { name: string; count: number };",
+    "type Source = { name?: string; count: number; active: boolean };",
+    "type Complete = Required<Source>;",
     "type Copy<T> = { [K in keyof T]: T[K] };",
-    "type Name = Copy<Source>[\"name\"];",
+    "type Name = Copy<Complete>[\"name\"];",
     "type First<T> = T extends readonly [infer Head, ...unknown[]] ? Head : never;",
     "type FirstName = First<[Name, number]>;",
     "const bad: FirstName = 123;",
     "export function value(): FirstName { return bad; }",
     "",
   ], /TS2322: Type 'number' is not assignable to type 'string'/);
+
+  await assertRejected("mapped-key-remap-negative", "SmokeGeneratedMappedKeyRemapNegative", [
+    "type Source = { name?: string; count: number; active: boolean };",
+    "type Complete = Required<Source>;",
+    "type Flagged<T> = { [K in keyof T as `${K & string}Flag`]-?: boolean };",
+    "type NameFlag = Flagged<Complete>[\"nameFlag\"];",
+    "const bad: NameFlag = \"yes\";",
+    "export function value(): boolean { return bad; }",
+    "",
+  ], /TS2322: Type 'string' is not assignable to type 'boolean'/);
 });
 
 test("CLI consumes TSTS non-null assertion results without backend nullability inference", async () => {

@@ -1,0 +1,1 @@
+{"version":3,"file":"argument-passing.js","sourceRoot":"","sources":["../../../src/extensions/argument-passing.ts"],"names":[],"mappings":"AAAA,MAAM,CAAC,MAAM,oBAAoB,GAAG;IAClC,UAAU;IACV,gBAAgB;IAChB,iBAAiB;IACjB,2BAA2B;IAC3B,eAAe;IACf,YAAY;IACZ,MAAM;CACE,CAAC;AAIX,MAAM,UAAU,qBAAqB,CAAC,KAAc;IAClD,OAAO,OAAO,KAAK,KAAK,QAAQ,IAAK,oBAA0C,CAAC,QAAQ,CAAC,KAAK,CAAC,CAAC;AAClG,CAAC"}

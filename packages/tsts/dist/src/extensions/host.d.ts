@@ -2,6 +2,7 @@ export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
 import type { ExtensionCompilerQueryContext, ExtensionObservationHook, ExtensionObservationPointName, ExtensionObservationRequest, ExtensionObservationResponse, ExtensionObservationResult, ExtensionObservationRunOptions } from "./observations.js";
 import { ExtensionObservationPoint } from "./observations.js";
+import type { ArgumentPassingMode } from "./argument-passing.js";
 import type { SourcePrimitiveKind } from "./facts.js";
 export interface ExtensionEvidence {
     readonly message: string;
@@ -276,6 +277,7 @@ export type ProviderTypeExpression = {
 export interface ProviderParameterDeclaration {
     readonly name: string;
     readonly type: ProviderTypeExpression;
+    readonly passingMode?: ArgumentPassingMode;
     readonly optional?: boolean;
     readonly rest?: boolean;
     readonly defaultType?: ProviderTypeExpression;
