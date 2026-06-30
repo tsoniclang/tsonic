@@ -155,18 +155,35 @@ function getRuntimeModuleDependency(
   sourceFiles: readonly SourceFile[],
 ): TargetProjectSourceModuleDependency | undefined {
   if (ast.is.IsImportDeclaration(statement)) {
-    if (isTypeOnlyImportDeclaration(ast, statement)) {
+    if (isExclusivelyTypeOnlyImportDeclaration(ast, statement)) {
       return undefined;
     }
     return resolveRuntimeModuleDependency(ast, checker, statement, getModuleSpecifier(statement), "import", sourceFile, sourceFiles);
   }
   if (ast.is.IsExportDeclaration(statement)) {
-    if ((statement as { readonly IsTypeOnly?: boolean }).IsTypeOnly === true) {
+    if (ast.isTypeOnlyImportOrExportDeclaration(statement)) {
       return undefined;
     }
     return resolveRuntimeModuleDependency(ast, checker, statement, getModuleSpecifier(statement), "export", sourceFile, sourceFiles);
   }
   return undefined;
+}
+
+function isExclusivelyTypeOnlyImportDeclaration(ast: AstReader, declaration: Node): boolean {
+  if (ast.isTypeOnlyImportDeclaration(declaration)) {
+    return true;
+  }
+  const importClause = (declaration as { readonly ImportClause?: Node }).ImportClause;
+  const namedBindings = (importClause as { readonly NamedBindings?: Node } | undefined)?.NamedBindings;
+  if (importClause === undefined || namedBindings === undefined) {
+    return false;
+  }
+  if (ast.is.IsNamespaceImport(namedBindings) || !ast.is.IsNamedImports(namedBindings)) {
+    return false;
+  }
+  const elements = ast.elements(namedBindings);
+  return elements.length > 0 &&
+    elements.every((element) => element !== undefined && (element as { readonly IsTypeOnly?: boolean }).IsTypeOnly === true);
 }
 
 function resolveRuntimeModuleDependency(
@@ -202,34 +219,6 @@ function getResolvedRuntimeModuleSourceFile(
   const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier, options);
   const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(moduleSymbol, false, options) ?? moduleSymbol;
   return ast.getSourceFile(getPrimaryDeclaration(checker, resolvedModuleSymbol) ?? getPrimaryDeclaration(checker, moduleSymbol));
-}
-
-function isTypeOnlyImportDeclaration(ast: AstReader, declaration: Node): boolean {
-  const importClause = (declaration as { readonly ImportClause?: Node }).ImportClause;
-  if (importClause === undefined) {
-    return false;
-  }
-  const phaseModifier = asNode((importClause as { readonly PhaseModifier?: unknown }).PhaseModifier);
-  if (phaseModifier !== undefined && ast.text(phaseModifier) === "type") {
-    return true;
-  }
-  const name = ast.name(importClause);
-  if (name !== undefined) {
-    return false;
-  }
-  const namedBindings = (importClause as { readonly NamedBindings?: Node }).NamedBindings;
-  if (namedBindings === undefined) {
-    return false;
-  }
-  if (ast.is.IsNamespaceImport(namedBindings)) {
-    return false;
-  }
-  if (!ast.is.IsNamedImports(namedBindings)) {
-    return false;
-  }
-  const elements = ast.elements(namedBindings);
-  return elements.length > 0 &&
-    elements.every((element) => element === undefined || (element as { readonly IsTypeOnly?: boolean }).IsTypeOnly === true);
 }
 
 function getModuleSpecifier(node: Node): Node | undefined {

@@ -1,7 +1,7 @@
-import { Node_Members, Node_ModifierFlags, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
-import { Node_Name } from "../internal/ast/spine.js";
+import { Node_Body, Node_Members, Node_ModifierFlags, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
+import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { ModifierFlagsStatic } from "../internal/ast/modifierflags.js";
-import { KindConstructSignature, KindConstructor, KindIndexSignature, KindMethodDeclaration, KindMethodSignature, KindPropertyDeclaration, KindPropertySignature, } from "../internal/ast/generated/kinds.js";
+import { KindConstructSignature, KindConstructor, KindEnumMember, KindFunctionDeclaration, KindIndexSignature, KindMethodDeclaration, KindMethodSignature, KindModuleDeclaration, KindPropertyDeclaration, KindPropertySignature, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { canonicalIdentityFactKey, providerVirtualDeclarationFactKey, targetBindingFactKey, } from "./facts.js";
 import { ExtensionLifecycleEvent, getExtensionHost } from "./host.js";
 export function recordBoundSourceFileExtensionFacts(program, file) {
@@ -99,7 +99,7 @@ function getProviderVirtualModuleEvidence(virtualModule) {
         }];
 }
 function recordProviderVirtualMemberFacts(extensionHost, exportSymbol, virtualModule, declaration, evidence) {
-    const memberNodes = (exportSymbol.Declarations ?? []).flatMap((exportDeclaration) => Node_Members(exportDeclaration) ?? []);
+    const memberNodes = (exportSymbol.Declarations ?? []).flatMap(getProviderMemberCandidateNodes);
     const usedMemberNodes = new Set();
     for (const member of declaration.members ?? []) {
         const matchingMemberNodes = memberNodes.filter((node) => node !== undefined
@@ -131,7 +131,8 @@ function findProviderMemberSymbol(exportSymbol, member, matchingMemberNodes) {
             return symbol;
         }
     }
-    return exportSymbol.Members?.get(getProviderPropertyNameText(member.name));
+    const memberName = getProviderPropertyNameText(member.name);
+    return exportSymbol.Members?.get(memberName) ?? exportSymbol.Exports?.get(memberName);
 }
 function providerMemberMatchesNode(member, node) {
     if (!providerMemberKindMatchesNode(member, node)) {
@@ -150,12 +151,39 @@ function providerMemberKindMatchesNode(member, node) {
         case "constructor":
             return node.Kind === KindConstructor || node.Kind === KindConstructSignature;
         case "method":
-            return node.Kind === KindMethodDeclaration || node.Kind === KindMethodSignature;
+            return node.Kind === KindMethodDeclaration || node.Kind === KindMethodSignature || node.Kind === KindFunctionDeclaration;
         case "property":
         case "field":
-            return node.Kind === KindPropertyDeclaration || node.Kind === KindPropertySignature;
+            return node.Kind === KindPropertyDeclaration || node.Kind === KindPropertySignature || node.Kind === KindEnumMember || node.Kind === KindVariableDeclaration;
         case "indexer":
             return node.Kind === KindIndexSignature;
+    }
+}
+function getProviderMemberCandidateNodes(exportDeclaration) {
+    if (exportDeclaration === undefined) {
+        return [];
+    }
+    if (exportDeclaration.Kind !== KindModuleDeclaration) {
+        return Node_Members(exportDeclaration) ?? [];
+    }
+    const candidates = [];
+    collectProviderNamespaceMemberCandidateNodes(Node_Body(exportDeclaration), candidates);
+    return candidates;
+}
+function collectProviderNamespaceMemberCandidateNodes(node, candidates) {
+    if (node === undefined) {
+        return;
+    }
+    switch (node.Kind) {
+        case KindFunctionDeclaration:
+        case KindVariableDeclaration:
+            candidates.push(node);
+            return;
+        default:
+            Node_ForEachChild(node, (child) => {
+                collectProviderNamespaceMemberCandidateNodes(child, candidates);
+                return false;
+            });
     }
 }
 function recordProviderVirtualSignatureFacts(extensionHost, symbol, virtualModule, declaration, signatures, evidence, member) {
