@@ -554,8 +554,8 @@ test("source-core records structural, attribute, and default facts from aliases 
   assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add", 2)), undefined);
 });
 
-test("source-core attaches no intrinsic facts through unsupported local barrel re-exports", () => {
-  const { session, sourceFile } = createCleanSourceCoreSession(`
+test("source-core rejects unsupported local barrel re-exports without attaching intrinsic facts", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
     import { out, ref, inref, borrow, borrowMut, move, struct, field, attribute, defaultof } from "./barrel.js";
     import type { ptr, fnptr } from "./barrel.js";
     import type { bool, int32 } from "@tsonic/core/types.js";
@@ -584,6 +584,11 @@ test("source-core attaches no intrinsic facts through unsupported local barrel r
     ].join("\n"),
   });
 
+  session.ensureBound();
+  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+  ]);
+
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "out")), undefined);
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "ref")), undefined);
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "inref")), undefined);
@@ -599,6 +604,32 @@ test("source-core attaches no intrinsic facts through unsupported local barrel r
   assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add")), undefined);
   assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
   assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
+});
+
+test("source-core rejects unsupported export-star barrels for portable lang intrinsics", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    export * from "@tsonic/core/lang.js";
+  `);
+
+  const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
+  assert.deepEqual(diagnostics.map(diagnosticCode), [9901110]);
+  session.ensureBound();
+  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+  ]);
+});
+
+test("source-core rejects unsupported type-only barrels for portable type markers", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    export type { ptr, fnptr } from "@tsonic/core/lang.js";
+  `);
+
+  const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
+  assert.deepEqual(diagnostics.map(diagnosticCode), [9901110]);
+  session.ensureBound();
+  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+  ]);
 });
 
 test("source-core reports missing explicit type evidence for target-neutral marker facts", () => {

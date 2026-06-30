@@ -51,26 +51,73 @@ test("CLI consumes TSTS source meaning for narrowing, contextual typing, generic
     "  return value;",
     "}",
     "",
+    "function choose(value: \"left\"): \"L\";",
+    "function choose(value: \"right\"): \"R\";",
+    "function choose(value: \"left\" | \"right\"): \"L\" | \"R\" {",
+    "  if (value === \"left\") {",
+    "    return \"L\";",
+    "  }",
+    "  return \"R\";",
+    "}",
+    "",
     "export function describe(kind: \"left\" | \"right\"): string {",
     "  const rounded: number = 2;",
     "  if (kind === \"left\") {",
     "    const transform: (input: \"left\") => string = (input) => `L:${input}:${rounded}`;",
     "    const selected = transform(kind);",
-    "    return selected;",
+    "    return `${selected}:${choose(kind)}`;",
     "  }",
     "  return \"R\";",
+    "}",
+    "",
+    "export function present(value: string | null): string {",
+    "  if (value === null) {",
+    "    return \"none\";",
+    "  }",
+    "  return value;",
+    "}",
+    "",
+    "export function formatWithContext(value: number): string {",
+    "  const format: (input: number, label: string) => string = (input, label) => `${label}:${id(input)}`;",
+    "  return format(value, \"value\");",
     "}",
     "",
   ]);
 
   assert.match(generatedSource, /public static T id<T>\(T value\)/);
+  assert.match(generatedSource, /public static string choose\(string value\)/);
   assert.match(generatedSource, /public static string describe\(string kind\)/);
   assert.match(generatedSource, /double rounded = 2;/);
   assert.match(generatedSource, /if \(kind == "left"\)/);
   assert.match(generatedSource, /Func<string, string> transform = \(string input\) => \$"L:\{input\}:\{rounded\}";/);
   assert.match(generatedSource, /string selected = transform\(kind\);/);
+  assert.match(generatedSource, /return \$"\{selected\}:\{choose\(kind\)\}";/);
   assert.match(generatedSource, /return "R";/);
+  assert.match(generatedSource, /public static string present\(string\? value\)/);
+  assert.match(generatedSource, /return value;/);
+  assert.match(generatedSource, /Func<double, string, string> format = \(double input, string label\) => \$"\{label\}:\{id\(input\)\}";/);
+  assert.match(generatedSource, /return format\(value, "value"\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  await assertRejected("tsts-flow-narrowing-negative", "SmokeGeneratedTstsFlowNarrowingNegative", [
+    "function requireText(value: string): string {",
+    "  return value;",
+    "}",
+    "",
+    "export function value(input: string | null): string {",
+    "  if (input === null) {",
+    "    return requireText(input);",
+    "  }",
+    "  return input;",
+    "}",
+    "",
+  ], /TS2345: Argument of type 'null' is not assignable to parameter of type 'string'/);
+
+  await assertRejected("tsts-contextual-typing-negative", "SmokeGeneratedTstsContextualTypingNegative", [
+    "const bad: (value: number) => string = (value) => value;",
+    "export function value(input: number): string { return bad(input); }",
+    "",
+  ], /TS2322: Type 'number' is not assignable to type 'string'/);
 
   await assertRejected("tsts-source-meaning-negative", "SmokeGeneratedTstsSourceMeaningNegative", [
     "function choose(value: \"left\"): \"L\";",
@@ -107,6 +154,7 @@ test("CLI consumes TSTS template literal type results and rejects incompatible l
   const { generatedSource } = await assertBuilds("template-literal-type-positive", "SmokeGeneratedTemplateLiteralTypes", [
     "type EventKind = \"created\" | \"deleted\";",
     "type EventName<T extends string> = `user:${T}`;",
+    "type UpperEventName<T extends string> = `USER:${Uppercase<T>}`;",
     "",
     "export function eventName(kind: EventKind): EventName<EventKind> {",
     "  if (kind === \"created\") {",
@@ -115,12 +163,19 @@ test("CLI consumes TSTS template literal type results and rejects incompatible l
     "  return \"user:deleted\";",
     "}",
     "",
+    "export function upperName(): UpperEventName<\"created\"> {",
+    "  return \"USER:CREATED\";",
+    "}",
+    "",
   ]);
 
   assert.match(generatedSource, /public static string eventName\(string kind\)/);
+  assert.match(generatedSource, /public static string upperName\(\)/);
   assert.match(generatedSource, /return "user:created";/);
   assert.match(generatedSource, /return "user:deleted";/);
+  assert.match(generatedSource, /return "USER:CREATED";/);
   assert.doesNotMatch(generatedSource, /EventName/);
+  assert.doesNotMatch(generatedSource, /UpperEventName|Uppercase/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   await assertRejected("template-literal-type-negative", "SmokeGeneratedTemplateLiteralTypesNegative", [
@@ -130,6 +185,13 @@ test("CLI consumes TSTS template literal type results and rejects incompatible l
     "export function value(): string { return bad; }",
     "",
   ], /TS2322: Type '\"user:archived\"' is not assignable to type/);
+
+  await assertRejected("template-literal-intrinsic-negative", "SmokeGeneratedTemplateLiteralIntrinsicNegative", [
+    "type UpperEventName<T extends string> = `USER:${Uppercase<T>}`;",
+    "const bad: UpperEventName<\"created\"> = \"USER:created\";",
+    "export function value(): string { return bad; }",
+    "",
+  ], /TS2322: Type '\"USER:created\"' is not assignable to type/);
 });
 
 test("CLI consumes TSTS variadic tuple type results and rejects incompatible tuple arity", async () => {
@@ -184,6 +246,12 @@ test("CLI lets TSTS validate satisfies and erases it from target emission", asyn
     "export function value(): string { return bad; }",
     "",
   ], /TS1360: Type 'string' does not satisfy the expected type 'number'/);
+
+  await assertRejected("satisfies-object-freshness-negative", "SmokeGeneratedSatisfiesObjectFreshnessNegative", [
+    "const bad = { name: \"value\", extra: 1 } satisfies { name: string };",
+    "export function value(): string { return bad.name; }",
+    "",
+  ], /TS2353: Object literal may only specify known properties, and 'extra' does not exist in type '\{ name: string; \}'/);
 });
 
 test("CLI consumes TSTS as-const literal readonly results and rejects readonly writes", async () => {
@@ -207,6 +275,13 @@ test("CLI consumes TSTS as-const literal readonly results and rejects readonly w
     "export function value(): string { return row[0]; }",
     "",
   ], /TS2540: Cannot assign to '0' because it is a read-only property/);
+
+  await assertRejected("as-const-nested-negative", "SmokeGeneratedAsConstNestedNegative", [
+    "const config = { mode: \"ready\", nested: { count: 7 } } as const;",
+    "config.nested.count = 8;",
+    "export function value(): number { return config.nested.count; }",
+    "",
+  ], /TS2540: Cannot assign to 'count' because it is a read-only property/);
 });
 
 test("CLI consumes TSTS utility, conditional, infer, keyof, indexed-access, and mapped type results", async () => {
@@ -279,14 +354,31 @@ test("CLI consumes TSTS utility, conditional, infer, keyof, indexed-access, and 
 
 test("CLI consumes TSTS non-null assertion results without backend nullability inference", async () => {
   const { generatedSource } = await assertBuilds("non-null-assertion-positive", "SmokeGeneratedNonNullAssertion", [
+    "export class Box {",
+    "  name: string = \"\";",
+    "}",
+    "",
     "export function unwrap(value: string | null): string {",
     "  return value!;",
+    "}",
+    "",
+    "export function readName(value: Box | null): string {",
+    "  return value!.name;",
+    "}",
+    "",
+    "export function invoke(value: (() => string) | null): string {",
+    "  return value!();",
     "}",
     "",
   ]);
 
   assert.match(generatedSource, /public static string unwrap\(string\? value\)/);
   assert.match(generatedSource, /return value;/);
+  assert.match(generatedSource, /public class Box/);
+  assert.match(generatedSource, /public static string readName\(Box\? value\)/);
+  assert.match(generatedSource, /return value\.name;/);
+  assert.match(generatedSource, /public static string invoke\(Func<string>\? value\)/);
+  assert.match(generatedSource, /return value\(\);/);
   assert.doesNotMatch(generatedSource, /!/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
