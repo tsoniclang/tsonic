@@ -209,6 +209,32 @@ test("CLI consumes expanded TSTS source meaning across flow, contextual callback
     "export function value(): string { return bad; }",
     "",
   ], /TS2322: Type 'number' is not assignable to type 'string'/);
+
+  const invalidSourceDiagnostics = await assertRejected("tsts-invalid-narrowing-no-target-fallout", "SmokeGeneratedTstsInvalidNarrowingNoTargetFallout", [
+    "class BaseValue {",
+    "  name: string;",
+    "  constructor(name: string) {",
+    "    this.name = name;",
+    "  }",
+    "}",
+    "",
+    "class DerivedValue extends BaseValue {",
+    "  score: number;",
+    "  constructor(name: string, score: number) {",
+    "    super(name);",
+    "    this.score = score;",
+    "  }",
+    "}",
+    "",
+    "export function readBase(value: BaseValue | null): number {",
+    "  if (value === null) {",
+    "    return 0;",
+    "  }",
+    "  return value.score;",
+    "}",
+    "",
+  ], /TS2339: Property 'score' does not exist on type 'BaseValue'/);
+  assert.doesNotMatch(invalidSourceDiagnostics, /CSHARP_|tsonic\.csharp/);
 });
 
 test("CLI consumes TSTS template literal type results and rejects incompatible literals", async () => {
