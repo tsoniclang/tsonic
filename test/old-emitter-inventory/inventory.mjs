@@ -858,6 +858,36 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "type.variadic-tuple",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/conditional/ConditionalTypes"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "type.conditional",
+    "type.infer",
+    "type.template-literal",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/mapped/MappedTypes"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "type.indexed-access",
+    "type.keyof",
+    "type.mapped",
+    "type.template-literal",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/utility-types/UtilityTypes"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "type.indexed-access",
+    "type.keyof",
+    "type.satisfies",
+    "type.template-literal",
+    "type.utility",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
     sourceCase("edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter"),
   ], [
     "backend.ast.only",

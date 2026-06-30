@@ -565,6 +565,16 @@ const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
     "expression.literal.bigint-regex-template",
   ]),
   ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/validator-cases/utility-types.test.ts",
+  ], [
+    "type.as-const",
+    "type.indexed-access",
+    "type.keyof",
+    "type.satisfies",
+    "type.template-literal",
+    "type.utility",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
     "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
   ], [
     "source-core.lang.portable-intrinsics",
