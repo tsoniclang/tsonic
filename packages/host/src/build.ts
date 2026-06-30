@@ -2,6 +2,7 @@ import type {
   TargetCompileResult,
   TargetDiagnostic,
   TargetPack,
+  TargetProviderPackageImplementation,
   TargetRegistry,
   TargetSelection,
   TargetSurfaceImplementation,
@@ -15,7 +16,7 @@ import {
 } from "./compiler-session.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
-import { getMissingTargetProviderMessage, selectTargetSurfaceImplementations } from "./target/extensions.js";
+import { getMissingTargetProviderMessage, selectTargetProviderPackageImplementations, selectTargetSurfaceImplementations } from "./target/extensions.js";
 
 export interface CompileProjectInput {
   readonly project: TsonicProjectConfig;
@@ -37,6 +38,7 @@ export interface ProjectBuildResult {
 interface TargetBuildPlan {
   readonly target: TargetSelection;
   readonly targetPack?: TargetPack;
+  readonly selectedPackages?: readonly TargetProviderPackageImplementation[];
   readonly selectedSurfaces?: readonly TargetSurfaceImplementation[];
   readonly diagnostics: readonly TargetDiagnostic[];
 }
@@ -52,17 +54,22 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       buildPlans.push({ target, diagnostics: [targetPack] });
       continue;
     }
+    const selectedPackages = getTargetSelectedProviderPackages(targetPack, target);
+    if (isTargetDiagnostic(selectedPackages)) {
+      buildPlans.push({ target, targetPack, diagnostics: [selectedPackages] });
+      continue;
+    }
     const selectedSurfaces = getTargetSelectedSurfaces(targetPack, target);
     if (isTargetDiagnostic(selectedSurfaces)) {
-      buildPlans.push({ target, targetPack, diagnostics: [selectedSurfaces] });
+      buildPlans.push({ target, targetPack, selectedPackages, diagnostics: [selectedSurfaces] });
       continue;
     }
     const providerDiagnostic = getTargetProviderDiagnostic(targetPack, target);
     if (providerDiagnostic !== undefined) {
-      buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [providerDiagnostic] });
+      buildPlans.push({ target, targetPack, selectedPackages, selectedSurfaces, diagnostics: [providerDiagnostic] });
       continue;
     }
-    buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [] });
+    buildPlans.push({ target, targetPack, selectedPackages, selectedSurfaces, diagnostics: [] });
   }
   if (buildPlans.every((plan) => hasBlockingDiagnostics(plan.diagnostics))) {
     pushDiagnosticOnlyTargets(buildPlans, targets, diagnostics);
@@ -72,12 +79,12 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     };
   }
   const created = createProgramOptionsForProject(input);
-  for (const { target, targetPack, selectedSurfaces, diagnostics: planDiagnostics } of buildPlans) {
+  for (const { target, targetPack, selectedPackages, selectedSurfaces, diagnostics: planDiagnostics } of buildPlans) {
     if (hasBlockingDiagnostics(planDiagnostics)) {
       pushDiagnosticOnlyTarget(targets, diagnostics, target, planDiagnostics);
       continue;
     }
-    if (targetPack === undefined || selectedSurfaces === undefined) {
+    if (targetPack === undefined || selectedPackages === undefined || selectedSurfaces === undefined) {
       throw new Error(`Target '${target.id}' build planning produced no provider-backed target pack.`);
     }
     const session = createTsonicSemanticSession({
@@ -85,6 +92,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       project: input.project,
       target,
       targetPack,
+      selectedPackages,
       selectedSurfaces,
     });
     const tstsDiagnostics = collectTstsDiagnostics(session, paths.projectRoot);
@@ -105,6 +113,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       project: input.project,
       target,
       targetPack,
+      selectedPackages,
       selectedSurfaces,
       paths: targetPaths,
     });
@@ -193,6 +202,22 @@ function getTargetSelectedSurfaces(
     };
   }
   return result.selectedSurfaces;
+}
+
+function getTargetSelectedProviderPackages(
+  targetPack: TargetPack,
+  target: TargetSelection,
+): readonly TargetProviderPackageImplementation[] | TargetDiagnostic {
+  const result = selectTargetProviderPackageImplementations(targetPack, target);
+  if ("error" in result) {
+    return {
+      code: "TARGET_PROVIDER_PACKAGE_SELECTION",
+      category: "error",
+      message: result.error,
+      source: targetPack.id,
+    };
+  }
+  return result.selectedPackages;
 }
 
 function getTargetProviderDiagnostic(

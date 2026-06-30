@@ -79,6 +79,42 @@ test("host passes selected surfaces to the single target provider", () => {
   assert.equal(composition.extensions[1], targetExtension);
 });
 
+test("host composes selected provider packages between target provider and surfaces", () => {
+  const events = [];
+  const targetExtension = { name: "target" };
+  const acmeExtension = { name: "package-acme" };
+  const helpersExtension = { name: "package-helpers" };
+  const jsExtension = { name: "surface-js" };
+  const targetPack = createFakeTargetPack(events, {
+    targetExtension,
+    packages: [
+      createFakeProviderPackage("acme", { events, extension: acmeExtension }),
+      createFakeProviderPackage("helpers", { events, requiredPackages: ["acme"], extension: helpersExtension }),
+      createFakeProviderPackage("unused", { events, extension: { name: "unused" } }),
+    ],
+    surfaces: [
+      createFakeSurface("js", { events, extension: jsExtension }),
+    ],
+  });
+  const project = parseTsonicProjectConfig({
+    entryPoint: "index.ts",
+    targets: [{ id: "demo", packages: ["acme", "helpers"], surfaces: ["js"] }],
+  });
+  const target = project.targets[0];
+
+  const composition = createTargetCompilerExtensions({ project, target, targetPack });
+
+  assert.deepEqual(composition.selectedPackages.map((providerPackage) => providerPackage.id), ["acme", "helpers"]);
+  assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js"]);
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=js",
+    "package-extension:acme:target=demo:packages=acme,helpers",
+    "package-extension:helpers:target=demo:packages=acme,helpers",
+    "surface-extension:js:target=demo:surfaces=js",
+  ]);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target", "package-acme", "package-helpers", "surface-js"]);
+});
+
 test("host composes target provider extensions before selected surface extensions", () => {
   const events = [];
   const targetExtension = { name: "target" };
@@ -259,6 +295,49 @@ test("host reports missing target provider as target diagnostic", async () => {
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
 });
 
+test("host reports unknown requested provider package as target diagnostic", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeProviderPackage("acme", { events }),
+    ],
+  });
+
+  const result = await compileFakeProject("unknown-provider-package", targetPack, {
+    id: "demo",
+    packages: ["not-real"],
+  });
+
+  assert.equal(result.diagnostics.length, 1);
+  assert.deepEqual(events, []);
+  assert.equal(result.diagnostics[0].code, "TARGET_PROVIDER_PACKAGE_SELECTION");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "target 'demo' does not implement requested provider package 'not-real'");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
+test("host reports missing selected provider package dependency as target diagnostic", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeProviderPackage("acme", { events }),
+      createFakeProviderPackage("helpers", { events, requiredPackages: ["acme"] }),
+    ],
+  });
+
+  const result = await compileFakeProject("missing-provider-package-dependency", targetPack, {
+    id: "demo",
+    packages: ["helpers"],
+  });
+
+  assert.deepEqual(events, []);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "TARGET_PROVIDER_PACKAGE_SELECTION");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "target 'demo' provider package 'helpers' requires provider package 'acme'");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
 test("host reports missing selected surface dependency as target diagnostic", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
@@ -296,9 +375,23 @@ test("host rejects unsafe configured target and surface identifiers", () => {
     }),
     /Target 'csharp' surface '\.\.\/nodejs' must match/,
   );
+  assert.throws(
+    () => parseTsonicProjectConfig({
+      entryPoint: "index.ts",
+      targets: [{ id: "csharp", packages: ["../native"] }],
+    }),
+    /Target 'csharp' package '\.\.\/native' must match/,
+  );
+  assert.throws(
+    () => parseTsonicProjectConfig({
+      entryPoint: "index.ts",
+      targets: [{ id: "csharp", packages: ["native", "native"] }],
+    }),
+    /Target 'csharp' package 'native' is declared more than once/,
+  );
 });
 
-test("target registry rejects unsafe pack and required surface identifiers", () => {
+test("target registry rejects unsafe pack, provider package, and required surface identifiers", () => {
   assert.throws(
     () => createTargetRegistry([
       createFakeTargetPack([], { id: "../csharp" }),
@@ -314,6 +407,26 @@ test("target registry rejects unsafe pack and required surface identifiers", () 
       }),
     ]),
     /required surface id '\.\.\/js' must match/,
+  );
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], {
+        packages: [
+          createFakeProviderPackage("../native"),
+        ],
+      }),
+    ]),
+    /provider package id '\.\.\/native' must match/,
+  );
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], {
+        packages: [
+          createFakeProviderPackage("native", { requiredPackages: ["../core"] }),
+        ],
+      }),
+    ]),
+    /required package id '\.\.\/core' must match/,
   );
 });
 
@@ -402,6 +515,66 @@ test("host composes provider, selected surface, and backend artifacts for toolch
   assert.ok(events.indexOf("provider-runtime:demo") < events.indexOf("backend:demo"));
   assert.ok(events.indexOf("surface-runtime:js") < events.indexOf("backend:demo"));
   assert.ok(events.indexOf("backend:demo") < events.indexOf("toolchain:demo:artifacts=runtime/provider.txt,runtime/js.txt,src/App.demo"));
+});
+
+test("host composes selected provider package runtime artifacts before surfaces and backend", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerArtifacts: [
+      createFakeArtifact("asset", "runtime/provider.txt", "provider"),
+    ],
+    packages: [
+      createFakeProviderPackage("acme", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/acme.txt", "acme"),
+        ],
+        references: [
+          createFakeReference("project", "../acme/Acme.csproj"),
+        ],
+      }),
+      createFakeProviderPackage("unused", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/unused.txt", "unused"),
+        ],
+      }),
+    ],
+    backendArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "backend"),
+    ],
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/js.txt", "js"),
+        ],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("provider-package-runtime-artifact-composition", targetPack, {
+    id: "demo",
+    packages: ["acme"],
+    surfaces: ["js"],
+  });
+
+  assert.deepEqual(result.targets[0].compileResult.artifacts.map((artifact) => artifact.path), [
+    "runtime/provider.txt",
+    "runtime/acme.txt",
+    "runtime/js.txt",
+    "src/App.demo",
+  ]);
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=js",
+    "package-extension:acme:target=demo:packages=acme",
+    "provider-runtime:demo",
+    "package-runtime:acme",
+    "surface-runtime:js",
+    "backend:demo",
+    "toolchain:demo:artifacts=runtime/provider.txt,runtime/acme.txt,runtime/js.txt,src/App.demo",
+  ]);
+  assert.equal(events.includes("package-runtime:unused"), false);
 });
 
 test("host omits surface runtime artifacts when no surface is selected", async () => {
@@ -872,6 +1045,7 @@ function createFakeTargetPack(events, options = {}) {
             },
           },
         }),
+    packages: options.packages ?? [],
     surfaces: options.surfaces ?? [],
     createBackend() {
       return {
@@ -895,6 +1069,26 @@ function createFakeTargetPack(events, options = {}) {
             producedArtifacts: [],
           };
         },
+      };
+    },
+  };
+}
+
+function createFakeProviderPackage(id, options = {}) {
+  return {
+    id,
+    displayName: `${id} Provider Package`,
+    ...((options.requiredPackages ?? []).length > 0 ? { requiredPackages: options.requiredPackages } : {}),
+    createExtensions(context) {
+      options.events?.push(`package-extension:${id}:target=${context.target.id}:packages=${context.selectedPackages.map((providerPackage) => providerPackage.id).join(",")}`);
+      assert.equal(context.package.id, id);
+      return options.extension === undefined ? [] : [options.extension];
+    },
+    runtimeContributions() {
+      options.events?.push(`package-runtime:${id}`);
+      return {
+        artifacts: options.artifacts ?? [],
+        references: options.references ?? [],
       };
     },
   };

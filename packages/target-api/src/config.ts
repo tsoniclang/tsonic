@@ -2,6 +2,8 @@ export type TargetId = string;
 
 export type TargetSurfaceId = string;
 
+export type TargetProviderPackageId = string;
+
 export type TargetTypescriptCompatibilityMode = "strict-native" | "compat";
 
 export interface TargetSelectionOptions extends Readonly<Record<string, unknown>> {
@@ -11,6 +13,7 @@ export interface TargetSelectionOptions extends Readonly<Record<string, unknown>
 export interface TargetSelection {
   readonly id: TargetId;
   readonly surfaces?: readonly TargetSurfaceId[];
+  readonly packages?: readonly TargetProviderPackageId[];
   readonly options?: TargetSelectionOptions;
 }
 
@@ -28,6 +31,10 @@ export function isValidTargetId(value: string): value is TargetId {
 }
 
 export function isValidTargetSurfaceId(value: string): value is TargetSurfaceId {
+  return targetIdPattern.test(value);
+}
+
+export function isValidTargetProviderPackageId(value: string): value is TargetProviderPackageId {
   return targetIdPattern.test(value);
 }
 

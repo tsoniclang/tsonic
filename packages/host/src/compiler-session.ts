@@ -18,6 +18,7 @@ import type {
   TargetCompileResult,
   TargetCompilationPaths,
   TargetPack,
+  TargetProviderPackageImplementation,
   TargetRuntimeReference,
   TargetSelection,
   TargetSurfaceImplementation,
@@ -63,6 +64,7 @@ export interface CreateTsonicSemanticSessionOptions {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
+  readonly selectedPackages?: readonly TargetProviderPackageImplementation[];
   readonly selectedSurfaces?: readonly TargetSurfaceImplementation[];
 }
 
