@@ -555,11 +555,11 @@ const baseCapabilityDefinitions = Object.freeze([
   ["type.as-const", "as const preserves literal and readonly facts", "partial", "tsts-api"],
   ["type.assertion", "Type assertions consume TSTS type facts and target casts", "complete", "tsts-api"],
   ["type.non-null-assertion", "Non-null assertions consume TSTS nullable facts", "partial", "tsts-api"],
-  ["type.generic.provider-target-arguments", "Map TSTS-inferred type arguments to target type arguments", "complete", "target-provider"],
+  ["type.generic.provider-target-arguments", "Map TSTS-inferred type arguments to target type arguments", "partial", "target-provider"],
   ["type.generic.provider-target-constraints", "Validate provider target generic constraints", "complete", "target-provider"],
 
   ["operation.call.provider-selected-method", "Provider-owned calls emit from selected signature facts", "complete", "target-provider"],
-  ["operation.call.provider-argument-conversion", "Provider-owned calls record target argument conversion facts", "complete", "target-provider"],
+  ["operation.call.provider-argument-conversion", "Provider-owned calls record target argument conversion facts", "partial", "target-provider"],
   ["operation.call.provider-parameter-mode", "Provider-owned calls record parameter mode facts", "partial", "target-provider"],
   ...slice4ProviderCallContractRows.map((row) => [row.capabilityId, row.title, "complete", row.capabilityId.startsWith("function.") ? "target-provider" : "target-provider"]),
   ["operation.construct.provider-selected-constructor", "Provider-owned constructors emit from selected constructor facts", "complete", "target-provider"],
@@ -569,46 +569,46 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.member.provider-indexer", "Member indexers map through selected provider declarations", "complete", "target-provider"],
   ["operation.member.no-name-guess", "Target member mapping cannot guess from source spelling", "complete", "target-provider"],
   ["operation.element.provider-indexer", "Element access emits from selected indexer or carrier facts", "complete", "target-provider"],
-  ["operation.operator.checked-target-operation", "Operators emit from checked target operation facts", "complete", "target-provider"],
+  ["operation.operator.checked-target-operation", "Operators emit from checked target operation facts", "partial", "target-provider"],
   ["operation.conversion.checked-target-conversion", "Target conversions are explicit facts", "complete", "target-provider"],
   ["operation.iteration.for-of.sync", "for-of emits only with sync iteration facts", "complete", "target-provider"],
   ["operation.iteration.for-in.keys", "for-in emits only with key enumeration facts", "complete", "target-provider"],
   ["operation.iteration.provider-target", "Iteration maps to provider target iteration facts", "complete", "target-provider"],
-  ["operation.array.literal", "Array literals choose target carrier from facts", "complete", "target-provider"],
-  ["operation.spread.array", "Array spread emits from iterable/spread facts", "complete", "target-provider"],
+  ["operation.array.literal", "Array literals choose target carrier from facts", "partial", "target-provider"],
+  ["operation.spread.array", "Array spread emits from iterable/spread facts", "partial", "target-provider"],
   ["operation.spread.object", "Object spread emits from object-shape facts", "partial", "target-provider"],
   ["operation.spread.provider-target-copy", "Spread emits via provider target copy facts", "partial", "target-provider"],
-  ["operation.destructure.array-object", "Binding patterns emit from extraction facts", "complete", "target-provider"],
-  ["operation.await.promise-task", "await and async functions emit from promise/task facts", "complete", "target-provider"],
+  ["operation.destructure.array-object", "Binding patterns emit from extraction facts", "partial", "target-provider"],
+  ["operation.await.promise-task", "await and async functions emit from promise/task facts", "partial", "target-provider"],
   ["operation.throw.catch", "throw/catch/finally use target exception facts", "partial", "target-provider"],
 
   ["expression.literal.string-number-boolean", "String, number, and boolean literals emit target literals", "complete", "csharp-backend"],
-  ["expression.literal.null-undefined", "null and undefined literals emit target carriers", "complete", "csharp-backend"],
-  ["expression.literal.bigint-regex-template", "bigint, regex, and template literals use target facts", "complete", "target-provider"],
+  ["expression.literal.null-undefined", "null and undefined literals emit target carriers", "partial", "csharp-backend"],
+  ["expression.literal.bigint-regex-template", "bigint, regex, and template literals use target facts", "partial", "target-provider"],
   ["expression.object-literal", "Object literal expressions map to target shape facts", "partial", "target-provider"],
-  ["expression.array-literal", "Array literal expressions map to target array facts", "complete", "target-provider"],
+  ["expression.array-literal", "Array literal expressions map to target array facts", "partial", "target-provider"],
   ["expression.call", "Call expressions consume TSTS signature and provider facts", "partial", "target-provider"],
   ["expression.new", "new expressions consume TSTS construct signature and provider facts", "partial", "target-provider"],
-  ["expression.property-access", "Property access consumes TSTS member and provider facts", "complete", "target-provider"],
-  ["expression.element-access", "Element access consumes TSTS element and provider facts", "complete", "target-provider"],
+  ["expression.property-access", "Property access consumes TSTS member and provider facts", "partial", "target-provider"],
+  ["expression.element-access", "Element access consumes TSTS element and provider facts", "partial", "target-provider"],
   ["expression.operator", "Operators consume TSTS type facts and provider operation facts", "partial", "target-provider"],
   ["expression.conditional", "Conditional expressions consume TSTS expected types", "partial", "tsts-api"],
-  ["expression.nullish-optional", "Nullish and optional operations consume nullable facts", "complete", "target-provider"],
-  ["expression.assignment", "Assignments consume TSTS assignment result and target validation facts", "complete", "target-provider"],
+  ["expression.nullish-optional", "Nullish and optional operations consume nullable facts", "partial", "target-provider"],
+  ["expression.assignment", "Assignments consume TSTS assignment result and target validation facts", "partial", "target-provider"],
   ["expression.lambda", "Lambdas consume TSTS contextual signatures", "complete", "tsts-api"],
 
   ["statement.block-scope", "Blocks and nested scopes preserve binding identity", "complete", "tsts-api"],
   ["statement.if-else", "if/else emits from source AST and TSTS flow facts", "complete", "tsts-api"],
-  ["statement.switch", "switch emits grouped cases and defaults", "complete", "csharp-backend"],
-  ["statement.loop", "for, while, do, for-of, and for-in emit target loops", "complete", "target-provider"],
-  ["statement.control-transfer", "break, continue, and labels emit target control flow", "complete", "csharp-backend"],
+  ["statement.switch", "switch emits grouped cases and defaults", "partial", "csharp-backend"],
+  ["statement.loop", "for, while, do, for-of, and for-in emit target loops", "partial", "target-provider"],
+  ["statement.control-transfer", "break, continue, and labels emit target control flow", "partial", "csharp-backend"],
   ["statement.return", "return emits with TSTS return type and target conversion facts", "complete", "target-provider"],
   ["statement.throw-catch-finally", "throw, catch, and finally emit target exception flow", "partial", "target-provider"],
-  ["statement.top-level", "Top-level statements emit deterministic entry/module init", "complete", "csharp-backend"],
+  ["statement.top-level", "Top-level statements emit deterministic entry/module init", "partial", "csharp-backend"],
 
-  ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "complete", "target-provider"],
+  ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "partial", "target-provider"],
   ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "partial", "target-provider"],
-  ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "complete", "target-provider"],
+  ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "partial", "target-provider"],
   ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "partial", "target-provider"],
   ["binding.object-shape", "Object-shape destructuring consumes generated shape facts", "partial", "target-provider"],
 
@@ -619,7 +619,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["function.higher-order", "Higher-order functions use delegate/function carriers", "complete", "csharp-backend"],
   ["function.delegate-carrier", "Delegate carriers are selected by target facts", "complete", "target-provider"],
   ["function.this-binding", "this binding follows TSTS source decisions and target facts", "partial", "tsts-api"],
-  ["function.async", "Async functions map Promise to target task facts", "complete", "target-provider"],
+  ["function.async", "Async functions map Promise to target task facts", "partial", "target-provider"],
 
   ["declaration.function", "Function declarations render from AST and TSTS facts", "complete", "csharp-backend"],
   ["declaration.class", "Classes render constructors, fields, methods, and static members", "partial", "csharp-backend"],
@@ -642,14 +642,14 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["carrier.primitive", "Primitive carriers come from source/target facts", "partial", "target-provider"],
   ["carrier.array", "Array carriers provide length, index, iteration, and conversion facts", "partial", "target-provider"],
-  ["carrier.array.public-abi-policy", "Source T[] remains TS Array<T>; public target ABI uses fact-backed IEnumerable/IReadOnlyList/List/native-array/compat lanes without leaking JSArray by default", "complete", "target-provider"],
+  ["carrier.array.public-abi-policy", "Source T[] remains TS Array<T>; public target ABI uses fact-backed IEnumerable/IReadOnlyList/List/native-array/compat lanes without leaking JSArray by default", "partial", "target-provider"],
   ["carrier.tuple", "Tuple carriers provide arity and element facts", "partial", "target-provider"],
   ["carrier.object-shape", "Object-shape carriers are deterministic and fact-backed", "partial", "target-provider"],
   ["carrier.dictionary-record", "Record and index-signature carriers are fact-backed", "partial", "target-provider"],
   ["carrier.union", "Runtime unions exist only when facts require them", "partial", "target-provider"],
-  ["carrier.null-undefined", "Null and undefined are represented consistently by target mode", "complete", "target-provider"],
+  ["carrier.null-undefined", "Null and undefined are represented consistently by target mode", "partial", "target-provider"],
   ["carrier.function-delegate", "Function values and callbacks use fact-backed delegate carriers", "complete", "target-provider"],
-  ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "complete", "target-provider"],
+  ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "partial", "target-provider"],
 
   ["surface.js.console", "JS console operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.console-log", "console.log uses selected JS surface facts", "complete", "surface-provider"],
@@ -674,68 +674,68 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
   ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "partial", "surface-provider"],
 
-  ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "complete", "target-provider"],
-  ["compat.mode.compat", "Compatibility mode enables explicit compat-runtime carriers", "complete", "target-provider"],
-  ["compat.any.property", "any property operations use compat-runtime carrier facts", "complete", "target-provider"],
-  ["compat.any.dynamic-get", "any property reads use explicit compat-runtime carrier facts", "complete", "target-provider"],
-  ["compat.any.dynamic-set", "any property writes use explicit compat-runtime carrier facts", "complete", "target-provider"],
-  ["compat.any.call-construct", "any call/new use compat-runtime carrier facts", "complete", "target-provider"],
+  ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "partial", "target-provider"],
+  ["compat.mode.compat", "Compatibility mode enables explicit compat-runtime carriers", "partial", "target-provider"],
+  ["compat.any.property", "any property operations use compat-runtime carrier facts", "partial", "target-provider"],
+  ["compat.any.dynamic-get", "any property reads use explicit compat-runtime carrier facts", "partial", "target-provider"],
+  ["compat.any.dynamic-set", "any property writes use explicit compat-runtime carrier facts", "partial", "target-provider"],
+  ["compat.any.call-construct", "any call/new use compat-runtime carrier facts", "partial", "target-provider"],
   ["compat.any.dynamic-call", "any calls use explicit compat-runtime carrier facts", "partial", "target-provider"],
   ["compat.any.operators", "any operators use compat-runtime carrier facts", "partial", "target-provider"],
-  ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "complete", "target-provider"],
-  ["compat.object.no-dynamic-access", "object is not treated like any", "complete", "target-provider"],
-  ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "complete", "target-provider"],
-  ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "complete", "target-provider"],
-  ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "complete", "target-provider"],
+  ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "partial", "target-provider"],
+  ["compat.object.no-dynamic-access", "object is not treated like any", "partial", "target-provider"],
+  ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "partial", "target-provider"],
+  ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "partial", "target-provider"],
+  ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "partial", "target-provider"],
   ["runtime.union.carrier", "Union carrier is explicit runtime capability", "partial", "target-provider"],
   ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "partial", "target-provider"],
-  ["runtime.dynamic.carrier", "TypeScript any compat-runtime carrier is explicit runtime capability", "complete", "target-provider"],
+  ["runtime.dynamic.carrier", "TypeScript any compat-runtime carrier is explicit runtime capability", "partial", "target-provider"],
 
   ["backend.ast.only", "Backend constructs target AST only", "partial", "csharp-backend"],
-  ["backend.no-semantic-strings", "Semantic output is never direct strings", "complete", "csharp-backend"],
-  ["backend.fail-closed-facts", "Missing backend-required facts are diagnostics", "complete", "csharp-backend"],
+  ["backend.no-semantic-strings", "Semantic output is never direct strings", "partial", "csharp-backend"],
+  ["backend.fail-closed-facts", "Missing backend-required facts are diagnostics", "partial", "csharp-backend"],
   ["backend.project-source-declarations", "Project declarations emit from TSTS AST and facts", "partial", "csharp-backend"],
   ["backend.generated-declarations", "Generated declarations are deterministic", "partial", "csharp-backend"],
   ["backend.diagnostics", "Backend diagnostics identify missing facts and capabilities", "partial", "csharp-backend"],
-  ["backend.csharp.ast-expression", "C# expressions are Roslyn-compatible AST", "complete", "csharp-backend"],
-  ["backend.csharp.ast-statement", "C# statements are Roslyn-compatible AST", "complete", "csharp-backend"],
-  ["backend.csharp.printer", "C# printer renders AST only", "complete", "csharp-backend"],
+  ["backend.csharp.ast-expression", "C# expressions are Roslyn-compatible AST", "partial", "csharp-backend"],
+  ["backend.csharp.ast-statement", "C# statements are Roslyn-compatible AST", "partial", "csharp-backend"],
+  ["backend.csharp.printer", "C# printer renders AST only", "partial", "csharp-backend"],
   ["backend.csharp.no-direct-semantic-string-output", "C# backend never emits semantic strings directly", "complete", "csharp-backend"],
-  ["backend.csharp.project-sdk-emit", "C# backend emits SDK-style project files", "complete", "csharp-backend"],
+  ["backend.csharp.project-sdk-emit", "C# backend emits SDK-style project files", "partial", "csharp-backend"],
   ["backend.csharp.runtime-artifacts", "C# backend includes selected runtime artifacts only", "partial", "csharp-backend"],
 
-  ["toolchain.csharp.project", "Emit C# project from target options", "complete", "csharp-toolchain"],
+  ["toolchain.csharp.project", "Emit C# project from target options", "partial", "csharp-toolchain"],
   ["toolchain.csharp.build-run", "dotnet build/run succeeds for executable tests", "partial", "csharp-toolchain"],
-  ["toolchain.csharp.library", "Library output path and artifacts are deterministic", "complete", "csharp-toolchain"],
+  ["toolchain.csharp.library", "Library output path and artifacts are deterministic", "partial", "csharp-toolchain"],
   ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "partial", "csharp-toolchain"],
-  ["runtime.csharp.js", "C# JS runtime artifacts are selected by js surface", "complete", "csharp-runtime"],
+  ["runtime.csharp.js", "C# JS runtime artifacts are selected by js surface", "partial", "csharp-runtime"],
   ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs surface", "partial", "csharp-runtime"],
-  ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "complete", "csharp-runtime"],
+  ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "partial", "csharp-runtime"],
 
-  ["native.dotnet.assembly-model", ".NET provider models assemblies and namespaces", "complete", "target-provider"],
+  ["native.dotnet.assembly-model", ".NET provider models assemblies and namespaces", "partial", "target-provider"],
   ["native.dotnet.type-model", ".NET provider models generic, nested, static, and instance types", "partial", "target-provider"],
-  ["native.dotnet.member-methods", ".NET provider models methods, overloads, extension methods, and generic methods", "complete", "target-provider"],
-  ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "complete", "target-provider"],
+  ["native.dotnet.member-methods", ".NET provider models methods, overloads, extension methods, and generic methods", "partial", "target-provider"],
+  ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "partial", "target-provider"],
   ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "complete", "target-provider"],
   ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "complete", "target-provider"],
   ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "complete", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "complete", "target-provider"],
-  ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "complete", "target-provider"],
-  ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "complete", "target-provider"],
+  ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
+  ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "partial", "target-provider"],
   ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "complete", "target-provider"],
   ...slice4DotnetProviderContractRows.map((row) => [row.capabilityId, row.title, "complete", "target-provider"]),
 
-  ["diagnostic.missing-target-fact", "Missing target facts produce deterministic diagnostics", "complete", "target-provider"],
+  ["diagnostic.missing-target-fact", "Missing target facts produce deterministic diagnostics", "partial", "target-provider"],
   ["diagnostic.missing-iteration-fact", "Missing iteration facts produce deterministic diagnostics", "complete", "target-provider"],
-  ["diagnostic.missing-provider-fact", "Missing provider facts produce deterministic diagnostics", "complete", "target-provider"],
+  ["diagnostic.missing-provider-fact", "Missing provider facts produce deterministic diagnostics", "partial", "target-provider"],
   ["diagnostic.unsupported-surface", "Unsupported selected surfaces produce diagnostics", "partial", "surface-provider"],
   ["diagnostic.unsupported-selected-surface-operation", "Unsupported selected surface operations fail closed with provider diagnostics", "partial", "surface-provider"],
-  ["diagnostic.unsupported-target-operation", "Unsupported target operations produce diagnostics", "complete", "target-provider"],
+  ["diagnostic.unsupported-target-operation", "Unsupported target operations produce diagnostics", "partial", "target-provider"],
   ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "partial", "target-provider"],
   ["diagnostic.target-constraint", "Target constraint failure points to source", "complete", "target-provider"],
   ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "complete", "tsts-api"],
-  ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "complete", "target-provider"],
-  ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "complete", "target-provider"],
+  ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "partial", "target-provider"],
+  ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "partial", "target-provider"],
   ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
   ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "partial", "tests"],
 
@@ -763,65 +763,6 @@ const baseCapabilityDefinitions = Object.freeze([
 ]);
 
 export const requiredCapabilityIds = Object.freeze(baseCapabilityDefinitions.map(([capabilityId]) => capabilityId));
-
-const runtimeOperationClosureCompleteCapabilityIds = Object.freeze(new Set([
-  "type.generic.provider-target-arguments",
-  "operation.call.provider-argument-conversion",
-  "operation.operator.checked-target-operation",
-  "operation.array.literal",
-  "operation.spread.array",
-  "operation.destructure.array-object",
-  "operation.await.promise-task",
-  "expression.literal.null-undefined",
-  "expression.literal.bigint-regex-template",
-  "expression.array-literal",
-  "expression.property-access",
-  "expression.element-access",
-  "expression.nullish-optional",
-  "expression.assignment",
-  "statement.switch",
-  "statement.loop",
-  "statement.control-transfer",
-  "statement.top-level",
-  "binding.array.fixed-rest-default",
-  "binding.parameter",
-  "function.async",
-  "carrier.array.public-abi-policy",
-  "carrier.null-undefined",
-  "carrier.any-tsvalue",
-  "compat.mode.strict-native",
-  "compat.mode.compat",
-  "compat.any.property",
-  "compat.any.dynamic-get",
-  "compat.any.dynamic-set",
-  "compat.any.call-construct",
-  "compat.any.typed-boundary-cast",
-  "compat.object.no-dynamic-access",
-  "compat.unknown.no-dynamic-access",
-  "compat.prototype-mutation",
-  "compat.proxy-eval-function-with",
-  "runtime.dynamic.carrier",
-  "runtime.csharp.js",
-  "runtime.no-reflection-semantics",
-  "native.dotnet.assembly-model",
-  "native.dotnet.member-methods",
-  "native.dotnet.member-fields-properties-events",
-  "native.dotnet.conversions",
-  "native.dotnet.array.explicit",
-  "diagnostic.missing-target-fact",
-  "diagnostic.missing-provider-fact",
-  "diagnostic.unsupported-target-operation",
-  "diagnostic.dynamic-strict-mode",
-  "diagnostic.strict-mode-slow-op",
-  "backend.no-semantic-strings",
-  "backend.fail-closed-facts",
-  "backend.csharp.ast-expression",
-  "backend.csharp.ast-statement",
-  "backend.csharp.printer",
-  "backend.csharp.project-sdk-emit",
-  "toolchain.csharp.project",
-  "toolchain.csharp.library",
-]));
 
 const reviewedCapabilityEvidence = Object.freeze({
   ...slice4DotnetProviderContractEvidence(),
@@ -8023,11 +7964,8 @@ function freezeSurfaceEvidence(surfaceEvidence) {
 function capability([capabilityId, title, status, owner]) {
   const defaults = capabilityDefaults(capabilityId, owner);
   const reviewedEvidence = reviewedCapabilityEvidence[capabilityId];
-  const completedByRuntimeOperationClosure = runtimeOperationClosureCompleteCapabilityIds.has(capabilityId);
   const laneClassification = reviewedEvidence?.laneClassification ?? laneClassificationDefaults(capabilityId, owner);
-  const blockers = completedByRuntimeOperationClosure
-    ? []
-    : reviewedEvidence?.blockers ?? defaultCapabilityBlockers(capabilityId, status);
+  const blockers = reviewedEvidence?.blockers ?? defaultCapabilityBlockers(capabilityId, status);
 
   const entry = Object.freeze({
     capabilityId,
@@ -8051,10 +7989,8 @@ function capability([capabilityId, title, status, owner]) {
       surfaceEvidence: freezeSurfaceEvidence(reviewedEvidence.surfaceEvidence),
     }),
     blockers: Object.freeze(blockers),
-    notes: completedByRuntimeOperationClosure
-      ? runtimeOperationClosureCompleteNotes(capabilityId, reviewedEvidence?.notes)
-      : reviewedEvidence?.notes ??
-        "Machine-readable entry seeded from .analysis/test-plan-20260623-075726; old tests are evidence, capability coverage is the source of truth.",
+    notes: reviewedEvidence?.notes ??
+      "Machine-readable entry seeded from .analysis/test-plan-20260623-075726; old tests are evidence, capability coverage is the source of truth.",
   });
   const validationErrors = validateCapabilityLedgerEntry(entry);
   if (validationErrors.length > 0) {
@@ -8074,13 +8010,6 @@ function defaultCapabilityBlockers(capabilityId, status) {
     return [`${capabilityId} has no current implementation batch or current positive/negative proof yet.`];
   }
   return [`${capabilityId} still requires remaining implementation and current positive/negative proof before it can be marked complete.`];
-}
-
-function runtimeOperationClosureCompleteNotes(capabilityId, previousNotes) {
-  const previous = typeof previousNotes === "string" && previousNotes.length > 0
-    ? ` Prior reviewed evidence: ${previousNotes}`
-    : "";
-  return `Reviewed complete proof for Slice 5 runtime-operation closure: ${capabilityId} has current positive tests, current fail-closed negative tests, old inventory evidence, and fact/backend proof in the listed test paths. Completion is limited to this capability row; broader parent or adjacent rows stay partial unless separately marked complete.${previous}`;
 }
 
 export const capabilityLedger = Object.freeze(baseCapabilityDefinitions.map(capability));
