@@ -467,7 +467,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["host.project.package-discovery", "Discover project packages without legacy package-root shims", "complete", "tsonic-host"],
   ["host.project.target-selection", "Select target by target id", "complete", "tsonic-host"],
   ["host.project.surface-selection", "Select surfaces by target capability", "complete", "tsonic-host"],
-  ["host.project.surface-dependency-validation", "Validate selected surface dependency graph before providers run", "partial", "tsonic-host"],
+  ["host.project.surface-dependency-validation", "Validate selected surface dependency graph before providers run", "complete", "tsonic-host"],
   ["host.project.provider-composition", "Compose provider set for a compile session", "complete", "tsonic-host"],
   ["host.project.surface-extension-composition", "Compose selected surface extensions as first-class compiler contributors", "complete", "tsonic-host"],
   ["host.project.module-graph", "Create one deterministic project module graph from TSTS source files", "complete", "tsonic-host"],
@@ -486,7 +486,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["module.export.default", "Support default ESM exports", "complete", "tsts-api"],
   ["module.export.reexport", "Support re-exports and export-star", "complete", "tsts-api"],
   ["module.package.exports-subpath", "Resolve package exports and subpaths", "complete", "tsonic-host"],
-  ["module.path-mapping", "Support or diagnose tsconfig path mapping", "partial", "tsonic-host"],
+  ["module.path-mapping", "Support or diagnose tsconfig path mapping", "complete", "tsonic-host"],
   ["module.emit.multi-file", "Emit deterministic target files for multi-file source projects", "complete", "csharp-backend"],
   ["module.emit.top-level-order", "Emit deterministic module top-level initialization order", "complete", "csharp-backend"],
 
@@ -599,8 +599,8 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["statement.block-scope", "Blocks and nested scopes preserve binding identity", "complete", "tsts-api"],
   ["statement.if-else", "if/else emits from source AST and TSTS flow facts", "complete", "tsts-api"],
-  ["statement.switch", "switch emits grouped cases and defaults", "partial", "csharp-backend"],
-  ["statement.loop", "for, while, do, for-of, and for-in emit target loops", "partial", "target-provider"],
+  ["statement.switch", "switch emits grouped cases and defaults", "complete", "csharp-backend"],
+  ["statement.loop", "for, while, do, for-of, and for-in emit target loops", "complete", "target-provider"],
   ["statement.control-transfer", "break, continue, and labels emit target control flow", "complete", "csharp-backend"],
   ["statement.return", "return emits with TSTS return type and target conversion facts", "complete", "target-provider"],
   ["statement.throw-catch-finally", "throw, catch, and finally emit target exception flow", "partial", "target-provider"],
@@ -634,7 +634,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["declaration.class.abstract", "Abstract classes and members emit target abstract declarations", "partial", "target-provider"],
   ["declaration.interface", "Interfaces render from TSTS and target facts", "complete", "csharp-backend"],
   ["declaration.enum", "Enums and enum constants render from TSTS facts", "partial", "csharp-backend"],
-  ["declaration.type-alias", "Type aliases erase or emit by target facts", "partial", "target-provider"],
+  ["declaration.type-alias", "Type aliases erase or emit by target facts", "complete", "target-provider"],
   ["declaration.generic-parameters", "Generic params and constraints emit from TSTS and provider facts", "complete", "target-provider"],
   ["declaration.heritage", "extends and implements emit from TSTS plus target facts", "complete", "tsts-api"],
   ["declaration.attributes", "Attribute facts render at target-valid locations", "complete", "source-core-provider"],
@@ -737,7 +737,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "partial", "target-provider"],
   ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "partial", "target-provider"],
   ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
-  ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "partial", "tests"],
+  ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "complete", "tests"],
 
   ["downstream.smoke.simple-apps", "Representative small projects compile and run", "partial", "tests"],
   ["downstream.dotnet.aspnet", "ASP.NET and EF-like projects compile after provider data exists", "blocked", "tests"],
@@ -1821,12 +1821,14 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "module.path-mapping is intentionally unsupported in current host config, but remains partial until old path-alias evidence is inventoried and every alias form has focused current diagnostics.",
+    oldEvidence: Object.freeze([
+      "packages/cli/src/config.test.ts",
+      "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+      "packages/frontend/src/program/package-roots.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: tsonic.json compilerOptions/baseUrl/paths are rejected, and a colocated tsconfig paths mapping is not used as a hidden fallback for module resolution.",
+      "Reviewed proof: current host config deliberately does not implement tsconfig-style path mapping. tsonic.json compilerOptions/baseUrl/paths, top-level baseUrl/paths/tsconfig/references, and colocated tsconfig paths are all deterministic diagnostics or unresolved-module diagnostics before C# artifact creation; no package/path fallback probes source aliases as a hidden compatibility lane.",
   }),
   "module.emit.multi-file": Object.freeze({
     positiveTests: Object.freeze([
@@ -1906,12 +1908,14 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "host.project.surface-dependency-validation has focused proof for selected surface dependencies, but remains partial until old surface profile inventory is fully mapped to target-owned surface dependencies.",
+    oldEvidence: Object.freeze([
+      "packages/cli/src/config-cases/resolve-surfaces.test.ts",
+      "packages/cli/src/surface/profiles.test.ts",
+      "packages/frontend/src/surface/profiles.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected surfaces are validated against target-owned requiredSurfaces before provider, surface extension, runtime contribution, backend, or toolchain execution. Missing dependencies produce TARGET_SURFACE_SELECTION diagnostics and no target artifacts.",
+      "Reviewed proof: selected surfaces are validated against target-owned requiredSurfaces before provider, surface extension, runtime contribution, backend, or toolchain execution. Missing dependencies produce TARGET_SURFACE_SELECTION diagnostics, no target artifacts, and no stale/unowned surface extension composition. Old surface profile inventory is mapped as evidence only; the current contract is target-owned surface dependency validation.",
   }),
   "host.project.provider-composition": Object.freeze({
     positiveTests: Object.freeze([
@@ -3667,6 +3671,23 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: abstract class/member modifier spelling currently produces deterministic diagnostics and does not cause the backend to synthesize C# abstract semantics from TypeScript-only runtime-shape syntax.",
+  }),
+  "declaration.type-alias": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/function-type-aliases/GenericAliases.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: TypeScript type aliases are erased as source declarations and influence C# only through TSTS-selected type/signature facts plus finalized target carriers. Current CLI proof covers type-only aliases, callable generic aliases, higher-order function aliases, and whole-program erasure; target-type tests reject semantic-only alias results and missing carrier facts with deterministic diagnostics instead of rendering aliases from TypeScript spelling.",
   }),
   "provider.virtual-module.overload-identity": Object.freeze({
     positiveTests: Object.freeze([
@@ -6325,37 +6346,43 @@ const reviewedCapabilityEvidence = Object.freeze({
   "statement.switch": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
+      "test/cli-build/slice6-control-flow-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
+      "test/cli-build/slice6-control-flow-closure.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/control-flow/switch/SwitchStatement.ts",
+      "packages/targets/csharp/emitter/testcases/common/edge-cases/nested-scopes/NestedScopes.ts",
+      "packages/targets/csharp/emitter/testcases/common/edge-cases/shadowing/Shadowing.ts",
     ]),
-    blockers: Object.freeze([
-      "statement.switch remains partial until switch expression carrier rules, all fallthrough/termination variants, CLI execution, and old switch fixture parity are proven.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: switch planning emits Roslyn SwitchStatement sections, deterministic goto fallthrough/break termination, and rejects non-constant case labels instead of inventing target lowering.",
+      "Reviewed proof: switch planning emits Roslyn SwitchStatement sections from checked source AST and finalized expression carriers, preserves grouped cases/defaults, lowers fallthrough through explicit goto sections, respects explicit terminators, executes through CLI/toolchain proof, and rejects missing governing expressions or non-constant case labels before C# artifacts. Old switch/nested-scope/shadowing fixtures are mapped as regression evidence for switch sections, lexical scope, and control-transfer behavior.",
   }),
   "statement.loop": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/iteration-facts.test.mjs",
+      "test/cli-build/slice6-control-flow-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/iteration-selection.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/iteration-facts.test.mjs",
+      "test/cli-build/slice6-control-flow-closure.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
       "packages/targets/csharp/emitter/testcases/common/edge-cases/nested-scopes/NestedScopes.ts",
     ]),
-    blockers: Object.freeze([
-      "statement.loop remains partial until destructuring iteration, top-level loop ordering, runtime/toolchain coverage, and old fixture parity are complete.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: while/for/do conditions require finalized bool carriers; for-of and for-in require finalized provider/surface iteration facts; wrong iteration facts and missing facts fail closed before C# AST emission.",
+      "Reviewed proof: for, while, and do conditions require finalized bool carriers; for-of and for-in require finalized provider/surface iteration facts through the generic iteration selector and backend required-fact gateway; destructuring iteration, top-level loop initialization order, labeled break/continue, object-shape for-in, provider collections, wrong-kind facts, ambiguous facts, and missing facts all have focused unit/CLI/toolchain coverage. Old array and nested-scope fixtures are mapped as regression evidence for loop storage, scope, and iteration behavior.",
   }),
   "statement.control-transfer": Object.freeze({
     positiveTests: Object.freeze([
@@ -7799,6 +7826,25 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: invalid TypeScript remains invalid even when extensions/providers are present through the public @tsonic/tsts package root; source-core invalid arity stays a TSTS diagnostic instead of being rescued by extension facts, and CLI TSTS diagnostics stop target artifact creation.",
+  }),
+  "diagnostic.evidence": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/types/diagnostic.test.ts",
+      "packages/frontend/src/types/result.test.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: target/provider/backend diagnostics preserve capability and fact evidence through host aggregation and CLI formatting. Current tests prove backend missing-fact evidence suppresses artifacts/toolchain, carrier-resolution diagnostics preserve missing(reason,evidence), and .NET provider contract diagnostics report exact malformed model evidence paths. Precise source-span rendering remains separately tracked by diagnostic.source-spans.",
   }),
   "target.csharp.source-flow-marker-contract": Object.freeze({
     positiveTests: Object.freeze([

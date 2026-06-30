@@ -292,6 +292,7 @@ const oldProductUnitPortedProofByOldPath = new Map([
       "host.config.project-load",
       "host.config.target-selection",
       "host.project.target-selection",
+      "module.path-mapping",
     ]),
     newPath: "test/cli-build/target-config.test.mjs",
     reason:
@@ -311,6 +312,7 @@ const oldProductUnitPortedProofByOldPath = new Map([
     capabilityIds: freezeSortedStrings([
       "host.config.surface-selection",
       "host.project.surface-extension-composition",
+      "host.project.surface-dependency-validation",
       "host.project.surface-selection",
       "runtime.csharp.js",
       "surface.js.array-methods",
@@ -367,6 +369,7 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
   ], [
     "host.project.package-discovery",
     "host.project.package-path-resolution",
+    "module.path-mapping",
     "module.package.exports-subpath",
     "provider.module.no-file-backed-fallback",
   ]),
@@ -391,6 +394,7 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
   ], [
     "host.project.package-discovery",
     "host.project.package-path-resolution",
+    "module.path-mapping",
     "module.package.exports-subpath",
   ]),
   ...reviewedOldProductUnitDeferredCapabilityMapping([
@@ -399,6 +403,13 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
     "host.graph.source-files",
     "host.project.module-graph",
     "module.graph.source-files",
+  ]),
+  ...reviewedOldProductUnitDeferredCapabilityMapping([
+    "packages/frontend/src/types/diagnostic.test.ts",
+    "packages/frontend/src/types/result.test.ts",
+  ], [
+    "diagnostic.evidence",
+    "diagnostic.source-spans",
   ]),
   ...reviewedOldProductUnitDeferredCapabilityMapping([
     "packages/frontend/src/resolver/namespace.test.ts",
@@ -411,6 +422,7 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
   ], [
     "host.config.surface-selection",
     "host.project.surface-extension-composition",
+    "host.project.surface-dependency-validation",
     "host.project.surface-selection",
     "runtime.csharp.js",
     "surface.js.array-methods",
@@ -422,6 +434,7 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
   ], [
     "host.config.surface-selection",
     "host.project.surface-extension-composition",
+    "host.project.surface-dependency-validation",
     "host.project.surface-selection",
     "runtime.csharp.js",
     "surface.js.array-methods",
