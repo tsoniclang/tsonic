@@ -491,6 +491,7 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
     "target.csharp.core-lang.ptr-fnptr-rendering",
     "target.csharp.core-lang.struct-field-carrier",
     "target.csharp.core-lang-intrinsics",
+    "tsts.diagnostic.provider-sourced",
     "tsts.no-target-overrides",
   ]),
   ...reviewedOldProductUnitDeferredCapabilityMapping([
@@ -600,6 +601,7 @@ const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
     "target.csharp.core-lang.struct-field-carrier",
     "target.csharp.source-flow-marker-contract",
     "target.csharp.core-lang-intrinsics",
+    "tsts.diagnostic.provider-sourced",
   ]),
   ...oldProductUnitLedgerEvidenceCapabilityMapping([
     "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",
