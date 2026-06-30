@@ -556,10 +556,13 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.fail-closed-facts",
     "carrier.function-delegate",
+    "declaration.function",
+    "expression.lambda",
     "function.arrow",
     "function.closure",
     "function.declaration",
     "function.higher-order",
+    "statement.return",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("types/constants/ModuleConstants"),
@@ -578,10 +581,13 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.fail-closed-facts",
     "carrier.function-delegate",
     "carrier.null-undefined",
+    "declaration.function",
+    "expression.lambda",
     "function.arrow",
     "function.closure",
     "function.declaration",
     "function.higher-order",
+    "statement.return",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("types/generic-constraints/MultipleConstraints"),
@@ -653,6 +659,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "type.generic.provider-target-arguments",
     "operation.conversion.checked-target-conversion",
     "operation.operator.checked-target-operation",
+    "statement.return",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("operators/nullish-coalescing/NullishCoalescing"),
@@ -684,7 +691,10 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.fail-closed-facts",
     "declaration.attributes",
+    "source-core.contract.attribute-type-evidence-required",
     "source.marker.attribute",
+    "source.marker.contract.attribute-facts",
+    "target.csharp.core-lang.attribute-application",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("classes/basic/Person"),
@@ -707,6 +717,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "declaration.class.methods",
     "operation.member.provider-property",
     "operation.property.provider-selected-member",
+    "source-core.contract.field-type-evidence-required",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("collections/list-initializer/ListInitializer"),
@@ -735,10 +746,15 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "backend.fail-closed-facts",
+    "source-core.contract.fnptr-type-marker-evidence",
+    "source-core.contract.ptr-type-marker-evidence",
+    "source-core.contract.type-marker-shadowing",
     "source.marker.field",
+    "source.marker.contract.ptr-fnptr-facts",
     "source.marker.ptr-fnptr",
     "source.marker.struct",
     "source.primitive.numeric",
+    "target.csharp.core-lang.ptr-fnptr-rendering",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("structs/basic/Point"),
@@ -747,9 +763,12 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.fail-closed-facts",
     "operation.conversion.checked-target-conversion",
+    "source-core.contract.struct-field-owner-finalization",
     "source.marker.field",
+    "source.marker.contract.struct-field-facts",
     "source.marker.struct",
     "source.primitive.numeric",
+    "target.csharp.core-lang.struct-field-carrier",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     expectedCase("edge-cases/object-literal-unknown/ObjectLiteralUnknown"),
@@ -882,9 +901,21 @@ const oldEmitterReplacementProofByOldPath = new Map([
 
 const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("functions/delegates/ActionFunc"),
+  ], [
+    "function.delegate-carrier",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("types/interfaces/Interfaces"),
   ], [
     "carrier.object-shape",
+    "declaration.interface",
+  ]),
+  ...oldEmitterLedgerEvidenceCapabilityMapping([
+    sourceCase("types/generic-interface-inheritance/InterfaceInheritance"),
+  ], [
+    "declaration.heritage",
+    "declaration.interface",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("edge-cases/inline-object-param/InlineObjectParam"),
@@ -896,6 +927,7 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("classes/constructor/User"),
   ], [
+    "declaration.class.constructor",
     "declaration.class.private-fields",
     "native.dotnet.constructors",
     "operation.construct.provider-selected-constructor",
@@ -963,9 +995,29 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ], [
     "expression.property-access",
     "native.dotnet.assembly-model",
+    "native.dotnet.contract.assembly-qualified-target-id",
+    "native.dotnet.contract.constraint-evidence",
+    "native.dotnet.contract.default-value-optional-only",
+    "native.dotnet.contract.delegate-source-shape",
+    "native.dotnet.contract.event-unsupported-evidence",
+    "native.dotnet.contract.native-array-source-shape",
+    "native.dotnet.contract.parameter-passing-mode-values",
+    "native.dotnet.contract.params-array-shape",
+    "native.dotnet.contract.provider-ref-qualification",
+    "native.dotnet.contract.signature-return-type",
+    "native.dotnet.contract.target-binding-index",
+    "native.dotnet.contract.type-parameter-identity",
+    "native.dotnet.contract.unsupported-default-exclusive",
+    "native.dotnet.contract.unsupported-export-evidence",
+    "native.dotnet.contract.unsupported-type-family-evidence",
     "native.dotnet.constructors",
     "native.dotnet.member-methods",
     "operation.call.provider-argument-conversion",
+    "diagnostic.provider-contract-invalid",
+    "provider.virtual-module.contract.dependency-provider-ref-slice",
+    "provider.virtual-module.contract.export-identity",
+    "provider.virtual-module.contract.member-signature-identity",
+    "provider.virtual-module.contract.unsliced-request-rejection",
     "provider.virtual-module.overload-identity",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
@@ -973,6 +1025,14 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
     sourceCase("functions/optional-callbacks/OptionalParams"),
   ], [
     "function.default-rest-optional-params",
+    "function.default-rest-optional-params.provider-defaults",
+    "function.default-rest-optional-params.provider-params-array",
+    "function.default-rest-optional-params.provider-unsupported-defaults",
+    "operation.call.provider.parameter-mode.byref-marker-consumption",
+    "operation.call.provider.parameter-mode.mutated-fact-rejection",
+    "operation.call.provider.parameter-mode.optional-default-arity",
+    "operation.call.provider.parameter-mode.params-array-arity",
+    "operation.call.provider.parameter-mode.unsupported-default-rejection",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("types/constants/ModuleConstants"),
@@ -984,7 +1044,27 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
     sourceCase("extensions/linq/ExtensionMethods"),
   ], [
     "native.dotnet.assembly-model",
+    "native.dotnet.contract.assembly-qualified-target-id",
+    "native.dotnet.contract.constraint-evidence",
+    "native.dotnet.contract.default-value-optional-only",
+    "native.dotnet.contract.delegate-source-shape",
+    "native.dotnet.contract.event-unsupported-evidence",
+    "native.dotnet.contract.native-array-source-shape",
+    "native.dotnet.contract.parameter-passing-mode-values",
+    "native.dotnet.contract.params-array-shape",
+    "native.dotnet.contract.provider-ref-qualification",
+    "native.dotnet.contract.signature-return-type",
+    "native.dotnet.contract.target-binding-index",
+    "native.dotnet.contract.type-parameter-identity",
+    "native.dotnet.contract.unsupported-default-exclusive",
+    "native.dotnet.contract.unsupported-export-evidence",
+    "native.dotnet.contract.unsupported-type-family-evidence",
     "native.dotnet.member-methods",
+    "diagnostic.provider-contract-invalid",
+    "provider.virtual-module.contract.dependency-provider-ref-slice",
+    "provider.virtual-module.contract.export-identity",
+    "provider.virtual-module.contract.member-signature-identity",
+    "provider.virtual-module.contract.unsliced-request-rejection",
     "provider.virtual-module.overload-identity",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
@@ -1015,6 +1095,8 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
     sourceCase("classes/generic-inheritance/InheritanceChain"),
     sourceCase("types/generic-interface-inheritance/InterfaceInheritance"),
   ], [
+    "declaration.heritage",
+    "declaration.interface",
     "native.dotnet.type-model",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
@@ -1039,6 +1121,9 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
     sourceCase("types/generic-constraints/ObjectConstraint"),
     sourceCase("types/generic-constraints/SingleConstraint"),
   ], [
+    "diagnostic.target-constraint",
+    "native.dotnet.constraints",
+    "provider.virtual-module.constraints",
     "type.generic.provider-target-constraints",
   ]),
 ]);

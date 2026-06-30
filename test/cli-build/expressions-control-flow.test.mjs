@@ -472,6 +472,41 @@ test("CLI emits literal default parameters as C# optional parameters", async () 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects non-literal TypeScript default parameters without C# fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nonliteral-default-parameters");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNonliteralDefaultParameters",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "function seed(): number {",
+      "  return 3;",
+      "}",
+      "",
+      "export function add(value: number = seed()): number {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# parameter defaults require compile-time literal values/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNonliteralDefaultParameters.csproj")), false);
+});
+
 
 test("CLI rewrites mixed-type for initializers into C# prelude locals", async () => {
   const projectDirectory = resolve(tempRoot, "mixed-for-initializers");

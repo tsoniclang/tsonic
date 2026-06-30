@@ -25,16 +25,25 @@ test("CLI resolves neutral source primitives through provider modules", async ()
       ],
     }, null, 2),
     "src/index.ts": [
-      "import type { int32, int128, nativeInt, float64, float16, bool, char, decimal } from \"@tsonic/core/types.js\";",
+      "import type { bool, char, decimal, float16, float32, float64, int8, int16, int32, int64, int128, nativeInt, nativeUint, uint8, uint16, uint32, uint64, uint128 } from \"@tsonic/core/types.js\";",
       "",
       "export function choose(flag: bool, left: int32, right: int32): int32 {",
       "  return flag ? left : right;",
       "}",
       "",
+      "export function keepInt8(value: int8): int8 { return value; }",
+      "export function keepUint8(value: uint8): uint8 { return value; }",
+      "export function keepInt16(value: int16): int16 { return value; }",
+      "export function keepUint16(value: uint16): uint16 { return value; }",
+      "export function keepInt32(value: int32): int32 { return value; }",
+      "export function keepUint32(value: uint32): uint32 { return value; }",
+      "export function keepInt64(value: int64): int64 { return value; }",
+      "export function keepUint64(value: uint64): uint64 { return value; }",
       "export function scale(value: float64): float64 {",
       "  return value * 2;",
       "}",
       "",
+      "export function keepFloat32(value: float32): float32 { return value; }",
       "export function firstChar(value: char): char {",
       "  return value;",
       "}",
@@ -47,7 +56,15 @@ test("CLI resolves neutral source primitives through provider modules", async ()
       "  return value;",
       "}",
       "",
+      "export function keepNativeUnsigned(value: nativeUint): nativeUint {",
+      "  return value;",
+      "}",
+      "",
       "export function keepInt128(value: int128): int128 {",
+      "  return value;",
+      "}",
+      "",
+      "export function keepUint128(value: uint128): uint128 {",
       "  return value;",
       "}",
       "",
@@ -67,11 +84,22 @@ test("CLI resolves neutral source primitives through provider modules", async ()
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int choose\(bool flag, int left, int right\)/);
+  assert.match(generatedSource, /public static sbyte keepInt8\(sbyte value\)/);
+  assert.match(generatedSource, /public static byte keepUint8\(byte value\)/);
+  assert.match(generatedSource, /public static short keepInt16\(short value\)/);
+  assert.match(generatedSource, /public static ushort keepUint16\(ushort value\)/);
+  assert.match(generatedSource, /public static int keepInt32\(int value\)/);
+  assert.match(generatedSource, /public static uint keepUint32\(uint value\)/);
+  assert.match(generatedSource, /public static long keepInt64\(long value\)/);
+  assert.match(generatedSource, /public static ulong keepUint64\(ulong value\)/);
   assert.match(generatedSource, /public static double scale\(double value\)/);
+  assert.match(generatedSource, /public static float keepFloat32\(float value\)/);
   assert.match(generatedSource, /public static char firstChar\(char value\)/);
   assert.match(generatedSource, /public static decimal keepDecimal\(decimal value\)/);
   assert.match(generatedSource, /public static nint keepNative\(nint value\)/);
+  assert.match(generatedSource, /public static nuint keepNativeUnsigned\(nuint value\)/);
   assert.match(generatedSource, /public static Int128 keepInt128\(Int128 value\)/);
+  assert.match(generatedSource, /public static UInt128 keepUint128\(UInt128 value\)/);
   assert.match(generatedSource, /public static Half keepFloat16\(Half value\)/);
   assert.match(generatedSource, /public static System\.Numerics\.BigInteger keepBig\(System\.Numerics\.BigInteger value\)/);
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedNeutral.csproj"), "utf8");
@@ -431,7 +459,7 @@ test("CLI maps configured primitive aliases only from their provider modules", a
     }, null, 2),
     "src/index.ts": [
       "import type { int32 } from \"@tsonic/core/types.js\";",
-      "import type { int } from \"@tsonic/csharp/types.js\";",
+      "import type { bool, byte, char, decimal, double, float, int, long, nint, nuint, sbyte, short, uint, ulong, ushort } from \"@tsonic/csharp/types.js\";",
       "",
       "type LocalInt = number;",
       "",
@@ -442,6 +470,21 @@ test("CLI maps configured primitive aliases only from their provider modules", a
       "export function csharpAlias(value: int): int {",
       "  return value;",
       "}",
+      "",
+      "export function alias_bool(value: bool): bool { return value; }",
+      "export function alias_byte(value: byte): byte { return value; }",
+      "export function alias_char(value: char): char { return value; }",
+      "export function alias_decimal(value: decimal): decimal { return value; }",
+      "export function alias_double(value: double): double { return value; }",
+      "export function alias_float(value: float): float { return value; }",
+      "export function alias_long(value: long): long { return value; }",
+      "export function alias_nint(value: nint): nint { return value; }",
+      "export function alias_nuint(value: nuint): nuint { return value; }",
+      "export function alias_sbyte(value: sbyte): sbyte { return value; }",
+      "export function alias_short(value: short): short { return value; }",
+      "export function alias_uint(value: uint): uint { return value; }",
+      "export function alias_ulong(value: ulong): ulong { return value; }",
+      "export function alias_ushort(value: ushort): ushort { return value; }",
       "",
       "export function localAlias(value: LocalInt): LocalInt {",
       "  return value;",
@@ -456,6 +499,20 @@ test("CLI maps configured primitive aliases only from their provider modules", a
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int neutral\(int value\)/);
   assert.match(generatedSource, /public static int csharpAlias\(int value\)/);
+  assert.match(generatedSource, /public static bool alias_bool\(bool value\)/);
+  assert.match(generatedSource, /public static byte alias_byte\(byte value\)/);
+  assert.match(generatedSource, /public static char alias_char\(char value\)/);
+  assert.match(generatedSource, /public static decimal alias_decimal\(decimal value\)/);
+  assert.match(generatedSource, /public static double alias_double\(double value\)/);
+  assert.match(generatedSource, /public static float alias_float\(float value\)/);
+  assert.match(generatedSource, /public static long alias_long\(long value\)/);
+  assert.match(generatedSource, /public static nint alias_nint\(nint value\)/);
+  assert.match(generatedSource, /public static nuint alias_nuint\(nuint value\)/);
+  assert.match(generatedSource, /public static sbyte alias_sbyte\(sbyte value\)/);
+  assert.match(generatedSource, /public static short alias_short\(short value\)/);
+  assert.match(generatedSource, /public static uint alias_uint\(uint value\)/);
+  assert.match(generatedSource, /public static ulong alias_ulong\(ulong value\)/);
+  assert.match(generatedSource, /public static ushort alias_ushort\(ushort value\)/);
   assert.match(generatedSource, /public static double localAlias\(double value\)/);
   assert.doesNotMatch(generatedSource, /\bLocalInt\b/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -509,7 +566,7 @@ test("CLI emits C# structs from neutral value-type facts and C# aliases", async 
     }, null, 2),
     "src/index.ts": [
       "import { struct, field } from \"@tsonic/core/lang.js\";",
-      "import { struct as csharpStruct } from \"@tsonic/csharp/lang.js\";",
+      "import { struct as csharpStruct, field as csharpField } from \"@tsonic/csharp/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "import type { int } from \"@tsonic/csharp/types.js\";",
       "",
@@ -519,7 +576,7 @@ test("CLI emits C# structs from neutral value-type facts and C# aliases", async 
       "});",
       "",
       "export const Counter = csharpStruct({",
-      "  value: field<int>(),",
+      "  value: csharpField<int>(),",
       "});",
       "",
     ].join("\n"),
@@ -561,9 +618,19 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { defaultof } from \"@tsonic/core/lang.js\";",
+      "import { defaultof, field, struct } from \"@tsonic/core/lang.js\";",
       "import { defaultof as csharpDefaultof } from \"@tsonic/csharp/lang.js\";",
-      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import type { bool, int32 } from \"@tsonic/core/types.js\";",
+      "import type { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
+      "",
+      "export class User {",
+      "  name: string = \"\";",
+      "}",
+      "",
+      "export const Point = struct({",
+      "  x: field<int32>(),",
+      "  ok: field<bool>(),",
+      "});",
       "",
       "export function zero(): int32 {",
       "  return defaultof<int32>();",
@@ -571,6 +638,22 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
       "",
       "export function csharpZero(): int32 {",
       "  return csharpDefaultof<int32>();",
+      "}",
+      "",
+      "export function emptyUser(): User {",
+      "  return defaultof<User>();",
+      "}",
+      "",
+      "export function emptyList(): List<int32> {",
+      "  return defaultof<List<int32>>();",
+      "}",
+      "",
+      "export function emptyMaybeUser(): User | null {",
+      "  return defaultof<User | null>();",
+      "}",
+      "",
+      "export function emptyPoint(): typeof Point {",
+      "  return defaultof<typeof Point>();",
       "}",
       "",
     ].join("\n"),
@@ -582,12 +665,48 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return default\(int\);/);
   assert.match(generatedSource, /public static int csharpZero\(\)/);
+  assert.match(generatedSource, /public class User/);
+  assert.match(generatedSource, /public struct Point/);
+  assert.match(generatedSource, /public static User emptyUser\(\)/);
+  assert.match(generatedSource, /return default\(User\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> emptyList\(\)/);
+  assert.match(generatedSource, /return default\(System\.Collections\.Generic\.List<int>\);/);
+  assert.match(generatedSource, /public static User\? emptyMaybeUser\(\)/);
+  assert.match(generatedSource, /return default\(User\?\);/);
+  assert.match(generatedSource, /public static Point emptyPoint\(\)/);
+  assert.match(generatedSource, /return default\(Point\);/);
   assert.doesNotMatch(generatedSource, /defaultof/);
   assert.doesNotMatch(generatedSource, /defaultof/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaults.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects defaultof without explicit source type evidence before C# output", async () => {
+  const projectDirectory = resolve(tempRoot, "default-value-missing-type-evidence");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { defaultof } from \"@tsonic/core/lang.js\";",
+      "",
+      "export function invalid(): unknown {",
+      "  return defaultof();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TSONIC_SOURCE_CORE_9901106/);
+  assert.match(build.stderr, /defaultof<T>\(\) requires explicit type evidence/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 
@@ -725,14 +844,19 @@ test("CLI emits C# pointer and function-pointer types from source marker facts",
     "src/index.ts": [
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "import type { ptr, fnptr } from \"@tsonic/core/lang.js\";",
+      "import type { ptr as csharpPtr, fnptr as csharpFnptr } from \"@tsonic/csharp/lang.js\";",
       "",
       "export class NativeSlots {",
       "  current: ptr<int32>;",
       "  callback: fnptr<[int32], int32>;",
+      "  csharpCurrent: csharpPtr<int32>;",
+      "  csharpCallback: csharpFnptr<[int32], int32>;",
       "",
-      "  constructor(current: ptr<int32>, callback: fnptr<[int32], int32>) {",
+      "  constructor(current: ptr<int32>, callback: fnptr<[int32], int32>, csharpCurrent: csharpPtr<int32>, csharpCallback: csharpFnptr<[int32], int32>) {",
       "    this.current = current;",
       "    this.callback = callback;",
+      "    this.csharpCurrent = csharpCurrent;",
+      "    this.csharpCallback = csharpCallback;",
       "  }",
       "}",
       "",
@@ -748,7 +872,9 @@ test("CLI emits C# pointer and function-pointer types from source marker facts",
   assert.match(generatedSource, /public unsafe class NativeSlots/);
   assert.match(generatedSource, /public int\* current;/);
   assert.match(generatedSource, /public delegate\*<int, int> callback;/);
-  assert.match(generatedSource, /public NativeSlots\(int\* current, delegate\*<int, int> callback\)/);
+  assert.match(generatedSource, /public int\* csharpCurrent;/);
+  assert.match(generatedSource, /public delegate\*<int, int> csharpCallback;/);
+  assert.match(generatedSource, /public NativeSlots\(int\* current, delegate\*<int, int> callback, int\* csharpCurrent, delegate\*<int, int> csharpCallback\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedPointers.csproj"), "--nologo", "--v:minimal"]);

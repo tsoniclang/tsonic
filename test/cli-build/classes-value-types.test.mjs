@@ -120,11 +120,21 @@ test("CLI emits value-type structs only from finalized field facts", async () =>
     }, null, 2),
     "src/index.ts": [
       "import { struct, field } from \"@tsonic/core/lang.js\";",
-      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "import type { bool, int32 } from \"@tsonic/core/types.js\";",
       "",
       "export const Point = struct({",
       "  x: field<int32>(),",
       "  y: field<int32>(),",
+      "});",
+      "",
+      "export const Inner = struct({",
+      "  value: field<int32>(),",
+      "});",
+      "",
+      "export const Outer = struct({",
+      "  first: field<int32>(),",
+      "  inner: field<typeof Inner>(),",
+      "  enabled: field<bool>(),",
       "});",
       "",
     ].join("\n"),
@@ -137,6 +147,14 @@ test("CLI emits value-type structs only from finalized field facts", async () =>
   assert.match(generatedSource, /public struct Point/);
   assert.match(generatedSource, /public int x;/);
   assert.match(generatedSource, /public int y;/);
+  assert.match(generatedSource, /public struct Inner/);
+  assert.match(generatedSource, /public int value;/);
+  assert.match(generatedSource, /public struct Outer/);
+  assert.match(generatedSource, /public int first;/);
+  assert.match(generatedSource, /public Inner inner;/);
+  assert.match(generatedSource, /public bool enabled;/);
+  assert.ok(generatedSource.indexOf("public int first;") < generatedSource.indexOf("public Inner inner;"));
+  assert.ok(generatedSource.indexOf("public Inner inner;") < generatedSource.indexOf("public bool enabled;"));
   assert.doesNotMatch(generatedSource, /struct\(/);
   assert.doesNotMatch(generatedSource, /field\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -234,5 +252,32 @@ test("CLI rejects value-type members without finalized field facts", async () =>
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /Value-type member 'x' requires a finalized field fact/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects duplicate value-type field facts before target artifacts", async () => {
+  const projectDirectory = resolve(tempRoot, "value-type-duplicate-field-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { field, struct } from \"@tsonic/core/lang.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export const Broken = struct({",
+      "  x: field<int32>(),",
+      "  [\"x\"]: field<int32>(),",
+      "});",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TS1117|SOURCE_SEMANTICS_STRUCT_DUPLICATE_FIELD/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });

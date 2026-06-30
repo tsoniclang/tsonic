@@ -1122,8 +1122,16 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "backend.csharp.ast-expression",
     "backend.csharp.ast-statement",
     "backend.project-source-declarations",
+    "function.default-rest-optional-params.provider-defaults",
+    "function.default-rest-optional-params.provider-params-array",
+    "function.default-rest-optional-params.provider-unsupported-defaults",
     "host.package.composition",
     "native.dotnet.parameter-modes",
+    "operation.call.provider.parameter-mode.byref-marker-consumption",
+    "operation.call.provider.parameter-mode.mutated-fact-rejection",
+    "operation.call.provider.parameter-mode.optional-default-arity",
+    "operation.call.provider.parameter-mode.params-array-arity",
+    "operation.call.provider.parameter-mode.unsupported-default-rejection",
     "operation.call.provider-parameter-mode",
     "source-core.lang.portable-intrinsics.inref",
     "source-core.lang.portable-intrinsics.out",
@@ -1455,6 +1463,17 @@ const oldSuiteReplacementProofByOldPath = new Map([
 
 const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("generic-interface-inheritance"),
+  ], [
+    "declaration.heritage",
+    "declaration.interface",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
+    oldFixturePath("interface-with-functions"),
+  ], [
+    "declaration.interface",
+  ]),
+  ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("dotnet-test-command"),
   ], [
     "backend.csharp.project-sdk-emit",
@@ -1650,7 +1669,15 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("param-modifiers"),
   ], [
+    "function.default-rest-optional-params.provider-defaults",
+    "function.default-rest-optional-params.provider-params-array",
+    "function.default-rest-optional-params.provider-unsupported-defaults",
     "native.dotnet.parameter-modes",
+    "operation.call.provider.parameter-mode.byref-marker-consumption",
+    "operation.call.provider.parameter-mode.mutated-fact-rejection",
+    "operation.call.provider.parameter-mode.optional-default-arity",
+    "operation.call.provider.parameter-mode.params-array-arity",
+    "operation.call.provider.parameter-mode.unsupported-default-rejection",
     "operation.call.provider-parameter-mode",
     "source-core.lang.portable-intrinsics.inref",
     "source-core.lang.portable-intrinsics.out",
@@ -1741,6 +1768,9 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
     oldFixturePath("generic-constraints-single"),
     oldFixturePath("generic-multiple-constraints"),
   ], [
+    "diagnostic.target-constraint",
+    "native.dotnet.constraints",
+    "provider.virtual-module.constraints",
     "type.generic.provider-target-constraints",
   ]),
 ]);
