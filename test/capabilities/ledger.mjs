@@ -490,15 +490,15 @@ const baseCapabilityDefinitions = Object.freeze([
   ["module.emit.multi-file", "Emit deterministic target files for multi-file source projects", "complete", "csharp-backend"],
   ["module.emit.top-level-order", "Emit deterministic module top-level initialization order", "complete", "csharp-backend"],
 
-  ["tsts.parse-bind-check", "TSTS owns parse, bind, and check", "complete", "tsts-api"],
-  ["tsts.flow-narrowing", "TSTS owns source flow narrowing", "complete", "tsts-api"],
+  ["tsts.parse-bind-check", "TSTS owns parse, bind, and check", "partial", "tsts-api"],
+  ["tsts.flow-narrowing", "TSTS owns source flow narrowing", "partial", "tsts-api"],
   ["tsts.contextual-typing", "TSTS owns source contextual typing", "partial", "tsts-api"],
-  ["tsts.generic-inference", "TSTS owns source generic inference", "complete", "tsts-api"],
+  ["tsts.generic-inference", "TSTS owns source generic inference", "partial", "tsts-api"],
   ["tsts.overload-resolution", "TSTS owns source overload resolution", "partial", "tsts-api"],
-  ["tsts.consumer-queries", "Backends consume stable public TSTS queries", "complete", "tsts-api"],
+  ["tsts.consumer-queries", "Backends consume stable public TSTS queries", "partial", "tsts-api"],
   ["tsts.package.public-root-artifact", "TSTS package is consumed as a root-only dist artifact", "complete", "tsts-api"],
   ["tsts.no-target-overrides", "Extensions cannot rescue invalid TypeScript", "complete", "tsts-api"],
-  ["tsts.program.create-with-extensions", "Create TSTS compiler session with extensions", "complete", "tsts-api"],
+  ["tsts.program.create-with-extensions", "Create TSTS compiler session with extensions", "partial", "tsts-api"],
   ["tsts.type-query.flow-narrowed-type", "Query flow-narrowed type at a source node", "partial", "tsts-api"],
   ["tsts.diagnostic.provider-sourced", "Surface provider diagnostics through TSTS diagnostics", "partial", "tsts-api"],
 
@@ -543,7 +543,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source-core.lang.portable-intrinsics.fnptr", "fnptr intrinsic attaches neutral function-pointer type facts", "partial", "source-core-provider"],
   ...slice4SourceCoreContractRows.map((row) => [row.capabilityId, row.title, "complete", row.capabilityId.startsWith("target.csharp.") ? "target-provider" : "source-core-provider"]),
 
-  ["type.utility", "Utility types are consumed from TSTS results", "complete", "tsts-api"],
+  ["type.utility", "Utility types are consumed from TSTS results", "partial", "tsts-api"],
   ["type.conditional", "Conditional types are consumed from TSTS results", "partial", "tsts-api"],
   ["type.mapped", "Mapped types are consumed from TSTS results", "partial", "tsts-api"],
   ["type.indexed-access", "Indexed access types are consumed from TSTS results", "partial", "tsts-api"],
@@ -599,7 +599,7 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["statement.block-scope", "Blocks and nested scopes preserve binding identity", "complete", "tsts-api"],
   ["statement.if-else", "if/else emits from source AST and TSTS flow facts", "complete", "tsts-api"],
-  ["statement.switch", "switch emits grouped cases and defaults", "complete", "csharp-backend"],
+  ["statement.switch", "switch emits grouped cases and defaults", "partial", "csharp-backend"],
   ["statement.loop", "for, while, do, for-of, and for-in emit target loops", "partial", "target-provider"],
   ["statement.control-transfer", "break, continue, and labels emit target control flow", "complete", "csharp-backend"],
   ["statement.return", "return emits with TSTS return type and target conversion facts", "complete", "target-provider"],
@@ -1155,17 +1155,7 @@ const slice6WholeProgramModuleRows = Object.freeze([
   "module.emit.top-level-order",
 ]);
 
-const slice6WholeProgramTstsRows = Object.freeze([
-  "tsts.parse-bind-check",
-  "tsts.flow-narrowing",
-  "tsts.generic-inference",
-  "tsts.consumer-queries",
-  "tsts.program.create-with-extensions",
-  "type.utility",
-]);
-
 const slice6WholeProgramStatementRows = Object.freeze([
-  "statement.switch",
   "statement.control-transfer",
   "statement.top-level",
 ]);
@@ -1257,26 +1247,11 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "C# module output is derived from TSTS source files and finalized module dependencies; type-only imports produce no runtime dependency and side-effect imports preserve initialization order.",
       notes:
-        "Reviewed Slice 6 proof: source examples include import type, side-effect import, named import, default import, aliased re-export, enum/class cross-file references, and a cyclic ESM graph. Generated C# proves type-only imports are erased, side-effect/runtime imports call __tsonic_module_init in deterministic order, re-exports bind through generated module classes, package/path failures are diagnostics rather than fallback file probing, and no orphan or provider virtual files are emitted as project sources.",
-    }),
-    ...slice6EvidenceForRows(slice6WholeProgramTstsRows, {
-      tstsDecision:
-        "TSTS/TS-Go owns parse, bind, check, flow narrowing, generic inference, utility-type evaluation, and provider-extension compiler sessions; Tsonic consumes public checker/query results only.",
-      providerFacts: Object.freeze([
-        "publicTstsCompilerSession",
-        "checkedSourceGraph",
-        "flowNarrowedTypeFact",
-        "inferredGenericTypeFact",
-        "utilityTypeResultFact",
-      ]),
-      backendContract:
-        "Backends and planners consume TSTS query results and finalized target facts; they must not reimplement utility types, generic inference, narrowing, or source binding.",
-      notes:
-        "Reviewed Slice 6 proof: whole-program source uses import type and Readonly<Model> through TSTS-checked source without backend type computation, while existing TSTS/validator inventory proves flow narrowing, generic inference, utility type evaluation, extension session creation, and public query consumption. This closes only source-check/query rows; contextual typing, overload resolution, and flow-narrowed query APIs stay partial.",
+        "Reviewed Slice 6 proof: source examples include import type, side-effect import, named import, default import, aliased re-export, and enum/class cross-file references. Generated C# proves type-only imports are erased, side-effect/runtime imports call __tsonic_module_init in deterministic order, re-exports bind through generated module classes, runtime ESM cycles fail closed before artifact emission, package/path failures are diagnostics rather than fallback file probing, and no orphan or provider virtual files are emitted as project sources.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramStatementRows, {
       sourceExamples: Object.freeze([
-        "import { aValue } from \"./a.js\"; import { bValue } from \"./b.js\"; append(\"i\" + aValue + bValue + \";\");",
+        "import \"./startup.js\"; const current = createUser(\"Ada\"); console.log(current.name);",
         "for (let i = 0; i < 3; i = i + 1) { if (i === 1) continue; break; }",
       ]),
       tstsDecision:
@@ -1290,7 +1265,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "C# statement emission uses structured statement AST and finalized control-flow/module-order facts; unsupported statement forms diagnose before artifact handoff.",
       notes:
-        "Reviewed Slice 6 proof: whole-program tests execute top-level statements across side-effect imports, re-exports, default imports, and cyclic ESM dependencies with deterministic __tsonic_module_init calls. Existing control-flow tests cover break/continue/label planning through structured C# statements; switch and general loop rows remain partial and are not counted in this slice.",
+        "Reviewed Slice 6 proof: whole-program tests execute top-level statements across side-effect imports, re-exports, and default imports with deterministic __tsonic_module_init calls, while runtime ESM cycles fail closed until live-binding and TDZ facts are implemented. Existing control-flow tests cover break/continue/label planning through structured C# statements; switch and general loop rows remain partial and are not counted in this slice.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramDeclarationRows, {
       tstsDecision:
@@ -2010,6 +1985,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
     ]),
     oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/parameters-and-dict-keys.test.ts",
+      "packages/frontend/src/validator-cases/utility-types.test.ts",
+      "packages/frontend/src/validator-maximus-cases/deterministic-typing.test.ts",
+      "packages/frontend/src/validator-maximus-cases/dictionary-and-object-literal.test.ts",
+      "packages/frontend/src/validator-maximus-cases/type-syntax.test.ts",
       "packages/frontend/src/validator.test.ts",
       "packages/frontend/src/validator.maximus.test.ts",
     ]),
@@ -2029,7 +2009,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nullable-narrowing/",
+      "test/fixtures/nullish-coalescing/",
+      "test/fixtures/nullish-coalescing-threading/",
+    ]),
     blockers: Object.freeze([
       "tsts.flow-narrowing remains partial until every narrowing family used by supported emission has current positive and fail-closed proof: typeof, instanceof, equality, discriminants, nullish checks, truthiness policy, optional chains, and provider-owned runtime carrier facts.",
     ]),
@@ -2065,6 +2049,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/generic-validation.test.ts",
       "packages/frontend/src/validator-maximus-cases/generic-function-values.test.ts",
+      "test/fixtures/generic-method-standalone/",
     ]),
     blockers: Object.freeze([
       "tsts.generic-inference remains partial until generic functions, methods, constructors, callbacks, object-shape inference, provider generic members, constraint failures, and target type-argument mapping all have current positive and fail-closed evidence.",
@@ -2174,7 +2159,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "test/cli/surface-composition.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
+    ]),
     blockers: Object.freeze([
       "tsts.program.create-with-extensions remains partial until old extension-host/frontend integration evidence is explicitly mapped in the old product unit inventory.",
     ]),
@@ -2202,7 +2189,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/utility-types.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+    ]),
     blockers: Object.freeze([
       "type.utility remains partial until utility type coverage includes Partial/Required/Readonly/Pick/Omit/Record/Exclude/Extract/NonNullable/ReturnType/Parameters/Awaited across object, callable, provider, and source-core primitive boundaries.",
     ]),

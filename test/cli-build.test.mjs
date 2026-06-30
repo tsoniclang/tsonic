@@ -3,6 +3,7 @@ import "./cli-build/provider-dotnet.test.mjs";
 import "./cli-build/source-semantics.test.mjs";
 import "./cli-build/expressions-control-flow.test.mjs";
 import "./cli-build/modules-declarations.test.mjs";
+import "./cli-build/whole-program-csharp-closure.test.mjs";
 import "./cli-build/object-shapes.test.mjs";
 import "./cli-build/js-surface.test.mjs";
 import "./cli-build/nodejs-surface.test.mjs";

@@ -168,8 +168,7 @@ test("CLI builds and runs a whole-program C# module/declaration graph", async ()
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Ada;startup;user:Ada:Admin;\n");
 });
 
-test("CLI emits deterministic C# module initialization for cyclic ESM graphs", async () => {
-  const assemblyName = "SmokeGeneratedCyclicModuleClosure";
+test("CLI rejects cyclic runtime ESM graphs until live-binding and TDZ facts are implemented", async () => {
   const projectDirectory = resolve(tempRoot, "cyclic-module-closure");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -183,7 +182,7 @@ test("CLI emits deterministic C# module initialization for cyclic ESM graphs", a
           options: {
             outputType: "Exe",
             namespace: "Smoke.Generated",
-            assemblyName,
+            assemblyName: "SmokeGeneratedCyclicModuleClosure",
           },
         },
       ],
@@ -220,16 +219,11 @@ test("CLI emits deterministic C# module initialization for cyclic ESM graphs", a
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stdout + build.stderr);
-
-  const aSource = await readFile(resolve(projectDirectory, "out/csharp/src/A.cs"), "utf8");
-  const bSource = await readFile(resolve(projectDirectory, "out/csharp/src/B.cs"), "utf8");
-  const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(aSource, /State\.__tsonic_module_init\(\);[\s\S]*B\.__tsonic_module_init\(\);[\s\S]*State\.append\("a" \+ B\.bValue \+ ";"\);/);
-  assert.match(bSource, /State\.__tsonic_module_init\(\);[\s\S]*A\.__tsonic_module_init\(\);[\s\S]*State\.append\("b" \+ A\.aValue \+ ";"\);/);
-  assert.match(indexSource, /State\.__tsonic_module_init\(\);[\s\S]*A\.__tsonic_module_init\(\);[\s\S]*B\.__tsonic_module_init\(\);/);
-  assert.doesNotMatch(aSource + bSource + indexSource, /__unsupported/);
-  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "b0;a2;i12;\n");
+  assert.equal(build.status, 1, build.stdout + build.stderr);
+  assert.match(build.stderr, /CSHARP_UNSUPPORTED_RUNTIME_MODULE_CYCLE/u);
+  assert.match(build.stderr, /Runtime ES module dependency cycle '[^']*a\.ts[^']*b\.ts[^']*'/u);
+  assert.match(build.stderr, /live-binding and TDZ support/u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedCyclicModuleClosure.csproj")), false);
 });
 
 test("CLI rejects unsupported whole-program declaration shapes before C# artifacts", async () => {
