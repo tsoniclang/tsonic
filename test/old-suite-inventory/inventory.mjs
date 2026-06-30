@@ -759,6 +759,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "host.package.composition",
     "toolchain.csharp.build-run",
     "tsts.flow-narrowing",
+    "tsts.type-query.flow-narrowed-type",
     "type.non-null-assertion",
   ]),
   ...reviewedOldSuiteCapabilityMapping([

@@ -1282,6 +1282,86 @@ test("host rejects invalid flow-narrowed source before backend analysis runs", a
   assert.deepEqual(result.targets[0].compileResult.artifacts, []);
 });
 
+test("host exposes broad TSTS flow-narrowed source types without target policy conclusions", async () => {
+  const events = [];
+  const observedTypes = {};
+  const projectDirectory = resolve(tempRoot, "tsts-broad-flow-narrowed-analysis-query");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("/src/index.ts"));
+      assert.ok(sourceFile !== undefined);
+      for (const name of ["foundShape", "missingShape", "truthyValue", "derivedValue", "nullishValue"]) {
+        const initializer = findVariableInitializer(input.ast, sourceFile, name);
+        observedTypes[name] = input.analysis.describeTypeAtLocation(initializer, { sourceFile });
+      }
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "class BaseValue {",
+      "  name: string = \"base\";",
+      "}",
+      "",
+      "class DerivedValue extends BaseValue {",
+      "  score: number = 1;",
+      "}",
+      "",
+      "type Found = { kind: \"found\"; value: number };",
+      "type Missing = { kind: \"missing\"; value: number };",
+      "type Lookup = Found | Missing;",
+      "",
+      "export function analyze(shape: Lookup, value: string | number | null | undefined, base: BaseValue | null): string {",
+      "  if (shape.kind === \"found\") {",
+      "    const foundShape = shape;",
+      "    void foundShape;",
+      "  } else {",
+      "    const missingShape = shape;",
+      "    void missingShape;",
+      "  }",
+      "  if (value) {",
+      "    const truthyValue = value;",
+      "    void truthyValue;",
+      "  }",
+      "  if (base instanceof DerivedValue) {",
+      "    const derivedValue = base;",
+      "    void derivedValue;",
+      "  }",
+      "  const nullishValue = value ?? \"fallback\";",
+      "  return `${nullishValue}`;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(observedTypes, {
+    foundShape: "Found",
+    missingShape: "Missing",
+    truthyValue: "string | number",
+    derivedValue: "DerivedValue",
+    nullishValue: "string | number",
+  });
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=",
+    "provider-runtime:demo",
+    "backend:demo",
+    "toolchain:demo:artifacts=",
+  ]);
+});
+
 test("host source graph follows relative ESM import and export edges through TSTS", async () => {
   const events = [];
   let backendProjectSourceFiles = [];

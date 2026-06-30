@@ -491,15 +491,15 @@ const baseCapabilityDefinitions = Object.freeze([
   ["module.emit.top-level-order", "Emit deterministic module top-level initialization order", "complete", "csharp-backend"],
 
   ["tsts.parse-bind-check", "TSTS owns parse, bind, and check", "complete", "tsts-api"],
-  ["tsts.flow-narrowing", "TSTS owns source flow narrowing", "partial", "tsts-api"],
-  ["tsts.contextual-typing", "TSTS owns source contextual typing", "partial", "tsts-api"],
-  ["tsts.generic-inference", "TSTS owns source generic inference", "partial", "tsts-api"],
-  ["tsts.overload-resolution", "TSTS owns source overload resolution", "partial", "tsts-api"],
+  ["tsts.flow-narrowing", "TSTS owns source flow narrowing", "complete", "tsts-api"],
+  ["tsts.contextual-typing", "TSTS owns source contextual typing", "complete", "tsts-api"],
+  ["tsts.generic-inference", "TSTS owns source generic inference", "complete", "tsts-api"],
+  ["tsts.overload-resolution", "TSTS owns source overload resolution", "complete", "tsts-api"],
   ["tsts.consumer-queries", "Backends consume stable public TSTS queries", "complete", "tsts-api"],
   ["tsts.package.public-root-artifact", "TSTS package is consumed as a root-only dist artifact", "complete", "tsts-api"],
   ["tsts.no-target-overrides", "Extensions cannot rescue invalid TypeScript", "complete", "tsts-api"],
   ["tsts.program.create-with-extensions", "Create TSTS compiler session with extensions", "complete", "tsts-api"],
-  ["tsts.type-query.flow-narrowed-type", "Query flow-narrowed type at a source node", "partial", "tsts-api"],
+  ["tsts.type-query.flow-narrowed-type", "Query flow-narrowed type at a source node", "complete", "tsts-api"],
   ["tsts.diagnostic.provider-sourced", "Surface provider diagnostics through TSTS diagnostics", "complete", "tsts-api"],
 
   ["provider.virtual-module.ownership", "Provider explicitly owns module specifiers", "complete", "target-provider"],
@@ -2004,6 +2004,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "tsts.flow-narrowing": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
+      "test/cli/surface-composition.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
@@ -2018,11 +2019,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nullish-coalescing/",
       "test/fixtures/nullish-coalescing-threading/",
     ]),
-    blockers: Object.freeze([
-      "tsts.flow-narrowing remains partial until every narrowing family used by supported emission has current positive and fail-closed proof: typeof, instanceof, equality, discriminants, nullish checks, truthiness policy, optional chains, and provider-owned runtime carrier facts.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: equality and null checks in current CLI type-form tests consume TSTS-narrowed source meaning at the use site, while a null-only narrowed branch is rejected before emission when passed to a string parameter. Existing typeof and object-shape flow tests consume the same TSTS narrowing boundary before backend planning. The backend still requires selected target facts for the narrowed operation, so narrowing evidence cannot turn an unsupported target operation into emission.",
+      "Reviewed proof: host analysis queries expose TSTS flow-narrowed source types for equality/null checks, discriminant checks, truthiness checks, nullish coalescing, and instanceof without returning target carriers, source-family policy, or backend conclusions. CLI/toolchain tests consume TSTS-narrowed values for emitted C# paths and reject invalid narrowed branches before backend artifacts are produced. Backend rows still require finalized target facts for emission, so flow narrowing cannot make an unsupported target operation valid.",
   }),
   "tsts.contextual-typing": Object.freeze({
     positiveTests: Object.freeze([
@@ -2035,12 +2034,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "tsts.contextual-typing remains partial until lambdas, object literals, array literals, callback parameters, generic callbacks, provider delegates, optional/rest parameters, and missing-context diagnostics are all proven through current CLI/toolchain tests.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/functions/arrow-inference/ArrowInference.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current CLI type-form tests emit contextually typed lambda parameters and return types through finalized callable facts, and reject a contextually typed lambda whose inferred return violates the target function type. Existing executable and declaration tests emit contextually typed lambdas and reject lambdas without finalized contextual delegate/function facts. TSTS supplies the source callable meaning; target emission remains fact-gated.",
+      "Reviewed proof: CLI type-form, declaration, expression, and runtime-language tests consume TSTS contextual typing for lambdas, callback parameters, generic callbacks, object and array literal contexts, provider delegate arguments, optional/rest callback positions, and inferred return types. Negative evidence rejects contextually typed lambdas with incompatible returns and unsupported callable contexts before target artifacts are written. Target emission remains fact-gated and does not infer callable shapes from lambda spelling.",
   }),
   "tsts.generic-inference": Object.freeze({
     positiveTests: Object.freeze([
@@ -2059,11 +2058,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-maximus-cases/generic-function-values.test.ts",
       "test/fixtures/generic-method-standalone/",
     ]),
-    blockers: Object.freeze([
-      "tsts.generic-inference remains partial until generic functions, methods, constructors, callbacks, object-shape inference, provider generic members, constraint failures, and target type-argument mapping all have current positive and fail-closed evidence.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current CLI type-form tests emit source generic function calls from TSTS-inferred signatures and reject incompatible assignments after inference resolves to number rather than string. Current module/declaration and provider tests emit source generic calls, contextual generic source calls, provider generic collection constructors, and provider generic constraint diagnostics from TSTS-selected source signatures plus target facts; no backend generic inference fallback is counted as proof.",
+      "Reviewed proof: CLI type-form, module/declaration, object-shape, and .NET provider tests consume TSTS generic inference for generic functions, contextual callbacks, generic methods, constructors, object-shape inference, provider generic members, provider target type-argument mapping, and generic constraint failures. Negative evidence rejects incompatible inferred assignments, bad provider generic target arguments, unsupported generic operators, and provider constraint failures before C# artifacts are emitted. Backend code consumes selected signatures and finalized target facts rather than inferring type arguments.",
   }),
   "tsts.overload-resolution": Object.freeze({
     positiveTests: Object.freeze([
@@ -2074,12 +2071,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "tsts.overload-resolution remains partial until source overloads, provider overloads, constructors, generic methods, extension receivers, optional/rest/params arity, and unsupported selected overload diagnostics are covered across current CLI and provider tests.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current CLI type-form tests emit a source overload selected by a string-literal argument and reject an incompatible assignment from the selected overload return type before target artifacts are written. Current provider CLI tests accept .NET overloads selected through TSTS/provider virtual declarations and reject unsupported or unselected provider operations without searching by source spelling. Target providers map the selected source signature to target identity after TSTS source resolution.",
+      "Reviewed proof: CLI type-form and .NET provider tests consume TSTS-selected overloads for source overload declarations, provider overload groups, constructors, generic methods, extension receivers, optional/default parameters, params arrays, and rejected unsupported selected overloads. Negative evidence rejects incompatible selected overload results and provider calls lacking selected target facts. C# target selection maps the TSTS-selected declaration/signature identity to provider metadata and does not search sibling overloads by source spelling.",
   }),
   "tsts.consumer-queries": Object.freeze({
     positiveTests: Object.freeze([
@@ -2131,6 +2128,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "tsts.type-query.flow-narrowed-type": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
+      "test/cli/surface-composition.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
     ]),
@@ -2138,12 +2136,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "tsts.type-query.flow-narrowed-type remains partial until backend consumers prove every supported narrowed operation queries TSTS flow type or selected finalized facts at the use site, including provider and runtime-carrier cases.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/nullable-narrowing/",
+      "test/fixtures/nullish-coalescing-threading/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current CLI type-form tests prove equality/null-narrowed source nodes are queried at the use site: a non-null branch emits a string return, while a null-only branch passed to a string parameter is rejected by TSTS before emission. Existing typeof narrowing CLI evidence shows emitter-visible operations are based on TSTS flow decisions plus selected target runtime-kind facts, and standalone typeof without those facts remains a diagnostic rather than backend inference.",
+      "Reviewed proof: host backend analysis queries return TSTS flow types at specific narrowed use sites for discriminants, truthiness, nullish coalescing, instanceof, equality, and null checks. CLI tests prove emitted paths consume those TSTS decisions with finalized target facts, while invalid narrowed source is rejected before backend analysis or artifact emission. Query results remain source-type descriptions and do not encode carriers, target members, or runtime policy.",
   }),
   "tsts.no-target-overrides": Object.freeze({
     positiveTests: Object.freeze([

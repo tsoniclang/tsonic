@@ -563,6 +563,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "function.declaration",
     "function.higher-order",
     "statement.return",
+    "tsts.contextual-typing",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("types/constants/ModuleConstants"),
@@ -740,6 +741,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "operation.member.no-name-guess",
     "operation.property.provider-selected-member",
     "provider.virtual-module.target-identity",
+    "tsts.overload-resolution",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("types/pointers/PointerTypes"),
