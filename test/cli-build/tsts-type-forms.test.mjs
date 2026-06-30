@@ -150,6 +150,67 @@ test("CLI consumes TSTS source meaning for narrowing, contextual typing, generic
   ], /TS2304: Cannot find name 'missingValue'/);
 });
 
+test("CLI consumes expanded TSTS source meaning across flow, contextual callbacks, generics, and overloads", async () => {
+  const { generatedSource } = await assertBuilds("tsts-source-meaning-matrix-positive", "SmokeGeneratedTstsSourceMeaningMatrix", [
+    "class BaseValue {",
+    "  name: string;",
+    "  constructor(name: string) {",
+    "    this.name = name;",
+    "  }",
+    "}",
+    "",
+    "class DerivedValue extends BaseValue {",
+    "  score: number;",
+    "  constructor(name: string, score: number) {",
+    "    super(name);",
+    "    this.score = score;",
+    "  }",
+    "}",
+    "",
+    "function apply<T, U>(value: T, callback: (value: T) => U): U {",
+    "  return callback(value);",
+    "}",
+    "",
+    "export function readBase(value: BaseValue | null): string {",
+    "  if (value === null) {",
+    "    return \"none\";",
+    "  }",
+    "  if (value instanceof DerivedValue) {",
+    "    return `${value.name}:${value.score}`;",
+    "  }",
+    "  return value.name;",
+    "}",
+    "",
+    "export function runContext(value: number): string {",
+    "  const render: (input: number) => string = (input) => `${input}`;",
+    "  const direct = apply(value, (input) => `${input + 1}`);",
+    "  return `${render(value)}:${direct}`;",
+    "}",
+    "",
+  ]);
+
+  assert.match(generatedSource, /public class BaseValue/);
+  assert.match(generatedSource, /public class DerivedValue : BaseValue/);
+  assert.match(generatedSource, /public static string readBase\(BaseValue\? value\)/);
+  assert.match(generatedSource, /if \(value == null\)/);
+  assert.match(generatedSource, /if \(value is DerivedValue\)/);
+  assert.match(generatedSource, /return \$"\{value\.name\}:\{\(\(DerivedValue\)value\)\.score\}";/);
+  assert.match(generatedSource, /public static U apply<T, U>\(T value, Func<T, U> callback\)/);
+  assert.match(generatedSource, /Func<double, string> render = \(double input\) => \$"\{input\}";/);
+  assert.match(generatedSource, /string direct = apply\(value, \(double input\) => \$"\{input \+ 1\}"\);/);
+  assert.match(generatedSource, /return \$"\{render\(value\)\}:\{direct\}";/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  await assertRejected("tsts-contextual-generic-negative", "SmokeGeneratedTstsContextualGenericNegative", [
+    "function apply<T, U>(value: T, callback: (value: T) => U): U {",
+    "  return callback(value);",
+    "}",
+    "const bad: string = apply(1, (input) => input + 1);",
+    "export function value(): string { return bad; }",
+    "",
+  ], /TS2322: Type 'number' is not assignable to type 'string'/);
+});
+
 test("CLI consumes TSTS template literal type results and rejects incompatible literals", async () => {
   const { generatedSource } = await assertBuilds("template-literal-type-positive", "SmokeGeneratedTemplateLiteralTypes", [
     "type EventKind = \"created\" | \"deleted\";",
