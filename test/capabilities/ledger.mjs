@@ -2220,7 +2220,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.conditional remains partial until distributive/non-distributive conditionals, generic constraints, provider virtual types, source-core primitives, nested conditions, and negative assignability proof are covered through current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: conditional type aliases resolve through TSTS, including tuple-head extraction, and invalid assignment to the resolved conditional result stops before backend artifacts are produced.",
+      "Reviewed partial proof: conditional type aliases resolve through TSTS, including tuple-head extraction, provider generic element inference over List<T>, nested conditional aliases over provider elements, and invalid assignment to the resolved conditional result stops before backend artifacts are produced. Source-core primitive facts through arbitrary conditional transformations remain unproven and must not silently collapse to C# number defaults.",
   }),
   "type.mapped": Object.freeze({
     positiveTests: Object.freeze([
@@ -2234,7 +2234,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.mapped remains partial until readonly/optional modifiers, key remapping, template literal keys, provider virtual declarations, source-core primitive fields, and object-literal freshness are proven end to end.",
     ]),
     notes:
-      "Reviewed partial proof: mapped type aliases with keyof iteration, key remapping, template literal keys, and required-property modifiers are resolved by TSTS and consumed through indexed access as ordinary source types in C# emission; backend output contains no mapped-type syntax or source-name inference.",
+      "Reviewed partial proof: mapped type aliases with keyof iteration, key remapping, template literal keys, and required-property modifiers are resolved by TSTS and consumed through indexed access as ordinary source types in C# emission; provider/source-core boundary tests prove direct source-core aliases and provider generic receivers can coexist with mapped type usage. Backend output contains no mapped-type syntax or source-name inference.",
   }),
   "type.indexed-access": Object.freeze({
     positiveTests: Object.freeze([
@@ -2248,7 +2248,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.indexed-access remains partial until tuple, array, object, union-key, keyof, mapped-type, provider virtual declaration, and invalid key forms are covered by current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: indexed access into object, utility, mapped, key-remapped, and tuple-derived type aliases resolves through TSTS to ordinary source types; incompatible numeric and boolean/string assignments are rejected by TSTS before backend artifacts are produced.",
+      "Reviewed partial proof: indexed access into object, utility, mapped, key-remapped, array element, provider-derived, and tuple-derived type aliases resolves through TSTS to ordinary source types; incompatible numeric and boolean/string assignments plus invalid property keys are rejected by TSTS before backend artifacts are produced.",
   }),
   "type.keyof": Object.freeze({
     positiveTests: Object.freeze([
@@ -2262,7 +2262,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.keyof remains partial until object, array, tuple, mapped, provider virtual declaration, symbol/numeric key, and key-remapping forms are proven across current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: keyof drives mapped copies and key-remapped template literal properties entirely inside TSTS; C# emission consumes the resolved value type and does not inspect source property names as type evidence.",
+      "Reviewed partial proof: keyof drives mapped copies, Pick-derived key unions, and key-remapped template literal properties entirely inside TSTS; C# emission consumes the resolved value type and does not inspect source property names as type evidence.",
   }),
   "type.infer": Object.freeze({
     positiveTests: Object.freeze([
@@ -2276,7 +2276,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.infer remains partial until nested infer positions, rest tuple inference, callable return/parameter inference, provider generic types, source-core primitive aliases, and failing inference branches are covered.",
     ]),
     notes:
-      "Reviewed partial proof: infer in a conditional tuple type and rest tuple position resolves through TSTS to the selected tuple head, and backend emission consumes the resolved string type without implementing infer semantics.",
+      "Reviewed partial proof: infer in conditional tuple positions and provider generic element extraction resolves through TSTS to selected source results, and backend emission consumes the resolved source/provider shape without implementing infer semantics. Source-core primitive facts through arbitrary infer transformations remain unproven and must not be treated as complete target evidence.",
   }),
   "type.template-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -2290,7 +2290,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.template-literal remains partial until template literal type evidence covers generic substitution, unions, intrinsic string manipulation types, property keys, mapped types, and old/current emitter parity through full CLI/toolchain gates.",
     ]),
     notes:
-      "Reviewed partial proof: template literal type aliases with generic substitution, unions, and intrinsic string manipulation are accepted by TSTS, emitted as ordinary target string source after TSTS resolves them, and incompatible literals are rejected by TSTS before backend artifacts are produced. The backend does not reimplement template literal type compatibility or preserve template type syntax in C# emission.",
+      "Reviewed partial proof: template literal type aliases with generic substitution, unions, intrinsic string manipulation, and mapped property-key remapping are accepted by TSTS, emitted as ordinary target string source after TSTS resolves them, and incompatible literals are rejected by TSTS before backend artifacts are produced. The backend does not reimplement template literal type compatibility or preserve template type syntax in C# emission.",
   }),
   "type.variadic-tuple": Object.freeze({
     positiveTests: Object.freeze([
@@ -2306,7 +2306,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.variadic-tuple remains partial until variadic tuple evidence covers readonly tuples, labels, optional/rest elements, generic inference across calls, spreads, destructuring, and every old tuple arity fixture through current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: a variadic tuple type alias is resolved by TSTS into a concrete tuple consumed by the C# backend as a value tuple, tuple element access emits from finalized element facts, and incompatible tuple arity is rejected by TSTS before backend artifacts are produced.",
+      "Reviewed partial proof: variadic tuple type aliases are resolved by TSTS into concrete tuples consumed by the C# backend as value tuples, tuple element access emits from finalized element facts, readonly tuple expressions erase from target output, and incompatible tuple arity is rejected by TSTS before backend artifacts are produced. Source-core primitive facts through variadic tuple transformations remain unproven and must not be overclaimed.",
   }),
   "type.satisfies": Object.freeze({
     positiveTests: Object.freeze([
@@ -2321,7 +2321,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.satisfies remains partial until object-literal freshness, generic contextual typing, source primitive facts, provider virtual declarations, and all expression-position erasure cases are covered by current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: satisfies is checked by TSTS as a source-only validation construct, valid satisfies expressions erase to the underlying expression in target emission, and invalid primitive constraints plus object-literal freshness violations stop before backend artifacts are produced. Tsonic does not attach target semantics to satisfies.",
+      "Reviewed partial proof: satisfies is checked by TSTS as a source-only validation construct, valid primitive/source-core and provider-generic satisfies expressions erase to the underlying expression in target emission, and invalid primitive constraints, provider generic mismatches, and object-literal freshness violations stop before backend artifacts are produced. Tsonic does not attach target semantics to satisfies.",
   }),
   "type.as-const": Object.freeze({
     positiveTests: Object.freeze([
@@ -2336,7 +2336,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.as-const remains partial until literal narrowing and readonly evidence covers object literals, arrays, nested objects, provider calls, source primitives, mutation diagnostics, and target carrier selection across current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: as const is consumed as a TSTS literal/readonly decision, valid readonly tuple literals emit from resolved tuple facts without target-specific as-const syntax, and readonly tuple plus nested object mutations are rejected by TSTS before backend artifacts are produced.",
+      "Reviewed partial proof: as const is consumed as a TSTS literal/readonly decision, valid readonly tuple literals and tuple expressions inside provider/source-core boundary tests emit from resolved tuple facts without target-specific as-const syntax, and readonly tuple plus nested object mutations are rejected by TSTS before backend artifacts are produced.",
   }),
   "type.non-null-assertion": Object.freeze({
     positiveTests: Object.freeze([
@@ -3729,7 +3729,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "type.generic.provider-target-arguments remains partial until provider-owned constructors, indexers, delegates, extension calls, inherited generic members, and every old generic call fixture have current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: C# provider call facts close selected generic target members from TSTS-selected source signatures and proven target argument facts, reject unresolved or contradictory selected generic facts, and CLI module/type-form tests prove imported/re-exported generic source calls plus utility/alias-projected provider generic types emit explicit C# generic arguments from TSTS-selected declarations. Receiver node carrier facts are preferred over erased semantic TypeScript number shapes when source-core primitive aliases carry more target evidence; backend type rendering still requires finalized target argument facts and fails closed without them.",
+      "Reviewed partial proof: C# provider call facts close selected generic target members from TSTS-selected source signatures and proven target argument facts, reject unresolved or contradictory selected generic facts, and CLI module/type-form tests prove imported/re-exported generic source calls plus utility/alias-projected provider generic types emit explicit C# generic arguments from TSTS-selected declarations. Additional type-form tests prove provider generic element inference over List<T> and provider satisfies mismatches are decided by TSTS/provider facts. Receiver node carrier facts are preferred over erased semantic TypeScript number shapes when source-core primitive aliases carry more target evidence; backend type rendering still requires finalized target argument facts and fails closed without them.",
   }),
   "type.generic.provider-target-constraints": Object.freeze({
     positiveTests: Object.freeze([
