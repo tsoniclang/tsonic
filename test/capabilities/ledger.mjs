@@ -681,7 +681,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["compat.any.dynamic-set", "any property writes use explicit compat-runtime carrier facts", "complete", "target-provider"],
   ["compat.any.call-construct", "any call/new use compat-runtime carrier facts", "complete", "target-provider"],
   ["compat.any.dynamic-call", "any calls use explicit compat-runtime carrier facts", "complete", "target-provider"],
-  ["compat.any.operators", "any operators use compat-runtime carrier facts", "partial", "target-provider"],
+  ["compat.any.operators", "any operators use compat-runtime carrier facts", "complete", "target-provider"],
   ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "complete", "target-provider"],
   ["compat.object.no-dynamic-access", "object is not treated like any", "complete", "target-provider"],
   ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "complete", "target-provider"],
@@ -6837,9 +6837,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
       "test/cli-build/compat-runtime.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
+    ]),
     notes:
-      "Reviewed partial proof: supported explicit-any binary, prefix, and typeof operators lower only through finalized closed TsValue operation facts; backend planner tests require static runtime-helper facts including ApplyCompatTypeof; csharp-js runtime tests prove closed primitive/typeof operator semantics without reflection/dynamic dispatch; and source diagnostics hard-reject unsupported <<, in, +=, and delete before backend fallback. Remains partial until comma/sequence behavior and every remaining JS any operator form has closed carrier behavior, deterministic hard-reject evidence, or proof that no dynamic runtime operation is required.",
+      "Reviewed proof: supported explicit-any binary, prefix, typeof, and void operators lower only through finalized closed TsValue operation facts; backend planner tests require static runtime-helper facts including ApplyCompatTypeof and ApplyCompatVoid; csharp-js runtime tests prove closed primitive/typeof/void operator semantics without reflection or dynamic dispatch; and source/CLI diagnostics hard-reject unsupported <<, &, **, +=, **=, in, instanceof, comma/sequence, and delete forms before backend fallback.",
   }),
   "compat.any.typed-boundary-cast": Object.freeze({
     positiveTests: Object.freeze([

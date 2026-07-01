@@ -74,6 +74,10 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
       "  return typeof value;",
       "}",
       "",
+      "export function voidValue(value: any): any {",
+      "  return void value.name;",
+      "}",
+      "",
       "export function typedReturn(value: any): number {",
       "  return value;",
       "}",
@@ -115,6 +119,7 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatBinaryBoolean\(value, "===", 2\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatUnaryBoolean\(value, "!"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatTypeof\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatVoid\(value\.ReadCompatSlot\("name"\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
   assert.match(generatedSource, /double result = Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
   assert.match(generatedSource, /result = Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
@@ -157,6 +162,22 @@ test("CLI hard-rejects unsupported explicit any operators in compat mode", async
       "  return value += 1;",
       "}",
       "",
+      "export function exponent(value: any): any {",
+      "  return value ** 2;",
+      "}",
+      "",
+      "export function exponentAssign(value: any): any {",
+      "  return value **= 2;",
+      "}",
+      "",
+      "export function instance(value: any): boolean {",
+      "  return value instanceof Object;",
+      "}",
+      "",
+      "export function sequence(value: any): number {",
+      "  return (value, 1);",
+      "}",
+      "",
       "export function deleteName(value: any): boolean {",
       "  return delete value.name;",
       "}",
@@ -169,6 +190,10 @@ test("CLI hard-rejects unsupported explicit any operators in compat mode", async
   assert.match(build.stdout + build.stderr, /operator '<<'/u);
   assert.match(build.stdout + build.stderr, /operator 'in'/u);
   assert.match(build.stdout + build.stderr, /operator '\+='/u);
+  assert.match(build.stdout + build.stderr, /operator '\*\*'/u);
+  assert.match(build.stdout + build.stderr, /operator '\*\*='/u);
+  assert.match(build.stdout + build.stderr, /operator 'instanceof'/u);
+  assert.match(build.stdout + build.stderr, /operator ','/u);
   assert.match(build.stdout + build.stderr, /operator 'delete'/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });

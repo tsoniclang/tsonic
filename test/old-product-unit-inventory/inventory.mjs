@@ -548,6 +548,7 @@ const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
     "compat.any.call-construct",
     "compat.any.dynamic-call",
     "compat.any.dynamic-set",
+    "compat.any.operators",
     "compat.any.property",
     "compat.any.typed-boundary-cast",
     "compat.mode.compat",
