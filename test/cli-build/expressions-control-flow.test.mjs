@@ -1718,7 +1718,7 @@ test("CLI runs tuple numeric index access through value-tuple members", async ()
 });
 
 
-test("CLI runs required tuple defaults and two-or-more tuple rest destructuring", async () => {
+test("CLI runs required tuple defaults and tuple rest destructuring", async () => {
   const assemblyName = "SmokeGeneratedTupleRestDefaults";
   const projectDirectory = resolve(tempRoot, "tuple-rest-defaults");
   await writeProject(projectDirectory, {
@@ -1750,8 +1750,20 @@ test("CLI runs required tuple defaults and two-or-more tuple rest destructuring"
       "  return `${name}:${rest[0]}:${rest[1]}`;",
       "}",
       "",
+      "function singleTupleRest(input: [string, number]): string {",
+      "  const [name, ...rest] = input;",
+      "  return `${name}:${rest[0]}`;",
+      "}",
+      "",
+      "function emptyTupleRest(input: [string]): string {",
+      "  const [name, ...rest] = input;",
+      "  return name;",
+      "}",
+      "",
       "Console.writeLine(tupleDefault([\"ready\", 4]));",
       "Console.writeLine(tupleRest([\"tuple\", 7, true]));",
+      "Console.writeLine(singleTupleRest([\"single\", 8]));",
+      "Console.writeLine(emptyTupleRest([\"empty\"]));",
       "",
     ].join("\n"),
   });
@@ -1762,9 +1774,13 @@ test("CLI runs required tuple defaults and two-or-more tuple rest destructuring"
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1;/);
   assert.match(generatedSource, /\(double, bool\) rest = \(__tsonic_destructure\d+\.Item2, __tsonic_destructure\d+\.Item3\);/);
+  assert.match(generatedSource, /System\.ValueTuple<double> rest = new System\.ValueTuple<double>\(__tsonic_destructure\d+\.Item2\);/);
+  assert.match(generatedSource, /System\.ValueTuple rest = new System\.ValueTuple\(\);/);
   assert.match(generatedSource, /return \$"\{name\}:\{rest\.Item1\}:\{rest\.Item2\}";/);
+  assert.match(generatedSource, /return \$"\{name\}:\{rest\.Item1\}";/);
   assert.doesNotMatch(generatedSource, /Tuple destructuring defaults require/);
   assert.doesNotMatch(generatedSource, /Tuple rest destructuring requires finalized tuple slice facts/);
+  assert.doesNotMatch(generatedSource, /Tuple rest destructuring requires at least two finalized tuple slice elements/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const projectPath = resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
@@ -1773,7 +1789,7 @@ test("CLI runs required tuple defaults and two-or-more tuple rest destructuring"
 
   const executed = run("dotnet", ["run", "--project", projectPath, "--no-build", "--no-restore"]);
   assert.equal(executed.status, 0, executed.stdout + executed.stderr);
-  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "ready\ntuple:7:True\n");
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "ready\ntuple:7:True\nsingle:8\nempty\n");
 });
 
 
@@ -1811,7 +1827,7 @@ test("CLI rejects tuple rest/default forms that still lack explicit carrier fact
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /Tuple destructuring defaults for optional\/nullish tuple elements require finalized tuple optional-element facts before C# emission/);
-  assert.match(build.stderr, /Tuple rest destructuring requires at least two finalized tuple slice elements before C# emission/);
+  assert.doesNotMatch(build.stderr, /Tuple rest destructuring requires at least two finalized tuple slice elements before C# emission/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleRestDefaultsRejected.csproj")), false);
 });
 
