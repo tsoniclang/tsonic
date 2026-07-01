@@ -6836,16 +6836,20 @@ const reviewedCapabilityEvidence = Object.freeze({
   "compat.any.typed-boundary-cast": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/assignability-boundary.test.mjs",
+      "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/assignability-boundary.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: assignment/return/initializer boundaries between opaque any and typed target carriers produce target diagnostics unless an explicit target conversion fact exists. Remains partial until compat typed-boundary cast helpers are implemented as closed runtime facts.",
+      "Reviewed partial proof: assignment/return/initializer boundaries between opaque any and typed target carriers produce target diagnostics unless an explicit target conversion fact exists. Compat assertion casts now produce explicit target conversion facts backed by closed TsValue.CastCompat<T> runtime helpers, backend conversion tests require finalized generic method facts, and runtime tests prove successful carrier casts plus deterministic mismatch/nullish failures. Remains partial until typed-boundary assignment/return forms without explicit assertions are either closed through facts or comprehensively diagnosed with CLI/toolchain proof.",
   }),
   "compat.object.no-dynamic-access": Object.freeze({
     positiveTests: Object.freeze([
