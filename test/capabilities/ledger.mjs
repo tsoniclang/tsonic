@@ -5674,19 +5674,22 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "surface.node.util remains partial until format, formatWithOptions, inspect, debuglog, deprecate, isDeepStrictEqual, and other open-object helpers have closed TsValue/provider-adapter semantics or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
+      "surface.node.util remains partial until final closure records explicit no-old-inventory evidence/replacement for Node util and downstream provider-package util coverage beyond focused CLI/runtime proof.",
     ]),
     notes:
-      "Reviewed partial proof: selected node:util and bare util provider modules expose source-visible declarations, provider-backed default node:util module object facts expose closed toUSVString and unsupported format, closed stripVTControlCharacters/toUSVString/styleText/getSystemErrorName/getSystemErrorMessage/convertProcessSignalToExitCode operations map by selected provider signature identity to Tsonic.CSharp.Node.util calls, executable proof runs toUSVString through generated C# Node runtime calls, and open-carrier format/inspect/debuglog/deprecate/isDeepStrictEqual declarations fail closed without routing to reflection, dynamic dispatch, JsonSerializer object inspection, or generic runtime fallback.",
+      "Reviewed stronger partial proof: selected node:util and bare util provider modules expose source-visible declarations, provider-backed default node:util module object facts expose closed toUSVString and unsupported format, closed stripVTControlCharacters/toUSVString/styleText/getSystemErrorName/getSystemErrorMessage/convertProcessSignalToExitCode operations map by selected provider signature identity to Tsonic.CSharp.Node.util calls, executable proof runs toUSVString and closed scalar helpers through generated C# Node runtime calls, open-carrier format/formatWithOptions/inspect/debuglog/deprecate/isDeepStrictEqual declarations fail closed through provider diagnostics without backend artifacts, and direct csharp-nodejs runtime tests reject format/formatWithOptions/inspect/debuglog/deprecate/isArray/isDeepStrictEqual instead of routing to reflection, dynamic dispatch, JsonSerializer object inspection, GetType-based probing, or generic runtime fallback.",
   }),
   "surface.node.url": Object.freeze({
     positiveTests: Object.freeze([

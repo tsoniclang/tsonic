@@ -1135,6 +1135,43 @@ test("CLI rejects default node:util format operations without fallback", async (
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
+test("CLI rejects other open-carrier node:util operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-util-open-carrier-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { debuglog, deprecate, formatWithOptions, inspect, isDeepStrictEqual } from \"node:util\";",
+      "",
+      "export function render(value: unknown): boolean {",
+      "  formatWithOptions({}, \"%o\", value);",
+      "  inspect(value);",
+      "  isDeepStrictEqual(value, value);",
+      "  debuglog(\"demo\");",
+      "  deprecate(() => {}, \"deprecated\");",
+      "  return true;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export '(formatWithOptions|inspect|isDeepStrictEqual|debuglog|deprecate)'/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|JsonSerializer|GetType/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI emits closed node:url operations from selected NodeJS declarations", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-url-closed-surface");
   await writeProject(projectDirectory, {
