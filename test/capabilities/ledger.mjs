@@ -569,7 +569,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.member.provider-indexer", "Member indexers map through selected provider declarations", "complete", "target-provider"],
   ["operation.member.no-name-guess", "Target member mapping cannot guess from source spelling", "complete", "target-provider"],
   ["operation.element.provider-indexer", "Element access emits from selected indexer or carrier facts", "complete", "target-provider"],
-  ["operation.operator.checked-target-operation", "Operators emit from checked target operation facts", "partial", "target-provider"],
+  ["operation.operator.checked-target-operation", "Operators emit from checked target operation facts", "complete", "target-provider"],
   ["operation.conversion.checked-target-conversion", "Target conversions are explicit facts", "complete", "target-provider"],
   ["operation.iteration.for-of.sync", "for-of emits only with sync iteration facts", "complete", "target-provider"],
   ["operation.iteration.for-in.keys", "for-in emits only with key enumeration facts", "complete", "target-provider"],
@@ -6017,10 +6017,14 @@ const reviewedCapabilityEvidence = Object.freeze({
   "operation.operator.checked-target-operation": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
@@ -6032,11 +6036,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/TernaryTyping.ts",
       "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
     ]),
-    blockers: Object.freeze([
-      "operation.operator.checked-target-operation remains partial until every supported operator family has static-native or compat-runtime lane proof, every unsupported operator is hard-rejected with capability diagnostics, and old expected-type/operator fixtures are all covered by current CLI/runtime evidence.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: binary, unary, nullish, and selected provider operators are emitted only from finalized TSTS/provider targetOperation facts; direct bitwise and generic type-parameter operators reject when facts are missing; in-operator and structural operators fail closed rather than backend-guessing from source spelling; nullish coalescing requires matching finalized operator result target type before Roslyn AST emission.",
+      "Reviewed proof: binary, unary, assignment, compound, comparison, logical, nullish, typeof, instanceof, and compat any operators emit only from finalized TSTS/provider targetOperation facts plus matching C# target-operation facts; unsupported in-operator, structural, generic type-parameter, unproven bitwise, and unsupported compat operators fail closed with deterministic diagnostics; backend emission uses Roslyn operator-token AST nodes and rejects semantic-string/operator-token drift.",
   }),
   "operation.iteration.for-of.sync": Object.freeze({
     positiveTests: Object.freeze([
