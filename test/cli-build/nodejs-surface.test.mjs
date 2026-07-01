@@ -487,7 +487,7 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
       "const renamedPath = path.join(directoryPath, \"renamed.txt\");",
       "renameSync(secondPath, renamedPath);",
       "const directoryEntries = readdirSync(directoryPath);",
-      "const directoryListText = directoryEntries[0].length > 0 ? \"listed\" : \"empty\";",
+      "const directoryListText = directoryEntries.length > 0 ? \"listed\" : \"empty\";",
       "const bytes = Buffer.from(text, \"utf8\");",
       "const fileUrl = pathToFileURL(filePath);",
       "const roundTrip = fileURLToPath(fileUrl);",
@@ -524,7 +524,7 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.copyFileSync\(firstPath, secondPath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.renameSync\(secondPath, renamedPath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readdirSync\(directoryPath\);/);
-  assert.match(generatedSource, /directoryEntries\[0\]\.Length > 0/);
+  assert.match(generatedSource, /directoryEntries\.Length > 0/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Buffer\.from\(text, "utf8"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.url\.pathToFileURL\(filePath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.url\.fileURLToPath\(fileUrl\);/);
