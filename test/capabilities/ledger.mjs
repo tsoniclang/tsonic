@@ -6669,10 +6669,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-destructuring/",
     ]),
     blockers: Object.freeze([
-      "operation.destructure.array-object remains partial until remaining object rest assignment variants, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
+      "operation.destructure.array-object remains partial until provider-native array extraction and every old destructuring fixture has current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, read-only-indexable provider, and object-shape extraction facts; missing and mismatched facts produce diagnostics; object rest facts are recorded from TSTS-checked rest binding types; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, nested object rest, object-shape destructuring assignment, expression-position destructuring assignment return values, and Slice 8 rest/spread/nullish interleaving.",
+      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, read-only-indexable provider, and object-shape extraction facts; missing and mismatched facts produce diagnostics; object rest facts are recorded from TSTS-checked rest binding types; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, nested object rest, object-shape destructuring assignment including object rest assignment, expression-position destructuring assignment return values, and Slice 8 rest/spread/nullish interleaving.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([

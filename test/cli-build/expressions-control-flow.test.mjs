@@ -1205,6 +1205,8 @@ test("CLI runs array and object-shape destructuring assignment from finalized fa
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
       "type Shape = { value: int32; label: string };",
+      "type Address = { city: string; zip: string; country: string };",
+      "type User = { name: string; address: Address };",
       "",
       "function assignArray(values: int32[]): int32 {",
       "  let first: int32 = 0;",
@@ -1233,7 +1235,21 @@ test("CLI runs array and object-shape destructuring assignment from finalized fa
       "  return `${label}:${returned.value}:${value}`;",
       "}",
       "",
-      "Console.writeLine(`${assignArray([2, 3])}|${assignArrayExpression([4, 5])}|${assignObject({ value: 7, label: \"ok\" })}|${assignObjectExpression({ value: 9, label: \"expr\" })}`);",
+      "function assignObjectRest(input: Shape): string {",
+      "  let value: int32 = 0;",
+      "  let rest: { label: string } = { label: \"\" };",
+      "  ({ value, ...rest } = input);",
+      "  return `${rest.label}:${value}`;",
+      "}",
+      "",
+      "function assignNestedObjectRest(input: User): string {",
+      "  let city: string = \"\";",
+      "  let restAddress: { zip: string; country: string } = { zip: \"\", country: \"\" };",
+      "  ({ address: { city, ...restAddress } } = input);",
+      "  return `${city}:${restAddress.zip}:${restAddress.country}`;",
+      "}",
+      "",
+      "Console.writeLine(`${assignArray([2, 3])}|${assignArrayExpression([4, 5])}|${assignObject({ value: 7, label: \"ok\" })}|${assignObjectExpression({ value: 9, label: \"expr\" })}|${assignObjectRest({ value: 11, label: \"rest\" })}|${assignNestedObjectRest({ name: \"Ada\", address: { city: \"Paris\", zip: \"75001\", country: \"FR\" } })}`);",
       "",
     ].join("\n"),
   });
@@ -1250,9 +1266,11 @@ test("CLI runs array and object-shape destructuring assignment from finalized fa
   assert.match(generatedSource, /label = __tsonic_destructure\d+\.label;/);
   assert.match(generatedSource, /\(\(System\.Func<int\[\]>\)\(\(\) =>/);
   assert.match(generatedSource, /\(\(System\.Func<__TsonicShape_[A-Za-z0-9_]+>\)\(\(\) =>/);
+  assert.match(generatedSource, /rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = __tsonic_destructure\d+\.label,\s*\};/);
+  assert.match(generatedSource, /restAddress = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported|invalid/i);
 
-  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "5|4:5|ok:7|expr:9:9\n");
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "5|4:5|ok:7|expr:9:9|rest:11|Paris:75001:FR\n");
 });
 
 
