@@ -523,17 +523,17 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source.marker.attribute", "attribute marker attaches target attribute facts", "complete", "source-core-provider"],
   ["source.marker.defaultof", "defaultof marker attaches target default facts", "complete", "source-core-provider"],
   ["source.marker.ptr-fnptr", "pointer and function-pointer markers attach target-validated facts", "complete", "source-core-provider"],
-  ["source.marker.borrow-move", "borrow, borrowMut, and move markers attach target-validated flow facts", "partial", "source-core-provider"],
+  ["source.marker.borrow-move", "borrow, borrowMut, and move markers attach target-validated flow facts", "complete", "source-core-provider"],
   ["source-core.out.storage-binding", "out marker resolves to assignable storage", "complete", "source-core-provider"],
   ["source-core.ref.parameter-mode", "ref and inref markers resolve to parameter passing facts", "complete", "source-core-provider"],
   ["source-core.struct.field-facts", "struct and field markers combine into value-shape facts", "complete", "source-core-provider"],
-  ["source-core.flow.borrow-move-facts", "borrow and move source facts require explicit target behavior", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics", "@tsonic/core/lang.js intrinsics require portable facts and per-target implementation or rejection", "partial", "source-core-provider"],
+  ["source-core.flow.borrow-move-facts", "borrow and move source facts require explicit target behavior", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics", "@tsonic/core/lang.js intrinsics require portable facts and per-target implementation or rejection", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.out", "out intrinsic attaches neutral write-only byref storage facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.ref", "ref intrinsic attaches neutral read-write byref storage facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.inref", "inref intrinsic attaches neutral read-only byref storage facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.borrow", "borrow intrinsic attaches neutral shared-borrow flow facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.borrow-mut", "borrowMut intrinsic attaches neutral mutable-borrow flow facts", "partial", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.borrow", "borrow intrinsic attaches neutral shared-borrow flow facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.borrow-mut", "borrowMut intrinsic attaches neutral mutable-borrow flow facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.move", "move intrinsic attaches neutral moved-value flow facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.struct", "struct intrinsic attaches neutral value-type shape facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.field", "field intrinsic attaches neutral field facts from explicit type evidence", "complete", "source-core-provider"],
@@ -583,10 +583,10 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.throw.catch", "throw/catch/finally use target exception facts", "partial", "target-provider"],
 
   ["expression.literal.string-number-boolean", "String, number, and boolean literals emit target literals", "complete", "csharp-backend"],
-  ["expression.literal.null-undefined", "null and undefined literals emit target carriers", "partial", "csharp-backend"],
+  ["expression.literal.null-undefined", "null and undefined literals emit target carriers", "complete", "csharp-backend"],
   ["expression.literal.bigint-regex-template", "bigint, regex, and template literals use target facts", "partial", "target-provider"],
   ["expression.object-literal", "Object literal expressions map to target shape facts", "partial", "target-provider"],
-  ["expression.array-literal", "Array literal expressions map to target array facts", "partial", "target-provider"],
+  ["expression.array-literal", "Array literal expressions map to target array facts", "complete", "target-provider"],
   ["expression.call", "Call expressions consume TSTS signature and provider facts", "partial", "target-provider"],
   ["expression.new", "new expressions consume TSTS construct signature and provider facts", "partial", "target-provider"],
   ["expression.property-access", "Property access consumes TSTS member and provider facts", "partial", "target-provider"],
@@ -2706,12 +2706,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "source.marker.borrow-move remains partial until borrow, borrowMut, and move have complete per-target behavior evidence for C#, future Rust, and post-move/borrow flow-use diagnostics.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/core-intrinsics-provenance/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: neutral @tsonic/core/lang.js borrow, borrowMut, and move calls attach finalized TSTS flow facts from alias and namespace imports, local/shadowed same-spelling calls do not attach facts, invalid no-argument and extra-argument calls are rejected by TSTS checking without source-core facts, and source-core keeps flow facts on the exact marker call plus argument subjects rather than marking later use-sites as validated. The C# target now rejects those facts explicitly with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of silently erasing the marker calls.",
+      "Reviewed proof: neutral @tsonic/core/lang.js borrow, borrowMut, and move calls attach finalized TSTS flow facts from direct, alias, and namespace imports; local/shadowed same-spelling calls do not attach facts; invalid no-argument and extra-argument calls are rejected by TSTS checking without source-core facts. Source-core keeps flow facts on the exact marker call plus argument subjects rather than marking later use-sites as validated. The C# target explicitly rejects finalized borrow/move flow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED and rejects missing marker facts with capability-scoped diagnostics instead of silently erasing the marker calls. Rust ownership validation remains a future target implementation and does not keep the C# target rejection contract partial.",
   }),
   "source-core.out.storage-binding": Object.freeze({
     positiveTests: Object.freeze([
@@ -2775,12 +2775,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "packages/source-core/src/source-extension.test.ts",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "source-core.flow.borrow-move-facts remains partial until post-borrow/post-move source-flow checks and every selected target either implements or rejects the finalized facts with capability-scoped diagnostics.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/core-intrinsics-provenance/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: TSTS records borrowed-shared, borrowed-mut, and moved flow facts for aliased and namespaced neutral markers, rejects invalid no-argument and extra-argument forms during TypeScript checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and records neutral facts only on the exact call and argument subjects, not later post-flow use-sites. C# consumes those finalized facts only to emit explicit unsupported-target diagnostics; it does not erase them as identity calls.",
+      "Reviewed proof: TSTS/source-core records borrowed-shared, borrowed-mut, and moved flow facts for direct, aliased, and namespaced neutral markers; rejects invalid no-argument and extra-argument forms during TypeScript checking without source-core facts; avoids facts for local/shadowed same-spelling calls; and records neutral facts only on the exact call and argument subjects, not later post-flow use-sites. C# consumes those finalized facts only to emit explicit unsupported-target diagnostics and never erases them as identity calls.",
   }),
   "source-core.lang.portable-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
@@ -2816,9 +2816,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/core-intrinsics-provenance/",
       "test/fixtures/defaultof-intrinsic/",
     ]),
-    blockers: Object.freeze([
-      "source-core.lang.portable-intrinsics remains partial until missing type-evidence breadth, per-target implementation/rejection, source-span coverage, and emitted target AST proof are complete.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "portable-source-core-intrinsic",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -2854,7 +2852,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core-owned module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove direct provider-owned facts for every current intrinsic, alias and namespace import facts for storage, flow, struct, field, attribute, defaultof, ptr, and fnptr markers, invalid arity rejection through TSTS checking, fail-closed missing storage/type evidence through direct/alias/namespace imports, finalized owner facts for struct/defaultof, no-name-guessing for local/shadowed markers including type-marker generic shadowing, and deterministic SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED diagnostics for unsupported local barrel and export-star forms while attaching no portable facts; CLI and C# tests prove selected target implementation/rejection for current paths. Completion requires every child intrinsic to have full per-target implementation or explicit rejection evidence with source-span and emitted target AST proof.",
+      "Reviewed proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core-owned module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove direct provider-owned facts for every current intrinsic, alias and namespace import facts for storage, flow, struct, field, attribute, defaultof, ptr, and fnptr markers, invalid arity rejection through TSTS checking, fail-closed missing storage/type evidence through direct/alias/namespace imports, finalized owner facts for struct/defaultof, no-name-guessing for local/shadowed markers including type-marker generic shadowing, and deterministic SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED diagnostics for unsupported local barrel and export-star forms while attaching no portable facts. CLI and C# tests prove the selected C# target either implements the intrinsic by finalized facts or rejects it with deterministic diagnostics; future Rust ownership semantics are separate target rows.",
   }),
   "source-core.lang.portable-intrinsics.out": coreLangIntrinsicEvidence({
     exportName: "out",
@@ -3020,12 +3018,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
     ],
-    oldEvidence: [],
-    blockers: [
-      "source-core.lang.portable-intrinsics.borrow remains partial until post-borrow source-flow checks, C# unsupported diagnostic breadth, and future Rust implementation/rejection proof are complete.",
+    oldEvidence: [
+      "test/fixtures/core-intrinsics-provenance/",
     ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: TSTS/source-core records borrowed-shared flow for aliased and namespace borrow calls on the exact call and argument subjects, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and does not mark later use-sites as source-validated borrow flow. C# is target-owned and currently rejects finalized borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call; C# call mapping also rejects source-flow marker erasure when the finalized FlowStateFact is absent.",
+      "Reviewed proof: TSTS/source-core records borrowed-shared flow for direct, aliased, and namespace borrow calls on the exact call and argument subjects, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and does not mark later use-sites as source-validated borrow flow. C# is target-owned and rejects finalized borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call; C# call mapping also rejects source-flow marker erasure when the finalized FlowStateFact is absent.",
   }),
   "source-core.lang.portable-intrinsics.borrow-mut": coreLangIntrinsicEvidence({
     exportName: "borrowMut",
@@ -3063,12 +3061,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
     ],
-    oldEvidence: [],
-    blockers: [
-      "source-core.lang.portable-intrinsics.borrow-mut remains partial until mutable aliasing, nested borrows, C# unsupported diagnostic breadth, and future Rust implementation/rejection proof are complete.",
+    oldEvidence: [
+      "test/fixtures/core-intrinsics-provenance/",
     ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: TSTS/source-core records borrowed-mut flow for aliased and namespace borrowMut calls on the exact call and argument subjects, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and does not mark later use-sites as source-validated mutable-borrow flow. Selected targets own exclusivity; unsupported targets must diagnose rather than lower the marker away, and C# call mapping now rejects finalized borrowMut facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED while still rejecting missing FlowStateFact with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN.",
+      "Reviewed proof: TSTS/source-core records borrowed-mut flow for direct, aliased, and namespace borrowMut calls on the exact call and argument subjects, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and does not mark later use-sites as source-validated mutable-borrow flow. Selected targets own exclusivity; C# explicitly rejects finalized borrowMut facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED and rejects missing FlowStateFact with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN rather than lowering the marker away.",
   }),
   "source-core.lang.portable-intrinsics.move": coreLangIntrinsicEvidence({
     exportName: "move",
@@ -3825,11 +3823,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-multidimensional/",
       "test/fixtures/array-type-emission/",
     ]),
-    blockers: Object.freeze([
-      "expression.array-literal remains partial until the old inventory is split between syntax-level expression coverage and target operation coverage, and until every expression-only array literal form has focused positive and negative evidence.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: array literal expression coverage is now tied to the same old literal fixtures that prove carrier and operation behavior, but it is kept separate so expression syntax coverage cannot imply carrier completeness. Current negative proof rejects literal emission when element evidence is absent instead of synthesizing an array carrier from syntax.",
+      "Reviewed proof: array literal expression coverage is tied to finalized array carrier and operation facts without treating syntax as carrier evidence. Current CLI/toolchain tests cover typed, empty, nested, double, multidimensional, spread-adjacent, module-scope, return, local, field, and bare-expression array literals, and negative proof rejects untyped empty literal emission when element evidence is absent instead of synthesizing an array carrier from syntax. Sparse/full-JS array runtime breadth stays in carrier.array and operation.array.literal.",
   }),
   "operation.spread.array": Object.freeze({
     positiveTests: Object.freeze([
@@ -5696,11 +5692,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nullish-coalescing/",
       "test/fixtures/nullish-coalescing-threading/",
     ]),
-    blockers: Object.freeze([
-      "expression.literal.null-undefined remains partial until null and undefined literals are covered across every target mode, JS surface carrier, compat carrier, contextual literal site, and old nullability fixture family.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: C# expression planning emits source null directly as Roslyn literal null and now emits TSTS-proven global undefined as the same current C# nullish carrier instead of leaking an unbound C# identifier; the CLI test validates generated C# with dotnet build and asserts no emitted undefined token. C# JS runtime tests prove the selected JS surface exposes undefined as its closed nullish carrier.",
+      "Reviewed proof: C# expression planning emits source null directly as Roslyn literal null and emits TSTS-proven global undefined as the current C# nullish carrier instead of leaking an unbound C# identifier. Current CLI/toolchain evidence covers null and undefined literal returns, nullable/nullish union storage, nullish coalescing, optional access, generated C# build success, and no emitted undefined token; C# JS runtime tests prove the selected JS surface exposes undefined through its closed nullish carrier. Dynamic/compat nullish breadth stays in carrier.null-undefined and runtime.undefined.carrier.",
   }),
   "expression.nullish-optional": Object.freeze({
     positiveTests: Object.freeze([

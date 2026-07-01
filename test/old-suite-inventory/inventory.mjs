@@ -1700,8 +1700,12 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("core-intrinsics-provenance"),
   ], [
+    "source-core.flow.borrow-move-facts",
     "source-core.lang.portable-intrinsics",
+    "source-core.lang.portable-intrinsics.borrow",
+    "source-core.lang.portable-intrinsics.borrow-mut",
     "source-core.lang.portable-intrinsics.move",
+    "source.marker.borrow-move",
     "target.csharp.core-lang-intrinsics",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
