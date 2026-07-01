@@ -640,12 +640,12 @@ const baseCapabilityDefinitions = Object.freeze([
   ["declaration.attributes", "Attribute facts render at target-valid locations", "complete", "source-core-provider"],
   ["declaration.generated-structural", "Generated structural declarations are deterministic", "complete", "csharp-backend"],
 
-  ["carrier.primitive", "Primitive carriers come from source/target facts", "partial", "target-provider"],
+  ["carrier.primitive", "Primitive carriers come from source/target facts", "complete", "target-provider"],
   ["carrier.array", "Array carriers provide length, index, iteration, and conversion facts", "partial", "target-provider"],
   ["carrier.array.public-abi-policy", "Source T[] remains TS Array<T>; public target ABI uses fact-backed IEnumerable/IReadOnlyList/List/native-array/compat lanes without leaking JSArray by default", "partial", "target-provider"],
-  ["carrier.tuple", "Tuple carriers provide arity and element facts", "partial", "target-provider"],
+  ["carrier.tuple", "Tuple carriers provide arity and element facts", "complete", "target-provider"],
   ["carrier.object-shape", "Object-shape carriers are deterministic and fact-backed", "partial", "target-provider"],
-  ["carrier.dictionary-record", "Record and index-signature carriers are fact-backed", "partial", "target-provider"],
+  ["carrier.dictionary-record", "Record and index-signature carriers are fact-backed", "complete", "target-provider"],
   ["carrier.union", "Runtime unions exist only when facts require them", "partial", "target-provider"],
   ["carrier.null-undefined", "Null and undefined are represented consistently by target mode", "partial", "target-provider"],
   ["carrier.function-delegate", "Function values and callbacks use fact-backed delegate carriers", "complete", "target-provider"],
@@ -1353,6 +1353,72 @@ const reviewedCapabilityEvidence = Object.freeze({
   ...slice4DotnetProviderContractEvidence(),
   ...slice4SourceCoreContractEvidence(),
   ...slice4ProviderCallContractEvidence(),
+  "carrier.primitive": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/variable-decls/VariableDecls.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: source-core primitive aliases, TSTS primitive results, literal facts, nullable primitive carriers, provider parameter/return carriers, and utility-projected primitive types resolve to finalized target primitive facts before C# emission. Negative proof rejects lost source-core primitive evidence after TSTS-only transforms, unknown/object dynamic fallback, incompatible provider primitive constraints, and missing target carriers before artifacts. Old constants and variable-declaration emitter cases are mapped to finalized primitive-carrier facts rather than frontend-era type guesses.",
+  }),
+  "carrier.tuple": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/tuples-arity/TuplesArity.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: tuple carriers preserve arity and element target facts from TSTS tuple results, utility Parameters tuples, readonly/as-const tuples, variadic tuple projections, tuple literals, tuple element reads, and tuple destructuring where finalized extraction facts exist. Negative proof rejects incompatible tuple arity, dynamic tuple indexes, out-of-range indexes, missing tuple element carriers, and unsupported tuple rest/default destructuring without guessing from semantic type strings. Old tuple arity emitter evidence maps to finalized tuple carrier facts and current TSTS tuple type-form proof.",
+  }),
+  "carrier.dictionary-record": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/iteration-facts.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/collections/list-initializer/ListInitializer.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/dictionaries/Dictionaries.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: Record<K,V> and index-signature source shapes lower only through finalized dictionary/record carrier facts, including string and number keys, nested records, empty object dictionary construction, provider Dictionary<TKey,TValue> indexers, for-in key iteration, JS Object.keys/values/entries/hasOwn/assign over typed records, and generated C# Dictionary carriers. Negative proof rejects unknown/object and unsupported object-shape paths without falling back to object, dynamic, or ad hoc dictionaries. Old dictionary/list-initializer emitter evidence is mapped to provider-backed construction, element access, and dictionary carrier facts.",
+  }),
   "host.config.project-load": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
