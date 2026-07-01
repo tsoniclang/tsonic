@@ -3662,6 +3662,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
       "const values: DotNetArray<int32> = DotNetArray.create<int32>(size); values[0] = 7; return values.length;",
       "function invalid(values: DotNetArray<int32>): void { values.length = 3; }",
+      "function invalid(values: DotNetArray<int32>): int32 { const [first] = values; return first; }",
     ]),
     tstsDecision:
       "TSTS checks the provider-owned .NET declarations and ordinary TypeScript array syntax; native CLR array identity is supplied only by provider facts.",
@@ -3725,11 +3726,12 @@ const reviewedCapabilityEvidence = Object.freeze({
           "missing-required-facts",
           "ranked-clr-array-without-approved-source-shape",
           "source-array-spelling-only",
+          "native-array-destructuring-without-iterable-source-contract",
         ]),
       },
     }),
     notes:
-      "Reviewed proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, target-id lookup through the synthetic provider module index, and selected member/indexer facts. CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, rejects JS mutators such as push plus length assignment on explicit native arrays, and keeps ordinary source T[] as TypeScript Array<T> semantics. Ranked-array and unsupported array-family shapes are recorded as provider diagnostics rather than source-visible fallback declarations.",
+      "Reviewed proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, target-id lookup through the synthetic provider module index, and selected member/indexer facts. CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, rejects JS mutators, length assignment, and native-array destructuring without a provider iterable source contract, and keeps ordinary source T[] as TypeScript Array<T> semantics. Ranked-array and unsupported array-family shapes are recorded as provider diagnostics rather than source-visible fallback declarations.",
   }),
   "native.dotnet.attributes": Object.freeze({
     positiveTests: Object.freeze([
@@ -6669,10 +6671,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-destructuring/",
     ]),
     blockers: Object.freeze([
-      "operation.destructure.array-object remains partial until provider-native array extraction and every old destructuring fixture has current CLI/toolchain proof.",
+      "operation.destructure.array-object remains partial until provider-native iterable extraction has a source-visible contract and every old destructuring fixture has current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, read-only-indexable provider, and object-shape extraction facts; missing and mismatched facts produce diagnostics; object rest facts are recorded from TSTS-checked rest binding types; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, nested object rest, object-shape destructuring assignment including object rest assignment, expression-position destructuring assignment return values, and Slice 8 rest/spread/nullish interleaving.",
+      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, read-only-indexable provider, and object-shape extraction facts; missing and mismatched facts produce diagnostics; object rest facts are recorded from TSTS-checked rest binding types; explicit DotNetArray<T> destructuring is hard-rejected by TSTS until the provider declares an iterable source contract; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, nested object rest, object-shape destructuring assignment including object rest assignment, expression-position destructuring assignment return values, and Slice 8 rest/spread/nullish interleaving.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([

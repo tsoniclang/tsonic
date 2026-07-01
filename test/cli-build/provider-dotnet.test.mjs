@@ -155,6 +155,41 @@ test("CLI emits explicit provider-owned native .NET arrays without JS array surf
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects native .NET array destructuring without a provider iterable source contract", async () => {
+  const projectDirectory = resolve(tempRoot, "provider-native-dotnet-array-reject-destructure");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderNativeDotnetArrayRejectDestructure",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function invalid(values: DotNetArray<int32>): int32 {",
+      "  const [first] = values;",
+      "  return first;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TS2488: Type 'Array<number>' must have a '\[Symbol\.iterator\]\(\)' method/u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderNativeDotnetArrayRejectDestructure.csproj")), false);
+});
+
 test("CLI rejects JS array mutators on explicit provider-owned native .NET arrays", async () => {
   const projectDirectory = resolve(tempRoot, "provider-native-dotnet-array-reject-mutator");
   await writeProject(projectDirectory, {
