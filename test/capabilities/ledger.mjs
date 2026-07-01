@@ -666,7 +666,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.math", "Math operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "complete", "surface-provider"],
-  ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node provider-package facts", "partial", "surface-provider"],
+  ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node provider-package facts", "complete", "surface-provider"],
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "complete", "surface-provider"],
@@ -5489,11 +5489,34 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-imports-negative/",
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
-    blockers: Object.freeze([
-      "surface.node.fs-path-process remains partial until the full fs/path/process old fixture matrix has runtime/toolchain proof through the generic provider-package path.",
-    ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, provider-backed default imports for node:fs/node:path/node:process module objects, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property and environment indexer access, process availableMemory/constrainedMemory/hrtime call facts, path.posix/path.win32 PathModule member facts, expanded node:fs/promises chmod/cp/readlink/realpath/rmdir/symlink target facts, and rejection of node:path/fs without the NodeJS provider package. Current executable proof runs selected fs/path/process with Buffer, crypto, os, url, and util through the generated C# Node runtime. Remains partial until fs/path/process behavior and unsupported module-member diagnostics are runtime/toolchain-verified across the full old Node fixture matrix.",
+      "Reviewed proof: selected NodeJS provider package facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, provider-backed default imports for node:fs/node:path/node:process module objects, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property and environment indexer access, process availableMemory/constrainedMemory/hrtime call facts, path.posix/path.win32 PathModule member facts, expanded node:fs/promises chmod/cp/readlink/realpath/rmdir/symlink target facts, and rejection of node:path/fs without the NodeJS provider package. Current executable proof runs selected fs/path/process with Buffer, crypto, os, url, and util through the generated C# Node runtime. Recovered old Node fixture evidence now has current runtime/toolchain proof for path.posix joins, provider-backed default fs imports, no-package import diagnostics, and the multi-file fs/path/process/os/crypto module graph through the generic provider-package path without source-name fallback.",
   }),
   "surface.node.fs": Object.freeze({
     positiveTests: Object.freeze([

@@ -735,11 +735,33 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "json-native-roundtrip",
     "json-native-typed-stringify",
   ], "runtime", "C# runtime/project artifacts + provider JSON facts", "Valid behavior covers JSON source generation, typed stringify/parse, BCL roundtrips, and project artifact generation; port after JSON metadata is proven statically and emitted through target-owned project/runtime artifacts."),
-  ...deferredFixtures([
-    "nodejs-path-posix-join",
-    "nodejs-surface-imports-negative",
-    "nodejs-surface-module-graph",
-  ], "nodejs-surface", "C# NodeJS provider package + C# NodeJS runtime", "Valid behavior covers NodeJS module ownership, negative imports without selected provider package, path variants, and module graph aliases; port after nodejs provider package virtual declarations and runtime artifacts cover the fixture APIs."),
+  Object.freeze({
+    oldPath: "test/fixtures/nodejs-path-posix-join/",
+    status: "ported",
+    featureArea: "nodejs-surface",
+    owner: "C# NodeJS provider package + C# NodeJS runtime",
+    newPath: "test/cli-build/nodejs-surface.test.mjs",
+    reason:
+      "Ported as current-architecture executable proof for node:path posix joins through selected NodeJS provider-package declarations, generated C# AST, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/nodejs-surface-imports-negative/",
+    status: "ported",
+    featureArea: "nodejs-surface",
+    owner: "C# NodeJS provider package + C# NodeJS runtime",
+    newPath: "test/cli-build/nodejs-surface.test.mjs",
+    reason:
+      "Ported as current-architecture executable proof for provider-backed default node:fs imports when the NodeJS provider package is selected, plus adjacent no-package diagnostics in the same current test file.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/nodejs-surface-module-graph/",
+    status: "ported",
+    featureArea: "nodejs-surface",
+    owner: "C# NodeJS provider package + C# NodeJS runtime",
+    newPath: "test/cli-build/nodejs-surface.test.mjs",
+    reason:
+      "Ported as current-architecture executable proof for a multi-file NodeJS provider-package module graph using node:path, node:fs, node:crypto, node:os, and node:process through selected provider facts, generated C# AST, dotnet build/run, and exact stdout.",
+  }),
 ]);
 
 const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
