@@ -50,6 +50,7 @@ export function createTargetCompilerExtensions(options: CreateTargetCompilerExte
   const providerContext = {
     project: options.project,
     target: options.target,
+    targetPack: options.targetPack,
     selectedPackages,
     selectedSurfaces,
   };

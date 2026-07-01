@@ -26,6 +26,7 @@ import type {
 export interface TargetProviderContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
+  readonly targetPack: TargetPack;
   readonly selectedPackages: readonly TargetProviderPackageImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
 }
