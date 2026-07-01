@@ -736,6 +736,57 @@ test("CLI emits object rest destructuring from finalized TSTS rest binding shape
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "7:ok:yes\n");
 });
 
+test("CLI emits nested object rest destructuring from finalized TSTS rest binding shape", async () => {
+  const projectDirectory = resolve(tempRoot, "nested-object-rest-destructuring");
+  const assemblyName = "SmokeGeneratedNestedObjectRestDestructuring";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "type Address = { city: string; zip: string; country: string };",
+      "type User = { name: string; address: Address };",
+      "",
+      "export function describe(input: User): string {",
+      "  const { address: { city, ...restAddress } } = input;",
+      "  return `${city}:${restAddress.zip}:${restAddress.country}`;",
+      "}",
+      "",
+      "Console.writeLine(describe({ name: \"Ada\", address: { city: \"Paris\", zip: \"75001\", country: \"FR\" } }));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = input;/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_destructure\d+\.address;/);
+  assert.match(generatedSource, /string city = __tsonic_destructure\d+\.city;/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ restAddress = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
+  assert.doesNotMatch(generatedSource, /city = __tsonic_destructure\d+\.city,\s*\};/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid|dynamic|System\.Reflection/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Paris:75001:FR\n");
+});
+
 test("CLI emits parameter object rest destructuring with finalized rest member facts", async () => {
   const projectDirectory = resolve(tempRoot, "parameter-object-rest-destructuring");
   const assemblyName = "SmokeGeneratedParameterObjectRestDestructuring";

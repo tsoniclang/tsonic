@@ -6657,6 +6657,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
@@ -6671,7 +6672,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.destructure.array-object remains partial until remaining object rest assignment variants, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, read-only-indexable provider, and object-shape extraction facts; missing and mismatched facts produce diagnostics; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, object-shape destructuring assignment, expression-position destructuring assignment return values, and Slice 8 rest/spread/nullish interleaving.",
+      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, read-only-indexable provider, and object-shape extraction facts; missing and mismatched facts produce diagnostics; object rest facts are recorded from TSTS-checked rest binding types; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, nested object rest, object-shape destructuring assignment, expression-position destructuring assignment return values, and Slice 8 rest/spread/nullish interleaving.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -6994,6 +6995,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
@@ -7003,7 +7005,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.object.rename-rest-default remains partial until compat TsObject extraction is classified and old object destructuring fixtures are recovered or explicitly replaced.",
     ]),
     notes:
-      "Reviewed partial proof: object rename, rest, nested extraction, and defaults emit only from finalized source/rest object-shape facts and execute through CLI/runtime proof. Executables preserve nullable optional members, apply nullish defaults, copy retained rest members, and feed nested spread shape construction; rest facts that retain extracted members or disagree on retained member carriers are rejected; optional value members without nullable carrier facts fail closed.",
+      "Reviewed partial proof: object rename, rest, nested extraction, and defaults emit only from finalized TSTS-checked rest binding types and source/rest object-shape facts, then execute through CLI/runtime proof. Executables preserve nullable optional members, apply nullish defaults, copy retained rest members, and feed nested spread shape construction; rest facts that retain extracted members or disagree on retained member carriers are rejected; optional value members without nullable carrier facts fail closed.",
   }),
   "binding.object-shape": Object.freeze({
     positiveTests: Object.freeze([
