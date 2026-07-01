@@ -1854,6 +1854,75 @@ test("CLI rejects unsupported selected NodeJS fs provider operations without fal
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
+test("CLI rejects unsupported selected NodeJS crypto and os provider operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-unsupported-crypto-os-selected-operation");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { createCipheriv, createDecipheriv, createSign, createVerify, pbkdf2Sync, scryptSync } from \"node:crypto\";",
+      "import os, { cpus, getPriority, networkInterfaces, setPriority, userInfo } from \"node:os\";",
+      "",
+      "export function unsupportedCryptoOs(): void {",
+      "  createCipheriv(\"aes-256-cbc\", {}, {});",
+      "  createDecipheriv(\"aes-256-cbc\", {}, {});",
+      "  scryptSync(\"password\", \"salt\", 16, {});",
+      "  pbkdf2Sync(\"password\", \"salt\", 1, 16, \"sha256\");",
+      "  createSign(\"RSA-SHA256\");",
+      "  createVerify(\"RSA-SHA256\");",
+      "  cpus();",
+      "  networkInterfaces();",
+      "  userInfo({});",
+      "  getPriority(0);",
+      "  setPriority(0, 0);",
+      "  const constants = os.constants;",
+      "  if (constants) {}",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createCipheriv'/);
+  assert.match(build.stderr, /node:crypto\.createCipheriv/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createDecipheriv'/);
+  assert.match(build.stderr, /node:crypto\.createDecipheriv/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'scryptSync'/);
+  assert.match(build.stderr, /node:crypto\.scryptSync/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'pbkdf2Sync'/);
+  assert.match(build.stderr, /node:crypto\.pbkdf2Sync/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createSign'/);
+  assert.match(build.stderr, /node:crypto\.createSign/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createVerify'/);
+  assert.match(build.stderr, /node:crypto\.createVerify/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'cpus'/);
+  assert.match(build.stderr, /node:os\.cpus/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'networkInterfaces'/);
+  assert.match(build.stderr, /node:os\.networkInterfaces/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'userInfo'/);
+  assert.match(build.stderr, /node:os\.userInfo/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'getPriority'/);
+  assert.match(build.stderr, /node:os\.getPriority/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'setPriority'/);
+  assert.match(build.stderr, /node:os\.setPriority/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected property 'node:os' export 'NodeOsModule' member 'constants'/);
+  assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.os\.constants/);
+  assert.doesNotMatch(build.stderr, /createCipheriv is not a function|cpus is not a function|constants is undefined/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 async function runGeneratedCsharpRunner(projectDirectory, assemblyName, programLines) {
   const runnerDirectory = resolve(projectDirectory, "runner");
   const runnerProjectPath = resolve(runnerDirectory, "Runner.csproj");

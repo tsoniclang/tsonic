@@ -5678,6 +5678,18 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/nodejs-surface.test.mjs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.module.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/createHash.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/createHmac.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getCiphers.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getCurves.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getHashes.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomBytes.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomFillSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomInt.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomUUID.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/timingSafeEqual.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/os/os.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/os/machine-version.tests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
@@ -5691,7 +5703,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.buffer-crypto-os remains partial until the full Buffer/crypto/os old fixture matrix has CLI/toolchain/runtime proof and every unsupported member fails closed with precise selected-provider diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer.isBuffer, Buffer.poolSize, buffer.transcode, Buffer instance length/toString/copy/write/compare/includes/indexOf/lastIndexOf/readUInt8/writeUInt8 plus descriptor-backed numeric read/write members such as readUInt16LE, readInt16BE, readUInt32BE, readFloatLE, readDoubleBE, writeUInt16LE, writeInt16BE, writeUInt32BE, writeFloatLE, and writeDoubleBE; bare crypto/os and canonical node:crypto/node:os imports, provider-backed default node:crypto/node:os module object calls/properties such as randomUUID and EOL, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. Current executable proof runs Buffer.from/toString, representative Buffer numeric read/write roundtrips, createHash(...).update(...).digest(\"hex\"), randomUUID, and os.platform through generated C# Node runtime calls. This capability remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
+      "Reviewed partial proof: selected NodeJS provider package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer.isBuffer, Buffer.poolSize, buffer.transcode, Buffer instance length/toString/copy/write/compare/includes/indexOf/lastIndexOf/readUInt8/writeUInt8 plus descriptor-backed numeric read/write members such as readUInt16LE, readInt16BE, readUInt32BE, readFloatLE, readDoubleBE, writeUInt16LE, writeInt16BE, writeUInt32BE, writeFloatLE, and writeDoubleBE; every currently declared supported node:crypto and node:os provider metadata row by provider declaration/member/signature identity; bare crypto/os and canonical node:crypto/node:os imports, provider-backed default node:crypto/node:os module object calls/properties such as randomUUID and EOL, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getCiphers/getCurves/getHashes array returns, and os arch/availableParallelism/endianness/freemem/homedir/hostname/loadavg/machine/platform/release/tmpdir/totalmem/type/uptime/version/EOL/devNull by selected provider declaration identity. Current executable proof runs Buffer.from/toString, representative Buffer numeric read/write roundtrips, createHash(...).update(...).digest(\"hex\"), randomUUID, and os.platform through generated C# Node runtime calls. Unsupported crypto createCipheriv/createDecipheriv/scryptSync/pbkdf2Sync/createSign/createVerify and os constants/cpus/networkInterfaces/userInfo/getPriority/setPriority now fail closed from selected provider identities before artifacts, without runtime fallback. This capability remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and every broader unsupported member fails closed with precise diagnostics.",
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
