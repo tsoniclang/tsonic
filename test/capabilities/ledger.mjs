@@ -618,7 +618,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["function.closure", "Closures preserve captured variables and mutation", "complete", "csharp-backend"],
   ["function.higher-order", "Higher-order functions use delegate/function carriers", "complete", "csharp-backend"],
   ["function.delegate-carrier", "Delegate carriers are selected by target facts", "complete", "target-provider"],
-  ["function.this-binding", "this binding follows TSTS source decisions and target facts", "partial", "tsts-api"],
+  ["function.this-binding", "this binding follows TSTS source decisions and target facts", "complete", "tsts-api"],
   ["function.async", "Async functions map Promise to target task facts", "partial", "target-provider"],
 
   ["declaration.function", "Function declarations render from AST and TSTS facts", "complete", "csharp-backend"],
@@ -6204,10 +6204,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/operator-facts.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "function.this-binding remains partial until object-method this, class-field this, static this, top-level/function this, lexical-arrow this, and old this-binding fixtures are all covered by current CLI/runtime or explicit diagnostics.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/object-literal-method-this/",
     ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "this-binding",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -6246,7 +6246,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: backend unit tests require finalized receiver carrier facts before emitting this, accept lexical arrows only when they close over an instance class receiver, and reject static, object-literal, dynamic function, class-field initializer, and top-level this contexts with deterministic diagnostics. CLI/toolchain tests prove instance plus lexical this emits C# this through target AST and dotnet-builds, while static this rejects before generated artifacts. This row stays partial until the full old this-binding fixture set is recovered or explicitly classified.",
+      "Reviewed proof: backend unit tests require finalized receiver carrier facts before emitting this, accept lexical arrows only when they close over an instance class receiver, and reject static, object-literal, runtime-bound function, class-field initializer, and top-level this contexts with deterministic diagnostics. CLI/toolchain tests prove instance plus lexical this emits C# this through target AST and dotnet-builds, while static, object-literal method, and class-field initializer this reject before generated artifacts. The old object-literal-method-this fixture is mapped to the current fail-closed object-literal receiver diagnostic instead of old JavaScript this fallback.",
   }),
   "function.async": Object.freeze({
     sourceExamples: Object.freeze([

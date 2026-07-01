@@ -553,6 +553,15 @@ const oldSuitePortInventoryEntries = Object.freeze([
     reason:
       "Ported as a current-architecture executable E2E covering an int32 object-shape property preserved from explicit source annotation through finalized object-shape facts into an int field and int return, dotnet build/run, and exact stdout.",
   }),
+  Object.freeze({
+    oldPath: "test/fixtures/object-literal-method-this/",
+    status: "replaced-by-stronger-test",
+    featureArea: "csharp-backend",
+    owner: "TSTS this-binding facts + C# backend planner",
+    newPath: "test/cli-build/expressions-control-flow.test.mjs",
+    reason:
+      "Replaced by current-architecture positive and negative CLI proof for this-binding: instance and lexical class this emit only with finalized receiver facts, while object-literal method this is now a deterministic fail-closed diagnostic before C# artifacts instead of a JavaScript this fallback.",
+  }),
   ...deferredFixtures([
     "nested-object-rest-destructuring",
     "object-literal-accessors",
@@ -563,7 +572,6 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "object-literal-method-arguments-index-reject",
     "object-literal-method-arguments-length",
     "object-literal-method-super-reject",
-    "object-literal-method-this",
     "object-prop-int-to-double",
     "recursive-tree",
     "recursive-type-no-hang",
@@ -980,6 +988,15 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "expression.object-literal",
     "host.package.composition",
     "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("object-literal-method-this"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "diagnostic.unsupported-target-operation",
+    "function.this-binding",
+    "host.package.composition",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("extension-methods-system"),

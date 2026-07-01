@@ -299,7 +299,8 @@ test("capability coverage report proves old inventory coverage by inventory", ()
   assertOldInventoryCoverage(inventoryCoverageByName.get("old-fixture"), oldSuitePortInventory, {
     total: 198,
     ported: 46,
-    deferred: 149,
+    deferred: 148,
+    "replaced-by-stronger-test": 1,
     "invalid-stale-architecture": 3,
   });
   assertOldInventoryCoverage(inventoryCoverageByName.get("old-csharp-emitter"), oldEmitterPortInventory, {

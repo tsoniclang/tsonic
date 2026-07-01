@@ -868,6 +868,64 @@ test("CLI rejects static this before C# emission instead of guessing receiver se
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
 });
 
+test("CLI rejects JavaScript this-binding contexts that lack instance receiver facts", async () => {
+  const cases = [
+    {
+      name: "object-literal-method-this-rejected",
+      assemblyName: "SmokeGeneratedObjectLiteralThisRejected",
+      source: [
+        "export const box = {",
+        "  value: 7,",
+        "  read(): number {",
+        "    return this.value;",
+        "  },",
+        "};",
+        "",
+      ],
+      message: /object-literal or non-class method receiver/,
+    },
+    {
+      name: "class-field-this-rejected",
+      assemblyName: "SmokeGeneratedClassFieldThisRejected",
+      source: [
+        "export class Counter {",
+        "  value: number = 7;",
+        "  doubled: number = this.value * 2;",
+        "}",
+        "",
+      ],
+      message: /class field initializer receiver/,
+    },
+  ];
+
+  for (const thisCase of cases) {
+    const projectDirectory = resolve(tempRoot, thisCase.name);
+    await writeProject(projectDirectory, {
+      "tsonic.json": JSON.stringify({
+        entryPoint: "index.ts",
+        rootDir: "src",
+        outDir: "out",
+        targets: [
+          {
+            id: "csharp",
+            options: {
+              namespace: "Smoke.Generated",
+              assemblyName: thisCase.assemblyName,
+            },
+          },
+        ],
+      }, null, 2),
+      "src/index.ts": thisCase.source.join("\n"),
+    });
+
+    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+    assert.notEqual(build.status, 0, thisCase.name);
+    assert.match(build.stderr, /C# this emission requires a TSTS-selected instance class receiver/);
+    assert.match(build.stderr, thisCase.message);
+    assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  }
+});
+
 
 test("CLI emits array literals from finalized runtime carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "array-literal-runtime-carriers");
