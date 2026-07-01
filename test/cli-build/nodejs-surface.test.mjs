@@ -1,6 +1,6 @@
 import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
-test("CLI emits node:path and bare path joins from selected NodeJS surface provider facts", async () => {
+test("CLI emits node:path and bare path joins from selected NodeJS provider-package provider facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-path-join-surface");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -10,7 +10,8 @@ test("CLI emits node:path and bare path joins from selected NodeJS surface provi
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodePath",
@@ -52,7 +53,7 @@ test("CLI emits node:path and bare path joins from selected NodeJS surface provi
 });
 
 
-test("CLI rejects node:path imports when NodeJS surface is not selected", async () => {
+test("CLI rejects node:path imports when NodeJS provider package is not selected", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-path-no-surface");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -82,7 +83,7 @@ test("CLI rejects node:path imports when NodeJS surface is not selected", async 
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI compiles existing Node-style code when NodeJS surface is selected", async () => {
+test("CLI compiles existing Node-style code when NodeJS provider package is selected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-node-style-surface-code");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -92,7 +93,8 @@ test("CLI compiles existing Node-style code when NodeJS surface is selected", as
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedExistingNodeStyleSurfaceCode",
@@ -166,7 +168,7 @@ test("CLI compiles existing Node-style code when NodeJS surface is selected", as
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects Node-style builtins when NodeJS surface is unselected", async () => {
+test("CLI rejects Node-style builtins when NodeJS provider package is unselected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-node-style-code-without-nodejs-surface");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -211,7 +213,8 @@ test("CLI rejects unsupported selected NodeJS module imports without fallback", 
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedUnsupportedSelectedNodejsModuleImport",
@@ -246,7 +249,8 @@ test("CLI emits NodeJS namespace imports from selected surface provider facts", 
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeModules",
@@ -304,7 +308,7 @@ test("CLI emits NodeJS namespace imports from selected surface provider facts", 
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
-test("CLI emits expanded process operations from selected NodeJS surface facts", async () => {
+test("CLI emits expanded process operations from selected NodeJS provider package facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-process-expanded-surface");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -314,7 +318,8 @@ test("CLI emits expanded process operations from selected NodeJS surface facts",
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeProcessExpanded",
@@ -385,7 +390,8 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeBufferCrypto",
@@ -499,7 +505,8 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeFsPathObjects",
@@ -580,7 +587,7 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readFileSync\(path, "utf8"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readFileSync\(path\)\.toString\(\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeFileSync\(path, Tsonic\.CSharp\.Node\.Buffer\.from\("x"\)\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.fstatSync\(System\.Convert\.ToInt32\(fd\)\)\.size;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.fstatSync\(fd\)\.size;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readSync\(System\.Convert\.ToInt32\(fd\), buffer, 0, 1, 0\) \+ Tsonic\.CSharp\.Node\.fs\.writeSync\(System\.Convert\.ToInt32\(fd\), buffer, 0, 1, 0\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.pid;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.argv\[0\];/);
@@ -604,7 +611,8 @@ test("CLI emits fs Stats Date members through selected NodeJS and JS surface fac
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeFsStatsDate",
@@ -649,7 +657,7 @@ test("CLI emits fs Stats Date members through selected NodeJS and JS surface fac
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects fs Stats Date chains when NodeJS surface is not selected", async () => {
+test("CLI rejects fs Stats Date chains when NodeJS provider package is not selected", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-fs-stats-date-no-nodejs-surface");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -695,7 +703,8 @@ test("CLI emits closed node:util string operations from selected NodeJS declarat
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeUtil",
@@ -746,7 +755,8 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
         },
       ],
     }, null, 2),
@@ -762,7 +772,7 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS surface hard-rejected selected call 'node:util' export 'format'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'format'/);
   assert.match(build.stderr, /System\.Object/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -778,7 +788,8 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeUrl",
@@ -864,7 +875,8 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
         },
       ],
     }, null, 2),
@@ -880,7 +892,7 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS surface hard-rejected selected call 'node:url' export 'format'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:url' export 'format'/);
   assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -896,7 +908,8 @@ test("CLI rejects unsupported selected NodeJS provider operations without fallba
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
         },
       ],
     }, null, 2),
@@ -912,7 +925,7 @@ test("CLI rejects unsupported selected NodeJS provider operations without fallba
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS surface could not map checked 'node:fs' export 'watchFile'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watchFile'/);
   assert.match(build.stderr, /node:fs\.watchFile/);
   assert.doesNotMatch(build.stderr, /watchFile is not a function/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);

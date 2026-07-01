@@ -54,14 +54,14 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       buildPlans.push({ target, diagnostics: [targetPack] });
       continue;
     }
-    const selectedPackages = getTargetSelectedProviderPackages(targetPack, target);
-    if (isTargetDiagnostic(selectedPackages)) {
-      buildPlans.push({ target, targetPack, diagnostics: [selectedPackages] });
-      continue;
-    }
     const selectedSurfaces = getTargetSelectedSurfaces(targetPack, target);
     if (isTargetDiagnostic(selectedSurfaces)) {
-      buildPlans.push({ target, targetPack, selectedPackages, diagnostics: [selectedSurfaces] });
+      buildPlans.push({ target, targetPack, diagnostics: [selectedSurfaces] });
+      continue;
+    }
+    const selectedPackages = getTargetSelectedProviderPackages(targetPack, target, selectedSurfaces);
+    if (isTargetDiagnostic(selectedPackages)) {
+      buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [selectedPackages] });
       continue;
     }
     const providerDiagnostic = getTargetProviderDiagnostic(targetPack, target);
@@ -207,8 +207,9 @@ function getTargetSelectedSurfaces(
 function getTargetSelectedProviderPackages(
   targetPack: TargetPack,
   target: TargetSelection,
+  selectedSurfaces: readonly TargetSurfaceImplementation[],
 ): readonly TargetProviderPackageImplementation[] | TargetDiagnostic {
-  const result = selectTargetProviderPackageImplementations(targetPack, target);
+  const result = selectTargetProviderPackageImplementations(targetPack, target, selectedSurfaces);
   if ("error" in result) {
     return {
       code: "TARGET_PROVIDER_PACKAGE_SELECTION",

@@ -41,6 +41,7 @@ export interface TargetProviderPackageContext {
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
   readonly selectedPackages: readonly TargetProviderPackageImplementation[];
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly package: TargetProviderPackageImplementation;
 }
 
@@ -207,6 +208,7 @@ export interface TargetProviderPackageImplementation {
   readonly id: TargetProviderPackageId;
   readonly displayName: string;
   readonly requiredPackages?: readonly TargetProviderPackageId[];
+  readonly requiredSurfaces?: readonly TargetSurfaceId[];
   readonly moduleOwnership?: readonly TargetProviderModuleOwnership[];
   createExtensions(context: TargetProviderPackageContext): readonly CompilerExtension[];
   runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;

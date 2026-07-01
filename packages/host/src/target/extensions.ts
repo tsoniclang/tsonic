@@ -40,12 +40,12 @@ export type TargetProviderPackageSelectionResult =
     };
 
 export function createTargetCompilerExtensions(options: CreateTargetCompilerExtensionsOptions): TargetCompilerExtensionComposition {
-  const selectedPackages = options.selectedPackages === undefined
-    ? getSelectedProviderPackageImplementations(options.targetPack, options.target)
-    : validateSelectedProviderPackageComposition(options.targetPack, options.target, options.selectedPackages);
   const selectedSurfaces = options.selectedSurfaces === undefined
     ? getSelectedSurfaceImplementations(options.targetPack, options.target)
     : validateSelectedSurfaceComposition(options.targetPack, options.target, options.selectedSurfaces);
+  const selectedPackages = options.selectedPackages === undefined
+    ? getSelectedProviderPackageImplementations(options.targetPack, options.target, selectedSurfaces)
+    : validateSelectedProviderPackageComposition(options.targetPack, options.target, selectedSurfaces, options.selectedPackages);
   const provider = requireTargetProvider(options.targetPack, options.target);
   const providerContext = {
     project: options.project,
@@ -62,6 +62,7 @@ export function createTargetCompilerExtensions(options: CreateTargetCompilerExte
         target: options.target,
         targetPack: options.targetPack,
         selectedPackages,
+        selectedSurfaces,
         package: providerPackage,
       })
     ),
@@ -137,8 +138,9 @@ export function getSelectedSurfaceImplementations(
 export function getSelectedProviderPackageImplementations(
   targetPack: TargetPack,
   target: TargetSelection,
+  selectedSurfaces: readonly TargetSurfaceImplementation[] = getSelectedSurfaceImplementations(targetPack, target),
 ): readonly TargetProviderPackageImplementation[] {
-  const result = selectTargetProviderPackageImplementations(targetPack, target);
+  const result = selectTargetProviderPackageImplementations(targetPack, target, selectedSurfaces);
   if ("error" in result) {
     throw new Error(result.error);
   }
@@ -148,6 +150,7 @@ export function getSelectedProviderPackageImplementations(
 export function selectTargetProviderPackageImplementations(
   targetPack: TargetPack,
   target: TargetSelection,
+  selectedSurfaces: readonly TargetSurfaceImplementation[] = getSelectedSurfaceImplementations(targetPack, target),
 ): TargetProviderPackageSelectionResult {
   const requestedPackages = target.packages ?? [];
   const packageById = new Map<string, TargetProviderPackageImplementation>();
@@ -174,6 +177,12 @@ export function selectTargetProviderPackageImplementations(
     for (const requiredPackageId of providerPackage.requiredPackages ?? []) {
       if (!selectedIds.has(requiredPackageId)) {
         return { error: `target '${target.id}' provider package '${providerPackage.id}' requires provider package '${requiredPackageId}'` };
+      }
+    }
+    const selectedSurfaceIds = new Set(selectedSurfaces.map((surface) => surface.id));
+    for (const requiredSurfaceId of providerPackage.requiredSurfaces ?? []) {
+      if (!selectedSurfaceIds.has(requiredSurfaceId)) {
+        return { error: `target '${target.id}' provider package '${providerPackage.id}' requires surface '${requiredSurfaceId}'` };
       }
     }
   }
@@ -218,9 +227,10 @@ export function selectTargetSurfaceImplementations(
 function validateSelectedProviderPackageComposition(
   targetPack: TargetPack,
   target: TargetSelection,
+  selectedSurfaces: readonly TargetSurfaceImplementation[],
   selectedPackages: readonly TargetProviderPackageImplementation[],
 ): readonly TargetProviderPackageImplementation[] {
-  const expectedPackages = getSelectedProviderPackageImplementations(targetPack, target);
+  const expectedPackages = getSelectedProviderPackageImplementations(targetPack, target, selectedSurfaces);
   const hasExactComposition = selectedPackages.length === expectedPackages.length &&
     selectedPackages.every((providerPackage, index) => providerPackage === expectedPackages[index]);
   if (!hasExactComposition) {

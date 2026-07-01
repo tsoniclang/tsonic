@@ -173,7 +173,8 @@ test("CLI emits NodeJS runtime references with transitive JS runtime only when N
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
@@ -213,7 +214,7 @@ test("CLI emits NodeJS runtime references with transitive JS runtime only when N
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI runs generated JS and NodeJS surface executable through runtime references", async () => {
+test("CLI runs generated JS and NodeJS provider package executable through runtime references", async () => {
   const assemblyName = "SmokeGeneratedJsNodeRuntimeExecution";
   const projectDirectory = resolve(tempRoot, "js-node-runtime-execution");
   await writeProject(projectDirectory, {
@@ -224,7 +225,8 @@ test("CLI runs generated JS and NodeJS surface executable through runtime refere
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName,

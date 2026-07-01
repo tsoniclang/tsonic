@@ -192,9 +192,9 @@ const oldSuitePortInventoryEntries = Object.freeze([
     oldPath: "test/fixtures/nodejs-surface-alias-coverage/",
     status: "deferred",
     featureArea: "nodejs-surface",
-    owner: "C# NodeJS surface",
+    owner: "C# NodeJS provider package",
     reason:
-      "Requires selected nodejs surface with js dependency and module alias facts for node:* imports before the fixture can be ported.",
+      "Requires selected nodejs provider package with js dependency and module alias facts for node:* imports before the fixture can be ported.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/top-level-code/",
@@ -731,7 +731,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "nodejs-path-posix-join",
     "nodejs-surface-imports-negative",
     "nodejs-surface-module-graph",
-  ], "nodejs-surface", "C# NodeJS surface provider + C# NodeJS runtime", "Valid behavior covers NodeJS module ownership, negative imports without selected surface, path variants, and module graph aliases; port after nodejs surface virtual declarations and runtime artifacts cover the fixture APIs."),
+  ], "nodejs-surface", "C# NodeJS provider package + C# NodeJS runtime", "Valid behavior covers NodeJS module ownership, negative imports without selected provider package, path variants, and module graph aliases; port after nodejs provider package virtual declarations and runtime artifacts cover the fixture APIs."),
 ]);
 
 const oldSuiteReviewedCapabilityIdsByOldPath = new Map([

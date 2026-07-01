@@ -681,6 +681,30 @@ test("host reports missing selected provider package dependency as target diagno
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
 });
 
+test("host reports missing provider package surface dependency as target diagnostic", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeProviderPackage("nodejs", { events, requiredSurfaces: ["js"] }),
+    ],
+    surfaces: [
+      createFakeSurface("js"),
+    ],
+  });
+
+  const result = await compileFakeProject("missing-provider-package-surface-dependency", targetPack, {
+    id: "demo",
+    packages: ["nodejs"],
+  });
+
+  assert.deepEqual(events, []);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "TARGET_PROVIDER_PACKAGE_SELECTION");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "target 'demo' provider package 'nodejs' requires surface 'js'");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
 test("host reports missing selected surface dependency as target diagnostic", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
@@ -770,6 +794,16 @@ test("target registry rejects unsafe pack, provider package, and required surfac
       }),
     ]),
     /required package id '\.\.\/core' must match/,
+  );
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], {
+        packages: [
+          createFakeProviderPackage("native", { requiredSurfaces: ["../js"] }),
+        ],
+      }),
+    ]),
+    /required surface id '\.\.\/js' must match/,
   );
   assert.throws(
     () => createTargetRegistry([
@@ -1688,6 +1722,7 @@ function createFakeProviderPackage(id, options = {}) {
     id,
     displayName: `${id} Provider Package`,
     ...((options.requiredPackages ?? []).length > 0 ? { requiredPackages: options.requiredPackages } : {}),
+    ...((options.requiredSurfaces ?? []).length > 0 ? { requiredSurfaces: options.requiredSurfaces } : {}),
     ...((options.moduleOwnership ?? []).length > 0 ? { moduleOwnership: options.moduleOwnership } : {}),
     createExtensions(context) {
       options.events?.push(`package-extension:${id}:target=${context.target.id}:packages=${context.selectedPackages.map((providerPackage) => providerPackage.id).join(",")}`);
