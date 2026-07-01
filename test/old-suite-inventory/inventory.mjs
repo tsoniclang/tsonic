@@ -1555,6 +1555,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
     oldFixturePath("nullish-coalescing"),
     oldFixturePath("nullish-coalescing-threading"),
   ], [
+    "expression.conditional",
     "expression.literal.null-undefined",
     "expression.nullish-optional",
   ]),
@@ -1624,6 +1625,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
     oldFixturePath("generic-function-value-default-export"),
   ], [
     "module.export.default",
+    "type.generic.provider-target-arguments",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("import-type-erase"),
@@ -1653,6 +1655,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("generic-nested-substitution"),
   ], [
+    "expression.new",
     "native.dotnet.constructors",
     "native.dotnet.type-model",
   ]),
@@ -1665,8 +1668,13 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("extension-methods-system"),
     oldFixturePath("generic-method-standalone"),
+    oldFixturePath("generic-nested-substitution"),
   ], [
+    "expression.new",
+    "native.dotnet.constructors",
     "native.dotnet.member-methods",
+    "native.dotnet.type-model",
+    "type.generic.provider-target-arguments",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("param-modifiers"),
