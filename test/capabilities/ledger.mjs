@@ -6147,6 +6147,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/async-cli-build.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -6198,7 +6199,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result; mismatched or missing facts fail closed; async function declarations consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls and higher-order async delegate carriers through dotnet build/run.",
+      "Reviewed partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result, including non-generic Task/void awaits; mismatched or missing facts fail closed; source-semantics records await-result carriers from TSTS-checked Promise/Task facts; async function declarations consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls, Promise<void> await statements, and higher-order async delegate carriers through dotnet build/run.",
   }),
   "function.this-binding": Object.freeze({
     sourceExamples: Object.freeze([
@@ -6284,6 +6285,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/async-cli-build.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -6336,7 +6338,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: async methods and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; missing Promise/Task return facts diagnose before backend fallback; current executable tests cover basic Promise<string>, nested Promise-returning delegates, async callbacks, and exact runtime output.",
+      "Reviewed partial proof: async methods and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; async return expression expectations unwrap finalized Task<T> result carriers before backend planning; missing Promise/Task return facts diagnose before backend fallback; current executable tests cover Promise<string>, Promise<void>/Task, nested Promise-returning delegates, async callbacks, and exact runtime output.",
   }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([

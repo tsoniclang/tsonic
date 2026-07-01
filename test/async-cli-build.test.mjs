@@ -55,6 +55,62 @@ test("CLI emits and executes async functions from TSTS Promise carriers", async 
   assert.equal(stdout, "ready\n");
 });
 
+test("CLI emits and executes Promise<void> as non-generic Task await statements", async () => {
+  const assemblyName = "SmokeGeneratedAsyncVoidTasks";
+  const projectDirectory = resolve(tempRoot, "async-void-tasks");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export async function tick(): Promise<void> {",
+      "  return;",
+      "}",
+      "",
+      "export async function run(): Promise<string> {",
+      "  await tick();",
+      "  return \"done\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task tick\(\)/);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<string> run\(\)/);
+  assert.match(generatedSource, /await tick\(\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
+    "using System;",
+    "using System.Threading.Tasks;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static async Task Main()",
+    "    {",
+    "        Console.WriteLine(await Smoke.Generated.Index.run());",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "done\n");
+});
+
 test("CLI emits and executes async higher-order function carriers", async () => {
   const assemblyName = "SmokeGeneratedAsyncHigherOrder";
   const projectDirectory = resolve(tempRoot, "async-higher-order-functions");
