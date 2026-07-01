@@ -665,6 +665,96 @@ test("CLI emits object rest destructuring from finalized TSTS rest binding shape
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "7:ok:yes\n");
 });
 
+test("CLI emits parameter object rest destructuring with finalized rest member facts", async () => {
+  const projectDirectory = resolve(tempRoot, "parameter-object-rest-destructuring");
+  const assemblyName = "SmokeGeneratedParameterObjectRestDestructuring";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export function restLabel({ value, ...rest }: { value: number; label: string; active: boolean }): string {",
+      "  const activeLabel = rest.active ? \"yes\" : \"no\";",
+      "  return `${value}:${rest.label}:${activeLabel}`;",
+      "}",
+      "",
+      "Console.writeLine(restLabel({ value: 9, label: \"param\", active: false }));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = __tsonic_param\d+\.label,\s*active = __tsonic_param\d+\.active,\s*\};/);
+  assert.match(generatedSource, /string activeLabel = rest\.active \? "yes" : "no";/);
+  assert.match(generatedSource, /return \$"\{value\}:\{rest\.label\}:\{activeLabel\}";/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid|dynamic|System\.Reflection/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "9:param:no\n");
+});
+
+test("CLI emits calls through parameter destructured object-shape callable facts", async () => {
+  const projectDirectory = resolve(tempRoot, "parameter-object-callable-destructuring");
+  const assemblyName = "SmokeGeneratedParameterObjectCallableDestructuring";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export function invoke({ run }: { run(value: number): number }): number {",
+      "  return run(3);",
+      "}",
+      "",
+      "Console.writeLine(`${invoke({ run(value: number) { return value + 4; } })}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Func<double, double> run = __tsonic_param\d+\.run;/);
+  assert.match(generatedSource, /return run\(3\);/);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid|dynamic|System\.Reflection/i);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "7\n");
+});
+
 
 test("CLI emits object-shape spread from finalized provider object-shape facts", async () => {
   const projectDirectory = resolve(tempRoot, "object-shape-spread");

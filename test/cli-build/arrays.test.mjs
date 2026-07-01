@@ -131,7 +131,7 @@ test("CLI runs array fixed default rest and nested destructuring from finalized 
       "",
       "function rest(values: int32[]): int32 {",
       "  const [first, ...tail] = values;",
-      "  return first;",
+      "  return first + tail.length;",
       "}",
       "",
       "function nested(values: int32[][]): int32 {",
@@ -157,9 +157,10 @@ test("CLI runs array fixed default rest and nested destructuring from finalized 
   assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.Count > 0 \? \1\[0\] : 10;/);
   assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.Count > 1 \? \1\[1\] : 20;/);
   assert.match(generatedSource, /System\.Collections\.Generic\.List<int> tail = Tsonic\.CSharp\.Js\.Array\.slice\(__tsonic_destructure\d+, 1\);/);
+  assert.match(generatedSource, /return first \+ tail\.Count;/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
 
-  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "3|30|4|15\n");
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "3|30|6|15\n");
 });
 
 test("CLI emits module-scope array spread constants from finalized expected array facts", async () => {
