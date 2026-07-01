@@ -667,8 +667,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node provider-package facts", "complete", "surface-provider"],
-  ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
-  ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
+  ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "complete", "surface-provider"],
+  ["surface.node.fs", "node:fs uses selected Node surface facts", "complete", "surface-provider"],
   ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "complete", "surface-provider"],
   ["surface.node.process", "node:process uses selected Node provider-package facts", "complete", "surface-provider"],
   ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "complete", "surface-provider"],
@@ -709,7 +709,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["toolchain.csharp.library", "Library output path and artifacts are deterministic", "complete", "csharp-toolchain"],
   ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "complete", "csharp-toolchain"],
   ["runtime.csharp.js", "C# JS runtime artifacts are selected by js surface", "complete", "csharp-runtime"],
-  ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs provider package", "partial", "csharp-runtime"],
+  ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs provider package", "complete", "csharp-runtime"],
   ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "complete", "csharp-runtime"],
 
   ["native.dotnet.assembly-model", ".NET provider models assemblies and namespaces", "complete", "target-provider"],
@@ -5541,11 +5541,44 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
-    blockers: Object.freeze([
-      "surface.node.fs remains partial until every supported node:fs, node:fs/promises, bare fs, and bare fs/promises operation has selected-declaration target facts, every unsupported fs member has precise selected-provider-package diagnostics, and the old Node fixture matrix has runtime/toolchain proof.",
-    ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "test/cli-build/nodejs-surface.test.mjs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/accessSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/chmod.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/closeSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/cp.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/openSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/readlink.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/realpath.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/rmdir.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/symlink.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/truncateSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/writeSync.tests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, provider-backed default node:fs module object calls such as fs.existsSync, every currently declared node:fs and node:fs/promises supported provider row from the provider metadata tables, existsSync/readFileSync string and Buffer returns, readdirSync string-array returns, statSync/fstatSync, readSync/writeSync Buffer descriptors plus writeSync string overload, access/chmod/close/open/truncate/rmdir/symlink/readlink/realpath/cp variants, writeFileSync/appendFileSync/copyFileSync/renameSync/rmSync/unlinkSync writes and cleanup, node:fs/promises access/readFile/readdir/writeFile/copyFile/truncate/stat/unlink/mkdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink Promise-returning target facts, no-surface negative paths block Node-owned modules before artifact emission, unsupported node:vm provider-package imports fail closed, and unsupported selected fs.readFile/writeFile/watch/watchFile/createReadStream fail closed without runtime fallback. Current provider tests prove fs/promises readFile(path, \"utf8\") selects Task<string> while readFile(path) selects Task<Buffer>, including default fsPromises imports; runtime tests prove both fs.promises and fs_promises module helpers preserve string-vs-Buffer overload behavior. Current executable proof writes, stats, reads, directory listing, rename/copy cleanup, unlinks, expanded sync filesystem operations, and fs/promises async roundtrip operations through generated C# Node runtime calls. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
+      "Reviewed proof: selected NodeJS provider package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, provider-backed default node:fs module object calls such as fs.existsSync, every currently declared node:fs and node:fs/promises supported provider row from the provider metadata tables, existsSync/readFileSync string and Buffer returns, readdirSync string-array returns, statSync/fstatSync, readSync/writeSync Buffer descriptors plus writeSync string overload, access/chmod/close/open/truncate/rmdir/symlink/readlink/realpath/cp variants, writeFileSync/appendFileSync/copyFileSync/renameSync/rmSync/unlinkSync writes and cleanup, node:fs/promises access/readFile/readdir/writeFile/copyFile/truncate/stat/unlink/mkdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink Promise-returning target facts, no-surface negative paths block Node-owned modules before artifact emission, unsupported node:vm provider-package imports fail closed, and unsupported selected fs.readFile/writeFile/watch/watchFile/createReadStream fail closed without runtime fallback. Current provider tests prove fs/promises readFile(path, \"utf8\") selects Task<string> while readFile(path) selects Task<Buffer>, including default fsPromises imports; runtime tests prove both fs.promises and fs_promises module helpers preserve string-vs-Buffer overload behavior. Current executable proof writes, stats, reads, directory listing, rename/copy cleanup, unlinks, expanded sync filesystem operations, and fs/promises async roundtrip operations through generated C# Node runtime calls. Stats Date-valued members are tracked under surface.node.fs-stats-date. Broader Node module families outside the declared fs provider-package surface are classified by explicit unsupported provider-package diagnostics instead of fallback emission.",
   }),
   "surface.node.fs-stats-date": Object.freeze({
     sourceExamples: Object.freeze([
@@ -5699,11 +5732,47 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
-    blockers: Object.freeze([
-      "surface.node.buffer-crypto-os remains partial until the full Buffer/crypto/os old fixture matrix has CLI/toolchain/runtime proof and every unsupported member fails closed with precise selected-provider diagnostics.",
-    ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "test/cli-build/nodejs-surface.test.mjs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.module.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/createHash.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/createHmac.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getCiphers.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getCurves.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getHashes.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomBytes.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomFillSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomInt.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomUUID.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/timingSafeEqual.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/os/os.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/os/machine-version.tests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer.isBuffer, Buffer.poolSize, buffer.transcode, Buffer instance length/toString/copy/write/compare/includes/indexOf/lastIndexOf/readUInt8/writeUInt8 plus descriptor-backed numeric read/write members such as readUInt16LE, readInt16BE, readUInt32BE, readFloatLE, readDoubleBE, writeUInt16LE, writeInt16BE, writeUInt32BE, writeFloatLE, and writeDoubleBE; every currently declared supported node:crypto and node:os provider metadata row by provider declaration/member/signature identity; bare crypto/os and canonical node:crypto/node:os imports, provider-backed default node:crypto/node:os module object calls/properties such as randomUUID and EOL, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getCiphers/getCurves/getHashes array returns, and os arch/availableParallelism/endianness/freemem/homedir/hostname/loadavg/machine/platform/release/tmpdir/totalmem/type/uptime/version/EOL/devNull by selected provider declaration identity. Current executable proof runs Buffer.from/toString, representative Buffer numeric read/write roundtrips, createHash(...).update(...).digest(\"hex\"), randomUUID, and os.platform through generated C# Node runtime calls. Unsupported crypto createCipheriv/createDecipheriv/scryptSync/pbkdf2Sync/createSign/createVerify and os constants/cpus/networkInterfaces/userInfo/getPriority/setPriority now fail closed from selected provider identities before artifacts, without runtime fallback. This capability remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and every broader unsupported member fails closed with precise diagnostics.",
+      "Reviewed proof: selected NodeJS provider package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer.isBuffer, Buffer.poolSize, buffer.transcode, Buffer instance length/toString/copy/write/compare/includes/indexOf/lastIndexOf/readUInt8/writeUInt8 plus descriptor-backed numeric read/write members such as readUInt16LE, readInt16BE, readUInt32BE, readFloatLE, readDoubleBE, writeUInt16LE, writeInt16BE, writeUInt32BE, writeFloatLE, and writeDoubleBE; every currently declared supported node:crypto and node:os provider metadata row by provider declaration/member/signature identity; bare crypto/os and canonical node:crypto/node:os imports, provider-backed default node:crypto/node:os module object calls/properties such as randomUUID and EOL, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getCiphers/getCurves/getHashes array returns, and os arch/availableParallelism/endianness/freemem/homedir/hostname/loadavg/machine/platform/release/tmpdir/totalmem/type/uptime/version/EOL/devNull by selected provider declaration identity. Current executable proof runs Buffer.from/toString, representative Buffer numeric read/write roundtrips, createHash(...).update(...).digest(\"hex\"), randomUUID, and os.platform through generated C# Node runtime calls. Unsupported crypto createCipheriv/createDecipheriv/scryptSync/pbkdf2Sync/createSign/createVerify and os constants/cpus/networkInterfaces/userInfo/getPriority/setPriority fail closed from selected provider identities before artifacts, without runtime fallback. Broader Node module families outside the declared Buffer/crypto/os provider-package surface are classified by explicit unsupported provider-package diagnostics instead of fallback emission.",
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
@@ -5876,7 +5945,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process/url mappings and provider-backed default node:fs/node:fs/promises/node:path/node:process/node:crypto/node:os/node:util/node:url module object mappings through that reference, closed fs Buffer descriptor/file helpers plus fs/promises readFile string-vs-Buffer overloads, access/chmod/close/open/cp/readlink/realpath/rmdir/symlink/truncate/writeSync runtime helpers, mkdir/readdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8/isBuffer/poolSize/transcode helpers, crypto Buffer/Hash/Hmac helpers, process environment and memory metrics/hrtime helpers, URL base-overload and URLSearchParams helpers, and scalar util helpers are available as runtime-owned APIs. Generated executables now run both node:path.join and a composite provider-package scenario covering fs write/read/stat/unlink/access/chmod/truncate/rmdir/symlink/readlink/realpath/cp, fs/promises async file roundtrip with access/copyFile/truncate, path/process, Buffer, crypto hash/randomUUID, os.platform, url file conversion, live URL.searchParams mutation coupling, and util.toUSVString through the C# Node runtime. Remains partial until executable tests cover the full old Node fixture matrix, byte conversion facts are proven for Buffer write APIs, and all unsupported Node module members fail closed.",
+      "Reviewed proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process/url mappings and provider-backed default node:fs/node:fs/promises/node:path/node:process/node:crypto/node:os/node:util/node:url module object mappings through that reference, closed fs Buffer descriptor/file helpers plus fs/promises readFile string-vs-Buffer overloads, access/chmod/close/open/cp/readlink/realpath/rmdir/symlink/truncate/writeSync runtime helpers, mkdir/readdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8/isBuffer/poolSize/transcode helpers, crypto Buffer/Hash/Hmac helpers, process environment and memory metrics/hrtime helpers, URL base-overload and URLSearchParams helpers, and scalar util helpers are available as runtime-owned APIs. Generated executables run both node:path.join and composite provider-package scenarios covering fs write/read/stat/unlink/access/chmod/truncate/rmdir/symlink/readlink/realpath/cp, fs/promises async file roundtrip with access/copyFile/truncate, path/process, Buffer, crypto hash/randomUUID, os.platform, url file conversion, live URL.searchParams mutation coupling, and util.toUSVString through the C# Node runtime. Unsupported selected Node provider-package APIs and unsupported Node modules fail closed before target artifacts, while runtime source scans prove no reflection/dynamic/open-dispatch semantics in csharp-nodejs runtime paths.",
   }),
   "runtime.no-reflection-semantics": Object.freeze({
     positiveTests: Object.freeze([
