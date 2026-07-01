@@ -735,7 +735,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.target-constraint", "Target constraint failure points to source", "complete", "target-provider"],
   ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "complete", "tsts-api"],
   ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "complete", "target-provider"],
-  ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "partial", "target-provider"],
+  ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "complete", "target-provider"],
   ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
   ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "complete", "tests"],
 
@@ -8105,18 +8105,18 @@ const reviewedCapabilityEvidence = Object.freeze({
   "diagnostic.strict-mode-slow-op": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
-    blockers: Object.freeze([
-      "diagnostic.strict-mode-slow-op remains partial until all strict-native slow/compat operations have precise source spans and runtime/toolchain diagnostics.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: strict-native diagnostics now cover dynamic any and syntax-level compat-runtime rejections with evidence that names the closed-runtime-carrier requirement and bans QuickJS, reflection dispatch, C# dynamic, and source-name guessing.",
+      "Reviewed proof: strict-native diagnostics cover dynamic any property/element/call/construct/operator and typed-boundary operations before C# artifacts, while compat mode only emits closed TsValue/TsObject/TsArray/TsFunction operation facts. CLI proof rejects strict-native dynamic programs and unsupported dynamic operators before project output, and compat CLI/runtime proof builds only closed runtime-carrier calls without QuickJS, reflection dispatch, C# dynamic, source-name guessing, or fallback artifact emission.",
   }),
   "diagnostic.ts-invalid-not-rescued": Object.freeze({
     positiveTests: Object.freeze([
