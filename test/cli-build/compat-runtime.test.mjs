@@ -58,6 +58,18 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
       "  return new value(\"Ada\");",
       "}",
       "",
+      "export function addValue(value: any): any {",
+      "  return value + 2;",
+      "}",
+      "",
+      "export function equalValue(value: any): boolean {",
+      "  return value === 2;",
+      "}",
+      "",
+      "export function notValue(value: any): boolean {",
+      "  return !value;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -76,10 +88,46 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
   assert.match(generatedSource, /return value\.InvokeCompat\("Ada", 1\);/);
   assert.match(generatedSource, /return value\.ReadCompatSlot\("create"\)\.InvokeCompat\("Ada"\);/);
   assert.match(generatedSource, /return value\.ConstructCompat\("Ada"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatBinary\(value, "\+", 2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatBinaryBoolean\(value, "===", 2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatUnaryBoolean\(value, "!"\);/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 
   const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI hard-rejects unsupported explicit any operators in compat mode", async () => {
+  const projectDirectory = resolve(tempRoot, "compat-runtime-any-operator-reject");
+  const assemblyName = "SmokeGeneratedCompatRuntimeAnyOperatorReject";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            typescriptCompatibility: "compat",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function shift(value: any): any {",
+      "  return value << 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /CSHARP_COMPAT_ANY_OPERATOR_UNSUPPORTED|operator '<<'/u);
+  assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
 test("CLI strict-native rejects explicit TypeScript any operations before C# artifact emission", async () => {

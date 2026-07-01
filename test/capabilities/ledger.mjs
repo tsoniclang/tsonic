@@ -6777,16 +6777,22 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "compat.any.operators": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     notes:
-      "Reviewed partial proof: operators with opaque any operands do not synthesize C# operator facts and produce deterministic diagnostics without compat operation facts. Remains partial until every JS operator policy has a closed carrier operation or hard-reject classification.",
+      "Reviewed partial proof: supported explicit-any binary and prefix operators lower only through finalized closed TsValue operation facts, backend planner tests require static runtime-helper facts, csharp-js runtime tests prove closed primitive operator semantics without reflection/dynamic dispatch, and CLI/toolchain proof builds +, ===, and ! while hard-rejecting unsupported << before artifacts. Remains partial until every JS any operator family, including delete/in/typeof/comma and assignment variants where applicable, has closed carrier behavior or deterministic hard-reject evidence.",
   }),
   "compat.any.typed-boundary-cast": Object.freeze({
     positiveTests: Object.freeze([
