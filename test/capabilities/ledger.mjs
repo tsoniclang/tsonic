@@ -6796,6 +6796,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
       "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -6803,41 +6804,46 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/semantic-guards.test.mjs",
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
       "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed proof: TypeScript any receives an opaque source/runtime carrier fact, strict-native rejects it, compat mode lowers only through closed TsValue/TsObject/TsArray/TsFunction/JSArray operation facts, csharp-js runtime tests prove closed carrier property/element/call/construct behavior without reflection or dynamic dispatch, and CLI/toolchain proof emits TsValue public boundaries plus closed runtime calls without selecting the JS surface. object and unknown remain non-dynamic.",
+      "Reviewed proof: TypeScript any receives an opaque source/runtime carrier fact, strict-native rejects it, compat mode lowers only through closed TsValue/TsObject/TsArray/TsUnion/TsFunction/JSArray operation facts, csharp-js runtime tests prove closed carrier property/element/call/construct and union forwarding behavior without reflection or dynamic dispatch, and CLI/toolchain proof emits TsValue public boundaries plus closed runtime calls without selecting the JS surface. object and unknown remain non-dynamic.",
   }),
   "carrier.union": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/runtime-union.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/runtime-union.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "carrier.union remains partial until all union arities, nullish unions, discriminated unions, provider-owned union constituents, runtime arm projection, and end-to-end old fixture parity are covered.",
+      "carrier.union remains partial until discriminated unions, provider-owned union constituents, generated runtime arm projection, serialization boundaries, and end-to-end old fixture parity are covered.",
     ]),
     notes:
-      "Reviewed partial proof: heterogeneous non-nullish unions now create explicit Tsonic.CSharp.Runtime.Union<T...> carrier facts only after constituent carrier facts exist; narrowed branch expressions prefer checked flow carrier facts and do not emit union arm projection by spelling.",
+      "Reviewed partial proof: heterogeneous unions create explicit Tsonic.CSharp.Runtime.Union<T...> carrier facts only after constituent carrier facts exist; narrowed branch expressions prefer checked flow carrier facts and do not emit union arm projection by spelling. csharp-js now adds a closed TsUnion compatibility wrapper for arities 2 through 8, including nullish arms and deterministic open-CLR-object rejection, but generated end-to-end arm projection and broader old fixture parity remain open.",
   }),
   "runtime.union.carrier": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/runtime-union.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/runtime-union.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "runtime.union.carrier remains partial until runtime Union<T...> construction, arm selection, conversion, serialization boundaries, and target toolchain tests cover every supported arity and narrowing pattern.",
+      "runtime.union.carrier remains partial until generated runtime Union<T...> construction, arm projection, serialization boundaries, and target toolchain tests cover every supported narrowing pattern.",
     ]),
     notes:
-      "Reviewed partial proof: the C# target records runtime union target identities for arities 2 through 8 and rejects union type annotation emission without finalized carrier facts; branch-narrowed values consume checked flow carrier facts directly.",
+      "Reviewed partial proof: the C# target records runtime union target identities for arities 2 through 8 and rejects union type annotation emission without finalized carrier facts; branch-narrowed values consume checked flow carrier facts directly. csharp-js now proves closed TsUnion boxing, nullish-arm propagation, typed-boundary casts back to Runtime.Union<T...>, and open CLR object rejection without reflection or dynamic dispatch.",
   }),
   "compat.prototype-mutation": Object.freeze({
     positiveTests: Object.freeze([
@@ -7032,19 +7038,21 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/conversions.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
       "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/assignability-boundary.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
       "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed proof: typed boundaries between opaque any and typed target carriers are never emitted from backend inference. Strict-native rejects any typed-boundary programs before C# artifacts, while compatibility mode records finalized target conversion facts for assertions, assignments, initializers, and returns. any-to-typed boundaries lower through closed TsValue.CastCompat<T> facts, typed-to-any boundaries lower through closed TsValue.from facts, backend conversion tests require the finalized generic method fact, runtime tests prove successful casts and deterministic mismatch/nullish failures, and CLI/toolchain proof builds the generated conversions without reflection, dynamic dispatch, or source-name fallback.",
+      "Reviewed proof: typed boundaries between opaque any and typed target carriers are never emitted from backend inference. Strict-native rejects any typed-boundary programs before C# artifacts, while compatibility mode records finalized target conversion facts for assertions, assignments, initializers, and returns. any-to-typed boundaries lower through closed TsValue.CastCompat<T> or TsUnion.CastCompat<T...> facts, typed-to-any boundaries lower through closed TsValue.from facts, backend conversion tests require the finalized generic method fact, runtime tests prove successful scalar/union casts and deterministic mismatch/nullish failures, and CLI/toolchain proof builds the generated conversions without reflection, dynamic dispatch, or source-name fallback.",
   }),
   "compat.object.no-dynamic-access": Object.freeze({
     positiveTests: Object.freeze([
@@ -7091,6 +7099,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../tsonic-csharp/test/project-artifacts.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
       "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -7098,13 +7107,14 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/semantic-guards.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
       "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed proof: the runtime carrier fact for TypeScript any remains opaque and non-renderable by itself, compat-runtime behavior requires separate closed operation facts and mode checks, closed TsValue/TsObject/TsArray/TsFunction/JSArray runtime artifacts implement deterministic carrier behavior without reflection or dynamic dispatch, backend AST paths consume finalized property/element/call/construct facts, and CLI/toolchain proof builds emitted code with the runtime reference contributed only by compat mode.",
+      "Reviewed proof: the runtime carrier fact for TypeScript any remains opaque and non-renderable by itself, compat-runtime behavior requires separate closed operation facts and mode checks, closed TsValue/TsObject/TsArray/TsUnion/TsFunction/JSArray runtime artifacts implement deterministic carrier behavior without reflection or dynamic dispatch, backend AST paths consume finalized property/element/call/construct facts, and CLI/toolchain proof builds emitted code with the runtime reference contributed only by compat mode.",
   }),
   "diagnostic.dynamic-strict-mode": Object.freeze({
     positiveTests: Object.freeze([
