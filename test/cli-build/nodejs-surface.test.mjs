@@ -223,7 +223,8 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { chmod, cp, mkdir, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, unlink, writeFile } from \"node:fs/promises\";",
+      "import { Buffer } from \"node:buffer\";",
+      "import { appendFile, chmod, cp, mkdir, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, unlink, writeFile } from \"node:fs/promises\";",
       "",
       "export async function readText(path: string): Promise<string> {",
       "  return await readFile(path, \"utf8\");",
@@ -253,19 +254,24 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
       "  const directory = root + \"/promises\";",
       "  await mkdir(directory, true);",
       "  const source = directory + \"/source.txt\";",
+      "  const binary = directory + \"/binary.bin\";",
       "  const renamed = directory + \"/renamed.txt\";",
       "  const copied = directory + \"/copied.txt\";",
       "  await writeFile(source, \"hello\", \"utf8\");",
+      "  await writeFile(binary, Buffer.from(\"ok\", \"utf8\"));",
+      "  await appendFile(binary, Buffer.from(\"!\", \"utf8\"));",
       "  const text = await readFile(source, \"utf8\");",
       "  const bytes = await readFile(source);",
+      "  const binaryBytes = await readFile(binary);",
       "  await rename(source, renamed);",
       "  await cp(renamed, copied, false);",
       "  const entries = await readdir(directory);",
       "  const kind = (await stat(copied)).isFile() ? \"file\" : \"other\";",
+      "  await unlink(binary);",
       "  await unlink(renamed);",
       "  await rm(copied, false);",
       "  await rm(directory, true);",
-      "  return `${text}:${bytes.length}:${entries.length}:${kind}`;",
+      "  return `${text}:${bytes.length}:${binaryBytes.length}:${entries.length}:${kind}`;",
       "}",
       "",
     ].join("\n"),
@@ -278,6 +284,8 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
   assert.match(generatedSource, /return await Tsonic\.CSharp\.Node\.fs_promises\.readFile\(path, "utf8"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Buffer bytes = await Tsonic\.CSharp\.Node\.fs_promises\.readFile\(source\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.writeFile\(path, text, "utf8"\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.writeFile\(binary, Tsonic\.CSharp\.Node\.Buffer\.from\("ok", "utf8"\)\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.appendFile\(binary, Tsonic\.CSharp\.Node\.Buffer\.from\("!", "utf8"\)\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.stat\(path\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.unlink\(path\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.mkdir\(directory, true\);/);
@@ -308,7 +316,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
     "}",
     "",
   ]);
-  assert.equal(stdout, "hello:5:2:file\n");
+  assert.equal(stdout, "hello:5:3:3:file\n");
 });
 
 test("CLI rejects unsupported NodeJS provider-package modules without fallback", async () => {
