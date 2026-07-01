@@ -559,8 +559,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["type.generic.provider-target-constraints", "Validate provider target generic constraints", "complete", "target-provider"],
 
   ["operation.call.provider-selected-method", "Provider-owned calls emit from selected signature facts", "complete", "target-provider"],
-  ["operation.call.provider-argument-conversion", "Provider-owned calls record target argument conversion facts", "partial", "target-provider"],
-  ["operation.call.provider-parameter-mode", "Provider-owned calls record parameter mode facts", "partial", "target-provider"],
+  ["operation.call.provider-argument-conversion", "Provider-owned calls record target argument conversion facts", "complete", "target-provider"],
+  ["operation.call.provider-parameter-mode", "Provider-owned calls record parameter mode facts", "complete", "target-provider"],
   ...slice4ProviderCallContractRows.map((row) => [row.capabilityId, row.title, "complete", row.capabilityId.startsWith("function.") ? "target-provider" : "target-provider"]),
   ["operation.construct.provider-selected-constructor", "Provider-owned constructors emit from selected constructor facts", "complete", "target-provider"],
   ["operation.constructor.provider-selected-target", "Constructors map to selected target constructor facts", "complete", "target-provider"],
@@ -5919,25 +5919,28 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
       "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/VariableInit.ts",
     ]),
-    blockers: Object.freeze([
-      "operation.call.provider-argument-conversion remains partial until constructor, delegate, indexer, and extension-call arguments each prove explicit source-to-target conversion facts, source spans, and CLI/toolchain emission.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider-selection, conversion planner, and argument-emission tests prove selected target argument conversion facts take precedence over expected-type threading, must match the finalized selected parameter target type, and fail closed when missing or mutated instead of recovering from parameter names or target type spelling.",
+      "Reviewed proof: provider-owned call argument conversion facts are derived from TSTS-selected provider declaration/signature identity plus closed target parameter facts, not from source names. Provider-selection tests cover by-value calls, constructor signatures, indexers, first-argument extension calls, generic methods, optional/default parameters, params arrays, byref parameters, and exact-signature overload groups; selected signatures record argumentConversions and fail closed when conversions are missing, mutated, or tied to a sibling signature. Backend argument tests prove finalized conversion facts override render expected-type threading, must match the selected parameter target type, preserve separate render and semantic target types, support selected collection render carriers, include source-span evidence on missing required byref facts, and reject unsupported passing modes. CLI provider tests prove reflected constructors, generic collection calls, Dictionary indexers, extension-style calls, optional/default parameters, params arrays, and byref arguments emit/build/run only from selected provider facts.",
   }),
   "operation.call.provider-parameter-mode": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
@@ -5952,11 +5955,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/param-modifiers/",
     ]),
-    blockers: Object.freeze([
-      "operation.call.provider-parameter-mode remains partial until delegate/callable invocation, constructor, indexer, extension receiver, source-span diagnostics, and mutated/missing parameter-mode fact rejections all have current CLI/toolchain proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, by-value, optional, default values, constructors, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads, and CLI provider tests prove omitted optional arguments are accepted only when the selected target parameter carries a supported reflected default value. Target member selection rejects malformed provider parameter facts such as missing/noncanonical passingMode, paramsArray on non-array types, paramsArray byref parameters, and default values without optional arity. Exact selected call and indexer signatures fail closed when required byref marker facts are missing or target argument facts contradict the TSTS-selected signature, instead of refining to by-value overload siblings. Constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; call emission rejects mutated receiver/parameter-passing facts and unsupported finalized passing modes. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
+      "Reviewed proof: provider-owned call facts carry selected parameter modes from reflected signatures, including by-value, out, ref, in, optional, supported default values, unsupported default values, constructors, indexers, first-argument extension receivers, delegate/callable Invoke facts, and params arrays. Target member selection rejects malformed provider parameter facts such as missing or noncanonical passingMode, paramsArray on non-array types, paramsArray byref parameters, defaults on non-optional parameters, and argument-passing marker facts tied to a different selected provider signature. Exact selected call, constructor, indexer, and extension-call signatures fail closed when required byref marker facts are missing or parameter-mode facts contradict the TSTS-selected signature, instead of refining to by-value overload siblings. Backend emission rejects mutated receiver, parameter-passing, parameter-default, parameter-optional, parameter-params, and unsupported finalized passing-mode facts, and missing selected byref facts include deterministic source module/file/span evidence. CLI provider tests prove reflected constructors, Dictionary.TryGetValue, extension-style Span/Enumerable calls, optional/default parameters, params arrays, and byref arguments emit/build/run only from selected provider parameter facts.",
   }),
   "operation.construct.provider-selected-constructor": Object.freeze({
     positiveTests: Object.freeze([
