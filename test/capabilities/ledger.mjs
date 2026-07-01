@@ -6803,10 +6803,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "binding.object.rename-rest-default remains partial until object defaults have finalized undefined/default facts, compat TsObject extraction is classified, and old object destructuring fixtures are recovered or explicitly replaced.",
+      "binding.object.rename-rest-default remains partial until compat TsObject extraction is classified and old object destructuring fixtures are recovered or explicitly replaced.",
     ]),
     notes:
-      "Reviewed partial proof: object rename and rest destructuring emit only from finalized source/rest object-shape facts and execute through CLI/runtime proof, including a Slice 8 object-rest executable that preserves nullable members into a spread shape; rest facts that retain extracted members or disagree on retained member carriers are rejected; object defaults fail closed until undefined/default-value facts exist.",
+      "Reviewed partial proof: object rename, rest, nested extraction, and defaults emit only from finalized source/rest object-shape facts and execute through CLI/runtime proof, including a Slice 8 object-rest executable that preserves nullable optional members, applies nullish defaults, and feeds spread shape construction; rest facts that retain extracted members or disagree on retained member carriers are rejected; optional value members without nullable carrier facts fail closed.",
   }),
   "binding.object-shape": Object.freeze({
     positiveTests: Object.freeze([
@@ -6822,10 +6822,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "binding.object-shape remains partial until object-shape binding has full parameter, variable, assignment, default, rest, nested, provider-native, compat TsObject, and old-suite proof.",
+      "binding.object-shape remains partial until object-shape binding has full assignment-default, provider-native, compat TsObject, and old-suite proof.",
     ]),
     notes:
-      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring, nested extraction, and rest-to-spread execution; missing source/target shape facts, mismatched rest shape members, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
+      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring, nested extraction, nullable optional defaults, and rest-to-spread execution; missing source/target shape facts, mismatched rest shape members, malformed optional value carriers, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
   }),
   "carrier.object-shape": Object.freeze({
     positiveTests: Object.freeze([
@@ -6851,7 +6851,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "carrier.object-shape remains partial until structural interface storage, generated adapter emission, inline object parameters, generic object literal paths, object spread/rest/default extraction, and full old fixture parity are covered end to end.",
     ]),
     notes:
-      "Reviewed partial proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. CLI proof includes nested object extraction, rest object carriers, object spread carriers, and a non-Node executable that carries nullable object-shape members into generated C# behavior. This prevents imported interface object literals from conflicting with declaration carriers and keeps missing shape/provider facts fail-closed instead of falling back to source spelling.",
+      "Reviewed partial proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. CLI proof includes nested object extraction, rest object carriers, object spread carriers, nullable optional members, and a non-Node executable that applies object-shape default extraction through generated C# behavior. This prevents imported interface object literals from conflicting with declaration carriers and keeps missing shape/provider facts fail-closed instead of falling back to source spelling.",
   }),
   "carrier.any-tsvalue": Object.freeze({
     positiveTests: Object.freeze([

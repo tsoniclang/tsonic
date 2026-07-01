@@ -1322,12 +1322,12 @@ test("CLI runs non-Node carrier binding spread nullish and exception flow", asyn
       "import { Console, Exception } from \"@tsonic/dotnet/System.js\";",
       "",
       "type Child = { value: number };",
-      "type Source = { label: string; count: number; child: Child };",
+      "type Source = { label?: string; count: number; child: Child };",
       "type Spread = { label: string; total: number };",
       "",
-      "function summarize({ child: { value }, count, ...rest }: Source, numbers: number[]): string {",
-      "  const spread: Spread = { ...rest, total: value + count };",
-      "  const composed: number[] = [spread.total, ...numbers, count];",
+      "function summarize({ label = \"fallback\", child: { value }, ...rest }: Source, numbers: number[]): string {",
+      "  const spread: Spread = { label, total: value + rest.count };",
+      "  const composed: number[] = [spread.total, ...numbers, rest.count];",
       "  const [first = 1, second = 2, ...tail] = composed;",
       "  return `${spread.label}|${first + second + tail.length}|${value}`;",
       "}",
@@ -1345,8 +1345,9 @@ test("CLI runs non-Node carrier binding spread nullish and exception flow", asyn
       "}",
       "",
       "const input: Source = { label: \"slice8\", count: 3, child: { value: 4 } };",
+      "const fallbackInput: Source = { count: 3, child: { value: 4 } };",
       "Console.writeLine(checked(input, [5, 6]));",
-      "Console.writeLine(checked(input, null));",
+      "Console.writeLine(checked(fallbackInput, null));",
       "",
     ].join("\n"),
   });
@@ -1357,10 +1358,13 @@ test("CLI runs non-Node carrier binding spread nullish and exception flow", asyn
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string summarize\(__TsonicShape_[A-Za-z0-9_]+ __tsonic_param\d+, System\.Collections\.Generic\.IEnumerable<double> numbers\)/);
   assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
+  assert.match(generatedSource, /string label = __tsonic_param\d+\.label \?\? "fallback";/);
   assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);
   assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+/);
   assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ spread = new __TsonicShape_[A-Za-z0-9_]+/);
-  assert.match(generatedSource, /System\.Collections\.Generic\.IReadOnlyList<double> composed = Tsonic\.CSharp\.Js\.Array\.concat\(new double\[\] \{ spread\.total \}, numbers, new double\[\] \{ count \}\);/);
+  assert.match(generatedSource, /label = label,/);
+  assert.match(generatedSource, /total = value \+ rest\.count,/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.IReadOnlyList<double> composed = Tsonic\.CSharp\.Js\.Array\.concat\(new double\[\] \{ spread\.total \}, numbers, new double\[\] \{ rest\.count \}\);/);
   assert.match(generatedSource, /System\.Collections\.Generic\.List<double> tail = Tsonic\.CSharp\.Js\.Array\.slice\(__tsonic_destructure\d+, 2\);/);
   assert.match(generatedSource, /throw new System\.Exception\("missing numbers"\);/);
   assert.match(generatedSource, /catch \(System\.Exception error\)/);
@@ -1369,7 +1373,7 @@ test("CLI runs non-Node carrier binding spread nullish and exception flow", asyn
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
     "slice8|14|4",
-    "slice8|10|4",
+    "fallback|10|4",
     "",
   ].join("\n"));
 });
