@@ -203,8 +203,8 @@ test("CLI rejects Node-style builtins when NodeJS provider package is unselected
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingNodeStyleCodeWithoutNodejsSurface.csproj")), false);
 });
 
-test("CLI rejects unsupported selected NodeJS module imports without fallback", async () => {
-  const projectDirectory = resolve(tempRoot, "unsupported-selected-nodejs-module-import");
+test("CLI emits fs promises operations from selected NodeJS provider-package facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-fs-promises-provider-package");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -217,16 +217,68 @@ test("CLI rejects unsupported selected NodeJS module imports without fallback", 
           packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedUnsupportedSelectedNodejsModuleImport",
+            assemblyName: "SmokeGeneratedNodeFsPromises",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { readFile } from \"node:fs/promises\";",
+      "import { readFile, stat, unlink, writeFile } from \"node:fs/promises\";",
       "",
       "export async function readText(path: string): Promise<string> {",
-      "  return readFile(path, \"utf8\");",
+      "  return await readFile(path, \"utf8\");",
+      "}",
+      "",
+      "export async function writeText(path: string, text: string): Promise<void> {",
+      "  await writeFile(path, text, \"utf8\");",
+      "}",
+      "",
+      "export async function statPath(path: string): Promise<void> {",
+      "  await stat(path);",
+      "}",
+      "",
+      "export async function deletePath(path: string): Promise<void> {",
+      "  await unlink(path);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return await Tsonic\.CSharp\.Node\.fs_promises\.readFile\(path, "utf8"\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.writeFile\(path, text, "utf8"\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.stat\(path\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.unlink\(path\);/);
+  assert.doesNotMatch(generatedSource, /return readFile\(/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeFsPromises.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects unsupported NodeJS provider-package modules without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-nodejs-provider-package-module-import");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import \"node:vm\";",
+      "",
+      "export function loaded(): number {",
+      "  return 1;",
       "}",
       "",
     ].join("\n"),
@@ -234,9 +286,9 @@ test("CLI rejects unsupported selected NodeJS module imports without fallback", 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
-  assert.match(build.stderr, /Cannot find name 'node:fs\/promises'/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedUnsupportedSelectedNodejsModuleImport.csproj")), false);
+  assert.match(build.stderr, /node:vm/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI emits NodeJS namespace imports from selected surface provider facts", async () => {

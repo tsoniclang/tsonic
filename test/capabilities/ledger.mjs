@@ -3855,10 +3855,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
@@ -3875,10 +3877,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-type-emission/",
     ]),
     blockers: Object.freeze([
-      "carrier.array remains partial until every array carrier lane has current positive and negative proof: readonly/read-write ABI, nested/generic arrays, inferred returns, tuple interaction, native CLR boundaries, sparse/full-JS carriers, and provider-fact absence diagnostics.",
+      "carrier.array remains partial until every array carrier lane has current positive and negative proof: readonly/read-write ABI, nested/generic arrays, inferred returns, tuple interaction, native CLR boundaries, provider-fact absence diagnostics, and full JS copy-in/copy-out behavior.",
     ]),
     notes:
-      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, and JS-surface array carriers, including fail-closed diagnostics for untyped empty returns and native length access without selected facts.",
+      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, and JS-surface array carriers, including fail-closed diagnostics for untyped empty returns and native length access without selected facts. csharp-js runtime proof covers closed TsValue access to sparse JSArray carriers, length mutation, undefined holes, and deterministic rejection for incompatible closed element carriers.",
   }),
   "operation.array.literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -5481,10 +5483,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     blockers: Object.freeze([
-      "surface.node.fs remains partial until every supported node:fs and bare fs operation has selected-declaration target facts, every unsupported fs member has precise selected-provider-package diagnostics, and the old Node fixture matrix has runtime/toolchain proof.",
+      "surface.node.fs remains partial until every supported node:fs, node:fs/promises, bare fs, and bare fs/promises operation has selected-declaration target facts, every unsupported fs member has precise selected-provider-package diagnostics, and the old Node fixture matrix has runtime/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, existsSync/readFileSync string and Buffer returns, statSync/fstatSync, readSync/writeSync Buffer descriptors, writeFileSync/appendFileSync Buffer writes, no-surface negative paths block Node-owned modules before artifact emission, and unsupported selected fs.watchFile fails closed without runtime fallback. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
+      "Reviewed partial proof: selected NodeJS provider package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, existsSync/readFileSync string and Buffer returns, statSync/fstatSync, readSync/writeSync Buffer descriptors, writeFileSync/appendFileSync Buffer writes, node:fs/promises readFile/writeFile/stat/unlink Promise-returning target facts, no-surface negative paths block Node-owned modules before artifact emission, unsupported node:vm provider-package imports fail closed, and unsupported selected fs.watchFile fails closed without runtime fallback. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
   }),
   "surface.node.fs-stats-date": Object.freeze({
     sourceExamples: Object.freeze([
@@ -5824,9 +5826,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nullish-coalescing/",
@@ -5850,10 +5854,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "runtime.undefined.carrier remains partial until strict-native, JS surface, Node surface, compat-runtime, object/array holes, optional APIs, and typed/native provider boundaries all use explicit undefined/nullish carriers or deterministic diagnostics.",
+      "runtime.undefined.carrier remains partial until strict-native, JS surface, Node provider-package APIs, optional APIs, and typed/native provider boundaries all use explicit undefined/nullish carriers or deterministic diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: the C# backend now treats only TSTS-proven global undefined as a nullish carrier and preserves the fail-closed distinction from ordinary identifiers; JS surface runtime tests prove undefined and nullish-returning helpers use closed runtime-owned carriers. Remains partial because full JS sparse/hole semantics and compat TsValue undefined are not complete.",
+      "Reviewed partial proof: the C# backend now treats only TSTS-proven global undefined as a nullish carrier and preserves the fail-closed distinction from ordinary identifiers; JS surface runtime tests prove undefined and nullish-returning helpers use closed runtime-owned carriers. csharp-js compat runtime tests prove TsValue reads sparse JSArray holes as the closed undefined carrier and preserves that behavior through length mutation. Remains partial until every nullish provider/API lane is classified and tested.",
   }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
@@ -6724,7 +6728,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed proof: TypeScript any receives an opaque source/runtime carrier fact, strict-native rejects it, compat mode lowers only through closed TsValue/TsObject/TsArray/TsFunction operation facts, csharp-js runtime tests prove closed carrier property/element/call/construct behavior without reflection or dynamic dispatch, and CLI/toolchain proof emits TsValue public boundaries plus closed runtime calls without selecting the JS surface. object and unknown remain non-dynamic.",
+      "Reviewed proof: TypeScript any receives an opaque source/runtime carrier fact, strict-native rejects it, compat mode lowers only through closed TsValue/TsObject/TsArray/TsFunction/JSArray operation facts, csharp-js runtime tests prove closed carrier property/element/call/construct behavior without reflection or dynamic dispatch, and CLI/toolchain proof emits TsValue public boundaries plus closed runtime calls without selecting the JS surface. object and unknown remain non-dynamic.",
   }),
   "carrier.union": Object.freeze({
     positiveTests: Object.freeze([
@@ -7019,7 +7023,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed proof: the runtime carrier fact for TypeScript any remains opaque and non-renderable by itself, compat-runtime behavior requires separate closed operation facts and mode checks, closed TsValue/TsObject/TsArray/TsFunction runtime artifacts implement deterministic carrier behavior without reflection or dynamic dispatch, backend AST paths consume finalized property/element/call/construct facts, and CLI/toolchain proof builds emitted code with the runtime reference contributed only by compat mode.",
+      "Reviewed proof: the runtime carrier fact for TypeScript any remains opaque and non-renderable by itself, compat-runtime behavior requires separate closed operation facts and mode checks, closed TsValue/TsObject/TsArray/TsFunction/JSArray runtime artifacts implement deterministic carrier behavior without reflection or dynamic dispatch, backend AST paths consume finalized property/element/call/construct facts, and CLI/toolchain proof builds emitted code with the runtime reference contributed only by compat mode.",
   }),
   "diagnostic.dynamic-strict-mode": Object.freeze({
     positiveTests: Object.freeze([
