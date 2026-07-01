@@ -252,6 +252,70 @@ test("CLI runs generated JS and NodeJS provider package executable through runti
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "uploads/tenant/events.json\n");
 });
 
+test("CLI generated C# executable publishes and runs through NativeAOT", async () => {
+  const runtimeIdentifier = currentDotnetRuntimeIdentifier();
+  assert.notEqual(runtimeIdentifier, undefined, `unsupported NativeAOT test platform ${process.platform}/${process.arch}`);
+
+  const assemblyName = "SmokeGeneratedNativeAot";
+  const projectDirectory = resolve(tempRoot, "nativeaot-publish-run");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+            publishAot: true,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "Console.writeLine(\"native-aot-ok\");",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProjectPath = resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
+  const generatedProject = await readFile(generatedProjectPath, "utf8");
+  assert.match(generatedProject, /<OutputType>Exe<\/OutputType>/);
+  assert.match(generatedProject, /<PublishAot>true<\/PublishAot>/);
+  assertRuntimeReferences(generatedProject, { runtime: true, js: false, nodejs: false });
+  await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);
+
+  const publishDirectory = resolve(projectDirectory, "nativeaot-publish");
+  const publish = run("dotnet", [
+    "publish",
+    generatedProjectPath,
+    "--configuration",
+    "Release",
+    "--runtime",
+    runtimeIdentifier,
+    "--self-contained",
+    "true",
+    "--nologo",
+    "--v:minimal",
+    `-p:PublishDir=${publishDirectory}/`,
+  ]);
+  assert.equal(publish.status, 0, publish.stdout + publish.stderr);
+
+  const executablePath = resolve(publishDirectory, process.platform === "win32" ? `${assemblyName}.exe` : assemblyName);
+  assert.equal(existsSync(executablePath), true);
+  const executed = run(executablePath, []);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "native-aot-ok\n");
+});
+
 function assertRuntimeReferences(projectText, expected) {
   assertReference(projectText, /Tsonic\.CSharp\.Runtime\.csproj/u, expected.runtime, "Tsonic.CSharp.Runtime");
   assertReference(projectText, /Tsonic\.CSharp\.Js\.csproj/u, expected.js, "Tsonic.CSharp.Js");
@@ -264,6 +328,28 @@ function assertReference(projectText, pattern, shouldExist, label) {
   } else {
     assert.doesNotMatch(projectText, pattern, label);
   }
+}
+
+function currentDotnetRuntimeIdentifier() {
+  if (process.platform === "linux" && process.arch === "x64") {
+    return "linux-x64";
+  }
+  if (process.platform === "linux" && process.arch === "arm64") {
+    return "linux-arm64";
+  }
+  if (process.platform === "darwin" && process.arch === "x64") {
+    return "osx-x64";
+  }
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return "osx-arm64";
+  }
+  if (process.platform === "win32" && process.arch === "x64") {
+    return "win-x64";
+  }
+  if (process.platform === "win32" && process.arch === "arm64") {
+    return "win-arm64";
+  }
+  return undefined;
 }
 
 async function assertGeneratedOutputHasNoReflectionSemantics(projectDirectory) {

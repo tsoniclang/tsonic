@@ -707,7 +707,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["toolchain.csharp.project", "Emit C# project from target options", "complete", "csharp-toolchain"],
   ["toolchain.csharp.build-run", "dotnet build/run succeeds for executable tests", "complete", "csharp-toolchain"],
   ["toolchain.csharp.library", "Library output path and artifacts are deterministic", "complete", "csharp-toolchain"],
-  ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "partial", "csharp-toolchain"],
+  ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "complete", "csharp-toolchain"],
   ["runtime.csharp.js", "C# JS runtime artifacts are selected by js surface", "complete", "csharp-runtime"],
   ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs provider package", "partial", "csharp-runtime"],
   ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "complete", "csharp-runtime"],
@@ -8059,9 +8059,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "backend.csharp.project-sdk-emit": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/project-artifacts.test.mjs",
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/project-artifacts.test.mjs",
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-test-command/",
@@ -8139,11 +8141,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-test-command/",
     ]),
-    blockers: Object.freeze([
-      "toolchain.csharp.nativeaot remains partial until NativeAOT project settings are built/published through target toolchain tests and runtime compatibility is proven.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: NativeAOT is an explicit C# target project property, not generic compiler architecture; invalid PublishAot option shapes are rejected and source-to-source artifact reporting remains deterministic.",
+      "Reviewed proof: NativeAOT is an explicit C# target project property, not generic compiler architecture. C# project-artifact tests prove PublishAot is emitted only from the target-owned publishAot option and rejects invalid/legacy custom property shapes. CLI toolchain proof builds a provider-backed executable, verifies <PublishAot>true</PublishAot>, publishes it with the current .NET runtime identifier through dotnet publish, runs the produced native executable, and scans generated output for banned dynamic/reflection mechanisms.",
   }),
   "diagnostic.missing-target-fact": Object.freeze({
     sourceExamples: Object.freeze([
