@@ -1298,6 +1298,7 @@ test("CLI emits JS Record dictionaries through provider-owned Dictionary indexer
 
 test("CLI emits provider-owned generic byref collection calls from virtual target modules", async () => {
   const projectDirectory = resolve(tempRoot, "provider-generic-dictionary-out");
+  const assemblyName = "SmokeGeneratedProviderGenericDictionaryOut";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -1308,12 +1309,14 @@ test("CLI emits provider-owned generic byref collection calls from virtual targe
           id: "csharp",
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedProviderGenericDictionaryOut",
+            assemblyName,
+            outputType: "Exe",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
       "import { out } from \"@tsonic/core/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "import { Dictionary } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
@@ -1326,6 +1329,10 @@ test("CLI emits provider-owned generic byref collection calls from virtual targe
       "  return -1;",
       "}",
       "",
+      "const values = new Dictionary<string, int32>();",
+      "values.add(\"hit\", 11);",
+      "Console.writeLine(`${lookup(values, \"hit\")}|${lookup(values, \"miss\")}`);",
+      "",
     ].join("\n"),
   });
 
@@ -1337,10 +1344,10 @@ test("CLI emits provider-owned generic byref collection calls from virtual targe
   assert.match(generatedSource, /int value = 0;/);
   assert.match(generatedSource, /if \(values\.TryGetValue\(key, out value\)\)/);
   assert.match(generatedSource, /return value;/);
+  assert.match(generatedSource, /values\.Add\("hit", 11\);/);
   assert.doesNotMatch(generatedSource, /tryGetValue|out\(value\)|__unsupported/);
 
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderGenericDictionaryOut.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "11|-1\n");
 });
 
 

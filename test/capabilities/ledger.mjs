@@ -3650,7 +3650,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed proof: .NET provider modeling preserves by-value, out, ref, in, optional, supported default-value, unsupported default-value, and params-array parameter facts across raw reflection models, provider declaration models, target bindings, extension receivers, constructors, and reflected signature identities. Provider contract tests reject invalid passing modes, malformed params-array placement/type/passing, default values on non-optional parameters, and mixed supported/unsupported defaults before declaration conversion. CLI provider tests prove omitted optional target arguments emit only when a deterministic reflected default exists, reject omitted optional arguments without reflected defaults, and emit reflected params-array extra arguments from selected target facts. Unsupported default values carry deterministic parameter identity and evidence without becoming source-visible defaults. This closes the .NET provider-model parameter-mode contract; provider-owned call emission breadth remains tracked separately by operation.call.provider-parameter-mode.",
+      "Reviewed proof: .NET provider modeling preserves by-value, out, ref, in, optional, supported default-value, unsupported default-value, and params-array parameter facts across raw reflection models, provider declaration models, target bindings, extension receivers, constructors, and reflected signature identities. Provider contract tests reject invalid passing modes, malformed params-array placement/type/passing, default values on non-optional parameters, and mixed supported/unsupported defaults before declaration conversion. CLI provider tests prove omitted optional target arguments emit only when a deterministic reflected default exists, reject omitted optional arguments without reflected defaults, emit reflected params-array extra arguments from selected target facts, and run Dictionary.TryGetValue out-parameter behavior through generated C# output. Unsupported default values carry deterministic parameter identity and evidence without becoming source-visible defaults. This closes the .NET provider-model parameter-mode contract; provider-owned call emission breadth remains tracked separately by operation.call.provider-parameter-mode.",
   }),
   "native.dotnet.array.explicit": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3867,6 +3867,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
@@ -3893,7 +3894,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "carrier.array remains partial until every array carrier lane has current positive and negative proof: readonly/read-write ABI, nested/generic arrays, inferred returns, tuple interaction, native CLR boundaries, provider-fact absence diagnostics, and full JS copy-in/copy-out behavior.",
     ]),
     notes:
-      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, and JS-surface array carriers, including fail-closed diagnostics for untyped empty returns and native length access without selected facts. csharp-js runtime proof covers closed TsValue access to sparse JSArray carriers, length mutation, undefined holes, and deterministic rejection for incompatible closed element carriers.",
+      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, and JS-surface array carriers, including a non-Node executable that coalesces a nullable source array, spreads it into a typed carrier, destructures fixed/default/rest elements, and verifies exact stdout. Fail-closed diagnostics cover untyped empty returns and native length access without selected facts. csharp-js runtime proof covers closed TsValue access to sparse JSArray carriers, length mutation, undefined holes, and deterministic rejection for incompatible closed element carriers.",
   }),
   "operation.array.literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -3950,6 +3951,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -3965,11 +3967,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.spread.array remains partial until spread over readonly, tuple, provider-native arrays, iterable providers, sparse/full-JS arrays, nested spreads, and unsupported spread operands have complete current proof.",
     ]),
     notes:
-      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current backend and CLI proof renders spread only from finalized expected array/carrier facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, executes fixed/default/rest/nested array destructuring fixtures, and fails closed before partial array creation when spread operand carrier facts are missing or when finalized carrier element facts mismatch. It does not revive old expected-type-threading logic inside Tsonic.",
+      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current backend and CLI proof renders spread only from finalized expected array/carrier facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, executes fixed/default/rest/nested array destructuring fixtures, executes a Slice 8 non-Node spread over a nullish-coalesced typed array, and fails closed before partial array creation when spread operand carrier facts are missing or when finalized carrier element facts mismatch. It does not revive old expected-type-threading logic inside Tsonic.",
   }),
   "operation.spread.object": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -3981,11 +3984,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.spread.object remains partial until all object spread forms have complete proof: nested spreads, computed keys, accessor members, optional/readonly members, provider-native object copy facts, compat TsObject spread, and every old object-literal/rest/spread inventory item.",
     ]),
     notes:
-      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts, missing spread facts inside object literals, and non-identifier spread expressions fail closed before partial object creation. CLI tests prove full object-shape spread and subset spread through generated C# projects, and reject spreads when any source member lacks a finalized target carrier or when single-evaluation lowering facts are absent.",
+      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts, missing spread facts inside object literals, and non-identifier spread expressions fail closed before partial object creation. CLI tests prove full object-shape spread, subset spread, and a non-Node object-rest-to-spread executable through generated C# projects, and reject spreads when any source member lacks a finalized target carrier or when single-evaluation lowering facts are absent.",
   }),
   "operation.spread.provider-target-copy": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -3997,12 +4001,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.spread.provider-target-copy remains partial until provider-native copy operations, generated adapter copy methods, compat object-carrier copy, and non-identifier single-evaluation copy plans are represented as finalized provider facts with positive and fail-closed tests.",
     ]),
     notes:
-      "Reviewed partial proof: current provider-target copy evidence is restricted to structural object-shape member copy. The backend copies only between provider-proven source and target object-shape members with finalized target names and carriers; missing source facts, missing member carriers, and non-identifier source expressions diagnose instead of falling back to dictionary/object projection or source-name matching.",
+      "Reviewed partial proof: current provider-target copy evidence is restricted to structural object-shape member copy. The backend copies only between provider-proven source and target object-shape members with finalized target names and carriers; the Slice 8 executable proves that copied rest members feed generated C# behavior. Missing source facts, missing member carriers, and non-identifier source expressions diagnose instead of falling back to dictionary/object projection or source-name matching.",
   }),
   "binding.array.fixed-rest-default": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -4016,7 +4021,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.array.fixed-rest-default remains partial until nested default values, tuple rest, provider-native array extraction, and sparse/full-JS array extraction have current positive and fail-closed proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, nested array extraction, and synthetic destructured parameter prelude using finalized carrier facts. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
+      "Reviewed partial proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, nested array extraction, and synthetic destructured parameter prelude using finalized carrier facts. Current CLI runtime evidence includes non-Node fixed/default/rest destructuring after array spread from a finalized nullable carrier. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
   }),
   "carrier.array.public-abi-policy": Object.freeze({
     sourceExamples: Object.freeze([
@@ -5994,7 +5999,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: provider-owned call facts carry selected parameter modes from reflected signatures, including by-value, out, ref, in, optional, supported default values, unsupported default values, constructors, indexers, first-argument extension receivers, delegate/callable Invoke facts, and params arrays. Target member selection rejects malformed provider parameter facts such as missing or noncanonical passingMode, paramsArray on non-array types, paramsArray byref parameters, defaults on non-optional parameters, and argument-passing marker facts tied to a different selected provider signature. Exact selected call, constructor, indexer, and extension-call signatures fail closed when required byref marker facts are missing or parameter-mode facts contradict the TSTS-selected signature, instead of refining to by-value overload siblings. Backend emission rejects mutated receiver, parameter-passing, parameter-default, parameter-optional, parameter-params, and unsupported finalized passing-mode facts, and missing selected byref facts include deterministic source module/file/span evidence. CLI provider tests prove reflected constructors, Dictionary.TryGetValue, extension-style Span/Enumerable calls, optional/default parameters, params arrays, and byref arguments emit/build/run only from selected provider parameter facts.",
+      "Reviewed proof: provider-owned call facts carry selected parameter modes from reflected signatures, including by-value, out, ref, in, optional, supported default values, unsupported default values, constructors, indexers, first-argument extension receivers, delegate/callable Invoke facts, and params arrays. Target member selection rejects malformed provider parameter facts such as missing or noncanonical passingMode, paramsArray on non-array types, paramsArray byref parameters, defaults on non-optional parameters, and argument-passing marker facts tied to a different selected provider signature. Exact selected call, constructor, indexer, and extension-call signatures fail closed when required byref marker facts are missing or parameter-mode facts contradict the TSTS-selected signature, instead of refining to by-value overload siblings. Backend emission rejects mutated receiver, parameter-passing, parameter-default, parameter-optional, parameter-params, and unsupported finalized passing-mode facts, and missing selected byref facts include deterministic source module/file/span evidence. CLI provider tests prove reflected constructors, executable Dictionary.TryGetValue out-parameter behavior, extension-style Span/Enumerable calls, optional/default parameters, params arrays, and byref arguments emit/build/run only from selected provider parameter facts.",
   }),
   "operation.construct.provider-selected-constructor": Object.freeze({
     positiveTests: Object.freeze([
@@ -6383,6 +6388,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
       "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -6396,7 +6402,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: throw/catch/finally emission requires finalized throwable and catch carrier facts. Provider-backed exceptions emit and execute as native C# exceptions, compat-mode non-Exception thrown values wrap through the closed TsThrownValueException/TsValue carrier, invalid destructured catch variables fail closed until extraction facts exist, strict-native non-throwable throws diagnose, and the backend never falls back to source spelling or runtime reflection.",
+      "Reviewed proof: throw/catch/finally emission requires finalized throwable and catch carrier facts. Provider-backed exceptions emit and execute as native C# exceptions in both dedicated provider tests and the Slice 8 non-Node carrier/binding executable, compat-mode non-Exception thrown values wrap through the closed TsThrownValueException/TsValue carrier, invalid destructured catch variables fail closed until extraction facts exist, strict-native non-throwable throws diagnose, and the backend never falls back to source spelling or runtime reflection.",
   }),
   "operation.iteration.for-in.keys": Object.freeze({
     positiveTests: Object.freeze([
@@ -6459,7 +6465,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.destructure.array-object remains partial until expression-position destructuring assignment result semantics, object rest/default parity, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, and statement assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, and object-shape extraction facts; missing and mismatched facts produce diagnostics; CLI/runtime proof executes fixed/default/rest/nested array destructuring and object-shape destructuring assignment. Expression-position destructuring assignment remains a deliberate fail-closed case until result-value facts exist.",
+      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, and statement assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, and object-shape extraction facts; missing and mismatched facts produce diagnostics; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, object-shape destructuring assignment, and Slice 8 rest/spread/nullish interleaving. Expression-position destructuring assignment remains a deliberate fail-closed case until result-value facts exist.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -6712,6 +6718,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
       "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -6725,7 +6732,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: throw emission requires finalized throwable target carriers, try/catch/finally planning consumes finalized catch variable carriers, provider exception mappings execute through the generated C# toolchain, compat-mode catch variables materialize closed TsValue carriers from System.Exception, finally execution is covered by provider and compat CLI runtime tests, and missing/non-extractable catch facts produce diagnostics before artifacts.",
+      "Reviewed proof: throw emission requires finalized throwable target carriers, try/catch/finally planning consumes finalized catch variable carriers, provider exception mappings execute through the generated C# toolchain, compat-mode catch variables materialize closed TsValue carriers from System.Exception, finally execution is covered by provider and compat CLI runtime tests, the Slice 8 executable covers provider throw/catch interleaved with carrier/binding work, and missing/non-extractable catch facts produce diagnostics before artifacts.",
   }),
   "statement.top-level": Object.freeze({
     positiveTests: Object.freeze([
@@ -6748,6 +6755,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
       "test/cli-build/arrays.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -6760,7 +6768,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.parameter remains partial until every array/object/rest/default/nested parameter destructuring form is covered by current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: parameter destructuring queries facts on the owning parameter declaration, allocates deterministic synthetic parameters for destructured parameters, and emits array fixed/rest/default, IReadOnlyList, JSArray, object, nested object, and object-rest extraction prelude only from finalized carrier/object-shape facts; missing nested object-shape facts fail closed.",
+      "Reviewed partial proof: parameter destructuring queries facts on the owning parameter declaration, allocates deterministic synthetic parameters for destructured parameters, and emits array fixed/rest/default, IReadOnlyList, JSArray, object, nested object, and object-rest extraction prelude only from finalized carrier/object-shape facts. CLI proof now includes a non-Node executable whose parameter object rest feeds object spread and exact runtime output; missing nested object-shape facts fail closed.",
   }),
   "binding.assignment": Object.freeze({
     positiveTests: Object.freeze([
@@ -6781,6 +6789,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "binding.object.rename-rest-default": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
@@ -6790,12 +6799,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.object.rename-rest-default remains partial until object defaults have finalized undefined/default facts, compat TsObject extraction is classified, and old object destructuring fixtures are recovered or explicitly replaced.",
     ]),
     notes:
-      "Reviewed partial proof: object rename and rest destructuring emit only from finalized source/rest object-shape facts and execute through CLI/runtime proof; rest facts that retain extracted members or disagree on retained member carriers are rejected; object defaults fail closed until undefined/default-value facts exist.",
+      "Reviewed partial proof: object rename and rest destructuring emit only from finalized source/rest object-shape facts and execute through CLI/runtime proof, including a Slice 8 object-rest executable that preserves nullable members into a spread shape; rest facts that retain extracted members or disagree on retained member carriers are rejected; object defaults fail closed until undefined/default-value facts exist.",
   }),
   "binding.object-shape": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -6808,12 +6818,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.object-shape remains partial until object-shape binding has full parameter, variable, assignment, default, rest, nested, provider-native, compat TsObject, and old-suite proof.",
     ]),
     notes:
-      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring; missing source/target shape facts, mismatched rest shape members, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
+      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring, nested extraction, and rest-to-spread execution; missing source/target shape facts, mismatched rest shape members, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
   }),
   "carrier.object-shape": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
@@ -6833,7 +6844,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "carrier.object-shape remains partial until structural interface storage, generated adapter emission, inline object parameters, generic object literal paths, object spread/rest/default extraction, and full old fixture parity are covered end to end.",
     ]),
     notes:
-      "Reviewed partial proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. This prevents imported interface object literals from conflicting with declaration carriers and keeps missing shape/provider facts fail-closed instead of falling back to source spelling.",
+      "Reviewed partial proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. CLI proof includes nested object extraction, rest object carriers, object spread carriers, and a non-Node executable that carries nullable object-shape members into generated C# behavior. This prevents imported interface object literals from conflicting with declaration carriers and keeps missing shape/provider facts fail-closed instead of falling back to source spelling.",
   }),
   "carrier.any-tsvalue": Object.freeze({
     positiveTests: Object.freeze([

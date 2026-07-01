@@ -1298,6 +1298,83 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
 });
 
 
+test("CLI runs non-Node carrier binding spread nullish and exception flow", async () => {
+  const assemblyName = "SmokeGeneratedSlice8CarrierBindingRuntime";
+  const projectDirectory = resolve(tempRoot, "slice8-carrier-binding-runtime");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console, Exception } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "type Child = { value: number };",
+      "type Source = { label: string; count: number; child: Child };",
+      "type Spread = { label: string; total: number };",
+      "",
+      "function summarize({ child: { value }, count, ...rest }: Source, numbers: number[]): string {",
+      "  const spread: Spread = { ...rest, total: value + count };",
+      "  const composed: number[] = [spread.total, ...numbers, count];",
+      "  const [first = 1, second = 2, ...tail] = composed;",
+      "  return `${spread.label}|${first + second + tail.length}|${value}`;",
+      "}",
+      "",
+      "function checked(input: Source, numbers: number[] | null): string {",
+      "  try {",
+      "    if (numbers === null) {",
+      "      throw new Exception(\"missing numbers\");",
+      "    }",
+      "    return summarize(input, numbers);",
+      "  } catch (error) {",
+      "    const empty: number[] = [];",
+      "    return summarize(input, empty);",
+      "  }",
+      "}",
+      "",
+      "const input: Source = { label: \"slice8\", count: 3, child: { value: 4 } };",
+      "Console.writeLine(checked(input, [5, 6]));",
+      "Console.writeLine(checked(input, null));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static string summarize\(__TsonicShape_[A-Za-z0-9_]+ __tsonic_param\d+, System\.Collections\.Generic\.IEnumerable<double> numbers\)/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
+  assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ spread = new __TsonicShape_[A-Za-z0-9_]+/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.IReadOnlyList<double> composed = Tsonic\.CSharp\.Js\.Array\.concat\(new double\[\] \{ spread\.total \}, numbers, new double\[\] \{ count \}\);/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.List<double> tail = Tsonic\.CSharp\.Js\.Array\.slice\(__tsonic_destructure\d+, 2\);/);
+  assert.match(generatedSource, /throw new System\.Exception\("missing numbers"\);/);
+  assert.match(generatedSource, /catch \(System\.Exception error\)/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.IEnumerable<double> empty = new System\.Collections\.Generic\.List<double>\(new double\[\] \{ \}\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
+    "slice8|14|4",
+    "slice8|10|4",
+    "",
+  ].join("\n"));
+});
+
+
 test("CLI emits nullable C# storage for nullish unions from provider runtime-carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "nullable-unions");
   await writeProject(projectDirectory, {
