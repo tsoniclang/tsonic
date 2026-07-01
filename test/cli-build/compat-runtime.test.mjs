@@ -74,6 +74,25 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
       "  return typeof value;",
       "}",
       "",
+      "export function typedReturn(value: any): number {",
+      "  return value;",
+      "}",
+      "",
+      "export function typedInitializer(value: any): number {",
+      "  const result: number = value;",
+      "  return result;",
+      "}",
+      "",
+      "export function typedAssignment(value: any): number {",
+      "  let result: number = 0;",
+      "  result = value;",
+      "  return result;",
+      "}",
+      "",
+      "export function boxedReturn(value: number): any {",
+      "  return value;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -96,6 +115,10 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatBinaryBoolean\(value, "===", 2\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatUnaryBoolean\(value, "!"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatTypeof\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
+  assert.match(generatedSource, /double result = Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
+  assert.match(generatedSource, /result = Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.from\(value\);/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 
   const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
@@ -187,5 +210,37 @@ test("CLI strict-native rejects explicit TypeScript any operations before C# art
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
   assert.match(build.stdout + build.stderr, /strict-native mode|any cannot trickle|CSHARP_OPAQUE_ANY_UNSUPPORTED/u);
+  assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
+});
+
+test("CLI strict-native rejects TypeScript any typed-boundary returns before C# artifact emission", async () => {
+  const projectDirectory = resolve(tempRoot, "compat-runtime-any-typed-boundary-strict-reject");
+  const assemblyName = "SmokeGeneratedCompatRuntimeAnyTypedBoundaryStrictReject";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function typedReturn(value: any): number {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /TypeScript any boundary|opaque any runtime carrier|any cannot trickle/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });

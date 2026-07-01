@@ -682,7 +682,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["compat.any.call-construct", "any call/new use compat-runtime carrier facts", "complete", "target-provider"],
   ["compat.any.dynamic-call", "any calls use explicit compat-runtime carrier facts", "complete", "target-provider"],
   ["compat.any.operators", "any operators use compat-runtime carrier facts", "partial", "target-provider"],
-  ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "partial", "target-provider"],
+  ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "complete", "target-provider"],
   ["compat.object.no-dynamic-access", "object is not treated like any", "partial", "target-provider"],
   ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "partial", "target-provider"],
   ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "partial", "target-provider"],
@@ -6839,17 +6839,19 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/conversions.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/assignability-boundary.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: assignment/return/initializer boundaries between opaque any and typed target carriers produce target diagnostics unless an explicit target conversion fact exists. Compat assertion casts now produce explicit target conversion facts backed by closed TsValue.CastCompat<T> runtime helpers, backend conversion tests require finalized generic method facts, and runtime tests prove successful carrier casts plus deterministic mismatch/nullish failures. Remains partial until typed-boundary assignment/return forms without explicit assertions are either closed through facts or comprehensively diagnosed with CLI/toolchain proof.",
+      "Reviewed proof: typed boundaries between opaque any and typed target carriers are never emitted from backend inference. Strict-native rejects any typed-boundary programs before C# artifacts, while compatibility mode records finalized target conversion facts for assertions, assignments, initializers, and returns. any-to-typed boundaries lower through closed TsValue.CastCompat<T> facts, typed-to-any boundaries lower through closed TsValue.from facts, backend conversion tests require the finalized generic method fact, runtime tests prove successful casts and deterministic mismatch/nullish failures, and CLI/toolchain proof builds the generated conversions without reflection, dynamic dispatch, or source-name fallback.",
   }),
   "compat.object.no-dynamic-access": Object.freeze({
     positiveTests: Object.freeze([
