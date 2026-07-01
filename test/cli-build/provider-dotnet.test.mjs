@@ -795,6 +795,201 @@ test("CLI emits provider-owned cross-namespace .NET constructor signatures", asy
 });
 
 
+test("CLI emits provider constructor parameter modes and delegate invocation from selected facts", async () => {
+  const libraryDirectory = resolve(tempRoot, "provider-constructor-parameter-mode-library");
+  await writeProject(libraryDirectory, {
+    "Provider.ParameterModes.csproj": [
+      "<Project Sdk=\"Microsoft.NET.Sdk\">",
+      "  <PropertyGroup>",
+      "    <TargetFramework>net10.0</TargetFramework>",
+      "    <ImplicitUsings>disable</ImplicitUsings>",
+      "    <Nullable>enable</Nullable>",
+      "  </PropertyGroup>",
+      "</Project>",
+      "",
+    ].join("\n"),
+    "ParameterModes.cs": [
+      "namespace Provider.ParameterModes;",
+      "",
+      "public sealed class ConstructorTarget",
+      "{",
+      "    public ConstructorTarget()",
+      "    {",
+      "    }",
+      "",
+      "    public ConstructorTarget(int value, string label = \"default\")",
+      "    {",
+      "        Value = value;",
+      "        Label = label;",
+      "    }",
+      "",
+      "    public ConstructorTarget(params int[] values)",
+      "    {",
+      "        Value = values.Length;",
+      "    }",
+      "",
+      "    public ConstructorTarget(ref long value)",
+      "    {",
+      "        Value = (int)value;",
+      "        value += 1;",
+      "    }",
+      "",
+      "    public ConstructorTarget(out short value)",
+      "    {",
+      "        value = 3;",
+      "        Value = value;",
+      "    }",
+      "",
+      "    public ConstructorTarget(in bool flag, char marker = 'x')",
+      "    {",
+      "        Value = flag ? marker : 0;",
+      "    }",
+      "",
+      "    public int Value { get; }",
+      "    public string Label { get; } = \"\";",
+      "}",
+      "",
+      "public sealed class RefOnlyTarget",
+      "{",
+      "    public RefOnlyTarget(ref long value)",
+      "    {",
+      "        Value = (int)value;",
+      "        value += 1;",
+      "    }",
+      "",
+      "    public int Value { get; }",
+      "}",
+      "",
+      "public delegate int IntTransform(int value);",
+      "",
+      "public static class DelegateTarget",
+      "{",
+      "    public static int Invoke(IntTransform transform, int value)",
+      "    {",
+      "        return transform(value);",
+      "    }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const libraryBuild = run("dotnet", ["build", resolve(libraryDirectory, "Provider.ParameterModes.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(libraryBuild.status, 0, libraryBuild.stdout + libraryBuild.stderr);
+  const libraryAssembly = dotnetOutputAssemblyPath(libraryDirectory, "Provider.ParameterModes");
+
+  const projectDirectory = resolve(tempRoot, "provider-constructor-parameter-modes");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderConstructorParameterModes",
+            references: {
+              assemblies: [{ include: "Provider.ParameterModes", hintPath: libraryAssembly }],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { out, ref, inref } from \"@tsonic/core/lang.js\";",
+      "import type { bool, int16, int32, int64 } from \"@tsonic/core/types.js\";",
+      "import { ConstructorTarget, DelegateTarget, RefOnlyTarget } from \"@tsonic/dotnet/Provider.ParameterModes.js\";",
+      "",
+      "export function constructDefaults(): int32 {",
+      "  const target = new ConstructorTarget(7);",
+      "  return target.value;",
+      "}",
+      "",
+      "export function constructParams(): int32 {",
+      "  const target = new ConstructorTarget(1, 2, 3);",
+      "  return target.value;",
+      "}",
+      "",
+      "export function constructRef(current: int64): int32 {",
+      "  const target = new ConstructorTarget(ref(current));",
+      "  return target.value;",
+      "}",
+      "",
+      "export function constructRefOnly(current: int64): int32 {",
+      "  const target = new RefOnlyTarget(ref(current));",
+      "  return target.value;",
+      "}",
+      "",
+      "export function constructOut(): int16 {",
+      "  let value: int16 = 0;",
+      "  const target = new ConstructorTarget(out(value));",
+      "  return value;",
+      "}",
+      "",
+      "export function constructIn(flag: bool): int32 {",
+      "  const target = new ConstructorTarget(inref(flag), \"z\");",
+      "  return target.value;",
+      "}",
+      "",
+      "export function invokeDelegate(value: int32): int32 {",
+      "  return DelegateTarget.invoke((current: int32): int32 => current, value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /new Provider\.ParameterModes\.ConstructorTarget\(7\);/);
+  assert.match(generatedSource, /new Provider\.ParameterModes\.ConstructorTarget\(1, 2, 3\);/);
+  assert.match(generatedSource, /new Provider\.ParameterModes\.ConstructorTarget\(ref current\);/);
+  assert.match(generatedSource, /new Provider\.ParameterModes\.RefOnlyTarget\(ref current\);/);
+  assert.match(generatedSource, /new Provider\.ParameterModes\.ConstructorTarget\(out value\);/);
+  assert.match(generatedSource, /new Provider\.ParameterModes\.ConstructorTarget\(in flag, 'z'\);/);
+  assert.match(generatedSource, /Provider\.ParameterModes\.DelegateTarget\.Invoke\(\(int current\) => current, value\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported|ConstructorTarget\(current\)|bindings\.json/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderConstructorParameterModes.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const invalidProjectDirectory = resolve(tempRoot, "provider-constructor-parameter-modes-invalid");
+  await writeProject(invalidProjectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedProviderConstructorParameterModesInvalid",
+            references: {
+              assemblies: [{ include: "Provider.ParameterModes", hintPath: libraryAssembly }],
+            },
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int64 } from \"@tsonic/core/types.js\";",
+      "import { RefOnlyTarget } from \"@tsonic/dotnet/Provider.ParameterModes.js\";",
+      "",
+      "export function invalid(current: int64): RefOnlyTarget {",
+      "  return new RefOnlyTarget(current);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const invalidBuild = runNode([cliPath, "build", "--project", resolve(invalidProjectDirectory, "tsonic.json")]);
+  assert.notEqual(invalidBuild.status, 0);
+  assert.match(invalidBuild.stdout + invalidBuild.stderr, /RefOnlyTarget|ref|passing|CSHARP_TARGET_MEMBER_NOT_FOUND|No overload/u);
+  assert.equal(existsSync(resolve(invalidProjectDirectory, "out/csharp/SmokeGeneratedProviderConstructorParameterModesInvalid.csproj")), false);
+});
+
+
 test("CLI rejects provider-owned identifiers outside selected target operations", async () => {
   const projectDirectory = resolve(tempRoot, "provider-identifier-value");
   await writeProject(projectDirectory, {
