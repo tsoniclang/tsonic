@@ -244,7 +244,7 @@ test("CLI rejects node:path imports when NodeJS provider package is not selected
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI compiles existing Node-style code when NodeJS provider package is selected", async () => {
+test("CLI builds and runs existing Node-style code when NodeJS provider package is selected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-node-style-surface-code");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -259,11 +259,13 @@ test("CLI compiles existing Node-style code when NodeJS provider package is sele
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedExistingNodeStyleSurfaceCode",
+            outputType: "Exe",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
       "import { existsSync, statSync } from \"node:fs\";",
       "import { basename, extname, join, resolve } from \"node:path\";",
       "import * as nodeProcess from \"node:process\";",
@@ -300,6 +302,8 @@ test("CLI compiles existing Node-style code when NodeJS provider package is sele
       "  return nodeOs.platform() + nodeOs.EOL;",
       "}",
       "",
+      "Console.writeLine(`${assetName(\"root\", \"file.txt\")}|${encoded(\"ok\")}|${runId().length}|${firstArg().length > 0 ? \"argv\" : \"missing\"}|${platformLine().trim().length > 0 ? \"platform\" : \"missing\"}`);",
+      "",
     ].join("\n"),
   });
 
@@ -320,6 +324,8 @@ test("CLI compiles existing Node-style code when NodeJS provider package is sele
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomUUID\(\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.argv\[0\];/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.os\.platform\(\) \+ Tsonic\.CSharp\.Node\.os\.EOL;/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.path\.basename\(fullPath\) \+ Tsonic\.CSharp\.Node\.path\.extname\(fullPath\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.String\.trim\(platformLine\(\)\)/);
   assert.doesNotMatch(generatedSource, /return existsSync\(/);
   assert.doesNotMatch(generatedSource, /return Buffer\./);
   assert.doesNotMatch(generatedSource, /return randomUUID\(/);
@@ -327,6 +333,7 @@ test("CLI compiles existing Node-style code when NodeJS provider package is sele
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingNodeStyleSurfaceCode.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedExistingNodeStyleSurfaceCode"), "file.txt.txt|ok|36|argv|platform\n");
 });
 
 test("CLI rejects Node-style builtins when NodeJS provider package is unselected", async () => {

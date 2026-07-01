@@ -1439,6 +1439,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("nodejs-path-posix-join"),
   ], [
     "backend.ast.only",
+    "downstream.nodejs-source",
     "host.package.composition",
     "host.project.surface-extension-composition",
     "runtime.csharp.nodejs",
@@ -1450,6 +1451,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "diagnostic.unsupported-surface",
+    "downstream.nodejs-source",
     "host.package.composition",
     "host.project.surface-extension-composition",
     "runtime.csharp.nodejs",
@@ -1460,6 +1462,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("nodejs-surface-module-graph"),
   ], [
     "backend.ast.only",
+    "downstream.nodejs-source",
     "host.package.composition",
     "host.project.surface-extension-composition",
     "runtime.csharp.nodejs",

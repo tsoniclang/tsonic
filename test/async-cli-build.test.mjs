@@ -255,6 +255,67 @@ test("CLI emits and executes async higher-order function carriers", async () => 
   ].join("\n"));
 });
 
+test("CLI emits and executes async structural object returns from finalized Promise carriers", async () => {
+  const assemblyName = "SmokeGeneratedAsyncObjectReturns";
+  const projectDirectory = resolve(tempRoot, "async-object-returns");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "type AsyncBox = { value: int32; label: string };",
+      "",
+      "export async function make(value: int32): Promise<AsyncBox> {",
+      "  return { value, label: `box:${value}` };",
+      "}",
+      "",
+      "export async function read(): Promise<string> {",
+      "  const box = await make(7);",
+      "  return `${box.label}:${box.value}`;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public class __TsonicShape_/);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<__TsonicShape_[A-Za-z0-9_]+> make\(int value\)/);
+  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = \$"box:\{value\}",\s*\};/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ box = await make\(7\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
+    "using System;",
+    "using System.Threading.Tasks;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static async Task Main()",
+    "    {",
+    "        Console.WriteLine(await Smoke.Generated.Index.read());",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "box:7:7\n");
+});
+
 test("CLI rejects async lambdas without delegate facts before backend fallback", async () => {
   const assemblyName = "SmokeGeneratedAsyncLambdaRejected";
   const projectDirectory = resolve(tempRoot, "async-lambda-missing-delegate");
@@ -284,6 +345,39 @@ test("CLI rejects async lambdas without delegate facts before backend fallback",
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /Lambda emission requires a contextual function\/delegate type/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
+});
+
+test("CLI rejects unsupported Promise chains before target artifacts", async () => {
+  const assemblyName = "SmokeGeneratedPromiseChainRejected";
+  const projectDirectory = resolve(tempRoot, "promise-chain-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function chain(): Promise<number> {",
+      "  return Promise.resolve(1).then((value: number): number => value + 1);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /requires .*fact|unsupported/i);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });

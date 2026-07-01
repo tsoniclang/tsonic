@@ -741,7 +741,7 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["downstream.smoke.simple-apps", "Representative small projects compile and run", "partial", "tests"],
   ["downstream.dotnet.aspnet", "ASP.NET and EF-like projects compile after provider data exists", "blocked", "tests"],
-  ["downstream.nodejs-source", "Node-style source projects compile with selected provider packages", "blocked", "tests"],
+  ["downstream.nodejs-source", "Node-style source projects compile with selected provider packages", "partial", "tests"],
   ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "partial", "tests"],
 
   ["target.shared.operation-contract", "Targets share operation/fact contracts without C# shortcuts", "complete", "tests"],
@@ -6218,13 +6218,16 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/async-cli-build.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/async-cli-build.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/async/basic/AsyncFunction.ts",
@@ -6232,7 +6235,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/async-higher-order/",
     ]),
     blockers: Object.freeze([
-      "operation.await.promise-task remains partial until Promise chain/provider-owned Task API interop fixtures, async interaction with selected JS surfaces, and every old async fixture that depends on await semantics have current positive and fail-closed proof.",
+      "operation.await.promise-task remains partial until deferred old async/promise/task fixtures have current proof or explicit non-goal disposition: await-task-dotnet, continuewith-return-task-dotnet, efcore-linq-async-dotnet, async-ops-uses-map, promise-chain-reject-stable, promise-constructor-task, promise-void-resolve, task-then-disallowed, and async-bidirectional-generator.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "async-await",
@@ -6271,7 +6274,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed stronger partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result, including non-generic Task/void awaits; mismatched or missing facts fail closed; source-semantics records await-result carriers from TSTS-checked Promise/Task facts; async function declarations and class methods consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls, Promise<void> await statements, Promise<T>/Promise<void> parameters accepting C# Task<T>/Task callers, and higher-order async delegate carriers through dotnet build/run.",
+      "Reviewed stronger partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result, including non-generic Task/void awaits; mismatched or missing facts fail closed; source-semantics records await-result carriers from TSTS-checked Promise/Task facts; async function declarations and class methods consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls, Promise<void> await statements, Promise<T>/Promise<void> parameters accepting C# Task<T>/Task callers, higher-order async delegate carriers, and async structural object returns through dotnet build/run; unsupported Promise chains fail before target artifacts. The row stays partial because the deferred old async/promise/task fixture set listed in blockers still lacks current closure proof.",
   }),
   "function.this-binding": Object.freeze({
     sourceExamples: Object.freeze([
@@ -6359,6 +6362,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/operator-facts.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/async-cli-build.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -6373,7 +6377,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/async-higher-order/",
     ]),
     blockers: Object.freeze([
-      "function.async remains partial until async object-literal returns, Promise constructor/then/reject behavior, provider-owned Task API interop, generators, and async+surface fixtures are covered by finalized facts, backend AST tests, and runtime/toolchain tests.",
+      "function.async remains partial until deferred old async/promise/task/generator fixtures have current proof or explicit non-goal disposition: await-task-dotnet, continuewith-return-task-dotnet, efcore-linq-async-dotnet, async-ops-uses-map, async-bidirectional-generator, promise-chain-reject-stable, promise-constructor-task, promise-void-resolve, and task-then-disallowed.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "async-await",
@@ -6412,7 +6416,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed stronger partial proof: async functions, class methods, and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; async return expression expectations unwrap finalized Task<T> result carriers before backend planning; missing Promise/Task return or delegate facts diagnose before backend fallback/artifact emission; current executable tests cover Promise<string>, Promise<void>/Task, C# Task<T>/Task caller interop through Promise parameters, nested Promise-returning delegates, async callbacks, and exact runtime output.",
+      "Reviewed stronger partial proof: async functions, class methods, and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; async return expression expectations unwrap finalized Task<T> result carriers before backend planning; missing Promise/Task return or delegate facts diagnose before backend fallback/artifact emission; current executable tests cover Promise<string>, Promise<void>/Task, C# Task<T>/Task caller interop through Promise parameters, nested Promise-returning delegates, async callbacks, async structural object returns, and exact runtime output; unsupported Promise chains fail before target artifacts. The row stays partial because the deferred old async/promise/task/generator fixture set listed in blockers still lacks current closure proof.",
   }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([
@@ -8554,6 +8558,39 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: focused downstream smoke builds and runs two simple executable projects through current CLI output: a provider-backed Console app and a selected JS-surface app. Generated C# is scanned for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load before execution.",
+  }),
+  "downstream.nodejs-source": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { existsSync, statSync } from \"node:fs\";",
+      "import * as nodeProcess from \"node:process\";",
+      "import { Buffer } from \"node:buffer\";",
+    ]),
+    tstsDecision:
+      "Existing Node-style source remains ordinary checked TypeScript; selected provider-package modules own the virtual declarations for node:* imports, and unselected packages remain TSTS/module diagnostics rather than compiler fallbacks.",
+    providerFacts: Object.freeze([
+      "selectedProviderPackage",
+      "providerVirtualDeclarationFact",
+      "selectedTargetSignatureFact",
+      "selectedRuntimeArtifactFact",
+    ]),
+    backendContract:
+      "Generated C# for Node-style source must consume selected NodeJS provider-package facts and runtime artifacts, then fail closed when the package is unselected or a selected operation is unsupported.",
+    positiveTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-path-posix-join/",
+      "test/fixtures/nodejs-surface-imports-negative/",
+      "test/fixtures/nodejs-surface-module-graph/",
+    ]),
+    blockers: Object.freeze([
+      "downstream.nodejs-source remains partial until the broad nodejs-surface-alias-coverage fixture, which imports child_process, dgram, dns, events, http, net, querystring, readline, stream, timers, tls, zlib, and type-only http declarations, has provider-package coverage or explicit unsupported-package diagnostics.",
+    ]),
+    notes:
+      "Reviewed partial proof: nodejs-surface now builds and runs existing Node-style source with selected js surface plus nodejs provider package, including node:fs, node:path, node:process namespace imports, node:os namespace imports, node:buffer, and node:crypto through selected provider declarations, generated C# runtime project references, dotnet build, dotnet run, and exact stdout. Adjacent negatives prove node:* imports fail when the NodeJS provider package is unselected. The row stays partial because the historical alias-coverage fixture intentionally imports a much broader Node module matrix that is not yet complete.",
   }),
   "downstream.no-old-runtime-reflection": Object.freeze({
     sourceExamples: Object.freeze([
