@@ -1213,6 +1213,12 @@ test("CLI runs array and object-shape destructuring assignment from finalized fa
       "  return first + second;",
       "}",
       "",
+      "function assignArrayExpression(values: int32[]): string {",
+      "  let first: int32 = 0;",
+      "  const returned = ([first] = values);",
+      "  return `${first}:${returned[1]}`;",
+      "}",
+      "",
       "function assignObject(input: Shape): string {",
       "  let value: int32 = 0;",
       "  let label: string = \"\";",
@@ -1220,7 +1226,14 @@ test("CLI runs array and object-shape destructuring assignment from finalized fa
       "  return `${label}:${value}`;",
       "}",
       "",
-      "Console.writeLine(`${assignArray([2, 3])}|${assignObject({ value: 7, label: \"ok\" })}`);",
+      "function assignObjectExpression(input: Shape): string {",
+      "  let value: int32 = 0;",
+      "  let label: string = \"\";",
+      "  const returned = ({ value, label } = input);",
+      "  return `${label}:${returned.value}:${value}`;",
+      "}",
+      "",
+      "Console.writeLine(`${assignArray([2, 3])}|${assignArrayExpression([4, 5])}|${assignObject({ value: 7, label: \"ok\" })}|${assignObjectExpression({ value: 9, label: \"expr\" })}`);",
       "",
     ].join("\n"),
   });
@@ -1235,9 +1248,11 @@ test("CLI runs array and object-shape destructuring assignment from finalized fa
   assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = input;/);
   assert.match(generatedSource, /value = __tsonic_destructure\d+\.value;/);
   assert.match(generatedSource, /label = __tsonic_destructure\d+\.label;/);
+  assert.match(generatedSource, /\(\(System\.Func<int\[\]>\)\(\(\) =>/);
+  assert.match(generatedSource, /\(\(System\.Func<__TsonicShape_[A-Za-z0-9_]+>\)\(\(\) =>/);
   assert.doesNotMatch(generatedSource, /__unsupported|invalid/i);
 
-  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "5|ok:7\n");
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "5|4:5|ok:7|expr:9:9\n");
 });
 
 

@@ -6652,10 +6652,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-destructuring/",
     ]),
     blockers: Object.freeze([
-      "operation.destructure.array-object remains partial until expression-position destructuring assignment result semantics, object rest/default parity, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
+      "operation.destructure.array-object remains partial until object rest/default parity, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, and statement assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, and object-shape extraction facts; missing and mismatched facts produce diagnostics; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, object-shape destructuring assignment, and Slice 8 rest/spread/nullish interleaving. Expression-position destructuring assignment remains a deliberate fail-closed case until result-value facts exist.",
+      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, and object-shape extraction facts; missing and mismatched facts produce diagnostics; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, object-shape destructuring assignment, expression-position destructuring assignment return values, and Slice 8 rest/spread/nullish interleaving.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -6972,7 +6972,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: statement-level array and object-shape destructuring assignment emits deterministic storage writes only after TSTS accepts assignment and finalized assignment/operator plus extraction carrier facts exist. Current unit tests prove array and object-shape storage writes, fail-closed missing facts, JSArray hole-aware binding defaults, and no ordinary assignment fallback; CLI/runtime proof executes array and object-shape destructuring assignment plus sparse JSArray declaration destructuring through generated C# output. Expression-position destructuring assignment result semantics remain intentionally rejected by expression.assignment and operation.destructure.array-object until result-value facts exist.",
+      "Reviewed proof: statement-level and expression-position array/object-shape destructuring assignment emit deterministic storage writes only after TSTS accepts assignment and finalized assignment/operator plus extraction carrier facts exist. Current unit tests prove array and object-shape storage writes, expression-position result values, fail-closed missing facts, JSArray hole-aware binding defaults, and no ordinary assignment fallback; CLI/runtime proof executes array and object-shape destructuring assignment plus sparse JSArray declaration destructuring through generated C# output.",
   }),
   "binding.object.rename-rest-default": Object.freeze({
     positiveTests: Object.freeze([
