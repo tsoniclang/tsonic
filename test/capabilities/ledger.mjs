@@ -5519,7 +5519,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.fs remains partial until every supported node:fs, node:fs/promises, bare fs, and bare fs/promises operation has selected-declaration target facts, every unsupported fs member has precise selected-provider-package diagnostics, and the old Node fixture matrix has runtime/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, provider-backed default node:fs module object calls such as fs.existsSync, existsSync/readFileSync string and Buffer returns, readdirSync string-array returns, statSync/fstatSync, readSync/writeSync Buffer descriptors, writeFileSync/appendFileSync/copyFileSync/renameSync/rmSync/unlinkSync writes and cleanup, node:fs/promises readFile/readdir/writeFile/stat/unlink/chmod/cp/readlink/realpath/rmdir/symlink Promise-returning target facts, no-surface negative paths block Node-owned modules before artifact emission, unsupported node:vm provider-package imports fail closed, and unsupported selected fs.watchFile fails closed without runtime fallback. Current executable proof writes, stats, reads, directory listing, rename/copy cleanup, and unlinks through generated C# Node runtime calls. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
+      "Reviewed partial proof: selected NodeJS provider package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, provider-backed default node:fs module object calls such as fs.existsSync, existsSync/readFileSync string and Buffer returns, readdirSync string-array returns, statSync/fstatSync, readSync/writeSync Buffer descriptors, writeFileSync/appendFileSync/copyFileSync/renameSync/rmSync/unlinkSync writes and cleanup, node:fs/promises readFile/readdir/writeFile/stat/unlink/mkdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink Promise-returning target facts, no-surface negative paths block Node-owned modules before artifact emission, unsupported node:vm provider-package imports fail closed, and unsupported selected fs.watchFile fails closed without runtime fallback. Current executable proof writes, stats, reads, directory listing, rename/copy cleanup, unlinks, and fs/promises async roundtrip operations through generated C# Node runtime calls. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
   }),
   "surface.node.fs-stats-date": Object.freeze({
     sourceExamples: Object.freeze([
@@ -5777,7 +5777,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process/url mappings and provider-backed default node:fs/node:path/node:process/node:crypto/node:os/node:util/node:url module object mappings through that reference, closed fs Buffer descriptor/file helpers plus fs/promises chmod/cp/readlink/realpath/rmdir/symlink, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8/isBuffer/poolSize/transcode helpers, crypto Buffer/Hash/Hmac helpers, process environment and memory metrics/hrtime helpers, URL base-overload and URLSearchParams helpers, and scalar util helpers are available as runtime-owned APIs. Generated executables now run both node:path.join and a composite provider-package scenario covering fs write/read/stat/unlink, path/process, Buffer, crypto hash/randomUUID, os.platform, url file conversion, live URL.searchParams mutation coupling, and util.toUSVString through the C# Node runtime. Remains partial until executable tests cover the full old Node fixture matrix, byte conversion facts are proven for Buffer write APIs, and all unsupported Node module members fail closed.",
+      "Reviewed partial proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process/url mappings and provider-backed default node:fs/node:path/node:process/node:crypto/node:os/node:util/node:url module object mappings through that reference, closed fs Buffer descriptor/file helpers plus fs/promises mkdir/readdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8/isBuffer/poolSize/transcode helpers, crypto Buffer/Hash/Hmac helpers, process environment and memory metrics/hrtime helpers, URL base-overload and URLSearchParams helpers, and scalar util helpers are available as runtime-owned APIs. Generated executables now run both node:path.join and a composite provider-package scenario covering fs write/read/stat/unlink, fs/promises async file roundtrip, path/process, Buffer, crypto hash/randomUUID, os.platform, url file conversion, live URL.searchParams mutation coupling, and util.toUSVString through the C# Node runtime. Remains partial until executable tests cover the full old Node fixture matrix, byte conversion facts are proven for Buffer write APIs, and all unsupported Node module members fail closed.",
   }),
   "runtime.no-reflection-semantics": Object.freeze({
     positiveTests: Object.freeze([
@@ -6196,6 +6196,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/operator-facts.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/async-cli-build.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
@@ -6334,6 +6335,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/operator-facts.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/async-cli-build.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",

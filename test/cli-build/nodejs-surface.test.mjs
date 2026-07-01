@@ -223,7 +223,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { chmod, cp, readFile, readlink, realpath, rmdir, stat, symlink, unlink, writeFile } from \"node:fs/promises\";",
+      "import { chmod, cp, mkdir, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, unlink, writeFile } from \"node:fs/promises\";",
       "",
       "export async function readText(path: string): Promise<string> {",
       "  return await readFile(path, \"utf8\");",
@@ -249,6 +249,24 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
       "  return (await readlink(linkPath)) + (await realpath(linkPath));",
       "}",
       "",
+      "export async function runFileRoundTrip(root: string): Promise<string> {",
+      "  const directory = root + \"/promises\";",
+      "  await mkdir(directory, true);",
+      "  const source = directory + \"/source.txt\";",
+      "  const renamed = directory + \"/renamed.txt\";",
+      "  const copied = directory + \"/copied.txt\";",
+      "  await writeFile(source, \"hello\", \"utf8\");",
+      "  const text = await readFile(source, \"utf8\");",
+      "  await rename(source, renamed);",
+      "  await cp(renamed, copied, false);",
+      "  const entries = await readdir(directory);",
+      "  const kind = (await stat(copied)).isFile() ? \"file\" : \"other\";",
+      "  await unlink(renamed);",
+      "  await rm(copied, false);",
+      "  await rm(directory, true);",
+      "  return `${text}:${entries.length}:${kind}`;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -260,6 +278,9 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.writeFile\(path, text, "utf8"\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.stat\(path\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.unlink\(path\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.mkdir\(directory, true\);/);
+  assert.match(generatedSource, /string\[\] entries = await Tsonic\.CSharp\.Node\.fs_promises\.readdir\(directory\);/);
+  assert.match(generatedSource, /entries\.Length/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.symlink\(sourcePath, linkPath\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.chmod\(linkPath, 420\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.cp\(sourcePath, linkPath \+ "\.copy", true\);/);
@@ -271,6 +292,21 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeFsPromises.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedNodeFsPromises", [
+    "using System;",
+    "using System.Threading.Tasks;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static async Task Main()",
+    "    {",
+    "        Console.WriteLine(await Smoke.Generated.Index.runFileRoundTrip(Environment.CurrentDirectory));",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "hello:2:file\n");
 });
 
 test("CLI rejects unsupported NodeJS provider-package modules without fallback", async () => {
@@ -1267,3 +1303,31 @@ test("CLI rejects unsupported selected NodeJS provider operations without fallba
   assert.doesNotMatch(build.stderr, /watchFile is not a function/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
+
+async function runGeneratedCsharpRunner(projectDirectory, assemblyName, programLines) {
+  const runnerDirectory = resolve(projectDirectory, "runner");
+  const runnerProjectPath = resolve(runnerDirectory, "Runner.csproj");
+  await writeProject(runnerDirectory, {
+    "Runner.csproj": [
+      "<Project Sdk=\"Microsoft.NET.Sdk\">",
+      "  <PropertyGroup>",
+      "    <OutputType>Exe</OutputType>",
+      "    <TargetFramework>net10.0</TargetFramework>",
+      "    <ImplicitUsings>disable</ImplicitUsings>",
+      "    <Nullable>enable</Nullable>",
+      "  </PropertyGroup>",
+      "  <ItemGroup>",
+      `    <ProjectReference Include=\"../out/csharp/${assemblyName}.csproj\" />`,
+      "  </ItemGroup>",
+      "</Project>",
+      "",
+    ].join("\n"),
+    "Program.cs": programLines.join("\n"),
+  });
+
+  const build = run("dotnet", ["build", runnerProjectPath, "--nologo", "--v:minimal"]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const executed = run("dotnet", ["run", "--project", runnerProjectPath, "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  return executed.stdout.replace(/\r\n/g, "\n");
+}
