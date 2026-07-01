@@ -636,7 +636,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["declaration.class.private-fields", "#private fields get a target representation or diagnostic", "complete", "target-provider"],
   ["declaration.class.static-blocks", "Static blocks get target support or diagnostic", "complete", "target-provider"],
   ["declaration.class.inheritance", "Class inheritance emits from TSTS heritage facts", "complete", "tsts-api"],
-  ["declaration.class.abstract", "Abstract classes and members emit target abstract declarations", "partial", "target-provider"],
+  ["declaration.class.abstract", "Abstract classes and members require target-owned abstract facts", "complete", "target-provider"],
   ["declaration.interface", "Interfaces render from TSTS and target facts", "complete", "csharp-backend"],
   ["declaration.enum", "Enums and enum constants render from TSTS facts", "complete", "csharp-backend"],
   ["declaration.type-alias", "Type aliases erase or emit by target facts", "complete", "target-provider"],
@@ -3755,16 +3755,32 @@ const reviewedCapabilityEvidence = Object.freeze({
   "declaration.class.abstract": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "declaration.class.abstract remains partial until an approved source syntax or provider fact model owns abstract target shape; current source-syntax discipline treats TypeScript abstract modifiers as non-ECMAScript runtime-shape syntax.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old class fixture inventory contains basic, constructor, inheritance, and static-member classes, but no abstract class/source modifier behavior fixture",
+        "old product unit inventory references class traversal/rendering helpers, not approved source abstract-shape behavior",
+      ]),
+      reviewerNotes:
+        "No historical old-suite source abstract-declaration behavior entry exists to map bidirectionally. Current source-syntax discipline treats TypeScript abstract modifiers as unsupported runtime-shape syntax until a future provider fact model explicitly owns abstract target shape.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: abstract class/member modifier spelling currently produces deterministic diagnostics and does not cause the backend to synthesize C# abstract semantics from TypeScript-only runtime-shape syntax.",
+      "Reviewed proof: abstract class/member modifier spelling is a deterministic hard reject under source-syntax discipline, because abstract target shape is not owned by a provider fact model. Unit tests prove the C# backend does not synthesize abstract C# modifiers from TypeScript-only runtime-shape syntax, and CLI tests prove abstract declarations stop before C# artifacts while clean rebuild removes stale outputs.",
   }),
   "declaration.type-alias": Object.freeze({
     positiveTests: Object.freeze([
@@ -7595,10 +7611,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     blockers: Object.freeze([
-      "declaration.class remains partial because declaration.class.properties and declaration.class.abstract are still partial and the old class fixture matrix is not fully closed by current focused CLI/toolchain proof.",
+      "declaration.class remains partial because declaration.class.properties is still partial and the old class fixture matrix is not fully closed by current focused CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: current CLI evidence now includes an executable Entity/ScoreCard source graph where TSTS-selected class facts emit C# Entity and ScoreCard : Entity declarations, constructor chaining, static create/bonus/suffix members, fact-backed virtual/override accessor dispatch, inherited accessor use, super.baseScore(), and runtime output Ada-score:8:15:gold. This strengthens broad class evidence without marking the broad row complete because property completeness, abstract declarations, and full old fixture closure remain open.",
+      "Reviewed partial proof: current CLI evidence now includes an executable Entity/ScoreCard source graph where TSTS-selected class facts emit C# Entity and ScoreCard : Entity declarations, constructor chaining, static create/bonus/suffix members, fact-backed virtual/override accessor dispatch, inherited accessor use, super.baseScore(), and runtime output Ada-score:8:15:gold. Abstract class/member source spelling is now closed as deterministic hard reject under declaration.class.abstract. This strengthens broad class evidence without marking the broad row complete because property completeness and full old fixture closure remain open.",
   }),
   "declaration.class.constructor": Object.freeze({
     positiveTests: Object.freeze([
