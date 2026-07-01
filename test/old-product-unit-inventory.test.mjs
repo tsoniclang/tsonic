@@ -72,19 +72,19 @@ test("old product unit inventory report counts are deterministic", () => {
 
   assert.deepEqual(report.counts, {
     total: 109,
-    ported: 4,
+    ported: 5,
     "replaced-by-stronger-test": 0,
     "invalid-stale-architecture": 26,
-    deferred: 79,
+    deferred: 78,
     unclassified: 0,
   });
 
   assert.equal(formatOldProductUnitInventoryCounts(report.counts), [
     "total: 109",
-    "ported: 4",
+    "ported: 5",
     "replaced-by-stronger-test: 0",
     "invalid-stale-architecture: 26",
-    "deferred: 79",
+    "deferred: 78",
     "unclassified: 0",
   ].join("\n"));
   assert.equal(report.rules.unclassifiedOldInventoryIsImpossible, true);

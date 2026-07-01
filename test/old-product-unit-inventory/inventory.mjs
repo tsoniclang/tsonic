@@ -321,6 +321,22 @@ const oldProductUnitPortedProofByOldPath = new Map([
     reason:
       "Ported to current surface-selection tests: selected target-owned surfaces compose provider/surface extensions and runtime artifacts, while unknown, duplicate, missing-dependency, stale, and unselected surfaces fail closed.",
   })],
+  ["packages/targets/csharp/emitter/src/rendering/statements.test.ts", Object.freeze({
+    capabilityIds: freezeSortedStrings([
+      "backend.csharp.ast-statement",
+      "operation.throw.catch",
+      "statement.block-scope",
+      "statement.control-transfer",
+      "statement.if-else",
+      "statement.loop",
+      "statement.return",
+      "statement.switch",
+      "statement.throw-catch-finally",
+    ]),
+    newPath: "../tsonic-csharp/test/statement-planner.test.mjs",
+    reason:
+      "Ported to current statement planner and CLI proof: statements emit Roslyn-compatible C# AST from finalized facts, including throw/catch/finally via provider exception facts and closed compat thrown-value carriers, with fail-closed diagnostics for missing or unsupported target facts.",
+  })],
 ]);
 
 const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([

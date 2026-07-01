@@ -1649,6 +1649,41 @@ test("CLI emits provider-backed C# catch variables", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects catch destructuring until thrown-value extraction facts are finalized", async () => {
+  const projectDirectory = resolve(tempRoot, "catch-destructuring-requires-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedCatchDestructuringReject",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function guarded(): number {",
+      "  try {",
+      "    return 1;",
+      "  } catch ({ message }: any) {",
+      "    return 2;",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stdout + build.stderr, /Catch destructuring requires a closed thrown-value carrier/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedCatchDestructuringReject.csproj")), false);
+});
+
 
 test("CLI runs provider-backed exception throw, catch, and finally semantics", async () => {
   const assemblyName = "SmokeGeneratedProviderExceptionRuntime";

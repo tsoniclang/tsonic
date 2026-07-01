@@ -1,4 +1,4 @@
-import { assert, cliPath, csharpProjectPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, csharpProjectPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 async function readGeneratedModuleSource(projectDirectory) {
   return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
@@ -243,4 +243,63 @@ test("CLI strict-native rejects TypeScript any typed-boundary returns before C# 
   assert.notEqual(build.status, 0);
   assert.match(build.stdout + build.stderr, /TypeScript any boundary|opaque any runtime carrier|any cannot trickle/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
+});
+
+test("CLI compat mode wraps non-exception thrown values with closed runtime carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "compat-runtime-throw-catch");
+  const assemblyName = "SmokeGeneratedCompatRuntimeThrowCatch";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+            typescriptCompatibility: "compat",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "let cleanup = 0;",
+      "",
+      "function guarded(): number {",
+      "  try {",
+      "    throw \"boom\";",
+      "  } catch (error) {",
+      "    cleanup += 1;",
+      "  } finally {",
+      "    cleanup += 10;",
+      "  }",
+      "  return cleanup;",
+      "}",
+      "",
+      "Console.writeLine(`compat throw: ${guarded()}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProject = await readGeneratedProject(projectDirectory, assemblyName);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /throw Tsonic\.CSharp\.Js\.TsThrownValueException\.from\("boom"\);/);
+  assert.match(generatedSource, /catch \(System\.Exception __tsonic_catch0\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.TsValue error = Tsonic\.CSharp\.Js\.TsThrownValueException\.toValue\(__tsonic_catch0\);/);
+  assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
+    "compat throw: 11",
+    "",
+  ].join("\n"));
 });

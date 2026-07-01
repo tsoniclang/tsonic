@@ -580,7 +580,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.spread.provider-target-copy", "Spread emits via provider target copy facts", "partial", "target-provider"],
   ["operation.destructure.array-object", "Binding patterns emit from extraction facts", "partial", "target-provider"],
   ["operation.await.promise-task", "await and async functions emit from promise/task facts", "partial", "target-provider"],
-  ["operation.throw.catch", "throw/catch/finally use target exception facts", "partial", "target-provider"],
+  ["operation.throw.catch", "throw/catch/finally use target exception facts", "complete", "target-provider"],
 
   ["expression.literal.string-number-boolean", "String, number, and boolean literals emit target literals", "complete", "csharp-backend"],
   ["expression.literal.null-undefined", "null and undefined literals emit target carriers", "complete", "csharp-backend"],
@@ -603,7 +603,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["statement.loop", "for, while, do, for-of, and for-in emit target loops", "complete", "target-provider"],
   ["statement.control-transfer", "break, continue, and labels emit target control flow", "complete", "csharp-backend"],
   ["statement.return", "return emits with TSTS return type and target conversion facts", "complete", "target-provider"],
-  ["statement.throw-catch-finally", "throw, catch, and finally emit target exception flow", "partial", "target-provider"],
+  ["statement.throw-catch-finally", "throw, catch, and finally emit target exception flow", "complete", "target-provider"],
   ["statement.top-level", "Top-level statements emit deterministic entry/module init", "complete", "csharp-backend"],
 
   ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "partial", "target-provider"],
@@ -6160,19 +6160,21 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "operation.throw.catch remains partial until throw/catch/finally coverage spans provider exceptions, source-owned exception carriers, catch filters if supported, invalid destructured catch variables, and old fixture parity.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/statements.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: statement planner requires finalized throwable/catch carrier facts, accepts provider-backed throwable metadata, rejects non-throwable catch carriers, provider-dotnet CLI rejects throw statements until provider exception facts are finalized, and provider-backed throw/catch/finally execution builds and runs through the generated C# toolchain.",
+      "Reviewed proof: throw/catch/finally emission requires finalized throwable and catch carrier facts. Provider-backed exceptions emit and execute as native C# exceptions, compat-mode non-Exception thrown values wrap through the closed TsThrownValueException/TsValue carrier, invalid destructured catch variables fail closed until extraction facts exist, strict-native non-throwable throws diagnose, and the backend never falls back to source spelling or runtime reflection.",
   }),
   "operation.iteration.for-in.keys": Object.freeze({
     positiveTests: Object.freeze([
@@ -6485,17 +6487,21 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "statement.throw-catch-finally remains partial until catch variable carriers, catch destructuring rejection, finally behavior, provider exception mappings, CLI execution, and old fixture parity are complete.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/statements.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: throw emission requires finalized throwable target carriers; try/catch/finally planning consumes finalized catch variable carriers, accepts provider-backed throwable metadata, rejects non-throwable catch carriers, and rejects missing exception-carrier facts before C# emission.",
+      "Reviewed proof: throw emission requires finalized throwable target carriers, try/catch/finally planning consumes finalized catch variable carriers, provider exception mappings execute through the generated C# toolchain, compat-mode catch variables materialize closed TsValue carriers from System.Exception, finally execution is covered by provider and compat CLI runtime tests, and missing/non-extractable catch facts produce diagnostics before artifacts.",
   }),
   "statement.top-level": Object.freeze({
     positiveTests: Object.freeze([

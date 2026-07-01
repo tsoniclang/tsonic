@@ -311,8 +311,8 @@ test("capability coverage report proves old inventory coverage by inventory", ()
   });
   assertOldInventoryCoverage(inventoryCoverageByName.get("old-product-unit"), oldProductUnitPortInventory, {
     total: 109,
-    ported: 4,
-    deferred: 79,
+    ported: 5,
+    deferred: 78,
     "invalid-stale-architecture": 26,
   });
 });
