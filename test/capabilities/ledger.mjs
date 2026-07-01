@@ -608,7 +608,7 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "partial", "target-provider"],
   ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "partial", "target-provider"],
-  ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "partial", "target-provider"],
+  ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "complete", "target-provider"],
   ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "complete", "target-provider"],
   ["binding.object-shape", "Object-shape destructuring consumes generated shape facts", "partial", "target-provider"],
 
@@ -6771,11 +6771,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/array-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "binding.parameter remains partial until every array/object/rest/default/nested parameter destructuring form is covered by current CLI/toolchain tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: parameter destructuring queries facts on the owning parameter declaration, allocates deterministic synthetic parameters for destructured parameters, and emits array fixed/rest/default, IReadOnlyList, JSArray, object, nested object, and object-rest extraction prelude only from finalized carrier/object-shape facts. CLI proof now includes a non-Node executable whose parameter object rest feeds object spread and exact runtime output; missing nested object-shape facts fail closed.",
+      "Reviewed proof: parameter destructuring queries facts on the owning parameter declaration, allocates deterministic synthetic parameters for destructured parameters, and emits array fixed/rest/default, IReadOnlyList, JSArray, object, nested object, object rename, object rest, object defaults, and callable extraction prelude only from finalized carrier/object-shape facts. Current unit tests prove missing carrier/object-shape facts and missing nested shape facts fail closed with evidence. CLI/toolchain proof covers array fixed/default/rest/nested parameter binding, object parameter rest, object parameter callable extraction, and a non-Node executable whose parameter object rest feeds object spread with exact runtime output. Old array-destructuring evidence is mapped to this finalized-fact parameter binding path.",
   }),
   "binding.assignment": Object.freeze({
     positiveTests: Object.freeze([
