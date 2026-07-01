@@ -6652,10 +6652,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-destructuring/",
     ]),
     blockers: Object.freeze([
-      "operation.destructure.array-object remains partial until object rest/default parity, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
+      "operation.destructure.array-object remains partial until remaining object rest assignment variants, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, and object-shape extraction facts; missing and mismatched facts produce diagnostics; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, object-shape destructuring assignment, expression-position destructuring assignment return values, and Slice 8 rest/spread/nullish interleaving.",
+      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, read-only-indexable provider, and object-shape extraction facts; missing and mismatched facts produce diagnostics; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, object-shape destructuring assignment, expression-position destructuring assignment return values, and Slice 8 rest/spread/nullish interleaving.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -6972,7 +6972,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: statement-level and expression-position array/object-shape destructuring assignment emit deterministic storage writes only after TSTS accepts assignment and finalized assignment/operator plus extraction carrier facts exist. Current unit tests prove array and object-shape storage writes, expression-position result values, fail-closed missing facts, JSArray hole-aware binding defaults, and no ordinary assignment fallback; CLI/runtime proof executes array and object-shape destructuring assignment plus sparse JSArray declaration destructuring through generated C# output.",
+      "Reviewed proof: statement-level and expression-position array/object-shape destructuring assignment emit deterministic storage writes only after TSTS accepts assignment and finalized assignment/operator plus extraction carrier facts exist. Current unit tests prove array and object-shape storage writes, read-only-indexable provider extraction, expression-position result values, object-shape assignment defaults, string-literal object-shape assignment keys, fail-closed missing facts, JSArray hole-aware assignment defaults, and no ordinary assignment fallback; CLI/runtime proof executes array and object-shape destructuring assignment plus sparse JSArray declaration destructuring through generated C# output.",
   }),
   "binding.object.rename-rest-default": Object.freeze({
     positiveTests: Object.freeze([
@@ -7003,10 +7003,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "binding.object-shape remains partial until object-shape binding has full assignment-default, provider-native, compat TsObject, and old-suite proof.",
+      "binding.object-shape remains partial until object-shape binding has full provider-native, compat TsObject, and old-suite proof.",
     ]),
     notes:
-      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring, nested extraction, nullable optional defaults, readonly utility-projected spread, nested object spread, and rest-to-spread execution; missing source/target shape facts, mismatched rest shape members, malformed optional value carriers, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
+      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring, nested extraction, nullable optional defaults, object assignment defaults, string-literal assignment keys, readonly utility-projected spread, nested object spread, and rest-to-spread execution; missing source/target shape facts, mismatched rest shape members, malformed optional value carriers, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
   }),
   "carrier.object-shape": Object.freeze({
     positiveTests: Object.freeze([
