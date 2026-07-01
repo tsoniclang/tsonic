@@ -1246,6 +1246,38 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeUrl.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedNodeUrl", [
+    "using System;",
+    "using System.IO;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        const string input = \"https://example.com/a?b=1\";",
+    "        var ascii = Smoke.Generated.Index.ascii(\"mañana.com\").StartsWith(\"xn--\") ? \"ascii\" : \"bad-ascii\";",
+    "        var roundTrip = Smoke.Generated.Index.roundTrip(Path.Combine(Environment.CurrentDirectory, \"sample.txt\")).EndsWith(\"sample.txt\") ? \"round\" : \"bad-round\";",
+    "        Console.WriteLine(string.Join(\"|\", new[]",
+    "        {",
+    "            Smoke.Generated.Index.href(input),",
+    "            Smoke.Generated.Index.host(input),",
+    "            Smoke.Generated.Index.accepts(input).ToString(),",
+    "            Smoke.Generated.Index.acceptsRelative(input).ToString(),",
+    "            Smoke.Generated.Index.childHost(input),",
+    "            Smoke.Generated.Index.formatted(input),",
+    "            ascii,",
+    "            Smoke.Generated.Index.joined(\"https://example.com/a/\", \"../b\"),",
+    "            roundTrip,",
+    "            Smoke.Generated.Index.queryValue(\"x\"),",
+    "            Smoke.Generated.Index.querySize().ToString(),",
+    "            Smoke.Generated.Index.liveQueryValue(\"next\"),",
+    "        }));",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "https://example.com/a?b=1|example.com|True|True|example.com|https://example.com/a?b=1|ascii|https://example.com/b|round|22a=2&b=x|1|1\n");
 });
 
 test("CLI rejects open-object node:url format operations without fallback", async () => {
@@ -1277,6 +1309,40 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
   assert.equal(build.status, 1);
   assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:url' export 'format'/);
   assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects unsupported node:url URLPattern operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-url-pattern-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { URLPattern } from \"node:url\";",
+      "",
+      "export function accepts(input: string): boolean {",
+      "  const pattern = new URLPattern(\"/books/:id\");",
+      "  return pattern.test(input);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:url' export 'URLPattern' member 'constructor'/);
+  assert.match(build.stderr, /URLPattern\.constructor/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
