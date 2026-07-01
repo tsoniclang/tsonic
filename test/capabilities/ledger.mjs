@@ -3838,11 +3838,13 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "operation.spread.array": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -3854,7 +3856,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.spread.array remains partial until spread over readonly, tuple, provider-native arrays, iterable providers, sparse/full-JS arrays, nested spreads, and unsupported spread operands have complete current proof.",
     ]),
     notes:
-      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current CLI proof renders spread only from finalized expected array facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, and does not revive old expected-type-threading logic inside Tsonic.",
+      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current backend and CLI proof renders spread only from finalized expected array/carrier facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, and fails closed before partial array creation when spread operand carrier facts are missing. It does not revive old expected-type-threading logic inside Tsonic.",
   }),
   "operation.spread.object": Object.freeze({
     positiveTests: Object.freeze([
@@ -3870,7 +3872,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.spread.object remains partial until all object spread forms have complete proof: nested spreads, computed keys, accessor members, optional/readonly members, provider-native object copy facts, compat TsObject spread, and every old object-literal/rest/spread inventory item.",
     ]),
     notes:
-      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts and non-identifier spread expressions fail closed. CLI tests prove full object-shape spread and subset spread through generated C# projects, and reject spreads when any source member lacks a finalized target carrier or when single-evaluation lowering facts are absent.",
+      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts, missing spread facts inside object literals, and non-identifier spread expressions fail closed before partial object creation. CLI tests prove full object-shape spread and subset spread through generated C# projects, and reject spreads when any source member lacks a finalized target carrier or when single-evaluation lowering facts are absent.",
   }),
   "operation.spread.provider-target-copy": Object.freeze({
     positiveTests: Object.freeze([
@@ -3905,7 +3907,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.array.fixed-rest-default remains partial until assignment destructuring, nested default values, tuple rest, provider-native array extraction, and sparse/full-JS array extraction have current positive and fail-closed proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, and nested array extraction using finalized carrier facts. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
+      "Reviewed partial proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, nested array extraction, and synthetic destructured parameter prelude using finalized carrier facts. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
   }),
   "carrier.array.public-abi-policy": Object.freeze({
     sourceExamples: Object.freeze([
@@ -6027,10 +6029,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Backend emits AwaitExpression and async target AST only from finalized Promise/Task runtime-carrier facts; missing or mismatched awaited/result carriers produce diagnostics.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
       "test/async-cli-build.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -6078,7 +6082,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result; mismatched or missing facts fail closed; current CLI E2E proves basic awaited async calls and higher-order async delegate carriers through dotnet build/run.",
+      "Reviewed partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result; mismatched or missing facts fail closed; async function declarations consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls and higher-order async delegate carriers through dotnet build/run.",
   }),
   "function.async": Object.freeze({
     sourceExamples: Object.freeze([
@@ -6096,10 +6100,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Backend emits async methods/lambdas and Task-returning signatures only from finalized Promise/Task and delegate carrier facts; missing facts are diagnostics.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
       "test/async-cli-build.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -6148,7 +6154,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: async methods and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; current executable tests cover basic Promise<string>, nested Promise-returning delegates, async callbacks, and exact runtime output.",
+      "Reviewed partial proof: async methods and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; missing Promise/Task return facts diagnose before backend fallback; current executable tests cover basic Promise<string>, nested Promise-returning delegates, async callbacks, and exact runtime output.",
   }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([
@@ -6166,7 +6172,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.throw.catch remains partial until throw/catch/finally coverage spans provider exceptions, source-owned exception carriers, catch filters if supported, invalid destructured catch variables, and old fixture parity.",
     ]),
     notes:
-      "Reviewed partial proof: statement planner requires finalized throwable/catch carrier facts, provider-dotnet CLI rejects throw statements until provider exception facts are finalized, and provider-backed throw/catch/finally execution builds and runs through the generated C# toolchain.",
+      "Reviewed partial proof: statement planner requires finalized throwable/catch carrier facts, accepts provider-backed throwable metadata, rejects non-throwable catch carriers, provider-dotnet CLI rejects throw statements until provider exception facts are finalized, and provider-backed throw/catch/finally execution builds and runs through the generated C# toolchain.",
   }),
   "operation.iteration.for-in.keys": Object.freeze({
     positiveTests: Object.freeze([
@@ -6217,6 +6223,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
@@ -6488,7 +6495,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "statement.throw-catch-finally remains partial until catch variable carriers, catch destructuring rejection, finally behavior, provider exception mappings, CLI execution, and old fixture parity are complete.",
     ]),
     notes:
-      "Reviewed partial proof: throw emission requires finalized throwable target carriers and rejects missing exception-carrier facts before C# emission.",
+      "Reviewed partial proof: throw emission requires finalized throwable target carriers; try/catch/finally planning consumes finalized catch variable carriers, accepts provider-backed throwable metadata, rejects non-throwable catch carriers, and rejects missing exception-carrier facts before C# emission.",
   }),
   "statement.top-level": Object.freeze({
     positiveTests: Object.freeze([
@@ -6521,7 +6528,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.parameter remains partial until every array/object/rest/default/nested parameter destructuring form is covered by current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: parameter destructuring now queries facts on the owning parameter declaration, not only the syntactic type node, so parameter array, object, and nested object destructuring emit only from finalized carrier/object-shape facts; missing nested object-shape facts fail closed.",
+      "Reviewed partial proof: parameter destructuring queries facts on the owning parameter declaration, allocates deterministic synthetic parameters for destructured parameters, and emits array fixed/rest/default and object/nested object extraction prelude only from finalized carrier/object-shape facts; missing nested object-shape facts fail closed.",
   }),
   "binding.assignment": Object.freeze({
     positiveTests: Object.freeze([]),
@@ -6537,6 +6544,38 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: destructuring assignment is recognized as a binding-storage capability in expression and statement planning, not lowered through ordinary assignment; until storage/extraction facts exist, the backend emits diagnostics instead of guessing.",
+  }),
+  "binding.object.rename-rest-default": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "binding.object.rename-rest-default remains partial until object defaults have finalized undefined/default facts, assignment destructuring has positive storage/extraction proof, compat TsObject extraction is classified, and old object destructuring fixtures are recovered or explicitly replaced.",
+    ]),
+    notes:
+      "Reviewed partial proof: object rename and rest destructuring emit only from finalized source/rest object-shape facts; rest facts that retain extracted members are rejected; object defaults fail closed until undefined/default-value facts exist.",
+  }),
+  "binding.object-shape": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "binding.object-shape remains partial until object-shape binding has full parameter, variable, assignment, default, rest, nested, provider-native, compat TsObject, and old-suite proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy; missing source/target shape facts, mismatched rest shape members, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
   }),
   "carrier.object-shape": Object.freeze({
     positiveTests: Object.freeze([
