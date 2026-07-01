@@ -257,6 +257,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
       "  const copied = directory + \"/copied.txt\";",
       "  await writeFile(source, \"hello\", \"utf8\");",
       "  const text = await readFile(source, \"utf8\");",
+      "  const bytes = await readFile(source);",
       "  await rename(source, renamed);",
       "  await cp(renamed, copied, false);",
       "  const entries = await readdir(directory);",
@@ -264,7 +265,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
       "  await unlink(renamed);",
       "  await rm(copied, false);",
       "  await rm(directory, true);",
-      "  return `${text}:${entries.length}:${kind}`;",
+      "  return `${text}:${bytes.length}:${entries.length}:${kind}`;",
       "}",
       "",
     ].join("\n"),
@@ -275,6 +276,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return await Tsonic\.CSharp\.Node\.fs_promises\.readFile\(path, "utf8"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Buffer bytes = await Tsonic\.CSharp\.Node\.fs_promises\.readFile\(source\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.writeFile\(path, text, "utf8"\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.stat\(path\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.unlink\(path\);/);
@@ -306,7 +308,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
     "}",
     "",
   ]);
-  assert.equal(stdout, "hello:2:file\n");
+  assert.equal(stdout, "hello:5:2:file\n");
 });
 
 test("CLI rejects unsupported NodeJS provider-package modules without fallback", async () => {
