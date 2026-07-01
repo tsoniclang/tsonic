@@ -3869,6 +3869,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
@@ -3894,16 +3896,19 @@ const reviewedCapabilityEvidence = Object.freeze({
       "carrier.array remains partial until every array carrier lane has current positive and negative proof: readonly/read-write ABI, nested/generic arrays, inferred returns, tuple interaction, native CLR boundaries, provider-fact absence diagnostics, and full JS copy-in/copy-out behavior.",
     ]),
     notes:
-      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, and JS-surface array carriers, including a non-Node executable that coalesces a nullable source array, spreads it into a typed carrier, destructures fixed/default/rest elements, and verifies exact stdout. Fail-closed diagnostics cover untyped empty returns and native length access without selected facts. csharp-js runtime proof covers closed TsValue access to sparse JSArray carriers, length mutation, undefined holes, and deterministic rejection for incompatible closed element carriers.",
+      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, JS-surface, and sparse JSArray carriers, including a non-Node executable that coalesces a nullable source array, spreads it into a typed carrier, destructures fixed/default/rest elements, and verifies exact stdout. Fail-closed diagnostics cover untyped empty returns, native length access without selected facts, and dense-carrier sparse-literal rejection. csharp-js runtime proof covers closed TsValue access to sparse JSArray carriers, length mutation, undefined holes, sparse literal construction, and deterministic rejection for incompatible closed element carriers.",
   }),
   "operation.array.literal": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
@@ -3920,10 +3925,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-type-emission/",
     ]),
     blockers: Object.freeze([
-      "operation.array.literal remains partial until literal holes, readonly tuple/literal preservation, contextual empty arrays, provider native-array literals, sparse/full-JS array construction, and every old deferred array fixture have current positive and fail-closed tests.",
+      "operation.array.literal remains partial until readonly tuple/literal preservation, contextual empty arrays, provider native-array literals, sparse/full-JS array copy-in/copy-out construction, and every old deferred array fixture have current positive and fail-closed tests.",
     ]),
     notes:
-      "Reviewed partial proof for the old array-literal slice: current CLI tests build and run typed source array literals, empty typed literals, nested literals, spread literals, double-array returns, and primitive element carriers from finalized provider/surface facts. The old validator array inference test is mapped as stale evidence only; TSTS owns source typing and target array emission now requires explicit carrier facts.",
+      "Reviewed partial proof for the old array-literal slice: current CLI tests build and run typed source array literals, empty typed literals, nested literals, spread literals, sparse JSArray literal holes, double-array returns, and primitive element carriers from finalized provider/surface facts. Backend fact tests prove sparse holes emit only for finalized JSArray carriers and dense carriers fail closed instead of compacting holes. The old validator array inference test is mapped as stale evidence only; TSTS owns source typing and target array emission now requires explicit carrier facts.",
   }),
   "expression.array-literal": Object.freeze({
     positiveTests: Object.freeze([

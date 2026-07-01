@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 function assertExternalCallNotMapped(stderr, memberName) {
   assert.match(stderr, new RegExp(`C# target requires selected target facts for external TypeScript declaration call '${memberName}'`));
@@ -1352,6 +1352,45 @@ test("CLI emits sparse JS array delete and length mutation only through JSArray 
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySparseDeleteLength.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI runs sparse JS array literal holes through closed JSArray carrier facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-sparse-literal-runtime");
+  const assemblyName = "SmokeGeneratedArraySparseLiteralRuntime";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "const values = [1, , 3];",
+      "Console.writeLine(`${values[1] ?? -1}:${values.length}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double\?>\.fromSparse\(3, \(0, 1\), \(2, 3\)\)/);
+  assert.doesNotMatch(generatedSource, /new int\[\] \{ 1, 3 \}/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "-1:3\n");
 });
 
 test("CLI rejects sparse JS array operations without selected JS surface facts", async () => {
