@@ -1128,6 +1128,17 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       "  return timingSafeEqual(Buffer.from(\"aa\"), Buffer.from(\"aa\"));",
       "}",
       "",
+      "export function numericRoundTrip(): string {",
+      "  const ints = Buffer.alloc(8);",
+      "  ints.writeUInt16LE(4660, 0);",
+      "  ints.writeInt16BE(-2, 2);",
+      "  ints.writeUInt32BE(16909060, 4);",
+      "  const floats = Buffer.alloc(12);",
+      "  floats.writeFloatLE(1.5, 0);",
+      "  floats.writeDoubleBE(2.5, 4);",
+      "  return `${ints.readUInt16LE(0)}:${ints.readInt16BE(2)}:${ints.readUInt32BE(4)}:${floats.readFloatLE(0)}:${floats.readDoubleBE(4)}`;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1153,12 +1164,36 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.createHash\("sha256"\)\.update\(Tsonic\.CSharp\.Node\.Buffer\.from\(input\)\)\.digestBuffer\(\)\.length;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.createHmac\("sha256", Tsonic\.CSharp\.Node\.Buffer\.from\(key\)\)\.update\(value\)\.digest\("hex"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.timingSafeEqual\(Tsonic\.CSharp\.Node\.Buffer\.from\("aa"\), Tsonic\.CSharp\.Node\.Buffer\.from\("aa"\)\);/);
+  assert.match(generatedSource, /ints\.writeUInt16LE\(4660, 0\);/);
+  assert.match(generatedSource, /ints\.writeInt16BE\(-2, 2\);/);
+  assert.match(generatedSource, /ints\.writeUInt32BE\(16909060, 4\);/);
+  assert.match(generatedSource, /floats\.writeFloatLE\(1\.5F, 0\);/);
+  assert.match(generatedSource, /floats\.writeDoubleBE\(2\.5, 4\);/);
+  assert.match(generatedSource, /ints\.readUInt16LE\(0\)/);
+  assert.match(generatedSource, /ints\.readInt16BE\(2\)/);
+  assert.match(generatedSource, /ints\.readUInt32BE\(4\)/);
+  assert.match(generatedSource, /floats\.readFloatLE\(0\)/);
+  assert.match(generatedSource, /floats\.readDoubleBE\(4\)/);
   assert.doesNotMatch(generatedSource, /return Buffer\./);
   assert.doesNotMatch(generatedSource, /return randomInt\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeBufferCrypto.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedNodeBufferCrypto", [
+    "using System;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        Console.WriteLine(Smoke.Generated.Index.numericRoundTrip());",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "4660:-2:16909060:1.5:2.5\n");
 });
 
 test("CLI emits fs.statSync and path object operations from selected NodeJS declarations", async () => {
