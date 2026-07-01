@@ -20,7 +20,16 @@ export interface TargetDiagnostic {
   readonly category: "error" | "warning" | "suggestion";
   readonly message: string;
   readonly source?: string;
+  readonly sourceSpan?: TargetDiagnosticSourceSpan;
   readonly evidence?: readonly string[];
+}
+
+export interface TargetDiagnosticSourceSpan {
+  readonly fileName: string;
+  readonly line: number;
+  readonly column: number;
+  readonly endLine: number;
+  readonly endColumn: number;
 }
 
 export interface TargetCompileResult {

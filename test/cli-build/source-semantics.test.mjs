@@ -705,7 +705,9 @@ test("CLI rejects defaultof without explicit source type evidence before C# outp
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /TSONIC_SOURCE_CORE_9901106/);
+  assert.match(build.stderr, /index\.ts:4:10/);
   assert.match(build.stderr, /defaultof<T>\(\) requires explicit type evidence/);
+  assert.match(build.stderr, /evidence: Tsonic source-core marker requires explicit type evidence/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 

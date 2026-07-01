@@ -319,6 +319,42 @@ test("CLI clean rebuild removes stale target artifacts before writing current ou
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/runtime/stale.txt")), false);
 });
 
+test("CLI clean rebuild removes stale target artifacts when diagnostics stop emission", async () => {
+  const projectDirectory = resolve(tempRoot, "clean-rebuild-diagnostic-only-target");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedCleanDiagnostic",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export abstract class Base {",
+      "  abstract run(): string;",
+      "}",
+      "",
+    ].join("\n"),
+    "out/csharp/SmokeGeneratedCleanDiagnostic.csproj": "<Project />\n",
+    "out/csharp/src/Stale.cs": "public static class Stale {}\n",
+    "out/csharp/runtime/stale.txt": "stale\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedCleanDiagnostic.csproj")), false);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Stale.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/runtime/stale.txt")), false);
+});
+
 test("CLI does not use tsconfig path mapping as a hidden module-resolution fallback", async () => {
   const projectDirectory = resolve(tempRoot, "tsconfig-path-mapping-no-fallback");
   await writeProject(projectDirectory, {

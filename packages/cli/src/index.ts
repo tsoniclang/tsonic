@@ -82,7 +82,10 @@ function formatDiagnostic(diagnostic: ProjectBuildResult["diagnostics"][number])
   const evidence = diagnostic.evidence === undefined || diagnostic.evidence.length === 0
     ? ""
     : diagnostic.evidence.map((entry) => `\n  evidence: ${entry}`).join("");
-  return `${diagnostic.category.toUpperCase()} ${diagnostic.source ?? "tsonic"}:${diagnostic.code}: ${diagnostic.message}${evidence}`;
+  const sourceSpan = diagnostic.sourceSpan === undefined
+    ? ""
+    : ` ${diagnostic.sourceSpan.fileName}:${diagnostic.sourceSpan.line}:${diagnostic.sourceSpan.column}`;
+  return `${diagnostic.category.toUpperCase()} ${diagnostic.source ?? "tsonic"}:${diagnostic.code}${sourceSpan}: ${diagnostic.message}${evidence}`;
 }
 
 async function writeBuildArtifacts(

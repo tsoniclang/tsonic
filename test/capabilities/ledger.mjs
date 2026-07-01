@@ -2058,6 +2058,19 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed partial proof: target ids and selected surface ids are safe canonical path segments; target pack and surface ids are registry-validated; target output roots are resolved under the configured outDir; CLI artifact writing rejects absolute or escaping artifact paths before writing.",
   }),
   "host.project.clean-rebuild": Object.freeze({
+    sourceExamples: Object.freeze([
+      "out/csharp/src/Stale.cs exists before build",
+      "export abstract class Base { abstract run(): string; }",
+    ]),
+    tstsDecision:
+      "TSTS and providers may produce diagnostics instead of artifacts; the host still owns deterministic target output-root cleanup for every selected target result.",
+    providerFacts: Object.freeze([
+      "selectedTargetOutputRoot",
+      "diagnosticOnlyTargetResult",
+      "targetArtifactPathContainment",
+    ]),
+    backendContract:
+      "The CLI removes the selected target output root before writing current artifacts, and performs the same cleanup when diagnostics suppress backend/toolchain artifacts.",
     positiveTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
     ]),
@@ -2066,10 +2079,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "host.project.clean-rebuild has focused stale-artifact proof for CLI output, but remains partial until runtime assets, multi-target projects, diagnostic-only targets, and every toolchain artifact family are covered.",
+      "host.project.clean-rebuild has focused stale-artifact proof for successful and diagnostic-only CLI output, but remains partial until multi-target target packs and every external toolchain artifact family are covered.",
     ]),
     notes:
-      "Reviewed partial proof: CLI build removes the selected target output root before writing current artifacts, so stale generated source/runtime files do not survive a clean rebuild. Target-id validation and artifact containment prevent clean rebuild from escaping the configured output root.",
+      "Reviewed partial proof: CLI build removes the selected target output root before writing current artifacts, so stale generated source/runtime/project files do not survive successful rebuilds or backend-diagnostic-only rebuilds. Target-id validation and artifact containment prevent clean rebuild from escaping the configured output root.",
   }),
   "tsts.parse-bind-check": Object.freeze({
     positiveTests: Object.freeze([
@@ -7620,6 +7633,35 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: stale old frontend lowering and validator units are mapped as fail-closed evidence, not as a legacy frontend path. Current C# backend tests reject semantic-only primitive/utility/callable type shapes, missing selected target call facts, bare instance target operations without value receivers, and non-static conversion-method facts. The final architecture requires missing facts to block emission with diagnostics instead of recovering through backend semantic inference.",
   }),
+  "backend.diagnostics": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export const result = 1 + 2;",
+      "backend requires selected-target-operation at the binary expression before emission",
+    ]),
+    tstsDecision:
+      "TSTS accepts the source expression, but a backend diagnostic is required when finalized target facts needed for emission are absent.",
+    providerFacts: Object.freeze([
+      "missingTargetFactEvidence",
+      "backendDiagnosticSourceSpan",
+      "backendDiagnosticEvidence",
+    ]),
+    backendContract:
+      "Backend diagnostics must carry missing fact/capability evidence, preserve source spans when the backend has a source node, and suppress artifacts/toolchain handoff.",
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "backend.diagnostics remains partial until every backend operation family proves source-span/evidence diagnostics for missing and malformed facts through current C# backend tests.",
+    ]),
+    notes:
+      "Reviewed partial proof: TargetDiagnostic now has a sourceSpan contract, host diagnostics preserve backend-supplied source spans and evidence, backend errors suppress artifacts/toolchain work, CLI formatting prints source-core missing-fact spans/evidence, and diagnostic-only backend failures still clean stale target outputs. This advances the common diagnostic gate without claiming every C# operation-family diagnostic is complete.",
+  }),
   "backend.no-semantic-strings": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/roslyn-boundary.test.mjs",
@@ -8207,6 +8249,38 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: invalid TypeScript remains invalid even when extensions/providers are present through the public @tsonic/tsts package root; source-core invalid arity stays a TSTS diagnostic instead of being rescued by extension facts, and CLI TSTS diagnostics stop target artifact creation.",
   }),
+  "diagnostic.source-spans": Object.freeze({
+    sourceExamples: Object.freeze([
+      "return defaultof();",
+      "backend diagnostic at src/index.ts:1:14 for missing selected-target-operation",
+    ]),
+    tstsDecision:
+      "TSTS and extensions own source nodes/spans; host diagnostics must preserve those positions rather than reconstructing them from diagnostic text.",
+    providerFacts: Object.freeze([
+      "extensionDiagnosticNodeOrSpan",
+      "targetDiagnosticSourceSpan",
+      "backendDiagnosticSourceSpan",
+    ]),
+    backendContract:
+      "Diagnostics render source spans only when a TSTS extension or backend supplies a concrete source node/span; missing spans remain absent rather than guessed from message text.",
+    positiveTests: Object.freeze([
+      "test/cli-build/source-semantics.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/source-semantics.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/types/diagnostic.test.ts",
+      "packages/frontend/src/types/result.test.ts",
+    ]),
+    blockers: Object.freeze([
+      "diagnostic.source-spans remains partial until every target/provider/backend diagnostic family has exact source-span assertions, including TSTS aggregate diagnostics and all selected-surface failures.",
+    ]),
+    notes:
+      "Reviewed partial proof: source-core extension diagnostics carry nodeOrSpan through collectTstsDiagnostics into TargetDiagnostic.sourceSpan, CLI output prints src/index.ts:line:column with evidence, and backend-supplied source spans are preserved through host aggregation. The row stays partial because this does not prove exact spans for every diagnostic family.",
+  }),
   "diagnostic.evidence": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
@@ -8225,6 +8299,63 @@ const reviewedCapabilityEvidence = Object.freeze({
     blockers: Object.freeze([]),
     notes:
       "Reviewed proof: target/provider/backend diagnostics preserve capability and fact evidence through host aggregation and CLI formatting. Current tests prove backend missing-fact evidence suppresses artifacts/toolchain, carrier-resolution diagnostics preserve missing(reason,evidence), and .NET provider contract diagnostics report exact malformed model evidence paths. Precise source-span rendering remains separately tracked by diagnostic.source-spans.",
+  }),
+  "downstream.smoke.simple-apps": Object.freeze({
+    sourceExamples: Object.freeze([
+      "Console.writeLine(greeting(\"Ada\"));",
+      "console.log(Math.trunc(Math.abs(-7.8)));",
+    ]),
+    tstsDecision:
+      "Representative downstream-style projects are ordinary TSTS source programs; they do not redefine language semantics or bypass provider/surface fact requirements.",
+    providerFacts: Object.freeze([
+      "providerConsoleCallFact",
+      "selectedJsSurfaceFact",
+      "targetToolchainExecutableFact",
+    ]),
+    backendContract:
+      "The CLI emits target source projects from finalized facts, then the target toolchain builds and runs the generated executable without fallback reflection/dynamic paths.",
+    positiveTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+      "test/cli-build/e2e-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "downstream.smoke.simple-apps remains partial until the downstream matrix covers packaged library consumption, multi-project apps, and representative external application layouts.",
+    ]),
+    notes:
+      "Reviewed partial proof: focused downstream smoke builds and runs two simple executable projects through current CLI output: a provider-backed Console app and a selected JS-surface app. Generated C# is scanned for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load before execution.",
+  }),
+  "downstream.no-old-runtime-reflection": Object.freeze({
+    sourceExamples: Object.freeze([
+      "generated out/csharp/src/Index.cs from provider Console app",
+      "generated out/csharp/src/Index.cs from selected JS-surface app",
+    ]),
+    tstsDecision:
+      "Downstream smoke source reaches runtime behavior only through selected providers/surfaces and generated target source, not through old frontend/runtime reflection carriers.",
+    providerFacts: Object.freeze([
+      "selectedProviderRuntimeReference",
+      "selectedSurfaceRuntimeReference",
+      "closedGeneratedOutputScan",
+    ]),
+    backendContract:
+      "Generated downstream smoke output must not contain C# dynamic or runtime reflection mechanisms; runtime package scans remain a separate partial proof until the full runtime matrix is covered.",
+    positiveTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "downstream.no-old-runtime-reflection remains partial until generated output and all selected runtime packages are scanned across the full downstream app matrix.",
+    ]),
+    notes:
+      "Reviewed partial proof: the downstream smoke gate scans generated C# for old dynamic/reflection mechanisms before dotnet run, while existing whole-program and runtime-toolchain proof scan broader generated/runtime outputs. This does not close the row because the full downstream/runtime matrix is not covered here.",
   }),
   "target.csharp.source-flow-marker-contract": Object.freeze({
     positiveTests: Object.freeze([
