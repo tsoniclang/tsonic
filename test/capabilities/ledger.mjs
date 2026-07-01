@@ -6831,7 +6831,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     notes:
-      "Reviewed partial proof: supported explicit-any binary and prefix operators lower only through finalized closed TsValue operation facts, backend planner tests require static runtime-helper facts, csharp-js runtime tests prove closed primitive operator semantics without reflection/dynamic dispatch, and CLI/toolchain proof builds +, ===, and ! while hard-rejecting unsupported << before artifacts. Remains partial until every JS any operator family, including delete/in/typeof/comma and assignment variants where applicable, has closed carrier behavior or deterministic hard-reject evidence.",
+      "Reviewed partial proof: supported explicit-any binary, prefix, and typeof operators lower only through finalized closed TsValue operation facts; backend planner tests require static runtime-helper facts including ApplyCompatTypeof; csharp-js runtime tests prove closed primitive/typeof operator semantics without reflection/dynamic dispatch; and source diagnostics hard-reject unsupported <<, in, +=, and delete before backend fallback. Remains partial until comma/sequence behavior and every remaining JS any operator form has closed carrier behavior, deterministic hard-reject evidence, or proof that no dynamic runtime operation is required.",
   }),
   "compat.any.typed-boundary-cast": Object.freeze({
     positiveTests: Object.freeze([
