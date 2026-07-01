@@ -467,7 +467,7 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
       "import { Console } from \"@tsonic/dotnet/System.js\";",
       "import { Buffer } from \"node:buffer\";",
       "import { createHash, randomUUID } from \"node:crypto\";",
-      "import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from \"node:fs\";",
+      "import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from \"node:fs\";",
       "import os from \"node:os\";",
       "import path from \"node:path\";",
       "import process from \"node:process\";",
@@ -477,6 +477,17 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
       "const filePath = path.join(process.cwd(), \"tsonic-slice8-node-provider-runtime.txt\");",
       "writeFileSync(filePath, \"hello\", \"utf8\");",
       "const text = readFileSync(filePath, \"utf8\");",
+      "const directoryPath = path.join(process.cwd(), \"tsonic-slice8-node-provider-runtime-dir\");",
+      "mkdirSync(directoryPath, true);",
+      "const firstPath = path.join(directoryPath, \"first.txt\");",
+      "const secondPath = path.join(directoryPath, \"second.txt\");",
+      "writeFileSync(firstPath, \"a\", \"utf8\");",
+      "appendFileSync(firstPath, \"b\", \"utf8\");",
+      "copyFileSync(firstPath, secondPath);",
+      "const renamedPath = path.join(directoryPath, \"renamed.txt\");",
+      "renameSync(secondPath, renamedPath);",
+      "const directoryEntries = readdirSync(directoryPath);",
+      "const directoryListText = directoryEntries[0].length > 0 ? \"listed\" : \"empty\";",
       "const bytes = Buffer.from(text, \"utf8\");",
       "const fileUrl = pathToFileURL(filePath);",
       "const roundTrip = fileURLToPath(fileUrl);",
@@ -489,8 +500,10 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
       "parsed.search = \"?answer=42\";",
       "parsed.searchParams.delete(\"answer\");",
       "const urlText = parsed.href === \"https://example.com/path\" ? \"url-live\" : parsed.href;",
-      "Console.writeLine(`${path.basename(roundTrip)}|${text}|${bytes.toString()}|${hash.length}|${randomUUID().length}|${existsText}|${kindText}|${osText}|${toUSVString(\"ok\")}|${urlText}`);",
+      "const fsSyncText = `${readFileSync(firstPath, \"utf8\")}:${existsSync(renamedPath) ? \"renamed\" : \"missing\"}:${directoryListText}`;",
+      "Console.writeLine(`${path.basename(roundTrip)}|${text}|${bytes.toString()}|${hash.length}|${randomUUID().length}|${existsText}|${kindText}|${osText}|${toUSVString(\"ok\")}|${urlText}|${fsSyncText}`);",
       "unlinkSync(filePath);",
+      "rmSync(directoryPath, true);",
       "",
     ].join("\n"),
   });
@@ -506,6 +519,12 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeFileSync\(filePath, "hello", "utf8"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readFileSync\(filePath, "utf8"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.mkdirSync\(directoryPath, true\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.appendFileSync\(firstPath, "b", "utf8"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.copyFileSync\(firstPath, secondPath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.renameSync\(secondPath, renamedPath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readdirSync\(directoryPath\);/);
+  assert.match(generatedSource, /directoryEntries\[0\]\.Length > 0/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Buffer\.from\(text, "utf8"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.url\.pathToFileURL\(filePath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.url\.fileURLToPath\(fileUrl\);/);
@@ -515,12 +534,13 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
   assert.match(generatedSource, /parsed\.search = "\?answer=42";/);
   assert.match(generatedSource, /parsed\.searchParams\.delete\("answer"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.unlinkSync\(filePath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.rmSync\(directoryPath, true\);/);
   assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetMethod|GetProperty|MethodInfo\.Invoke|Assembly\.Load/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   assert.equal(
     runGeneratedProject(projectDirectory, assemblyName),
-    "tsonic-slice8-node-provider-runtime.txt|hello|hello|64|36|exists|file|platform|ok|url-live\n",
+    "tsonic-slice8-node-provider-runtime.txt|hello|hello|64|36|exists|file|platform|ok|url-live|ab:renamed:listed\n",
   );
 });
 
