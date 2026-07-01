@@ -1377,8 +1377,9 @@ test("CLI runs sparse JS array literal holes through closed JSArray carrier fact
     "src/index.ts": [
       "import { Console } from \"@tsonic/dotnet/System.js\";",
       "",
-      "const values = [1, , 3];",
-      "Console.writeLine(`${values[1] ?? -1}:${values.length}`);",
+      "const values = [, 5, 6];",
+      "const [first = 10, second = 20, ...tail] = values;",
+      "Console.writeLine(`${first}:${second}:${tail[0] ?? -1}:${tail.length}:${values[0] ?? -1}`);",
       "",
     ].join("\n"),
   });
@@ -1387,10 +1388,12 @@ test("CLI runs sparse JS array literal holes through closed JSArray carrier fact
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double\?>\.fromSparse\(3, \(0, 1\), \(2, 3\)\)/);
-  assert.doesNotMatch(generatedSource, /new int\[\] \{ 1, 3 \}/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double\?>\.fromSparse\(3, \(1, 5\), \(2, 6\)\)/);
+  assert.match(generatedSource, /__tsonic_destructure\d+\.hasIndex\(0\) \? __tsonic_destructure\d+\[0\] : 10/);
+  assert.match(generatedSource, /__tsonic_destructure\d+\.slice\(2\)/);
+  assert.doesNotMatch(generatedSource, /new double\?\[\] \{ 5, 6 \}/);
 
-  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "-1:3\n");
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "10:5:6:1:-1\n");
 });
 
 test("CLI rejects sparse JS array operations without selected JS surface facts", async () => {

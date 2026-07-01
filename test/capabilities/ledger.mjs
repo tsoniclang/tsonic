@@ -4023,10 +4023,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-destructuring/",
     ]),
     blockers: Object.freeze([
-      "binding.array.fixed-rest-default remains partial until nested default values, tuple rest, provider-native array extraction, and sparse/full-JS array extraction have current positive and fail-closed proof.",
+      "binding.array.fixed-rest-default remains partial until nested default values, tuple rest, provider-native array extraction, and remaining sparse/full-JS copy-in/copy-out extraction lanes have current positive and fail-closed proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, nested array extraction, and synthetic destructured parameter prelude using finalized carrier facts. Current CLI runtime evidence includes non-Node fixed/default/rest destructuring after array spread from a finalized nullable carrier. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
+      "Reviewed partial proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, nested array extraction, synthetic destructured parameter prelude, and sparse JSArray hole/default/rest extraction using finalized carrier facts. Current CLI runtime evidence includes non-Node fixed/default/rest destructuring after array spread from a finalized nullable carrier and JS-surface sparse literal destructuring where defaults test hasIndex instead of length. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
   }),
   "carrier.array.public-abi-policy": Object.freeze({
     sourceExamples: Object.freeze([
@@ -6789,7 +6789,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: statement-level array and object-shape destructuring assignment emits deterministic storage writes only after TSTS accepts assignment and finalized assignment/operator plus extraction carrier facts exist. Current unit tests prove array and object-shape storage writes, fail-closed missing facts, and no ordinary assignment fallback; CLI/runtime proof executes array and object-shape destructuring assignment through generated C# output. Expression-position destructuring assignment result semantics remain intentionally rejected by expression.assignment and operation.destructure.array-object until result-value facts exist.",
+      "Reviewed proof: statement-level array and object-shape destructuring assignment emits deterministic storage writes only after TSTS accepts assignment and finalized assignment/operator plus extraction carrier facts exist. Current unit tests prove array and object-shape storage writes, fail-closed missing facts, JSArray hole-aware binding defaults, and no ordinary assignment fallback; CLI/runtime proof executes array and object-shape destructuring assignment plus sparse JSArray declaration destructuring through generated C# output. Expression-position destructuring assignment result semantics remain intentionally rejected by expression.assignment and operation.destructure.array-object until result-value facts exist.",
   }),
   "binding.object.rename-rest-default": Object.freeze({
     positiveTests: Object.freeze([
