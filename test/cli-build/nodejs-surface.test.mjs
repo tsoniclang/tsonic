@@ -107,7 +107,7 @@ test("CLI compiles existing Node-style code when NodeJS provider package is sele
       "import { basename, extname, join, resolve } from \"node:path\";",
       "import * as nodeProcess from \"node:process\";",
       "import * as nodeOs from \"node:os\";",
-      "import { Buffer } from \"node:buffer\";",
+      "import { Buffer, transcode } from \"node:buffer\";",
       "import { randomUUID } from \"node:crypto\";",
       "",
       "export function fileReady(path: string): boolean {",
@@ -223,7 +223,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { readFile, stat, unlink, writeFile } from \"node:fs/promises\";",
+      "import { chmod, cp, readFile, readlink, realpath, rmdir, stat, symlink, unlink, writeFile } from \"node:fs/promises\";",
       "",
       "export async function readText(path: string): Promise<string> {",
       "  return await readFile(path, \"utf8\");",
@@ -241,6 +241,14 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
       "  await unlink(path);",
       "}",
       "",
+      "export async function linkRoundTrip(sourcePath: string, linkPath: string): Promise<string> {",
+      "  await symlink(sourcePath, linkPath);",
+      "  await chmod(linkPath, 420);",
+      "  await cp(sourcePath, linkPath + \".copy\", true);",
+      "  await rmdir(linkPath + \".dir\", true);",
+      "  return (await readlink(linkPath)) + (await realpath(linkPath));",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -252,6 +260,12 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.writeFile\(path, text, "utf8"\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.stat\(path\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.unlink\(path\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.symlink\(sourcePath, linkPath\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.chmod\(linkPath, 420\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.cp\(sourcePath, linkPath \+ "\.copy", true\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.rmdir\(linkPath \+ "\.dir", true\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs_promises\.readlink\(linkPath\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs_promises\.realpath\(linkPath\)/);
   assert.doesNotMatch(generatedSource, /return readFile\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -472,6 +486,15 @@ test("CLI emits expanded process operations from selected NodeJS provider packag
       "  return process.kill(process.pid, 0);",
       "}",
       "",
+      "export function memoryCeiling(): number {",
+      "  return process.availableMemory() + process.constrainedMemory();",
+      "}",
+      "",
+      "export function timingParts(): number {",
+      "  const parts = process.hrtime();",
+      "  return parts[0] + parts[1];",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -497,6 +520,9 @@ test("CLI emits expanded process operations from selected NodeJS provider packag
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.chdir\(directory\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.exit\(code\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.kill\(Tsonic\.CSharp\.Node\.process\.pid, 0\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.availableMemory\(\) \+ Tsonic\.CSharp\.Node\.process\.constrainedMemory\(\);/);
+  assert.match(generatedSource, /double\[\] parts = Tsonic\.CSharp\.Node\.process\.hrtime\(\);/);
+  assert.match(generatedSource, /return parts\[0\] \+ parts\[1\];/);
   assert.doesNotMatch(generatedSource, /return process\./);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -525,7 +551,7 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { Buffer } from \"node:buffer\";",
+      "import { Buffer, transcode } from \"node:buffer\";",
       "import { createHash, createHmac, getHashes, randomBytes, randomFillSync, randomInt, timingSafeEqual } from \"node:crypto\";",
       "",
       "export function bufferText(): string {",
@@ -546,6 +572,18 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       "",
       "export function validEncodingText(): string {",
       "  return Buffer.isEncoding(\"utf8\").toString();",
+      "}",
+      "",
+      "export function recognizedBuffer(): boolean {",
+      "  return Buffer.isBuffer(Buffer.from(\"x\"));",
+      "}",
+      "",
+      "export function poolSizeValue(): number {",
+      "  return Buffer.poolSize;",
+      "}",
+      "",
+      "export function transcodedText(): string {",
+      "  return transcode(Buffer.from(\"hello\"), \"utf8\", \"utf8\").toString();",
       "}",
       "",
       "export function copiedBufferCount(): number {",
@@ -602,6 +640,9 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.byteLength\("hello"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.isEncoding\("utf8"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.BooleanOps\.toString\(Tsonic\.CSharp\.Node\.Buffer\.isEncoding\("utf8"\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.isBuffer\(Tsonic\.CSharp\.Node\.Buffer\.from\("x"\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.poolSize;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.buffer\.transcode\(Tsonic\.CSharp\.Node\.Buffer\.from\("hello"\), "utf8", "utf8"\)\.toString\(\);/);
   assert.match(generatedSource, /return source\.copy\(target\) \+ target\.write\("z"\) \+ Tsonic\.CSharp\.Node\.Buffer\.from\(source\)\.compare\(source\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomInt\(10\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomInt\(1, 10\);/);
@@ -838,7 +879,7 @@ test("CLI emits closed node:util string operations from selected NodeJS declarat
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { stripVTControlCharacters, toUSVString } from \"node:util\";",
+      "import { convertProcessSignalToExitCode, getSystemErrorMessage, getSystemErrorName, stripVTControlCharacters, styleText, toUSVString } from \"node:util\";",
       "import { stripVTControlCharacters as bareStrip } from \"util\";",
       "",
       "export function clean(input: string): string {",
@@ -853,6 +894,14 @@ test("CLI emits closed node:util string operations from selected NodeJS declarat
       "  return bareStrip(input);",
       "}",
       "",
+      "export function styledError(input: string): string {",
+      "  return styleText(\"red\", input) + getSystemErrorName(2) + getSystemErrorMessage(2);",
+      "}",
+      "",
+      "export function signalExitCode(): number {",
+      "  return convertProcessSignalToExitCode(\"SIGINT\");",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -862,6 +911,8 @@ test("CLI emits closed node:util string operations from selected NodeJS declarat
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.util\.stripVTControlCharacters\(input\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.util\.toUSVString\(input\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.util\.styleText\("red", input\) \+ Tsonic\.CSharp\.Node\.util\.getSystemErrorName\(2\) \+ Tsonic\.CSharp\.Node\.util\.getSystemErrorMessage\(2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.util\.convertProcessSignalToExitCode\("SIGINT"\);/);
   assert.doesNotMatch(generatedSource, /return stripVTControlCharacters\(/);
   assert.doesNotMatch(generatedSource, /return bareStrip\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -956,7 +1007,7 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { URL, domainToASCII, fileURLToPath, format, pathToFileURL } from \"node:url\";",
+      "import { URL, URLSearchParams, domainToASCII, fileURLToPath, format, pathToFileURL } from \"node:url\";",
       "import { resolve as bareResolve } from \"url\";",
       "",
       "export function href(input: string): string {",
@@ -999,6 +1050,23 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
       "  return bareResolve(from, to);",
       "}",
       "",
+      "export function queryValue(input: string): string {",
+      "  const params = new URLSearchParams(\"a=1\");",
+      "  params.append(\"b\", input);",
+      "  params.set(\"a\", \"2\");",
+      "  return (params.get(\"a\") ?? \"\") + params.getAll(\"a\")[0] + params.toString();",
+      "}",
+      "",
+      "export function querySize(): number {",
+      "  return new URLSearchParams(\"a=1\").size;",
+      "}",
+      "",
+      "export function liveQueryValue(input: string): string {",
+      "  const parsed = new URL(\"https://example.com/?q=\" + input);",
+      "  parsed.searchParams.append(\"page\", \"1\");",
+      "  return parsed.searchParams.get(\"page\") ?? \"\";",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1016,6 +1084,15 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.fileURLToPath\(Tsonic\.CSharp\.Node\.url\.pathToFileURL\(path\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.domainToASCII\(domain\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.resolve\(from, to\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.URLSearchParams @?params = new Tsonic\.CSharp\.Node\.URLSearchParams\("a=1"\);/);
+  assert.match(generatedSource, /@?params\.append\("b", input\);/);
+  assert.match(generatedSource, /@?params\.set\("a", "2"\);/);
+  assert.match(generatedSource, /@?params\.get\("a"\) \?\? ""/);
+  assert.match(generatedSource, /@?params\.getAll\("a"\)\[0\]/);
+  assert.match(generatedSource, /@?params\.ToString\(\)/);
+  assert.match(generatedSource, /return new Tsonic\.CSharp\.Node\.URLSearchParams\("a=1"\)\.size;/);
+  assert.match(generatedSource, /parsed\.searchParams\.append\("page", "1"\);/);
+  assert.match(generatedSource, /return parsed\.searchParams\.get\("page"\) \?\? "";/);
   assert.doesNotMatch(generatedSource, /return URL\./);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

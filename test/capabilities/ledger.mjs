@@ -5465,10 +5465,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
@@ -5481,14 +5483,22 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.fs-path-process remains partial until the full fs/path/process old fixture matrix has runtime/toolchain proof through the generic provider-package path.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, provider-backed default imports for node:fs/node:path/node:process module objects, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property and environment indexer access, path.posix/path.win32 PathModule member facts, and rejection of node:path/fs without the NodeJS provider package. Remains partial until fs/path/process behavior and unsupported module-member diagnostics are runtime/toolchain-verified across the full old Node fixture matrix.",
+      "Reviewed partial proof: selected NodeJS provider package facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, provider-backed default imports for node:fs/node:path/node:process module objects, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property and environment indexer access, process availableMemory/constrainedMemory/hrtime call facts, path.posix/path.win32 PathModule member facts, expanded node:fs/promises chmod/cp/readlink/realpath/rmdir/symlink target facts, and rejection of node:path/fs without the NodeJS provider package. Remains partial until fs/path/process behavior and unsupported module-member diagnostics are runtime/toolchain-verified across the full old Node fixture matrix.",
   }),
   "surface.node.fs": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/chmod.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/cp.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/readlink.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/realpath.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/rmdir.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/symlink.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
@@ -5499,7 +5509,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.fs remains partial until every supported node:fs, node:fs/promises, bare fs, and bare fs/promises operation has selected-declaration target facts, every unsupported fs member has precise selected-provider-package diagnostics, and the old Node fixture matrix has runtime/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, provider-backed default node:fs module object calls such as fs.existsSync, existsSync/readFileSync string and Buffer returns, statSync/fstatSync, readSync/writeSync Buffer descriptors, writeFileSync/appendFileSync Buffer writes, node:fs/promises readFile/writeFile/stat/unlink Promise-returning target facts, no-surface negative paths block Node-owned modules before artifact emission, unsupported node:vm provider-package imports fail closed, and unsupported selected fs.watchFile fails closed without runtime fallback. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
+      "Reviewed partial proof: selected NodeJS provider package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, provider-backed default node:fs module object calls such as fs.existsSync, existsSync/readFileSync string and Buffer returns, statSync/fstatSync, readSync/writeSync Buffer descriptors, writeFileSync/appendFileSync Buffer writes, node:fs/promises readFile/writeFile/stat/unlink/chmod/cp/readlink/realpath/rmdir/symlink Promise-returning target facts, no-surface negative paths block Node-owned modules before artifact emission, unsupported node:vm provider-package imports fail closed, and unsupported selected fs.watchFile fails closed without runtime fallback. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
   }),
   "surface.node.fs-stats-date": Object.freeze({
     sourceExamples: Object.freeze([
@@ -5561,6 +5571,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.process": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/arch.tests.cs",
@@ -5580,6 +5591,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/versions.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/chdir.tests.cs",
@@ -5590,10 +5602,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
         "test/cli-build/nodejs-surface.test.mjs",
       ],
       providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
       ],
       backendEmission: [
@@ -5621,14 +5635,18 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.process remains partial until the complete node:process old fixture matrix has runtime/toolchain proof and every unsupported process member fails closed with precise provider-package diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover process module imports, provider-backed default node:process module object calls/properties such as cwd and platform, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, memoryUsage closed MemoryUsage object facts, process function calls including uptime, runtime behavior tests, and no-package fail-closed diagnostics. Completion remains partial until the complete node:process old fixture matrix is proven; Tsonic must keep consuming finalized provider-package facts only and must not add process source-name fallback.",
+      "Reviewed partial proof: selected NodeJS provider package facts cover process module imports, provider-backed default node:process module object calls/properties such as cwd and platform, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, memoryUsage closed MemoryUsage object facts, process function calls including uptime/availableMemory/constrainedMemory/hrtime, runtime behavior tests, and no-package fail-closed diagnostics. Completion remains partial until the complete node:process old fixture matrix is proven; Tsonic must keep consuming finalized provider-package facts only and must not add process source-name fallback.",
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.module.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
@@ -5639,14 +5657,17 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.buffer-crypto-os remains partial until the full Buffer/crypto/os old fixture matrix has CLI/toolchain/runtime proof and every unsupported member fails closed with precise selected-provider diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer instance length/toString/copy/write/compare/includes/indexOf/lastIndexOf/readUInt8/writeUInt8, bare crypto/os and canonical node:crypto/node:os imports, provider-backed default node:crypto/node:os module object calls/properties such as randomUUID and EOL, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. This capability remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage, numeric conversion facts for byte-oriented Buffer APIs are proven end-to-end, and unsupported members fail closed with precise diagnostics.",
+      "Reviewed partial proof: selected NodeJS provider package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer.isBuffer, Buffer.poolSize, buffer.transcode, Buffer instance length/toString/copy/write/compare/includes/indexOf/lastIndexOf/readUInt8/writeUInt8, bare crypto/os and canonical node:crypto/node:os imports, provider-backed default node:crypto/node:os module object calls/properties such as randomUUID and EOL, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. This capability remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage, numeric conversion facts for byte-oriented Buffer APIs are proven end-to-end, and unsupported members fail closed with precise diagnostics.",
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
@@ -5655,23 +5676,26 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.util remains partial until format, formatWithOptions, inspect, debuglog, deprecate, isDeepStrictEqual, and other open-object helpers have closed TsValue/provider-adapter semantics or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
     ]),
     notes:
-      "Reviewed partial proof: selected node:util and bare util provider modules expose source-visible declarations, provider-backed default node:util module object facts expose closed toUSVString and unsupported format, closed stripVTControlCharacters/toUSVString operations map by selected provider signature identity to Tsonic.CSharp.Node.util calls, and open-carrier format/inspect declarations fail closed without routing to reflection, dynamic dispatch, JsonSerializer object inspection, or generic runtime fallback.",
+      "Reviewed partial proof: selected node:util and bare util provider modules expose source-visible declarations, provider-backed default node:util module object facts expose closed toUSVString and unsupported format, closed stripVTControlCharacters/toUSVString/styleText/getSystemErrorName/getSystemErrorMessage/convertProcessSignalToExitCode operations map by selected provider signature identity to Tsonic.CSharp.Node.util calls, and open-carrier format/inspect/debuglog/deprecate/isDeepStrictEqual declarations fail closed without routing to reflection, dynamic dispatch, JsonSerializer object inspection, or generic runtime fallback.",
   }),
   "surface.node.url": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/url/url.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "surface.node.url remains partial until live URLSearchParams semantics, URLPattern, open-object url.format, urlToHttpOptions, open-object option carriers, runtime execution, and complete selected-provider-package diagnostics have closed carrier implementations or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
+      "surface.node.url remains partial until live URL.searchParams-to-URL mutation coupling, URLPattern, open-object url.format, urlToHttpOptions, open-object option carriers, runtime execution, and complete selected-provider-package diagnostics have closed carrier implementations or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
     ]),
     notes:
-      "Reviewed partial proof: selected node:url and bare url provider modules expose URL and module function declarations; provider-backed default node:url module object facts expose closed file-path helpers such as pathToFileURL; closed URL constructor/properties/static methods, URL-as-base constructor/canParse/parse overloads, URL-only url.format, and domain/file-path helpers map by selected provider declaration/signature identity to Tsonic.CSharp.Node.URL/url calls; open-object url.format, urlToHttpOptions, URL.searchParams live-mutation semantics, URLSearchParams operations, and URLPattern fail closed without reflection, dynamic dispatch, object dictionary projection, or generic runtime fallback.",
+      "Reviewed partial proof: selected node:url and bare url provider modules expose URL, URLSearchParams, and module function declarations; provider-backed default node:url module object facts expose closed file-path helpers such as pathToFileURL; closed URL constructor/properties/static methods, URL.searchParams property access, URL-as-base constructor/canParse/parse overloads, URL-only url.format, URLSearchParams constructor/append/set/get/getAll/has/delete/sort/toString/size, and domain/file-path helpers map by selected provider declaration/signature identity to Tsonic.CSharp.Node.URL/url calls; open-object url.format, urlToHttpOptions, URLPattern, and unproven live URL.searchParams mutation coupling fail closed or remain blocked without reflection, dynamic dispatch, object dictionary projection, or generic runtime fallback.",
   }),
   "backend.csharp.runtime-artifacts": Object.freeze({
     positiveTests: Object.freeze([
@@ -5714,11 +5738,24 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "runtime.csharp.nodejs": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "test/cli-build/runtime-toolchain-proof.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.module.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/chmod.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/cp.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/readlink.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/realpath.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/rmdir.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/symlink.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/metrics.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/url/url.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "test/cli-build/runtime-toolchain-proof.test.mjs",
@@ -5730,7 +5767,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process/url mappings and provider-backed default node:fs/node:path/node:process/node:crypto/node:os/node:util/node:url module object mappings through that reference, closed fs Buffer descriptor/file helpers, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8 helpers, crypto Buffer/Hash/Hmac helpers, process environment and memory metrics helpers, and URL base-overload helpers are available as runtime-owned APIs, and a generated JS+Node executable runs node:path.join through the C# Node runtime. Remains partial until executable tests cover the old Node fixture matrix, byte conversion facts are proven for Buffer write APIs, and all unsupported Node module members fail closed.",
+      "Reviewed partial proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process/url mappings and provider-backed default node:fs/node:path/node:process/node:crypto/node:os/node:util/node:url module object mappings through that reference, closed fs Buffer descriptor/file helpers plus fs/promises chmod/cp/readlink/realpath/rmdir/symlink, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8/isBuffer/poolSize/transcode helpers, crypto Buffer/Hash/Hmac helpers, process environment and memory metrics/hrtime helpers, URL base-overload and URLSearchParams helpers, and scalar util helpers are available as runtime-owned APIs, and a generated JS+Node executable runs node:path.join through the C# Node runtime. Remains partial until executable tests cover the old Node fixture matrix, byte conversion facts are proven for Buffer write APIs, live URL.searchParams mutation coupling is proven or diagnosed, and all unsupported Node module members fail closed.",
   }),
   "runtime.no-reflection-semantics": Object.freeze({
     positiveTests: Object.freeze([
@@ -8142,11 +8179,13 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Selected but unsupported surface operations must reject with the owning surface diagnostic and must not defer to backend name lookup or emit placeholder calls.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
@@ -8186,7 +8225,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: C# JS and NodeJS provider package tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Current CLI evidence hard-rejects selected JS String.match/String.raw/String.matchAll and JSON.stringify carrier gaps plus Node node:util/node:url/node:fs unsupported selected operations without project artifacts or reflection/dynamic fallback. Completion still requires the same fail-closed lane and source-span proof for every unsupported selected JS and Node surface member.",
+      "Reviewed partial proof: C# JS and NodeJS provider package tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Current CLI evidence hard-rejects selected JS String.match/String.raw/String.matchAll and JSON.stringify carrier gaps plus Node node:util/node:url/node:fs unsupported selected operations without project artifacts or reflection/dynamic fallback; Buffer.isBuffer, Buffer.poolSize, buffer.transcode, process.hrtime, scalar util helpers, and URLSearchParams rows are no longer treated as unsupported because selected provider/runtime facts now exist. Completion still requires the same fail-closed lane and source-span proof for every unsupported selected JS and Node surface member.",
   }),
   "diagnostic.unsupported-target-operation": Object.freeze({
     positiveTests: Object.freeze([
