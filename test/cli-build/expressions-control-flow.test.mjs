@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI emits C# string literals and template expressions from TSTS AST", async () => {
   const projectDirectory = resolve(tempRoot, "template-expressions");
@@ -1039,6 +1039,65 @@ test("CLI emits source-owned parameter and for-initializer object destructuring"
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedParameterForOfDestructuring.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI runs array and object-shape destructuring assignment from finalized facts", async () => {
+  const projectDirectory = resolve(tempRoot, "destructuring-assignment-runtime");
+  const assemblyName = "SmokeGeneratedDestructuringAssignment";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "type Shape = { value: int32; label: string };",
+      "",
+      "function assignArray(values: int32[]): int32 {",
+      "  let first: int32 = 0;",
+      "  let second: int32 = 0;",
+      "  [first, second] = values;",
+      "  return first + second;",
+      "}",
+      "",
+      "function assignObject(input: Shape): string {",
+      "  let value: int32 = 0;",
+      "  let label: string = \"\";",
+      "  ({ value, label } = input);",
+      "  return `${label}:${value}`;",
+      "}",
+      "",
+      "Console.writeLine(`${assignArray([2, 3])}|${assignObject({ value: 7, label: \"ok\" })}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /int\[\] __tsonic_destructure\d+ = values;/);
+  assert.match(generatedSource, /first = __tsonic_destructure\d+\[0\];/);
+  assert.match(generatedSource, /second = __tsonic_destructure\d+\[1\];/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = input;/);
+  assert.match(generatedSource, /value = __tsonic_destructure\d+\.value;/);
+  assert.match(generatedSource, /label = __tsonic_destructure\d+\.label;/);
+  assert.doesNotMatch(generatedSource, /__unsupported|invalid/i);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "5|ok:7\n");
 });
 
 

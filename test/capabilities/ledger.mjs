@@ -609,7 +609,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "partial", "target-provider"],
   ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "partial", "target-provider"],
   ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "partial", "target-provider"],
-  ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "partial", "target-provider"],
+  ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "complete", "target-provider"],
   ["binding.object-shape", "Object-shape destructuring consumes generated shape facts", "partial", "target-provider"],
 
   ["function.declaration", "Function declarations emit target methods/functions", "complete", "csharp-backend"],
@@ -3904,7 +3904,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-destructuring/",
     ]),
     blockers: Object.freeze([
-      "binding.array.fixed-rest-default remains partial until assignment destructuring, nested default values, tuple rest, provider-native array extraction, and sparse/full-JS array extraction have current positive and fail-closed proof.",
+      "binding.array.fixed-rest-default remains partial until nested default values, tuple rest, provider-native array extraction, and sparse/full-JS array extraction have current positive and fail-closed proof.",
     ]),
     notes:
       "Reviewed partial proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, nested array extraction, and synthetic destructured parameter prelude using finalized carrier facts. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
@@ -6219,7 +6219,9 @@ const reviewedCapabilityEvidence = Object.freeze({
   "operation.destructure.array-object": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -6232,10 +6234,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-destructuring/",
     ]),
     blockers: Object.freeze([
-      "operation.destructure.array-object remains partial until assignment destructuring has finalized target storage/extraction facts, expression/statement assignment positives, object rest/default parity, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
+      "operation.destructure.array-object remains partial until expression-position destructuring assignment result semantics, object rest/default parity, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter and variable binding patterns consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; expression and statement assignment destructuring both fail closed instead of ordinary assignment fallback or stale lowering.",
+      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, and statement assignment binding patterns consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; expression-position destructuring assignment remains a deliberate fail-closed case until result-value facts exist.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -6537,7 +6539,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed partial proof: parameter destructuring queries facts on the owning parameter declaration, allocates deterministic synthetic parameters for destructured parameters, and emits array fixed/rest/default and object/nested object extraction prelude only from finalized carrier/object-shape facts; missing nested object-shape facts fail closed.",
   }),
   "binding.assignment": Object.freeze({
-    positiveTests: Object.freeze([]),
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/operator-facts.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
@@ -6545,11 +6550,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/array-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "binding.assignment remains partial because assignment destructuring currently fails closed; implementation requires finalized target storage and extraction facts before positive emission can be added.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: destructuring assignment is recognized as a binding-storage capability in expression and statement planning, not lowered through ordinary assignment; until storage/extraction facts exist, the backend emits diagnostics instead of guessing.",
+      "Reviewed proof: statement-level array and object-shape destructuring assignment emits deterministic storage writes only after TSTS accepts assignment and finalized assignment/operator plus extraction carrier facts exist. Current unit tests prove array and object-shape storage writes, fail-closed missing facts, and no ordinary assignment fallback; CLI/runtime proof executes array and object-shape destructuring assignment through generated C# output. Expression-position destructuring assignment result semantics remain intentionally rejected by expression.assignment and operation.destructure.array-object until result-value facts exist.",
   }),
   "binding.object.rename-rest-default": Object.freeze({
     positiveTests: Object.freeze([
@@ -6560,7 +6563,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "binding.object.rename-rest-default remains partial until object defaults have finalized undefined/default facts, assignment destructuring has positive storage/extraction proof, compat TsObject extraction is classified, and old object destructuring fixtures are recovered or explicitly replaced.",
+      "binding.object.rename-rest-default remains partial until object defaults have finalized undefined/default facts, compat TsObject extraction is classified, and old object destructuring fixtures are recovered or explicitly replaced.",
     ]),
     notes:
       "Reviewed partial proof: object rename and rest destructuring emit only from finalized source/rest object-shape facts; rest facts that retain extracted members are rejected; object defaults fail closed until undefined/default-value facts exist.",
