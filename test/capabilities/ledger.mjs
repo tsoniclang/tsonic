@@ -731,7 +731,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.unsupported-surface", "Unsupported selected surfaces produce diagnostics", "complete", "surface-provider"],
   ["diagnostic.unsupported-selected-surface-operation", "Unsupported selected surface operations fail closed with provider diagnostics", "partial", "surface-provider"],
   ["diagnostic.unsupported-target-operation", "Unsupported target operations produce diagnostics", "complete", "target-provider"],
-  ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "partial", "target-provider"],
+  ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "complete", "target-provider"],
   ["diagnostic.target-constraint", "Target constraint failure points to source", "complete", "target-provider"],
   ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "complete", "tsts-api"],
   ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "complete", "target-provider"],
@@ -1418,6 +1418,34 @@ const reviewedCapabilityEvidence = Object.freeze({
     blockers: Object.freeze([]),
     notes:
       "Reviewed proof: Record<K,V> and index-signature source shapes lower only through finalized dictionary/record carrier facts, including string and number keys, nested records, empty object dictionary construction, provider Dictionary<TKey,TValue> indexers, for-in key iteration, JS Object.keys/values/entries/hasOwn/assign over typed records, and generated C# Dictionary carriers. Negative proof rejects unknown/object and unsupported object-shape paths without falling back to object, dynamic, or ad hoc dictionaries. Old dictionary/list-initializer emitter evidence is mapped to provider-backed construction, element access, and dictionary carrier facts.",
+  }),
+  "diagnostic.provider-conflict": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { named } from \"@acme/shared/named.js\";",
+      "targets: [{ id: \"demo\", packages: [\"acme\", \"helpers\"] }]",
+    ]),
+    tstsDecision:
+      "TSTS provider-aware module resolution asks registered target binding providers for ownership; it does not select a winner when multiple providers claim the same module.",
+    providerFacts: Object.freeze([
+      "requiredProviderModuleSpec",
+      "providerModuleOwnership",
+      "providerIdentity",
+      "providerOwnershipConflictDiagnostic",
+    ]),
+    backendContract:
+      "Provider ownership conflicts must be diagnostics before backend artifacts exist; the backend must not read files, guess a provider, or let provider ordering decide semantics.",
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: current fake-provider host coverage creates two selected provider packages that both claim @acme/shared/* and verifies TSTS reports a multiple-provider ownership diagnostic before backend artifacts or file fallback. Adjacent positive coverage in the same suite proves selected single-owner provider modules and unselected package diagnostics. Old package-resolution product-unit evidence is mapped only as ownership-resolution inventory; current provider conflict semantics are the TSTS/provider-package contract and do not reuse old frontend resolution heuristics.",
   }),
   "host.config.project-load": Object.freeze({
     positiveTests: Object.freeze([

@@ -383,6 +383,7 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
   ...reviewedOldProductUnitDeferredCapabilityMapping([
     "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
   ], [
+    "diagnostic.provider-conflict",
     "host.project.package-discovery",
     "host.project.package-path-resolution",
     "module.path-mapping",
