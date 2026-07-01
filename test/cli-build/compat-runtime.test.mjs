@@ -70,6 +70,10 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
       "  return !value;",
       "}",
       "",
+      "export function typeOfValue(value: any): string {",
+      "  return typeof value;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -91,6 +95,7 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatBinary\(value, "\+", 2\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatBinaryBoolean\(value, "===", 2\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatUnaryBoolean\(value, "!"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatTypeof\(value\);/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 
   const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
@@ -121,12 +126,27 @@ test("CLI hard-rejects unsupported explicit any operators in compat mode", async
       "  return value << 1;",
       "}",
       "",
+      "export function has(value: any): boolean {",
+      "  return \"name\" in value;",
+      "}",
+      "",
+      "export function addAssign(value: any): any {",
+      "  return value += 1;",
+      "}",
+      "",
+      "export function deleteName(value: any): boolean {",
+      "  return delete value.name;",
+      "}",
+      "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
-  assert.match(build.stdout + build.stderr, /CSHARP_COMPAT_ANY_OPERATOR_UNSUPPORTED|operator '<<'/u);
+  assert.match(build.stdout + build.stderr, /operator '<<'/u);
+  assert.match(build.stdout + build.stderr, /operator 'in'/u);
+  assert.match(build.stdout + build.stderr, /operator '\+='/u);
+  assert.match(build.stdout + build.stderr, /operator 'delete'/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
@@ -151,6 +171,14 @@ test("CLI strict-native rejects explicit TypeScript any operations before C# art
     "src/index.ts": [
       "export function readName(value: any): any {",
       "  return value.name;",
+      "}",
+      "",
+      "export function callValue(value: any): any {",
+      "  return value();",
+      "}",
+      "",
+      "export function typeOfValue(value: any): string {",
+      "  return typeof value;",
       "}",
       "",
     ].join("\n"),
