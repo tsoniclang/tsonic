@@ -471,7 +471,7 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
       "import os from \"node:os\";",
       "import path from \"node:path\";",
       "import process from \"node:process\";",
-      "import { fileURLToPath, pathToFileURL } from \"node:url\";",
+      "import { URL, fileURLToPath, pathToFileURL } from \"node:url\";",
       "import { toUSVString } from \"node:util\";",
       "",
       "const filePath = path.join(process.cwd(), \"tsonic-slice8-node-provider-runtime.txt\");",
@@ -484,7 +484,12 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
       "const existsText = existsSync(filePath) ? \"exists\" : \"missing\";",
       "const kindText = statSync(filePath).isFile() ? \"file\" : \"other\";",
       "const osText = os.platform().length > 0 ? \"platform\" : \"missing-platform\";",
-      "Console.writeLine(`${path.basename(roundTrip)}|${text}|${bytes.toString()}|${hash.length}|${randomUUID().length}|${existsText}|${kindText}|${osText}|${toUSVString(\"ok\")}`);",
+      "const parsed = new URL(\"https://example.com/path?foo=bar\");",
+      "parsed.searchParams.append(\"baz\", \"qux\");",
+      "parsed.search = \"?answer=42\";",
+      "parsed.searchParams.delete(\"answer\");",
+      "const urlText = parsed.href === \"https://example.com/path\" ? \"url-live\" : parsed.href;",
+      "Console.writeLine(`${path.basename(roundTrip)}|${text}|${bytes.toString()}|${hash.length}|${randomUUID().length}|${existsText}|${kindText}|${osText}|${toUSVString(\"ok\")}|${urlText}`);",
       "unlinkSync(filePath);",
       "",
     ].join("\n"),
@@ -505,13 +510,17 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.url\.pathToFileURL\(filePath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.url\.fileURLToPath\(fileUrl\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.crypto\.createHash\("sha256"\)\.update\(text\)\.digest\("hex"\);/);
+  assert.match(generatedSource, /new Tsonic\.CSharp\.Node\.URL\("https:\/\/example\.com\/path\?foo=bar"\);/);
+  assert.match(generatedSource, /parsed\.searchParams\.append\("baz", "qux"\);/);
+  assert.match(generatedSource, /parsed\.search = "\?answer=42";/);
+  assert.match(generatedSource, /parsed\.searchParams\.delete\("answer"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.unlinkSync\(filePath\);/);
   assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetMethod|GetProperty|MethodInfo\.Invoke|Assembly\.Load/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   assert.equal(
     runGeneratedProject(projectDirectory, assemblyName),
-    "tsonic-slice8-node-provider-runtime.txt|hello|hello|64|36|exists|file|platform|ok\n",
+    "tsonic-slice8-node-provider-runtime.txt|hello|hello|64|36|exists|file|platform|ok|url-live\n",
   );
 });
 
