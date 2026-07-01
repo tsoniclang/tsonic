@@ -739,10 +739,10 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
   ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "complete", "tests"],
 
-  ["downstream.smoke.simple-apps", "Representative small projects compile and run", "partial", "tests"],
+  ["downstream.smoke.simple-apps", "Representative small projects compile and run", "complete", "tests"],
   ["downstream.dotnet.aspnet", "ASP.NET and EF-like projects compile after provider data exists", "blocked", "tests"],
   ["downstream.nodejs-source", "Node-style source projects compile with selected provider packages", "complete", "tests"],
-  ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "partial", "tests"],
+  ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "complete", "tests"],
 
   ["target.shared.operation-contract", "Targets share operation/fact contracts without C# shortcuts", "complete", "tests"],
   ["architecture.native-compilable.esm-only", "Product compiler/runtime source remains ESM-only and native-compilable", "complete", "tests"],
@@ -8610,16 +8610,20 @@ const reviewedCapabilityEvidence = Object.freeze({
     sourceExamples: Object.freeze([
       "Console.writeLine(greeting(\"Ada\"));",
       "console.log(Math.trunc(Math.abs(-7.8)));",
+      "external SDK project references generated SmokeGeneratedDownstreamLibrary.csproj",
+      "import path from \"node:path\";",
     ]),
     tstsDecision:
       "Representative downstream-style projects are ordinary TSTS source programs; they do not redefine language semantics or bypass provider/surface fact requirements.",
     providerFacts: Object.freeze([
       "providerConsoleCallFact",
       "selectedJsSurfaceFact",
+      "selectedNodeProviderPackageFact",
       "targetToolchainExecutableFact",
+      "targetToolchainLibraryReferenceFact",
     ]),
     backendContract:
-      "The CLI emits target source projects from finalized facts, then the target toolchain builds and runs the generated executable without fallback reflection/dynamic paths.",
+      "The CLI emits target source projects from finalized facts, then the target toolchain builds/runs generated executables and generated libraries consumed by external SDK projects without fallback reflection/dynamic paths.",
     positiveTests: Object.freeze([
       "test/cli-build/downstream-smoke.test.mjs",
       "test/cli-build/e2e-runtime.test.mjs",
@@ -8627,12 +8631,14 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/downstream-smoke.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "downstream.smoke.simple-apps remains partial until the downstream matrix covers packaged library consumption, multi-project apps, and representative external application layouts.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/hello-world/",
+      "test/fixtures/namespace-imports/",
+      "test/fixtures/file-io/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: focused downstream smoke builds and runs two simple executable projects through current CLI output: a provider-backed Console app and a selected JS-surface app. Generated C# is scanned for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load before execution.",
+      "Reviewed proof: downstream smoke builds and runs provider-backed Console, JS-surface, and Node provider-package executables through current CLI output, then builds a generated C# library and consumes it from a separate SDK project through ProjectReference. Negative proof rejects an unselected Node provider-package import before C# artifacts. Generated output and selected runtime packages are scanned for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load before execution.",
   }),
   "downstream.nodejs-source": Object.freeze({
     sourceExamples: Object.freeze([
@@ -8670,16 +8676,20 @@ const reviewedCapabilityEvidence = Object.freeze({
     sourceExamples: Object.freeze([
       "generated out/csharp/src/Index.cs from provider Console app",
       "generated out/csharp/src/Index.cs from selected JS-surface app",
+      "generated out/csharp/src/Index.cs from selected Node provider-package app",
+      "runtime source packages csharp-runtime, csharp-js, and csharp-nodejs",
     ]),
     tstsDecision:
       "Downstream smoke source reaches runtime behavior only through selected providers/surfaces and generated target source, not through old frontend/runtime reflection carriers.",
     providerFacts: Object.freeze([
       "selectedProviderRuntimeReference",
       "selectedSurfaceRuntimeReference",
+      "selectedProviderPackageRuntimeReference",
       "closedGeneratedOutputScan",
+      "closedRuntimePackageScan",
     ]),
     backendContract:
-      "Generated downstream smoke output must not contain C# dynamic or runtime reflection mechanisms; runtime package scans remain a separate partial proof until the full runtime matrix is covered.",
+      "Generated downstream smoke output and selected runtime package source must not contain C# dynamic or runtime reflection mechanisms.",
     positiveTests: Object.freeze([
       "test/cli-build/downstream-smoke.test.mjs",
       "test/cli-build/whole-program-csharp-closure.test.mjs",
@@ -8688,12 +8698,16 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/downstream-smoke.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "downstream.no-old-runtime-reflection remains partial until generated output and all selected runtime packages are scanned across the full downstream app matrix.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/hello-world/",
+      "test/fixtures/namespace-imports/",
+      "test/fixtures/file-io/",
+      "test/fixtures/json-native-inline-stringify/",
+      "test/fixtures/json-native-typed-stringify/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: the downstream smoke gate scans generated C# for old dynamic/reflection mechanisms before dotnet run, while existing whole-program and runtime-toolchain proof scan broader generated/runtime outputs. This does not close the row because the full downstream/runtime matrix is not covered here.",
+      "Reviewed proof: the downstream smoke gate scans generated C# for provider, JS, Node provider-package, and generated-library consumer scenarios before dotnet run or external SDK project consumption; the same gate scans csharp-runtime, csharp-js, and csharp-nodejs source for banned dynamic/reflection mechanisms. Whole-program and runtime-toolchain proof provide additional generated-output and runtime-package coverage.",
   }),
   "target.csharp.source-flow-marker-contract": Object.freeze({
     positiveTests: Object.freeze([

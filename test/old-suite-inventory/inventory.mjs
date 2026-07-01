@@ -772,6 +772,8 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("namespace-imports"),
   ], [
     "backend.ast.only",
+    "downstream.no-old-runtime-reflection",
+    "downstream.smoke.simple-apps",
     "host.project.provider-composition",
     "host.package.composition",
     "operation.call.provider-selected-method",
@@ -1421,6 +1423,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("json-native-inline-stringify"),
   ], [
     "backend.ast.only",
+    "downstream.no-old-runtime-reflection",
     "host.package.composition",
     "runtime.csharp.js",
     "runtime.no-reflection-semantics",
@@ -1432,6 +1435,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("json-native-typed-stringify"),
   ], [
     "backend.ast.only",
+    "downstream.no-old-runtime-reflection",
     "host.package.composition",
     "runtime.csharp.js",
     "runtime.no-reflection-semantics",
