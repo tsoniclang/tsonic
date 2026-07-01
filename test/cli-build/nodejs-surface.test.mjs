@@ -360,6 +360,74 @@ test("CLI emits NodeJS namespace imports from selected surface provider facts", 
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
+test("CLI emits NodeJS default imports from selected provider-package module object facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-default-module-provider-package");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodeDefaultModules",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import fs from \"node:fs\";",
+      "import path from \"node:path\";",
+      "import process from \"node:process\";",
+      "import crypto from \"node:crypto\";",
+      "import os from \"node:os\";",
+      "import util from \"node:util\";",
+      "import url from \"node:url\";",
+      "",
+      "export function defaultNodePath(name: string): string {",
+      "  return path.join(process.cwd(), util.toUSVString(name)) + os.EOL + crypto.randomUUID();",
+      "}",
+      "",
+      "export function defaultNodeExists(name: string): boolean {",
+      "  return fs.existsSync(path.resolve(name));",
+      "}",
+      "",
+      "export function defaultNodeFileHref(name: string): string {",
+      "  return url.pathToFileURL(name).href;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeDefaultModules.csproj"), "utf8");
+  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Node\.csproj/);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.join\(Tsonic\.CSharp\.Node\.process\.cwd\(\), Tsonic\.CSharp\.Node\.util\.toUSVString\(name\)\) \+ Tsonic\.CSharp\.Node\.os\.EOL \+ Tsonic\.CSharp\.Node\.crypto\.randomUUID\(\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.existsSync\(Tsonic\.CSharp\.Node\.path\.resolve\(name\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.pathToFileURL\(name\)\.href;/);
+  assert.doesNotMatch(generatedSource, /return fs\./);
+  assert.doesNotMatch(generatedSource, /return path\./);
+  assert.doesNotMatch(generatedSource, /return process\./);
+  assert.doesNotMatch(generatedSource, /return crypto\./);
+  assert.doesNotMatch(generatedSource, /return os\./);
+  assert.doesNotMatch(generatedSource, /return util\./);
+  assert.doesNotMatch(generatedSource, /return url\./);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeDefaultModules.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI emits expanded process operations from selected NodeJS provider package facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-process-expanded-surface");
   await writeProject(projectDirectory, {
@@ -831,6 +899,39 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
   assert.equal(build.status, 1);
   assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'format'/);
   assert.match(build.stderr, /System\.Object/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects default node:util format operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-default-util-format-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import util from \"node:util\";",
+      "",
+      "export function render(value: unknown): string {",
+      "  return util.format(\"%o\", value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'NodeUtilModule' member 'format'/);
+  assert.match(build.stderr, /node:util\.format\(System\.Object,System\.Object\[\]\)/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
