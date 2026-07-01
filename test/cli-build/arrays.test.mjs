@@ -79,14 +79,15 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /int\[\] values = new int\[\] \{ \};/);
-  assert.match(generatedSource, /return new int\[\] \{ \};/);
-  assert.match(generatedSource, /return accepts\(new int\[\] \{ \}\);/);
-  assert.match(generatedSource, /return new int\[\]\[\] \{ new int\[\] \{ \}, new int\[\] \{ 1, 2 \} \};/);
-  assert.match(generatedSource, /return new int\[\]\[\] \{ Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(left\), Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(new int\[\] \{ 0 \}, right\) \};/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(new int\[\] \{ 0 \}, left, right, new int\[\] \{ 9 \}\);/);
-  assert.match(generatedSource, /float\[\] values = new float\[\] \{ 1.5F, 2.5F \};/);
-  assert.match(generatedSource, /double\[\] values = new double\[\] \{ 1, 2, 3 \};/);
+  assert.match(generatedSource, /public static int accepts\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.List<int> values = new System\.Collections\.Generic\.List<int>\(new int\[\] \{ \}\);/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.List<int>\(new int\[\] \{ \}\);/);
+  assert.match(generatedSource, /return accepts\(new System\.Collections\.Generic\.List<int>\(new int\[\] \{ \}\)\);/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.List<int\[\]>\(new int\[\]\[\] \{ new int\[\] \{ \}, new int\[\] \{ 1, 2 \} \}\);/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.List<int\[\]>\(new int\[\]\[\] \{ Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(left\), Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(new int\[\] \{ 0 \}, right\) \}\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.concat\(new int\[\] \{ 0 \}, left, right, new int\[\] \{ 9 \}\);/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.IReadOnlyList<float> values = new System\.Collections\.Generic\.List<float>\(new float\[\] \{ 1.5F, 2.5F \}\);/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.IEnumerable<double> values = new System\.Collections\.Generic\.List<double>\(new double\[\] \{ 1, 2, 3 \}\);/);
   assert.match(generatedSource, /foreach \(double value in values\)/);
   assert.match(generatedSource, /foreach \(int value in values\)/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
@@ -247,10 +248,12 @@ test("CLI emits module-scope array spread constants from finalized expected arra
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly int\[\] source = new int\[\] \{ 1, 2, 3 \};/);
-  assert.match(generatedSource, /public static readonly int\[\] withSpread = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(source, new int\[\] \{ 4, 5 \}\);/);
-  assert.match(generatedSource, /public static readonly int\[\] more = new int\[\] \{ 10, 20 \};/);
-  assert.match(generatedSource, /public static readonly int\[\] multiSpread = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(source, more, new int\[\] \{ 100 \}\);/);
+  assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.IEnumerable<int> source;/);
+  assert.match(generatedSource, /source = new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
+  assert.match(generatedSource, /withSpread = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(source, new int\[\] \{ 4, 5 \}\);/);
+  assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.IEnumerable<int> more;/);
+  assert.match(generatedSource, /more = new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 10, 20 \}\);/);
+  assert.match(generatedSource, /multiSpread = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(source, more, new int\[\] \{ 100 \}\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysModuleSpreadConstants.csproj"), "--nologo", "--v:minimal"]);
@@ -368,6 +371,6 @@ test("CLI rejects native array length without selected JS or provider facts", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# property access 'length' must be selected by TSTS\/provider facts before emission/);
+  assert.match(build.stderr, /C# native array source contract has no target-backed property 'length'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysNativeLengthRequiresFacts.csproj")), false);
 });

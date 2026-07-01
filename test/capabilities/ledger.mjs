@@ -574,7 +574,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.iteration.for-of.sync", "for-of emits only with sync iteration facts", "complete", "target-provider"],
   ["operation.iteration.for-in.keys", "for-in emits only with key enumeration facts", "complete", "target-provider"],
   ["operation.iteration.provider-target", "Iteration maps to provider target iteration facts", "complete", "target-provider"],
-  ["operation.array.literal", "Array literals choose target carrier from facts", "partial", "target-provider"],
+  ["operation.array.literal", "Array literals choose target carrier from facts", "complete", "target-provider"],
   ["operation.spread.array", "Array spread emits from iterable/spread facts", "partial", "target-provider"],
   ["operation.spread.object", "Object spread emits from object-shape facts", "partial", "target-provider"],
   ["operation.spread.provider-target-copy", "Spread emits via provider target copy facts", "partial", "target-provider"],
@@ -3924,11 +3924,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-spread/",
       "test/fixtures/array-type-emission/",
     ]),
-    blockers: Object.freeze([
-      "operation.array.literal remains partial until readonly tuple/literal preservation, contextual empty arrays, provider native-array literals, sparse/full-JS array copy-in/copy-out construction, and every old deferred array fixture have current positive and fail-closed tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof for the old array-literal slice: current CLI tests build and run typed source array literals, empty typed literals, nested literals, spread literals, sparse JSArray literal holes, double-array returns, and primitive element carriers from finalized provider/surface facts. Backend fact tests prove sparse holes emit only for finalized JSArray carriers and dense carriers fail closed instead of compacting holes. The old validator array inference test is mapped as stale evidence only; TSTS owns source typing and target array emission now requires explicit carrier facts.",
+      "Reviewed proof: array literals choose dense arrays, native collection construction, tuple values, or closed JSArray hole construction only from finalized target carrier facts. Current CLI tests build typed, empty-contextual, nested, spread-adjacent, provider-constructor, readonly tuple/as-const, sparse JSArray, double-array, and primitive element literal cases through dotnet build/run where observable. Backend fact tests prove sparse holes emit only for finalized JSArray carriers, dense carriers fail closed instead of compacting holes, and native collection literals require explicit provider construction metadata. Old array-literal emitter and fixture evidence is mapped to the current fact-backed path. Remaining array ABI, spread, binding/destructuring, provider-native indexer, tuple-widening, and full JS copy-in/copy-out coverage stays on the adjacent partial rows instead of being counted here.",
   }),
   "expression.array-literal": Object.freeze({
     positiveTests: Object.freeze([
