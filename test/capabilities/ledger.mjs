@@ -627,7 +627,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["function.async", "Async functions map Promise to target task facts", "complete", "target-provider"],
 
   ["declaration.function", "Function declarations render from AST and TSTS facts", "complete", "csharp-backend"],
-  ["declaration.class", "Classes render constructors, fields, methods, and static members", "partial", "csharp-backend"],
+  ["declaration.class", "Classes render constructors, fields, methods, static members, and target-supported property dispatch", "complete", "csharp-backend"],
   ["declaration.class.constructor", "Class constructors emit target constructors", "complete", "csharp-backend"],
   ["declaration.class.fields", "Class fields emit from TSTS/property facts", "complete", "target-provider"],
   ["declaration.class.methods", "Class methods emit target methods", "complete", "csharp-backend"],
@@ -7596,7 +7596,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# class emission renders constructors, fields, accessors, static members, and extends clauses only from finalized declaration/member facts and rejects unsupported class syntax before artifact output.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/classes-value-types.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/slice4-csharp-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -7611,11 +7614,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
       "test/fixtures/property-override-virtual/",
     ]),
-    blockers: Object.freeze([
-      "declaration.class remains partial because declaration.class.properties is still partial and the old class fixture matrix is not fully closed by current focused CLI/toolchain proof.",
-    ]),
     notes:
-      "Reviewed partial proof: current CLI evidence now includes an executable Entity/ScoreCard source graph where TSTS-selected class facts emit C# Entity and ScoreCard : Entity declarations, constructor chaining, static create/bonus/suffix members, fact-backed virtual/override accessor dispatch, inherited accessor use, super.baseScore(), and runtime output Ada-score:8:15:gold. Slice 8 adds executable replacement coverage for the old property-override-virtual fixture: TSTS/source-analysis member dispatch facts make overriding class field declarations emit virtual/override C# properties, preserving JavaScript this.value dispatch through dotnet run with exact stdout derived. Abstract class/member source spelling is now closed as deterministic hard reject under declaration.class.abstract. This strengthens broad class evidence without marking the broad row complete because property completeness and full old fixture closure remain open.",
+      "Reviewed proof: class declaration output is complete for the supported C# target class surface. Current CLI evidence includes executable source graphs where TSTS-selected class facts emit constructors, instance fields, static fields, methods, generic classes, inheritance, super constructor and method calls, static members, interface auto-properties, accessor properties, private identifiers, static blocks, and fact-backed virtual/override member dispatch through C# AST output and dotnet build/run. Slice 8 replaces the old property-override-virtual fixture: TSTS/source-analysis member dispatch facts make overriding class field declarations emit C# virtual/override properties, preserving JavaScript this.value dispatch through exact runtime stdout. Unsupported TypeScript-only runtime-shape class forms such as explicit private/public modifiers and abstract classes/members are deterministic diagnostics before artifact output. Broader object-shape, attribute, downstream, and future protected/internal semantics remain owned by their specific capability rows, not by this class declaration row.",
   }),
   "declaration.class.constructor": Object.freeze({
     positiveTests: Object.freeze([
