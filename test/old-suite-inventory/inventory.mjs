@@ -648,6 +648,15 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "linq-dotnet",
     "linq-queryable-dotnet",
   ], "downstream", "C# native provider + downstream target package providers", "Valid behavior depends on broad .NET/ASP.NET/EF/LINQ API data, extension methods, task carriers, and interface implementation facts; port after provider data is supplied by target packages and downstream fixture wiring is restored under current target config."),
+  Object.freeze({
+    oldPath: "test/fixtures/property-override-virtual/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS declaration dispatch facts + C# declaration planner",
+    newPath: "test/cli-build/classes-value-types.test.mjs",
+    reason:
+      "Ported as a current-architecture executable proof that project-source member dispatch facts make overriding class field declarations emit C# virtual/override properties, preserving JavaScript this.value dispatch through dotnet build/run and exact stdout.",
+  }),
   ...deferredFixtures([
     "attributes-basic",
     "attributes-comprehensive",
@@ -658,7 +667,6 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "class-static-members",
     "override-protected-internal",
     "param-modifiers",
-    "property-override-virtual",
   ], "csharp-backend", "TSTS declaration AST + C# declaration planner", "Valid behavior covers source declarations, class members, constructors, inheritance, attributes, modifiers, overrides, and virtual/protected shapes; port after declaration planner coverage is fixture-backed with C# AST output only."),
   ...deferredFixtures([
     "async-bidirectional-generator",
@@ -1068,6 +1076,22 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "diagnostic.unsupported-target-operation",
     "function.this-binding",
     "host.package.composition",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("property-override-virtual"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "declaration.class",
+    "declaration.class.fields",
+    "declaration.class.inheritance",
+    "declaration.class.methods",
+    "declaration.class.properties",
+    "expression.property-access",
+    "host.package.composition",
+    "toolchain.csharp.build-run",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("extension-methods-system"),

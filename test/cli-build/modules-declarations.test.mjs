@@ -870,6 +870,58 @@ test("CLI emits standard JavaScript class accessors as C# properties", async () 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI preserves JavaScript class field dispatch through C# properties", async () => {
+  const projectDirectory = resolve(tempRoot, "class-field-dispatch-properties");
+  const assemblyName = "SmokeGeneratedClassFieldDispatch";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            outputType: "Exe",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "class Base {",
+      "  value: string = \"base\";",
+      "",
+      "  print(): void {",
+      "    Console.writeLine(this.value);",
+      "  }",
+      "}",
+      "",
+      "class Derived extends Base {",
+      "  value: string = \"derived\";",
+      "}",
+      "",
+      "const box: Base = new Derived();",
+      "box.print();",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public virtual string value\s*\{\s*get;\s*set;\s*\}\s*=\s*"base";/);
+  assert.match(generatedSource, /public override string value\s*\{\s*get;\s*set;\s*\}\s*=\s*"derived";/);
+  assert.doesNotMatch(generatedSource, /public string value;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "derived\n");
+});
+
 
 test("CLI emits standard JavaScript private identifiers as private C# members", async () => {
   const projectDirectory = resolve(tempRoot, "private-identifiers");

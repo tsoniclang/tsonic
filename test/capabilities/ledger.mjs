@@ -631,7 +631,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["declaration.class.constructor", "Class constructors emit target constructors", "complete", "csharp-backend"],
   ["declaration.class.fields", "Class fields emit from TSTS/property facts", "complete", "target-provider"],
   ["declaration.class.methods", "Class methods emit target methods", "complete", "csharp-backend"],
-  ["declaration.class.properties", "Accessors and property markers emit target properties", "partial", "target-provider"],
+  ["declaration.class.properties", "Accessors and fact-backed auto-properties emit target properties", "complete", "target-provider"],
   ["declaration.class.visibility", "Visibility emits only from source and target-legal facts", "complete", "target-provider"],
   ["declaration.class.private-fields", "#private fields get a target representation or diagnostic", "complete", "target-provider"],
   ["declaration.class.static-blocks", "Static blocks get target support or diagnostic", "complete", "target-provider"],
@@ -7609,12 +7609,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
       "packages/targets/csharp/emitter/testcases/common/classes/inheritance/Inheritance.ts",
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+      "test/fixtures/property-override-virtual/",
     ]),
     blockers: Object.freeze([
       "declaration.class remains partial because declaration.class.properties is still partial and the old class fixture matrix is not fully closed by current focused CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: current CLI evidence now includes an executable Entity/ScoreCard source graph where TSTS-selected class facts emit C# Entity and ScoreCard : Entity declarations, constructor chaining, static create/bonus/suffix members, fact-backed virtual/override accessor dispatch, inherited accessor use, super.baseScore(), and runtime output Ada-score:8:15:gold. Abstract class/member source spelling is now closed as deterministic hard reject under declaration.class.abstract. This strengthens broad class evidence without marking the broad row complete because property completeness and full old fixture closure remain open.",
+      "Reviewed partial proof: current CLI evidence now includes an executable Entity/ScoreCard source graph where TSTS-selected class facts emit C# Entity and ScoreCard : Entity declarations, constructor chaining, static create/bonus/suffix members, fact-backed virtual/override accessor dispatch, inherited accessor use, super.baseScore(), and runtime output Ada-score:8:15:gold. Slice 8 adds executable replacement coverage for the old property-override-virtual fixture: TSTS/source-analysis member dispatch facts make overriding class field declarations emit virtual/override C# properties, preserving JavaScript this.value dispatch through dotnet run with exact stdout derived. Abstract class/member source spelling is now closed as deterministic hard reject under declaration.class.abstract. This strengthens broad class evidence without marking the broad row complete because property completeness and full old fixture closure remain open.",
   }),
   "declaration.class.constructor": Object.freeze({
     positiveTests: Object.freeze([
@@ -7684,20 +7685,21 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# property emission uses generated accessors and shape adapter properties from finalized facts, with unsupported property forms diagnosed before artifact output.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "declaration.class.properties remains partial until property marker/accessor variants beyond fact-backed getter override dispatch and old property fixture coverage have current positive and negative CLI/toolchain proof.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/property-override-virtual/",
     ]),
     notes:
-      "Reviewed partial proof: the declaration runtime CLI test emits Entity.title as a C# virtual property getter and ScoreCard.title as a C# override property getter from generic project-source member dispatch facts, then consumes card.title through a Receipt object-shape adapter whose generated C# properties are scanned for dynamic/reflection-free output and executed by dotnet run. Backend unit tests prove accessor modifiers consume finalized member dispatch facts. This proves supported accessor/property paths use finalized facts, while broader property-marker and unsupported-form closure remains open.",
+      "Reviewed proof: declaration property emission is closed for supported C# target property forms. The declaration runtime CLI test emits Entity.title as a C# virtual property getter and ScoreCard.title as a C# override property getter from generic project-source member dispatch facts, then consumes card.title through a Receipt object-shape adapter whose generated C# properties are scanned for dynamic/reflection-free output and executed by dotnet run. Backend unit tests prove accessor modifiers and class property declarations consume finalized member dispatch facts. Slice 8 executable proof replaces the old property-override-virtual fixture by emitting overriding TypeScript class field declarations as C# virtual/override auto-properties, then running the generated project to prove base-typed this.value dispatch prints the derived value. Interface/object-shape generated properties are covered by object-shape tests; explicit field<T>() markers remain target fields under source-core field/class-field capabilities rather than this property row.",
   }),
   "declaration.class.visibility": Object.freeze({
     positiveTests: Object.freeze([
