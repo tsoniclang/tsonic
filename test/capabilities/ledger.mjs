@@ -1285,7 +1285,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "C# declarations are emitted from TSTS AST plus finalized target facts; unsupported declaration syntax diagnoses before project artifacts are written.",
       notes:
-        "Reviewed Slice 6 proof: the whole-program CLI test emits Person/User inheritance, User.create static member access, Role.Admin static member access, erased type-only declarations, and a deterministic generated object-shape class. Slice 8 CLI declaration proof adds an executable Entity/ScoreCard/Rank/Receipt source graph: TSTS class constructor, field, accessor, static member, inheritance, enum, and object-literal-to-interface facts emit C# class/enum/interface/generated-shape declarations, dotnet run prints Ada-score:15:gold, and generated C# is scanned for dynamic/reflection mechanisms. Negative scenarios reject TypeScript-only abstract declarations and unsupported enum initializers before csproj creation. This strengthens declaration evidence without closing enum, type-alias, abstract class support, or class property completeness.",
+        "Reviewed Slice 6 proof: the whole-program CLI test emits Person/User inheritance, User.create static member access, Role.Admin static member access, erased type-only declarations, and a deterministic generated object-shape class. Slice 8 CLI declaration proof adds an executable Entity/ScoreCard/Rank/Receipt source graph: TSTS class constructor, field, accessor, static member, inheritance, enum, and object-literal-to-interface facts emit C# class/enum/interface/generated-shape declarations, dotnet run prints Ada-score:15:gold, and generated C# is scanned for dynamic/reflection mechanisms. Negative scenarios reject TypeScript-only abstract declarations and unsupported enum initializers before csproj creation. Abstract class and class-property breadth retain their own ledger status and are not implied by these declaration rows.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramBackendRows, {
       tstsDecision:
@@ -1314,7 +1314,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "C# project artifacts are deterministic SDK-style outputs; dotnet build/run/library proof belongs to the target toolchain layer, not generic compiler architecture.",
       notes:
-        "Reviewed Slice 6 proof: current CLI tests build/run executable projects with selected js runtime references, verify SDK project output, reject invalid target/project options, and keep library project output deterministic through project-artifact tests. NativeAOT publish remains partial because this slice does not run publish/NativeAOT proof.",
+        "Reviewed Slice 6 proof: current CLI tests build/run executable projects with selected js runtime references, verify SDK project output, reject invalid target/project options, and keep library project output deterministic through project-artifact tests. NativeAOT publish proof is tracked by toolchain.csharp.nativeaot and is not implied by these project/build/library rows.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramRuntimeRows, {
       tstsDecision:
@@ -1329,7 +1329,7 @@ function slice6WholeProgramClosureEvidence() {
       runtimeContract:
         "C# JS runtime use must be closed and deterministic; generated code and selected runtime artifacts must not use open reflection or C# dynamic as language semantics.",
       notes:
-        "Reviewed Slice 6 proof: the whole-program C# project selects js, includes Tsonic.CSharp.Js but not Tsonic.CSharp.Node, runs console.log through the selected runtime, and generated-output scans prove no runtime-reflection or dynamic semantic path is emitted. Slice 8 declaration runtime proof repeats the closed generated-output scan over declaration-heavy emitted C# before dotnet run. NodeJS runtime remains deferred and is not counted.",
+        "Reviewed Slice 6 proof: the whole-program C# project selects js, includes Tsonic.CSharp.Js but not Tsonic.CSharp.Node, runs console.log through the selected runtime, and generated-output scans prove no runtime-reflection or dynamic semantic path is emitted. Slice 8 declaration runtime proof repeats the closed generated-output scan over declaration-heavy emitted C# before dotnet run. NodeJS runtime coverage is tracked by runtime.csharp.nodejs and is not counted here.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramDiagnosticRows, {
       sourceExamples: Object.freeze([
@@ -1349,7 +1349,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "Required missing facts, unsupported surfaces, unsupported target operations, and backend diagnostics stop artifact and toolchain output with deterministic evidence.",
       notes:
-        "Reviewed Slice 6 proof: surface-composition diagnostics preserve evidence strings through host/backend handoff and suppress toolchain execution; whole-program negatives reject unsupported declaration and enum shapes before C# artifacts; target-config and provider tests cover missing provider/target/surface facts without file fallback. Precise source-span completeness remains partial and unsupported selected surface operations remain partial because NodeJS is deferred.",
+        "Reviewed Slice 6 proof: surface-composition diagnostics preserve evidence strings through host/backend handoff and suppress toolchain execution; whole-program negatives reject unsupported declaration and enum shapes before C# artifacts; target-config and provider tests cover missing provider/target/surface facts without file fallback. Precise source-span breadth and selected-surface unsupported-operation breadth are tracked by diagnostic.source-spans and diagnostic.unsupported-selected-surface-operation.",
     }),
   };
 }
@@ -7729,10 +7729,16 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed proof: standard JavaScript static blocks plan to Roslyn-compatible static C# constructors with deterministic statement order and dotnet-build proof; unsupported TypeScript-only class modifier paths remain diagnostics.",
   }),
   "declaration.class.inheritance": Object.freeze({
-    positiveTests: Object.freeze([]),
+    positiveTests: Object.freeze([
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/classes-value-types.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+    ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
-      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/ConcreteExtends.ts",
@@ -7740,11 +7746,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/InheritanceChain.ts",
       "packages/targets/csharp/emitter/testcases/common/classes/inheritance/Inheritance.ts",
     ]),
-    blockers: Object.freeze([
-      "declaration.class.inheritance remains partial until source class heritage clauses build cleanly through the current CLI path without CSHARP_UNSUPPORTED_AST diagnostics and the old inheritance fixtures are proven by focused current tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: class heritage is represented in the ledger and old inventory, but current focused validation still exposes unsupported heritage diagnostics in the CLI path. This row stays partial until the provider/backend path emits heritage from finalized facts end to end.",
+      "Reviewed proof: class heritage clauses emit from TSTS declaration/heritage facts through generated C# AST, including non-generic, generic, and multi-level inheritance, super constructor calls, super method calls, and source class type-argument substitution. TypeScript-only abstract/visibility modifiers remain deterministic diagnostics under their own rows and do not create fallback inheritance emission.",
   }),
   "declaration.heritage": Object.freeze({
     positiveTests: Object.freeze([]),

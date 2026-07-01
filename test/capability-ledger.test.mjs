@@ -69,6 +69,21 @@ test("capability ledger has valid machine-readable entries", () => {
   }
 });
 
+test("complete capability notes do not carry partial-status wording", () => {
+  const partialStatusPattern = /remains partial|partial until|still partial/iu;
+
+  for (const entry of capabilityLedger) {
+    if (entry.status !== "complete") {
+      continue;
+    }
+
+    assert.doesNotMatch(entry.notes, partialStatusPattern, `${entry.capabilityId} complete notes describe partial status`);
+    for (const blocker of entry.blockers) {
+      assert.doesNotMatch(blocker, partialStatusPattern, `${entry.capabilityId} complete blocker describes partial status`);
+    }
+  }
+});
+
 test("incomplete and blocked capabilities have ledger-enforced lane classification", () => {
   for (const entry of capabilityLedger) {
     if (entry.status === "complete" || entry.status === "invalid") {
