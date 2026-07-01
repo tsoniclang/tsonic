@@ -248,33 +248,36 @@ export function hasParameterlessConstruction(ast: AstReader, classDeclaration: N
 const modifierFlagsPrivate = 1 << 1;
 const modifierFlagsStatic = 1 << 8;
 
-export function getProjectSourceMethodDispatch(
+export function getProjectSourceMemberDispatch(
   ast: AstReader,
   checker: TypeCheckerQueries,
   types: TypeShapeQueries,
   node: Node | undefined,
   options: { readonly sourceFile: SourceFile },
   sourceFiles: readonly SourceFile[],
-): ReturnType<TargetSourceAnalysisQueries["getProjectSourceMethodDispatch"]> {
-  if (node === undefined || !ast.is.IsMethodDeclaration(node) || !isProjectSourceDispatchMethod(ast, node, sourceFiles)) {
+): ReturnType<TargetSourceAnalysisQueries["getProjectSourceMemberDispatch"]> {
+  if (node === undefined || !isProjectSourceDispatchMember(ast, node, sourceFiles)) {
     return undefined;
   }
   const classDeclaration = ast.parent(node);
   if (classDeclaration === undefined || !ast.is.IsClassDeclaration(classDeclaration)) {
     return undefined;
   }
-  const methodName = ast.text(ast.name(node));
-  if (methodName.length === 0) {
+  const memberName = ast.text(ast.name(node));
+  if (memberName.length === 0) {
     return { overridesBase: false, hasDerivedOverride: false };
   }
   return {
-    overridesBase: methodOverridesBaseProjectSourceMethod(ast, checker, types, classDeclaration, methodName, options, sourceFiles),
-    hasDerivedOverride: projectSourceMethodHasDerivedOverride(ast, checker, types, classDeclaration, methodName, options, sourceFiles),
+    overridesBase: memberOverridesBaseProjectSourceMember(ast, checker, types, classDeclaration, memberName, options, sourceFiles),
+    hasDerivedOverride: projectSourceMemberHasDerivedOverride(ast, checker, types, classDeclaration, memberName, options, sourceFiles),
   };
 }
 
-function isProjectSourceDispatchMethod(ast: AstReader, node: Node, sourceFiles: readonly SourceFile[]): boolean {
+function isProjectSourceDispatchMember(ast: AstReader, node: Node, sourceFiles: readonly SourceFile[]): boolean {
   if (!isProjectSourceDeclaration(ast, node, sourceFiles)) {
+    return false;
+  }
+  if (!isProjectSourceDispatchMemberKind(ast, node)) {
     return false;
   }
   if ((ast.modifierFlags(node) & (modifierFlagsPrivate | modifierFlagsStatic)) !== 0) {
@@ -284,12 +287,19 @@ function isProjectSourceDispatchMethod(ast: AstReader, node: Node, sourceFiles: 
   return !ast.is.IsPrivateIdentifier(name);
 }
 
-function methodOverridesBaseProjectSourceMethod(
+function isProjectSourceDispatchMemberKind(ast: AstReader, node: Node): boolean {
+  return ast.is.IsMethodDeclaration(node) ||
+    ast.is.IsGetAccessorDeclaration(node) ||
+    ast.is.IsSetAccessorDeclaration(node) ||
+    ast.is.IsPropertyDeclaration(node);
+}
+
+function memberOverridesBaseProjectSourceMember(
   ast: AstReader,
   checker: TypeCheckerQueries,
   types: TypeShapeQueries,
   classDeclaration: Node,
-  methodName: string,
+  memberName: string,
   options: { readonly sourceFile: SourceFile },
   sourceFiles: readonly SourceFile[],
 ): boolean {
@@ -297,19 +307,38 @@ function methodOverridesBaseProjectSourceMethod(
   if (baseType === undefined) {
     return false;
   }
-  const baseSymbol = checker.getPropertyOfType(baseType, methodName, options);
+  const baseSymbol = checker.getPropertyOfType(baseType, memberName, options);
   const baseDeclaration = getPrimaryDeclaration(checker, baseSymbol);
-  return baseDeclaration !== undefined &&
-    ast.is.IsMethodDeclaration(baseDeclaration) &&
-    isProjectSourceDispatchMethod(ast, baseDeclaration, sourceFiles);
+  return (baseDeclaration !== undefined &&
+    isProjectSourceDispatchMember(ast, baseDeclaration, sourceFiles)) ||
+    projectSourceBaseClassHasDispatchMember(ast, checker, types, classDeclaration, memberName, options, sourceFiles);
 }
 
-function projectSourceMethodHasDerivedOverride(
+function projectSourceBaseClassHasDispatchMember(
   ast: AstReader,
   checker: TypeCheckerQueries,
   types: TypeShapeQueries,
   classDeclaration: Node,
-  methodName: string,
+  memberName: string,
+  options: { readonly sourceFile: SourceFile },
+  sourceFiles: readonly SourceFile[],
+): boolean {
+  const baseClass = getProjectSourceBaseClassDeclaration(ast, checker, types, classDeclaration, options, sourceFiles);
+  if (baseClass === undefined) {
+    return false;
+  }
+  return ast.members(baseClass).some((member) =>
+    member !== undefined &&
+    ast.text(ast.name(member)) === memberName &&
+    isProjectSourceDispatchMember(ast, member, sourceFiles));
+}
+
+function projectSourceMemberHasDerivedOverride(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  types: TypeShapeQueries,
+  classDeclaration: Node,
+  memberName: string,
   options: { readonly sourceFile: SourceFile },
   sourceFiles: readonly SourceFile[],
 ): boolean {
@@ -317,17 +346,16 @@ function projectSourceMethodHasDerivedOverride(
     if (candidate === classDeclaration) {
       continue;
     }
-    const candidateMethod = ast.members(candidate).find((member) =>
+    const candidateMember = ast.members(candidate).find((member) =>
       member !== undefined &&
-      ast.is.IsMethodDeclaration(member) &&
-      ast.text(ast.name(member)) === methodName &&
-      isProjectSourceDispatchMethod(ast, member, sourceFiles));
-    if (candidateMethod === undefined) {
+      ast.text(ast.name(member)) === memberName &&
+      isProjectSourceDispatchMember(ast, member, sourceFiles));
+    if (candidateMember === undefined) {
       continue;
     }
     const candidateFile = ast.getSourceFile(candidate) ?? options.sourceFile;
     if (projectSourceClassExtends(ast, checker, types, candidate, classDeclaration, { sourceFile: candidateFile }, sourceFiles) &&
-      methodOverridesBaseProjectSourceMethod(ast, checker, types, candidate, methodName, { sourceFile: candidateFile }, sourceFiles)) {
+      memberOverridesBaseProjectSourceMember(ast, checker, types, candidate, memberName, { sourceFile: candidateFile }, sourceFiles)) {
       return true;
     }
   }

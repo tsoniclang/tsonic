@@ -1285,7 +1285,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "C# declarations are emitted from TSTS AST plus finalized target facts; unsupported declaration syntax diagnoses before project artifacts are written.",
       notes:
-        "Reviewed Slice 6 proof: the whole-program CLI test emits Person/User inheritance, User.create static member access, Role.Admin static member access, erased type-only declarations, and a deterministic generated object-shape class. Slice 8 CLI declaration proof adds an executable Entity/ScoreCard/Rank/Receipt source graph: TSTS class constructor, field, accessor, static member, inheritance, enum, and object-literal-to-interface facts emit C# class/enum/interface/generated-shape declarations, dotnet run prints Ada-score:15:gold, and generated C# is scanned for dynamic/reflection mechanisms. Negative scenarios reject TypeScript-only abstract declarations and unsupported enum initializers before csproj creation. Abstract class and class-property breadth retain their own ledger status and are not implied by these declaration rows.",
+        "Reviewed Slice 6 proof: the whole-program CLI test emits Person/User inheritance, User.create static member access, Role.Admin static member access, erased type-only declarations, and a deterministic generated object-shape class. Slice 8 CLI declaration proof adds an executable Entity/ScoreCard/Rank/Receipt source graph: TSTS class constructor, field, virtual/override accessor, static member, inheritance, enum, and object-literal-to-interface facts emit C# class/enum/interface/generated-shape declarations, dotnet run prints Ada-score:8:15:gold, and generated C# is scanned for dynamic/reflection mechanisms. Negative scenarios reject TypeScript-only abstract declarations and unsupported enum initializers before csproj creation. Abstract class and class-property breadth retain their own ledger status and are not implied by these declaration rows.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramBackendRows, {
       tstsDecision:
@@ -7598,7 +7598,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "declaration.class remains partial because declaration.class.properties and declaration.class.abstract are still partial and the old class fixture matrix is not fully closed by current focused CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: current CLI evidence now includes an executable Entity/ScoreCard source graph where TSTS-selected class facts emit C# Entity and ScoreCard : Entity declarations, constructor chaining, static create/bonus/suffix members, inherited accessor use, super.baseScore(), and runtime output Ada-score:15:gold. This strengthens broad class evidence without marking the broad row complete because property completeness, abstract declarations, and full old fixture closure remain open.",
+      "Reviewed partial proof: current CLI evidence now includes an executable Entity/ScoreCard source graph where TSTS-selected class facts emit C# Entity and ScoreCard : Entity declarations, constructor chaining, static create/bonus/suffix members, fact-backed virtual/override accessor dispatch, inherited accessor use, super.baseScore(), and runtime output Ada-score:8:15:gold. This strengthens broad class evidence without marking the broad row complete because property completeness, abstract declarations, and full old fixture closure remain open.",
   }),
   "declaration.class.constructor": Object.freeze({
     positiveTests: Object.freeze([
@@ -7678,10 +7678,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "declaration.class.properties remains partial until property marker/accessor variants and old property fixture coverage have current positive and negative CLI/toolchain proof.",
+      "declaration.class.properties remains partial until property marker/accessor variants beyond fact-backed getter override dispatch and old property fixture coverage have current positive and negative CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: the declaration runtime CLI test emits Entity.title as a C# property getter, then consumes card.title through a Receipt object-shape adapter whose generated C# properties are scanned for dynamic/reflection-free output and executed by dotnet run. This proves supported accessor/property paths use finalized facts, while broader property-marker and unsupported-form closure remains open.",
+      "Reviewed partial proof: the declaration runtime CLI test emits Entity.title as a C# virtual property getter and ScoreCard.title as a C# override property getter from generic project-source member dispatch facts, then consumes card.title through a Receipt object-shape adapter whose generated C# properties are scanned for dynamic/reflection-free output and executed by dotnet run. Backend unit tests prove accessor modifiers consume finalized member dispatch facts. This proves supported accessor/property paths use finalized facts, while broader property-marker and unsupported-form closure remains open.",
   }),
   "declaration.class.visibility": Object.freeze({
     positiveTests: Object.freeze([

@@ -14,7 +14,7 @@ import { asNode, asSymbol } from "./guards.js";
 import {
   getProjectSourceDeclarationForNode,
   getProjectSourceModuleDependencies,
-  getProjectSourceMethodDispatch,
+  getProjectSourceMemberDispatch,
   getProjectSourceReferenceForNode,
   hasParameterlessConstruction,
 } from "./project-source.js";
@@ -31,7 +31,7 @@ export function createTargetSourceAnalysisQueries(
   types: TypeShapeQueries,
   sourceFiles: readonly SourceFile[],
 ): TargetSourceAnalysisQueries {
-  const projectSourceMethodDispatchCache = new WeakMap<object, ReturnType<TargetSourceAnalysisQueries["getProjectSourceMethodDispatch"]> | null>();
+  const projectSourceMemberDispatchCache = new WeakMap<object, ReturnType<TargetSourceAnalysisQueries["getProjectSourceMemberDispatch"]> | null>();
   const lazy = createLazyTargetSourceAnalysis(ast, checker, sourceFiles);
   return {
     lazy,
@@ -120,17 +120,17 @@ export function createTargetSourceAnalysisQueries(
     getProjectSourceModuleDependencies(sourceFile) {
       return getProjectSourceModuleDependencies(ast, checker, sourceFile, sourceFiles);
     },
-    getProjectSourceMethodDispatch(subject, options) {
+    getProjectSourceMemberDispatch(subject, options) {
       const node = asNode(subject);
       if (node === undefined) {
         return undefined;
       }
-      const cached = projectSourceMethodDispatchCache.get(node);
+      const cached = projectSourceMemberDispatchCache.get(node);
       if (cached !== undefined) {
         return cached ?? undefined;
       }
-      const dispatch = getProjectSourceMethodDispatch(ast, checker, types, node, options, sourceFiles);
-      projectSourceMethodDispatchCache.set(node, dispatch ?? null);
+      const dispatch = getProjectSourceMemberDispatch(ast, checker, types, node, options, sourceFiles);
+      projectSourceMemberDispatchCache.set(node, dispatch ?? null);
       return dispatch;
     },
     describeTypeAtLocation(subject, options) {

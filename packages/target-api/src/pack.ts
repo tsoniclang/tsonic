@@ -124,7 +124,7 @@ export interface TargetProjectSourceModuleDependency {
   readonly kind: "import" | "export";
 }
 
-export interface TargetProjectSourceMethodDispatch {
+export interface TargetProjectSourceMemberDispatch {
   readonly overridesBase: boolean;
   readonly hasDerivedOverride: boolean;
 }
@@ -149,7 +149,7 @@ export interface TargetSourceAnalysisQueries {
   getProjectSourceDeclarationForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Node | undefined;
   getProjectSourceReferenceForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetProjectSourceReference | undefined;
   getProjectSourceModuleDependencies(sourceFile: SourceFile): readonly TargetProjectSourceModuleDependency[];
-  getProjectSourceMethodDispatch(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetProjectSourceMethodDispatch | undefined;
+  getProjectSourceMemberDispatch(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetProjectSourceMemberDispatch | undefined;
   describeTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): string | undefined;
 }
 

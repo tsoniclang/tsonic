@@ -1473,6 +1473,10 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
       "",
       "  points: number;",
       "",
+      "  get title(): string {",
+      "    return this.label + \"-score:\" + this.points;",
+      "  }",
+      "",
       "  constructor(label: string, points: number) {",
       "    super(label);",
       "    this.points = points;",
@@ -1511,7 +1515,8 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
   assert.match(modelSource, /public enum Rank[\s\S]*Silver = 2,[\s\S]*Gold = 3/);
   assert.match(modelSource, /public interface Receipt[\s\S]*string label \{ get; \}[\s\S]*double points \{ get; \}[\s\S]*Rank rank \{ get; \}/);
   assert.match(modelSource, /public class Entity[\s\S]*public static string suffix = "score";[\s\S]*public Entity\(string label\)/);
-  assert.match(modelSource, /public string title[\s\S]*get[\s\S]*return this\.label \+ "-" \+ Entity\.suffix;/);
+  assert.match(modelSource, /public virtual string title[\s\S]*get[\s\S]*return this\.label \+ "-" \+ Entity\.suffix;/);
+  assert.match(modelSource, /public override string title[\s\S]*get[\s\S]*return (?:this|\(\(Entity\)this\))\.label \+ "-score:" \+ this\.points;/);
   assert.match(modelSource, /public class ScoreCard : Entity[\s\S]*public static double bonus = 3;[\s\S]*public static ScoreCard create\(string label, double points\)/);
   assert.match(modelSource, /public ScoreCard\(string label, double points\) : base\(label\)/);
   assert.match(modelSource, /return base\.baseScore\(\) \+ this\.points \+ ScoreCard\.bonus;/);
@@ -1525,7 +1530,7 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
   assert.match(indexSource, /Tsonic\.CSharp\.Js\.console\.log\(receipt\.label \+ ":" \+ receipt\.points \+ ":" \+ rank\);/);
 
   await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);
-  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Ada-score:15:gold\n");
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Ada-score:8:15:gold\n");
 });
 
 
