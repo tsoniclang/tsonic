@@ -1280,7 +1280,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "C# declarations are emitted from TSTS AST plus finalized target facts; unsupported declaration syntax diagnoses before project artifacts are written.",
       notes:
-        "Reviewed Slice 6 proof: the whole-program CLI test emits Person/User inheritance, User.create static member access, Role.Admin static member access, erased type-only declarations, and a deterministic generated object-shape class. Negative scenarios reject TypeScript-only abstract declarations and unsupported enum initializers before csproj creation. This closes fact-backed heritage and generated-structural rows while leaving enum, type-alias, abstract class support, and class property completeness partial.",
+        "Reviewed Slice 6 proof: the whole-program CLI test emits Person/User inheritance, User.create static member access, Role.Admin static member access, erased type-only declarations, and a deterministic generated object-shape class. Slice 8 CLI declaration proof adds an executable Entity/ScoreCard/Rank/Receipt source graph: TSTS class constructor, field, accessor, static member, inheritance, enum, and object-literal-to-interface facts emit C# class/enum/interface/generated-shape declarations, dotnet run prints Ada-score:15:gold, and generated C# is scanned for dynamic/reflection mechanisms. Negative scenarios reject TypeScript-only abstract declarations and unsupported enum initializers before csproj creation. This strengthens declaration evidence without closing enum, type-alias, abstract class support, or class property completeness.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramBackendRows, {
       tstsDecision:
@@ -1295,7 +1295,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "Backend output flows through structured C# AST/project artifacts and diagnostics; semantic C# strings, runtime reflection, and fallback helper guessing are rejected by architecture tests and generated-output scans.",
       notes:
-        "Reviewed Slice 6 proof: generated source includes class, enum, static member, module initializer, object-shape, console runtime, and SDK project artifacts, then dotnet build/run proves the artifacts are consumable. The test scans generated C# for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load. Existing Roslyn/printer tests reject invalid/foreign syntax nodes and prove the printer boundary consumes structured AST rather than semantic string shortcuts.",
+        "Reviewed Slice 6 proof: generated source includes class, enum, static member, module initializer, object-shape, console runtime, and SDK project artifacts, then dotnet build/run proves the artifacts are consumable. Slice 8 declaration runtime proof adds generated class, accessor property, static member, enum, interface, and __TsonicShape_Receipt_* declarations in one non-Node executable and scans the generated C# for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load. Existing Roslyn/printer tests reject invalid/foreign syntax nodes and prove the printer boundary consumes structured AST rather than semantic string shortcuts.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramToolchainRows, {
       tstsDecision:
@@ -1324,7 +1324,7 @@ function slice6WholeProgramClosureEvidence() {
       runtimeContract:
         "C# JS runtime use must be closed and deterministic; generated code and selected runtime artifacts must not use open reflection or C# dynamic as language semantics.",
       notes:
-        "Reviewed Slice 6 proof: the whole-program C# project selects js, includes Tsonic.CSharp.Js but not Tsonic.CSharp.Node, runs console.log through the selected runtime, and generated-output scans prove no runtime-reflection or dynamic semantic path is emitted. NodeJS runtime remains deferred and is not counted.",
+        "Reviewed Slice 6 proof: the whole-program C# project selects js, includes Tsonic.CSharp.Js but not Tsonic.CSharp.Node, runs console.log through the selected runtime, and generated-output scans prove no runtime-reflection or dynamic semantic path is emitted. Slice 8 declaration runtime proof repeats the closed generated-output scan over declaration-heavy emitted C# before dotnet run. NodeJS runtime remains deferred and is not counted.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramDiagnosticRows, {
       sourceExamples: Object.freeze([
@@ -7375,8 +7375,46 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: generic type parameters render from TSTS AST plus finalized source/provider target facts for functions and classes, while provider constraint legality is proven by .NET provider constraint tests. Heritage-dependent generic forms remain tracked by declaration.heritage and are not counted here. Invalid reflected target constraints produce diagnostics before C# artifacts instead of backend generic inference.",
   }),
+  "declaration.class": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export class Entity { static suffix = \"score\"; constructor(label: string) { this.label = label; } get title(): string { return this.label + \"-\" + Entity.suffix; } }",
+      "export class ScoreCard extends Entity { static create(label: string, points: number): ScoreCard { return new ScoreCard(label, points); } finalScore(): number { return super.baseScore() + this.points + ScoreCard.bonus; } }",
+    ]),
+    tstsDecision:
+      "TSTS owns class declaration identity, constructor signatures, field/accessor members, static members, super calls, and heritage clauses; the C# backend consumes those checked facts without source-name rediscovery.",
+    providerFacts: Object.freeze([
+      "tstsClassDeclarationFact",
+      "constructorSignatureFact",
+      "classMemberCarrierFact",
+      "staticMemberFact",
+      "heritageTypeFact",
+    ]),
+    backendContract:
+      "C# class emission renders constructors, fields, accessors, static members, and extends clauses only from finalized declaration/member facts and rejects unsupported class syntax before artifact output.",
+    positiveTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/slice4-csharp-closure.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/slice4-csharp-closure.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/basic/Person.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/inheritance/Inheritance.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+    ]),
+    blockers: Object.freeze([
+      "declaration.class remains partial because declaration.class.properties and declaration.class.abstract are still partial and the old class fixture matrix is not fully closed by current focused CLI/toolchain proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: current CLI evidence now includes an executable Entity/ScoreCard source graph where TSTS-selected class facts emit C# Entity and ScoreCard : Entity declarations, constructor chaining, static create/bonus/suffix members, inherited accessor use, super.baseScore(), and runtime output Ada-score:15:gold. This strengthens broad class evidence without marking the broad row complete because property completeness, abstract declarations, and full old fixture closure remain open.",
+  }),
   "declaration.class.constructor": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/slice4-csharp-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -7387,11 +7425,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
     ]),
     notes:
-      "Reviewed proof: source class constructors and generic constructor arguments emit from TSTS class facts into C# constructors with dotnet-build proof. Heritage constructor chains remain tracked by declaration.class.inheritance and declaration.heritage; unsupported class declaration forms diagnose before output rather than creating fallback constructors.",
+      "Reviewed proof: source class constructors and generic constructor arguments emit from TSTS class facts into C# constructors with dotnet-build proof. Slice 8 declaration CLI runtime proof adds an executable ScoreCard constructor chain that emits public ScoreCard(string label, double points) : base(label) and runs through dotnet. Heritage constructor chains remain tracked by declaration.class.inheritance and declaration.heritage; unsupported class declaration forms diagnose before output rather than creating fallback constructors.",
   }),
   "declaration.class.fields": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/slice4-csharp-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -7405,11 +7444,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed proof: class fields emit from TSTS declarations and finalized target-name/carrier facts for instance, static, inferred, source-primitive, private, and value-type-backed fields. Explicit TypeScript-only modifiers and missing private target-name facts fail closed before backend name inference.",
+      "Reviewed proof: class fields emit from TSTS declarations and finalized target-name/carrier facts for instance, static, inferred, source-primitive, private, and value-type-backed fields. Slice 8 declaration CLI runtime proof covers Entity.label, ScoreCard.points, and static suffix/bonus fields in a generated executable. Explicit TypeScript-only modifiers and missing private target-name facts fail closed before backend name inference.",
   }),
   "declaration.class.methods": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/slice4-csharp-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -7423,7 +7463,37 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed proof: class methods and generic class methods emit from TSTS declaration/signature facts and generated C# AST. Inherited/overridden methods remain tracked by heritage rows; TypeScript-only method modifiers and unsupported generic method operations diagnose instead of backend semantic inference.",
+      "Reviewed proof: class methods and generic class methods emit from TSTS declaration/signature facts and generated C# AST. Slice 8 declaration CLI runtime proof executes static ScoreCard.create, instance finalScore, and super.baseScore() calls from generated C#. Inherited/overridden methods remain tracked by heritage rows; TypeScript-only method modifiers and unsupported generic method operations diagnose instead of backend semantic inference.",
+  }),
+  "declaration.class.properties": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export class Entity { get title(): string { return this.label + \"-\" + Entity.suffix; } }",
+      "const receipt: Receipt = { label: card.title, points, rank: classify(points) };",
+    ]),
+    tstsDecision:
+      "TSTS owns accessor declarations and object/interface property typing; target property emission consumes finalized member carriers rather than treating property names as reflective lookup keys.",
+    providerFacts: Object.freeze([
+      "accessorMemberFact",
+      "interfacePropertyFact",
+      "generatedShapePropertyCarrierFact",
+    ]),
+    backendContract:
+      "C# property emission uses generated accessors and shape adapter properties from finalized facts, with unsupported property forms diagnosed before artifact output.",
+    positiveTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "declaration.class.properties remains partial until property marker/accessor variants and old property fixture coverage have current positive and negative CLI/toolchain proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: the declaration runtime CLI test emits Entity.title as a C# property getter, then consumes card.title through a Receipt object-shape adapter whose generated C# properties are scanned for dynamic/reflection-free output and executed by dotnet run. This proves supported accessor/property paths use finalized facts, while broader property-marker and unsupported-form closure remains open.",
   }),
   "declaration.class.visibility": Object.freeze({
     positiveTests: Object.freeze([
@@ -7522,6 +7592,34 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: interfaces render from TSTS declaration/type facts into C# interface declarations, and object-shape adapters consume finalized interface facts. Generic/heritage interface forms remain tracked by declaration.heritage; missing object-shape/provider facts fail closed rather than treating interface property names as target members.",
+  }),
+  "declaration.enum": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export enum Rank { Silver = 2, Gold = 3 }",
+      "const rank = receipt.rank === Rank.Gold ? \"gold\" : \"silver\";",
+    ]),
+    tstsDecision:
+      "TSTS owns enum declaration identity, enum member constants, enum-typed properties, and enum equality checks; backend emission consumes those facts without synthesizing runtime enum objects.",
+    providerFacts: Object.freeze([
+      "enumDeclarationFact",
+      "enumMemberConstantFact",
+      "enumValueCarrierFact",
+    ]),
+    backendContract:
+      "C# enum declarations and enum member references emit only when TSTS evaluated integer enum constants; unsupported enum initializers diagnose before project artifact creation.",
+    positiveTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "declaration.enum remains partial until enum runtime behavior, unsupported initializer diagnostics, const/computed member coverage, and old enum evidence are fully mapped to current CLI/toolchain proof.",
+    ]),
+    notes:
+      "Reviewed partial proof: modules-declarations now has both build-only numeric enum proof and an executable Rank enum flow through a Receipt generated shape; generated C# contains public enum Rank with Silver/Gold members and enum equality against Rank.Gold, then dotnet run verifies the selected branch prints gold. String and fractional enum initializers remain fail-closed diagnostics, so the row is strengthened but not complete.",
   }),
   "statement.block-scope": Object.freeze({
     positiveTests: Object.freeze([
@@ -7747,6 +7845,36 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: C# boundary tests prove no raw semantic output node kinds and printer tests fail closed for foreign raw syntax. The broad backend capability stays partial so the complete C# child does not imply every backend/project artifact path has finished no-semantic-string proof.",
+  }),
+  "backend.generated-declarations": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export interface Receipt { label: string; points: number; rank: Rank; }",
+      "return { label: card.title, points, rank: classify(points) };",
+    ]),
+    tstsDecision:
+      "TSTS/provider object-shape facts identify when a source object literal requires a generated declaration carrier; backend output consumes that finalized shape instead of fabricating dynamic/object carriers.",
+    providerFacts: Object.freeze([
+      "generatedStructuralDeclarationFact",
+      "objectShapeMemberCarrierFact",
+      "deterministicGeneratedTypeIdentityFact",
+    ]),
+    backendContract:
+      "Generated declarations must have deterministic target names and closed properties/methods from finalized shape facts, with unsupported shape members diagnosed before emission.",
+    positiveTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "backend.generated-declarations remains partial until generated declaration naming/member coverage is proven across the full object-shape, utility-type, nested, method, spread/rest, and old fixture matrix.",
+    ]),
+    notes:
+      "Reviewed partial proof: object-shape tests cover broad generated declaration families, while the new declaration runtime CLI test proves a generated __TsonicShape_Receipt_* declaration can coexist with source class, interface, and enum declarations, scan free of dynamic/reflection, build, and run. This strengthens generated-declaration evidence without claiming full generated shape closure.",
   }),
   "backend.csharp.no-direct-semantic-string-output": Object.freeze({
     positiveTests: Object.freeze([
