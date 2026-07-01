@@ -11,6 +11,10 @@ export const capabilityEvidenceReviewStatuses = Object.freeze([
   "reviewed",
 ]);
 
+export const capabilityOldEvidenceAbsenceStatuses = Object.freeze([
+  "reviewed-none-found",
+]);
+
 export const capabilityOwners = Object.freeze([
   "tsonic-host",
   "tsts-api",
@@ -53,6 +57,7 @@ export const capabilitySurfaceEvidenceGateNames = Object.freeze([
 
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityEvidenceReviewStatusSet = new Set(capabilityEvidenceReviewStatuses);
+const capabilityOldEvidenceAbsenceStatusSet = new Set(capabilityOldEvidenceAbsenceStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
 const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
@@ -633,7 +638,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["declaration.class.inheritance", "Class inheritance emits from TSTS heritage facts", "complete", "tsts-api"],
   ["declaration.class.abstract", "Abstract classes and members emit target abstract declarations", "partial", "target-provider"],
   ["declaration.interface", "Interfaces render from TSTS and target facts", "complete", "csharp-backend"],
-  ["declaration.enum", "Enums and enum constants render from TSTS facts", "partial", "csharp-backend"],
+  ["declaration.enum", "Enums and enum constants render from TSTS facts", "complete", "csharp-backend"],
   ["declaration.type-alias", "Type aliases erase or emit by target facts", "complete", "target-provider"],
   ["declaration.generic-parameters", "Generic params and constraints emit from TSTS and provider facts", "complete", "target-provider"],
   ["declaration.heritage", "extends and implements emit from TSTS plus target facts", "complete", "tsts-api"],
@@ -7798,11 +7803,23 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/whole-program-csharp-closure.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "declaration.enum remains partial only because complete ledger rows require reviewed historical old evidence, and the old fixture/emitter/product inventories currently contain no source enum case to map.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old fixture and old C# emitter inventories contain no source enum declaration fixture",
+        "old product unit enum references are implementation traversal helpers, not source enum behavior tests",
+      ]),
+      reviewerNotes:
+        "No historical old-suite source enum behavior entry exists to map bidirectionally. Current CLI/toolchain tests are the source of proof for this capability.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: modules-declarations verifies numeric enum declaration/member emission, computed integer member expressions such as Right = Left << 1, and executable C# runtime behavior through dotnet run printing right. Cross-module Rank enum flow remains covered by the whole-program generated-shape proof. String and fractional enum initializers fail closed with CSHARP_UNSUPPORTED_AST before artifact creation because no finalized target enum-carrier facts exist. Const enums fail closed through the generic TypeScript-only runtime-shape modifier diagnostic. No old enum inventory entries were discovered, so oldEvidence is intentionally empty and the row is not overclaimed as complete.",
+      "Reviewed proof: modules-declarations verifies numeric enum declaration/member emission, computed integer member expressions such as Right = Left << 1, and executable C# runtime behavior through dotnet run printing right. Cross-module Rank enum flow is covered by whole-program generated-shape proof. String and fractional enum initializers fail closed with CSHARP_UNSUPPORTED_AST before artifact creation because no finalized target enum-carrier facts exist. Const enums fail closed through the generic TypeScript-only runtime-shape modifier diagnostic. The reviewed old inventory absence record documents that no historical source enum behavior entry exists to map.",
   }),
   "statement.block-scope": Object.freeze({
     positiveTests: Object.freeze([
@@ -9544,6 +9561,15 @@ function freezeSurfaceEvidence(surfaceEvidence) {
   ));
 }
 
+function freezeOldEvidenceAbsence(absence) {
+  return Object.freeze({
+    status: absence.status,
+    reviewedInventories: Object.freeze([...(absence.reviewedInventories ?? [])]),
+    searchEvidence: Object.freeze([...(absence.searchEvidence ?? [])]),
+    reviewerNotes: absence.reviewerNotes,
+  });
+}
+
 function capability([capabilityId, title, status, owner]) {
   const defaults = capabilityDefaults(capabilityId, owner);
   const reviewedEvidence = reviewedCapabilityEvidence[capabilityId];
@@ -9564,6 +9590,9 @@ function capability([capabilityId, title, status, owner]) {
     positiveTests: Object.freeze(reviewedEvidence?.positiveTests ?? []),
     negativeTests: Object.freeze(reviewedEvidence?.negativeTests ?? []),
     oldEvidence: Object.freeze(reviewedEvidence?.oldEvidence ?? []),
+    ...(reviewedEvidence?.oldEvidenceAbsence === undefined ? {} : {
+      oldEvidenceAbsence: freezeOldEvidenceAbsence(reviewedEvidence.oldEvidenceAbsence),
+    }),
     laneClassification,
     ...(reviewedEvidence?.coreIntrinsic === undefined ? {} : {
       coreIntrinsic: freezeCoreIntrinsicContract(reviewedEvidence.coreIntrinsic),
@@ -9724,6 +9753,7 @@ export function validateCapabilityLedgerEntry(entry) {
   validateStringArrayField(errors, entry, "positiveTests");
   validateStringArrayField(errors, entry, "negativeTests");
   validateStringArrayField(errors, entry, "oldEvidence");
+  validateOldEvidenceAbsence(errors, entry);
   validateEvidenceArrays(errors, entry);
   validateCompleteCapabilityProof(errors, entry);
   validateSurfaceEvidence(errors, entry);
@@ -9734,6 +9764,30 @@ export function validateCapabilityLedgerEntry(entry) {
   errors.push(...validateCapabilityLaneClassification(entry));
   validateMapSetLaneClassification(errors, entry);
   return errors;
+}
+
+function validateOldEvidenceAbsence(errors, entry) {
+  if (entry.oldEvidenceAbsence === undefined) {
+    return;
+  }
+
+  if (Array.isArray(entry.oldEvidence) && entry.oldEvidence.length > 0) {
+    errors.push("oldEvidenceAbsence is only valid when oldEvidence is empty");
+  }
+  if (entry.status !== "complete") {
+    errors.push("oldEvidenceAbsence is only valid for complete capabilities");
+  }
+
+  const absence = entry.oldEvidenceAbsence;
+  if (!isPlainObject(absence)) {
+    errors.push("oldEvidenceAbsence must be an object");
+    return;
+  }
+
+  validateEnumField(errors, absence, "status", capabilityOldEvidenceAbsenceStatusSet, capabilityOldEvidenceAbsenceStatuses, "oldEvidenceAbsence.status");
+  validateStringArrayField(errors, absence, "reviewedInventories", { nonEmpty: true, path: "oldEvidenceAbsence.reviewedInventories" });
+  validateStringArrayField(errors, absence, "searchEvidence", { nonEmpty: true, path: "oldEvidenceAbsence.searchEvidence" });
+  validateNestedStringField(errors, absence, "oldEvidenceAbsence.reviewerNotes");
 }
 
 function validateSurfaceEvidence(errors, entry) {
@@ -9858,8 +9912,19 @@ function validateCompleteCapabilityProof(errors, entry) {
   if (entry.evidenceReview !== "reviewed") {
     errors.push("complete capabilities must have reviewed evidence");
   }
-  if (!Array.isArray(entry.oldEvidence) || entry.oldEvidence.length === 0) {
-    errors.push("complete capabilities must have oldEvidence");
+  const hasOldEvidence = Array.isArray(entry.oldEvidence) && entry.oldEvidence.length > 0;
+  const hasReviewedOldEvidenceAbsence =
+    entry.oldEvidenceAbsence !== undefined &&
+    isPlainObject(entry.oldEvidenceAbsence) &&
+    entry.oldEvidenceAbsence.status === "reviewed-none-found" &&
+    Array.isArray(entry.oldEvidenceAbsence.reviewedInventories) &&
+    entry.oldEvidenceAbsence.reviewedInventories.length > 0 &&
+    Array.isArray(entry.oldEvidenceAbsence.searchEvidence) &&
+    entry.oldEvidenceAbsence.searchEvidence.length > 0 &&
+    typeof entry.oldEvidenceAbsence.reviewerNotes === "string" &&
+    entry.oldEvidenceAbsence.reviewerNotes.length > 0;
+  if (!hasOldEvidence && !hasReviewedOldEvidenceAbsence) {
+    errors.push("complete capabilities must have oldEvidence or reviewed oldEvidenceAbsence");
   }
 }
 
@@ -10050,9 +10115,9 @@ function validateRequiredFacts(errors, behavior, path) {
   }
 }
 
-function validateStringField(errors, entry, field) {
+function validateStringField(errors, entry, field, path = field) {
   if (typeof entry[field] !== "string" || entry[field].length === 0) {
-    errors.push(`${field} must be a non-empty string`);
+    errors.push(`${path} must be a non-empty string`);
   }
 }
 
@@ -10063,23 +10128,24 @@ function validateNestedStringField(errors, entry, path) {
   }
 }
 
-function validateEnumField(errors, entry, field, values, valueList) {
+function validateEnumField(errors, entry, field, values, valueList, path = field) {
   if (!values.has(entry[field])) {
-    errors.push(`${field} must be one of ${valueList.join(", ")}`);
+    errors.push(`${path} must be one of ${valueList.join(", ")}`);
   }
 }
 
 function validateStringArrayField(errors, entry, field, options = {}) {
+  const path = options.path ?? field;
   if (!Array.isArray(entry[field])) {
-    errors.push(`${field} must be an array`);
+    errors.push(`${path} must be an array`);
     return;
   }
   if (options.nonEmpty === true && entry[field].length === 0) {
-    errors.push(`${field} must be a non-empty array`);
+    errors.push(`${path} must be a non-empty array`);
   }
   for (const value of entry[field]) {
     if (typeof value !== "string" || value.length === 0) {
-      errors.push(`${field} must contain only non-empty strings`);
+      errors.push(`${path} must contain only non-empty strings`);
       return;
     }
   }

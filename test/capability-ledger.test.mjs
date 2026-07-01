@@ -464,7 +464,10 @@ test("complete capabilities require positive and negative proof", () => {
     assert.ok(entry.positiveTests.length > 0, `${entry.capabilityId} is complete without positive tests`);
     assert.ok(entry.negativeTests.length > 0, `${entry.capabilityId} is complete without negative tests`);
     assert.equal(entry.evidenceReview, "reviewed", `${entry.capabilityId} is complete without reviewed evidence`);
-    assert.ok(entry.oldEvidence.length > 0, `${entry.capabilityId} is complete without old inventory evidence`);
+    assert.ok(
+      entry.oldEvidence.length > 0 || entry.oldEvidenceAbsence?.status === "reviewed-none-found",
+      `${entry.capabilityId} is complete without old inventory evidence or reviewed absence`,
+    );
   }
 });
 
@@ -514,7 +517,32 @@ test("capability ledger validator rejects complete capabilities without proof", 
   );
   assert.ok(
     validateCapabilityLedgerEntry({ ...completeEntry, oldEvidence: [] })
-      .includes("complete capabilities must have oldEvidence"),
+      .includes("complete capabilities must have oldEvidence or reviewed oldEvidenceAbsence"),
+  );
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      oldEvidence: [],
+      oldEvidenceAbsence: {
+        status: "reviewed-none-found",
+        reviewedInventories: ["old fixture inventory"],
+        searchEvidence: ["reviewed inventories contain no matching old behavior entry"],
+        reviewerNotes: "Current tests are the source of proof because no historical behavior entry exists.",
+      },
+    }).filter((error) => error.includes("oldEvidence")),
+    [],
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      oldEvidence: [],
+      oldEvidenceAbsence: {
+        status: "reviewed-none-found",
+        reviewedInventories: [],
+        searchEvidence: ["reviewed inventories contain no matching old behavior entry"],
+        reviewerNotes: "Current tests are the source of proof because no historical behavior entry exists.",
+      },
+    }).includes("oldEvidenceAbsence.reviewedInventories must be a non-empty array"),
   );
 });
 
