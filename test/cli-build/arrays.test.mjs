@@ -260,6 +260,54 @@ test("CLI emits module-scope array spread constants from finalized expected arra
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI runs tuple spread into arrays from finalized tuple carrier facts", async () => {
+  const assemblyName = "SmokeGeneratedTupleArraySpread";
+  const projectDirectory = resolve(tempRoot, "arrays-tuple-spread");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "function compose(pair: [int32, int32]): int32[] {",
+      "  return [1, ...pair, 4];",
+      "}",
+      "",
+      "function summarize(values: int32[]): string {",
+      "  return `${values.length}:${values[0]}:${values[1]}:${values[2]}:${values[3]}`;",
+      "}",
+      "",
+      "Console.writeLine(summarize(compose([2, 3])));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.concat\(new int\[\] \{ 1 \}, new int\[\] \{ pair\.Item1, pair\.Item2 \}, new int\[\] \{ 4 \}\)/);
+  assert.match(generatedSource, /public static string summarize\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "4:1:2:3:4\n");
+});
+
 test("CLI rejects untyped empty array returns with a target diagnostic", async () => {
   const projectDirectory = resolve(tempRoot, "arrays-empty-return-requires-element-evidence");
   await writeProject(projectDirectory, {
