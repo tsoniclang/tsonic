@@ -3952,7 +3952,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.spread.array remains partial until spread over readonly, tuple, provider-native arrays, iterable providers, sparse/full-JS arrays, nested spreads, and unsupported spread operands have complete current proof.",
     ]),
     notes:
-      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current backend and CLI proof renders spread only from finalized expected array/carrier facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, and fails closed before partial array creation when spread operand carrier facts are missing. It does not revive old expected-type-threading logic inside Tsonic.",
+      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current backend and CLI proof renders spread only from finalized expected array/carrier facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, executes fixed/default/rest/nested array destructuring fixtures, and fails closed before partial array creation when spread operand carrier facts are missing or when finalized carrier element facts mismatch. It does not revive old expected-type-threading logic inside Tsonic.",
   }),
   "operation.spread.object": Object.freeze({
     positiveTests: Object.freeze([
@@ -5624,7 +5624,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.buffer-crypto-os remains partial until the full Buffer/crypto/os old fixture matrix has CLI/toolchain/runtime proof and every unsupported member fails closed with precise selected-provider diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer instance length/toString/copy/write/compare, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. This capability remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
+      "Reviewed partial proof: selected NodeJS provider package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer instance length/toString/copy/write/compare/includes/indexOf/lastIndexOf/readUInt8/writeUInt8, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. This capability remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage, numeric conversion facts for byte-oriented Buffer APIs are proven end-to-end, and unsupported members fail closed with precise diagnostics.",
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
@@ -5715,7 +5715,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process mappings through that reference, closed fs Buffer descriptor/file helpers, crypto Buffer/Hash/Hmac helpers, process environment helpers, and URL base-overload helpers are available as runtime-owned APIs, and a generated JS+Node executable runs node:path.join through the C# Node runtime. Remains partial until executable tests cover the old Node fixture matrix and all unsupported Node module members fail closed.",
+      "Reviewed partial proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process mappings through that reference, closed fs Buffer descriptor/file helpers, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8 helpers, crypto Buffer/Hash/Hmac helpers, process environment helpers, and URL base-overload helpers are available as runtime-owned APIs, and a generated JS+Node executable runs node:path.join through the C# Node runtime. Remains partial until executable tests cover the old Node fixture matrix, byte conversion facts are proven for Buffer write APIs, and all unsupported Node module members fail closed.",
   }),
   "runtime.no-reflection-semantics": Object.freeze({
     positiveTests: Object.freeze([
@@ -6182,6 +6182,72 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result; mismatched or missing facts fail closed; async function declarations consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls and higher-order async delegate carriers through dotnet build/run.",
   }),
+  "function.this-binding": Object.freeze({
+    sourceExamples: Object.freeze([
+      "class Counter { value = 7; read(): number { const read = (): number => this.value; return read(); } }",
+      "class Counter { static value = 7; static read(): number { return this.value; } }",
+    ]),
+    tstsDecision:
+      "TSTS owns source validity and lexical this binding for checked TypeScript; the C# backend may emit this only after the selected source context is an instance class receiver and the receiver expression has finalized runtime carrier facts.",
+    providerFacts: Object.freeze([
+      "tsts-selected-this-expression",
+      "instance-class-receiver-context",
+      "runtimeCarrierFact for receiver",
+    ]),
+    backendContract:
+      "C# emits a ThisExpression/this identifier only from a finalized instance receiver carrier. Static members, object-literal methods, dynamic functions, class field initializers, and top-level module receivers fail closed before artifact emission instead of falling back to JavaScript this semantics.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    blockers: Object.freeze([
+      "function.this-binding remains partial until object-method this, class-field this, static this, top-level/function this, lexical-arrow this, and old this-binding fixtures are all covered by current CLI/runtime or explicit diagnostics.",
+    ]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "this-binding",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-this-expression",
+          "instance-class-receiver-context",
+          "receiver-runtime-carrier",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-receiver-carrier",
+          "non-instance-class-this-context",
+          "unsupported-javascript-this-binding",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-this-expression",
+          "instance-class-receiver-context",
+          "receiver-runtime-carrier",
+        ]),
+        operation: "emit-this-target-ast",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-receiver-carrier",
+          "static-member-this",
+          "object-literal-method-this",
+          "dynamic-function-this",
+          "class-field-initializer-this",
+          "top-level-this",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed partial proof: backend unit tests require finalized receiver carrier facts before emitting this, accept lexical arrows only when they close over an instance class receiver, and reject static, object-literal, dynamic function, class-field initializer, and top-level this contexts with deterministic diagnostics. CLI/toolchain tests prove instance plus lexical this emits C# this through target AST and dotnet-builds, while static this rejects before generated artifacts. This row stays partial until the full old this-binding fixture set is recovered or explicitly classified.",
+  }),
   "function.async": Object.freeze({
     sourceExamples: Object.freeze([
       "export async function load(): Promise<string> { return \"ready\"; }",
@@ -6335,7 +6401,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.destructure.array-object remains partial until expression-position destructuring assignment result semantics, object rest/default parity, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
     ]),
     notes:
-      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, and statement assignment binding patterns consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; expression-position destructuring assignment remains a deliberate fail-closed case until result-value facts exist.",
+      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, and statement assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, and object-shape extraction facts; missing and mismatched facts produce diagnostics; CLI/runtime proof executes fixed/default/rest/nested array destructuring and object-shape destructuring assignment. Expression-position destructuring assignment remains a deliberate fail-closed case until result-value facts exist.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -6634,7 +6700,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.parameter remains partial until every array/object/rest/default/nested parameter destructuring form is covered by current CLI/toolchain tests.",
     ]),
     notes:
-      "Reviewed partial proof: parameter destructuring queries facts on the owning parameter declaration, allocates deterministic synthetic parameters for destructured parameters, and emits array fixed/rest/default and object/nested object extraction prelude only from finalized carrier/object-shape facts; missing nested object-shape facts fail closed.",
+      "Reviewed partial proof: parameter destructuring queries facts on the owning parameter declaration, allocates deterministic synthetic parameters for destructured parameters, and emits array fixed/rest/default, IReadOnlyList, JSArray, object, nested object, and object-rest extraction prelude only from finalized carrier/object-shape facts; missing nested object-shape facts fail closed.",
   }),
   "binding.assignment": Object.freeze({
     positiveTests: Object.freeze([
@@ -6664,7 +6730,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.object.rename-rest-default remains partial until object defaults have finalized undefined/default facts, compat TsObject extraction is classified, and old object destructuring fixtures are recovered or explicitly replaced.",
     ]),
     notes:
-      "Reviewed partial proof: object rename and rest destructuring emit only from finalized source/rest object-shape facts; rest facts that retain extracted members are rejected; object defaults fail closed until undefined/default-value facts exist.",
+      "Reviewed partial proof: object rename and rest destructuring emit only from finalized source/rest object-shape facts and execute through CLI/runtime proof; rest facts that retain extracted members or disagree on retained member carriers are rejected; object defaults fail closed until undefined/default-value facts exist.",
   }),
   "binding.object-shape": Object.freeze({
     positiveTests: Object.freeze([
@@ -6682,7 +6748,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.object-shape remains partial until object-shape binding has full parameter, variable, assignment, default, rest, nested, provider-native, compat TsObject, and old-suite proof.",
     ]),
     notes:
-      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy; missing source/target shape facts, mismatched rest shape members, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
+      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring; missing source/target shape facts, mismatched rest shape members, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
   }),
   "carrier.object-shape": Object.freeze({
     positiveTests: Object.freeze([

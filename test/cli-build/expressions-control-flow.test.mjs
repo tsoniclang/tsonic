@@ -786,6 +786,88 @@ test("CLI emits async functions and lambdas from TSTS Promise carriers", async (
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
+test("CLI emits instance and lexical this only from finalized receiver facts", async () => {
+  const projectDirectory = resolve(tempRoot, "instance-lexical-this-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedThisFacts",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Counter {",
+      "  value: number = 7;",
+      "  read(): number {",
+      "    const read = (): number => this.value;",
+      "    return read();",
+      "  }",
+      "}",
+      "",
+      "export function run(): number {",
+      "  const counter = new Counter();",
+      "  return counter.read();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public class Counter/);
+  assert.match(generatedSource, /public double value = 7;/);
+  assert.match(generatedSource, /Func<double> read = \(\) => this\.value;/);
+  assert.match(generatedSource, /return read\(\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedThisFacts.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects static this before C# emission instead of guessing receiver semantics", async () => {
+  const projectDirectory = resolve(tempRoot, "static-this-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStaticThisRejected",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Counter {",
+      "  static value: number = 7;",
+      "  static read(): number {",
+      "    return this.value;",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stderr, /C# this emission requires a TSTS-selected instance class receiver/);
+  assert.match(build.stderr, /static class member receiver/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+});
+
 
 test("CLI emits array literals from finalized runtime carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "array-literal-runtime-carriers");

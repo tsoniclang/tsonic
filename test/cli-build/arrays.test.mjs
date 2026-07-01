@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI emits typed, empty, nested, and spread array literals from finalized array facts", async () => {
   const projectDirectory = resolve(tempRoot, "arrays-typed-literals");
@@ -93,6 +93,73 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysTypedLiterals.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI runs array fixed default rest and nested destructuring from finalized carrier facts", async () => {
+  const assemblyName = "SmokeGeneratedArrayBindingFacts";
+  const projectDirectory = resolve(tempRoot, "arrays-binding-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "function fixed(values: int32[]): int32 {",
+      "  const [first, second] = values;",
+      "  return first + second;",
+      "}",
+      "",
+      "function defaults(values: int32[]): int32 {",
+      "  const [first = 10, second = 20] = values;",
+      "  return first + second;",
+      "}",
+      "",
+      "function rest(values: int32[]): int32 {",
+      "  const [first, ...tail] = values;",
+      "  return first;",
+      "}",
+      "",
+      "function nested(values: int32[][]): int32 {",
+      "  const [[first], [, second]] = values;",
+      "  return first + second;",
+      "}",
+      "",
+      "const fixedInput: int32[] = [1, 2];",
+      "const defaultInput: int32[] = [];",
+      "const restInput: int32[] = [4, 5, 6];",
+      "const nestedInput: int32[][] = [[7], [0, 8]];",
+      "Console.writeLine(`${fixed(fixedInput)}|${defaults(defaultInput)}|${rest(restInput)}|${nested(nestedInput)}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /int first = __tsonic_destructure\d+\[0\];/);
+  assert.match(generatedSource, /int second = __tsonic_destructure\d+\[1\];/);
+  assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.Count > 0 \? \1\[0\] : 10;/);
+  assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.Count > 1 \? \1\[1\] : 20;/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.List<int> tail = Tsonic\.CSharp\.Js\.Array\.slice\(__tsonic_destructure\d+, 1\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "3|30|4|15\n");
 });
 
 test("CLI emits module-scope array spread constants from finalized expected array facts", async () => {

@@ -620,6 +620,7 @@ test("CLI rejects object literals contextualized as unknown before C# carrier em
 
 test("CLI emits object rest destructuring from finalized TSTS rest binding shape", async () => {
   const projectDirectory = resolve(tempRoot, "object-rest-destructuring");
+  const assemblyName = "SmokeGeneratedObjectRestDestructuring";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -630,16 +631,22 @@ test("CLI emits object rest destructuring from finalized TSTS rest binding shape
           id: "csharp",
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedObjectRestDestructuring",
+            assemblyName,
+            outputType: "Exe",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
       "export function restLabel(input: { value: number; label: string; active: boolean }): string {",
       "  const { value, ...rest } = input;",
-      "  return rest.label;",
+      "  const activeLabel = rest.active ? \"yes\" : \"no\";",
+      "  return `${value}:${rest.label}:${activeLabel}`;",
       "}",
+      "",
+      "Console.writeLine(restLabel({ value: 7, label: \"ok\", active: true }));",
       "",
     ].join("\n"),
   });
@@ -649,11 +656,13 @@ test("CLI emits object rest destructuring from finalized TSTS rest binding shape
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = __tsonic_destructure\d+\.label,\s*active = __tsonic_destructure\d+\.active,\s*\};/);
-  assert.match(generatedSource, /return rest\.label;/);
+  assert.match(generatedSource, /string activeLabel = rest\.active \? "yes" : "no";/);
+  assert.match(generatedSource, /return \$"\{value\}:\{rest\.label\}:\{activeLabel\}";/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectRestDestructuring.csproj"), "--nologo", "--v:minimal"]);
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "7:ok:yes\n");
 });
 
 
